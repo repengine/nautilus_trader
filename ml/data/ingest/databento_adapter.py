@@ -132,4 +132,28 @@ class DatabentoAPIClient(DatabentoLikeClient):
             if "trade_count" not in df.columns:
                 # Each row represents one trade if not provided
                 df["trade_count"] = 1
+        if "ts_event" in df.columns:
+            event_series = df["ts_event"]
+            if not pd.api.types.is_integer_dtype(event_series):
+                converted = pd.to_datetime(event_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted) and converted.notna().all():
+                    df["ts_event"] = converted.astype("int64")
+                else:
+                    try:
+                        df["ts_event"] = pd.to_numeric(event_series, errors="raise").astype("int64")
+                    except Exception:
+                        pass
+        if "ts_init" in df.columns:
+            init_series = df["ts_init"]
+            if not pd.api.types.is_integer_dtype(init_series):
+                converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
+                    df["ts_init"] = converted_init.astype("int64")
+                else:
+                    try:
+                        df["ts_init"] = pd.to_numeric(init_series, errors="raise").astype("int64")
+                    except Exception:
+                        pass
+        elif "ts_event" in df.columns:
+            df["ts_init"] = df["ts_event"]
         return df

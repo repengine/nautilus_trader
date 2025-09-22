@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir \
     msgspec \
     prometheus-client \
     databento \
-    scikit-learn
+    scikit-learn \
+    rich
 
 # Create necessary directories
 RUN mkdir -p /app/data/catalog /app/models /app/logs /app/configs

@@ -12,9 +12,13 @@ These helpers compose existing registries and the centralized event emitter.
 They avoid expanding orchestrator complexity and keep all work off hot paths.
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, cast
+
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_nautilus_numeric_factories() -> None:
@@ -56,10 +60,16 @@ from ml.common.event_emitter import emit_dataset_event
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.data import DatasetMetadata
+from ml.data import DatasetMetadataExpectations
+from ml.data import load_dataset_metadata
+from ml.data import validate_dataset_metadata_expectations
+from ml.data.vintage import VintagePolicy
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import QualityGate
+from ml.registry.protocols import RegistryProtocol
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -80,6 +90,85 @@ def _ensure_parent_dir(path: Path) -> None:
             exc_info=True,
         )
 
+
+def _resolve_dataset_metadata_path(cfg: Stage2Config) -> Path:
+    if cfg.dataset_metadata_path:
+        return Path(cfg.dataset_metadata_path)
+    return Path(cfg.dataset_csv).with_name("dataset_metadata.json")
+
+
+def _load_stage2_metadata(cfg: Stage2Config) -> DatasetMetadata:
+    metadata_path = _resolve_dataset_metadata_path(cfg)
+    if not metadata_path.exists():
+        logger.debug("Stage2 metadata not found at %s; proceeding without guard", metadata_path)
+        return DatasetMetadata(
+            dataset_id=cfg.expected_dataset_id,
+            vintage_policy=cfg.expected_vintage_policy or VintagePolicy.REAL_TIME,
+            vintage_cutoff=cfg.expected_vintage_cutoff,
+            build_ts="",
+            ts_event_start=None,
+            ts_event_end=None,
+            overall_window=None,
+            train_window=None,
+            validation_window=None,
+            test_window=None,
+            macro_observation_counts={},
+        )
+
+    metadata = load_dataset_metadata(metadata_path)
+    expectations = DatasetMetadataExpectations(
+        dataset_id=cfg.expected_dataset_id,
+        vintage_policy=cfg.expected_vintage_policy,
+        vintage_cutoff=cfg.expected_vintage_cutoff,
+    )
+    validate_dataset_metadata_expectations(
+        metadata,
+        expectations,
+        context="promotion.stage2",
+    )
+    return metadata
+
+
+def _validate_metadata_against_manifest(metadata: DatasetMetadata) -> None:
+    dataset_id = metadata.dataset_id
+    if not dataset_id:
+        logger.debug("Stage2 metadata missing dataset_id; skipping manifest validation")
+        return
+
+    try:
+        from ml.core.integration import MLIntegrationManager
+
+        mgr = MLIntegrationManager(
+            auto_start_postgres=False,
+            auto_migrate=False,
+            ensure_healthy=False,
+        )
+        registry = cast(RegistryProtocol | None, getattr(mgr, "data_registry", None))
+        if registry is None:
+            return
+        manifest = registry.get_manifest(dataset_id)
+    except Exception as exc:
+        logger.debug("Stage2 manifest lookup skipped: %s", exc)
+        return
+
+    manifest_meta = getattr(manifest, "metadata", {}) or {}
+    vintage_meta = manifest_meta.get("vintage", {}) if isinstance(manifest_meta, dict) else {}
+    windows_meta = manifest_meta.get("windows", {}) if isinstance(manifest_meta, dict) else {}
+
+    expected = DatasetMetadataExpectations(
+        dataset_id=dataset_id,
+        vintage_policy=VintagePolicy(vintage_meta.get("policy", metadata.vintage_policy.value))
+        if vintage_meta.get("policy")
+        else metadata.vintage_policy,
+        vintage_cutoff=vintage_meta.get("cutoff"),
+        ts_event_start=windows_meta.get("ts_event_start"),
+        ts_event_end=windows_meta.get("ts_event_end"),
+    )
+    validate_dataset_metadata_expectations(
+        metadata,
+        expected,
+        context="promotion.stage2.manifest",
+    )
 
 def register_and_promote_model(
     model_metrics_path: str,
@@ -361,6 +450,10 @@ class Stage2Config:
     gates: Sequence[QualityGate] = ()
     auto_promote: bool = False
     deploy_target: str | None = None
+    dataset_metadata_path: str | None = None
+    expected_dataset_id: str | None = None
+    expected_vintage_policy: VintagePolicy | None = None
+    expected_vintage_cutoff: str | None = None
 
 
 def _load_json_safe(path: Path) -> dict[str, object] | None:
@@ -419,6 +512,9 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
     Returns a summary dict and writes stage2_metrics.json in out_dir.
 
     """
+    metadata = _load_stage2_metadata(cfg)
+    _validate_metadata_against_manifest(metadata)
+
     # Choose engine and run
     engine = build_engine(cfg.engine_mode)
     result: Stage2Result
@@ -512,6 +608,19 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
     else:
         final_status = "passed" if ok else "failed"
 
+    metadata_summary = {
+        "dataset_id": metadata.dataset_id,
+        "vintage_policy": metadata.vintage_policy.value,
+        "vintage_cutoff": metadata.vintage_cutoff,
+        "ts_event_start": metadata.ts_event_start,
+        "ts_event_end": metadata.ts_event_end,
+        "overall_window": metadata.overall_window,
+        "train_window": metadata.train_window,
+        "validation_window": metadata.validation_window,
+        "test_window": metadata.test_window,
+        "macro_observation_counts": metadata.macro_observation_counts,
+    }
+
     summary: dict[str, object] = {
         "status": cast(object, final_status),
         "model_id": cast(object, model_id),
@@ -521,6 +630,7 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
             object,
             bool(final_status == "passed" and cfg.auto_promote and cfg.deploy_target and model_id),
         ),
+        "dataset_metadata": metadata_summary,
     }
 
     # Write promotion report consolidating gates and config
@@ -543,6 +653,7 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
                 }
                 for g in cfg.gates
             ],
+            "dataset_metadata": metadata_summary,
         }
         (Path(cfg.out_dir) / "promotion_report.json").write_text(
             _json.dumps(report, indent=2),
@@ -598,6 +709,22 @@ def dataclass_replace(cfg: Stage2Config, **updates: object) -> Stage2Config:
         gates=cast(Sequence[QualityGate], updates.get("gates", cfg.gates)),
         auto_promote=cast(bool, updates.get("auto_promote", cfg.auto_promote)),
         deploy_target=cast(str | None, updates.get("deploy_target", cfg.deploy_target)),
+        dataset_metadata_path=cast(
+            str | None,
+            updates.get("dataset_metadata_path", cfg.dataset_metadata_path),
+        ),
+        expected_dataset_id=cast(
+            str | None,
+            updates.get("expected_dataset_id", cfg.expected_dataset_id),
+        ),
+        expected_vintage_policy=cast(
+            VintagePolicy | None,
+            updates.get("expected_vintage_policy", cfg.expected_vintage_policy),
+        ),
+        expected_vintage_cutoff=cast(
+            str | None,
+            updates.get("expected_vintage_cutoff", cfg.expected_vintage_cutoff),
+        ),
     )
 
 

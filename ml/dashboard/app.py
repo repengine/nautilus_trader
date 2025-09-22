@@ -35,15 +35,18 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     if cfg.events_poll_interval_seconds > 0.0:
         svc.start_event_polling(cfg.events_poll_interval_seconds)
 
-    def _require_token() -> bool:
-        """Return True if dashboard token requirement is satisfied or disabled."""
-        import os
+    @app.teardown_appcontext
+    def _shutdown(_: object | None) -> None:  # pragma: no cover - teardown path
+        svc.stop_event_polling()
 
-        required = os.getenv("ML_DASHBOARD_TOKEN")
-        if not required:
-            return True
+    def _require_token() -> bool:
+        """Return True when dashboard authentication (if enabled) is satisfied."""
         provided = request.headers.get("X-ML-DASHBOARD-TOKEN")
-        return bool(provided and provided == required)
+        if not provided:
+            auth_header = request.headers.get("Authorization") or ""
+            if auth_header.lower().startswith("bearer "):
+                provided = auth_header[7:].strip() or None
+        return svc.validate_token(provided)
 
     @app.get("/api/health/system")
     def health_system() -> tuple[Any, int]:
@@ -220,6 +223,21 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         res = svc.provision_grafana_dashboard(title=title)
         return jsonify(res), 202 if res.get("ok") else 200
 
+    @app.get("/api/observability/status")
+    def observability_status() -> tuple[Any, int]:
+        data = svc.get_grafana_status()
+        return jsonify(data), 200
+
+    @app.get("/api/observability/summary")
+    def observability_summary() -> tuple[Any, int]:
+        data = svc.get_prometheus_summary()
+        return jsonify(data), 200
+
+    @app.get("/api/observability/stores")
+    def observability_stores() -> tuple[Any, int]:
+        data = svc.get_store_summary()
+        return jsonify(data), 200
+
     @app.get("/health")
     def health() -> tuple[Any, int]:  # pragma: no cover - simple readiness
         return jsonify({"healthy": True}), 200
@@ -231,7 +249,16 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     @app.get("/")
     def index() -> tuple[str, int]:
         # Minimal visual UI for local/dev usage
-        return render_template("index.html"), 200
+        return (
+            render_template(
+                "index.html",
+                grafana_embed_enabled=cfg.grafana_embed_enabled,
+                grafana_embed_urls=cfg.grafana_embed_urls(),
+                grafana_dashboard_url=cfg.grafana_dashboard_url(),
+                grafana_theme=cfg.grafana_embed_theme,
+            ),
+            200,
+        )
 
     return app
 

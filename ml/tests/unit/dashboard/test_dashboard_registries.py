@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from ml.dashboard.config import DashboardConfig
-from ml.dashboard.controllers import NoopServiceController
 from ml.dashboard.service import (
     DashboardService,
     _REGISTRY_CACHE_HITS,
@@ -83,7 +82,7 @@ class FailingModelRegistry:
 
 def _make_service() -> DashboardService:
     cfg = DashboardConfig()
-    svc = DashboardService(config=cfg, controller=NoopServiceController())
+    svc = DashboardService.from_config(cfg)
     svc._registry_cache.clear()
     return svc
 

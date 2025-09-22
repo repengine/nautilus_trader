@@ -92,6 +92,8 @@ This section documents the latest backfills, gap fills, macro refresh, and datas
 - FRED refresh (90d):
   - Set `FRED_API_KEY` then refresh via `FREDDataLoader` or `ml/scripts/fred_integration_bridge.py`.
   - Vintage snapshots land via `ALFREDDataLoader`, which persists per-series releases under `data/fred/vintages/<series>/<yyyymmdd>.parquet` and a normalized `release_calendar.parquet` used for strict point-in-time joins.
+  - Each dataset build emits `dataset_metadata.json` describing the vintage policy (`real_time` vs `final`), an optional `vintage_cutoff`, canonical `ts_event_start/end`, and the overall/train/validation/test windows so downstream promotion gates can verify point-in-time integrity before deploying a model.
+  - Macro feature joins now persist raw revision-aware columns: `<series>`, `<series>__value_real_time`, `<series>__value_final`, and `<series>__value_vintage_ts`. Feature engineering derives revision deltas and composites from these base signals.
 
 - Builds:
   - 60d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_60d.json`

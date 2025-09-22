@@ -220,6 +220,8 @@ __all__ = [
     "DatabentoIngestionService",
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
+    "DatasetMetadata",
+    "DatasetMetadataExpectations",
     "DatasetValidationConfig",
     "DatasetValidationError",
     "DatasetValidationResult",
@@ -252,10 +254,13 @@ __all__ = [
     "TFTDatasetBuilder",
     "TimeSeriesProvider",
     "bars_to_dataframe",
+    "build_metadata_expectations",
     "build_tft_dataset",
+    "compute_dataset_pipeline_signature",
     "compute_schema_hash",
     "ensure_service",
     "fetch_symbol_data",
+    "load_dataset_metadata",
     "make_mbp10_fixture",
     "make_tbbo_fixture",
     "make_trades_fixture",
@@ -263,17 +268,27 @@ __all__ = [
     "run_jobs",
     "trades_to_dataframe",
     "validate_dataset",
+    "validate_dataset_metadata_expectations",
 ]
 
 
 # Public dataset build facade (cold path)
+import hashlib
+import json
+from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+
+from ml.data.vintage import VintagePolicy
+from ml.data.vintage import format_dt
+from ml.data.vintage import parse_dt
 
 
 # (Avoid importing optional deps here; import lazily inside functions)
@@ -283,11 +298,14 @@ logger = structlog.get_logger(__name__)
 DEFAULT_FRED_PARQUET_PATH = Path("data/fred/fred_indicators_ml_format.parquet")
 
 
+
+
 @dataclass(frozen=True)
 class DatasetBuildConfig:
     data_dir: Path
     out_dir: Path
     symbols: list[str]
+    dataset_id: str = "tft_dataset"
     instrument_ids: list[str] | None = None
     # Feature options
     include_macro: bool = True
@@ -318,6 +336,8 @@ class DatasetBuildConfig:
     macro_staleness_hours: int = 24
     macro_series_ids: tuple[str, ...] | None = None
     macro_fred_path: Path | None = None
+    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
+    vintage_as_of: datetime | None = None
     # Validation
     validation: DatasetValidationConfig | None = None
 
@@ -329,6 +349,190 @@ class BuildResult:
     features_npz: Path
     feature_names: list[str]
     feature_set_id: str | None = None
+    metadata: DatasetMetadata | None = None
+
+
+@dataclass(frozen=True)
+class DatasetMetadata:
+    dataset_id: str | None
+    vintage_policy: VintagePolicy
+    vintage_cutoff: str | None
+    build_ts: str
+    ts_event_start: str | None
+    ts_event_end: str | None
+    overall_window: tuple[str, str] | None
+    train_window: tuple[str, str] | None
+    validation_window: tuple[str, str] | None
+    test_window: tuple[str, str] | None
+    macro_observation_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class DatasetMetadataExpectations:
+    dataset_id: str | None = None
+    vintage_policy: VintagePolicy | None = None
+    vintage_cutoff: str | None = None
+    ts_event_start: str | None = None
+    ts_event_end: str | None = None
+
+
+def build_metadata_expectations(cfg: DatasetBuildConfig) -> DatasetMetadataExpectations:
+    """Create metadata expectations derived from the dataset build configuration."""
+    # Support both legacy datetime attributes (`start`/`end`) and the newer ISO
+    # string fields (`start_iso`/`end_iso`).
+    start_raw = getattr(cfg, "start_iso", None)
+    end_raw = getattr(cfg, "end_iso", None)
+    if not start_raw and hasattr(cfg, "start"):
+        start_raw = getattr(cfg, "start")
+    if not end_raw and hasattr(cfg, "end"):
+        end_raw = getattr(cfg, "end")
+
+    def _normalize(value: object | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        from datetime import datetime  # local import to avoid optional dependency at import time
+
+        if isinstance(value, datetime):
+            return format_dt(value)
+        return str(value)
+
+    start_iso = _normalize(start_raw)
+    end_iso = _normalize(end_raw)
+    cutoff_iso = _normalize(getattr(cfg, "vintage_as_of", None))
+    return DatasetMetadataExpectations(
+        dataset_id=cfg.dataset_id,
+        vintage_policy=cfg.vintage_policy,
+        vintage_cutoff=cutoff_iso,
+        ts_event_start=start_iso,
+        ts_event_end=end_iso,
+    )
+
+
+def load_dataset_metadata(path: Path) -> DatasetMetadata:
+    """Load dataset metadata from a JSON file."""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        policy = VintagePolicy(raw.get("vintage_policy", VintagePolicy.REAL_TIME.value))
+    except ValueError as exc:  # pragma: no cover - defensive guard
+        raise ValueError(f"Invalid vintage_policy in metadata: {raw.get('vintage_policy')}") from exc
+
+    def _as_tuple(value: object | None) -> tuple[str, str] | None:
+        if not value:
+            return None
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            return (str(value[0]), str(value[1]))
+        raise ValueError(f"Metadata window must be length-2 sequence, got {value!r}")
+
+    macro_counts_raw = raw.get("macro_observation_counts") or {}
+    macro_counts: dict[str, int] = {
+        str(key): int(value)
+        for key, value in macro_counts_raw.items()
+    }
+
+    return DatasetMetadata(
+        dataset_id=str(raw.get("dataset_id")) if raw.get("dataset_id") else None,
+        vintage_policy=policy,
+        vintage_cutoff=str(raw.get("vintage_cutoff")) if raw.get("vintage_cutoff") else None,
+        build_ts=str(raw.get("build_ts", "")),
+        ts_event_start=str(raw.get("ts_event_start")) if raw.get("ts_event_start") else None,
+        ts_event_end=str(raw.get("ts_event_end")) if raw.get("ts_event_end") else None,
+        overall_window=_as_tuple(raw.get("overall_window")),
+        train_window=_as_tuple(raw.get("train_window")),
+        validation_window=_as_tuple(raw.get("validation_window")),
+        test_window=_as_tuple(raw.get("test_window")),
+        macro_observation_counts=macro_counts,
+    )
+
+
+def validate_dataset_metadata_expectations(
+    metadata: DatasetMetadata,
+    expectations: DatasetMetadataExpectations,
+    *,
+    context: str | None = None,
+) -> None:
+    """Validate that metadata satisfies the supplied expectations."""
+    prefix = f"{context}: " if context else ""
+
+    if expectations.dataset_id and metadata.dataset_id != expectations.dataset_id:
+        raise ValueError(
+            f"{prefix}dataset_id mismatch (expected {expectations.dataset_id}, got {metadata.dataset_id})",
+        )
+
+    if expectations.vintage_policy and metadata.vintage_policy is not expectations.vintage_policy:
+        raise ValueError(
+            f"{prefix}vintage_policy mismatch (expected {expectations.vintage_policy.value}, got {metadata.vintage_policy.value})",
+        )
+
+    if expectations.vintage_cutoff is not None:
+        expected_cutoff = expectations.vintage_cutoff
+        actual_cutoff = metadata.vintage_cutoff or ""
+        if actual_cutoff != expected_cutoff:
+            raise ValueError(
+                f"{prefix}vintage_cutoff mismatch (expected {expected_cutoff}, got {actual_cutoff or 'None'})",
+            )
+
+    def _ensure_bounds(
+        label: str,
+        expected: str | None,
+        actual: str | None,
+        *,
+        comparator: str,
+    ) -> None:
+        if not expected or not actual:
+            return
+        expected_dt = parse_dt(expected)
+        actual_dt = parse_dt(actual)
+        if expected_dt is None or actual_dt is None:
+            return
+        if comparator == "gte" and actual_dt < expected_dt:
+            raise ValueError(
+                f"{prefix}{label} {actual} earlier than expected {expected}",
+            )
+        if comparator == "lte" and actual_dt > expected_dt:
+            raise ValueError(
+                f"{prefix}{label} {actual} later than expected {expected}",
+            )
+
+    _ensure_bounds("ts_event_start", expectations.ts_event_start, metadata.ts_event_start, comparator="gte")
+    _ensure_bounds("ts_event_end", expectations.ts_event_end, metadata.ts_event_end, comparator="lte")
+
+
+def _sorted_tuple(values: Sequence[str] | None) -> tuple[str, ...]:
+    if not values:
+        return ()
+    return tuple(sorted(str(item) for item in values))
+
+
+def compute_dataset_pipeline_signature(
+    *,
+    dataset_id: str | None,
+    symbols: Sequence[str],
+    instrument_ids: Sequence[str] | None,
+    macro_series_ids: Sequence[str] | None,
+    include_macro: bool,
+    macro_lag_days: int,
+    vintage_policy: VintagePolicy,
+    vintage_cutoff: str | None,
+    ts_event_start: str | None,
+    ts_event_end: str | None,
+) -> str:
+    """Compute a deterministic pipeline signature describing dataset lineage."""
+    payload = {
+        "dataset_id": dataset_id,
+        "symbols": _sorted_tuple(symbols),
+        "instrument_ids": _sorted_tuple(instrument_ids),
+        "macro_series_ids": _sorted_tuple(macro_series_ids),
+        "include_macro": bool(include_macro),
+        "macro_lag_days": int(macro_lag_days),
+        "vintage_policy": vintage_policy.value,
+        "vintage_cutoff": vintage_cutoff,
+        "ts_event_start": ts_event_start,
+        "ts_event_end": ts_event_end,
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"tft_pipeline:{digest[:16]}"
 
 
 def _infer_feature_columns(df: Any) -> list[str]:
@@ -357,6 +561,136 @@ def _infer_feature_columns(df: Any) -> list[str]:
     return []
 
 
+def _format_window(start: datetime | None, end: datetime | None) -> tuple[str, str] | None:
+    if start is None or end is None:
+        return None
+    start_iso = format_dt(start)
+    end_iso = format_dt(end)
+    if start_iso is None or end_iso is None:
+        return None
+    return (start_iso, end_iso)
+
+
+def _compute_dataset_metadata(
+    df_pd_sorted: Any,
+    cutoff: int,
+    vintage_policy: VintagePolicy,
+    vintage_as_of: datetime | None,
+    build_ts: datetime,
+    dataset_id: str | None,
+    macro_observation_counts: dict[str, int] | None,
+) -> DatasetMetadata:
+    from ml._imports import pd
+
+    ts_series = None
+    if pd is not None and "ts_event" in df_pd_sorted.columns:
+        try:
+            ts_series = pd.to_datetime(df_pd_sorted["ts_event"], utc=True)
+        except Exception:
+            ts_series = None
+
+    overall_window = None
+    train_window = None
+    validation_window = None
+    ts_start = None
+    ts_end = None
+
+    if ts_series is not None and hasattr(ts_series, "iloc") and len(ts_series) > 0:
+        start_dt = ts_series.iloc[0].to_pydatetime()
+        end_dt = ts_series.iloc[-1].to_pydatetime()
+        overall_window = _format_window(start_dt, end_dt)
+        ts_start = format_dt(start_dt)
+        ts_end = format_dt(end_dt)
+
+        if cutoff > 0:
+            train_start = start_dt
+            train_end = ts_series.iloc[max(cutoff - 1, 0)].to_pydatetime()
+            train_window = _format_window(train_start, train_end)
+
+        if cutoff < len(ts_series):
+            val_start = ts_series.iloc[cutoff].to_pydatetime()
+            val_end = end_dt
+            validation_window = _format_window(val_start, val_end)
+
+    # Placeholder for explicit test split metadata (future extension)
+    build_ts_iso = format_dt(build_ts)
+    if build_ts_iso is None:
+        build_ts_iso = ""
+
+    vintage_iso = format_dt(vintage_as_of) if vintage_as_of else None
+    macro_counts = dict(macro_observation_counts or {})
+
+    metadata = DatasetMetadata(
+        dataset_id=dataset_id,
+        vintage_policy=vintage_policy,
+        vintage_cutoff=vintage_iso,
+        build_ts=build_ts_iso,
+        ts_event_start=ts_start,
+        ts_event_end=ts_end,
+        overall_window=overall_window,
+        train_window=train_window,
+        validation_window=validation_window,
+        test_window=None,
+        macro_observation_counts=macro_counts,
+    )
+    return metadata
+
+
+def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "dataset_id": metadata.dataset_id,
+        "vintage_policy": metadata.vintage_policy.value,
+        "vintage_cutoff": metadata.vintage_cutoff,
+        "build_ts": metadata.build_ts,
+        "ts_event_start": metadata.ts_event_start,
+        "ts_event_end": metadata.ts_event_end,
+        "overall_window": list(metadata.overall_window) if metadata.overall_window else None,
+        "train_window": list(metadata.train_window) if metadata.train_window else None,
+        "validation_window": list(metadata.validation_window) if metadata.validation_window else None,
+        "test_window": list(metadata.test_window) if metadata.test_window else None,
+        "macro_observation_counts": metadata.macro_observation_counts,
+    }
+    return payload
+
+
+def _validate_dataset_metadata(metadata: DatasetMetadata) -> None:
+    """Ensure computed metadata windows are internally consistent."""
+
+    def _parse_window(window: tuple[str, str] | None) -> tuple[datetime | None, datetime | None]:
+        if window is None:
+            return (None, None)
+        start_raw, end_raw = window
+        start = parse_dt(start_raw)
+        end = parse_dt(end_raw)
+        if start is not None and end is not None and start > end:
+            msg = f"Window start {start_raw} must be <= end {end_raw}"
+            raise ValueError(msg)
+        return (start, end)
+
+    overall_start, overall_end = _parse_window(metadata.overall_window)
+    ts_start = parse_dt(metadata.ts_event_start) if metadata.ts_event_start else None
+    ts_end = parse_dt(metadata.ts_event_end) if metadata.ts_event_end else None
+
+    if ts_start and ts_end and ts_start > ts_end:
+        raise ValueError("ts_event_start must be <= ts_event_end")
+
+    if metadata.overall_window and (ts_start or ts_end):
+        if ts_start and overall_start and ts_start < overall_start:
+            raise ValueError("ts_event_start earlier than overall_window start")
+        if ts_end and overall_end and ts_end > overall_end:
+            raise ValueError("ts_event_end later than overall_window end")
+
+    for label, window in (
+        ("train", metadata.train_window),
+        ("validation", metadata.validation_window),
+        ("test", metadata.test_window),
+    ):
+        start, end = _parse_window(window)
+        if start and overall_start and start < overall_start:
+            raise ValueError(f"{label}_window starts before overall window")
+        if end and overall_end and end > overall_end:
+            raise ValueError(f"{label}_window ends after overall window")
+
 def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     """
     Build a TFT dataset and persist artifacts under `cfg.out_dir`.
@@ -374,6 +708,8 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
 
     catalog = ParquetDataCatalog(path=str(cfg.data_dir))
+
+    build_ts = datetime.now(tz=UTC)
 
     fred_parquet_path = cfg.macro_fred_path or DEFAULT_FRED_PARQUET_PATH
     macro_series_ids = cfg.macro_series_ids
@@ -400,6 +736,13 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
 
     fred_path_str = str(fred_parquet_path) if cfg.include_macro else None
 
+    vintage_as_of = cfg.vintage_as_of
+    if vintage_as_of is not None:
+        if vintage_as_of.tzinfo is None:
+            vintage_as_of = vintage_as_of.replace(tzinfo=UTC)
+        else:
+            vintage_as_of = vintage_as_of.astimezone(UTC)
+
     builder = TFTDatasetBuilder(
         catalog=catalog,
         symbols=cfg.symbols,
@@ -417,6 +760,8 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         micro_base_dir=str(cfg.data_dir),
         l2_base_dir=str(cfg.data_dir),
         macro_series_ids=cfg.macro_series_ids,
+        vintage_policy=cfg.vintage_policy,
+        vintage_as_of=vintage_as_of,
     )
 
     # Optional chunked build (date slices)
@@ -470,6 +815,19 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     validation_cfg = cfg.validation or DatasetValidationConfig(
         require_macro_series=cfg.macro_series_ids,
     )
+    if validation_cfg.require_macro_series is None and cfg.macro_series_ids:
+        validation_cfg = replace(validation_cfg, require_macro_series=cfg.macro_series_ids)
+    if validation_cfg.expected_vintage_policy is None:
+        validation_cfg = replace(validation_cfg, expected_vintage_policy=cfg.vintage_policy)
+    if (
+        validation_cfg.macro_min_vintage_observations is None
+        and cfg.include_macro
+        and cfg.vintage_policy is VintagePolicy.REAL_TIME
+        and cfg.macro_series_ids
+    ):
+        validation_cfg = replace(validation_cfg, macro_min_vintage_observations=1)
+    if cfg.vintage_policy is not VintagePolicy.REAL_TIME and validation_cfg.macro_min_vintage_observations is not None:
+        validation_cfg = replace(validation_cfg, macro_min_vintage_observations=None)
     validation_result = validate_dataset(df, config=validation_cfg)
     logger.info(
         "Dataset validation succeeded",
@@ -509,6 +867,19 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         X_val=X_val,
         feature_names=np.array(feature_names),
     )
+
+    metadata = _compute_dataset_metadata(
+        df_pd_sorted,
+        cutoff,
+        cfg.vintage_policy,
+        vintage_as_of,
+        build_ts,
+        getattr(cfg, "dataset_id", None),
+        getattr(validation_result, "macro_observation_counts", {}),
+    )
+    _validate_dataset_metadata(metadata)
+    metadata_path = cfg.out_dir / "dataset_metadata.json"
+    metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
 
     # Optional feature registration
     feature_set_id: str | None = None
@@ -586,7 +957,7 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
             # Emit a single SUCCESS event capturing lineage/flags
             emit_dataset_event(
                 data_registry,
-                dataset_id="tft_dataset",
+                dataset_id=getattr(cfg, "dataset_id", "tft_dataset"),
                 instrument_id="GLOBAL",
                 stage=Stage.FEATURE_COMPUTED,
                 source=Source.HISTORICAL,
@@ -621,6 +992,7 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         features_npz=features_npz,
         feature_names=feature_names,
         feature_set_id=feature_set_id,
+        metadata=metadata,
     )
 
 

@@ -24,6 +24,7 @@ from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.l2_cache import L2MinuteCache
 from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
+from ml.data.vintage import VintagePolicy
 from ml.stores.feature_store import FeatureStore
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -72,6 +73,8 @@ class TFTDatasetBuilder:
         events_base_dir: str | _Path | None = None,
         student_mode: bool = False,
         macro_series_ids: tuple[str, ...] | None = None,
+        vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME,
+        vintage_as_of: datetime | None = None,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -116,6 +119,13 @@ class TFTDatasetBuilder:
         self._event_provider: Any | None = None
         self.student_mode = student_mode
         self.macro_series_ids = macro_series_ids
+        self.vintage_policy = vintage_policy
+        if vintage_as_of is None:
+            self.vintage_as_of = None
+        elif vintage_as_of.tzinfo is None:
+            self.vintage_as_of = vintage_as_of.replace(tzinfo=UTC)
+        else:
+            self.vintage_as_of = vintage_as_of.astimezone(UTC)
 
         if self.student_mode:
             self.include_macro = False
@@ -306,6 +316,8 @@ class TFTDatasetBuilder:
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
                     series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
                 ),
             )
         logger.info(
@@ -420,6 +432,8 @@ class TFTDatasetBuilder:
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
                     series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
                 )
                 macro_cols = [c for c in direct_df.columns if c not in before_cols]
                 if macro_cols:
@@ -464,6 +478,8 @@ class TFTDatasetBuilder:
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
                     series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
                 )
                 try:  # pragma: no cover
                     import pandas as _pd
@@ -875,6 +891,8 @@ class TFTDatasetBuilder:
                         fred_path=self.fred_path,
                         vintage_base_dir=self.vintage_base_dir,
                         series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                        vintage_policy=self.vintage_policy,
+                        vintage_cutoff=self.vintage_as_of,
                     ),
                 )
                 macro_cols = [
@@ -909,6 +927,8 @@ class TFTDatasetBuilder:
                         fred_path=self.fred_path,
                         vintage_base_dir=self.vintage_base_dir,
                         series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                        vintage_policy=self.vintage_policy,
+                        vintage_cutoff=self.vintage_as_of,
                     ),
                 )
                 macro_cols = [

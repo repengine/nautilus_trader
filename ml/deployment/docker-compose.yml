@@ -220,7 +220,7 @@ services:
 
   # Grafana for visualization
   grafana:
-    image: grafana/grafana:10.3.3
+    image: grafana/grafana-oss:10.3.3
     ports:
       - "3000:3000"
     environment:

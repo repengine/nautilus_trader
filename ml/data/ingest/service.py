@@ -35,6 +35,7 @@ service to guarantee consistent safeguards across the codebase.
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
@@ -240,6 +241,7 @@ class DatabentoIngestionService:
         self._client = client
         self._safety = safety_config
         self._policy = policy or DatabentoCoveragePolicy.from_env()
+        self._dataset_range_cache: dict[tuple[str, str | None], tuple[int | None, int | None]] = {}
 
     # ---------------------------------------------------------------------
     # Factories
@@ -395,6 +397,39 @@ class DatabentoIngestionService:
         """
         return self._client.metadata
 
+    def get_available_range_ns(
+        self,
+        *,
+        dataset: str,
+        schema: str | None = None,
+    ) -> tuple[int | None, int | None]:
+        """
+        Fetch and cache the provider's available range for a dataset/schema pair.
+
+        Returns
+        -------
+        tuple[int | None, int | None]
+            Start/end nanosecond timestamps in UTC. ``None`` indicates the provider did
+            not supply a bound.
+        """
+        dataset_key = dataset.lower()
+        schema_key = schema.lower() if schema is not None else None
+        cache_key = (dataset_key, schema_key)
+        cached = self._dataset_range_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            range_info = self.metadata_client.get_dataset_range(dataset)
+        except Exception:
+            result = (None, None)
+            self._dataset_range_cache.setdefault(cache_key, result)
+            return result
+
+        parsed = self._parse_dataset_ranges(dataset_key, range_info)
+        self._dataset_range_cache.update(parsed)
+        return self._dataset_range_cache.get(cache_key, (None, None))
+
     def _validate_dataset(self, dataset: str) -> None:
         if self._safety.datasets and dataset not in self._safety.datasets:
             raise IngestionError(f"Dataset '{dataset}' is not permitted by safety configuration")
@@ -509,13 +544,102 @@ class DatabentoIngestionService:
             df = cast(pd.DataFrame, result.to_df())
         else:
             df = pd.DataFrame(result)
-        # Normalise timestamp column name for downstream consumers.
+
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.name == "ts_event" and "ts_event" not in df.columns:
+            df = df.reset_index()
+
         if "ts_event" not in df.columns and "ts" in df.columns:
             try:
-                df["ts_event"] = pd.to_datetime(df["ts"], utc=True).astype("int64")
+                df["ts_event"] = pd.to_datetime(df["ts"], utc=True)
             except Exception:
                 pass
+
+        if "ts_event" in df.columns and pd.api.types.is_datetime64_any_dtype(df["ts_event"]):
+            df["ts_event"] = df["ts_event"].astype("int64")
+
+        if "ts_init" not in df.columns and "ts_event" in df.columns:
+            df["ts_init"] = df["ts_event"]
+
         return df
+
+    @staticmethod
+    def _parse_dataset_ranges(
+        dataset_key: str,
+        range_info: Mapping[str, Any] | Any,
+    ) -> dict[tuple[str, str | None], tuple[int | None, int | None]]:
+        if not isinstance(range_info, Mapping):
+            return {(dataset_key, None): (None, None)}
+
+        dataset_start = DatabentoIngestionService._coerce_timestamp_ns(range_info.get("start"))
+        dataset_end = DatabentoIngestionService._coerce_timestamp_ns(range_info.get("end"))
+        parsed: dict[tuple[str, str | None], tuple[int | None, int | None]] = {
+            (dataset_key, None): (dataset_start, dataset_end),
+        }
+
+        schema_ranges = DatabentoIngestionService._extract_schema_ranges(range_info)
+        for schema_name, (schema_start, schema_end) in schema_ranges.items():
+            start_ns = schema_start if schema_start is not None else dataset_start
+            end_ns = schema_end if schema_end is not None else dataset_end
+            parsed[(dataset_key, schema_name)] = (start_ns, end_ns)
+
+        return parsed
+
+    @staticmethod
+    def _extract_schema_ranges(range_info: Mapping[str, Any]) -> dict[str, tuple[int | None, int | None]]:
+        result: dict[str, tuple[int | None, int | None]] = {}
+
+        raw_schema = range_info.get("schema")
+        if isinstance(raw_schema, Mapping):
+            for key, value in raw_schema.items():
+                if isinstance(key, str) and isinstance(value, Mapping):
+                    schema_key = key.lower()
+                    result[schema_key] = (
+                        DatabentoIngestionService._coerce_timestamp_ns(value.get("start")),
+                        DatabentoIngestionService._coerce_timestamp_ns(value.get("end")),
+                    )
+
+        raw_schemas = range_info.get("schemas")
+        if isinstance(raw_schemas, Sequence):
+            for entry in raw_schemas:
+                if not isinstance(entry, Mapping):
+                    continue
+                key_raw = entry.get("schema") or entry.get("name") or entry.get("id")
+                if not isinstance(key_raw, str):
+                    continue
+                schema_key = key_raw.lower()
+                result[schema_key] = (
+                    DatabentoIngestionService._coerce_timestamp_ns(entry.get("start")),
+                    DatabentoIngestionService._coerce_timestamp_ns(entry.get("end")),
+                )
+
+        return result
+
+    @staticmethod
+    def _coerce_timestamp_ns(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return int(dt.astimezone(UTC).timestamp() * 1_000_000_000)
+        try:
+            ts = pd.to_datetime(value, utc=True)
+        except Exception:
+            return None
+        if isinstance(ts, pd.Timestamp):
+            return int(ts.value)
+        if isinstance(ts, pd.Series):
+            if ts.empty:
+                return None
+            return int(ts.iloc[0].value)
+        if isinstance(ts, pd.DatetimeIndex):
+            if ts.empty:
+                return None
+            return int(ts[0].value)
+        return None
 
 
 class _ServiceResult:

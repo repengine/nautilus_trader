@@ -118,6 +118,7 @@ def _build_dataset_cfg(data: dict[str, Any]) -> DatasetBuildConfig:
         data_dir=_as_str(data.get("data_dir", "data/tier1")),
         symbols=_as_str(data.get("symbols", "SPY.NYSE")),
         out_dir=_as_str(data.get("out_dir", "ml_out")),
+        dataset_id=_as_str(data.get("dataset_id", "tft_dataset")),
         instrument_ids=_as_tuple(data.get("instrument_ids")),
         include_macro=_coerce_bool(data.get("include_macro", False)),
         macro_lag_days=_as_int(data.get("macro_lag_days", 1)),

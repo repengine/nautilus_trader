@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import os
+import datetime as dt
+from datetime import datetime
+from datetime import timedelta
 from typing import Any
+
+import ml.dashboard.grafana as grafana_module
 
 import pytest
 from flask.testing import FlaskClient
 
 from ml.dashboard import DashboardConfig, create_app
+from ml.dashboard.config import DashboardToken
+from ml.dashboard.service import DashboardService
 
 
 @pytest.fixture()
@@ -155,7 +162,52 @@ def test_grafana_provision_endpoint_default(client: FlaskClient) -> None:
     assert resp.status_code in {200, 202, 401}
     if resp.status_code != 401:  # guard may be enabled in env
         body = resp.get_json()
-        assert set(body.keys()).issuperset({"ok", "url"})
+        assert set(body.keys()).issuperset({"ok", "url", "error"})
+
+
+def test_observability_status_endpoint(client: FlaskClient) -> None:
+    resp = client.get("/api/observability/status")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert set(body.keys()).issuperset({"ok", "url", "embed_urls"})
+
+
+def test_observability_summary_endpoint(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeResponse:
+        def __init__(self, value: float) -> None:
+            self._value = value
+            self.status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "data": {
+                    "result": [
+                        {
+                            "value": [0, str(self._value)],
+                        }
+                    ],
+                }
+            }
+
+    def _fake_get(url: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> _FakeResponse:
+        query = (params or {}).get("query", "")
+        mapping = {
+            "sum(rate(ml_dashboard_requests_total[5m]))": 1.25,
+            "histogram_quantile(0.95, sum(rate(ml_dashboard_latency_seconds_bucket[5m])) by (le))": 0.42,
+            "sum(increase(ml_dashboard_events_failure_total[5m]))": 0.0,
+        }
+        return _FakeResponse(mapping.get(query, 0.0))
+
+    monkeypatch.setattr(grafana_module.requests, "get", _fake_get)
+
+    resp = client.get("/api/observability/summary")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert pytest.approx(data["metrics"]["request_rate_per_second"], rel=1e-6) == 1.25
 
 
 def test_auth_guard_when_token_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,3 +228,44 @@ def test_auth_guard_when_token_set(monkeypatch: pytest.MonkeyPatch) -> None:
         json={"action": "restart"},
     )
     assert r2.status_code in {200, 202}
+
+
+def test_observability_stores_endpoint(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {"ok": True, "stores": [{"store": "feature", "healthy": True}]}
+
+    monkeypatch.setattr(
+        DashboardService,
+        "get_store_summary",
+        lambda self: payload,
+    )
+
+    resp = client.get("/api/observability/stores")
+    assert resp.status_code == 200
+    assert resp.get_json() == payload
+
+
+def test_dashboard_service_validate_token_success() -> None:
+    cfg = DashboardConfig(auth_tokens=(DashboardToken(value="secret"),))
+    svc = DashboardService.from_config(cfg)
+    assert svc.validate_token("secret") is True
+    assert svc.validate_token("other") is False
+
+
+def test_dashboard_service_validate_token_expired() -> None:
+    expired = DashboardToken(
+        value="secret",
+        expires_at=datetime.now(dt.UTC) - timedelta(minutes=1),
+    )
+    cfg = DashboardConfig(auth_tokens=(expired,))
+    svc = DashboardService.from_config(cfg)
+    assert svc.validate_token("secret", now=datetime.now(dt.UTC)) is False
+
+
+def test_dashboard_config_token_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "ML_DASHBOARD_TOKENS",
+        '[{"value":"tok1","expires":"2099-01-01T00:00:00Z"},"tok2"]',
+    )
+    cfg = DashboardConfig.from_env({})
+    values = [token.value for token in cfg.auth_tokens]
+    assert values == ["tok1", "tok2"]

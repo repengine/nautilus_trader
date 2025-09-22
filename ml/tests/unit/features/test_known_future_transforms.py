@@ -258,8 +258,13 @@ def test_pipeline_runner_blocks_l2_transforms_for_student_mode() -> None:
 
 
 def test_feature_config_upgrades_requirements_for_microstructure() -> None:
+    cfg = FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_ONLY)
+    assert cfg.resolved_data_requirements() == DataRequirements.L1_L2
+
+
+def test_feature_config_rejects_incompatible_requirements() -> None:
     with pytest.raises(ValueError):
-        FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_ONLY)
+        FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.HISTORICAL)
 
 
 def test_feature_config_allows_teacher_requirements() -> None:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Any
 from typing import Callable
+from typing import cast
 
 import json
 import numpy as np
@@ -13,6 +15,7 @@ import pandas as pd
 import pytest
 
 from ml.config.coverage import CoveragePolicy
+from ml.data import DatasetMetadata
 from ml.orchestration.pipeline_orchestrator import AutoFillUniverseConfig
 from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import HPOConfig
@@ -23,6 +26,8 @@ from ml.orchestration.pipeline_orchestrator import StudentDistillConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 from ml.orchestration.pipeline_orchestrator import _build_auto_fill_config_from_args
 from ml.orchestration.pipeline_orchestrator import parse_args
+from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
+from ml.data.vintage import VintagePolicy
 
 
 @dataclass
@@ -52,6 +57,62 @@ class _Registry:
 
     def update_watermark(self, **kwargs: Any) -> None:  # pragma: no cover - stub
         return None
+
+
+def _write_dataset_metadata_file(out_dir: Path) -> None:
+    metadata = {
+        "dataset_id": "tft_dataset",
+        "vintage_policy": "real_time",
+        "vintage_cutoff": None,
+        "build_ts": "2025-01-01T00:00:00",
+        "ts_event_start": "2025-01-01T00:00:00",
+        "ts_event_end": "2025-01-01T00:00:01",
+        "overall_window": ["2025-01-01T00:00:00", "2025-01-01T00:00:01"],
+        "train_window": None,
+        "validation_window": None,
+        "test_window": None,
+        "macro_observation_counts": {},
+    }
+    (out_dir / "dataset_metadata.json").write_text(
+        json.dumps(metadata, indent=2),
+        encoding="utf-8",
+    )
+
+
+@dataclass
+class _CapturingRegistry:
+    manifests: dict[str, DatasetManifest]
+    register_calls: int = 0
+    updates: list[dict[str, Any]] = field(default_factory=list)
+
+    def __init__(self) -> None:
+        self.manifests = {}
+        self.register_calls = 0
+        self.updates = []
+
+    def emit_event(self, **kwargs: Any) -> None:  # pragma: no cover - stub
+        return None
+
+    def update_watermark(self, **kwargs: Any) -> None:  # pragma: no cover - stub
+        return None
+
+    def get_manifest(self, dataset_id: str) -> DatasetManifest:
+        try:
+            return self.manifests[dataset_id]
+        except KeyError as exc:  # pragma: no cover - defensive path
+            raise ValueError(dataset_id) from exc
+
+    def register_dataset(self, manifest: DatasetManifest) -> str:
+        self.register_calls += 1
+        self.manifests[manifest.dataset_id] = manifest
+        return manifest.dataset_id
+
+    def get_contract(self, dataset_id: str) -> DataContract:
+        del dataset_id
+        return cast(DataContract, object())
+
+    def update_manifest(self, dataset_id: str, changes: dict[str, Any]) -> None:
+        self.updates.append({"dataset_id": dataset_id, "changes": changes})
 
 
 @dataclass
@@ -93,6 +154,8 @@ def test_pipeline_orchestrator_runs_all_phases(tmp_path: Path, monkeypatch: pyte
             out_dir = Path(argv[argv.index("--out_dir") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "dataset.csv").write_text("id,ts_event\n1,1\n")
+            _write_dataset_metadata_file(out_dir)
+            _write_dataset_metadata_file(out_dir)
             np.savez(
                 out_dir / "features_npz.npz",
                 X_train=np.array([[0.1]], dtype=np.float32),
@@ -170,6 +233,7 @@ def test_pipeline_orchestrator_attach_runtime_sets_components(tmp_path: Path, mo
             out_dir = Path(argv[argv.index("--out_dir") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+            _write_dataset_metadata_file(out_dir)
         return 0
 
     orch_metrics_calls: list[int] = []
@@ -270,6 +334,7 @@ def test_pipeline_orchestrator_attach_runtime_skips_validators_when_disabled(tmp
             out_dir = Path(argv[argv.index("--out_dir") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+            _write_dataset_metadata_file(out_dir)
         return 0
 
     metrics_called = False
@@ -345,6 +410,7 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
             target = Path(argv[argv.index("--out_dir") + 1])
             target.mkdir(parents=True, exist_ok=True)
             (target / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+            _write_dataset_metadata_file(target)
         return 0
 
     orch = MLPipelineOrchestrator(
@@ -368,7 +434,7 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
         lookback_days: int,
     ) -> list[tuple[int, int]]:
         backfill_calls.append((dataset_id, schema, instrument_id, lookback_days))
-        return [(0, 1)]
+        return []
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _fake_backfill)
 
@@ -413,7 +479,7 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
     rc = orch.run(cfg)
     assert rc == 0
     schemas = {(schema, lookback) for _, schema, _, lookback in backfill_calls}
-    assert ("bars", 14) in schemas
+    assert ("ohlcv-1m", 14) in schemas
     assert ("tbbo", 7) in schemas
     assert ("trades", 7) in schemas
     assert {instrument for _, _, instrument, _ in backfill_calls} == {"SPY.NYSE"}
@@ -422,6 +488,288 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
     assert getattr(l2_config, "days") == 3
     assert Path(getattr(l2_config, "data_dir")).samefile(tmp_path)
 
+
+def test_auto_fill_universe_errors_when_gaps_remain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    ingestor = _Ingestor()
+
+    def _build(argv: list[str] | None = None) -> int:
+        if argv and "--out_dir" in argv:
+            target = Path(argv[argv.index("--out_dir") + 1])
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+            _write_dataset_metadata_file(target)
+        return 0
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_build),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    def _gap_backfill(
+        self: MLPipelineOrchestrator,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int,
+    ) -> list[tuple[int, int]]:
+        return [(0, 1)]
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _gap_backfill)
+
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(
+            data_dir=str(tmp_path),
+            symbols="SPY.NYSE",
+            out_dir=str(tmp_path / "out"),
+            instrument_ids=("SPY.NYSE",),
+        ),
+        hpo=HPOConfig(),
+        teacher=TeacherTrainConfig(enabled=False),
+        auto_fill=AutoFillUniverseConfig(
+            enabled=True,
+            include_bars=True,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="coverage gaps"):
+        orch.run(cfg)
+
+
+def test_ensure_dataset_registered_seeds_manifest(tmp_path: Path) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    registry = _CapturingRegistry()
+    ingestor = _Ingestor()
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=registry,
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    orch._ensure_dataset_registered(
+        dataset_id="EQUS.MINI",
+        dataset_type=DatasetType.TRADES,
+        location=str(tmp_path),
+    )
+
+    manifest = registry.manifests["EQUS.MINI"]
+    assert manifest.dataset_type == DatasetType.TRADES
+    assert manifest.storage_kind == StorageKind.PARQUET
+    assert manifest.retention_days > 0
+    assert {"instrument_id", "ts_event", "ts_init"}.issubset(manifest.schema)
+    assert "price" in manifest.schema
+    assert manifest.metadata.get("auto_registered") is True
+    initial_calls = registry.register_calls
+
+    orch._ensure_dataset_registered(
+        dataset_id="EQUS.MINI",
+        dataset_type=DatasetType.TRADES,
+        location=str(tmp_path),
+    )
+    assert registry.register_calls == initial_calls
+    orch._ensure_dataset_registered(
+        dataset_id="DBEQ.BASIC",
+        dataset_type=DatasetType.MBP1,
+        location=str(tmp_path),
+    )
+    mbp_manifest = registry.manifests["DBEQ.BASIC"]
+    assert mbp_manifest.dataset_type == DatasetType.MBP1
+    assert mbp_manifest.retention_days == 90
+    assert mbp_manifest.partitioning.get("interval") == "hourly"
+    assert {"instrument_id", "ts_event", "ts_init", "level", "side"}.issubset(mbp_manifest.schema)
+    assert registry.register_calls == initial_calls + 1
+
+
+def test_dataset_metadata_sync_updates_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    registry = _CapturingRegistry()
+    ingestor = _Ingestor()
+
+    # Seed manifest so metadata sync has a target
+    manifest = DatasetManifest(
+        dataset_id="tft_dataset",
+        dataset_type=DatasetType.FEATURES,
+        storage_kind=StorageKind.PARQUET,
+        location=str(tmp_path / "out"),
+        partitioning={"by": "ts_event", "interval": "daily"},
+        retention_days=90,
+        schema={"instrument_id": "str", "ts_event": "int64", "ts_init": "int64"},
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="hash",
+        constraints={},
+        lineage=[],
+        pipeline_signature="seed",
+        version="1.0.0",
+        created_at=0,
+        last_modified=0,
+        metadata={},
+    )
+    registry.register_dataset(manifest)
+
+    def _build(argv: list[str] | None = None) -> int:
+        if argv is None:
+            return 0
+        out_dir = Path(argv[argv.index("--out_dir") + 1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+        metadata = {
+            "dataset_id": "tft_dataset",
+            "vintage_policy": "real_time",
+            "vintage_cutoff": None,
+            "build_ts": "2025-01-01T00:00:00",
+            "ts_event_start": "2025-01-01T00:00:00",
+            "ts_event_end": "2025-01-02T00:00:00",
+            "overall_window": ["2025-01-01T00:00:00", "2025-01-02T00:00:00"],
+            "train_window": ["2025-01-01T00:00:00", "2025-01-01T12:00:00"],
+            "validation_window": ["2025-01-01T12:00:00", "2025-01-02T00:00:00"],
+            "test_window": None,
+            "macro_observation_counts": {},
+        }
+        (out_dir / "dataset_metadata.json").write_text(
+            json.dumps(metadata, indent=2),
+            encoding="utf-8",
+        )
+        return 0
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=registry,
+        ingestor=ingestor,
+        build_main=_CliWrapper(_build),
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(
+            data_dir=str(tmp_path),
+            symbols="SPY.NYSE",
+            out_dir=str(tmp_path / "out"),
+        ),
+        hpo=HPOConfig(),
+        teacher=TeacherTrainConfig(enabled=False),
+    )
+
+    rc = orch.run(cfg)
+    assert rc == 0
+    assert registry.updates, "Expected manifest metadata update"
+    update_payload = registry.updates[-1]
+    assert update_payload["dataset_id"] == "tft_dataset"
+    changes = update_payload["changes"]
+    assert "metadata" in changes
+    assert changes["metadata"]["vintage"]["policy"] == "real_time"
+    assert "windows" in changes["metadata"]
+    overall_window = changes["metadata"]["windows"]["overall"]
+    assert list(overall_window) == [
+        "2025-01-01T00:00:00",
+        "2025-01-02T00:00:00",
+    ]
+    assert changes["pipeline_signature"].startswith("tft_pipeline:")
+
+
+def test_guard_dataset_metadata_normalizes_iso_bounds(tmp_path: Path) -> None:
+    orch = MLPipelineOrchestrator(
+        coverage=_Coverage(),
+        writer=_Writer(),
+        build_main=_CliWrapper(_ok),
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="SPY.NYSE",
+        out_dir=str(tmp_path / "out"),
+        dataset_id="tft_dataset",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_as_of="2025-01-01",
+        start_iso="2025-01-01",
+        end_iso="2025-01-02",
+    )
+
+    metadata = DatasetMetadata(
+        dataset_id="tft_dataset",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff="2025-01-01T00:00:00+00:00",
+        build_ts="2025-01-03T00:00:00+00:00",
+        ts_event_start="2025-01-01T00:00:00+00:00",
+        ts_event_end="2025-01-02T00:00:00+00:00",
+        overall_window=(
+            "2025-01-01T00:00:00+00:00",
+            "2025-01-02T00:00:00+00:00",
+        ),
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={},
+    )
+
+    orch._guard_dataset_metadata(cfg=cfg, metadata=metadata)
+
+
+def test_guard_dataset_metadata_requires_macro_counts(tmp_path: Path) -> None:
+    orch = MLPipelineOrchestrator(
+        coverage=_Coverage(),
+        writer=_Writer(),
+        build_main=_CliWrapper(_ok),
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="SPY.NYSE",
+        out_dir=str(tmp_path / "macro"),
+        dataset_id="tft_dataset",
+        include_macro=True,
+        macro_series_ids=("CPI",),
+    )
+
+    incomplete_metadata = DatasetMetadata(
+        dataset_id="tft_dataset",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2025-01-03T00:00:00+00:00",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={"CPI": 0},
+    )
+
+    with pytest.raises(ValueError, match="Missing macro observations"):
+        orch._guard_dataset_metadata(cfg=cfg, metadata=incomplete_metadata)
+
+    complete_metadata = DatasetMetadata(
+        dataset_id="tft_dataset",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2025-01-03T00:00:00+00:00",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={"CPI": 5},
+    )
+
+    orch._guard_dataset_metadata(cfg=cfg, metadata=complete_metadata)
 
 def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     args = parse_args(
@@ -471,6 +819,7 @@ def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_
             out_dir = Path(argv[argv.index("--out_dir") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "dataset.csv").write_text("id,ts_event\n1,1\n", encoding="utf-8")
+            _write_dataset_metadata_file(out_dir)
         return 0
 
     orch = MLPipelineOrchestrator(

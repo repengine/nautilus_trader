@@ -33,6 +33,10 @@ import numpy.typing as npt
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
+from ml.data import DatasetMetadataExpectations
+from ml.data import load_dataset_metadata
+from ml.data import validate_dataset_metadata_expectations
+from ml.data.vintage import VintagePolicy
 from ml.registry.feature_registry import FeatureRegistry
 from ml.tasks.datasets.splits import create_purged_splits
 from ml.training.teacher.base import BaseTeacher
@@ -103,6 +107,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Interpret ONNX model output as logits (else as probabilities)",
     )
+    ap.add_argument(
+        "--dataset_metadata",
+        required=False,
+        help="Path to dataset_metadata.json (required when training on dataset CSV/Parquet)",
+    )
+    ap.add_argument("--expected_dataset_id", required=False)
+    ap.add_argument(
+        "--expected_vintage_policy",
+        required=False,
+        choices=[policy.value for policy in VintagePolicy],
+    )
+    ap.add_argument("--expected_vintage_cutoff", required=False)
     # Optional decision policy adapter for inference actor
     ap.add_argument(
         "--decision_policy",
@@ -282,6 +298,57 @@ def main(argv: list[str] | None = None) -> int:
         help="Register the trained teacher as a non-serveable model",
     )
     args = ap.parse_args(argv)
+
+    metadata_path: Path | None = Path(args.dataset_metadata) if args.dataset_metadata else None
+    metadata_required = bool(args.train_data_csv or args.train_data_parquet)
+    metadata = None
+    if metadata_required:
+        if metadata_path is None:
+            candidate = args.train_data_parquet or args.train_data_csv
+            if candidate:
+                metadata_path = Path(candidate).with_name("dataset_metadata.json")
+        if metadata_path is None:
+            metadata_path = Path(args.out_dir) / "dataset_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Dataset metadata is required at {metadata_path}")
+        metadata = load_dataset_metadata(metadata_path)
+        expected_policy = (
+            VintagePolicy(args.expected_vintage_policy)
+            if args.expected_vintage_policy
+            else None
+        )
+        expectations = DatasetMetadataExpectations(
+            dataset_id=args.expected_dataset_id,
+            vintage_policy=expected_policy,
+            vintage_cutoff=args.expected_vintage_cutoff,
+        )
+        validate_dataset_metadata_expectations(
+            metadata,
+            expectations,
+            context="tft_cli",
+        )
+        if metadata.dataset_id is None:
+            raise ValueError("dataset_metadata.json must include dataset_id when training a teacher")
+    elif metadata_path is not None:
+        metadata = load_dataset_metadata(metadata_path)
+        expected_policy = (
+            VintagePolicy(args.expected_vintage_policy)
+            if args.expected_vintage_policy
+            else None
+        )
+        expectations = DatasetMetadataExpectations(
+            dataset_id=args.expected_dataset_id,
+            vintage_policy=expected_policy,
+            vintage_cutoff=args.expected_vintage_cutoff,
+        )
+        validate_dataset_metadata_expectations(
+            metadata,
+            expectations,
+            context="tft_cli",
+        )
+
+    if metadata_path is not None and args.dataset_metadata is None:
+        args.dataset_metadata = str(metadata_path)
 
     # Resolve feature manifest and enforce schema
     freg = FeatureRegistry(Path(args.feature_registry_dir))

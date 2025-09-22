@@ -27,6 +27,10 @@ def build_orchestrator_args(args: argparse.Namespace) -> list[str]:
         args.symbols,
         "--out_dir",
         args.out_dir,
+        "--catalog_path",
+        args.data_dir,
+        "--dataset_id",
+        "tft_dataset",
         "--horizon_minutes",
         str(args.horizon_minutes),
         "--threshold",
@@ -39,7 +43,7 @@ def build_orchestrator_args(args: argparse.Namespace) -> list[str]:
     if args.include_micro:
         cli_args += ["--include_micro"]
     if args.include_l2:
-        cli_args += ["--include_l2"]
+        cli_args += ["--include_l2", "--skip_l2_ingest", "--auto_fill_skip_l2"]
     if args.include_events:
         cli_args += ["--include_events"]
     if args.include_calendar:
@@ -48,6 +52,8 @@ def build_orchestrator_args(args: argparse.Namespace) -> list[str]:
         cli_args += ["--feature_registry_dir", args.feature_registry_dir]
     if args.feature_set_id:
         cli_args += ["--feature_set_id", args.feature_set_id]
+    if args.register_features:
+        cli_args += ["--dataset_register_features"]
 
     if args.train_teacher:
         cli_args += [
@@ -108,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lookback_periods", type=int, default=30)
     parser.add_argument("--feature_registry_dir", default=None)
     parser.add_argument("--feature_set_id", default=None)
+    parser.add_argument("--register_features", action="store_true")
     parser.add_argument("--train_teacher", action="store_true")
     parser.add_argument("--teacher_model_id", required=True)
     parser.add_argument("--model_registry_dir", required=True)

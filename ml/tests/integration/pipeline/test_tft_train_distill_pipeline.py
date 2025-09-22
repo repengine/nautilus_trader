@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+import numpy as np
 import polars as pl
 
 import ml.pipelines.tft_train_distill as pipeline_mod
@@ -28,6 +30,26 @@ def _stub_build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-r
         str(out_dir / "dataset.parquet"),
     )
     df.write_csv(str(out_dir / "dataset.csv"))
+    metadata = {
+        "dataset_id": "tft_dataset",
+        "vintage_policy": "real_time",
+        "vintage_cutoff": None,
+        "build_ts": "2025-01-01T00:00:00",
+        "ts_event_start": "2025-01-01T00:00:00",
+        "ts_event_end": "2025-01-01T00:02:00",
+        "overall_window": ["2025-01-01T00:00:00", "2025-01-01T00:02:00"],
+        "train_window": None,
+        "validation_window": None,
+        "test_window": None,
+        "macro_observation_counts": {},
+    }
+    (out_dir / "dataset_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    np.savez_compressed(
+        out_dir / "features_npz.npz",
+        X_train=np.array([[0.1]], dtype=np.float32),
+        X_val=np.array([[0.2]], dtype=np.float32),
+        feature_names=np.array(["f1"], dtype=object),
+    )
     return 0
 
 

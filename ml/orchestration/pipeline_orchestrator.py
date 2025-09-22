@@ -24,6 +24,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -32,11 +34,22 @@ from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.config.coverage import CoveragePolicy
 from ml.config.coverage import get_max_lookback_days
+from ml.data import DatasetMetadata
+from ml.data import DatasetMetadataExpectations
 from ml.data import DatasetValidationConfig
+from ml.data import compute_dataset_pipeline_signature
+from ml.data import load_dataset_metadata
+from ml.data import validate_dataset_metadata_expectations
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
+from ml.data.vintage import VintagePolicy
+from ml.data.vintage import format_dt
+from ml.data.vintage import parse_dt
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
@@ -79,6 +92,7 @@ class BuildArtifacts:
     feature_registry_dir: str | None
     feature_set_id: str | None
     feature_names: tuple[str, ...] = ()
+    dataset_metadata: DatasetMetadata | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -86,6 +100,7 @@ class DatasetBuildConfig:
     data_dir: str
     symbols: str
     out_dir: str
+    dataset_id: str = "tft_dataset"
     instrument_ids: tuple[str, ...] | None = None
     include_macro: bool = False
     macro_lag_days: int = 1
@@ -113,6 +128,8 @@ class DatasetBuildConfig:
     macro_series_ids: tuple[str, ...] | None = None
     macro_fred_path: str | None = None
     validation: DatasetValidationConfig | None = None
+    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
+    vintage_as_of: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -208,6 +225,94 @@ class _AutoFillMetrics:
             ),
         )
 
+
+@dataclass(slots=True, frozen=True)
+class _DatasetManifestSpec:
+    schema: dict[str, str]
+    primary_keys: tuple[str, ...]
+    retention_days: int
+    partitioning: dict[str, Any] = field(
+        default_factory=lambda: {"by": "ts_event", "interval": "daily"},
+    )
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+_DEFAULT_DATASET_MANIFEST_SPEC = _DatasetManifestSpec(
+    schema={
+        "instrument_id": "str",
+        "ts_event": "int64",
+        "ts_init": "int64",
+    },
+    primary_keys=("instrument_id", "ts_event"),
+    retention_days=365,
+)
+
+
+_DATASET_MANIFEST_DEFAULTS: dict[DatasetType, _DatasetManifestSpec] = {
+    DatasetType.BARS: _DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+        },
+        primary_keys=("instrument_id", "ts_event"),
+        retention_days=730,
+        metadata={
+            "schema_kind": "bars",
+            "bar_type_template": "{instrument_id}-1-MINUTE-LAST-EXTERNAL",
+        },
+    ),
+    DatasetType.TRADES: _DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "price": "float64",
+            "size": "float64",
+            "sequence": "int64",
+            "side": "str",
+        },
+        primary_keys=("instrument_id", "ts_event", "sequence"),
+        retention_days=365,
+        metadata={"schema_kind": "trades"},
+    ),
+    DatasetType.TBBO: _DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+        },
+        primary_keys=("instrument_id", "ts_event"),
+        retention_days=365,
+        metadata={"schema_kind": "tbbo"},
+    ),
+    DatasetType.MBP1: _DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid_px": "float64",
+            "ask_px": "float64",
+            "bid_sz": "float64",
+            "ask_sz": "float64",
+            "level": "int32",
+            "side": "str",
+        },
+        primary_keys=("instrument_id", "ts_event", "level", "side"),
+        retention_days=90,
+        partitioning={"by": "ts_event", "interval": "hourly"},
+        metadata={"schema_kind": "mbp1"},
+    ),
+}
 
 @dataclass(slots=True, frozen=True)
 class OrchestratorConfig:
@@ -320,6 +425,7 @@ class MLPipelineOrchestrator:
                     instrument_id=instrument_id,
                     lookback_days=lookback,
                     metrics=metrics,
+                    dataset_cfg=dataset_cfg,
                 )
 
         if auto_fill_cfg.include_tbbo:
@@ -331,6 +437,7 @@ class MLPipelineOrchestrator:
                     instrument_id=instrument_id,
                     lookback_days=lookback,
                     metrics=metrics,
+                    dataset_cfg=dataset_cfg,
                 )
 
         if auto_fill_cfg.include_trades:
@@ -342,6 +449,7 @@ class MLPipelineOrchestrator:
                     instrument_id=instrument_id,
                     lookback_days=lookback,
                     metrics=metrics,
+                    dataset_cfg=dataset_cfg,
                 )
 
         if auto_fill_cfg.include_l2:
@@ -370,6 +478,7 @@ class MLPipelineOrchestrator:
         instrument_id: str,
         lookback_days: int,
         metrics: _AutoFillMetrics,
+        dataset_cfg: DatasetBuildConfig,
     ) -> None:
         if lookback_days <= 0:
             logger.debug(
@@ -392,12 +501,24 @@ class MLPipelineOrchestrator:
         start_time = time.perf_counter()
         status = "success"
         try:
+            dataset_type = self._map_schema_to_dataset_type(schema)
+            self._ensure_dataset_registered(
+                dataset_id=dataset_id,
+                dataset_type=dataset_type,
+                location=dataset_cfg.data_dir,
+            )
             gaps = self.backfill(
                 dataset_id=dataset_id,
                 schema=schema,
                 instrument_id=instrument_id,
                 lookback_days=lookback_days,
             )
+            if gaps:
+                status = "error"
+                raise RuntimeError(
+                    "Auto-fill completed with unresolved coverage gaps "
+                    f"(dataset={dataset_id} schema={schema} instrument={instrument_id} gaps={len(gaps)})",
+                )
             logger.info(
                 "Auto-fill %s complete | instrument=%s dataset=%s gaps=%d lookback_days=%d",
                 schema,
@@ -417,6 +538,7 @@ class MLPipelineOrchestrator:
                 exc,
                 exc_info=True,
             )
+            raise
         finally:
             metrics.operations_total.labels(schema=schema, status=status).inc()
             metrics.latency_seconds.labels(schema=schema).observe(
@@ -459,6 +581,11 @@ class MLPipelineOrchestrator:
         start_time = time.perf_counter()
         status = "success"
         try:
+            self._ensure_dataset_registered(
+                dataset_id=auto_fill_cfg.l2_dataset_id,
+                dataset_type=DatasetType.MBP1,
+                location=dataset_cfg.data_dir,
+            )
             config = PopulateL2TaskConfig(
                 data_dir=data_dir,
                 progress_file=progress_path,
@@ -531,6 +658,13 @@ class MLPipelineOrchestrator:
         start_time = time.perf_counter()
         status = "success"
         try:
+            dataset_identifier = auto_fill_cfg.l3_dataset_id or auto_fill_cfg.l2_dataset_id
+            schema_identifier = auto_fill_cfg.l3_schema or "mbo"
+            self._ensure_dataset_registered(
+                dataset_id=dataset_identifier,
+                dataset_type=self._map_schema_to_dataset_type(schema_identifier),
+                location=dataset_cfg.data_dir,
+            )
             dataset = auto_fill_cfg.l3_dataset_id or auto_fill_cfg.l2_dataset_id
             schema = auto_fill_cfg.l3_schema or "mbo"
             config = PopulateL3TaskConfig(
@@ -549,6 +683,100 @@ class MLPipelineOrchestrator:
             metrics.operations_total.labels(schema="l3", status=status).inc()
             metrics.latency_seconds.labels(schema="l3").observe(
                 time.perf_counter() - start_time,
+            )
+
+    def _map_schema_to_dataset_type(self, schema: str) -> DatasetType:
+        normalized = schema.lower()
+        if normalized.startswith("ohlcv"):
+            return DatasetType.BARS
+        if normalized in {"tbbo", "bbo-1s", "bbo-1m", "tcbbo"}:
+            return DatasetType.TBBO
+        if normalized.startswith("trade"):
+            return DatasetType.TRADES
+        if normalized.startswith(("mbp", "mbo")):
+            return DatasetType.MBP1
+        return DatasetType.BARS
+
+    def _ensure_dataset_registered(
+        self,
+        *,
+        dataset_id: str,
+        dataset_type: DatasetType,
+        location: str,
+    ) -> None:
+        registry_obj = self.data_registry
+        if registry_obj is None:
+            return
+        registry = cast(RegistryProtocol, registry_obj)
+        try:
+            registry.get_manifest(dataset_id)
+            return
+        except Exception:
+            pass
+
+        spec = _DATASET_MANIFEST_DEFAULTS.get(dataset_type, _DEFAULT_DATASET_MANIFEST_SPEC)
+        path = str(Path(location).expanduser())
+        schema = dict(spec.schema)
+        partitioning = dict(spec.partitioning)
+        metadata = dict(spec.metadata)
+        metadata.update(
+            {
+                "auto_registered": True,
+                "dataset_id": dataset_id,
+                "dataset_type": dataset_type.value,
+                "storage_path": path,
+            },
+        )
+        non_nullable = {
+            key: False
+            for key in ("instrument_id", "ts_event", "ts_init")
+            if key in schema
+        }
+        constraints = {"nullability": non_nullable} if non_nullable else {}
+        now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+        manifest = DatasetManifest(
+            dataset_id=dataset_id,
+            dataset_type=dataset_type,
+            storage_kind=StorageKind.PARQUET,
+            location=path,
+            partitioning=partitioning,
+            retention_days=spec.retention_days,
+            schema=schema,
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=list(spec.primary_keys),
+            schema_hash="auto",
+            constraints=constraints,
+            lineage=[],
+            pipeline_signature="auto_fill_orchestrator",
+            version="1.0.0",
+            created_at=now_ns,
+            last_modified=now_ns,
+            metadata=metadata,
+        )
+
+        try:
+            registry.register_dataset(manifest)
+            try:
+                registry.get_manifest(dataset_id)
+            except Exception as verify_exc:  # pragma: no cover - defensive log
+                logger.warning(
+                    "Dataset registration verification failed",
+                    extra={
+                        "dataset_id": dataset_id,
+                        "dataset_type": dataset_type.value,
+                        "reason": str(verify_exc),
+                    },
+                )
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.debug(
+                "Dataset registration skipped",
+                exc_info=True,
+                extra={
+                    "dataset_id": dataset_id,
+                    "dataset_type": dataset_type.value,
+                    "reason": str(exc),
+                },
             )
 
     # ---------------------------------------------------------------------
@@ -640,6 +868,8 @@ class MLPipelineOrchestrator:
             instrument_ids_list = (
                 [item.strip() for item in cfg.instrument_ids] if cfg.instrument_ids else None
             )
+            vintage_as_of_dt = parse_dt(cfg.vintage_as_of)
+
             api_cfg = APICfg(
                 data_dir=Path(cfg.data_dir),
                 out_dir=Path(cfg.out_dir),
@@ -683,6 +913,8 @@ class MLPipelineOrchestrator:
                     Path(cfg.macro_fred_path).expanduser() if cfg.macro_fred_path else None
                 ),
                 validation=cfg.validation,
+                vintage_policy=cfg.vintage_policy,
+                vintage_as_of=vintage_as_of_dt,
             )
             logger.info(
                 "Dataset readiness | macro=%s events=%s student_mode=%s vintages=%s events_dir=%s",
@@ -711,11 +943,29 @@ class MLPipelineOrchestrator:
                 meta_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
             except Exception:
                 pass
+            dataset_metadata = getattr(result, "metadata", None)
+            if dataset_metadata is not None:
+                try:
+                    self._guard_dataset_metadata(cfg=cfg, metadata=dataset_metadata)
+                except Exception as exc:
+                    raise ValueError(f"Dataset metadata guardrail violation: {exc}") from exc
+                self._synchronize_dataset_manifest(cfg=cfg, metadata=dataset_metadata)
+                try:
+                    logger.info(
+                        "Dataset metadata recorded | vintage_policy=%s vintage_cutoff=%s train_window=%s validation_window=%s",
+                        dataset_metadata.vintage_policy.value,
+                        dataset_metadata.vintage_cutoff,
+                        dataset_metadata.train_window,
+                        dataset_metadata.validation_window,
+                    )
+                except Exception:  # pragma: no cover - defensive logging
+                    logger.debug("Failed to log dataset metadata", exc_info=True)
             self._record_build_artifacts(
                 cfg=cfg,
                 feature_set_id=getattr(result, "feature_set_id", None),
                 feature_names=list(getattr(result, "feature_names", [])),
                 feature_registry_dir=cfg.feature_registry_dir,
+                dataset_metadata=dataset_metadata,
             )
             return 0
         except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
@@ -768,6 +1018,10 @@ class MLPipelineOrchestrator:
             args += ["--macro_series_ids", ",".join(cfg.macro_series_ids)]
         if cfg.macro_fred_path:
             args += ["--macro_fred_path", cfg.macro_fred_path]
+        if cfg.vintage_policy:
+            args += ["--vintage_policy", cfg.vintage_policy.value]
+        if cfg.vintage_as_of:
+            args += ["--vintage_as_of", cfg.vintage_as_of]
         if cfg.validation is not None:
             args += ["--validation_min_rows", str(cfg.validation.min_rows)]
             if cfg.validation.min_positive_rate is not None:
@@ -867,6 +1121,7 @@ class MLPipelineOrchestrator:
         feature_set_id: str | None,
         feature_names: Sequence[str] | None,
         feature_registry_dir: str | None,
+        dataset_metadata: DatasetMetadata | None = None,
     ) -> None:
         names_tuple = tuple(feature_names or [])
         self._build_artifacts = BuildArtifacts(
@@ -874,7 +1129,125 @@ class MLPipelineOrchestrator:
             feature_registry_dir=feature_registry_dir,
             feature_set_id=feature_set_id,
             feature_names=names_tuple,
+            dataset_metadata=dataset_metadata,
         )
+
+    def _guard_dataset_metadata(
+        self,
+        *,
+        cfg: DatasetBuildConfig,
+        metadata: DatasetMetadata,
+    ) -> None:
+        """Validate dataset metadata against configuration guardrails."""
+        def _normalize(value: str | None) -> str | None:
+            if not value:
+                return None
+            try:
+                dt_value = parse_dt(value)
+            except ValueError:
+                return value
+            if dt_value is None:
+                return value
+            formatted = format_dt(dt_value)
+            return formatted or value
+
+        expectations = DatasetMetadataExpectations(
+            dataset_id=cfg.dataset_id,
+            vintage_policy=cfg.vintage_policy,
+            vintage_cutoff=_normalize(cfg.vintage_as_of),
+            ts_event_start=_normalize(cfg.start_iso),
+            ts_event_end=_normalize(cfg.end_iso),
+        )
+        validate_dataset_metadata_expectations(
+            metadata,
+            expectations,
+            context="orchestrator.dataset",
+        )
+        if cfg.include_macro and cfg.macro_series_ids:
+            missing = []
+            for series in cfg.macro_series_ids:
+                key = str(series)
+                if metadata.macro_observation_counts.get(key, 0) <= 0:
+                    missing.append(key)
+            if missing:
+                missing_str = ", ".join(sorted(missing))
+                raise ValueError(
+                    f"Missing macro observations for series: {missing_str}",
+                )
+
+    @staticmethod
+    def _compute_dataset_pipeline_signature(
+        cfg: DatasetBuildConfig,
+        metadata: DatasetMetadata,
+    ) -> str:
+        """Derive a stable pipeline signature covering vintage policy and scope."""
+        return compute_dataset_pipeline_signature(
+            dataset_id=cfg.dataset_id,
+            symbols=cfg.symbols,
+            instrument_ids=cfg.instrument_ids,
+            macro_series_ids=cfg.macro_series_ids,
+            include_macro=cfg.include_macro,
+            macro_lag_days=cfg.macro_lag_days,
+            vintage_policy=metadata.vintage_policy,
+            vintage_cutoff=metadata.vintage_cutoff,
+            ts_event_start=metadata.ts_event_start,
+            ts_event_end=metadata.ts_event_end,
+        )
+
+    def _synchronize_dataset_manifest(
+        self,
+        *,
+        cfg: DatasetBuildConfig,
+        metadata: DatasetMetadata,
+    ) -> None:
+        registry_obj = self.data_registry
+        if registry_obj is None or not cfg.dataset_id:
+            return
+        registry = cast(RegistryProtocol, registry_obj)
+
+        try:
+            manifest = registry.get_manifest(cfg.dataset_id)
+        except Exception:
+            logger.debug(
+                "Data registry manifest missing for dataset_id=%s; skipping metadata sync",
+                cfg.dataset_id,
+            )
+            return
+
+        manifest_metadata = dict(getattr(manifest, "metadata", {}) or {})
+        manifest_metadata.update(
+            {
+                "dataset_id": cfg.dataset_id,
+                "vintage": {
+                    "policy": metadata.vintage_policy.value,
+                    "cutoff": metadata.vintage_cutoff,
+                    "build_ts": metadata.build_ts,
+                },
+                "windows": {
+                    "overall": metadata.overall_window,
+                    "train": metadata.train_window,
+                    "validation": metadata.validation_window,
+                    "test": metadata.test_window,
+                    "ts_event_start": metadata.ts_event_start,
+                    "ts_event_end": metadata.ts_event_end,
+                },
+            },
+        )
+
+        try:
+            registry.update_manifest(
+                cfg.dataset_id,
+                {
+                    "metadata": manifest_metadata,
+                    "pipeline_signature": self._compute_dataset_pipeline_signature(cfg, metadata),
+                },
+            )
+        except Exception as exc:  # pragma: no cover - registry backend failures
+            logger.debug(
+                "Failed to update dataset manifest metadata: %s",
+                exc,
+                exc_info=True,
+            )
 
     @staticmethod
     def _infer_feature_names(out_dir: Path) -> tuple[str, ...]:
@@ -935,6 +1308,20 @@ class MLPipelineOrchestrator:
             feature_names = self._infer_feature_names(out_dir)
 
         manifest_id: str | None = None
+        dataset_metadata: DatasetMetadata | None = None
+        metadata_path = out_dir / "dataset_metadata.json"
+        if metadata_path.exists():
+            try:
+                dataset_metadata = load_dataset_metadata(metadata_path)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load dataset metadata from %s: %s",
+                    metadata_path,
+                    exc,
+                )
+        else:
+            logger.debug("Dataset metadata not found at %s; continuing without it", metadata_path)
+
         if cfg.register_features and feature_names:
             sentinel = type("_Result", (), {"feature_names": feature_names})
             manifest_id = self._export_feature_manifest(cfg, sentinel)
@@ -958,11 +1345,19 @@ class MLPipelineOrchestrator:
                         exc,
                     )
 
+        if dataset_metadata is not None:
+            try:
+                self._guard_dataset_metadata(cfg=cfg, metadata=dataset_metadata)
+            except Exception as exc:
+                raise ValueError(f"Dataset metadata guardrail violation: {exc}") from exc
+            self._synchronize_dataset_manifest(cfg=cfg, metadata=dataset_metadata)
+
         self._record_build_artifacts(
             cfg=cfg,
             feature_set_id=feature_set_id,
             feature_names=feature_names,
             feature_registry_dir=feature_registry_dir,
+            dataset_metadata=dataset_metadata,
         )
 
     def run_hpo(self, cfg: HPOConfig, dataset_csv: Path, out_dir: Path) -> int:
@@ -1013,6 +1408,23 @@ class MLPipelineOrchestrator:
             artifacts.feature_registry_dir if artifacts else None
         )
         feature_set_id = cfg.feature_set_id or (artifacts.feature_set_id if artifacts else None)
+
+        metadata_path = dataset_csv.parent / "dataset_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Dataset metadata missing at {metadata_path}")
+
+        metadata_source: DatasetMetadata | None = None
+        if artifacts and artifacts.dataset_metadata is not None:
+            metadata_source = artifacts.dataset_metadata
+        else:
+            try:
+                metadata_source = load_dataset_metadata(metadata_path)
+            except Exception as exc:
+                logger.debug("Failed to load dataset metadata prior to training: %s", exc)
+
+        if metadata_source is None or metadata_source.dataset_id is None:
+            raise ValueError("Dataset metadata must include dataset_id before teacher training")
+
         args: list[str] = [
             "--train_data_csv",
             str(dataset_csv),
@@ -1022,7 +1434,15 @@ class MLPipelineOrchestrator:
             cfg.model_id,
             "--max_epochs",
             str(cfg.max_epochs),
+            "--dataset_metadata",
+            str(metadata_path),
+            "--expected_dataset_id",
+            metadata_source.dataset_id,
+            "--expected_vintage_policy",
+            metadata_source.vintage_policy.value,
         ]
+        if metadata_source.vintage_cutoff:
+            args += ["--expected_vintage_cutoff", metadata_source.vintage_cutoff]
         if feature_registry_dir is not None:
             args += ["--feature_registry_dir", feature_registry_dir]
         if feature_set_id is not None:
@@ -1436,6 +1856,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Explicit target path for FRED ML parquet (defaults to data/fred/fred_indicators_ml_format.parquet)",
     )
+    parser.add_argument(
+        "--vintage_policy",
+        default=VintagePolicy.REAL_TIME.value,
+        choices=[policy.value for policy in VintagePolicy],
+        help="Vintage policy for macro features (real_time or final)",
+    )
+    parser.add_argument(
+        "--vintage_as_of",
+        default=None,
+        help="ISO8601 timestamp (UTC) limiting macro revisions (optional)",
+    )
     parser.add_argument("--validation_min_rows", type=int, default=None)
     parser.add_argument("--validation_min_positive_rate", type=float, default=None)
     parser.add_argument("--validation_max_positive_rate", type=float, default=None)
@@ -1704,8 +2135,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.catalog_path:
             raise SystemExit("catalog_path is required for parquet write_mode")
         catalog = ParquetDataCatalog(args.catalog_path)
-        writer = ParquetCatalogMarketDataWriter(catalog=catalog)
-        raw_writer = ParquetCatalogRawWriter(catalog)
         from ml.core.integration import MLIntegrationManager
 
         mgr = MLIntegrationManager(
@@ -1715,6 +2144,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             ensure_healthy=False,
         )
         registry = mgr.data_registry
+        manifest_resolver = None
+        if registry is not None and hasattr(registry, "get_manifest"):
+            manifest_resolver = cast(RegistryProtocol, registry).get_manifest
+        writer = ParquetCatalogMarketDataWriter(
+            catalog=catalog,
+            manifest_resolver=manifest_resolver,
+        )
+        raw_writer = ParquetCatalogRawWriter(catalog)
         integration_factory = cast(Callable[..., IntegrationManagerProtocol], MLIntegrationManager)
 
     ingestor: object | None = None
@@ -1843,10 +2280,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.error("L2 ingestion failed: %s", exc, exc_info=True)
             raise
 
+    try:
+        effective_vintage_policy = VintagePolicy(str(args.vintage_policy))
+    except ValueError as exc:
+        raise SystemExit(f"Invalid vintage_policy: {args.vintage_policy}") from exc
+
     ds_cfg = DatasetBuildConfig(
         data_dir=str(data_dir_effective),
         symbols=str(args.symbols),
         out_dir=str(args.out_dir),
+        dataset_id=str(getattr(args, "dataset_id", "tft_dataset")),
         include_macro=bool(args.include_macro),
         macro_lag_days=int(args.macro_lag_days),
         include_micro=bool(args.include_micro),
@@ -1872,6 +2315,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         feature_registry_dir=args.feature_registry_dir,
         feature_role="teacher",
         validation=validation_cfg,
+        vintage_policy=effective_vintage_policy,
+        vintage_as_of=args.vintage_as_of,
     )
 
     auto_fill_cfg = _build_auto_fill_config_from_args(args, ds_cfg)

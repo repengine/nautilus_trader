@@ -25,8 +25,6 @@ Deliver a production-ready dashboard by strengthening the existing control plane
 - [x] Replace direct calls in `_safe_get`/registry lookups with `retry_with_backoff` (from `ml.common.retry_utils`) plus capped attempts; track failures with counters.
 - [x] Extend unit tests to cover cache expiration, fallback activation, and retry behaviour; document updated behaviour in `ml/docs/architecture/dashboard_control_plane.md`.
 
-`[~]` denotes partially completed work with follow-up actions tracked in backlog.
-
 ### Deliverables
 - Hardened service layer with caching + retries, metrics reflecting cache/fallback usage, and coverage proving behaviour.
 
@@ -56,11 +54,11 @@ Deliver a production-ready dashboard by strengthening the existing control plane
 - Validate observability endpoints end-to-end.
 
 ### Tasks
-- [ ] Extend `ml/dashboard/grafana.py` to compose reusable dashboard bundles using `ml.monitoring.dashboard_factory` panels; add tests with mocked HTTP responses.
-- [ ] Add an idempotent provisioning hook (manual trigger + optional startup flag) and expose status via API.
-- [ ] Implement a Prometheus query helper using simple polling (requests + retry_with_backoff) to power P95 latency / request counters on the dashboard cards.
-- [ ] Embed configurable Grafana iframes in the template with environment-driven base URLs and authentication notes; document setup in README.
-- [ ] Run `make validate-metrics` and ensure new metrics/topics stay compliant.
+- [x] Extend `ml/dashboard/grafana.py` to compose reusable dashboard bundles using `ml.monitoring.dashboard_factory` panels; add tests with mocked HTTP responses.
+- [x] Add an idempotent provisioning hook (manual trigger + optional startup flag) and expose status via API.
+- [x] Implement a Prometheus query helper using simple polling (requests + retry_with_backoff) to power P95 latency / request counters on the dashboard cards.
+- [x] Embed configurable Grafana iframes in the template with environment-driven base URLs and authentication notes; document setup in README.
+- [x] Run `make validate-metrics` and ensure new metrics/topics stay compliant.
 
 ### Deliverables
 - Grafana provisioning flow with accompanying tests, embedded panels in the UI, and Prometheus-backed status cards.
@@ -76,11 +74,11 @@ Deliver a production-ready dashboard by strengthening the existing control plane
 - **If store connectors are prioritized**, schedule the following tasks with additional environment preparation (PostgreSQL connection, credentials secured via config).
 
 ### Tasks (assuming store wiring proceeds)
-- [ ] Introduce lightweight adapters that obtain Feature/Model/Strategy/Data store clients via existing factory functions; ensure they respect configuration and cold-path constraints.
-- [ ] Add health summaries (data freshness, model staleness, feature drift) powered by store APIs; guard with fallbacks when stores are offline.
-- [ ] Expand metrics to capture store query latencies and fallback activations; include these in Prometheus snapshots.
-- [ ] Enhance `_require_token` with token rotation guidance, optional expiry, and audit logging hooks (structured logging + metrics).
-- [ ] Update documentation/runbooks and re-run `make validate-events`, `make validate-metrics`, `pytest -q ml/tests/performance -k microbench --benchmark-only` when loops are introduced.
+- [x] Introduce lightweight adapters that obtain Feature/Model/Strategy/Data store clients via existing factory functions; ensure they respect configuration and cold-path constraints.
+- [x] Add health summaries (data freshness, model staleness, feature drift) powered by store APIs; guard with fallbacks when stores are offline.
+- [x] Expand metrics to capture store query latencies and fallback activations; include these in Prometheus snapshots.
+- [x] Enhance `_require_token` with token rotation guidance, optional expiry, and audit logging hooks (structured logging + metrics).
+- [x] Update documentation/runbooks and re-run `make validate-events`, `make validate-metrics`, `pytest -q ml/tests/performance -k microbench --benchmark-only` when loops are introduced.
 
 ### Deliverables
 - Either: store-backed health panels with fallbacks and documentation, or a clearly documented backlog item explaining why store wiring is deferred.

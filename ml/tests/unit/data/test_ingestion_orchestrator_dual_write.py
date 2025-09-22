@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -15,6 +16,7 @@ from ml.registry.protocols import RegistryProtocol
 from ml.ml_types import DataFrameLike
 from ml.stores.protocols import CoverageProviderProtocol, MarketDataWriterProtocol
 from ml.stores.io_raw import RawIngestionWriterProtocol
+from ml.data.ingest.service import IngestionChunk, IngestionRequest, IngestionWindow
 
 
 class _FakeCoverage(CoverageProviderProtocol):
@@ -34,6 +36,7 @@ class _FakeCoverage(CoverageProviderProtocol):
 class _FakeWriter(MarketDataWriterProtocol):
     def __init__(self) -> None:
         self.calls: int = 0
+        self.last_df: pd.DataFrame | None = None
 
     def write(
         self,
@@ -44,6 +47,7 @@ class _FakeWriter(MarketDataWriterProtocol):
         df: pd.DataFrame,
     ) -> int:
         self.calls += 1
+        self.last_df = df.copy()
         return len(df.index)
 
 
@@ -155,6 +159,40 @@ def _make_fake_ingestor():
     return _FakeIngestor()
 
 
+class _FakeServiceWithMetadata:
+    def __init__(self, start_ns: int, end_ns: int) -> None:
+        self._start_ns = start_ns
+        self._end_ns = end_ns
+        self.requests: list[IngestionRequest] = []
+        self.metadata_client = object()
+
+    def get_available_range_ns(
+        self,
+        *,
+        dataset: str,
+        schema: str | None = None,
+    ) -> tuple[int | None, int | None]:
+        del dataset, schema
+        return (self._start_ns, self._end_ns)
+
+    def ingest(
+        self,
+        request: IngestionRequest,
+        *,
+        on_chunk: Any = None,
+    ) -> list[Any]:
+        self.requests.append(request)
+        frame = pd.DataFrame({"ts_event": [int(request.start.timestamp() * 1_000_000_000)]})
+        if on_chunk is not None:
+            chunk = IngestionChunk(
+                symbol=request.symbols[0],
+                window=IngestionWindow(start=request.start, end=request.end),
+                frame=frame,
+            )
+            on_chunk(chunk)
+        return []
+
+
 def test_dual_write_invokes_both_sinks() -> None:
     try:
         from ml.data.ingest.orchestrator import IngestionOrchestrator
@@ -198,9 +236,15 @@ def test_dual_write_invokes_both_sinks() -> None:
 
     assert len(gaps) >= 1
     assert sql_writer.calls == 1
+    assert sql_writer.last_df is not None
+    assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_event"])
+    assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_init"])
+    assert sql_writer.last_df["ts_event"].equals(sql_writer.last_df["ts_init"])
     assert raw.calls == 1
     assert raw.last_type == DatasetType.BARS
     assert reg.events and reg.events[0][1] == Stage.DATA_INGESTED
+    assert sql_writer.last_df is not None
+    assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_init"])
 
 def test_backfill_handles_timestamp_ts_event() -> None:
     try:
@@ -253,3 +297,48 @@ def test_backfill_handles_timestamp_ts_event() -> None:
 
     assert len(gaps) >= 1
     assert sql_writer.calls == 1
+
+
+def test_backfill_clamps_window_to_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    try:
+        from ml.data.ingest.orchestrator import DAY_NS, IngestionOrchestrator
+    except Exception:  # pragma: no cover - optional dependency guard
+        pytest.skip("ml.data.* optional dependencies not installed; skipping metadata clamp test")
+
+    base_now = 10 * DAY_NS
+    monkeypatch.setattr("ml.data.ingest.orchestrator._utc_now_ns", lambda: base_now)
+
+    cov = _FakeCoverage()
+    sql_writer = _FakeWriter()
+    reg = _FakeRegistry()
+    ing = _make_fake_ingestor()
+
+    planned_start = (base_now - DAY_NS)
+    planned_end = planned_start + DAY_NS
+    meta_start = planned_start + 600_000_000_000
+    meta_end = planned_end - 300_000_000_000
+    service = _FakeServiceWithMetadata(start_ns=meta_start, end_ns=meta_end)
+
+    orch = IngestionOrchestrator(
+        coverage=cov,
+        writer=sql_writer,
+        registry=reg,
+        ingestor=ing,
+        service=service,
+    )
+
+    gaps = orch.backfill_gaps(
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instrument_id="SPY.XNAS",
+        lookback_days=1,
+        state=None,
+    )
+
+    assert gaps == [(meta_start, meta_end - 1)]
+    assert service.requests
+    request = service.requests[0]
+    expected_start = datetime.fromtimestamp(meta_start / 1_000_000_000, tz=UTC)
+    expected_end = datetime.fromtimestamp((meta_end - 1) / 1_000_000_000, tz=UTC)
+    assert request.start == expected_start
+    assert request.end == expected_end

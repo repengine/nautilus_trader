@@ -60,9 +60,28 @@ class _FakeMetadata:
         return {"start": "2025-09-01T00:00:00Z", "end": "2025-09-02T00:00:00Z"}
 
 
+class _SchemaAwareMetadata:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.calls = 0
+
+    def get_cost(self, **_: Any) -> float:
+        return 0.0
+
+    def get_dataset_range(self, dataset: str) -> dict[str, Any]:
+        self.calls += 1
+        return self.payload
+
+
 class _FakeHistorical:
     def __init__(self, *, cost: float) -> None:
         self.metadata = _FakeMetadata(cost)
+        self.timeseries = _FakeTimeseries()
+
+
+class _MetadataHistorical:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.metadata = _SchemaAwareMetadata(payload)
         self.timeseries = _FakeTimeseries()
 
 
@@ -224,3 +243,41 @@ def test_run_jobs_executes_all_jobs(safety_config: DatabentoSafetyConfig) -> Non
     ]
     summaries = run_jobs(jobs, service=service)
     assert len(summaries) == 2
+
+
+def test_get_available_range_ns_prefers_schema_bounds(
+    safety_config: DatabentoSafetyConfig,
+) -> None:
+    dataset_start = datetime(2025, 9, 1, tzinfo=UTC)
+    dataset_end = datetime(2025, 9, 30, tzinfo=UTC)
+    schema_start = datetime(2025, 9, 5, tzinfo=UTC)
+    schema_end = datetime(2025, 9, 10, tzinfo=UTC)
+    payload = {
+        "start": dataset_start.isoformat(),
+        "end": dataset_end.isoformat(),
+        "schema": {
+            "trades": {
+                "start": schema_start.isoformat(),
+                "end": schema_end.isoformat(),
+            },
+        },
+    }
+    service = DatabentoIngestionService(
+        client=_MetadataHistorical(payload),
+        safety_config=safety_config,
+        policy=DatabentoCoveragePolicy(),
+    )
+
+    start_ns, end_ns = service.get_available_range_ns(dataset="EQUS.MINI", schema="TRADES")
+    assert start_ns is not None and end_ns is not None
+
+    observed_start = datetime.fromtimestamp(start_ns / 1_000_000_000, tz=UTC)
+    observed_end = datetime.fromtimestamp(end_ns / 1_000_000_000, tz=UTC)
+    assert observed_start == schema_start
+    assert observed_end == schema_end
+
+    # Cached result should avoid extra metadata lookups
+    _ = service.get_available_range_ns(dataset="EQUS.MINI", schema="trades")
+    metadata_client = service.metadata_client
+    assert isinstance(metadata_client, _SchemaAwareMetadata)
+    assert metadata_client.calls == 1

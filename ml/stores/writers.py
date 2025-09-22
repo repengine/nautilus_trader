@@ -16,11 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from nautilus_trader.core.data import Data
@@ -36,6 +37,10 @@ from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
 from ml.stores.data_store import DataStore
 from ml.stores.protocols import MarketDataWriterProtocol
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ml.registry.dataclasses import DatasetManifest
 
 
 logger = logging.getLogger(__name__)
@@ -117,7 +122,8 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
     """
 
     catalog: Any
-    bar_type_template: str = "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
+    manifest_resolver: Callable[[str], DatasetManifest | None] | None = None
+    default_bar_type_template: str = "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
 
     def write(
         self,
@@ -139,7 +145,8 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
         if not required.issubset(set(df.columns)):
             return 0
 
-        bt = _BarType.from_str(self.bar_type_template.format(instrument_id=instrument_id))
+        template = self._resolve_bar_type_template(dataset_id)
+        bt = _BarType.from_str(template.format(instrument_id=instrument_id))
         for _, row in df.iterrows():
             bars.append(
                 _Bar(
@@ -158,6 +165,21 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
             return 0
         self.catalog.write_data(bars)
         return len(bars)
+
+    def _resolve_bar_type_template(self, dataset_id: str) -> str:
+        if self.manifest_resolver is None:
+            return self.default_bar_type_template
+        try:
+            manifest = self.manifest_resolver(dataset_id)
+        except Exception:
+            return self.default_bar_type_template
+        if manifest is None:
+            return self.default_bar_type_template
+        metadata = getattr(manifest, "metadata", {})
+        candidate = metadata.get("bar_type_template") if isinstance(metadata, dict) else None
+        if isinstance(candidate, str) and "{instrument_id}" in candidate:
+            return candidate
+        return self.default_bar_type_template
 
 
 class LiveDataRecorder:

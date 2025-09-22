@@ -299,13 +299,27 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
 
         # Note: Do not mutate fields in frozen msgspec.Struct. Compatibility
         # handling for `ma_periods` occurs in pipeline spec construction.
+        if self.include_microstructure or self.include_trade_flow:
+            requirements = self.resolved_data_requirements()
+            allowed_requirements = {
+                DataRequirements.L1_L2,
+                DataRequirements.L1_L2_L3,
+            }
+            if requirements not in allowed_requirements:
+                raise ValueError(
+                    "Microstructure or trade flow features require data_requirements >= L1_L2; "
+                    f"received {requirements.value}.",
+                )
+
+    def resolved_data_requirements(self) -> DataRequirements:
+        """Return effective data requirements after applying feature constraints."""
+        requirements = getattr(self, "data_requirements", DataRequirements.L1_ONLY)
         if (
-            self.include_microstructure or self.include_trade_flow
-        ) and self.data_requirements == DataRequirements.L1_ONLY:
-            raise ValueError(
-                "Microstructure or trade flow features require data_requirements >= L1_L2; "
-                "set data_requirements accordingly."
-            )
+            requirements == DataRequirements.L1_ONLY
+            and (self.include_microstructure or self.include_trade_flow)
+        ):
+            return DataRequirements.L1_L2
+        return requirements
 
     def get_feature_names(self) -> list[str]:
         """
@@ -321,14 +335,7 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         """
         # Build a PipelineSpec mirroring the config and compute names via PipelineRunner
         spec = build_pipeline_spec_from_feature_config(self)
-        allowable = cast(
-            DataRequirements,
-            getattr(self, "data_requirements", DataRequirements.L1_ONLY),
-        )
-        if (
-            self.include_microstructure or self.include_trade_flow
-        ) and allowable == DataRequirements.L1_ONLY:
-            allowable = DataRequirements.L1_L2
+        allowable = self.resolved_data_requirements()
         runner = PipelineRunner(spec, allowable=allowable)
         return runner.compute_feature_names()
 

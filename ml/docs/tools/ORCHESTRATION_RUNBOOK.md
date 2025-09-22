@@ -46,6 +46,7 @@ Key flags:
 - Ingestion/backfill (optional): `--ingest`, `--dataset_id`, `--schema`, `--instruments`, `--lookback_days`
 - Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`, `--write_mode parquet|datastore`
   - Macro refresh: `--skip_macro_refresh`, `--macro_freshness_hours`, `--macro_series_ids`, `--macro_fred_path`
+  - Vintage policy: `--vintage_policy real_time|final`, `--vintage_as_of <ISO8601>` to control ALFRED revisions
   - Instrument resolution: `--instrument_ids`
   - Dataset validation: `--validation_min_rows`, `--validation_min_positive_rate`, `--validation_max_positive_rate`, `--validation_min_feature_coverage`
   - L2 extras: `--skip_l2_ingest`, `--l2_days`, `--l2_progress_file`, `--l2_symbols`, `--l2_tier`
@@ -61,6 +62,10 @@ Key flags:
   - `--runtime-strict-protocol-validation` (enforce protocol checks) and `--runtime-skip-validators` (skip metrics/event validators)
 
 When auto-fill is enabled the orchestrator derives coverage windows from the subscription policy (7y bars, 1y L1, ~30d L2/L3), invokes `IngestionOrchestrator.backfill_gaps` for bars/TBBO/trades, and then calls `populate_l2_efficient` before the dataset build begins. By default the depth stage is considered satisfied once auto-fill runs; use `--auto_fill_allow_dataset_l2_ingest` if you still want the dataset phase to run its own L2 ingestion.
+
+Auto-fill requests query Databento metadata before every download and clamp the ingestion window to the provider `available_end`. This keeps backfills inside the zero-cost guardrails and eliminates 422 responses. Instrument lists should use venue-qualified IDs (for example `SPY.XNYS`) so parquet writers can resolve the correct bar template from the dataset manifest.
+
+Every dataset build now writes `dataset_metadata.json` alongside the parquet/CSV artifacts detailing dataset id, `ts_event_start/end`, overall/train/validation/test windows, and the declared vintage policy/cutoff. Promotion gates (or downstream tooling) should inspect this file to guarantee models only train on the intended window with the expected revision policy.
 
 When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/registries and, by default, runs the metrics/events validators so the runtime is safe for actors. Use `--runtime-skip-validators` during dry-runs if you only need wiring without the scans.
 

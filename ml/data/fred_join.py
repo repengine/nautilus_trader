@@ -10,12 +10,14 @@ DataFrame using as-of semantics with a configurable publication lag.
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Iterable
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import ml._imports as _ml_imports
 from ml.ml_types import DataFrameLike, PolarsDF
+from ml.data.vintage import VintagePolicy
 
 pd = _ml_imports.pd
 pl = _ml_imports.pl
@@ -161,6 +163,8 @@ def join_fred_asof(
     fred_path: str | Path | None = None,
     vintage_base_dir: str | Path | None = None,
     series_filter: set[str] | None = None,
+    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME,
+    vintage_cutoff: datetime | None = None,
 ) -> DataFrameLike:
     """
     Join FRED macro features to a time-indexed market DataFrame using as-of semantics.
@@ -185,7 +189,19 @@ def join_fred_asof(
         ``lag_days`` for any series without vintage data.
 
     """
-    vintage_dir = Path(vintage_base_dir).expanduser() if vintage_base_dir else None
+    cutoff_utc: datetime | None
+    if vintage_cutoff is None:
+        cutoff_utc = None
+    elif vintage_cutoff.tzinfo is None:
+        cutoff_utc = vintage_cutoff.replace(tzinfo=UTC)
+    else:
+        cutoff_utc = vintage_cutoff.astimezone(UTC)
+    cutoff_naive = cutoff_utc.replace(tzinfo=None) if cutoff_utc is not None else None
+
+    use_vintage = vintage_policy is VintagePolicy.REAL_TIME and vintage_base_dir is not None
+    vintage_dir = None
+    if use_vintage and vintage_base_dir is not None:
+        vintage_dir = Path(vintage_base_dir).expanduser()
 
     # Polars path
     if pl is not None and isinstance(df, pl.DataFrame):
@@ -193,8 +209,13 @@ def join_fred_asof(
         assert _pl is not None
 
         fred = _load_fred_ml_pl(fred_path)
+        series_names: set[str] = set()
+        if "series_id" in fred.columns and not fred.is_empty():
+            series_names.update(str(item) for item in fred.get_column("series_id").unique().to_list())
         if series_filter is not None and not fred.is_empty():
             fred = fred.filter(_pl.col("series_id").is_in(list(series_filter)))
+        if cutoff_utc is not None and not fred.is_empty():
+            fred = fred.filter(_pl.col("timestamp") <= cutoff_utc)
         release_df = cast(PolarsDF, _pl.DataFrame())
         if vintage_dir is not None:
             release_filter = series_filter
@@ -202,9 +223,51 @@ def join_fred_asof(
                 release_filter = set(fred.get_column("series_id").unique().to_list())
             release_df = _load_vintage_release_pl(vintage_dir, release_filter)
             if not release_df.is_empty():
-                release_series = set(release_df.get_column("series_id").unique().to_list())
-                if not fred.is_empty() and release_series:
-                    fred = fred.filter(~_pl.col("series_id").is_in(list(release_series)))
+                # Normalize timestamp dtypes to avoid Null casts when filtering
+                release_ts_dtype = release_df.schema.get("release_ts")
+                observation_ts_dtype = release_df.schema.get("observation_ts")
+                if release_ts_dtype is None or release_ts_dtype == _pl.Null:
+                    release_df = release_df.with_columns(
+                        _pl.col("release_ts").cast(_pl.Datetime("ns")),
+                    )
+                    release_ts_dtype = _pl.Datetime("ns")
+                if observation_ts_dtype is None or observation_ts_dtype == _pl.Null:
+                    release_df = release_df.with_columns(
+                        _pl.col("observation_ts").cast(_pl.Datetime("ns")),
+                    )
+                    observation_ts_dtype = _pl.Datetime("ns")
+                series_names.update(str(item) for item in release_df.get_column("series_id").unique().to_list())
+                if cutoff_utc is not None:
+                    release_dtype = release_df.schema.get("release_ts")
+                    observation_dtype = release_df.schema.get("observation_ts")
+                    release_lit = (
+                        _pl.lit(cutoff_utc).cast(release_dtype)
+                        if release_dtype is not None
+                        else None
+                    )
+                    observation_lit = (
+                        _pl.lit(cutoff_utc).cast(observation_dtype)
+                        if observation_dtype is not None
+                        else None
+                    )
+                    if release_lit is not None and observation_lit is not None:
+                        release_df = release_df.filter(
+                            (_pl.col("release_ts") <= release_lit)
+                            & (_pl.col("observation_ts") <= observation_lit)
+                        )
+                    elif release_lit is not None:
+                        release_df = release_df.filter(_pl.col("release_ts") <= release_lit)
+        timestamp_dtype = _pl.Datetime("ns")
+        if "timestamp" in fred.columns:
+            inferred_dtype = fred.schema["timestamp"]
+            if inferred_dtype == _pl.Null:
+                timestamp_dtype = _pl.Datetime("ns")
+            else:
+                timestamp_dtype = inferred_dtype
+
+        if cutoff_utc is not None and not fred.is_empty():
+            cutoff_lit = _pl.lit(cutoff_utc).cast(timestamp_dtype)
+            fred = fred.filter(_pl.col("timestamp") <= cutoff_lit)
 
         frames: list[PolarsDF] = []
         if not fred.is_empty():
@@ -212,16 +275,22 @@ def join_fred_asof(
                 return cast(DataFrameLike, df)
             frames.append(
                 fred.select(["timestamp", "series_id", "value"]).with_columns(
-                    _pl.lit(None).cast(_pl.Datetime("ns")).alias("release_ts"),
+                    _pl.lit(None).cast(timestamp_dtype).alias("release_ts"),
                 ),
             )
 
         if release_df is not None and not release_df.is_empty():
-            frames.append(
-                release_df.rename({"observation_ts": "timestamp"}).select(
-                    ["timestamp", "series_id", "value", "release_ts"],
-                ),
+            release_select = (
+                release_df.rename({"observation_ts": "timestamp"})
+                .with_columns(
+                    [
+                        _pl.col("timestamp").cast(timestamp_dtype),
+                        _pl.col("release_ts").cast(timestamp_dtype),
+                    ],
+                )
+                .select(["timestamp", "series_id", "value", "release_ts"])
             )
+            frames.append(release_select)
 
         if not frames:
             return cast(DataFrameLike, df)
@@ -229,8 +298,8 @@ def join_fred_asof(
         combined = _pl.concat(frames, how="vertical")
         combined = combined.with_columns(
             [
-                _pl.col("timestamp").cast(_pl.Datetime("ns")),
-                _pl.col("release_ts").cast(_pl.Datetime("ns")),
+                _pl.col("timestamp").cast(timestamp_dtype),
+                _pl.col("release_ts").cast(timestamp_dtype),
             ],
         )
 
@@ -263,12 +332,86 @@ def join_fred_asof(
             )
         right_pl = fred_wide.sort(["ts_effective", "timestamp"])
 
+        series_list = sorted(series_names)
+
         joined = left_pl.join_asof(
             right_pl,
             left_on=timestamp_col,
             right_on="ts_effective",
             strategy="backward",
         )
+
+        if series_list:
+            realtime_exprs = [
+                _pl.col(name).alias(f"{name}__value_real_time")
+                for name in series_list
+                if name in joined.columns
+            ]
+            if realtime_exprs:
+                joined = joined.with_columns(realtime_exprs)
+
+        release_dtype_joined = joined.schema.get("release_ts")
+        if release_dtype_joined is not None and series_list:
+            vintage_exprs = []
+            for name in series_list:
+                if name in joined.columns:
+                    vintage_exprs.append(
+                        _pl.when(_pl.col(name).is_not_null())
+                        .then(_pl.col("release_ts"))
+                        .otherwise(None)
+                        .cast(release_dtype_joined)
+                        .alias(f"{name}__value_vintage_ts")
+                    )
+            if vintage_exprs:
+                joined = joined.with_columns(vintage_exprs)
+
+        if not fred.is_empty() and series_list:
+            final_values = fred.select(
+                [
+                    _pl.col("timestamp").alias("observation_ts"),
+                    _pl.col("series_id"),
+                    _pl.col("value"),
+                ],
+            ).with_columns(
+                [
+                    _pl.col("observation_ts").cast(timestamp_dtype),
+                    _pl.col("observation_ts")
+                    .cast(timestamp_dtype)
+                    .dt.offset_by(f"{int(lag_days)}d")
+                    .alias("ts_effective_final"),
+                ],
+            )
+
+            final_pivot = final_values.pivot(
+                values="value",
+                index="ts_effective_final",
+                columns="series_id",
+                aggregate_function="last",
+            )
+
+            if target_dtype is not None and final_pivot.schema.get("ts_effective_final") != target_dtype:
+                final_pivot = final_pivot.with_columns(
+                    _pl.col("ts_effective_final").cast(target_dtype),
+                )
+
+            rename_map = {
+                name: f"{name}__value_final"
+                for name in series_list
+                if name in final_pivot.columns
+            }
+            if rename_map:
+                final_pivot = final_pivot.rename(rename_map)
+
+            final_columns = [col for col in final_pivot.columns if col != "ts_effective_final"]
+            if final_columns:
+                joined = joined.join_asof(
+                    final_pivot.sort("ts_effective_final"),
+                    left_on=timestamp_col,
+                    right_on="ts_effective_final",
+                    strategy="backward",
+                )
+                if "ts_effective_final" in joined.columns:
+                    joined = joined.drop("ts_effective_final")
 
         for col in ("ts_effective", "release_ts"):
             if col in joined.columns:
@@ -300,6 +443,7 @@ def join_fred_asof(
         else:
             fred_ml = pd.DataFrame(columns=["timestamp", "series_id", "value"])
 
+        series_list_pd: set[str] = set()
         if series_filter is not None and not fred_ml.empty:
             fred_ml = fred_ml[fred_ml["series_id"].isin(series_filter)]
 
@@ -309,6 +453,9 @@ def join_fred_asof(
                 .dt.tz_convert("UTC")
                 .dt.tz_localize(None)
             )
+            if cutoff_naive is not None:
+                fred_ml = fred_ml[fred_ml["timestamp"] <= cutoff_naive]
+            series_list_pd.update(str(x) for x in fred_ml["series_id"].unique())
 
         release_df_pd: PandasDataFrame = pd.DataFrame()
         if vintage_dir is not None:
@@ -317,11 +464,12 @@ def join_fred_asof(
                 release_filter = {str(x) for x in list(fred_ml["series_id"].unique())}
             release_df_pd = _load_vintage_release_pd(vintage_dir, release_filter)
             if not release_df_pd.empty:
-                release_series = {
-                    str(x) for x in list(release_df_pd["series_id"].unique())
-                }
-                if not fred_ml.empty and release_series:
-                    fred_ml = fred_ml[~fred_ml["series_id"].isin(release_series)]
+                if cutoff_naive is not None:
+                    release_df_pd = release_df_pd[
+                        (release_df_pd["release_ts"] <= cutoff_naive)
+                        & (release_df_pd["observation_ts"] <= cutoff_naive)
+                    ]
+                series_list_pd.update(str(x) for x in release_df_pd["series_id"].unique())
 
         frames_pd: list[PandasDataFrame] = []
         if not fred_ml.empty:
@@ -371,6 +519,51 @@ def join_fred_asof(
             right_on="ts_effective",
             direction="backward",
         )
+
+        if series_list_pd:
+            for name in series_list_pd:
+                if name in merged.columns:
+                    merged[f"{name}__value_real_time"] = merged[name]
+                    if "release_ts" in merged.columns:
+                        merged[f"{name}__value_vintage_ts"] = merged["release_ts"].where(
+                            merged[name].notna(),
+                            pd.NaT,
+                        )
+
+        final_wide = pd.DataFrame()
+        if not fred_ml.empty and series_list_pd:
+            final_ml = fred_ml[["timestamp", "series_id", "value"]].copy()
+            final_ml["ts_effective_final"] = final_ml["timestamp"] + lag_offset
+            final_wide = (
+                final_ml.pivot_table(
+                    index="ts_effective_final",
+                    columns="series_id",
+                    values="value",
+                    aggfunc="last",
+                )
+                .reset_index()
+                .sort_values("ts_effective_final")
+            )
+            rename_map_pd = {
+                name: f"{name}__value_final"
+                for name in series_list_pd
+                if name in final_wide.columns
+            }
+            if rename_map_pd:
+                final_wide = final_wide.rename(columns=rename_map_pd)
+                final_merge = pd.merge_asof(
+                    left_pd[[timestamp_col]],
+                    final_wide,
+                    left_on=timestamp_col,
+                    right_on="ts_effective_final",
+                    direction="backward",
+                )
+                final_merge = final_merge.drop(columns=["ts_effective_final"], errors="ignore")
+                final_merge.index = left_pd.index
+                merged = merged.join(
+                    final_merge.drop(columns=[timestamp_col], errors="ignore"),
+                )
+
         merged = merged.drop(columns=["ts_effective", "release_ts"], errors="ignore")
         return cast(DataFrameLike, merged)
 

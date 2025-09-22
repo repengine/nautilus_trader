@@ -10,6 +10,7 @@ import structlog
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.data.vintage import VintagePolicy
 
 
 pl: Any
@@ -52,6 +53,8 @@ class DatasetValidationConfig:
     max_positive_rate: float | None = 0.999
     min_feature_coverage: float | None = 0.9
     require_macro_series: tuple[str, ...] | None = None
+    expected_vintage_policy: VintagePolicy | None = None
+    macro_min_vintage_observations: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ class DatasetValidationResult:
     positive_rate: float | None
     feature_coverage: dict[str, float]
     macro_columns_present: tuple[str, ...]
+    macro_observation_counts: dict[str, int]
 
 
 def _as_polars(df: Any) -> tuple[Any, bool]:
@@ -159,6 +163,7 @@ def validate_dataset(
                 raise DatasetValidationError(msg)
 
         macro_cols_present: tuple[str, ...] = ()
+        macro_counts: dict[str, int] = {}
         if config.require_macro_series:
             macros = set(config.require_macro_series)
             actual = {col for col in _macro_columns(df) if col in macros}
@@ -167,6 +172,27 @@ def validate_dataset(
                 msg = f"Missing macro series: {sorted(missing)}"
                 raise DatasetValidationError(msg)
             macro_cols_present = tuple(sorted(actual))
+            for macro in macro_cols_present:
+                vintage_col = f"{macro}__value_vintage_ts"
+                count = 0
+                if is_polars and vintage_col in df.columns:
+                    count = int(df.select(pl.col(vintage_col).is_not_null().sum().alias("n")).item())
+                elif not is_polars and vintage_col in df_any.columns:
+                    count = int(df_any[vintage_col].notna().sum())
+                macro_counts[macro] = count
+
+            min_obs = config.macro_min_vintage_observations
+            policy = config.expected_vintage_policy or VintagePolicy.REAL_TIME
+            if min_obs is not None and policy is VintagePolicy.REAL_TIME:
+                failing = [macro for macro, cnt in macro_counts.items() if cnt < min_obs]
+                if failing:
+                    worst = min(failing, key=lambda name: macro_counts.get(name, 0))
+                    worst_count = macro_counts.get(worst, 0)
+                    msg = (
+                        "Macro vintage coverage below threshold; "
+                        f"series {worst} has {worst_count} observations < {min_obs}"
+                    )
+                    raise DatasetValidationError(msg)
 
         status = "success"
         duration = time.perf_counter() - start
@@ -177,6 +203,7 @@ def validate_dataset(
             positive_rate=positive_rate,
             feature_coverage=coverage,
             macro_columns_present=macro_cols_present,
+            macro_observation_counts=macro_counts,
         )
     except Exception:
         duration = time.perf_counter() - start

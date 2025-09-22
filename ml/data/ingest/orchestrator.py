@@ -12,12 +12,14 @@ exercised in unit tests.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from typing import Any, Final, Protocol
 
 import pandas as pd
+from sqlalchemy.exc import IntegrityError
 
 from ml.config.events import EventStatus
 from ml.config.events import Source
@@ -39,6 +41,9 @@ DAY_NS: Final[int] = 86_400_000_000_000
 
 def _utc_now_ns() -> int:
     return int(datetime.now(tz=UTC).timestamp() * 1e9)
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -78,23 +83,42 @@ class IngestionOrchestrator:
             end_ns=now_ns,
         )
         start_bucket = start_ns // DAY_NS
-        end_bucket = now_ns // DAY_NS
+        end_bucket_candidate = ((now_ns - DAY_NS) // DAY_NS) - 1
+        if end_bucket_candidate < start_bucket:
+            end_bucket = int(start_bucket)
+        else:
+            end_bucket = int(end_bucket_candidate)
+
         gaps: list[tuple[int, int]] = []
         for b in range(int(start_bucket), int(end_bucket) + 1):
             if b not in covered:
                 gaps.append((b * DAY_NS, (b + 1) * DAY_NS))
 
+        requested: list[tuple[int, int]] = []
         for ws, we in gaps:
+            clamped = self._clamp_window_to_available_range(
+                dataset_id=dataset_id,
+                schema=schema,
+                start_ns=ws,
+                end_ns=we,
+            )
+            if clamped is None:
+                continue
+            start_ns, end_ns = clamped
+            requested.append((start_ns, end_ns))
             frames: list[pd.DataFrame] = []
+            ingest_symbol = instrument_id.split(".")[0]
 
             def _persist_frame(df: pd.DataFrame) -> None:
                 if df.empty:
                     return
+                normalized_df = self._normalize_time_columns(df)
+                frames.append(normalized_df)
                 self.writer.write(
                     dataset_id=dataset_id,
                     schema=schema,
                     instrument_id=instrument_id,
-                    df=df,
+                    df=normalized_df,
                 )
                 if self.raw_writer is not None:
                     try:
@@ -104,29 +128,28 @@ class IngestionOrchestrator:
                                 dataset_id=dataset_id,
                                 schema=schema,
                                 instrument_id=instrument_id,
-                                start_ns=ws,
-                                end_ns=we,
+                                start_ns=start_ns,
+                                end_ns=end_ns,
                             )
                             if items:
                                 self.raw_writer.write(dataset_type=dataset_type, data=items)
                         else:
-                            self.raw_writer.write(dataset_type=dataset_type, data=df)
+                            self.raw_writer.write(dataset_type=dataset_type, data=normalized_df)
                     except Exception:
                         pass
 
             if self.service is not None:
-                start_dt = datetime.fromtimestamp(ws / 1_000_000_000, tz=UTC)
-                end_dt = datetime.fromtimestamp(we / 1_000_000_000, tz=UTC)
+                start_dt = datetime.fromtimestamp(start_ns / 1_000_000_000, tz=UTC)
+                end_dt = datetime.fromtimestamp(end_ns / 1_000_000_000, tz=UTC)
 
                 def _handle_chunk(chunk: IngestionChunk) -> None:
-                    frames.append(chunk.frame)
                     _persist_frame(chunk.frame)
 
                 self.service.ingest(
                     IngestionRequest(
                         dataset=dataset_id,
                         schema=schema,
-                        symbols=(instrument_id,),
+                        symbols=(ingest_symbol,),
                         start=start_dt,
                         end=end_dt,
                         chunk_days=1,
@@ -139,15 +162,14 @@ class IngestionOrchestrator:
                 df = self.ingestor.ingest_time_window(
                     dataset=dataset_id,
                     schema=schema,
-                    instrument=instrument_id,
-                    start_ns=ws,
-                    end_ns=we,
+                    instrument=ingest_symbol,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
                     source=Source.HISTORICAL.value,
                     state=state,
                 )
                 if df.empty:
                     continue
-                frames.append(df)
                 _persist_frame(df)
 
             if not frames:
@@ -156,8 +178,13 @@ class IngestionOrchestrator:
             df_combined = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
             if df_combined.empty or "ts_event" not in df_combined.columns:
                 continue
-            ts_max = int(df_combined["ts_event"].max())
-            ts_min = int(df_combined["ts_event"].min())
+            ts_series = df_combined["ts_event"]
+            if pd.api.types.is_datetime64_any_dtype(ts_series):
+                ts_max = int(ts_series.max().value)
+                ts_min = int(ts_series.min().value)
+            else:
+                ts_max = int(ts_series.max())
+                ts_min = int(ts_series.min())
             count = len(df_combined.index)
             self.registry.emit_event(
                 dataset_id=dataset_id,
@@ -170,16 +197,130 @@ class IngestionOrchestrator:
                 count=count,
                 status=EventStatus.SUCCESS,
             )
-            self.registry.update_watermark(
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                source=Source.BACKFILL,
-                last_success_ns=ts_max,
-                count=count,
-                completeness_pct=1.0,
+            try:
+                self.registry.update_watermark(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    source=Source.BACKFILL,
+                    last_success_ns=ts_max,
+                    count=count,
+                    completeness_pct=1.0,
+                )
+            except IntegrityError as exc:
+                LOGGER.warning(
+                    "Watermark update skipped (unregistered dataset)",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": dataset_id,
+                        "instrument_id": instrument_id,
+                        "schema": schema,
+                        "reason": str(exc),
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - best effort
+                LOGGER.debug(
+                    "Watermark update failed",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": dataset_id,
+                        "instrument_id": instrument_id,
+                        "schema": schema,
+                        "reason": str(exc),
+                    },
+                )
+
+        return requested
+
+    def _clamp_window_to_available_range(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> tuple[int, int] | None:
+        """Clamp ingestion window to provider metadata bounds."""
+        service = self.service
+        if service is None:
+            return (start_ns, end_ns)
+
+        try:
+            meta_start, meta_end = service.get_available_range_ns(
+                dataset=dataset_id,
+                schema=schema,
+            )
+        except AttributeError:
+            return (start_ns, end_ns)
+
+        clamped_start = start_ns
+        clamped_end = end_ns
+        if meta_start is not None:
+            clamped_start = max(clamped_start, meta_start)
+        if meta_end is not None:
+            end_limit = meta_end - 1 if meta_end > 0 else 0
+            clamped_end = min(clamped_end, end_limit)
+
+        if clamped_end <= clamped_start:
+            LOGGER.debug(
+                "Skipping ingestion window outside metadata range",
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                    "meta_start": meta_start,
+                    "meta_end": meta_end,
+                },
+            )
+            return None
+
+        if clamped_start != start_ns or clamped_end != end_ns:
+            LOGGER.debug(
+                "Trimmed ingestion window to metadata range",
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                    "trimmed_start": clamped_start,
+                    "trimmed_end": clamped_end,
+                },
             )
 
-        return gaps
+        return (clamped_start, clamped_end)
+
+    @staticmethod
+    def _normalize_time_columns(df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure ts_event/ts_init columns are nanosecond integers."""
+        if "ts_event" in df.columns:
+            event_series = df["ts_event"]
+            if not pd.api.types.is_integer_dtype(event_series):
+                converted = pd.to_datetime(event_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted) and converted.notna().all():
+                    df.loc[:, "ts_event"] = converted.astype("int64")
+                else:
+                    try:
+                        numeric = pd.to_numeric(event_series, errors="raise")
+                    except Exception:
+                        numeric = None
+                    if numeric is not None and not numeric.isna().any():
+                        df.loc[:, "ts_event"] = numeric.astype("int64")
+        if "ts_init" in df.columns:
+            init_series = df["ts_init"]
+            if not pd.api.types.is_integer_dtype(init_series):
+                converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
+                    df.loc[:, "ts_init"] = converted_init.astype("int64")
+                else:
+                    try:
+                        numeric_init = pd.to_numeric(init_series, errors="raise")
+                    except Exception:
+                        numeric_init = None
+                    if numeric_init is not None and not numeric_init.isna().any():
+                        df.loc[:, "ts_init"] = numeric_init.astype("int64")
+        elif "ts_event" in df.columns:
+            df.loc[:, "ts_init"] = df["ts_event"]
+        return df
 
     def start_live(self) -> None:  # pragma: no cover - integration hook
         """
@@ -206,7 +347,6 @@ class DomainWindowLoaderProtocol(Protocol):
         start_ns: int,
         end_ns: int,
     ) -> list[Any]: ...
-
 
 def _schema_to_dataset_type(schema: str) -> DatasetType:
     s = schema.lower()

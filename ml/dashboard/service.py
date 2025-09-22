@@ -8,6 +8,9 @@ bootstrap. Logging uses structlog configuration from ml.common.
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import hmac
 import json
 import logging
 import time
@@ -15,13 +18,15 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
-from threading import Lock
+from datetime import datetime
 from threading import Event as ThreadEvent
+from threading import Lock
 from threading import Thread
 from typing import Any, Generic, TypeVar, cast
 from urllib.parse import urljoin
 
 import requests
+from sqlalchemy.engine import Engine
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
@@ -35,13 +40,23 @@ from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.core.db_engine import EngineManager
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.controllers import ComposeServiceController
 from ml.dashboard.controllers import NoopServiceController
 from ml.dashboard.controllers import ServiceControllerProtocol
 from ml.dashboard.exceptions import ServiceControlUnsupportedError
 from ml.dashboard.grafana import GrafanaConfig
+from ml.dashboard.grafana import GrafanaProvisionResult
+from ml.dashboard.grafana import PrometheusQueryHelper
+from ml.dashboard.grafana import default_panel_bundles
 from ml.dashboard.grafana import provision_dashboard
+from ml.dashboard.metrics_snapshot import DashboardMetricsSnapshot
+from ml.dashboard.metrics_snapshot import DashboardSuccessReport
+from ml.dashboard.metrics_snapshot import build_dashboard_snapshot
+from ml.dashboard.metrics_snapshot import evaluate_success_criteria
+from ml.dashboard.store_health import StoreHealthSummary
+from ml.dashboard.store_health import summarize_all_stores
 from ml.registry import BackendType
 from ml.registry import DataRegistry
 from ml.registry import DatasetLineageRecord
@@ -91,6 +106,12 @@ _REGISTRY_RETRY_TOTAL = get_counter(
     "Dashboard registry retry attempts",
     labels=["registry"],
 )
+_REGISTRY_LATENCY_SECONDS = get_histogram(
+    "ml_dashboard_registry_latency_seconds",
+    "Dashboard registry cache latency (seconds)",
+    labels=["entry"],
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.5, 1.0],
+)
 
 _EVENT_CACHE_HITS = get_counter(
     "ml_dashboard_events_cache_hits_total",
@@ -108,6 +129,28 @@ _EVENT_FAILURES_TOTAL = get_counter(
     "ml_dashboard_events_failure_total",
     "Dashboard events polling failures",
     labels=["reason"],
+)
+
+_STORE_SUMMARY_FAILURES = get_counter(
+    "ml_dashboard_store_summary_failures_total",
+    "Dashboard store summary failures",
+    labels=["store", "reason"],
+)
+_STORE_FALLBACK_TOTAL = get_counter(
+    "ml_dashboard_store_fallback_total",
+    "Dashboard store fallback activations",
+    labels=["store", "reason"],
+)
+_STORE_SUMMARY_SECONDS = get_histogram(
+    "ml_dashboard_store_summary_seconds",
+    "Store summary collection latency (seconds)",
+    labels=["operation"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+)
+_AUTH_VALIDATIONS_TOTAL = get_counter(
+    "ml_dashboard_auth_validations_total",
+    "Dashboard token validation attempts",
+    labels=["result"],
 )
 
 
@@ -212,7 +255,6 @@ class _EventCache:
 
     def snapshot(self) -> tuple[list[dict[str, Any]], bool]:
         """Return cached events and whether they remain fresh."""
-
         now = self._clock()
         with self._lock:
             is_fresh = bool(self._events) and now < self._expires_at
@@ -226,11 +268,31 @@ class _EventCache:
 
     def stale_snapshot(self) -> list[dict[str, Any]]:
         """Return cached events irrespective of expiry (best effort)."""
-
         with self._lock:
             return list(self._events)
 
 
+@dataclass(slots=True)
+class _GrafanaStatus:
+    """Track Grafana provisioning attempts."""
+
+    ok: bool = False
+    url: str | None = None
+    status_code: int | None = None
+    error: str | None = None
+    last_attempt_epoch: float | None = None
+
+
+@dataclass(slots=True)
+class _StoreClients:
+    """Lazily constructed store instances used for health summaries."""
+
+    feature: object | None
+    model: object | None
+    strategy: object | None
+
+
+@dataclass(slots=True, init=False)
 class DashboardService:
     """
     Service providing dashboard operations.
@@ -238,18 +300,20 @@ class DashboardService:
 
     config: DashboardConfig
     controller: ServiceControllerProtocol
-    _model_registry: ModelRegistry | None = field(default=None, init=False)
-    _feature_registry: FeatureRegistry | None = field(default=None, init=False)
-    _strategy_registry: StrategyRegistry | None = field(default=None, init=False)
-    _data_registry: DataRegistry | None = field(default=None, init=False)
-    _registry_cache: _TTLCache[object] = field(
-        default_factory=lambda: _TTLCache(ttl_seconds=30.0, max_entries=32),
-        init=False,
-    )
-    _allow_dummy_fallback: bool = field(default_factory=_env_allows_dummy, init=False)
-    _event_cache: _EventCache = field(init=False)
-    _event_poll_thread: Thread | None = field(default=None, init=False)
-    _event_poll_stop: ThreadEvent | None = field(default=None, init=False)
+    _model_registry: ModelRegistry | None = field(default=None, init=False, repr=False)
+    _feature_registry: FeatureRegistry | None = field(default=None, init=False, repr=False)
+    _strategy_registry: StrategyRegistry | None = field(default=None, init=False, repr=False)
+    _data_registry: DataRegistry | None = field(default=None, init=False, repr=False)
+    _registry_cache: _TTLCache[object] = field(init=False, repr=False)
+    _allow_dummy_fallback: bool = field(init=False, repr=False)
+    _event_cache: _EventCache = field(init=False, repr=False)
+    _event_poll_thread: Thread | None = field(default=None, init=False, repr=False)
+    _event_poll_stop: ThreadEvent | None = field(default=None, init=False, repr=False)
+    _store_clients: _StoreClients | None = field(default=None, init=False, repr=False)
+    _store_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+    _store_summary_cache: _TTLCache[dict[str, Any]] = field(init=False, repr=False)
+    _prometheus_helper: PrometheusQueryHelper | None = field(init=False, repr=False)
+    _grafana_status: _GrafanaStatus = field(init=False, repr=False)
 
     @classmethod
     def from_config(cls, config: DashboardConfig) -> DashboardService:
@@ -258,12 +322,43 @@ class DashboardService:
             controller = ComposeServiceController(config.compose_file)
         else:
             controller = NoopServiceController()
-        return cls(config=config, controller=controller)
+        svc = cls(config=config, controller=controller)
+        if config.grafana_provision_on_start:
+            try:
+                svc.provision_grafana_dashboard(title=config.grafana_dashboard_title, force=True)
+            except Exception:
+                logger.debug("initial grafana provisioning failed", exc_info=True)
+        return svc
 
-    def __post_init__(self) -> None:
+    def __init__(self, config: DashboardConfig, controller: ServiceControllerProtocol) -> None:
+        self.config = config
+        self.controller = controller
+        self._model_registry = None
+        self._feature_registry = None
+        self._strategy_registry = None
+        self._data_registry = None
+        self._registry_cache = _TTLCache(ttl_seconds=30.0, max_entries=32)
+        self._allow_dummy_fallback = _env_allows_dummy()
         self._event_cache = _EventCache(
             ttl_seconds=self.config.events_cache_ttl_seconds,
             max_entries=self.config.events_cache_max_entries,
+        )
+        self._event_poll_thread = None
+        self._event_poll_stop = None
+        self._store_clients = None
+        self._store_lock = Lock()
+        self._prometheus_helper = (
+            PrometheusQueryHelper(
+                base_url=self.config.prometheus_url,
+                timeout_seconds=self.config.prometheus_query_timeout_seconds,
+            )
+            if self.config.prometheus_url
+            else None
+        )
+        self._grafana_status = _GrafanaStatus()
+        self._store_summary_cache = _TTLCache(
+            ttl_seconds=self.config.store_health_cache_ttl_seconds,
+            max_entries=self.config.store_health_cache_max_entries,
         )
 
     # -----------------
@@ -295,14 +390,10 @@ class DashboardService:
                 health["services"][name] = {"healthy": ok, "status_code": code}
 
             # Observability
-            ok_prom, code_prom = _safe_get(
-                f"http://localhost:{cfg.prometheus_port}/-/healthy",
-                cfg.request_timeout_seconds,
-            )
-            ok_graf, code_graf = _safe_get(
-                f"http://localhost:{cfg.grafana_port}/api/health",
-                cfg.request_timeout_seconds,
-            )
+            prom_health_url = urljoin(self.config.prometheus_url.rstrip("/") + "/", "-/healthy")
+            ok_prom, code_prom = _safe_get(prom_health_url, cfg.request_timeout_seconds)
+            grafana_health_url = urljoin(self.config.grafana_url.rstrip("/") + "/", "api/health")
+            ok_graf, code_graf = _safe_get(grafana_health_url, cfg.request_timeout_seconds)
             health["dependencies"]["prometheus"] = {"healthy": ok_prom, "status_code": code_prom}
             health["dependencies"]["grafana"] = {"healthy": ok_graf, "status_code": code_graf}
 
@@ -511,14 +602,17 @@ class DashboardService:
         key: str,
         fetch: Callable[[], _CacheValueT],
     ) -> _CacheValueT:
+        start = time.perf_counter()
         cached = self._registry_cache.get(key)
         if cached is not None:
             _REGISTRY_CACHE_HITS.labels(entry=key).inc()
+            _REGISTRY_LATENCY_SECONDS.labels(entry=key).observe(time.perf_counter() - start)
             return cast(_CacheValueT, cached)
 
         _REGISTRY_CACHE_MISSES.labels(entry=key).inc()
         value = fetch()
         self._registry_cache.put(key, value)
+        _REGISTRY_LATENCY_SECONDS.labels(entry=key).observe(time.perf_counter() - start)
         return value
 
     def _invalidate_cache(self, *keys: str) -> None:
@@ -566,8 +660,12 @@ class DashboardService:
         self._event_poll_thread = thread
 
     def stop_event_polling(self) -> None:
-        if self._event_poll_stop is not None:
-            self._event_poll_stop.set()
+        stop = self._event_poll_stop
+        if stop is not None:
+            stop.set()
+        thread = self._event_poll_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
         self._event_poll_thread = None
         self._event_poll_stop = None
 
@@ -1095,19 +1193,255 @@ class DashboardService:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id}
 
+    def _get_db_engine(self) -> Engine | None:
+        connection = self.config.db_connection
+        if not connection:
+            return None
+        try:
+            return EngineManager.get_engine(connection)
+        except Exception:
+            logger.debug("dashboard db engine unavailable", exc_info=True)
+            return None
+
+    def _record_store_fallback(self, *, store: str, reason: str) -> None:
+        try:
+            _STORE_FALLBACK_TOTAL.labels(store=store, reason=reason).inc()
+        except Exception:  # pragma: no cover - metrics guard
+            logger.debug("store fallback metric emission failed", exc_info=True)
+
+    def _ensure_store_clients(self) -> _StoreClients:
+        if self._store_clients is not None:
+            return self._store_clients
+        if not self.config.db_connection or not self.config.store_health_enabled:
+            clients = _StoreClients(feature=None, model=None, strategy=None)
+            self._store_clients = clients
+            return clients
+        with self._store_lock:
+            if self._store_clients is not None:
+                return self._store_clients
+            conn = self.config.db_connection
+            feature = model = strategy = None
+            try:
+                from ml.stores.feature_store import FeatureStore  # pylint: disable=import-outside-toplevel
+
+                feature = FeatureStore(conn, enable_publishing=False)
+            except Exception:
+                logger.debug("feature store init failed", exc_info=True)
+                self._record_store_fallback(store="feature", reason="init_failed")
+            try:
+                from ml.stores.model_store import ModelStore  # pylint: disable=import-outside-toplevel
+
+                model = ModelStore(conn, enable_publishing=False)
+            except Exception:
+                logger.debug("model store init failed", exc_info=True)
+                self._record_store_fallback(store="model", reason="init_failed")
+            try:
+                from ml.stores.strategy_store import StrategyStore  # pylint: disable=import-outside-toplevel
+
+                strategy = StrategyStore(conn, enable_publishing=False)
+            except Exception:
+                logger.debug("strategy store init failed", exc_info=True)
+                self._record_store_fallback(store="strategy", reason="init_failed")
+            clients = _StoreClients(feature=feature, model=model, strategy=strategy)
+            self._store_clients = clients
+            return clients
+
+    def _record_store_summary_metrics(self, summary: StoreHealthSummary) -> None:
+        if summary.error:
+            try:
+                _STORE_SUMMARY_FAILURES.labels(store=summary.store, reason="error").inc()
+            except Exception:  # pragma: no cover - metrics guard
+                logger.debug("store summary failure metric emission failed", exc_info=True)
+        if summary.fallback_active:
+            self._record_store_fallback(store=summary.store, reason="fallback")
+
+    def get_store_summary(self) -> dict[str, Any]:
+        route = "/api/observability/stores"
+        start = time.perf_counter()
+        cache_key = self._cache_key("store_summary")
+        try:
+            if not self.config.store_health_enabled:
+                _REQS_TOTAL.labels(route=route, method="GET", status="disabled").inc()
+                return {"ok": False, "stores": [], "reason": "disabled"}
+            cached = self._store_summary_cache.get(cache_key)
+            if cached is not None:
+                _REQS_TOTAL.labels(route=route, method="GET", status="cached").inc()
+                return cached
+            engine = self._get_db_engine()
+            clients = self._ensure_store_clients()
+            summaries = summarize_all_stores(
+                feature_store=clients.feature,
+                model_store=clients.model,
+                strategy_store=clients.strategy,
+                engine=engine,
+                top_dataset_limit=self.config.store_health_top_datasets,
+            )
+            for summary in summaries:
+                self._record_store_summary_metrics(summary)
+            payload = {
+                "ok": True,
+                "generated_at": datetime.now(dt.UTC).isoformat(),
+                "stores": [summary.as_dict() for summary in summaries],
+            }
+            self._store_summary_cache.put(cache_key, payload)
+            _REQS_TOTAL.labels(route=route, method="GET", status="success").inc()
+            return payload
+        except Exception:
+            logger.debug("store summary collection failed", exc_info=True)
+            _REQS_TOTAL.labels(route=route, method="GET", status="error").inc()
+            return {"ok": False, "stores": [], "reason": "error"}
+        finally:
+            _STORE_SUMMARY_SECONDS.labels(operation="collect").observe(time.perf_counter() - start)
+
+    def validate_token(self, provided: str | None, *, now: datetime | None = None) -> bool:
+        tokens = self.config.auth_tokens
+        if not tokens:
+            return True
+        now = now or datetime.now(dt.UTC)
+        if not provided:
+            _AUTH_VALIDATIONS_TOTAL.labels(result="missing").inc()
+            logger.warning("dashboard token missing", extra={"route": "ml.dashboard"})
+            return False
+        active_tokens = tuple(token for token in tokens if token.is_valid(now=now))
+        if not active_tokens:
+            _AUTH_VALIDATIONS_TOTAL.labels(result="expired").inc()
+            logger.warning("all dashboard tokens expired", extra={"route": "ml.dashboard"})
+            return False
+        provided_digest = hashlib.sha256(provided.encode("utf-8")).hexdigest()[:8]
+        for token in active_tokens:
+            if hmac.compare_digest(token.value, provided):
+                _AUTH_VALIDATIONS_TOTAL.labels(result="success").inc()
+                return True
+        _AUTH_VALIDATIONS_TOTAL.labels(result="invalid").inc()
+        logger.warning(
+            "dashboard token invalid",
+            extra={"token_fingerprint": provided_digest},
+        )
+        return False
+
+    def _build_grafana_config(self) -> GrafanaConfig:
+        return GrafanaConfig(
+            url=self.config.grafana_url,
+            api_token=self.config.grafana_api_token,
+            username=self.config.grafana_username,
+            password=self.config.grafana_password,
+            folder_uid=self.config.grafana_folder_uid,
+            datasource_uid=self.config.grafana_datasource_uid,
+            dashboard_uid=self.config.grafana_dashboard_uid,
+            dashboard_title=self.config.grafana_dashboard_title,
+            refresh_interval=self.config.grafana_refresh_interval,
+        )
+
     # -----------------
     # Grafana provisioning
     # -----------------
-    def provision_grafana_dashboard(self, *, title: str | None = None) -> dict[str, Any]:
-        import os
+    def provision_grafana_dashboard(self, *, title: str | None = None, force: bool = False) -> dict[str, Any]:
+        route = "/api/observability/grafana/provision"
+        start = time.perf_counter()
+        try:
+            cfg = self._build_grafana_config()
+            if (
+                not force
+                and self._grafana_status.ok
+                and self._grafana_status.url is not None
+                and (title is None or title == cfg.dashboard_title)
+            ):
+                _REQS_TOTAL.labels(route=route, method="POST", status="cached").inc()
+                return {
+                    "ok": True,
+                    "url": self._grafana_status.url,
+                    "cached": True,
+                    "status_code": self._grafana_status.status_code,
+                    "error": self._grafana_status.error,
+                }
 
-        url = os.getenv("GRAFANA_URL", "http://localhost:3000")
-        token = os.getenv("GRAFANA_API_TOKEN")
-        user = os.getenv("GF_ADMIN_USER") or os.getenv("GRAFANA_ADMIN_USER")
-        pwd = os.getenv("GF_SECURITY_ADMIN_PASSWORD") or os.getenv("GRAFANA_ADMIN_PASSWORD")
-        cfg = GrafanaConfig(url=url, api_token=token, username=user, password=pwd)
-        ok, dash_url = provision_dashboard(cfg, overwrite=True, title=title)
-        return {"ok": ok, "url": dash_url}
+            result: GrafanaProvisionResult = provision_dashboard(
+                cfg,
+                overwrite=True,
+                title=title,
+                bundles=default_panel_bundles(),
+            )
+            resolved_url = result.url or (self.config.grafana_dashboard_url() if result.ok else None)
+            status_label = "success" if result.ok else "error"
+            _REQS_TOTAL.labels(route=route, method="POST", status=status_label).inc()
+            self._grafana_status = _GrafanaStatus(
+                ok=result.ok,
+                url=resolved_url,
+                status_code=result.status_code,
+                error=result.error,
+                last_attempt_epoch=time.time(),
+            )
+            return {
+                "ok": result.ok,
+                "url": resolved_url,
+                "status_code": result.status_code,
+                "error": result.error,
+            }
+        except Exception:
+            logger.debug("grafana provisioning error", exc_info=True)
+            _REQS_TOTAL.labels(route=route, method="POST", status="exception").inc()
+            self._grafana_status = _GrafanaStatus(
+                ok=False,
+                url=self._grafana_status.url,
+                status_code=None,
+                error="exception",
+                last_attempt_epoch=time.time(),
+            )
+            return {"ok": False, "url": self._grafana_status.url, "error": "exception"}
+        finally:
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def get_grafana_status(self) -> dict[str, Any]:
+        status = self._grafana_status
+        return {
+            "ok": status.ok,
+            "url": status.url or self.config.grafana_dashboard_url(),
+            "status_code": status.status_code,
+            "error": status.error,
+            "last_attempt_epoch": status.last_attempt_epoch,
+            "embed_urls": self.config.grafana_embed_urls(),
+        }
+
+    def get_prometheus_summary(self) -> dict[str, Any]:
+        route = "/api/observability/summary"
+        start = time.perf_counter()
+        try:
+            helper = self._prometheus_helper
+            if helper is None:
+                _REQS_TOTAL.labels(route=route, method="GET", status="disabled").inc()
+                return {"ok": False, "metrics": {}, "reason": "disabled"}
+            metrics = helper.collect_scalars(
+                {
+                    "request_rate_per_second": "sum(rate(ml_dashboard_requests_total[5m]))",
+                    "latency_p95_seconds": "histogram_quantile(0.95, sum(rate(ml_dashboard_latency_seconds_bucket[5m])) by (le))",
+                    "event_failures_increase": "sum(increase(ml_dashboard_events_failure_total[5m]))",
+                }
+            )
+            _REQS_TOTAL.labels(route=route, method="GET", status="success").inc()
+            return {"ok": True, "metrics": metrics, "updated_at": time.time()}
+        except Exception:
+            logger.debug("prometheus summary failed", exc_info=True)
+            _REQS_TOTAL.labels(route=route, method="GET", status="error").inc()
+            return {"ok": False, "metrics": {}, "reason": "error"}
+        finally:
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def get_metrics_snapshot(self) -> DashboardMetricsSnapshot:
+        """Return aggregated dashboard metrics useful for success criteria validation."""
+        return build_dashboard_snapshot(
+            registry_cache_hits=_REGISTRY_CACHE_HITS,
+            registry_cache_misses=_REGISTRY_CACHE_MISSES,
+            registry_histogram=_REGISTRY_LATENCY_SECONDS,
+            event_cache_hits=_EVENT_CACHE_HITS,
+            event_cache_misses=_EVENT_CACHE_MISSES,
+            request_counter=_REQS_TOTAL,
+            store_histogram=_STORE_SUMMARY_SECONDS,
+        )
+
+    def evaluate_success_criteria(self) -> DashboardSuccessReport:
+        """Evaluate dashboard success criteria using observed metrics."""
+        snapshot = self.get_metrics_snapshot()
+        return evaluate_success_criteria(snapshot)
 
     # -----------------
     # Control actions

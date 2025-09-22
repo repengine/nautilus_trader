@@ -32,6 +32,7 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 ### 🧭 Operations & Dashboard
 
 - **[architecture/dashboard_control_plane.md](architecture/dashboard_control_plane.md)** - Dashboard control-plane API, deployment, and usage
+- **[ops/dashboard_runbook.md](ops/dashboard_runbook.md)** - Operational runbook for the dashboard service (auth, Grafana, store health)
 
 ### 🧰 CLI Tooling
 
