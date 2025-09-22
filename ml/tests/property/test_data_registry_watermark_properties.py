@@ -28,7 +28,7 @@ def _manifest(dataset_id: str) -> DatasetManifest:
         dataset_type=DatasetType.SIGNALS,
         storage_kind=StorageKind.PARQUET,
         location="/tmp",
-        partitioning=None,
+        partitioning={},
         retention_days=7,
         schema=schema,
         ts_field="ts_event",

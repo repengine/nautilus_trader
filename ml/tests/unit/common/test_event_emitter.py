@@ -7,7 +7,11 @@ from ml.common.event_emitter import (
     emit_dataset_event,
     emit_dataset_event_and_watermark,
 )
+from typing import cast
+
 from ml.config.events import EventStatus, Source, Stage
+from ml.registry.protocols import RegistryProtocol
+from pytest import MonkeyPatch
 
 
 class _DummyRegistry:
@@ -15,26 +19,90 @@ class _DummyRegistry:
         self.last_emit: dict[str, Any] | None = None
         self.last_watermark: dict[str, Any] | None = None
 
-    def emit_event(self, **kwargs: Any) -> None:
-        # capture for assertions
-        self.last_emit = kwargs
+    def emit_event(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage,
+        source: Source,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: EventStatus,
+        error: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        self.last_emit = {
+            "dataset_id": dataset_id,
+            "instrument_id": instrument_id,
+            "stage": stage,
+            "source": source,
+            "run_id": run_id,
+            "ts_min": ts_min,
+            "ts_max": ts_max,
+            "count": count,
+            "status": status,
+            "error": error,
+            "metadata": metadata,
+        }
 
-    def update_watermark(self, **kwargs: Any) -> None:
-        self.last_watermark = kwargs
+    def update_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: Source,
+        last_success_ns: int,
+        count: int,
+        completeness_pct: float,
+    ) -> None:
+        self.last_watermark = {
+            "dataset_id": dataset_id,
+            "instrument_id": instrument_id,
+            "source": source,
+            "last_success_ns": last_success_ns,
+            "count": count,
+            "completeness_pct": completeness_pct,
+        }
 
 
 class _LegacyRegistry(_DummyRegistry):
     # Legacy emit_event without metadata kwarg; emulate TypeError on unexpected kwargs
-    def emit_event(self, **kwargs: Any) -> None:  # type: ignore[override]
-        if "metadata" in kwargs:
+    def emit_event(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage,
+        source: Source,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: EventStatus,
+        error: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        if metadata is not None:
             raise TypeError("unexpected keyword 'metadata'")
-        super().emit_event(**kwargs)
+        super().emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            error=error,
+            metadata=None,
+        )
 
 
 def test_emit_dataset_event_and_watermark_attaches_correlation_and_updates_watermark() -> None:
     reg = _DummyRegistry()
     emit_dataset_event_and_watermark(
-        reg,
+        cast(RegistryProtocol, reg),
         dataset_id="features",
         instrument_id="EUR/USD",
         stage=Stage.FEATURE_COMPUTED,
@@ -48,14 +116,15 @@ def test_emit_dataset_event_and_watermark_attaches_correlation_and_updates_water
     assert reg.last_emit is not None
     assert reg.last_watermark is not None
     assert "metadata" in reg.last_emit
-    assert "correlation_id" in reg.last_emit["metadata"]
+    metadata = cast(dict[str, object] | None, reg.last_emit["metadata"])
+    assert metadata is not None and "correlation_id" in metadata
     assert reg.last_watermark["last_success_ns"] == 2
 
 
 def test_emit_dataset_event_legacy_registry_without_metadata_kwarg() -> None:
     reg = _LegacyRegistry()
     emit_dataset_event(
-        reg,
+        cast(RegistryProtocol, reg),
         dataset_id="predictions",
         instrument_id="EUR/USD",
         stage=Stage.MODEL_INFERRED,
@@ -72,14 +141,17 @@ def test_emit_dataset_event_legacy_registry_without_metadata_kwarg() -> None:
     assert "metadata" not in reg.last_emit
 
 
-def test__ensure_correlation_id_preserves_existing_and_injects_trace_context(monkeypatch) -> None:
+def test__ensure_correlation_id_preserves_existing_and_injects_trace_context(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    del monkeypatch
     # install tracing stub that injects a trace_context
     import sys
     from types import ModuleType
 
     mod = ModuleType("ml.observability.tracing")
 
-    def inject_trace_context(meta):  # type: ignore[no-untyped-def]
+    def inject_trace_context(meta: dict[str, object]) -> dict[str, object]:
         m = dict(meta)
         m["trace_context"] = {"traceparent": "00-abc-01"}
         return m
@@ -100,4 +172,3 @@ def test__ensure_correlation_id_preserves_existing_and_injects_trace_context(mon
     assert meta["correlation_id"] == "keep_me"
     # trace_context injected by stub
     assert "trace_context" in meta
-

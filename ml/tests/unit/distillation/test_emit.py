@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from ml.training.distillation.emit import generate_teacher_targets
 
 
-def test_generate_teacher_targets(tmp_path) -> None:
+def test_generate_teacher_targets(tmp_path: Path) -> None:
     features_path = tmp_path / "features.npz"
     out_path = tmp_path / "teacher_logits.npz"
     X_train = np.array([[1.0, 2.0], [3.0, 5.0]])

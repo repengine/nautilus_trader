@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
+from types import MethodType
 
 import numpy as np
 
@@ -9,10 +10,10 @@ from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.execution import ExecutionConfig, OrderExecutor
 from ml.strategies.ml_strategy import MLTradingStrategy
+from ml.strategies.protocols import PositionSizerProtocol
 from ml.strategies.risk import RiskConfig, RiskManager
-from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
-from nautilus_trader.core.uuid import UUID4
 
 
 class _DummyInstrument:
@@ -80,16 +81,14 @@ class _DummyCache:
             self.bid_price = _Px(bid)
             self.ask_price = _Px(ask)
 
-    def trade_tick(self, instrument_id: InstrumentId):
+    def trade_tick(self, instrument_id: InstrumentId) -> Any:
         return None
 
     def quote_tick(self, instrument_id: InstrumentId) -> Any:
         return self._Tick(bid=1.00000, ask=1.00020)
 
     def client_order_id(self) -> Any:
-        from nautilus_trader.test_kit.stubs.identifiers import IdentifiersStub
-
-        return IdentifiersStub.client_order_id()
+        return ClientOrderId("TEST-ORDER")
 
 
 class _DummyPortfolio:
@@ -109,14 +108,14 @@ class _TestStrategy(MLTradingStrategy):
 
     # Override read-only properties for test doubles
     @property
-    def cache(self) -> _DummyCache:  # type: ignore[override]
+    def cache(self) -> Any:
         return self._dummy_cache
 
     @property
-    def portfolio(self) -> _DummyPortfolio:  # type: ignore[override]
+    def portfolio(self) -> Any:
         return self._dummy_portfolio
 
-    def submit_order(self, order: Any) -> None:  # type: ignore[override]
+    def submit_order(self, order: Any) -> None:
         self._submitted.append(order)
 
 
@@ -144,12 +143,17 @@ def test_size_and_validate_uses_risk_and_price_conversion() -> None:
 
     # Force sizer to return a small, fixed value-based Quantity
     class _Sizer:
-        def calculate(self, signal: MLSignal, account: Any, current_positions: list[Any]) -> Quantity | None:
+        def calculate(
+            self,
+            signal: MLSignal,
+            account: Any,
+            current_positions: list[Any],
+        ) -> Quantity | None:
             del signal, account, current_positions
             # Value in account currency
             return Quantity.from_str("100.0")
 
-    strat.position_sizer = _Sizer()  # type: ignore[assignment]
+    strat.position_sizer = cast(PositionSizerProtocol, _Sizer())
 
     sig = MLSignal(
         instrument_id=strat._config.instrument_id,
@@ -184,7 +188,20 @@ def test_submit_smart_order_uses_executor_when_available() -> None:
 
     qty = Quantity.from_str("100.0")
     # Patch market order placement to bypass constructor requirements
-    strat._place_market_order = lambda side, quantity, reduce_only=False: UUID4()  # type: ignore[assignment]
+    def _fake_place_market_order(
+        self: _TestStrategy,
+        side: Any,
+        quantity: Quantity,
+        reduce_only: bool = False,
+    ) -> ClientOrderId:
+        del self, side, quantity, reduce_only
+        return ClientOrderId("TEST-ORDER")
+
+    setattr(
+        strat,
+        "_place_market_order",
+        MethodType(_fake_place_market_order, strat),
+    )
     # Should execute without raising and return a value or None gracefully
     _ = strat._submit_smart_order(
         side=strat.target_side_from_prediction(0.8),

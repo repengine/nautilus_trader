@@ -144,6 +144,8 @@ See ml/_imports.py for dependency management patterns.
 # Enable postponed evaluation of annotations to avoid importing optional deps for types
 from __future__ import annotations
 
+import structlog
+
 # Core data conversion utilities
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.catalog_utils import quotes_to_dataframe
@@ -200,6 +202,10 @@ from ml.data.sources.events import MockEventSource
 from ml.data.sources.metadata import DatabentoMetadataSource
 from ml.data.sources.metadata import NautilusMetadataSource
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.data.validation import DatasetValidationConfig
+from ml.data.validation import DatasetValidationError
+from ml.data.validation import DatasetValidationResult
+from ml.data.validation import validate_dataset
 
 
 __all__ = [
@@ -214,6 +220,9 @@ __all__ = [
     "DatabentoIngestionService",
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
+    "DatasetValidationConfig",
+    "DatasetValidationError",
+    "DatasetValidationResult",
     "DomainWindowLoaderProtocol",
     "EventScheduleProvider",
     "FREDConfig",
@@ -253,6 +262,7 @@ __all__ = [
     "quotes_to_dataframe",
     "run_jobs",
     "trades_to_dataframe",
+    "validate_dataset",
 ]
 
 
@@ -268,12 +278,17 @@ import numpy as np
 
 # (Avoid importing optional deps here; import lazily inside functions)
 
+logger = structlog.get_logger(__name__)
+
+DEFAULT_FRED_PARQUET_PATH = Path("data/fred/fred_indicators_ml_format.parquet")
+
 
 @dataclass(frozen=True)
 class DatasetBuildConfig:
     data_dir: Path
     out_dir: Path
     symbols: list[str]
+    instrument_ids: list[str] | None = None
     # Feature options
     include_macro: bool = True
     macro_lag_days: int = 1
@@ -298,6 +313,13 @@ class DatasetBuildConfig:
     feature_role: str = "teacher"  # teacher|student|inference_support
     # Optional lineage/events (cold path only)
     emit_dataset_events: bool = False
+    # Macro refresh controls
+    auto_refresh_macro: bool = True
+    macro_staleness_hours: int = 24
+    macro_series_ids: tuple[str, ...] | None = None
+    macro_fred_path: Path | None = None
+    # Validation
+    validation: DatasetValidationConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -313,7 +335,14 @@ def _infer_feature_columns(df: Any) -> list[str]:
     """
     Infer numeric feature columns, excluding label/index/meta fields.
     """
-    exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
+    exclude = {
+        "y",
+        "forward_return",
+        "time_index",
+        "timestamp",
+        "instrument_id",
+        "ts_event",
+    }
     from ml._imports import HAS_PANDAS
     from ml._imports import pd
     from ml._imports import pl
@@ -339,26 +368,55 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         check_ml_dependencies(["polars"])  # Guard for cold-path environment
 
     # Defer ParquetDataCatalog import to avoid import-time heavy deps here
+    from ml.data.ingest.macro_refresh import ensure_macro_ready
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
 
     catalog = ParquetDataCatalog(path=str(cfg.data_dir))
 
+    fred_parquet_path = cfg.macro_fred_path or DEFAULT_FRED_PARQUET_PATH
+    macro_series_ids = cfg.macro_series_ids
+    if cfg.include_macro and cfg.auto_refresh_macro and not cfg.student_mode:
+        refresh_window = timedelta(hours=max(cfg.macro_staleness_hours, 0))
+        result = ensure_macro_ready(
+            fred_path=fred_parquet_path,
+            vintage_dir=cfg.fred_vintage_dir,
+            max_age=refresh_window,
+            series_ids=macro_series_ids,
+        )
+        if result.fred_error is not None:
+            logger.warning(
+                "FRED macro refresh failed; proceeding with existing artifacts",
+                error=str(result.fred_error),
+                path=str(fred_parquet_path),
+            )
+        if result.alfred_error is not None:
+            logger.warning(
+                "ALFRED macro refresh failed; proceeding with existing artifacts",
+                error=str(result.alfred_error),
+                base_dir=str(result.alfred_base_dir),
+            )
+
+    fred_path_str = str(fred_parquet_path) if cfg.include_macro else None
+
     builder = TFTDatasetBuilder(
         catalog=catalog,
         symbols=cfg.symbols,
+        instrument_ids=cfg.instrument_ids,
         include_macro=cfg.include_macro,
         macro_lag_days=cfg.macro_lag_days,
         include_micro=cfg.include_micro,
         include_l2=cfg.include_l2,
         include_events=cfg.include_events,
         include_calendar=cfg.include_calendar,
+        fred_path=fred_path_str,
         vintage_base_dir=cfg.fred_vintage_dir,
         events_base_dir=cfg.events_base_dir,
         student_mode=cfg.student_mode,
         micro_base_dir=str(cfg.data_dir),
         l2_base_dir=str(cfg.data_dir),
+        macro_series_ids=cfg.macro_series_ids,
     )
 
     # Optional chunked build (date slices)
@@ -407,6 +465,17 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
                 check_ml_dependencies(["pandas"])  # pragma: no cover
             assert pd is not None
             df = pl.from_pandas(df_any)
+
+    # Validate dataset before persisting artifacts
+    validation_cfg = cfg.validation or DatasetValidationConfig(
+        require_macro_series=cfg.macro_series_ids,
+    )
+    validation_result = validate_dataset(df, config=validation_cfg)
+    logger.info(
+        "Dataset validation succeeded",
+        rows=validation_result.row_count,
+        positive_rate=validation_result.positive_rate,
+    )
 
     # Persist dataset artifacts
     dataset_parquet = cfg.out_dir / "dataset.parquet"

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Any, Iterator, cast
+from typing import Any, Iterator
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import Stage
 from ml.stores.data_store import DataStore
+from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
+from ml.registry.protocols import RegistryProtocol
 
 
 @contextmanager
@@ -23,12 +25,12 @@ def env(vars: dict[str, str]) -> Iterator[None]:
                 os.environ[k] = v
 
 
-class StubRegistry:
+class StubRegistry(RegistryProtocol):
     def emit_event(
         self,
         dataset_id: str,
         instrument_id: str,
-        stage: str,
+        stage: Stage,
         source: str,
         run_id: str,
         ts_min: int,
@@ -52,14 +54,36 @@ class StubRegistry:
         return None
 
     # Protocol methods unused in this test
-    def get_manifest(self, dataset_id: str):  # type: ignore[override]
-        raise NotImplementedError
+    def get_manifest(self, dataset_id: str) -> DatasetManifest:
+        return DatasetManifest(
+            dataset_id=dataset_id,
+            dataset_type=DatasetType.FEATURES,
+            storage_kind=StorageKind.POSTGRES,
+            location="",
+            partitioning={},
+            retention_days=1,
+            schema={"ts_event": "int64"},
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["ts_event"],
+            schema_hash="",
+            constraints={},
+            lineage=[],
+            pipeline_signature="test",
+            version="1.0.0",
+            metadata={},
+        )
 
-    def get_contract(self, dataset_id: str):  # type: ignore[override]
-        raise NotImplementedError
+    def get_contract(self, dataset_id: str) -> DataContract:
+        return DataContract(
+            contract_id=f"contract-{dataset_id}",
+            dataset_id=dataset_id,
+            version="1.0.0",
+            validation_rules=[],
+        )
 
-    def register_dataset(self, manifest):  # type: ignore[override]
-        raise NotImplementedError
+    def register_dataset(self, manifest: DatasetManifest) -> str:
+        return manifest.dataset_id
 
 
 class CapturePublisher(MessagePublisherProtocol):
@@ -77,7 +101,7 @@ from pathlib import Path
 def test_data_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
-        store = cast(Any, DataStore)(
+        store = DataStore(
             connection_string=f"sqlite:///{tmp_path}/ds.db",
             registry=StubRegistry(),
             publisher=pub,

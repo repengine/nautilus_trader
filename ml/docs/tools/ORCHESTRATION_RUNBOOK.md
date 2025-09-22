@@ -8,7 +8,7 @@ This runbook describes how to run the cold‑path ML pipeline on a schedule, how
 - Schedule options:
   - `--schedule-time HH:MMZ` (UTC daily time, e.g., `02:30Z`)
   - `--interval-min N` (minutes, e.g., `1440`)
-- Config: `--config <path>` to a JSON/TOML orchestrator config (see `ml/config/pipeline_scheduler_example.toml`).
+- Config: `--config <path>` to a JSON/TOML orchestrator config (see `ml/config/pipeline_scheduler_example.toml`). Include an optional `[integration]` section to mirror the runtime flags (`enabled`, `db_connection`, `auto_start_postgres`, `auto_migrate`, `ensure_healthy`, `strict_protocol_validation`, `run_validators`).
 - Dry-run and force:
   - `--dry-run` logs actions only
   - `--force` ignores existing outputs and runs anyway
@@ -45,12 +45,24 @@ Key flags:
 
 - Ingestion/backfill (optional): `--ingest`, `--dataset_id`, `--schema`, `--instruments`, `--lookback_days`
 - Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`, `--write_mode parquet|datastore`
-- Dataset: `--data_dir`, `--symbols`, `--out_dir`, `--include_macro`, `--include_micro`, `--include_l2`, `--horizon_minutes`, `--threshold`, `--lookback_periods`
+  - Macro refresh: `--skip_macro_refresh`, `--macro_freshness_hours`, `--macro_series_ids`, `--macro_fred_path`
+  - Instrument resolution: `--instrument_ids`
+  - Dataset validation: `--validation_min_rows`, `--validation_min_positive_rate`, `--validation_max_positive_rate`, `--validation_min_feature_coverage`
+  - L2 extras: `--skip_l2_ingest`, `--l2_days`, `--l2_progress_file`, `--l2_symbols`, `--l2_tier`
+- Auto-fill coverage (optional): `--auto_fill_universe` enables pre-build backfills (bars/TBBO/trades) and depth ingestion; pair with overrides such as `--auto_fill_l2_days`, `--auto_fill_skip_l2`, `--auto_fill_l2_progress_file`, and `--auto_fill_allow_dataset_l2_ingest`
 - HPO: `--hpo`, `--hpo_epochs`, `--hpo_batch_size`, `--hpo_tail_rows`, `--hpo_limit_groups`
 - Teacher: `--train`, `--teacher_model_id`, `--feature_registry_dir`, `--feature_set_id`, `--max_epochs`
 - Promotions/Refresh:
   - Model: `--auto_register_model`, `--gates_json`, `--auto_promote`, `--deploy_target`
   - Features: `--auto_register_features`, `--feature_metrics_json`, `--refresh_features`
+- Runtime attachment (optional): `--attach-runtime` wires `MLIntegrationManager` after the cold path finishes. Pair it with:
+  - `--runtime-db-connection` (override DB URL used for runtime wiring)
+  - `--runtime-auto-start-db`, `--runtime-auto-migrate`, `--runtime-no-ensure-healthy`
+  - `--runtime-strict-protocol-validation` (enforce protocol checks) and `--runtime-skip-validators` (skip metrics/event validators)
+
+When auto-fill is enabled the orchestrator derives coverage windows from the subscription policy (7y bars, 1y L1, ~30d L2/L3), invokes `IngestionOrchestrator.backfill_gaps` for bars/TBBO/trades, and then calls `populate_l2_efficient` before the dataset build begins. By default the depth stage is considered satisfied once auto-fill runs; use `--auto_fill_allow_dataset_l2_ingest` if you still want the dataset phase to run its own L2 ingestion.
+
+When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/registries and, by default, runs the metrics/events validators so the runtime is safe for actors. Use `--runtime-skip-validators` during dry-runs if you only need wiring without the scans.
 
 ## Environment Variables
 

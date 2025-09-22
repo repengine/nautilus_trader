@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -125,6 +125,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e", size = 7490, upload-time = "2025-07-03T22:54:42.156Z" },
+]
+
+[[package]]
+name = "aiosqlite"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/7d/8bca2bf9a247c2c5dfeec1d7a5f40db6518f88d314b8bca9da29670d2671/aiosqlite-0.21.0.tar.gz", hash = "sha256:131bb8056daa3bc875608c631c678cda73922a2d4ba8aec373b19f18c17e7aa3", size = 13454, upload-time = "2025-02-03T07:30:16.235Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/10/6c25ed6de94c49f88a91fa5018cb4c0f3625f31d5be9f771ebe5cc7cd506/aiosqlite-0.21.0-py3-none-any.whl", hash = "sha256:2549cf4057f95f53dcba16f2b64e8e2791d7e1adedb13197dd8ed77bb226d7d0", size = 15792, upload-time = "2025-02-03T07:30:13.6Z" },
 ]
 
 [[package]]
@@ -2844,10 +2856,12 @@ version = "1.220.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "aiosqlite" },
     { name = "anyio" },
     { name = "asyncio" },
     { name = "click" },
     { name = "databento" },
+    { name = "flask" },
     { name = "fredapi" },
     { name = "fsspec" },
     { name = "lightgbm" },
@@ -2872,6 +2886,7 @@ dependencies = [
     { name = "skl2onnx" },
     { name = "sqlalchemy" },
     { name = "starlette" },
+    { name = "structlog" },
     { name = "tabulate" },
     { name = "torchmetrics" },
     { name = "tqdm" },
@@ -2951,6 +2966,7 @@ polymarket = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
+    { name = "aiosqlite", specifier = ">=0.21.0,<0.22.0" },
     { name = "anyio", specifier = ">=4.10.0,<5.0.0" },
     { name = "arch", marker = "extra == 'ml-advanced'", specifier = ">=7.2.0,<8.0.0" },
     { name = "asyncio", specifier = ">=4.0.0,<5.0.0" },
@@ -2967,6 +2983,7 @@ requires-dist = [
     { name = "ecdsa", marker = "extra == 'dydx'", specifier = ">=0.19.0,<1.0.0" },
     { name = "econml", marker = "extra == 'ml-causal'", specifier = ">=0.15.0,<1.0.0" },
     { name = "evidently", marker = "extra == 'ml-advanced'", specifier = ">=0.5.0,<1.0.0" },
+    { name = "flask", specifier = ">=3.1.2,<4.0.0" },
     { name = "fredapi", specifier = ">=0.5.2,<0.6.0" },
     { name = "fsspec", specifier = ">=2025.2.0,<2026.0.0" },
     { name = "grpcio", marker = "extra == 'dydx'", specifier = "==1.68.1" },
@@ -3015,6 +3032,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.47.2,<0.48.0" },
     { name = "statsforecast", marker = "extra == 'ml-forecasting'", specifier = ">=2.0.0,<3.0.0" },
     { name = "statsmodels", marker = "extra == 'ml-advanced'", specifier = ">=0.14.0,<1.0.0" },
+    { name = "structlog", specifier = ">=25.4.0,<26.0.0" },
     { name = "tabulate", specifier = ">=0.9.0,<0.10.0" },
     { name = "torch", marker = "extra == 'ml-graph'", specifier = ">=2.0.0,<3.0.0" },
     { name = "torch-geometric", marker = "extra == 'ml-graph'", specifier = ">=2.5.0,<3.0.0" },
@@ -5303,6 +5321,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/48/973da1ee8bc0743519759e74c3615b39acdc3faf00e0a0710f8c856d8c9d/statsmodels-0.14.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5a085d47c8ef5387279a991633883d0e700de2b0acc812d7032d165888627bef", size = 10453538, upload-time = "2025-07-07T14:24:06.959Z" },
     { url = "https://files.pythonhosted.org/packages/c7/d6/18903fb707afd31cf1edaec5201964dbdacb2bfae9a22558274647a7c88f/statsmodels-0.14.5-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:9f866b2ebb2904b47c342d00def83c526ef2eb1df6a9a3c94ba5fe63d0005aec", size = 10681584, upload-time = "2025-07-07T14:24:21.038Z" },
     { url = "https://files.pythonhosted.org/packages/44/d6/80df1bbbfcdc50bff4152f43274420fa9856d56e234d160d6206eb1f5827/statsmodels-0.14.5-cp313-cp313-win_amd64.whl", hash = "sha256:2a06bca03b7a492f88c8106103ab75f1a5ced25de90103a89f3a287518017939", size = 9604641, upload-time = "2025-07-07T12:08:36.23Z" },
+]
+
+[[package]]
+name = "structlog"
+version = "25.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/b9/6e672db4fec07349e7a8a8172c1a6ae235c58679ca29c3f86a61b5e59ff3/structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4", size = 1369138, upload-time = "2025-06-02T08:21:12.971Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/4a/97ee6973e3a73c74c8120d59829c3861ea52210667ec3e7a16045c62b64d/structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c", size = 68720, upload-time = "2025-06-02T08:21:11.43Z" },
 ]
 
 [[package]]

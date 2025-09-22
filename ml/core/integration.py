@@ -10,6 +10,7 @@ connected and persisted.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from collections.abc import Iterable
@@ -40,6 +41,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 # Runtime imports for store components and adapters referenced below
 from ml.stores.feature_store import FeatureStore
+from ml.stores.file_backed import FileDataStore
+from ml.stores.file_backed import FileFeatureStore
+from ml.stores.file_backed import FileModelStore
+from ml.stores.file_backed import FileStrategyStore
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.io_raw import ParquetCatalogRawReader
 from ml.stores.io_raw import ParquetCatalogRawWriter
@@ -159,35 +164,39 @@ class MLIntegrationManager:
 
         # Initialize components with progressive fallback when enabled
         self._json_fallback: bool = False
+        self._file_fallback: bool = False
+        self._file_store_path = Path(
+            os.getenv("ML_FILE_STORE_PATH", Path.home() / ".nautilus" / "ml" / "file_store"),
+        )
+
         if not self._is_postgres_running():
             if self.auto_start_postgres:
                 self._start_postgres_container()
-            else:
-                # DB not available and auto-start disabled: prefer JSON for registries
-                # and dummy stores for cold-path safety (no persistence).
-                self._json_fallback = True
-                logger.warning(
-                    "PostgreSQL unavailable — falling back to JSON registries and dummy stores",
-                )
-                try:
-                    from ml.common.metrics_manager import MetricsManager as _MM
-
-                    mm = _MM.default()
-                    mm.inc(
-                        "ml_fallback_activations_total",
-                        "Fallback activations",
-                        labels={"component": "ml_integration_manager", "level": "json"},
-                        labelnames=("component", "level"),
+            if not self._is_postgres_running():
+                if not self._enable_file_fallback():
+                    self._json_fallback = True
+                    logger.warning(
+                        "PostgreSQL unavailable — falling back to JSON registries and dummy stores",
                     )
-                except Exception:
-                    pass
+                    try:
+                        from ml.common.metrics_manager import MetricsManager as _MM
+
+                        mm = _MM.default()
+                        mm.inc(
+                            "ml_fallback_activations_total",
+                            "Fallback activations",
+                            labels={"component": "ml_integration_manager", "level": "json"},
+                            labelnames=("component", "level"),
+                        )
+                    except Exception:
+                        pass
 
         # Initialize according to selected mode
-        if not self._json_fallback:
+        if not (self._json_fallback or self._file_fallback):
             self._init_database()
         self._init_stores()
         self._init_registries()
-        if not self._json_fallback:
+        if not (self._json_fallback or self._file_fallback):
             self._init_partition_manager()
 
         # Ensure everything is healthy
@@ -271,6 +280,40 @@ class MLIntegrationManager:
         if self.auto_migrate:
             self._run_migrations()
 
+    def _enable_file_fallback(self) -> bool:
+        """
+        Attempt to enable file-backed fallback stores.
+
+        Returns
+        -------
+        bool
+            ``True`` when the file-backed stores were initialised successfully.
+        """
+        try:
+            self._file_store_path.mkdir(parents=True, exist_ok=True)
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("file_store_path_unavailable", exc_info=True)
+            return False
+
+        try:
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            _MM.default().inc(
+                "ml_fallback_activations_total",
+                "Fallback activations",
+                labels={"component": "ml_integration_manager", "level": "file"},
+                labelnames=("component", "level"),
+            )
+        except Exception:
+            logger.debug("file_fallback_metric_failed", exc_info=True)
+
+        self._file_fallback = True
+        logger.warning(
+            "PostgreSQL unavailable — using file-backed ML stores at %s",
+            self._file_store_path,
+        )
+        return True
+
     def _init_dummy_components(self) -> None:
         """
         Initialize in-memory dummy components for testing fallback.
@@ -304,8 +347,13 @@ class MLIntegrationManager:
         from ml.registry.persistence import BackendType
         from ml.registry.persistence import PersistenceConfig
 
-        if self._json_fallback:
-            # Dummy stores for fallback (no persistence available for SQL-backed stores)
+        if self._file_fallback:
+            file_root = self._file_store_path
+            self.feature_store = FileFeatureStore(base_path=file_root / "features")
+            self.model_store = FileModelStore(base_path=file_root / "models")
+            self.strategy_store = FileStrategyStore(base_path=file_root / "strategies")
+            self.data_store = FileDataStore(base_path=file_root / "datastore")
+        elif self._json_fallback:
             from ml.stores.base import DummyStore
 
             self.feature_store = DummyStore()
@@ -352,7 +400,7 @@ class MLIntegrationManager:
         from ml.registry.persistence import PersistenceConfig
 
         # Create persistence config for registries (DB-first; fallback to JSON)
-        if self._json_fallback:
+        if self._file_fallback or self._json_fallback:
             persistence_config = PersistenceConfig(
                 backend=BackendType.JSON,
                 json_path=Path("./ml_registry"),
@@ -386,6 +434,9 @@ class MLIntegrationManager:
             registry_path=registry_path / "datasets",
             persistence_config=persistence_config,
         )
+
+        if self._file_fallback:
+            return
 
         if self._json_fallback:
             # Stores are dummy in fallback; nothing more to wire
@@ -1628,6 +1679,61 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
                 raise
 
     if backend == BackendType.JSON:
+        file_store_path = Path(
+            getattr(
+                config,
+                "file_store_path",
+                os.getenv("ML_FILE_STORE_PATH", Path.home() / ".nautilus" / "ml" / "file_store"),
+            ),
+        )
+        try:
+            file_store_path.mkdir(parents=True, exist_ok=True)
+            from ml.registry.base import DummyRegistry
+            from ml.stores.file_backed import FileDataStore
+            from ml.stores.file_backed import FileFeatureStore
+            from ml.stores.file_backed import FileModelStore
+            from ml.stores.file_backed import FileStrategyStore
+
+            registry_root = file_store_path / "registry"
+            registry_root.mkdir(parents=True, exist_ok=True)
+            json_persistence = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=registry_root,
+            )
+            freg = FeatureRegistry(registry_root / "features", persistence_config=json_persistence)
+            mreg = ModelRegistry(registry_root / "models", persistence_config=json_persistence)
+            sreg = StrategyRegistry(registry_root, persistence_config=json_persistence)
+            dreg = DataRegistry(registry_root / "datasets", persistence_config=json_persistence)
+            feature_store_file = FileFeatureStore(base_path=file_store_path / "features")
+            model_store_file = FileModelStore(base_path=file_store_path / "models")
+            strategy_store_file = FileStrategyStore(base_path=file_store_path / "strategies")
+            data_store_file = FileDataStore(base_path=file_store_path / "datastore")
+            try:
+                from ml.common.metrics_bootstrap import get_counter
+
+                get_counter(
+                    "ml_fallback_activations_total",
+                    "Fallback activations",
+                    labelnames=("component", "level"),
+                ).labels(component="actor_stores", level="file").inc()
+            except Exception:
+                logger.debug("File fallback metric emit failed", exc_info=True)
+
+            return ActorStoresRegistries(
+                feature_store=feature_store_file,
+                model_store=model_store_file,
+                strategy_store=strategy_store_file,
+                data_store=data_store_file,
+                feature_registry=freg,
+                model_registry=mreg,
+                strategy_registry=sreg,
+                data_registry=dreg,
+                persistence_config=None,
+                connection_string=db_connection,
+            )
+        except Exception:
+            logger.debug("File-backed fallback unavailable for actor stores", exc_info=True)
+
         from ml.registry.base import DummyRegistry
         from ml.stores.base import DummyStore
 

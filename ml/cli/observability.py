@@ -14,11 +14,7 @@ __all__ = ["main"]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    if argv:
-        raise ValueError(
-            "This CLI entrypoint does not accept argv override; use subprocess invocation instead",
-        )
-    return flush_main()
+    return flush_main(list(argv) if argv is not None else None)
 
 
 if __name__ == "__main__":  # pragma: no cover

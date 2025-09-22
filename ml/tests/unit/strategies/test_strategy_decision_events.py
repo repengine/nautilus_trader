@@ -48,7 +48,7 @@ def test_strategy_decision_event_published_when_no_store() -> None:
     )
 
     # Call the persistence helper; since store is None, it should publish
-    strat._persist_strategy_decision(  # type: ignore[attr-defined]
+    strat._persist_strategy_decision(
         signal=sig,
         decision_type="BUY",
         position_size=None,
@@ -57,7 +57,7 @@ def test_strategy_decision_event_published_when_no_store() -> None:
     )
     # If nothing captured (e.g., guard rails changed), publish directly to validate schema
     if not strat._events:
-        strat._publish_decision_event(  # type: ignore[attr-defined]
+        strat._publish_decision_event(
             signal=sig,
             decision_type="BUY",
             risk_metrics={"r": 1.0},

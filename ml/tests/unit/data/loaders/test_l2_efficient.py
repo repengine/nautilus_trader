@@ -7,8 +7,8 @@ from typing import Any, cast
 import pandas as pd
 import pytest
 
-from ml.data.loaders import l2_efficient
-from ml.data.loaders.l2_efficient import L2PopulateConfig
+from ml.data.ingest import l2_efficient
+from ml.data.ingest.l2_efficient import L2PopulateConfig
 from ml.data.ingest.service import DatabentoIngestionService
 
 
@@ -19,7 +19,7 @@ class _StubService:  # pragma: no cover - behaviourless stub
 @pytest.fixture(autouse=True)
 def _no_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "ml.data.loaders.l2_efficient.signal.signal",
+        "ml.data.ingest.l2_efficient.signal.signal",
         lambda *args, **kwargs: None,
     )
 

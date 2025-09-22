@@ -9,9 +9,11 @@ exercise read_signals/get_latest/get_statistics/get_signal_distribution.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 
+from ml.common.timestamps import sanitize_timestamp_ns
 from ml.stores.strategy_store import StrategyStore
 
 pytestmark = [
@@ -22,7 +24,7 @@ pytestmark = [
 ]
 
 
-def test_strategy_store_reads_and_stats(test_database) -> None:
+def test_strategy_store_reads_and_stats(test_database: Any) -> None:
     """
     StrategyStore read_signals/get_latest/get_statistics/distribution behave as
     expected.
@@ -54,12 +56,16 @@ def test_strategy_store_reads_and_stats(test_database) -> None:
     # Persist and emit registry events
     store.flush()
 
+    # Helper to match store's sanitized timestamps
+    def _san(ts: int) -> int:
+        return sanitize_timestamp_ns(ts)
+
     # get_latest returns most recent first, limited
     latest = store.get_latest(instrument_id=instrument_id, limit=2)
     assert len(latest.index) == 2
     # Ensure ordering is descending by ts_event
-    assert int(latest.iloc[0]["ts_event"]) == rows[-1][2]
-    assert int(latest.iloc[1]["ts_event"]) == rows[-2][2]
+    assert int(latest.iloc[0]["ts_event"]) == _san(rows[-1][2])
+    assert int(latest.iloc[1]["ts_event"]) == _san(rows[-2][2])
     assert latest.iloc[0]["strategy_id"] == strategy_id
 
     # read_signals returns within window and ordered by ts_event asc
@@ -80,8 +86,8 @@ def test_strategy_store_reads_and_stats(test_database) -> None:
     assert stats["buy_signals"] == 1
     assert stats["sell_signals"] == 1
     assert stats["hold_signals"] == 1
-    assert int(stats["min_timestamp_ns"]) == rows[0][2]
-    assert int(stats["max_timestamp_ns"]) == rows[-1][2]
+    assert int(stats["min_timestamp_ns"]) == _san(rows[0][2])
+    assert int(stats["max_timestamp_ns"]) == _san(rows[-1][2])
     # avg_strength is a float and within range
     assert isinstance(stats["avg_strength"], float)
     assert 0.0 <= stats["avg_strength"] <= 1.0

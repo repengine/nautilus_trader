@@ -32,26 +32,22 @@ def _ensure_nautilus_numeric_factories() -> None:
         return
 
     if not hasattr(_Price, "from_double"):
-
-        class _PriceCompat(_Price):
-            @staticmethod
-            def from_double(value: float) -> Any:
-                return _Price.from_str(f"{value}")
-
-        _PriceCompat.__name__ = _Price.__name__
-        _PriceCompat.__qualname__ = _Price.__qualname__
-        setattr(objects_mod, "Price", _PriceCompat)
+        price_cls = cast(type[Any], _Price)
+        price_attrs = {
+            "from_double": staticmethod(lambda value: _Price.from_str(f"{value}")),
+        }
+        price_compat = cast(type[Any], type(_Price.__name__, (price_cls,), price_attrs))
+        price_compat.__qualname__ = _Price.__qualname__
+        setattr(objects_mod, "Price", price_compat)
 
     if not hasattr(_Quantity, "from_double"):
-
-        class _QuantityCompat(_Quantity):
-            @staticmethod
-            def from_double(value: float) -> Any:
-                return _Quantity.from_str(f"{value}")
-
-        _QuantityCompat.__name__ = _Quantity.__name__
-        _QuantityCompat.__qualname__ = _Quantity.__qualname__
-        setattr(objects_mod, "Quantity", _QuantityCompat)
+        qty_cls = cast(type[Any], _Quantity)
+        qty_attrs = {
+            "from_double": staticmethod(lambda value: _Quantity.from_str(f"{value}")),
+        }
+        qty_compat = cast(type[Any], type(_Quantity.__name__, (qty_cls,), qty_attrs))
+        qty_compat.__qualname__ = _Quantity.__qualname__
+        setattr(objects_mod, "Quantity", qty_compat)
 
 
 _ensure_nautilus_numeric_factories()

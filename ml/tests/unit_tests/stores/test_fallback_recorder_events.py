@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -8,12 +10,23 @@ from ml.registry.persistence import BackendType, PersistenceConfig
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.writers import CatalogWriteFacade, LiveDataRecorder
 
+if TYPE_CHECKING:
+    import pandas as pd
+    from ml.stores.data_store import DataStore
+
 
 class _StubWriter(MarketDataWriterProtocol):
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: Any) -> int:  # type: ignore[override]
+    def write(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        df: pd.DataFrame,
+    ) -> int:
         self.calls.append({"dataset_id": dataset_id, "schema": schema, "instrument_id": instrument_id, "rows": getattr(df, "shape", (len(df), 0))[0] if hasattr(df, "shape") else len(df)})
         return getattr(df, "shape", (len(df), 0))[0] if hasattr(df, "shape") else len(df)
 
@@ -55,8 +68,8 @@ async def test_fallback_recorder_emits_events_with_json_registry(tmp_path: Path)
 
     # Recorder
     recorder = LiveDataRecorder(
-        data_store=facade,  # type: ignore[arg-type]
-        data_registry=registry,  # type: ignore[arg-type]
+        data_store=cast("DataStore", facade),
+        data_registry=registry,
         buffer_size=1000,
         flush_interval_ms=1000,
     )
@@ -71,5 +84,5 @@ async def test_fallback_recorder_emits_events_with_json_registry(tmp_path: Path)
 
     # Verify JSON registry recorded at least one event
     # Access internal event list (test-only)
-    assert len(registry._events) >= 1  # type: ignore[attr-defined]
-
+    events = getattr(registry, "_events", [])
+    assert len(events) >= 1

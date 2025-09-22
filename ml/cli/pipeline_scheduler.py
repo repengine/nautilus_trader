@@ -8,8 +8,10 @@ from collections.abc import Callable
 from collections.abc import Sequence
 from typing import cast
 
-from ml.orchestration import config_loader as _config_loader
-from ml.orchestration.scheduler import run_forever as _run_forever
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
+from ml.tasks.pipelines import PipelineScheduleConfig
+from ml.tasks.pipelines import run_pipeline_schedule
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -43,27 +45,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    configure_logging()
+    bind_log_context(run_id=f"cli_pipeline_scheduler_{os.getpid()}", component="ml.cli.pipeline_scheduler")
 
-    # Configure environment fallbacks for the scheduler loop
-    if args.schedule_time:
-        os.environ["ORCH_SCHEDULE_TIME"] = str(args.schedule_time)
-        os.environ.pop("ORCH_INTERVAL_MIN", None)
-    elif args.interval_min is not None:
-        os.environ["ORCH_INTERVAL_MIN"] = str(int(args.interval_min))
-        os.environ.pop("ORCH_SCHEDULE_TIME", None)
-
-    if args.config_path:
-        os.environ["ORCH_CONFIG"] = str(args.config_path)
-    if args.dry_run:
-        os.environ["ORCH_DRY_RUN"] = "1"
-    if args.force:
-        os.environ["ORCH_FORCE"] = "1"
-
-    # Invoke forever using orchestrator CLI main
     from ml.cli.pipeline_orchestrator import main as _orch_main
 
-    _run_forever(
-        config_loader=_config_loader,
+    schedule_config = PipelineScheduleConfig(
+        schedule_time=args.schedule_time,
+        interval_minutes=args.interval_min,
+        config_path=args.config_path,
+        dry_run=args.dry_run,
+        force=args.force,
+    )
+    run_pipeline_schedule(
+        schedule_config,
         invoke_pipeline=cast(Callable[[Sequence[str] | None], int], _orch_main),
         sleep_fn=time.sleep,
     )

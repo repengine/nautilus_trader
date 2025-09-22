@@ -12,6 +12,7 @@ from typing import Literal
 
 from ml.data import BuildResult
 from ml.data import DatasetBuildConfig
+from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset as _build_tft_dataset
 
 
@@ -27,6 +28,7 @@ class TFTDatasetTaskConfig:
     data_dir: Path
     out_dir: Path
     symbols: Sequence[str]
+    instrument_ids: Sequence[str] | None = None
     horizon_minutes: int = 15
     threshold: float = 0.001
     lookback_periods: int = 30
@@ -46,6 +48,11 @@ class TFTDatasetTaskConfig:
     fred_vintage_dir: Path | None = None
     events_base_dir: Path | None = None
     student_mode: bool = False
+    auto_refresh_macro: bool = True
+    macro_staleness_hours: int = 24
+    macro_series_ids: tuple[str, ...] | None = None
+    macro_fred_path: Path | None = None
+    validation: DatasetValidationConfig | None = None
 
 
 def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
@@ -56,6 +63,7 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         data_dir=cfg.data_dir,
         out_dir=cfg.out_dir,
         symbols=[symbol.upper() for symbol in cfg.symbols],
+        instrument_ids=[inst for inst in cfg.instrument_ids] if cfg.instrument_ids else None,
         include_macro=cfg.include_macro,
         macro_lag_days=cfg.macro_lag_days,
         include_micro=cfg.include_micro,
@@ -75,6 +83,11 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         fred_vintage_dir=cfg.fred_vintage_dir,
         events_base_dir=cfg.events_base_dir,
         student_mode=cfg.student_mode,
+        auto_refresh_macro=cfg.auto_refresh_macro,
+        macro_staleness_hours=cfg.macro_staleness_hours,
+        macro_series_ids=cfg.macro_series_ids,
+        macro_fred_path=cfg.macro_fred_path,
+        validation=cfg.validation,
     )
     return _build_tft_dataset(dataset_cfg)
 

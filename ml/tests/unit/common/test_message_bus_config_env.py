@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import os
 
+from pytest import MonkeyPatch
+
 from ml.config.bus import MessageBusConfig
 
 
-def test_message_bus_config_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_message_bus_config_from_env_defaults(monkeypatch: MonkeyPatch) -> None:
     # Clear related env
     for name in (
         "ML_BUS_ENABLE",
@@ -29,7 +31,7 @@ def test_message_bus_config_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -
     assert cfg.redis_maxlen is None
 
 
-def test_message_bus_config_from_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_message_bus_config_from_env_overrides(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("ML_BUS_ENABLE", "true")
     monkeypatch.setenv("ML_BUS_BACKEND", "redis")
     monkeypatch.setenv("ML_BUS_SCHEME", "stage_first")

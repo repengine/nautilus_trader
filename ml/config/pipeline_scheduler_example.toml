@@ -26,3 +26,7 @@ deploy_target = ""
 auto_register_features = false
 feature_metrics_json = ""
 refresh_features = false
+
+[integration]
+enabled = false
+run_validators = true

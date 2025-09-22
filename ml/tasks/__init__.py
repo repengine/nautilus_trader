@@ -20,6 +20,7 @@ __all__ = [
     "ingest",
     "monitoring",
     "observability",
+    "pipelines",
     "registry",
     "training",
 ]

@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
+from ml.actors.base import MLSignal
 from ml.strategies.portfolio import PortfolioConfig, PortfolioManager
-
-
-@dataclass
-class _Sig:
-    instrument_id: object
-    confidence: float = 0.8
 
 
 def test_risk_parity_with_correlation_adjustment() -> None:
@@ -41,13 +34,16 @@ def test_risk_parity_with_correlation_adjustment() -> None:
         pm.update_returns(c, float(r))
 
     # Make A and B highly correlated; C uncorrelated
-    idx_a = pm._get_instrument_index(a)  # type: ignore[attr-defined]
-    idx_b = pm._get_instrument_index(b)  # type: ignore[attr-defined]
-    pm._correlation_matrix[idx_a, idx_b] = 0.9  # type: ignore[attr-defined]
-    pm._correlation_matrix[idx_b, idx_a] = 0.9  # type: ignore[attr-defined]
+    returns = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    pm.update_correlation(a, b, returns, returns)
 
     capital = 10_000.0
-    sigs = [_Sig(a), _Sig(b), _Sig(c)]
+    base_ts = 1_700_000_000_000_000_000
+    sigs = [
+        MLSignal(instrument_id=a, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
+        MLSignal(instrument_id=b, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
+        MLSignal(instrument_id=c, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
+    ]
 
     alloc = pm.allocate_signals(sigs, capital)
 

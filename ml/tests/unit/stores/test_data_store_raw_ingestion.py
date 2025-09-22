@@ -5,11 +5,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from ml._imports import HAS_POLARS, pl
+from ml._imports import HAS_POLARS, pl, pd
 from ml.config.events import EventStatus, Source, Stage
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import (
@@ -21,6 +21,7 @@ from ml.registry.dataclasses import (
     ValidationRuleType,
     QualityFlag,
 )
+from ml.registry.protocols import RegistryProtocol
 from ml.stores.data_store import DataStore
 from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
@@ -35,7 +36,7 @@ class _RecordedEvent:
     count: int
 
 
-class _TestRegistry:
+class _TestRegistry(RegistryProtocol):
     """
     Lightweight stub for RegistryProtocol used in unit tests.
     """
@@ -49,7 +50,6 @@ class _TestRegistry:
     # Protocol methods
     def emit_event(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
         stage: Stage,
@@ -75,7 +75,6 @@ class _TestRegistry:
 
     def update_watermark(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
         source: Source,
@@ -127,18 +126,29 @@ class _FakeRawReader(RawReaderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> DataFrameLike:
-        if not HAS_POLARS:
-            # Minimal stand-in; DataStore treats non-DF as pass-through
-            return [
-                {"instrument_id": instrument_id, "ts_event": start_ns, "ts_init": start_ns + 1},
-            ]
-        return pl.DataFrame(
-            {
-                "instrument_id": [instrument_id],
-                "ts_event": [start_ns],
-                "ts_init": [start_ns + 1],
-            },
-        )
+        if HAS_POLARS and pl is not None:
+            return cast(
+                DataFrameLike,
+                pl.DataFrame(
+                    {
+                        "instrument_id": [instrument_id],
+                        "ts_event": [start_ns],
+                        "ts_init": [start_ns + 1],
+                    },
+                ),
+            )
+        if pd is not None:
+            return cast(
+                DataFrameLike,
+                pd.DataFrame(
+                    {
+                        "instrument_id": [instrument_id],
+                        "ts_event": [start_ns],
+                        "ts_init": [start_ns + 1],
+                    },
+                ),
+            )
+        raise RuntimeError("No dataframe library available for raw reader")
 
 
 def _make_manifest(dataset_id: str, dataset_type: DatasetType) -> DatasetManifest:
@@ -197,9 +207,11 @@ def _make_df(instrument: str, n: int = 3) -> DataFrameLike:
         }
         for i in range(n)
     ]
-    if not HAS_POLARS:
-        return rows  # type: ignore[return-value]
-    return pl.DataFrame(rows)
+    if HAS_POLARS and pl is not None:
+        return cast(DataFrameLike, pl.DataFrame(rows))
+    if pd is not None:
+        return cast(DataFrameLike, pd.DataFrame(rows))
+    raise RuntimeError("No dataframe library available for test")
 
 
 @pytest.mark.unit

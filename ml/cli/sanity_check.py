@@ -14,10 +14,7 @@ __all__ = ["main"]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    if argv:
-        raise ValueError(
-            "This CLI entrypoint does not accept argv override; use subprocess invocation instead",
-        )
+    del argv
     sanity_main()
     return 0
 

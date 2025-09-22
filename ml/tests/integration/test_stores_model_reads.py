@@ -9,6 +9,7 @@ fields and types.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 
@@ -21,7 +22,7 @@ pytestmark = [
 ]
 
 
-def test_model_store_reads_stats_and_performance(test_database) -> None:
+def test_model_store_reads_stats_and_performance(test_database: Any) -> None:
     store = ModelStore(connection_string=test_database.connection_string)
 
     model_id = "modelA"

@@ -59,6 +59,7 @@ class TestL2L3RegistryStoreIntegration:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
+            data_requirements=DataRequirements.L1_L2,
         )
 
         feature_names = config.get_feature_names()
@@ -84,7 +85,7 @@ class TestL2L3RegistryStoreIntegration:
         """
         Test that FeatureEngineer properly delegates to L2MicrostructureFeatures.
         """
-        config = FeatureConfig(include_microstructure=True)
+        config = FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_L2)
         engineer = FeatureEngineer(config)
 
         # Create mock data with L2 depth
@@ -140,6 +141,7 @@ class TestL2L3RegistryStoreIntegration:
             config = FeatureConfig(
                 include_microstructure=True,
                 include_trade_flow=True,
+                data_requirements=DataRequirements.L1_L2,
             )
             feature_names = config.get_feature_names()
             feature_dtypes = ["float32"] * len(feature_names)
@@ -209,6 +211,7 @@ class TestL2L3RegistryStoreIntegration:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
+            data_requirements=DataRequirements.L1_L2,
         )
 
         store = FeatureStore(
@@ -370,6 +373,7 @@ class TestL2L3RegistryStoreIntegration:
             config = FeatureConfig(
                 include_microstructure=True,
                 include_trade_flow=False,  # Only test L2 for simplicity
+                data_requirements=DataRequirements.L1_L2,
             )
 
             # Create feature manifest

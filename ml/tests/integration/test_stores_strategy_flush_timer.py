@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,7 @@ pytestmark = [
 ]
 
 
-def test_flush_by_time_trigger(clean_postgres_db, postgres_connection: str) -> None:  # type: ignore[override]
+def test_flush_by_time_trigger(clean_postgres_db: Any, postgres_connection: str) -> None:
     now = time.time_ns()
     clock = FakeClock(now)
     store = StrategyStore(

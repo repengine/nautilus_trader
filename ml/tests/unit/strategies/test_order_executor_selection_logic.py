@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from ml.actors.base import MLSignal
-from types import SimpleNamespace
-
 from ml.strategies.execution import ExecutionConfig, OrderExecutor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
@@ -21,35 +19,6 @@ def _mk_instrument(sym: str = "EUR/USD.SIM") -> _Inst:
     return _Inst(InstrumentId.from_str(sym))
 
 
-class _TestOrder(SimpleNamespace):
-    pass
-
-
-class _TestOrderExecutor(OrderExecutor):
-    def _create_aggressive_limit(self, side, quantity, bid, ask, instrument):  # type: ignore[override]
-        del quantity
-        offset_bps = self.config.aggressive_offset_bps / 10000
-        if side == OrderSide.BUY:
-            limit_price = ask * (1 - offset_bps)
-        else:
-            limit_price = bid * (1 + offset_bps)
-        limit_price = self._round_price(limit_price, instrument)
-        self._record_ttl_plan(order_type="limit_aggressive", will_rest=(not self.config.use_time_in_force_ioc))
-        tif = TimeInForce.IOC if self.config.use_time_in_force_ioc else TimeInForce.GTC
-        return _TestOrder(price=limit_price, time_in_force=tif, post_only=False)
-
-    def _create_passive_limit(self, side, quantity, bid, ask, instrument):  # type: ignore[override]
-        del quantity
-        offset_bps = self.config.passive_offset_bps / 10000
-        if side == OrderSide.BUY:
-            limit_price = bid * (1 - offset_bps)
-        else:
-            limit_price = ask * (1 + offset_bps)
-        limit_price = self._round_price(limit_price, instrument)
-        self._record_ttl_plan(order_type="limit_passive", will_rest=True)
-        return _TestOrder(price=limit_price, time_in_force=TimeInForce.GTC, post_only=self.config.prefer_maker_orders)
-
-
 def test_executor_prefers_aggressive_limit_when_high_confidence_and_tight_spread() -> None:
     cfg = ExecutionConfig(
         market_order_threshold=0.9,
@@ -58,7 +27,7 @@ def test_executor_prefers_aggressive_limit_when_high_confidence_and_tight_spread
         prefer_maker_spread_bps=5,
         use_time_in_force_ioc=True,
     )
-    ex = _TestOrderExecutor(cfg)
+    ex = OrderExecutor(cfg)
     sig = MLSignal(
         instrument_id=_mk_instrument().id,
         model_id="M",
@@ -95,7 +64,7 @@ def test_executor_prefers_passive_limit_and_records_ttl_plan() -> None:
         ttl_max_attempts=4,
         ttl_replace_cadence_seconds=3,
     )
-    ex = _TestOrderExecutor(cfg)
+    ex = OrderExecutor(cfg)
     sig = MLSignal(
         instrument_id=_mk_instrument().id,
         model_id="M",

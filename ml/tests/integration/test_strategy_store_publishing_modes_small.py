@@ -15,8 +15,9 @@ class CapturePublisher:
     def __init__(self) -> None:
         self.messages: list[tuple[str, dict[str, Any]]] = []
 
-    def publish(self, topic: str, payload: dict[str, Any]) -> None:  # noqa: D401 - simple protocol
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         self.messages.append((topic, payload))
+        return True
 
 
 pytestmark = [

@@ -17,7 +17,7 @@ from abc import abstractmethod
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -315,13 +315,13 @@ def convert_to_torchscript(
     model.eval()
 
     def _jit_trace(mod: object, example: object) -> Any:
-        # Wrapper to keep mypy strict happy around untyped torch APIs.
-        # mypy: torch.jit.trace is untyped in stubs; this is a deliberate runtime call.
-        return torch.jit.trace(mod, example)
+        trace_fn = cast(Any, torch.jit.trace)
+        return trace_fn(mod, example)
 
     def _jit_script(mod: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
-        return torch.jit.script(mod)
+        script_fn = cast(Any, torch.jit.script)
+        return script_fn(mod)
 
     with torch.inference_mode():
         if sample_input is not None:

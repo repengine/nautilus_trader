@@ -18,6 +18,7 @@ Inputs (NPZ conventions)
 Outputs
 - teacher_preds.npz: contains q_train (calibrated probabilities) and y_val_true
 - teacher_meta.json: includes model_id, feature_set_id, teacher_model_id, schema hash
+- validation_returns.npy: validation forward returns aligned to q_val (when available)
 """
 
 import argparse
@@ -39,6 +40,34 @@ from ml.training.teacher.base import TeacherConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_sharpe_ratio(
+    probabilities: npt.NDArray[np.float64],
+    returns: npt.NDArray[np.float64],
+) -> float:
+    """Compute a simple Sharpe ratio using binary signals derived from probabilities."""
+    if probabilities.size == 0 or returns.size == 0:
+        return 0.0
+
+    n = int(min(probabilities.size, returns.size))
+    if n <= 0:
+        return 0.0
+
+    aligned_probs = probabilities[:n]
+    aligned_returns = returns[:n]
+
+    signals = (aligned_probs >= 0.5).astype(np.float64)
+    strategy_returns = aligned_returns * signals
+    strategy_returns = strategy_returns[np.isfinite(strategy_returns)]
+    if strategy_returns.size == 0:
+        return 0.0
+
+    std = float(np.std(strategy_returns))
+    if std == 0.0:
+        return 0.0
+    mean = float(np.mean(strategy_returns))
+    return float(mean / std)
 
 
 class CalibratingTeacher(BaseTeacher):
@@ -273,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     q_train: npt.NDArray[np.float32] | None = None
     q_val: npt.NDArray[np.float32] | None = None
     y_val_true: npt.NDArray[np.float64] | None = None
+    validation_returns: npt.NDArray[np.float64] | None = None
 
     # If training data is provided, run training mode
     if args.train_data_csv or args.train_data_parquet:
@@ -372,6 +402,14 @@ def main(argv: list[str] | None = None) -> int:
             _df_train = df_sorted.iloc[:cutoff]
             df_val = df_sorted.iloc[cutoff:]
         y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
+        if "forward_return" in df_val.columns:
+            try:
+                validation_returns = np.asarray(
+                    df_val["forward_return"],
+                    dtype=np.float64,
+                ).reshape(-1)
+            except Exception:
+                validation_returns = None
 
         # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
         z_val_vec: npt.NDArray[np.float64] | None
@@ -496,8 +534,18 @@ def main(argv: list[str] | None = None) -> int:
                     if z_len < y_len:
                         # Use most recent labels to match predicted horizon
                         y_val_true = _np.asarray(y_val_true, dtype=_np.float64)[-z_len:]
+                        if validation_returns is not None:
+                            validation_returns = _np.asarray(
+                                validation_returns,
+                                dtype=_np.float64,
+                            )[-z_len:]
                     else:
                         z_val_vec = _np.asarray(z_val_vec, dtype=_np.float64)[-y_len:]
+                        if validation_returns is not None and validation_returns.size >= y_len:
+                            validation_returns = _np.asarray(
+                                validation_returns,
+                                dtype=_np.float64,
+                            )[-y_len:]
                 # If training logits exist, enforce 80/20 split consistency (optional)
                 if z_train_vec is not None:
                     zt = int(z_train_vec.shape[0])
@@ -900,6 +948,14 @@ def main(argv: list[str] | None = None) -> int:
         if q.size and y.size and q.size == y.size:
             # Clip for numeric stability
             p = np.clip(q, 1e-6, 1.0 - 1e-6)
+            returns_arr: npt.NDArray[np.float64] | None = None
+            if validation_returns is not None:
+                try:
+                    returns_arr = np.asarray(validation_returns, dtype=np.float64).reshape(-1)
+                    if returns_arr.size != p.size and returns_arr.size > 0:
+                        returns_arr = returns_arr[-p.size :]
+                except Exception:
+                    returns_arr = None
             # Lightweight metrics (avoid heavy deps by default)
             try:
                 from ml.evaluation.metrics import binary_logloss as _ll
@@ -946,6 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
 
             prev = float(y.mean()) if y.size > 0 else 0.0
             prx = float(pr_auc / prev) if prev > 0.0 else 0.0
+            sharpe_ratio = float("nan")
+            if returns_arr is not None and returns_arr.size:
+                sharpe_ratio = _compute_sharpe_ratio(p, returns_arr)
 
             # Stability across instruments/weeks when validation DataFrame is available
             stability_inst_std = float("nan")
@@ -1064,12 +1123,24 @@ def main(argv: list[str] | None = None) -> int:
                 "ece": ece,
                 "prx": prx,
                 "prevalence": prev,
+                "sharpe_ratio": sharpe_ratio,
                 # Stability diagnostics (stddev across groups)
                 "stability_auc_by_instrument_std": stability_inst_std,
                 "stability_auc_by_week_std": stability_week_std,
                 # Advisory identifiers for actor auto-universe
                 "training_dataset_id": "tft_dataset",
             }
+            if returns_arr is not None and returns_arr.size:
+                try:
+                    returns_path = out_dir / "validation_returns.npy"
+                    np.save(returns_path, returns_arr.astype(np.float32))
+                    metrics_out["validation_returns_path"] = str(returns_path)
+                except Exception as save_exc:
+                    logger.debug(
+                        "tft_cli.validation_returns_save_failed error=%s",
+                        save_exc,
+                        exc_info=True,
+                    )
             if universe_instrument_ids:
                 metrics_out["universe_instrument_ids"] = universe_instrument_ids
 

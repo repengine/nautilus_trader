@@ -32,6 +32,7 @@ import time
 import uuid
 import uuid as _uuid
 from collections.abc import Callable
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -659,6 +660,7 @@ def plan_backfill(
     registry_path: Path | None = None,
     persistence_config: PersistenceConfig | None = None,
     output_file: Path | None = None,
+    now_fn: Callable[[], datetime] | None = None,
 ) -> None:
     """
     Plan backfill jobs for missing data.
@@ -728,7 +730,8 @@ def plan_backfill(
         sys.exit(1)
 
     # Check if date is within last 30 days (as per plan requirement)
-    days_ago = (datetime.now() - target_date).days
+    now_func = now_fn or datetime.now
+    days_ago = (now_func() - target_date).days
     if days_ago > 30:
         print(
             f"Warning: Date {date} is {days_ago} days ago. Backfill is only supported for data within the last 30 days.",
@@ -1389,7 +1392,7 @@ def apply_backfill(
     registry.persistence.close()
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """
     Execute the coverage CLI main entry point.
     """
@@ -1553,7 +1556,7 @@ Environment Variables:
         help="Force specific backend (default: auto-detect)",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.command:
         parser.print_help()

@@ -5,6 +5,7 @@ Integration test for StrategyStore performance aggregation helpers.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,7 @@ pytestmark = [
 ]
 
 
-def test_strategy_performance_update_and_read(test_database) -> None:  # noqa: ANN001
+def test_strategy_performance_update_and_read(test_database: Any) -> None:
     store = StrategyStore(connection_string=test_database.connection_string)
 
     strategy_id = "strat_perf"

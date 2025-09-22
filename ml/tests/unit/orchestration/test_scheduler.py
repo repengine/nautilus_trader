@@ -10,6 +10,13 @@ from typing import Any
 import pytest
 
 from ml.orchestration import config_loader as _cfg
+from ml.orchestration.pipeline_orchestrator import (
+    DatasetBuildConfig,
+    HPOConfig,
+    IntegrationConfig,
+    OrchestratorConfig,
+    TeacherTrainConfig,
+)
 from ml.orchestration.scheduler import compute_next_run, run_forever
 from ml.orchestration.scheduler import _EmitEventProtocol as _EmitProto
 from typing import cast
@@ -74,6 +81,7 @@ def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         run_forever(_cfg, _invoke, sleeper)
     # Dry-run means invoke not called
     assert called["n"] == 0
+
 
     # Non-stale lock prevents run
     lock_path.write_text("locked", encoding="utf-8")
@@ -178,3 +186,74 @@ def test_skip_if_outputs_exist(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError):
         run_forever(_cfg, _invoke, sl)
     assert called["n"] == 0
+
+
+def test_run_forever_passes_integration_args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(data_dir="data/tier1", symbols="SPY.NYSE", out_dir=str(out_dir)),
+        hpo=HPOConfig(),
+        teacher=TeacherTrainConfig(enabled=False),
+        integration=IntegrationConfig(
+            enabled=True,
+            db_connection="postgresql://example",
+            auto_start_postgres=True,
+            auto_migrate=False,
+            ensure_healthy=False,
+            strict_protocol_validation=True,
+            run_validators=False,
+        ),
+    )
+
+    class _Loader:
+        def load_orchestrator_config(self, path: str | None) -> OrchestratorConfig:
+            _ = path
+            return cfg
+
+        def to_pipeline_args(self, loaded: OrchestratorConfig) -> list[str]:
+            return _cfg.to_pipeline_args(loaded)
+
+    class _StubManager:
+        def __init__(self, **_: Any) -> None:
+            self.data_registry = object()
+
+    monkeypatch.setattr("ml.core.integration.MLIntegrationManager", _StubManager)
+
+    lock_path = tmp_path / "lock"
+    keys = ["ORCH_INTERVAL_MIN", "ORCH_CONFIG", "ORCH_FORCE", "ORCH_DRY_RUN", "ORCH_LOCK_PATH"]
+    previous = {key: os.environ.get(key) for key in keys}
+    os.environ["ORCH_INTERVAL_MIN"] = "1"
+    os.environ["ORCH_CONFIG"] = str(tmp_path / "config.json")
+    os.environ["ORCH_FORCE"] = "1"
+    os.environ.pop("ORCH_DRY_RUN", None)
+    os.environ["ORCH_LOCK_PATH"] = str(lock_path)
+
+    invoke_args: list[list[str]] = []
+
+    def _invoke(args: list[str]) -> int:
+        invoke_args.append(list(args))
+        return 0
+
+    sleeper = _OnceSleeper()
+
+    try:
+        with pytest.raises(RuntimeError):
+            run_forever(_Loader(), _invoke, sleeper)
+
+        assert invoke_args, "invoke_pipeline was not called"
+        final_args = invoke_args[-1]
+        assert "--attach-runtime" in final_args
+        assert "--runtime-db-connection" in final_args
+        assert "postgresql://example" in final_args
+        assert "--runtime-auto-start-db" in final_args
+        assert "--runtime-no-ensure-healthy" in final_args
+        assert "--runtime-strict-protocol-validation" in final_args
+        assert "--runtime-skip-validators" in final_args
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

@@ -11,10 +11,10 @@ from datetime import timedelta
 from pathlib import Path
 
 from ml.data.ingest.api import ensure_service
-from ml.data.loaders.l2_efficient import L2PopulateConfig
-from ml.data.loaders.l2_efficient import L2PopulateResult
-from ml.data.loaders.l2_efficient import get_tier1_symbols
-from ml.data.loaders.l2_efficient import populate_l2_data
+from ml.data.ingest.l2_efficient import L2PopulateConfig
+from ml.data.ingest.l2_efficient import L2PopulateResult
+from ml.data.ingest.l2_efficient import get_tier1_symbols
+from ml.data.ingest.l2_efficient import populate_l2_data
 
 
 @dataclass(slots=True, frozen=True)

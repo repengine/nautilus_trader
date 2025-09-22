@@ -12,6 +12,7 @@ import polars as pl
 import pytest
 
 from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.registry.base import DataRequirements
 
 
 class TestFeatureParityFix:
@@ -101,7 +102,10 @@ class TestFeatureParityFix:
         """
         Test that microstructure config (L1+L2) maintains feature count parity.
         """
-        config = FeatureConfig(include_microstructure=True)
+        config = FeatureConfig(
+            include_microstructure=True,
+            data_requirements=DataRequirements.L1_L2,
+        )
         batch_engineer = FeatureEngineer(config)
         online_engineer = FeatureEngineer(config)
 
@@ -139,7 +143,11 @@ class TestFeatureParityFix:
         """
         Test that full config (L1+L2+L3) maintains feature count parity.
         """
-        config = FeatureConfig(include_microstructure=True, include_trade_flow=True)
+        config = FeatureConfig(
+            include_microstructure=True,
+            include_trade_flow=True,
+            data_requirements=DataRequirements.L1_L2,
+        )
         batch_engineer = FeatureEngineer(config)
         online_engineer = FeatureEngineer(config)
 
@@ -171,7 +179,10 @@ class TestFeatureParityFix:
         """
         Test that microstructure features are actually computed in online mode.
         """
-        config = FeatureConfig(include_microstructure=True)
+        config = FeatureConfig(
+            include_microstructure=True,
+            data_requirements=DataRequirements.L1_L2,
+        )
         engineer = FeatureEngineer(config)
 
         # Warm up the engineer with some bars
@@ -208,7 +219,11 @@ class TestFeatureParityFix:
         """
         Test that trade flow features are actually computed in online mode.
         """
-        config = FeatureConfig(include_microstructure=True, include_trade_flow=True)
+        config = FeatureConfig(
+            include_microstructure=True,
+            include_trade_flow=True,
+            data_requirements=DataRequirements.L1_L2,
+        )
         engineer = FeatureEngineer(config)
 
         # Warm up the engineer with some bars
@@ -257,7 +272,7 @@ class TestFeatureParityFix:
         """
         Test that microstructure feature values match between batch and online modes.
         """
-        config = FeatureConfig(include_microstructure=True)
+        config = FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_L2)
         batch_engineer = FeatureEngineer(config)
         online_engineer = FeatureEngineer(config)
 
@@ -305,7 +320,11 @@ class TestFeatureParityFix:
         37 features (batch mode) would fail when receiving 26 features (online mode).
         """
         # Simulate training scenario: batch mode with microstructure+trade_flow enabled
-        config_full = FeatureConfig(include_microstructure=True, include_trade_flow=True)
+        config_full = FeatureConfig(
+            include_microstructure=True,
+            include_trade_flow=True,
+            data_requirements=DataRequirements.L1_L2,
+        )
         training_engineer = FeatureEngineer(config_full)
 
         bars_df = pl.DataFrame(mock_bars_data)

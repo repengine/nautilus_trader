@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from ml.actors.base import MLSignal
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.config.base import CircuitBreakerConfig, MLStrategyConfig
 from ml.config.events import EventStatus, Stage
 from ml.strategies.ml_strategy import MLTradingStrategy
+from ml.stores.protocols import StrategyStoreProtocol
 from nautilus_trader.model.identifiers import InstrumentId
 
 
@@ -22,10 +23,10 @@ class _FailingStore:
         signal_type: str,
         strength: float,
         model_predictions: dict[str, float],
-        risk_metrics: dict[str, float] | None,
-        execution_params: dict[str, Any] | None,
+        risk_metrics: dict[str, float],
+        execution_params: dict[str, Any],
         ts_event: int,
-        is_live: bool,
+        is_live: bool = False,
     ) -> None:
         self.calls += 1
         raise RuntimeError("store down")
@@ -33,12 +34,41 @@ class _FailingStore:
     def flush(self) -> None:  # pragma: no cover - not used
         return None
 
+    def write_batch(self, data: list[Any]) -> None:  # pragma: no cover - cold path
+        raise RuntimeError("store down")
+
+    def read_signals(
+        self,
+        strategy_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> list[Any]:  # pragma: no cover - cold path
+        return []
+
+    def get_strategy_performance(
+        self,
+        strategy_id: str,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
+    ) -> dict[str, Any]:  # pragma: no cover - cold path
+        return {}
+
+    def get_signal_distribution(
+        self,
+        strategy_id: str | None = None,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
+    ) -> dict[str, int]:  # pragma: no cover - cold path
+        return {}
+
 
 class _StubStrategy(MLTradingStrategy):
     def __init__(self, cfg: MLStrategyConfig) -> None:
         super().__init__(cfg)
         # Inject failing store and an in-memory publisher to observe fallback
-        self.strategy_store = _FailingStore()  # type: ignore[assignment]
+        self.stub_store = _FailingStore()
+        self.strategy_store = cast(StrategyStoreProtocol, self.stub_store)
         self._bus_publisher = InMemoryPublisher()
         self._events: list[tuple[str, dict[str, Any]]] = []
         self._bus_publisher.subscribe("ml.strategies.created.#", self._capture)
@@ -72,7 +102,7 @@ def test_store_breaker_opens_and_emits_partial_event() -> None:
 
     # First two attempts fail and advance breaker towards open
     for _ in range(2):
-        strat._persist_strategy_decision(  # type: ignore[attr-defined]
+        strat._persist_strategy_decision(
             signal=sig,
             decision_type="BUY",
             position_size=None,
@@ -81,15 +111,15 @@ def test_store_breaker_opens_and_emits_partial_event() -> None:
         )
 
     # Third call should see breaker open and publish PARTIAL without invoking store
-    before_calls = strat.strategy_store.calls  # type: ignore[assignment,attr-defined]
-    strat._persist_strategy_decision(  # type: ignore[attr-defined]
+    before_calls = strat.stub_store.calls
+    strat._persist_strategy_decision(
         signal=sig,
         decision_type="BUY",
         position_size=None,
         risk_metrics=None,
         execution_params=None,
     )
-    after_calls = strat.strategy_store.calls  # type: ignore[assignment,attr-defined]
+    after_calls = strat.stub_store.calls
     assert after_calls == before_calls, "Expected store write to be skipped when breaker open"
 
     # Validate a PARTIAL event was emitted
@@ -97,4 +127,3 @@ def test_store_breaker_opens_and_emits_partial_event() -> None:
     _, payload = strat._events[-1]
     assert payload["stage"] == Stage.SIGNAL_EMITTED.value
     assert payload["status"] == EventStatus.PARTIAL.value
-

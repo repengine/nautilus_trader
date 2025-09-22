@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from ml.common.retry_utils import retry_with_backoff
@@ -13,7 +15,7 @@ def test_retry_succeeds_after_transient_errors(monkeypatch: pytest.MonkeyPatch) 
         pass
 
     # Fail twice, then succeed
-    it = iter([TransientError("boom"), TransientError("boom"), 42])
+    it: Iterator[int | Exception] = iter([TransientError("boom"), TransientError("boom"), 42])
 
     def call() -> int:
         calls.append(1)
@@ -25,8 +27,8 @@ def test_retry_succeeds_after_transient_errors(monkeypatch: pytest.MonkeyPatch) 
     # Deterministic sleep collector (don’t actually sleep)
     sleeps: list[float] = []
 
-    def fake_sleep(d: float) -> None:
-        sleeps.append(d)
+    def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
 
     # Make jitter deterministic
     monkeypatch.setattr("random.uniform", lambda a, b: 0.0)
@@ -60,7 +62,8 @@ def test_retry_gives_up_and_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Don’t sleep in tests
     sleeps: list[float] = []
-    fake_sleep = lambda d: sleeps.append(d)  # noqa: E731
+    def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
 
     with pytest.raises(Boom):
         retry_with_backoff(
@@ -82,7 +85,7 @@ def test_on_exception_callback_is_guarded(monkeypatch: pytest.MonkeyPatch) -> No
     class Oops(RuntimeError):
         pass
 
-    called: list[tuple[int, Exception]] = []
+    called: list[tuple[int, BaseException]] = []
 
     def call() -> int:
         if len(called) < 1:

@@ -17,6 +17,7 @@ from collections import deque
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 from collections.abc import Mapping
+import time
 
 import numpy as np
 
@@ -58,7 +59,15 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.orders import StopMarketOrder
 from nautilus_trader.model.position import Position
-from nautilus_trader.trading.strategy import Strategy
+try:
+    from nautilus_trader.trading.strategy import Strategy as _RuntimeStrategy
+except Exception as exc:  # pragma: no cover - dependency guard
+    raise ImportError("nautilus_trader is required for ML strategies") from exc
+
+if TYPE_CHECKING:
+    from nautilus_trader.trading.strategy import Strategy as StrategyBase
+else:
+    StrategyBase = cast(type[Any], _RuntimeStrategy)
 
 
 # Prometheus metrics for monitoring
@@ -133,7 +142,7 @@ _initialize_metrics()
 
 # Note: Upstream `Strategy` lacks complete typing; inheriting from it triggers a mypy
 # miscellaneous error in strict mode. This is safe and expected here.
-class BaseMLStrategy(Strategy, ABC):
+class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
     """
     Base class for ML-driven trading strategies.
 
@@ -904,28 +913,9 @@ class BaseMLStrategy(Strategy, ABC):
         account_balance = float(account.balance_total().as_double())
         position_value = account_balance * self._config.position_size_pct
 
-        # Get current price for position sizing (instrument already fetched above)
-
-        # Use last trade price or mid price for sizing
-        last_tick = self.cache.trade_tick(self._config.instrument_id)
-        if last_tick is not None:
-            current_price = float(last_tick.price.as_double())
-        else:
-            # Fallback to quote tick mid price
-            quote_tick = self.cache.quote_tick(self._config.instrument_id)
-            if quote_tick is not None:
-                bid_price = float(quote_tick.bid_price.as_double())
-                ask_price = float(quote_tick.ask_price.as_double())
-                current_price = (bid_price + ask_price) / 2.0
-            else:
-                self.log.error(
-                    (
-                        "Cannot calculate position size: No price data available for "
-                        f"{self._config.instrument_id}. Ensure market data is being received "
-                        "before trading."
-                    ),
-                )
-                return None
+        current_price = self._resolve_market_price(self._config.instrument_id)
+        if current_price is None:
+            return None
 
         # Calculate quantity
         raw_quantity = position_value / current_price
@@ -969,6 +959,10 @@ class BaseMLStrategy(Strategy, ABC):
             self.log.error("No account for venue %s", instrument.venue)
             return None
 
+        market_price = self._resolve_market_price(self._config.instrument_id)
+        if market_price is None:
+            return None
+
         # Gather current open positions (single-instrument, but use API generically)
         positions: list[Position] = self.cache.positions_open(
             venue=None,
@@ -994,6 +988,28 @@ class BaseMLStrategy(Strategy, ABC):
 
         if proposed_value_qty is None:
             return None
+
+        proposed_value = float(proposed_value_qty.as_double()) * market_price
+        allocated_value = self._apply_portfolio_allocation(
+            signal=signal,
+            account=account,
+            proposed_value=proposed_value,
+        )
+        if allocated_value <= 0.0:
+            self.log.debug(
+                "ml_strategy.portfolio_allocation_zero",
+                strategy_id=str(self.id),
+                instrument=str(signal.instrument_id),
+            )
+            return None
+        if proposed_value > 0.0 and allocated_value < proposed_value:
+            scale = allocated_value / proposed_value
+            scaled_qty = max(
+                float(proposed_value_qty.as_double()) * scale,
+                float(instrument.min_quantity.as_double()),
+            )
+            precision = instrument.size_precision
+            proposed_value_qty = Quantity.from_str(str(round(scaled_qty, precision)))
 
         # 2) Risk manager gate
         approved_value_qty: Quantity | None = proposed_value_qty
@@ -1189,15 +1205,25 @@ class BaseMLStrategy(Strategy, ABC):
                     "spread_bps": spread_bps,
                 }
 
+                client_order_id = self.cache.client_order_id()
+                init_id = UUID4()
+                ts_init = self.clock.timestamp_ns() if self.clock else time.time_ns()
+
                 order = self.order_executor.create_order(
                     side=side,
                     quantity=quantity,
                     signal=signal,
                     market_state=dict(market_state),
                     instrument=instrument,
+                    trader_id=self.trader_id,
+                    strategy_id=self.id,
+                    client_order_id=client_order_id,
+                    init_id=init_id,
+                    ts_init=ts_init,
                 )
                 if order is not None:
-                    self.submit_order(order)
+                    core_order = order.unwrap() if hasattr(order, "unwrap") else order
+                    self.submit_order(core_order)
                     if self.orders_submitted_metric:
                         self.orders_submitted_metric.labels(
                             strategy_id=str(self.id),
@@ -1205,23 +1231,16 @@ class BaseMLStrategy(Strategy, ABC):
                         ).inc()
                     try:
                         if self.performance is not None:
-                            self.performance.record_order(order, signal)
+                            self.performance.record_order(core_order, signal)
                     except Exception as perf_exc:
                         self.log.debug(
-                            "ml_strategy.performance_record_order_failed",
-                            strategy_id=str(self.id),
-                            exc_info=True,
-                            error=str(perf_exc),
+                            f"ml_strategy.performance_record_order_failed strategy_id={self.id} error={perf_exc}",
                         )
                     return order.client_order_id
             except Exception as exc:
                 # Log and continue to fallback
                 self.log.error(
-                    "ml_strategy.smart_order_creation_failed",
-                    strategy_id=str(self.id),
-                    order_side=side.name,
-                    exc_info=True,
-                    error=str(exc),
+                    f"ml_strategy.smart_order_creation_failed strategy_id={self.id} order_side={side.name} error={exc}",
                 )
 
         # Fallback to existing market order helper (outside try to avoid masking errors)
@@ -1316,6 +1335,65 @@ class BaseMLStrategy(Strategy, ABC):
         if positions:
             return positions[0]  # Return first open position
         return None
+
+    def _resolve_market_price(self, instrument_id: Any) -> float | None:
+        """Resolve the latest tradable price for portfolio calculations."""
+        last_tick = self.cache.trade_tick(instrument_id)
+        if last_tick is not None:
+            return float(last_tick.price.as_double())
+
+        quote_tick = self.cache.quote_tick(instrument_id)
+        if quote_tick is not None:
+            bid_price = float(quote_tick.bid_price.as_double())
+            ask_price = float(quote_tick.ask_price.as_double())
+            return (bid_price + ask_price) / 2.0
+
+        self.log.error(
+            "No market price available for instrument %s",
+            instrument_id,
+        )
+        return None
+
+    def _apply_portfolio_allocation(
+        self,
+        *,
+        signal: MLSignal,
+        account: Any,
+        proposed_value: float,
+    ) -> float:
+        """Apply portfolio manager allocation rules when configured."""
+        if self.portfolio_manager is None:
+            return proposed_value
+
+        try:
+            available_capital = float(account.balance_total().as_double())
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug(
+                "ml_strategy.account_balance_unavailable",
+                strategy_id=str(self.id),
+                instrument=str(signal.instrument_id),
+                exc_info=True,
+                error=str(exc),
+            )
+            return proposed_value
+
+        try:
+            allocations = self.portfolio_manager.allocate_signals([signal], available_capital)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug(
+                "ml_strategy.portfolio_allocation_failed",
+                strategy_id=str(self.id),
+                instrument=str(signal.instrument_id),
+                exc_info=True,
+                error=str(exc),
+            )
+            return proposed_value
+
+        allocated_value = allocations.get(signal.instrument_id)
+        if allocated_value is None:
+            return proposed_value
+
+        return max(float(allocated_value), 0.0)
 
     def _aggregate_signal(self, signal: MLSignal) -> None:
         """

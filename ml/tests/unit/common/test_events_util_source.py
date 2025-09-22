@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
-from ml.common.events_util import to_source_enum, to_source_str
+from ml.common.events_util import SourceStr, to_source_enum, to_source_str
 from ml.config.events import Source
 
 
@@ -16,4 +18,5 @@ def test_to_source_enum_and_str_roundtrip() -> None:
 
 def test_to_source_str_invalid_raises() -> None:
     with pytest.raises(ValueError):
-        to_source_str("invalid")  # type: ignore[arg-type]
+        invalid = cast(SourceStr, "invalid")
+        to_source_str(invalid)

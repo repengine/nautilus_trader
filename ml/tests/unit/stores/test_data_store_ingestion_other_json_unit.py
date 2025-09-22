@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, cast
+import types
 from unittest.mock import MagicMock
 
 from ml.common.message_bus import MessagePublisherProtocol
@@ -11,6 +12,9 @@ from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
 from ml.registry.persistence import BackendType, PersistenceConfig
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
 
 
 class CapturePublisher(MessagePublisherProtocol):
@@ -20,6 +24,17 @@ class CapturePublisher(MessagePublisherProtocol):
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         self.calls.append((topic, payload))
         return True
+
+
+def _set_noop_preflight(store: DataStore) -> None:
+    def _noop_preflight(
+        self: DataStore,
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
+    store.preflight_check = types.MethodType(_noop_preflight, store)  # type: ignore[assignment]
 
 
 def _manifest(dataset_id: str, dataset_type: DatasetType, location: Path) -> DatasetManifest:
@@ -57,18 +72,22 @@ def test_ingestion_predictions_emits_event_and_updates_watermark(tmp_path: Path)
     reg.register_dataset(_manifest(ds_id, DatasetType.PREDICTIONS, tmp_path / "p.parquet"))
 
     pub = CapturePublisher()
-    model_store = cast(Any, MagicMock(write_batch=MagicMock()))
+    model_store = cast(ModelStore, MagicMock(spec=ModelStore))
+    cast(MagicMock, model_store).write_batch = MagicMock()
     store = DataStore(
         connection_string="sqlite:///:memory:",
         registry=reg,
-        feature_store=cast(Any, MagicMock()),
+        feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
         model_store=model_store,
-        strategy_store=cast(Any, MagicMock()),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
         publisher=pub,
         enable_publishing=True,
     )
     # Bypass schema preflight for deterministic behavior
-    store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
+    def _noop_preflight(self: DataStore, *args: object, **kwargs: object) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
+    _set_noop_preflight(store)
 
     records: list[dict[str, Any]] = [
         {
@@ -120,17 +139,18 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
     reg.register_dataset(_manifest(ds_id, DatasetType.SIGNALS, tmp_path / "s.parquet"))
 
     pub = CapturePublisher()
-    strategy_store = cast(Any, MagicMock(write_batch=MagicMock()))
+    strategy_store = cast(StrategyStore, MagicMock(spec=StrategyStore))
+    cast(MagicMock, strategy_store).write_batch = MagicMock()
     store = DataStore(
         connection_string="sqlite:///:memory:",
         registry=reg,
-        feature_store=cast(Any, MagicMock()),
-        model_store=cast(Any, MagicMock()),
+        feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
         strategy_store=strategy_store,
         publisher=pub,
         enable_publishing=True,
     )
-    store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
+    _set_noop_preflight(store)
 
     records: list[dict[str, Any]] = [
         {

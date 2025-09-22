@@ -12,7 +12,7 @@ from ml.features.l2_aggregate import TOPKS, aggregate_l2_minute_pl
 def _make_l2_df(scale: float) -> pl.DataFrame:
     base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
     ts = [base + timedelta(seconds=i) for i in range(60)]
-    data = {"ts_event": ts}
+    data: dict[str, list[object]] = {"ts_event": list(ts)}
     for i in range(10):
         data[f"bid_px_{i:02d}"] = [100.0 - 0.01 * i] * len(ts)
         data[f"ask_px_{i:02d}"] = [100.02 + 0.01 * i] * len(ts)

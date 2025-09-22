@@ -573,10 +573,14 @@ class PortfolioManager:
         idx2 = self._get_instrument_index(inst2)
 
         # Update with exponential decay
-        old_corr = self._correlation_matrix[idx1, idx2]
-        new_corr = (
-            self.config.correlation_decay * old_corr + (1 - self.config.correlation_decay) * corr
-        )
+        old_corr = float(self._correlation_matrix[idx1, idx2])
+        if abs(old_corr) < 1e-6:
+            new_corr = corr
+        else:
+            new_corr = (
+                self.config.correlation_decay * old_corr
+                + (1 - self.config.correlation_decay) * corr
+            )
 
         # Update symmetric matrix
         self._correlation_matrix[idx1, idx2] = new_corr

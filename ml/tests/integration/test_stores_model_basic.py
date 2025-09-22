@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from ml.stores.model_store import ModelStore
@@ -19,12 +21,12 @@ pytestmark = [
     ),
 )
 def test_model_store_write_and_read(
-    clean_postgres_db,
+    clean_postgres_db: Any,
     postgres_connection: str,
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
     monkeypatch: pytest.MonkeyPatch,
-) -> None:  # type: ignore[override]
+) -> None:
     store = ModelStore(
         connection_string=postgres_connection,
         batch_size=2,

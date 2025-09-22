@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ml.common.in_memory_bus import InMemoryPublisher
@@ -7,7 +8,7 @@ from ml.config.events import EventStatus, Stage
 from ml.strategies.services import StrategyDecisionPublisher
 
 
-def _capture_factory(out: list[tuple[str, dict[str, Any]]]):
+def _capture_factory(out: list[tuple[str, dict[str, Any]]]) -> Callable[[str, dict[str, Any]], None]:
     def _cap(topic: str, payload: dict[str, Any]) -> None:
         out.append((topic, payload))
 
@@ -68,7 +69,7 @@ def test_publisher_builds_stage_first_topic() -> None:
 
 
 class _BrokenPublisher(InMemoryPublisher):
-    def publish(self, topic: str, payload: dict[str, Any]) -> bool:  # type: ignore[override]
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         raise RuntimeError("boom")
 
 
@@ -88,4 +89,3 @@ def test_publisher_is_non_blocking_on_failure() -> None:
         status=EventStatus.SUCCESS,
     )
     assert ok is False
-

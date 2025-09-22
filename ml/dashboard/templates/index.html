@@ -224,6 +224,8 @@
       el('runBackfill').onclick = () => run('backfill');
       el('runDaily').onclick = () => run('daily');
       load();
+      setInterval(load, 15000);
+      setInterval(loadEvents, 5000);
     </script>
   </body>
   </html>

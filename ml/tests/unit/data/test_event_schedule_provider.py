@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import polars as pl
 
@@ -72,7 +73,7 @@ def test_event_schedule_provider_flags_on_event_days() -> None:
         assert (v == -1) or (v >= 0)
 
 
-def test_event_schedule_provider_with_file_source(tmp_path) -> None:
+def test_event_schedule_provider_with_file_source(tmp_path: Path) -> None:
     events = pl.DataFrame(
         {
             "event_timestamp": [

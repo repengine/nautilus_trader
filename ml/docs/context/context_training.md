@@ -169,6 +169,13 @@ A sophisticated distillation pipeline with end-to-end CLI tooling, registry inte
   - Feature schema validation against FeatureRegistry manifests
   - Metadata generation with model lineage and performance tracking
 
+**TFT HPO CLI (cli/hpo_tft.py):**
+
+- **Optuna-First HPO**: Default optimiser now uses Optuna with automatic metric direction detection and trial persistence via JSON summaries. The CLI transparently falls back to deterministic grid search when Optuna is unavailable.
+- **Rich Metric Integration**: Trials consume the enhanced `model_metrics.json` emitted by the teacher CLI, supporting `PRx`, `ROC AUC`, `Sharpe`, `ECE`, and other probability-aware diagnostics without re-reading raw NPZ payloads.
+- **Validation Returns Support**: Dataset builds now surface `forward_return` columns and the teacher CLI persists `validation_returns.npy`, enabling Sharpe-aware objective scoring during HPO and subsequent promotions gating.
+- **Orchestrator Alignment**: `MLPipelineOrchestrator.run_hpo` forwards dataset artifacts, registry metadata, and HPO preferences (metric, backend, loss, pos_weight, Optuna trial counts) to guarantee consistent behaviour between standalone CLI runs and orchestrated pipelines.
+
 **TorchScript Export (teacher/tft_torchscript.py):**
 
 - **TFTScriptAdapter**: Production wrapper class converting dict-based TFT inputs to tensor inputs for deployment compatibility

@@ -16,7 +16,9 @@ from ml.preprocessing.stationarity import PurgedCrossValidator
 
 
 if TYPE_CHECKING:
-    import pandas as pd
+    from pandas import DataFrame as PandasFrame
+else:
+    PandasFrame = Any
 
 
 @dataclass(slots=True, frozen=True)
@@ -25,13 +27,13 @@ class PurgedSplitResult:
     validation_indices: npt.NDArray[np.int64]
 
 
-def _to_pandas(df: Any) -> pd.DataFrame:
+def _to_pandas(df: Any) -> PandasFrame:
     if _pd is None:
         raise RuntimeError("pandas is required for purged split helpers")
     if _pl is not None and isinstance(df, _pl.DataFrame):
-        return cast(pd.DataFrame, df.to_pandas())
+        return cast(PandasFrame, df.to_pandas())
     if isinstance(df, _pd.DataFrame):
-        return cast(pd.DataFrame, df)
+        return cast(PandasFrame, df)
     raise TypeError("Expected pandas or polars DataFrame")
 
 

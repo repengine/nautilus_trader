@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import ml._imports as _ml_imports
 from ml.ml_types import DataFrameLike, PolarsDF
@@ -20,6 +20,11 @@ from ml.ml_types import DataFrameLike, PolarsDF
 pd = _ml_imports.pd
 pl = _ml_imports.pl
 check_ml_dependencies = _ml_imports.check_ml_dependencies
+
+if TYPE_CHECKING:
+    from pandas import DataFrame as PandasDataFrame
+else:
+    PandasDataFrame = Any
 
 
 def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:
@@ -113,7 +118,7 @@ def _load_vintage_release_pl(
 def _load_vintage_release_pd(
     base_dir: Path,
     series_filter: set[str] | None,
-) -> DataFrameLike:
+) -> PandasDataFrame:
     """
     Load vintage release metadata as a pandas DataFrame.
     """
@@ -121,7 +126,7 @@ def _load_vintage_release_pd(
         check_ml_dependencies(["pandas"])  # pragma: no cover
     _pd = pd
     assert _pd is not None
-    frames: list[DataFrameLike] = []
+    frames: list[PandasDataFrame] = []
     for series_id, series_dir in _iter_vintage_series_dirs(base_dir, series_filter):
         cal_path = series_dir / "release_calendar.parquet"
         if not cal_path.exists():
@@ -131,7 +136,7 @@ def _load_vintage_release_pd(
             continue
         if "series_id" not in df.columns:
             df["series_id"] = series_id
-        frames.append(df)
+        frames.append(cast(PandasDataFrame, df))
     if not frames:
         empty = _pd.DataFrame(
             columns=[
@@ -142,10 +147,10 @@ def _load_vintage_release_pd(
                 "release_end_ts",
             ],
         )
-        return cast(DataFrameLike, empty)
+        return cast(PandasDataFrame, empty)
     combined = _pd.concat(frames, ignore_index=True)
     combined = combined.sort_values(["release_ts", "observation_ts"])
-    return cast(DataFrameLike, combined)
+    return cast(PandasDataFrame, combined)
 
 
 def join_fred_asof(
@@ -155,6 +160,7 @@ def join_fred_asof(
     lag_days: int = 1,
     fred_path: str | Path | None = None,
     vintage_base_dir: str | Path | None = None,
+    series_filter: set[str] | None = None,
 ) -> DataFrameLike:
     """
     Join FRED macro features to a time-indexed market DataFrame using as-of semantics.
@@ -187,12 +193,14 @@ def join_fred_asof(
         assert _pl is not None
 
         fred = _load_fred_ml_pl(fred_path)
+        if series_filter is not None and not fred.is_empty():
+            fred = fred.filter(_pl.col("series_id").is_in(list(series_filter)))
         release_df = cast(PolarsDF, _pl.DataFrame())
         if vintage_dir is not None:
-            series_filter: set[str] | None = None
-            if not fred.is_empty() and "series_id" in fred.columns:
-                series_filter = set(fred.get_column("series_id").unique().to_list())
-            release_df = _load_vintage_release_pl(vintage_dir, series_filter)
+            release_filter = series_filter
+            if release_filter is None and not fred.is_empty() and "series_id" in fred.columns:
+                release_filter = set(fred.get_column("series_id").unique().to_list())
+            release_df = _load_vintage_release_pl(vintage_dir, release_filter)
             if not release_df.is_empty():
                 release_series = set(release_df.get_column("series_id").unique().to_list())
                 if not fred.is_empty() and release_series:
@@ -272,6 +280,7 @@ def join_fred_asof(
 
     # Pandas path
     if pd is not None and isinstance(df, pd.DataFrame):
+        df_pd = cast(PandasDataFrame, df)
         fred_path_ml = (
             Path(fred_path) if fred_path else Path("data/fred/fred_indicators_ml_format.parquet")
         )
@@ -291,6 +300,9 @@ def join_fred_asof(
         else:
             fred_ml = pd.DataFrame(columns=["timestamp", "series_id", "value"])
 
+        if series_filter is not None and not fred_ml.empty:
+            fred_ml = fred_ml[fred_ml["series_id"].isin(series_filter)]
+
         if not fred_ml.empty:
             fred_ml["timestamp"] = (
                 pd.to_datetime(fred_ml["timestamp"], utc=True)
@@ -298,14 +310,12 @@ def join_fred_asof(
                 .dt.tz_localize(None)
             )
 
-        release_df_pd: pd.DataFrame = pd.DataFrame()
+        release_df_pd: PandasDataFrame = pd.DataFrame()
         if vintage_dir is not None:
-            series_filter = (
-                {str(x) for x in list(fred_ml["series_id"].unique())}
-                if not fred_ml.empty
-                else None
-            )
-            release_df_pd = _load_vintage_release_pd(vintage_dir, series_filter)
+            release_filter = series_filter
+            if release_filter is None and not fred_ml.empty:
+                release_filter = {str(x) for x in list(fred_ml["series_id"].unique())}
+            release_df_pd = _load_vintage_release_pd(vintage_dir, release_filter)
             if not release_df_pd.empty:
                 release_series = {
                     str(x) for x in list(release_df_pd["series_id"].unique())
@@ -313,11 +323,11 @@ def join_fred_asof(
                 if not fred_ml.empty and release_series:
                     fred_ml = fred_ml[~fred_ml["series_id"].isin(release_series)]
 
-        frames_pd: list[DataFrameLike] = []
+        frames_pd: list[PandasDataFrame] = []
         if not fred_ml.empty:
             base = fred_ml[["timestamp", "series_id", "value"]].copy()
             base["release_ts"] = pd.NaT
-            frames_pd.append(base)
+            frames_pd.append(cast(PandasDataFrame, base))
 
         if not release_df_pd.empty:
             rel = release_df_pd.rename(columns={"observation_ts": "timestamp"})[
@@ -333,8 +343,8 @@ def join_fred_asof(
             )
             frames_pd.append(rel)
 
-        if not frames_pd or timestamp_col not in df.columns:
-            return cast(DataFrameLike, df)
+        if not frames_pd or timestamp_col not in df_pd.columns:
+            return df_pd
 
         combined_pd = pd.concat(frames_pd, ignore_index=True)
         combined_pd = combined_pd.sort_values(["release_ts", "timestamp"])

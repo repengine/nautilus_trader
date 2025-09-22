@@ -16,9 +16,6 @@ from ml.data.loaders.alternative import save_alternative_data
 from ml.data.loaders.fred_loader import FREDConfig
 from ml.data.loaders.fred_loader import FREDDataLoader
 from ml.data.loaders.fred_loader import FREDIndicator
-from ml.data.loaders.l2_efficient import L2PopulateConfig
-from ml.data.loaders.l2_efficient import L2PopulateResult
-from ml.data.loaders.l2_efficient import populate_l2_data
 from ml.data.loaders.ohlcv_recent import OhlcvRecentBackfillConfig
 from ml.data.loaders.ohlcv_recent import OhlcvRecentBackfillResult
 from ml.data.loaders.ohlcv_recent import SymbolBackfillStatus
@@ -48,8 +45,6 @@ __all__ = [
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
-    "L2PopulateConfig",
-    "L2PopulateResult",
     "OhlcvRecentBackfillConfig",
     "OhlcvRecentBackfillResult",
     "SpreadDefinition",
@@ -63,7 +58,6 @@ __all__ = [
     "create_synthetic_supplementary_data",
     "load_tier1_symbols",
     "populate_alternative_data",
-    "populate_l2_data",
     "save_alternative_data",
     "write_supplementary_outputs",
 ]

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+import numpy as np
+
+from ml.actors.base import MLSignal
 from ml.strategies.portfolio import PortfolioConfig, PortfolioManager
 from ml.strategies.risk import RiskConfig, RiskManager
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.objects import Quantity
 
 
 # ==========================
@@ -12,21 +18,17 @@ from ml.strategies.risk import RiskConfig, RiskManager
 
 
 @dataclass
-class _DummyQuantity:
-    _val: float
+class _DummyBalance:
+    value: float
 
-    @classmethod
-    def from_str(cls, s: str) -> _DummyQuantity:  # type: ignore[override]
-        return cls(float(s))
-
-    def as_double(self) -> float:  # noqa: D401
-        return self._val
+    def as_double(self) -> float:
+        return self.value
 
 
 @dataclass
 class _DummyPosition:
     instrument_id: object
-    quantity: _DummyQuantity
+    quantity: Quantity
     is_open: bool = True
 
 
@@ -34,15 +36,8 @@ class _DummyPosition:
 class _DummyAccount:
     bal: float
 
-    def balance_total(self):  # type: ignore[no-untyped-def]
-        class _B:
-            def __init__(self, v: float) -> None:
-                self._v = v
-
-            def as_double(self) -> float:  # noqa: D401
-                return self._v
-
-        return _B(self.bal)
+    def balance_total(self) -> _DummyBalance:
+        return _DummyBalance(self.bal)
 
 
 @dataclass
@@ -53,33 +48,22 @@ class _DummyPortfolio:
     def positions(self) -> list[_DummyPosition]:  # noqa: D401
         return list(self._positions)
 
-    def account(self, _venue):  # type: ignore[no-untyped-def]
+    def account(self, _venue: object) -> _DummyAccount:
         return _DummyAccount(self._balance)
-
-
-@dataclass
-class _Signal:
-    instrument_id: object
-    confidence: float
 
 
 def test_exposure_limit_rejects_when_exceeding_max() -> None:
     # Setup risk manager with 50% max exposure
     rcfg = RiskConfig(max_total_exposure=0.5, max_position_pct=1.0)
     rm = RiskManager(rcfg)
-
-    from nautilus_trader.model.identifiers import InstrumentId
-
     inst = InstrumentId.from_str("AAA.SIM")
     # Existing open position worth 4000
-    pos = _DummyPosition(inst, _DummyQuantity(4000.0), is_open=True)
+    pos = _DummyPosition(inst, Quantity.from_str("4000"), is_open=True)
     portfolio = _DummyPortfolio([pos], _balance=10000.0)
 
     # Propose new position 2000 -> total exposure 6000/10000 = 60% > 50%
-    from nautilus_trader.model.objects import Quantity
-
     proposed = Quantity.from_str("2000")
-    assert rm._check_portfolio_exposure(2000.0, 10000.0, portfolio) is False  # type: ignore[attr-defined]
+    assert rm._check_portfolio_exposure(2000.0, 10000.0, portfolio) is False
 
     # Via public check_position path should reject
     result = rm.check_position(proposed, inst, portfolio)
@@ -87,12 +71,26 @@ def test_exposure_limit_rejects_when_exceeding_max() -> None:
 
 
 def test_portfolio_correlation_adjustment_scales_down_group() -> None:
-    from nautilus_trader.model.identifiers import InstrumentId
-
     inst1 = InstrumentId.from_str("AAA.SIM")
     inst2 = InstrumentId.from_str("BBB.SIM")
 
-    signals = [_Signal(inst1, 0.8), _Signal(inst2, 0.8)]
+    ts_base = 1_700_000_000_000_000_000
+    signals = [
+        MLSignal(
+            instrument_id=inst1,
+            model_id="model",
+            prediction=0.0,
+            confidence=0.8,
+            ts_event=ts_base,
+        ),
+        MLSignal(
+            instrument_id=inst2,
+            model_id="model",
+            prediction=0.0,
+            confidence=0.8,
+            ts_event=ts_base,
+        ),
+    ]
     capital = 10_000.0
 
     # Manager without correlation adjustment → equal allocation 5k each
@@ -115,11 +113,8 @@ def test_portfolio_correlation_adjustment_scales_down_group() -> None:
         max_position_weight=1.0,
     )
     pm_adj = PortfolioManager(cfg_adj)
-    # Seed correlation matrix to 0.9 between inst1 and inst2
-    idx1 = pm_adj._get_instrument_index(inst1)  # type: ignore[attr-defined]
-    idx2 = pm_adj._get_instrument_index(inst2)  # type: ignore[attr-defined]
-    pm_adj._correlation_matrix[idx1, idx2] = 0.9  # type: ignore[attr-defined]
-    pm_adj._correlation_matrix[idx2, idx1] = 0.9  # type: ignore[attr-defined]
+    returns = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    pm_adj.update_correlation(inst1, inst2, returns, returns)
 
     alloc_adj = pm_adj.allocate_signals(signals, capital)
     # Expect total group allocation scaled to 40% of capital, split evenly → 2k each

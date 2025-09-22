@@ -31,10 +31,10 @@ except Exception as exc:  # pragma: no cover
 if TYPE_CHECKING:
     from pytorch_forecasting.metrics import MultiHorizonMetric as MultiHorizonMetricBase
 else:
-    MultiHorizonMetricBase = cast(type[torch.nn.Module], _MultiHorizonMetricRuntime)
+    MultiHorizonMetricBase = cast(type[Any], _MultiHorizonMetricRuntime)
 
 
-class BCEWithLogitsLossPF(MultiHorizonMetricBase):
+class BCEWithLogitsLossPF(MultiHorizonMetricBase):  # type: ignore[misc]
     """
     BCE-with-logits loss as a Pytorch Forecasting Metric.
 

@@ -38,6 +38,12 @@ class DashboardConfig:
         Host port for Prometheus (`/-/healthy`).
     redis_port : int
         Host port for Redis (used for liveness-only pings in optional checks).
+    events_cache_ttl_seconds : float
+        TTL for cached event payloads served by the dashboard.
+    events_cache_max_entries : int
+        Maximum number of recent events retained in the dashboard cache.
+    events_poll_interval_seconds : float
+        Optional interval for background event polling (0 disables background polling).
     """
 
     compose_enabled: bool = False
@@ -50,6 +56,9 @@ class DashboardConfig:
     grafana_port: int = 3000
     prometheus_port: int = 9090
     redis_port: int = 6380
+    events_cache_ttl_seconds: float = 5.0
+    events_cache_max_entries: int = 200
+    events_poll_interval_seconds: float = 0.0
 
     @staticmethod
     def from_env(env: dict[str, str] | None = None) -> DashboardConfig:
@@ -106,8 +115,10 @@ class DashboardConfig:
             grafana_port=_int("GRAFANA_HOST_PORT", 3000),
             prometheus_port=_int("PROMETHEUS_HOST_PORT", 9090),
             redis_port=_int("REDIS_HOST_PORT", 6380),
+            events_cache_ttl_seconds=_float("ML_DASHBOARD_EVENTS_CACHE_TTL", 5.0),
+            events_cache_max_entries=_int("ML_DASHBOARD_EVENTS_CACHE_MAX", 200),
+            events_poll_interval_seconds=_float("ML_DASHBOARD_EVENTS_POLL_INTERVAL", 0.0),
         )
 
 
 __all__ = ["DashboardConfig"]
-

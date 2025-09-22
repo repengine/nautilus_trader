@@ -25,7 +25,17 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
             "lookback_periods": 40
           },
           "hpo": {"enabled": true, "epochs": 3, "batch_size": 16, "tail_rows": 100, "limit_groups": 10},
-          "teacher": {"enabled": true, "model_id": "teacher_X", "max_epochs": 7}
+          "teacher": {"enabled": true, "model_id": "teacher_X", "max_epochs": 7},
+          "student": {"enabled": true, "model_id": "student_X", "model_registry_dir": "registry"},
+          "integration": {
+            "enabled": true,
+            "db_connection": "postgresql://example",
+            "auto_start_postgres": true,
+            "auto_migrate": true,
+            "ensure_healthy": false,
+            "strict_protocol_validation": true,
+            "run_validators": false
+          }
         }
         """,
         encoding="utf-8",
@@ -39,6 +49,19 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
     assert ["--teacher_model_id", "teacher_X"] == args[
         args.index("--teacher_model_id") : args.index("--teacher_model_id") + 2
     ]
+    assert "--distill_student" in args
+    assert ["--student_model_registry_dir", "registry"] == args[
+        args.index("--student_model_registry_dir") : args.index("--student_model_registry_dir") + 2
+    ]
+    assert "--attach-runtime" in args
+    assert ["--runtime-db-connection", "postgresql://example"] == args[
+        args.index("--runtime-db-connection") : args.index("--runtime-db-connection") + 2
+    ]
+    assert "--runtime-auto-start-db" in args
+    assert "--runtime-auto-migrate" in args
+    assert "--runtime-no-ensure-healthy" in args
+    assert "--runtime-strict-protocol-validation" in args
+    assert "--runtime-skip-validators" in args
 
 
 def test_load_toml(tmp_path: Path) -> None:

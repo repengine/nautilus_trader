@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import types
+from collections.abc import Sequence
 
 import pytest
 
@@ -16,43 +16,43 @@ from ml.common.dataframe_utils import (
 def test_total_nulls_and_column_nulls_pandas_like() -> None:
     # Minimal pandas-like stand-in to avoid heavy deps
     class Series:
-        def __init__(self, data: list[object]) -> None:
+        def __init__(self, data: Sequence[object]) -> None:
             self._data = data
 
-        def isnull(self):  # noqa: D401
-            class _Sum:
-                def __init__(self, data: list[object]) -> None:
-                    self._data = data
+        class _Nulls:
+            def __init__(self, data: Sequence[object]) -> None:
+                self._data = data
 
-                def sum(self) -> int:
-                    return sum(1 for x in self._data if x is None)
+            def sum(self) -> int:
+                return sum(1 for x in self._data if x is None)
 
-            return _Sum(self._data)
+        def isnull(self) -> Series._Nulls:
+            return Series._Nulls(self._data)
 
     class Frame:
-        def __init__(self, data: dict[str, list[object]]) -> None:
+        def __init__(self, data: dict[str, Sequence[object]]) -> None:
             self._data = {k: Series(v) for k, v in data.items()}
             self.columns = list(data.keys())
 
         def __getitem__(self, key: str) -> Series:
             return self._data[key]
 
-        def isnull(self):  # noqa: D401
-            class _Sum:
+        class _Nulls:
+            def __init__(self, cols: dict[str, Series]) -> None:
+                self._cols = cols
+
+            class _Totals:
                 def __init__(self, cols: dict[str, Series]) -> None:
                     self._cols = cols
 
-                def sum(self):  # type: ignore[override]
-                    class _Sum2:
-                        def __init__(self, cols: dict[str, Series]) -> None:
-                            self._cols = cols
+                def sum(self) -> int:
+                    return sum(column.isnull().sum() for column in self._cols.values())
 
-                        def sum(self) -> int:
-                            return sum(col.isnull().sum() for col in self._cols.values())
+            def sum(self) -> Frame._Nulls._Totals:
+                return Frame._Nulls._Totals(self._cols)
 
-                    return _Sum2(self._cols)
-
-            return _Sum(self._data)
+        def isnull(self) -> Frame._Nulls:
+            return Frame._Nulls(self._data)
 
     df = Frame({"a": [1, None, 3], "b": [None, None, 2]})
     assert total_nulls(df) == 3

@@ -185,7 +185,7 @@ class TestDatabase:
 
                     try:
                         from ml.cli.apply_migrations import (
-                            _split_statements as _split,
+                            split_statements as _split,
                         )  # noqa: WPS433
 
                         splitter: Callable[[str], Iterable[str]] = _split
@@ -261,8 +261,9 @@ $$ LANGUAGE plpgsql;
         try:
             from ml.cli.apply_migrations import apply_files as _apply_files
             from ml.cli.apply_migrations import build_plan as _build_plan
+            from ml.tasks.db import MigrationSchema
 
-            plan = _build_plan(full=True, schema="both")
+            plan = _build_plan(include_optional=True, schema=MigrationSchema.BOTH)
             _apply_files(self.engine, plan, dry_run=False)
         except Exception:
             # Ignore if migration helpers are unavailable in the environment

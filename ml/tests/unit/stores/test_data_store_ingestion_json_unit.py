@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, cast
+import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +14,9 @@ from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
 from ml.registry.persistence import BackendType, PersistenceConfig
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
 
 
 def _make_manifest(dataset_id: str, location: Path) -> DatasetManifest:
@@ -49,6 +53,18 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
+def _set_noop_preflight(store: DataStore) -> None:
+    def _noop_preflight(
+        self: DataStore,
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
+    store.preflight_check = types.MethodType(_noop_preflight, store)  # type: ignore[assignment]
+
+
+
 def test_write_ingestion_failure_emits_failed_event_and_raises(tmp_path: Path) -> None:
     reg_dir = tmp_path / "reg"
     reg = DataRegistry(
@@ -59,14 +75,14 @@ def test_write_ingestion_failure_emits_failed_event_and_raises(tmp_path: Path) -
     reg.register_dataset(manifest)
 
     # DataStore with feature_store raising after preflight to exercise failure path
-    feature_store = cast(Any, MagicMock())
-    feature_store.write_features = MagicMock(side_effect=RuntimeError("boom"))
+    feature_store = cast(FeatureStore, MagicMock(spec=FeatureStore))
+    cast(MagicMock, feature_store).write_features = MagicMock(side_effect=RuntimeError("boom"))
     store = DataStore(
         connection_string="sqlite:///:memory:",
         registry=reg,
         feature_store=feature_store,
-        model_store=cast(Any, MagicMock()),
-        strategy_store=cast(Any, MagicMock()),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
     )
 
     # Valid records so preflight passes; write_features then fails to exercise emit_event(status=failed)
@@ -75,7 +91,10 @@ def test_write_ingestion_failure_emits_failed_event_and_raises(tmp_path: Path) -
     ]
 
     # Bypass full preflight to keep unit deterministic
-    store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
+    def _noop_preflight(self: DataStore, *args: object, **kwargs: object) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
+    _set_noop_preflight(store)
 
     with pytest.raises(RuntimeError):  # raised by DataStore after emitting failed event
         store.write_ingestion(
@@ -107,9 +126,9 @@ def test_write_ingestion_updates_watermark_json(tmp_path: Path) -> None:
     store = DataStore(
         connection_string="sqlite:///:memory:",
         registry=reg,
-        feature_store=cast(Any, MagicMock(write_features=MagicMock())),
-        model_store=cast(Any, MagicMock()),
-        strategy_store=cast(Any, MagicMock()),
+        feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
         publisher=pub,
     )
 
@@ -119,7 +138,7 @@ def test_write_ingestion_updates_watermark_json(tmp_path: Path) -> None:
     ]
 
     # Bypass preflight schema hash for deterministic test
-    store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
+    _set_noop_preflight(store)
 
     store.write_ingestion(
         dataset_id=manifest.dataset_id,

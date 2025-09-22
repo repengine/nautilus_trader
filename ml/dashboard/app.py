@@ -32,6 +32,8 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         ...
     cfg = config or DashboardConfig.from_env()
     svc = DashboardService.from_config(cfg)
+    if cfg.events_poll_interval_seconds > 0.0:
+        svc.start_event_polling(cfg.events_poll_interval_seconds)
 
     def _require_token() -> bool:
         """Return True if dashboard token requirement is satisfied or disabled."""

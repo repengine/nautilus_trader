@@ -91,6 +91,10 @@ from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
+from ml.stores.file_backed import FileDataStore
+from ml.stores.file_backed import FileFeatureStore
+from ml.stores.file_backed import FileModelStore
+from ml.stores.file_backed import FileStrategyStore
 
 # Infrastructure utilities
 from ml.stores.infrastructure import PartitionManager
@@ -181,6 +185,10 @@ __all__ = [
     "FeatureStore",
     "FeatureStoreProtocol",
     "FeatureStoreStrictProtocol",
+    "FileDataStore",
+    "FileFeatureStore",
+    "FileModelStore",
+    "FileStrategyStore",
     "HealthMixin",
     "LiveDataRecorder",
     "MarketDataWriterProtocol",

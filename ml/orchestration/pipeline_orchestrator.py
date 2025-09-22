@@ -13,19 +13,26 @@ paths.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import logging
 import os
 import time
 import uuid as _uuid
+from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml.common.logging_config import bind_log_context
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 from ml.config.coverage import CoveragePolicy
 from ml.config.coverage import get_max_lookback_days
+from ml.data import DatasetValidationConfig
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
@@ -39,6 +46,8 @@ from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import ParquetCatalogMarketDataWriter
+from ml.tasks.ingest import PopulateL2TaskConfig
+from ml.tasks.ingest import populate_l2_efficient
 
 
 logger = logging.getLogger(__name__)
@@ -52,11 +61,32 @@ class _CliMain(Protocol):
     def __call__(self, argv: list[str] | None = None) -> int: ...
 
 
+class IntegrationManagerProtocol(Protocol):
+    data_registry: object | None
+    feature_registry: object | None
+    model_registry: object | None
+    strategy_registry: object | None
+    data_store: object | None
+    feature_store: object | None
+    model_store: object | None
+    strategy_store: object | None
+    partition_manager: object | None
+
+
+@dataclass(slots=True)
+class BuildArtifacts:
+    out_dir: Path
+    feature_registry_dir: str | None
+    feature_set_id: str | None
+    feature_names: tuple[str, ...] = ()
+
+
 @dataclass(slots=True, frozen=True)
 class DatasetBuildConfig:
     data_dir: str
     symbols: str
     out_dir: str
+    instrument_ids: tuple[str, ...] | None = None
     include_macro: bool = False
     macro_lag_days: int = 1
     include_micro: bool = False
@@ -78,6 +108,31 @@ class DatasetBuildConfig:
     register_features: bool = False
     feature_registry_dir: str | None = None
     feature_role: str = "teacher"
+    auto_refresh_macro: bool = True
+    macro_staleness_hours: int = 24
+    macro_series_ids: tuple[str, ...] | None = None
+    macro_fred_path: str | None = None
+    validation: DatasetValidationConfig | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class AutoFillUniverseConfig:
+    enabled: bool = False
+    dataset_id: str = "EQUS.MINI"
+    include_bars: bool = True
+    include_tbbo: bool = True
+    include_trades: bool = True
+    include_l2: bool = False
+    include_l3: bool = False
+    l2_dataset_id: str = "DBEQ.BASIC"
+    l2_schema: str = "mbp-10"
+    l2_days: int | None = None
+    l2_progress_file: str | None = None
+    disable_dataset_l2_ingest: bool = True
+    instrument_ids: tuple[str, ...] | None = None
+    l3_dataset_id: str | None = None
+    l3_schema: str | None = None
+    l3_days: int | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -87,6 +142,14 @@ class HPOConfig:
     batch_size: int = 32
     tail_rows: int = 5000
     limit_groups: int = 50
+    workers: int = 2
+    backend: str = "optuna"
+    metric: str = "prx"
+    direction: str | None = None
+    optuna_trials: int = 20
+    optuna_timeout: int | None = None
+    loss: str = "bce"
+    pos_weight: str = "auto"
 
 
 @dataclass(slots=True, frozen=True)
@@ -99,15 +162,66 @@ class TeacherTrainConfig:
 
 
 @dataclass(slots=True, frozen=True)
+class StudentDistillConfig:
+    enabled: bool = False
+    model_id: str = "student_model"
+    parent_model_id: str | None = None
+    model_registry_dir: str | None = None
+    feature_registry_dir: str | None = None
+    feature_set_id: str | None = None
+    objective: str = "logit_mse"
+    kd_lambda: float = 0.5
+    early_stopping: int = 200
+    opset: int | None = None
+    use_val_for_distill: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class IntegrationConfig:
+    enabled: bool = False
+    db_connection: str | None = None
+    auto_start_postgres: bool = False
+    auto_migrate: bool = False
+    ensure_healthy: bool = True
+    strict_protocol_validation: bool | None = None
+    run_validators: bool = True
+
+
+@dataclass(slots=True, frozen=True)
+class _AutoFillMetrics:
+    operations_total: Any
+    latency_seconds: Any
+
+    @staticmethod
+    def default() -> _AutoFillMetrics:
+        return _AutoFillMetrics(
+            operations_total=get_counter(
+                "nautilus_ml_auto_fill_operations_total",
+                "Auto-fill ingestion operations",
+                ("schema", "status"),
+            ),
+            latency_seconds=get_histogram(
+                "nautilus_ml_auto_fill_latency_seconds",
+                "Auto-fill ingestion latency",
+                ("schema",),
+                buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+            ),
+        )
+
+
+@dataclass(slots=True, frozen=True)
 class OrchestratorConfig:
     dataset: DatasetBuildConfig
     hpo: HPOConfig
     teacher: TeacherTrainConfig
+    student: StudentDistillConfig = StudentDistillConfig()
     # Optional promotions/feature refresh settings (used by config-driven scheduler)
     promotions: PromotionsConfig | None = None
     # Optional data ingestion pre-stage before dataset build
     pre_ingestion: SchedulerConfig | None = None
     pre_ingestion_options: PreIngestionOptions | None = None
+    auto_fill: AutoFillUniverseConfig | None = None
+    integration: IntegrationConfig | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -139,10 +253,303 @@ class MLPipelineOrchestrator:
     service: DatabentoIngestionService | None = None
     model_registry: object | None = None
     feature_registry: object | None = None
+    strategy_registry: object | None = None
+    feature_store: object | None = None
+    model_store: object | None = None
+    strategy_store: object | None = None
+    data_store: object | None = None
+    partition_manager: object | None = None
+    integration_manager_factory: Callable[..., IntegrationManagerProtocol] | None = None
+    _integration_manager: IntegrationManagerProtocol | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _build_artifacts: BuildArtifacts | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.data_registry is None and self.registry is not None:
             object.__setattr__(self, "data_registry", self.registry)
+
+    @staticmethod
+    def _resolve_instrument_ids(
+        dataset_cfg: DatasetBuildConfig,
+        override: tuple[str, ...] | None = None,
+    ) -> tuple[str, ...]:
+        if override:
+            return tuple(item.strip() for item in override if item.strip())
+        if dataset_cfg.instrument_ids:
+            return tuple(item.strip() for item in dataset_cfg.instrument_ids if item.strip())
+        symbols_raw = dataset_cfg.symbols.split(",")
+        return tuple(item.strip().upper() for item in symbols_raw if item.strip())
+
+    def _auto_fill_universe(
+        self,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+    ) -> None:
+        if not auto_fill_cfg.enabled:
+            return
+
+        instruments = self._resolve_instrument_ids(
+            dataset_cfg,
+            auto_fill_cfg.instrument_ids,
+        )
+        if not instruments:
+            logger.info("Auto-fill universe requested but no instruments resolved; skipping")
+            return
+
+        metrics = _AutoFillMetrics.default()
+        policy = CoveragePolicy.from_env()
+        schema_aliases = {
+            "bars": "ohlcv-1m",
+            "tbbo": "tbbo",
+            "trades": "trades",
+        }
+
+        if auto_fill_cfg.include_bars:
+            lookback = get_max_lookback_days("bars", policy)
+            for instrument_id in instruments:
+                self._auto_fill_schema(
+                    dataset_id=auto_fill_cfg.dataset_id,
+                    schema=schema_aliases.get("bars", "bars"),
+                    instrument_id=instrument_id,
+                    lookback_days=lookback,
+                    metrics=metrics,
+                )
+
+        if auto_fill_cfg.include_tbbo:
+            lookback = get_max_lookback_days("quotes", policy)
+            for instrument_id in instruments:
+                self._auto_fill_schema(
+                    dataset_id=auto_fill_cfg.dataset_id,
+                    schema=schema_aliases.get("tbbo", "tbbo"),
+                    instrument_id=instrument_id,
+                    lookback_days=lookback,
+                    metrics=metrics,
+                )
+
+        if auto_fill_cfg.include_trades:
+            lookback = get_max_lookback_days("trades", policy)
+            for instrument_id in instruments:
+                self._auto_fill_schema(
+                    dataset_id=auto_fill_cfg.dataset_id,
+                    schema=schema_aliases.get("trades", "trades"),
+                    instrument_id=instrument_id,
+                    lookback_days=lookback,
+                    metrics=metrics,
+                )
+
+        if auto_fill_cfg.include_l2:
+            self._auto_fill_l2(
+                dataset_cfg=dataset_cfg,
+                auto_fill_cfg=auto_fill_cfg,
+                instruments=instruments,
+                metrics=metrics,
+                policy=policy,
+            )
+
+        if auto_fill_cfg.include_l3:
+            self._auto_fill_l3(
+                dataset_cfg=dataset_cfg,
+                auto_fill_cfg=auto_fill_cfg,
+                instruments=instruments,
+                metrics=metrics,
+                policy=policy,
+            )
+
+    def _auto_fill_schema(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int,
+        metrics: _AutoFillMetrics,
+    ) -> None:
+        if lookback_days <= 0:
+            logger.debug(
+                "Auto-fill %s skipped for %s (non-positive lookback)",
+                schema,
+                instrument_id,
+            )
+            metrics.operations_total.labels(schema=schema, status="skipped").inc()
+            return
+
+        if self.ingestor is None and self.service is None:
+            logger.info(
+                "Auto-fill %s skipped for %s (ingestor/service unavailable)",
+                schema,
+                instrument_id,
+            )
+            metrics.operations_total.labels(schema=schema, status="skipped").inc()
+            return
+
+        start_time = time.perf_counter()
+        status = "success"
+        try:
+            gaps = self.backfill(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                lookback_days=lookback_days,
+            )
+            logger.info(
+                "Auto-fill %s complete | instrument=%s dataset=%s gaps=%d lookback_days=%d",
+                schema,
+                instrument_id,
+                dataset_id,
+                len(gaps),
+                lookback_days,
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            status = "error"
+            logger.error(
+                "Auto-fill %s failed for %s (dataset=%s lookback=%s): %s",
+                schema,
+                instrument_id,
+                dataset_id,
+                lookback_days,
+                exc,
+                exc_info=True,
+            )
+        finally:
+            metrics.operations_total.labels(schema=schema, status=status).inc()
+            metrics.latency_seconds.labels(schema=schema).observe(
+                time.perf_counter() - start_time,
+            )
+
+    def _auto_fill_l2(
+        self,
+        *,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+        instruments: tuple[str, ...],
+        metrics: _AutoFillMetrics,
+        policy: CoveragePolicy,
+    ) -> None:
+        data_dir = Path(dataset_cfg.data_dir).expanduser()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        progress_path = (
+            Path(auto_fill_cfg.l2_progress_file).expanduser()
+            if auto_fill_cfg.l2_progress_file
+            else data_dir / ".auto_fill_l2_progress.json"
+        )
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+        l2_days = auto_fill_cfg.l2_days
+        if l2_days is None:
+            l2_days = get_max_lookback_days("l2", policy)
+        symbols_iter = [
+            symbol.split(".")[0].upper()
+            if symbol and "." in symbol
+            else str(symbol).upper()
+            for symbol in instruments
+            if symbol
+        ]
+        symbol_roots = tuple(dict.fromkeys(symbols_iter))
+        if not symbol_roots:
+            logger.info("Auto-fill L2 skipped: no symbols resolved")
+            metrics.operations_total.labels(schema="l2", status="skipped").inc()
+            return
+
+        start_time = time.perf_counter()
+        status = "success"
+        try:
+            config = PopulateL2TaskConfig(
+                data_dir=data_dir,
+                progress_file=progress_path,
+                symbols=symbol_roots,
+                tier=None,
+                days=int(l2_days),
+                dataset=auto_fill_cfg.l2_dataset_id,
+                schema=auto_fill_cfg.l2_schema,
+            )
+            logger.info(
+                "Auto-fill L2 start | symbols=%d days=%d dataset=%s schema=%s",
+                len(symbol_roots),
+                l2_days,
+                auto_fill_cfg.l2_dataset_id,
+                auto_fill_cfg.l2_schema,
+            )
+            populate_l2_efficient(config)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            status = "error"
+            logger.error("Auto-fill L2 failed: %s", exc, exc_info=True)
+        finally:
+            metrics.operations_total.labels(schema="l2", status=status).inc()
+            metrics.latency_seconds.labels(schema="l2").observe(
+                time.perf_counter() - start_time,
+            )
+
+    def _auto_fill_l3(
+        self,
+        *,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+        instruments: tuple[str, ...],
+        metrics: _AutoFillMetrics,
+        policy: CoveragePolicy,
+    ) -> None:
+        try:
+            module = importlib.import_module("ml.tasks.ingest.l3")
+        except Exception:  # pragma: no cover - optional dependency
+            logger.info("Auto-fill L3 requested but task helpers are unavailable; skipping")
+            metrics.operations_total.labels(schema="l3", status="skipped").inc()
+            return
+
+        PopulateL3TaskConfig = getattr(module, "PopulateL3TaskConfig", None)
+        populate_l3_efficient = getattr(module, "populate_l3_efficient", None)
+        if PopulateL3TaskConfig is None or populate_l3_efficient is None:
+            logger.info("Auto-fill L3 requested but helpers missing from module; skipping")
+            metrics.operations_total.labels(schema="l3", status="skipped").inc()
+            return
+
+        data_dir = Path(dataset_cfg.data_dir).expanduser()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        progress_path = data_dir / ".auto_fill_l3_progress.json"
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+        l3_days = auto_fill_cfg.l3_days
+        if l3_days is None:
+            l3_days = get_max_lookback_days("l3", policy)
+        symbols_iter = [
+            symbol.split(".")[0].upper()
+            if symbol and "." in symbol
+            else str(symbol).upper()
+            for symbol in instruments
+            if symbol
+        ]
+        symbol_roots = tuple(dict.fromkeys(symbols_iter))
+        if not symbol_roots:
+            logger.info("Auto-fill L3 skipped: no symbols resolved")
+            metrics.operations_total.labels(schema="l3", status="skipped").inc()
+            return
+
+        start_time = time.perf_counter()
+        status = "success"
+        try:
+            dataset = auto_fill_cfg.l3_dataset_id or auto_fill_cfg.l2_dataset_id
+            schema = auto_fill_cfg.l3_schema or "mbo"
+            config = PopulateL3TaskConfig(
+                data_dir=data_dir,
+                progress_file=progress_path,
+                symbols=symbol_roots,
+                days=int(l3_days),
+                dataset=dataset,
+                schema=schema,
+            )
+            populate_l3_efficient(config)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            status = "error"
+            logger.error("Auto-fill L3 failed: %s", exc, exc_info=True)
+        finally:
+            metrics.operations_total.labels(schema="l3", status=status).inc()
+            metrics.latency_seconds.labels(schema="l3").observe(
+                time.perf_counter() - start_time,
+            )
 
     # ---------------------------------------------------------------------
     # Pre-ingestion (unified orchestrator path)
@@ -230,10 +637,14 @@ class MLPipelineOrchestrator:
             from ml.data import build_tft_dataset as api_build
 
             symbols_list = [s.strip().upper() for s in cfg.symbols.split(",") if s.strip()]
+            instrument_ids_list = (
+                [item.strip() for item in cfg.instrument_ids] if cfg.instrument_ids else None
+            )
             api_cfg = APICfg(
                 data_dir=Path(cfg.data_dir),
                 out_dir=Path(cfg.out_dir),
                 symbols=symbols_list,
+                instrument_ids=instrument_ids_list,
                 include_macro=cfg.include_macro,
                 macro_lag_days=cfg.macro_lag_days,
                 include_micro=cfg.include_micro,
@@ -265,6 +676,13 @@ class MLPipelineOrchestrator:
                     None if cfg.feature_registry_dir is None else Path(cfg.feature_registry_dir)
                 ),
                 feature_role=cfg.feature_role,
+                auto_refresh_macro=cfg.auto_refresh_macro,
+                macro_staleness_hours=cfg.macro_staleness_hours,
+                macro_series_ids=cfg.macro_series_ids,
+                macro_fred_path=(
+                    Path(cfg.macro_fred_path).expanduser() if cfg.macro_fred_path else None
+                ),
+                validation=cfg.validation,
             )
             logger.info(
                 "Dataset readiness | macro=%s events=%s student_mode=%s vintages=%s events_dir=%s",
@@ -277,6 +695,7 @@ class MLPipelineOrchestrator:
             result = api_build(api_cfg)
             if not result.feature_names:
                 raise ValueError("API dataset build returned no features; falling back to CLI")
+            manifest_id = self._export_feature_manifest(cfg, result)
             # Persist feature registration metadata for HPO
             try:
                 meta_path = Path(cfg.out_dir) / "feature_registration.json"
@@ -287,9 +706,17 @@ class MLPipelineOrchestrator:
                     "feature_registry_dir": cfg.feature_registry_dir,
                     "feature_role": cfg.feature_role,
                 }
+                if manifest_id:
+                    payload["manifest_id"] = manifest_id
                 meta_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
             except Exception:
                 pass
+            self._record_build_artifacts(
+                cfg=cfg,
+                feature_set_id=getattr(result, "feature_set_id", None),
+                feature_names=list(getattr(result, "feature_names", [])),
+                feature_registry_dir=cfg.feature_registry_dir,
+            )
             return 0
         except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
             import logging as _logging
@@ -331,6 +758,27 @@ class MLPipelineOrchestrator:
             args += ["--events_dir", cfg.events_dir]
         if cfg.student_mode:
             args += ["--student_mode"]
+        if cfg.instrument_ids:
+            args += ["--instrument_ids", ",".join(cfg.instrument_ids)]
+        if not cfg.auto_refresh_macro:
+            args += ["--skip_macro_refresh"]
+        if cfg.macro_staleness_hours != 24:
+            args += ["--macro_freshness_hours", str(cfg.macro_staleness_hours)]
+        if cfg.macro_series_ids:
+            args += ["--macro_series_ids", ",".join(cfg.macro_series_ids)]
+        if cfg.macro_fred_path:
+            args += ["--macro_fred_path", cfg.macro_fred_path]
+        if cfg.validation is not None:
+            args += ["--validation_min_rows", str(cfg.validation.min_rows)]
+            if cfg.validation.min_positive_rate is not None:
+                args += ["--validation_min_positive_rate", str(cfg.validation.min_positive_rate)]
+            if cfg.validation.max_positive_rate is not None:
+                args += ["--validation_max_positive_rate", str(cfg.validation.max_positive_rate)]
+            if cfg.validation.min_feature_coverage is not None:
+                args += [
+                    "--validation_min_feature_coverage",
+                    str(cfg.validation.min_feature_coverage),
+                ]
         if getattr(cfg, "start_iso", None):
             args += ["--start", str(cfg.start_iso)]
         if getattr(cfg, "end_iso", None):
@@ -343,13 +791,186 @@ class MLPipelineOrchestrator:
             args += ["--register_features"]
             reg_dir = cfg.feature_registry_dir or str(Path.home() / ".nautilus" / "ml" / "features")
             args += ["--feature_registry_dir", reg_dir]
-        return self.build_main(args)
+        rc = self.build_main(args)
+        if rc == 0:
+            self._capture_cli_build_artifacts(cfg)
+        return rc
+
+    @staticmethod
+    def _export_feature_manifest(
+        cfg: DatasetBuildConfig,
+        result: object,
+    ) -> str | None:
+        """Export a feature manifest when registry configuration is provided."""
+        if not cfg.register_features or not cfg.feature_registry_dir:
+            return None
+
+        try:
+            feature_names = getattr(result, "feature_names")
+        except AttributeError:
+            logger.warning("Feature manifest export skipped: result missing feature_names")
+            return None
+        if not feature_names:
+            logger.warning("Feature manifest export skipped: no feature names returned")
+            return None
+
+        try:
+            from ml.data.feature_manifest_export import FeatureExportConfig
+            from ml.data.feature_manifest_export import export_feature_manifest
+            from ml.registry.base import DataRequirements
+            from ml.registry.feature_registry import FeatureRole
+        except Exception as exc:  # pragma: no cover - import guard
+            logger.warning("Feature manifest export unavailable: %s", exc)
+            return None
+
+        try:
+            role = FeatureRole(cfg.feature_role)
+        except ValueError:
+            logger.warning("Unknown feature_role '%s'; defaulting to TEACHER", cfg.feature_role)
+            role = FeatureRole.TEACHER
+
+        data_requirements = (
+            DataRequirements.L1_L2 if cfg.include_l2 else DataRequirements.L1_ONLY
+        )
+        flags = {
+            "include_macro": cfg.include_macro,
+            "macro_lag_days": cfg.macro_lag_days,
+            "include_events": cfg.include_events,
+            "include_l2": cfg.include_l2,
+            "student_mode": cfg.student_mode,
+            "fred_vintages": bool(cfg.fred_vintage_dir),
+            "events_dir": bool(cfg.events_dir),
+        }
+
+        export_cfg = FeatureExportConfig(
+            registry_path=Path(cfg.feature_registry_dir),
+            role=role,
+            data_requirements=data_requirements,
+        )
+
+        try:
+            manifest_id = export_feature_manifest(
+                feature_names=list(feature_names),
+                flags=flags,
+                cfg=export_cfg,
+            )
+            logger.info("Exported feature manifest %s", manifest_id)
+            return manifest_id
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Feature manifest export failed: %s", exc, exc_info=True)
+            return None
+
+    def _record_build_artifacts(
+        self,
+        *,
+        cfg: DatasetBuildConfig,
+        feature_set_id: str | None,
+        feature_names: Sequence[str] | None,
+        feature_registry_dir: str | None,
+    ) -> None:
+        names_tuple = tuple(feature_names or [])
+        self._build_artifacts = BuildArtifacts(
+            out_dir=Path(cfg.out_dir),
+            feature_registry_dir=feature_registry_dir,
+            feature_set_id=feature_set_id,
+            feature_names=names_tuple,
+        )
+
+    @staticmethod
+    def _infer_feature_names(out_dir: Path) -> tuple[str, ...]:
+        dataset_path = out_dir / "dataset.parquet"
+        if not dataset_path.exists():
+            logger.debug("Dataset parquet missing after CLI build: %s", dataset_path)
+            return ()
+        try:
+            from ml._imports import HAS_PANDAS
+            from ml._imports import HAS_POLARS
+            from ml._imports import check_ml_dependencies
+            from ml._imports import pd
+            from ml._imports import pl
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            logger.debug("Failed to import dataset engines: %s", exc)
+            return ()
+
+        exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
+        try:
+            if HAS_POLARS and pl is not None:
+                frame = pl.read_parquet(str(dataset_path))
+                return tuple(col for col in frame.columns if col not in exclude)
+            if HAS_PANDAS and pd is not None:
+                frame_pd = pd.read_parquet(str(dataset_path))
+                return tuple(col for col in frame_pd.columns if col not in exclude)
+        except Exception as exc:  # pragma: no cover - io errors
+            logger.warning("Failed to inspect dataset parquet: %s", exc)
+            return ()
+        try:
+            check_ml_dependencies(["polars"])
+        except Exception:
+            pass
+        return ()
+
+    def _capture_cli_build_artifacts(self, cfg: DatasetBuildConfig) -> None:
+        out_dir = Path(cfg.out_dir)
+        feature_registry_dir = cfg.feature_registry_dir
+        feature_set_id: str | None = None
+        feature_names: tuple[str, ...] = ()
+        for candidate in (
+            out_dir / "feature_set.json",
+            out_dir / "feature_registration.json",
+        ):
+            if not candidate.exists():
+                continue
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.debug("Failed to parse feature metadata %s: %s", candidate, exc)
+                continue
+            feature_registry_dir = feature_registry_dir or data.get("feature_registry_dir")
+            feature_set_id = feature_set_id or data.get("feature_set_id")
+            names = data.get("feature_names")
+            if isinstance(names, list):
+                feature_names = tuple(str(name) for name in names)
+
+        if not feature_names:
+            feature_names = self._infer_feature_names(out_dir)
+
+        manifest_id: str | None = None
+        if cfg.register_features and feature_names:
+            sentinel = type("_Result", (), {"feature_names": feature_names})
+            manifest_id = self._export_feature_manifest(cfg, sentinel)
+            if manifest_id:
+                feature_set_id = feature_set_id or manifest_id
+                feature_registry_dir = feature_registry_dir or cfg.feature_registry_dir
+                payload = {
+                    "feature_set_id": feature_set_id,
+                    "feature_registry_dir": feature_registry_dir,
+                    "feature_names": list(feature_names),
+                    "manifest_id": manifest_id,
+                }
+                try:
+                    (out_dir / "feature_registration.json").write_text(
+                        json.dumps(payload, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to persist feature registration metadata: %s",
+                        exc,
+                    )
+
+        self._record_build_artifacts(
+            cfg=cfg,
+            feature_set_id=feature_set_id,
+            feature_names=feature_names,
+            feature_registry_dir=feature_registry_dir,
+        )
 
     def run_hpo(self, cfg: HPOConfig, dataset_csv: Path, out_dir: Path) -> int:
         if not cfg.enabled or self.hpo_main is None:
             return 0
+        artifacts = self._build_artifacts
         args = [
-            "--train_data_csv",
+            "--dataset_csv",
             str(dataset_csv),
             "--out_dir",
             str(out_dir),
@@ -361,12 +982,37 @@ class MLPipelineOrchestrator:
             str(cfg.tail_rows),
             "--limit_groups",
             str(cfg.limit_groups),
+            "--workers",
+            str(cfg.workers),
+            "--backend",
+            cfg.backend,
+            "--metric",
+            cfg.metric,
+            "--optuna_trials",
+            str(cfg.optuna_trials),
+            "--loss",
+            cfg.loss,
+            "--pos_weight",
+            cfg.pos_weight,
         ]
+        if cfg.direction:
+            args += ["--direction", cfg.direction]
+        if cfg.optuna_timeout is not None:
+            args += ["--optuna_timeout", str(cfg.optuna_timeout)]
+        if artifacts and artifacts.feature_registry_dir:
+            args += ["--feature_registry_dir", artifacts.feature_registry_dir]
+        if artifacts and artifacts.feature_set_id:
+            args += ["--feature_set_id", artifacts.feature_set_id]
         return self.hpo_main(args)
 
     def train_teacher(self, cfg: TeacherTrainConfig, dataset_csv: Path, out_dir: Path) -> int:
         if not cfg.enabled:
             return 0
+        artifacts = self._build_artifacts
+        feature_registry_dir = cfg.feature_registry_dir or (
+            artifacts.feature_registry_dir if artifacts else None
+        )
+        feature_set_id = cfg.feature_set_id or (artifacts.feature_set_id if artifacts else None)
         args: list[str] = [
             "--train_data_csv",
             str(dataset_csv),
@@ -377,11 +1023,84 @@ class MLPipelineOrchestrator:
             "--max_epochs",
             str(cfg.max_epochs),
         ]
-        if cfg.feature_registry_dir is not None:
-            args += ["--feature_registry_dir", cfg.feature_registry_dir]
-        if cfg.feature_set_id is not None:
-            args += ["--feature_set_id", cfg.feature_set_id]
+        if feature_registry_dir is not None:
+            args += ["--feature_registry_dir", feature_registry_dir]
+        if feature_set_id is not None:
+            args += ["--feature_set_id", feature_set_id]
         return self.teacher_main(args)
+
+    def distill_student(
+        self,
+        cfg: StudentDistillConfig,
+        *,
+        dataset_dir: Path,
+        teacher_cfg: TeacherTrainConfig,
+    ) -> int:
+        if not cfg.enabled:
+            return 0
+
+        features_npz = dataset_dir / "features_npz.npz"
+        teacher_npz = dataset_dir / "teacher_preds.npz"
+        if not features_npz.exists():
+            logger.error("Distillation enabled but missing features NPZ at %s", features_npz)
+            return 1
+        if not teacher_npz.exists():
+            logger.error("Distillation enabled but missing teacher predictions NPZ at %s", teacher_npz)
+            return 1
+
+        artifacts = self._build_artifacts
+        feature_registry_dir = cfg.feature_registry_dir or (
+            artifacts.feature_registry_dir if artifacts else None
+        )
+        feature_set_id = cfg.feature_set_id or (
+            artifacts.feature_set_id if artifacts else None
+        )
+        if feature_registry_dir is None or feature_set_id is None:
+            logger.error(
+                "Feature registry metadata required for distillation (have dir=%s id=%s)",
+                feature_registry_dir,
+                feature_set_id,
+            )
+            return 1
+
+        model_registry_dir = cfg.model_registry_dir
+        if model_registry_dir is None:
+            logger.error("model_registry_dir is required for student registration")
+            return 1
+
+        parent_model_id = cfg.parent_model_id or teacher_cfg.model_id
+        args: list[str] = [
+            "--features_npz",
+            str(features_npz),
+            "--teacher_npz",
+            str(teacher_npz),
+            "--out_dir",
+            str(dataset_dir),
+            "--model_id",
+            cfg.model_id,
+            "--parent_id",
+            parent_model_id,
+            "--registry_dir",
+            model_registry_dir,
+            "--feature_registry_dir",
+            feature_registry_dir,
+            "--feature_set_id",
+            feature_set_id,
+            "--objective",
+            cfg.objective,
+            "--kd_lambda",
+            str(cfg.kd_lambda),
+            "--early_stopping",
+            str(cfg.early_stopping),
+        ]
+        if cfg.opset is not None:
+            args += ["--opset", str(cfg.opset)]
+        if cfg.use_val_for_distill:
+            args += ["--use_val_for_distill"]
+
+        from ml.training.distillation.cli import main as distill_main
+
+        return distill_main(args)
 
     def run(self, cfg: OrchestratorConfig) -> int:
         # 0) Optional pre-ingestion stage (unified orchestrator path)
@@ -396,6 +1115,9 @@ class MLPipelineOrchestrator:
                     scheduler_cfg=cfg.pre_ingestion,
                     options=cfg.pre_ingestion_options,
                 )
+
+        if cfg.auto_fill is not None and cfg.auto_fill.enabled:
+            self._auto_fill_universe(cfg.dataset, cfg.auto_fill)
 
         # 1) Build dataset
         rc = self.build_dataset(cfg.dataset)
@@ -414,8 +1136,13 @@ class MLPipelineOrchestrator:
         if rc != 0:
             return rc
 
+        rc = self.distill_student(cfg.student, dataset_dir=out_dir, teacher_cfg=cfg.teacher)
+        if rc != 0:
+            return rc
+
         self._handle_promotions(cfg.promotions, out_dir=out_dir, dataset_csv=dataset_csv)
-        return rc
+        self._attach_runtime(cfg.integration, dataset_out_dir=out_dir)
+        return 0
 
     def _handle_promotions(
         self,
@@ -522,6 +1249,77 @@ class MLPipelineOrchestrator:
         except Exception as exc:
             logger.warning("Model promotion failed: %s", exc)
 
+    def _attach_runtime(
+        self,
+        integration_cfg: IntegrationConfig | None,
+        *,
+        dataset_out_dir: Path,
+    ) -> None:
+        if integration_cfg is None or not integration_cfg.enabled:
+            return
+
+        logger.info(
+            "Attaching ML integration runtime (validators=%s, out_dir=%s)",
+            integration_cfg.run_validators,
+            dataset_out_dir,
+        )
+
+        if self._integration_manager is None:
+            factory = self.integration_manager_factory
+            if factory is None:
+                from ml.core.integration import MLIntegrationManager as _MLIntegrationManager
+
+                factory = cast(
+                    Callable[..., IntegrationManagerProtocol],
+                    _MLIntegrationManager,
+                )
+
+            kwargs: dict[str, Any] = {
+                "auto_start_postgres": integration_cfg.auto_start_postgres,
+                "auto_migrate": integration_cfg.auto_migrate,
+                "ensure_healthy": integration_cfg.ensure_healthy,
+            }
+            if integration_cfg.db_connection is not None:
+                kwargs["db_connection"] = integration_cfg.db_connection
+            if integration_cfg.strict_protocol_validation is not None:
+                kwargs["strict_protocol_validation"] = integration_cfg.strict_protocol_validation
+
+            manager = factory(**kwargs)
+            object.__setattr__(self, "_integration_manager", manager)
+        else:
+            manager = self._integration_manager
+
+        for attr in (
+            "data_registry",
+            "feature_registry",
+            "model_registry",
+            "strategy_registry",
+            "feature_store",
+            "model_store",
+            "strategy_store",
+            "data_store",
+            "partition_manager",
+        ):
+            if getattr(self, attr, None) is None:
+                object.__setattr__(self, attr, getattr(manager, attr, None))
+
+        if integration_cfg.run_validators:
+            self._run_validators()
+
+    def _run_validators(self) -> None:
+        from tools import validate_event_constants as event_mod
+        from tools import validate_metrics_bootstrap as metrics_mod
+
+        metrics_rc = metrics_mod.main()
+        if metrics_rc != 0:
+            raise RuntimeError("metrics bootstrap validation failed")
+
+        events_rc = event_mod.main()
+        if events_rc != 0:
+            raise RuntimeError("event constants validation failed")
+
+        logger.info("Runtime validators succeeded")
+
     def _emit_feature_refresh_event(self, metrics_path: Path) -> None:
         try:
             from ml.common.event_emitter import emit_dataset_event
@@ -613,6 +1411,63 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--include_events", action="store_true")
     parser.add_argument("--include_calendar", action="store_true")
     parser.add_argument(
+        "--instrument_ids",
+        default=None,
+        help="Comma-separated instrument identifiers (symbol.exchange)",
+    )
+    parser.add_argument(
+        "--skip_macro_refresh",
+        action="store_true",
+        help="Skip automatic macro refresh even when macro features are included",
+    )
+    parser.add_argument(
+        "--macro_freshness_hours",
+        type=int,
+        default=24,
+        help="Maximum age (hours) before macro artifacts are refreshed",
+    )
+    parser.add_argument(
+        "--macro_series_ids",
+        default=None,
+        help="Comma-separated list of macro series ids to refresh (defaults to loader configuration)",
+    )
+    parser.add_argument(
+        "--macro_fred_path",
+        default=None,
+        help="Explicit target path for FRED ML parquet (defaults to data/fred/fred_indicators_ml_format.parquet)",
+    )
+    parser.add_argument("--validation_min_rows", type=int, default=None)
+    parser.add_argument("--validation_min_positive_rate", type=float, default=None)
+    parser.add_argument("--validation_max_positive_rate", type=float, default=None)
+    parser.add_argument("--validation_min_feature_coverage", type=float, default=None)
+    parser.add_argument(
+        "--skip_l2_ingest",
+        action="store_true",
+        help="Skip automatic L2 ingestion even when include_l2 is enabled",
+    )
+    parser.add_argument(
+        "--l2_days",
+        type=int,
+        default=30,
+        help="Number of calendar days to ingest depth data when include_l2 is enabled",
+    )
+    parser.add_argument(
+        "--l2_progress_file",
+        default=None,
+        help="Optional path for tracking L2 ingestion progress (defaults to <data_dir>/.l2_progress.json)",
+    )
+    parser.add_argument(
+        "--l2_symbols",
+        default=None,
+        help="Comma-separated list of symbols for L2 ingestion (defaults to Tier 1 universe)",
+    )
+    parser.add_argument(
+        "--l2_tier",
+        type=int,
+        default=1,
+        help="Tier to use for automatic L2 ingestion when symbols are not provided",
+    )
+    parser.add_argument(
         "--fred_vintage_dir",
         default=None,
         help="Optional ALFRED vintage directory",
@@ -639,6 +1494,108 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=0,
         help="Chunk build by N days (0=disabled)",
     )
+    parser.add_argument(
+        "--auto_fill_universe",
+        action="store_true",
+        help="Automatically backfill market data coverage before dataset build",
+    )
+    parser.add_argument(
+        "--auto_fill_dataset_id",
+        default=None,
+        help="Dataset identifier for auto-fill (defaults to --dataset_id)",
+    )
+    parser.add_argument(
+        "--auto_fill_instrument_ids",
+        default=None,
+        help="Comma-separated instrument IDs overriding dataset config for auto-fill",
+    )
+    parser.add_argument(
+        "--auto_fill_l2_days",
+        type=int,
+        default=None,
+        help="Override L2 lookback window for auto-fill (days)",
+    )
+    parser.add_argument(
+        "--auto_fill_skip_l2",
+        action="store_true",
+        help="Skip L2 ingestion during auto-fill",
+    )
+    parser.add_argument(
+        "--auto_fill_l2_dataset_id",
+        default=None,
+        help="Dataset identifier for auto-fill L2 ingestion (default DBEQ.BASIC)",
+    )
+    parser.add_argument(
+        "--auto_fill_l2_schema",
+        default=None,
+        help="Schema to use for auto-fill L2 ingestion (default mbp-10)",
+    )
+    parser.add_argument(
+        "--auto_fill_l2_progress_file",
+        default=None,
+        help="Progress file path for auto-fill L2 ingestion",
+    )
+    parser.add_argument(
+        "--auto_fill_include_l3",
+        action="store_true",
+        help="Attempt L3 auto-fill when helpers are available",
+    )
+    parser.add_argument(
+        "--auto_fill_l3_dataset_id",
+        default=None,
+        help="Dataset identifier for auto-fill L3 ingestion",
+    )
+    parser.add_argument(
+        "--auto_fill_l3_schema",
+        default=None,
+        help="Schema to use for auto-fill L3 ingestion",
+    )
+    parser.add_argument(
+        "--auto_fill_l3_days",
+        type=int,
+        default=None,
+        help="Override L3 lookback window for auto-fill (days)",
+    )
+    parser.add_argument(
+        "--auto_fill_allow_dataset_l2_ingest",
+        action="store_true",
+        help="Allow dataset-stage L2 ingestion even when auto-fill runs",
+    )
+    parser.add_argument(
+        "--attach-runtime",
+        action="store_true",
+        help="Attach MLIntegrationManager after pipeline completion",
+    )
+    parser.add_argument(
+        "--runtime-db-connection",
+        default=None,
+        help="Override DB connection string for runtime attachment",
+    )
+    parser.add_argument(
+        "--runtime-auto-start-db",
+        action="store_true",
+        help="Automatically start PostgreSQL when attaching runtime",
+    )
+    parser.add_argument(
+        "--runtime-auto-migrate",
+        action="store_true",
+        help="Run database migrations when attaching runtime",
+    )
+    parser.add_argument(
+        "--runtime-no-ensure-healthy",
+        action="store_true",
+        help="Skip health checks during runtime attachment",
+    )
+    parser.add_argument(
+        "--runtime-strict-protocol-validation",
+        action="store_true",
+        help="Enable strict protocol validation when attaching runtime",
+    )
+    parser.add_argument(
+        "--runtime-skip-validators",
+        action="store_true",
+        help="Skip metrics/events validators during runtime attachment",
+    )
 
     # HPO
     parser.add_argument("--hpo", action="store_true")
@@ -658,6 +1615,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--feature_set_id", default=None)
     parser.add_argument("--max_epochs", type=int, default=5)
+    parser.add_argument("--distill_student", action="store_true")
+    parser.add_argument("--student_model_id", default="student_model")
+    parser.add_argument("--student_parent_model_id", default=None)
+    parser.add_argument("--student_model_registry_dir", default=None)
+    parser.add_argument("--student_feature_registry_dir", default=None)
+    parser.add_argument("--student_feature_set_id", default=None)
+    parser.add_argument(
+        "--student_objective",
+        default="logit_mse",
+        choices=["logit_mse", "soft_ce", "hybrid"],
+    )
+    parser.add_argument("--student_kd_lambda", type=float, default=0.5)
+    parser.add_argument("--student_early_stopping", type=int, default=200)
+    parser.add_argument("--student_opset", type=int, default=None)
+    parser.add_argument("--student_use_val_for_distill", action="store_true")
 
     # Optional promotions and feature registration
     parser.add_argument("--auto_register_model", action="store_true")
@@ -709,6 +1681,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Writer selection
     writer: MarketDataWriterProtocol
     raw_writer: RawIngestionWriterProtocol | None = None
+    integration_factory: Callable[..., IntegrationManagerProtocol] | None = None
     if args.write_mode == "datastore":
         from ml.core.integration import MLIntegrationManager
 
@@ -722,6 +1695,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit("DataStore unavailable; use parquet write_mode or set CATALOG_PATH")
         writer = DataStoreMarketDataWriter(store=mgr.data_store)  # type: ignore[arg-type]
         registry = mgr.data_registry
+        integration_factory = cast(Callable[..., IntegrationManagerProtocol], MLIntegrationManager)
     else:
         try:
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -741,10 +1715,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             ensure_healthy=False,
         )
         registry = mgr.data_registry
+        integration_factory = cast(Callable[..., IntegrationManagerProtocol], MLIntegrationManager)
 
     ingestor: object | None = None
     ingestion_service: DatabentoIngestionService | None = None
-    if args.ingest:
+    need_databento = bool(args.ingest or getattr(args, "auto_fill_universe", False))
+    if need_databento:
         api_key = os.getenv("DATABENTO_API_KEY", "").strip()
         if api_key:
             client = DatabentoAPIClient(api_key=api_key)
@@ -756,8 +1732,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "Failed to initialise ingestion service: %s",
                     exc,
                 )
+        elif args.ingest:
+            logging.getLogger(__name__).warning(
+                "--ingest requested but DATABENTO_API_KEY is missing; skipping",
+            )
 
-    from ml.cli.build_tft_dataset import main as build_main
+    from ml.scripts.build_tft_dataset import main as build_main
     from ml.training.teacher.tft_cli import main as teacher_main
 
     try:
@@ -779,6 +1759,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         service=ingestion_service,
         model_registry=getattr(mgr, "model_registry", None),
         feature_registry=getattr(mgr, "feature_registry", None),
+        strategy_registry=getattr(mgr, "strategy_registry", None),
+        feature_store=getattr(mgr, "feature_store", None),
+        model_store=getattr(mgr, "model_store", None),
+        strategy_store=getattr(mgr, "strategy_store", None),
+        data_store=getattr(mgr, "data_store", None),
+        partition_manager=getattr(mgr, "partition_manager", None),
+        integration_manager_factory=integration_factory,
     )
 
     if args.ingest and ingestor is not None:
@@ -797,13 +1784,67 @@ def main(argv: Sequence[str] | None = None) -> int:
                     instrument_id=inst,
                     lookback_days=int(args.lookback_days),
                 )
-
-    data_dir_effective = str(args.data_dir)
+    data_dir_effective = Path(args.data_dir)
     if args.catalog_path and str(args.data_dir) == "data/tier1":
-        data_dir_effective = str(args.catalog_path)
+        data_dir_effective = Path(args.catalog_path)
+
+    raw_macro_series_ids = tuple(
+        item.strip()
+        for item in (str(args.macro_series_ids).split(",") if args.macro_series_ids else [])
+        if item.strip()
+    )
+    macro_series_ids: tuple[str, ...] | None = raw_macro_series_ids or None
+
+    raw_instrument_ids = tuple(
+        item.strip()
+        for item in (str(args.instrument_ids).split(",") if args.instrument_ids else [])
+        if item.strip()
+    )
+    instrument_ids: tuple[str, ...] | None = raw_instrument_ids or None
+
+    validation_cfg = _build_validation_config_from_args(
+        args,
+        macro_series_ids,
+    )
+
+    auto_fill_enabled = bool(getattr(args, "auto_fill_universe", False))
+    auto_fill_blocks_l2 = auto_fill_enabled and not bool(
+        getattr(args, "auto_fill_allow_dataset_l2_ingest", False),
+    )
+
+    if args.include_l2 and not args.skip_l2_ingest and not auto_fill_blocks_l2:
+        l2_symbols = None
+        if args.l2_symbols:
+            l2_symbols = tuple(s.strip().upper() for s in str(args.l2_symbols).split(",") if s.strip())
+        l2_tier = None if l2_symbols else args.l2_tier
+        progress_file = (
+            Path(args.l2_progress_file)
+            if args.l2_progress_file
+            else data_dir_effective / ".l2_progress.json"
+        )
+        try:
+            l2_config = PopulateL2TaskConfig(
+                data_dir=data_dir_effective,
+                progress_file=progress_file,
+                symbols=l2_symbols,
+                tier=l2_tier,
+                days=int(args.l2_days),
+            )
+            symbols_desc = (
+                f"custom:{len(l2_symbols)}" if l2_symbols else f"tier:{l2_tier}"
+            )
+            logger.info(
+                "Starting L2 ingestion (symbols=%s, days=%s)",
+                symbols_desc,
+                args.l2_days,
+            )
+            populate_l2_efficient(l2_config)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("L2 ingestion failed: %s", exc, exc_info=True)
+            raise
 
     ds_cfg = DatasetBuildConfig(
-        data_dir=data_dir_effective,
+        data_dir=str(data_dir_effective),
         symbols=str(args.symbols),
         out_dir=str(args.out_dir),
         include_macro=bool(args.include_macro),
@@ -812,6 +1853,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_l2=bool(args.include_l2),
         include_events=bool(getattr(args, "include_events", False)),
         include_calendar=bool(getattr(args, "include_calendar", False)),
+        instrument_ids=instrument_ids,
+        auto_refresh_macro=not bool(args.skip_macro_refresh),
+        macro_staleness_hours=int(args.macro_freshness_hours),
+        macro_series_ids=macro_series_ids,
+        macro_fred_path=str(args.macro_fred_path) if args.macro_fred_path else None,
         fred_vintage_dir=str(args.fred_vintage_dir) if args.fred_vintage_dir else None,
         events_dir=str(args.events_dir) if args.events_dir else None,
         student_mode=bool(args.student_mode),
@@ -825,7 +1871,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         register_features=bool(args.dataset_register_features),
         feature_registry_dir=args.feature_registry_dir,
         feature_role="teacher",
+        validation=validation_cfg,
     )
+
+    auto_fill_cfg = _build_auto_fill_config_from_args(args, ds_cfg)
 
     hpo_cfg = HPOConfig(
         enabled=bool(args.hpo),
@@ -843,6 +1892,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_epochs=int(args.max_epochs),
     )
 
+    student_cfg = StudentDistillConfig(
+        enabled=bool(args.distill_student),
+        model_id=str(args.student_model_id),
+        parent_model_id=args.student_parent_model_id,
+        model_registry_dir=args.student_model_registry_dir,
+        feature_registry_dir=args.student_feature_registry_dir,
+        feature_set_id=args.student_feature_set_id,
+        objective=str(args.student_objective),
+        kd_lambda=float(args.student_kd_lambda),
+        early_stopping=int(args.student_early_stopping),
+        opset=None if args.student_opset is None else int(args.student_opset),
+        use_val_for_distill=bool(args.student_use_val_for_distill),
+    )
+
     promotions_cfg = PromotionsConfig(
         auto_register_model=bool(args.auto_register_model),
         gates_json=args.gates_json,
@@ -853,12 +1916,113 @@ def main(argv: Sequence[str] | None = None) -> int:
         refresh_features=bool(args.refresh_features),
     )
 
+    integration_cfg = IntegrationConfig(
+        enabled=bool(args.attach_runtime),
+        db_connection=(args.runtime_db_connection or args.db),
+        auto_start_postgres=bool(args.runtime_auto_start_db),
+        auto_migrate=bool(args.runtime_auto_migrate),
+        ensure_healthy=not bool(args.runtime_no_ensure_healthy),
+        strict_protocol_validation=(
+            True if args.runtime_strict_protocol_validation else None
+        ),
+        run_validators=not bool(args.runtime_skip_validators),
+    )
+
     orchestrator_cfg = OrchestratorConfig(
         dataset=ds_cfg,
         hpo=hpo_cfg,
         teacher=teacher_cfg,
+        student=student_cfg,
         promotions=promotions_cfg,
+        integration=integration_cfg if integration_cfg.enabled else None,
+        auto_fill=auto_fill_cfg if auto_fill_cfg.enabled else None,
     )
 
     orch.run(orchestrator_cfg)
     return 0
+
+
+def _build_validation_config_from_args(
+    args: argparse.Namespace,
+    macro_series_ids: tuple[str, ...] | None,
+) -> DatasetValidationConfig | None:
+    config = DatasetValidationConfig()
+    modified = False
+    if args.validation_min_rows is not None:
+        config = replace(config, min_rows=int(args.validation_min_rows))
+        modified = True
+    if args.validation_min_positive_rate is not None:
+        config = replace(config, min_positive_rate=float(args.validation_min_positive_rate))
+        modified = True
+    if args.validation_max_positive_rate is not None:
+        config = replace(config, max_positive_rate=float(args.validation_max_positive_rate))
+        modified = True
+    if args.validation_min_feature_coverage is not None:
+        config = replace(
+            config,
+            min_feature_coverage=float(args.validation_min_feature_coverage),
+        )
+        modified = True
+    if macro_series_ids and config.require_macro_series is None:
+        config = replace(config, require_macro_series=macro_series_ids)
+        modified = True
+    return config if modified else None
+
+
+def _build_auto_fill_config_from_args(
+    args: argparse.Namespace,
+    _dataset_cfg: DatasetBuildConfig,
+) -> AutoFillUniverseConfig:
+    enabled = bool(getattr(args, "auto_fill_universe", False))
+    instrument_override: tuple[str, ...] | None = None
+    raw_override = getattr(args, "auto_fill_instrument_ids", None)
+    if raw_override:
+        instrument_override = tuple(
+            item.strip()
+            for item in str(raw_override).split(",")
+            if item.strip()
+        )
+    dataset_id = str(
+        getattr(args, "auto_fill_dataset_id", None)
+        or getattr(args, "dataset_id", "EQUS.MINI")
+    )
+    include_l2 = bool(getattr(args, "include_l2", False)) and not bool(
+        getattr(args, "auto_fill_skip_l2", False),
+    )
+    l2_dataset_id = str(
+        getattr(args, "auto_fill_l2_dataset_id", None) or "DBEQ.BASIC"
+    )
+    l2_schema = str(
+        getattr(args, "auto_fill_l2_schema", None) or "mbp-10"
+    )
+    l2_days_raw = getattr(args, "auto_fill_l2_days", None)
+    l2_days = int(l2_days_raw) if l2_days_raw is not None else None
+    l2_progress_file_raw = getattr(args, "auto_fill_l2_progress_file", None)
+    l2_progress_file = (
+        str(l2_progress_file_raw) if l2_progress_file_raw else None
+    )
+    allow_dataset_l2 = bool(getattr(args, "auto_fill_allow_dataset_l2_ingest", False))
+    include_l3 = bool(getattr(args, "auto_fill_include_l3", False))
+    l3_dataset_id_raw = getattr(args, "auto_fill_l3_dataset_id", None)
+    l3_schema_raw = getattr(args, "auto_fill_l3_schema", None)
+    l3_days_raw = getattr(args, "auto_fill_l3_days", None)
+    l3_days = int(l3_days_raw) if l3_days_raw is not None else None
+
+    return AutoFillUniverseConfig(
+        enabled=enabled,
+        dataset_id=dataset_id,
+        include_bars=True,
+        include_tbbo=True,
+        include_trades=True,
+        include_l2=include_l2,
+        include_l3=include_l3,
+        l2_dataset_id=l2_dataset_id,
+        l2_schema=l2_schema,
+        l2_days=l2_days,
+        l2_progress_file=l2_progress_file,
+        disable_dataset_l2_ingest=not allow_dataset_l2,
+        instrument_ids=instrument_override,
+        l3_dataset_id=str(l3_dataset_id_raw) if l3_dataset_id_raw else None,
+        l3_schema=str(l3_schema_raw) if l3_schema_raw else None,
+        l3_days=l3_days,
+    )

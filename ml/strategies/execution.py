@@ -11,13 +11,17 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import StrategyId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
 
@@ -26,6 +30,15 @@ if TYPE_CHECKING:
     from ml.actors.base import MLSignal
     from nautilus_trader.model.instruments import Instrument
     from nautilus_trader.model.orders import Order
+
+
+try:  # Pragmatic compatibility for downstream callers and tests
+    from nautilus_trader.model.orders import LimitOrder as _NTLimitOrder
+
+    if not hasattr(_NTLimitOrder, "post_only"):
+        setattr(_NTLimitOrder, "post_only", property(lambda self: bool(self.is_post_only)))
+except Exception:  # pragma: no cover - optional enhancement if C-extension unavailable
+    pass
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +62,29 @@ fee_savings_total = get_counter(
     "Cumulative fee savings from smart execution",
     labels=["method"],
 )
+
+
+@dataclass(slots=True)
+class _OrderIds:
+    trader_id: TraderId
+    strategy_id: StrategyId
+    client_order_id: ClientOrderId
+    init_id: UUID4
+    ts_init: int
+
+
+@dataclass(slots=True)
+class _OrderResult:
+    """Wrapper exposing additional metadata while delegating attribute access."""
+
+    native: Order
+    post_only: bool | None = None
+
+    def unwrap(self) -> Order:
+        return self.native
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.native, name)
 
 # ===== Configuration =====
 @dataclass(frozen=True)
@@ -113,6 +149,12 @@ class OrderExecutor:
         signal: MLSignal,
         market_state: dict[str, float],
         instrument: Instrument,
+        *,
+        trader_id: TraderId | None = None,
+        strategy_id: StrategyId | None = None,
+        client_order_id: ClientOrderId | None = None,
+        init_id: UUID4 | None = None,
+        ts_init: int | None = None,
     ) -> Order | None:
         """
         Create an order based on signal confidence and market conditions.
@@ -163,11 +205,22 @@ class OrderExecutor:
                 urgency = "medium"
 
             # Select order type based on urgency
+            order_ids = self._resolve_order_ids(
+                trader_id=trader_id,
+                strategy_id=strategy_id,
+                client_order_id=client_order_id,
+                init_id=init_id,
+                ts_init=ts_init,
+            )
+
+            post_only_flag: bool | None = None
+
             if urgency == "high":
                 order = self._create_market_order(
                     side=side,
                     quantity=quantity,
                     instrument=instrument,
+                    order_ids=order_ids,
                 )
                 order_type = "market"
 
@@ -178,8 +231,10 @@ class OrderExecutor:
                     bid=bid,
                     ask=ask,
                     instrument=instrument,
+                    order_ids=order_ids,
                 )
                 order_type = "limit_aggressive"
+                post_only_flag = False
 
             else:  # low urgency
                 order = self._create_passive_limit(
@@ -188,15 +243,18 @@ class OrderExecutor:
                     bid=bid,
                     ask=ask,
                     instrument=instrument,
+                    order_ids=order_ids,
                 )
                 order_type = "limit_passive"
+                post_only_flag = self.config.prefer_maker_orders
 
             # Track metrics
             if order:
                 self._total_orders += 1
                 orders_created_total.labels(order_type=order_type, urgency=urgency).inc()
+                return _OrderResult(order, post_only=post_only_flag)
 
-            return order
+            return None
 
         finally:
             order_creation_latency_seconds.labels(order_type="smart").observe(
@@ -245,11 +303,35 @@ class OrderExecutor:
             self.config.prefer_maker_orders and spread_bps <= float(self.config.prefer_maker_spread_bps)
         )
 
+    def _resolve_order_ids(
+        self,
+        *,
+        trader_id: TraderId | None,
+        strategy_id: StrategyId | None,
+        client_order_id: ClientOrderId | None,
+        init_id: UUID4 | None,
+        ts_init: int | None,
+    ) -> _OrderIds:
+        resolved_init = init_id or UUID4()
+        resolved_ts = ts_init if ts_init is not None else int(time.time_ns())
+        resolved_trader = trader_id or TraderId(str(UUID4()))
+        resolved_strategy = strategy_id or StrategyId(str(UUID4()))
+        resolved_client_id = client_order_id or ClientOrderId(str(UUID4()))
+        return _OrderIds(
+            trader_id=resolved_trader,
+            strategy_id=resolved_strategy,
+            client_order_id=resolved_client_id,
+            init_id=resolved_init,
+            ts_init=resolved_ts,
+        )
+
     def _create_market_order(
         self,
         side: OrderSide,
         quantity: Quantity,
         instrument: Instrument,
+        *,
+        order_ids: _OrderIds,
     ) -> Order:
         """
         Create a market order for immediate execution.
@@ -274,14 +356,14 @@ class OrderExecutor:
         self._market_orders += 1
 
         return MarketOrder(
-            trader_id=None,  # Will be set by strategy
-            strategy_id=None,  # Will be set by strategy
+            trader_id=order_ids.trader_id,
+            strategy_id=order_ids.strategy_id,
             instrument_id=instrument.id,
-            client_order_id=None,  # Will be generated
+            client_order_id=order_ids.client_order_id,
             order_side=side,
             quantity=quantity,
-            init_id=None,  # Will be generated
-            ts_init=0,  # Will be set
+            init_id=order_ids.init_id,
+            ts_init=order_ids.ts_init,
             time_in_force=TimeInForce.IOC if self.config.use_time_in_force_ioc else TimeInForce.GTC,
         )
 
@@ -292,6 +374,8 @@ class OrderExecutor:
         bid: float,
         ask: float,
         instrument: Instrument,
+        *,
+        order_ids: _OrderIds,
     ) -> Order:
         """
         Create an aggressive limit order (close to market).
@@ -333,15 +417,15 @@ class OrderExecutor:
         limit_price = self._round_price(limit_price, instrument)
 
         order = LimitOrder(
-            trader_id=None,  # Will be set by strategy
-            strategy_id=None,  # Will be set by strategy
+            trader_id=order_ids.trader_id,
+            strategy_id=order_ids.strategy_id,
             instrument_id=instrument.id,
-            client_order_id=None,  # Will be generated
+            client_order_id=order_ids.client_order_id,
             order_side=side,
             quantity=quantity,
             price=Price.from_str(str(limit_price)),
-            init_id=None,  # Will be generated
-            ts_init=0,  # Will be set
+            init_id=order_ids.init_id,
+            ts_init=order_ids.ts_init,
             time_in_force=TimeInForce.IOC if self.config.use_time_in_force_ioc else TimeInForce.GTC,
             post_only=False,  # Aggressive, not post-only
         )
@@ -358,6 +442,8 @@ class OrderExecutor:
         bid: float,
         ask: float,
         instrument: Instrument,
+        *,
+        order_ids: _OrderIds,
     ) -> Order:
         """
         Create a passive limit order (maker fee).
@@ -408,17 +494,17 @@ class OrderExecutor:
             fee_savings_total.labels(method="maker_order").inc(saved)
 
         order = LimitOrder(
-            trader_id=None,  # Will be set by strategy
-            strategy_id=None,  # Will be set by strategy
+            trader_id=order_ids.trader_id,
+            strategy_id=order_ids.strategy_id,
             instrument_id=instrument.id,
-            client_order_id=None,  # Will be generated
+            client_order_id=order_ids.client_order_id,
             order_side=side,
             quantity=quantity,
             price=Price.from_str(str(limit_price)),
-            init_id=None,  # Will be generated
-            ts_init=0,  # Will be set
+            init_id=order_ids.init_id,
+            ts_init=order_ids.ts_init,
             time_in_force=TimeInForce.GTC,  # Let it sit
-            post_only=self.config.prefer_maker_orders,  # Post-only for maker fees
+            post_only=self.config.prefer_maker_orders,
         )
         self._record_ttl_plan(order_type="limit_passive", will_rest=True)
         return order

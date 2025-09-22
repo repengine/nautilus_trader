@@ -23,6 +23,7 @@ from ml.config.xgboost import XGBoostTrainingConfig
 from ml.training.base import BaseMLTrainer
 from ml.training.export import DEFAULT_ONNX_OPSET
 from ml.training.export import ModelExportMixin
+from ml.training.optuna_optimizer import XGBoostOptunaOptimizer
 
 
 if TYPE_CHECKING:
@@ -239,6 +240,60 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             "model": self._booster,
             "metrics": metrics,
         }
+
+    def _optimize_hyperparameters(
+        self,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
+        *,
+        validation_returns: npt.NDArray[np.float64] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        optuna_cfg = getattr(self._xgb_config, "optuna_config", None)
+        if optuna_cfg is None or not getattr(optuna_cfg, "enabled", True):
+            return super()._optimize_hyperparameters(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                validation_returns=validation_returns,
+                **kwargs,
+            )
+
+        optimizer = XGBoostOptunaOptimizer(optuna_cfg)
+        metric_name = self._resolve_optuna_metric_name(y_train, optuna_cfg)
+        metric_direction = self._optuna_direction_for_metric(metric_name)
+        opt_kwargs = dict(kwargs)
+        validation_returns = opt_kwargs.pop("validation_returns", validation_returns)
+
+        def _objective(trial: optuna.Trial) -> float:
+            params = self._suggest_hyperparameters(trial)
+            params.update(opt_kwargs)
+            model = self._train_with_params(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                params,
+            )
+            predictions = self.predict(model, X_val)
+            score = self._calculate_optuna_metric(
+                metric_name,
+                y_val,
+                predictions,
+                validation_returns=validation_returns,
+            )
+            direction = optuna_cfg.direction
+            if direction != metric_direction:
+                score = -score
+            return score
+
+        results = optimizer.optimize(_objective)
+        self._optuna_study = results.get("study")
+        best_params = results.get("best_params", {})
+        return dict(best_params)
 
     def predict(
         self,

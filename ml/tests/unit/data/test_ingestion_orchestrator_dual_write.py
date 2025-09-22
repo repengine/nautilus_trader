@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pandas as pd
@@ -10,8 +10,9 @@ import pandas as pd
 pytest.importorskip("msgspec")
 
 from ml.config.events import EventStatus, Source, Stage
-from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
+from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.registry.protocols import RegistryProtocol
+from ml.ml_types import DataFrameLike
 from ml.stores.protocols import CoverageProviderProtocol, MarketDataWriterProtocol
 from ml.stores.io_raw import RawIngestionWriterProtocol
 
@@ -51,10 +52,20 @@ class _FakeRaw(RawIngestionWriterProtocol):
         self.calls: int = 0
         self.last_type: DatasetType | None = None
 
-    def write(self, *, dataset_type: DatasetType, data: Any) -> int:  # type: ignore[override]
+    def write(
+        self,
+        *,
+        dataset_type: DatasetType,
+        data: DataFrameLike | list[dict[str, object]],
+    ) -> int:
         self.calls += 1
         self.last_type = dataset_type
-        return len(data) if isinstance(data, list) else 0
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, pd.DataFrame):
+            return len(data.index)
+        # Polars DataFrame or other DataFrameLike: fall back to len()
+        return len(data)
 
 
 class _FakeRegistry(RegistryProtocol):
@@ -110,8 +121,8 @@ class _FakeRegistry(RegistryProtocol):
             metadata={},
         )
 
-    def get_contract(self, dataset_id: str):  # type: ignore[override]
-        raise NotImplementedError
+    def get_contract(self, dataset_id: str) -> DataContract:
+        return cast(DataContract, object())
 
     def register_dataset(self, manifest: DatasetManifest) -> str:
         return manifest.dataset_id
@@ -122,9 +133,11 @@ def _make_fake_ingestor():
 
     class _FakeIngestor(DatabentoIngestor):
         def __init__(self) -> None:
-            # Bypass parent init; we won't use the client
-            self.policy = None  # type: ignore[assignment]
-            self.sleep_fn = None
+            from ml.data.ingest.resume import BackoffPolicy, DatabentoLikeClient, SleepFn
+
+            self.client = cast(DatabentoLikeClient, object())
+            self.policy = BackoffPolicy(max_attempts=1)
+            self.sleep_fn = cast(SleepFn | None, None)
 
         def ingest_time_window(
             self,
@@ -136,7 +149,7 @@ def _make_fake_ingestor():
             end_ns: int,
             source: str = "historical",
             state: IngestState | None = None,
-        ) -> pd.DataFrame:  # type: ignore[override]
+        ) -> pd.DataFrame:
             return pd.DataFrame({"ts_event": [start_ns + 1]})
 
     return _FakeIngestor()
@@ -188,3 +201,55 @@ def test_dual_write_invokes_both_sinks() -> None:
     assert raw.calls == 1
     assert raw.last_type == DatasetType.BARS
     assert reg.events and reg.events[0][1] == Stage.DATA_INGESTED
+
+def test_backfill_handles_timestamp_ts_event() -> None:
+    try:
+        from ml.data.ingest.orchestrator import IngestionOrchestrator
+    except Exception:  # pragma: no cover - optional dependency guard
+        pytest.skip("ml.data.* optional dependencies not installed; skipping timestamp test")
+
+    cov = _FakeCoverage()
+    sql_writer = _FakeWriter()
+    reg = _FakeRegistry()
+
+    from ml.data.ingest.resume import DatabentoIngestor, IngestState
+
+    class _TimestampIngestor(DatabentoIngestor):
+        def __init__(self) -> None:
+            from ml.data.ingest.resume import BackoffPolicy, DatabentoLikeClient, SleepFn
+
+            self.client = cast(DatabentoLikeClient, object())
+            self.policy = BackoffPolicy(max_attempts=1)
+            self.sleep_fn = cast(SleepFn | None, None)
+
+        def ingest_time_window(
+            self,
+            *,
+            dataset: str,
+            schema: str,
+            instrument: str,
+            start_ns: int,
+            end_ns: int,
+            source: str = "historical",
+            state: IngestState | None = None,
+        ) -> pd.DataFrame:
+            return pd.DataFrame({"ts_event": [pd.Timestamp("2025-01-01T00:00:00Z")]})
+
+    orch = IngestionOrchestrator(
+        coverage=cov,
+        writer=sql_writer,
+        registry=reg,
+        ingestor=_TimestampIngestor(),
+        raw_writer=None,
+    )
+
+    gaps = orch.backfill_gaps(
+        dataset_id="EQUS.MINI",
+        schema="tbbo",
+        instrument_id="SPY.XNAS",
+        lookback_days=0,
+        state=None,
+    )
+
+    assert len(gaps) >= 1
+    assert sql_writer.calls == 1

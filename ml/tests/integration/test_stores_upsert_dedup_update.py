@@ -9,6 +9,7 @@ batch upserts update existing rows as expected.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 
@@ -23,7 +24,7 @@ pytestmark = [
 ]
 
 
-def test_model_store_dedup_and_update(test_database) -> None:
+def test_model_store_dedup_and_update(test_database: Any) -> None:
     store = ModelStore(connection_string=test_database.connection_string)
 
     model_id = "mdl_upsert"
@@ -87,7 +88,7 @@ def test_model_store_dedup_and_update(test_database) -> None:
         assert pytest.approx(float(row[2])) == 7.5
 
 
-def test_strategy_store_dedup_and_update(test_database) -> None:
+def test_strategy_store_dedup_and_update(test_database: Any) -> None:
     store = StrategyStore(connection_string=test_database.connection_string)
 
     strategy_id = "strat_upsert"

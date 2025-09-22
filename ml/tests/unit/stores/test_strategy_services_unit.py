@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -10,18 +11,82 @@ from ml.stores.services.strategy_services import (
     StrategySignalQueryService,
     StrategySignalWriteService,
 )
+from ml.stores.protocols import LoggerLike, StrategyReadDepsStrict, StrategyWriteDepsStrict, TableLike
 
 
-class _FakeWriteDeps:
+class _TableStub(TableLike):
     def __init__(self) -> None:
-        self.strategy_signals_table = object()
+        self.c = object()
+
+    def delete(self) -> None:  # pragma: no cover - unused in tests
+        return None
+
+
+class _FakeLogger(LoggerLike):  # pragma: no cover - trivial
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, object]] = []
+
+    def debug(self, msg: object, *args: object, **kwargs: Any) -> None:
+        self.messages.append(("debug", msg))
+
+    def info(self, msg: object, *args: object, **kwargs: Any) -> None:
+        self.messages.append(("info", msg))
+
+    def warning(self, msg: object, *args: object, **kwargs: Any) -> None:
+        self.messages.append(("warning", msg))
+
+    def error(self, msg: object, *args: object, **kwargs: Any) -> None:
+        self.messages.append(("error", msg))
+
+
+class _FakeWriteDeps(StrategyWriteDepsStrict):
+    def __init__(self) -> None:
+        self.strategy_signals_table: TableLike = _TableStub()
         self.last_call: dict[str, Any] | None = None
 
-    def _execute_upsert_and_publish(self, **kwargs: Any) -> None:
-        self.last_call = kwargs
+    def _execute_upsert_and_publish(
+        self,
+        *,
+        values: list[dict[str, object]],
+        ts_event_field: str,
+        ts_init_field: str,
+        context: str,
+        key_fields: tuple[str, str, str],
+        table: TableLike,
+        conflict_cols: Sequence[str],
+        update_cols: Sequence[str],
+        dataset_id: str,
+        stage: object,
+        instrument_key: str,
+        ts_field: str,
+        run_id_batch: str,
+        run_id_row: str,
+        source: str,
+        logger: LoggerLike,
+        publish_bus: bool = True,
+    ) -> None:
+        self.last_call = {
+            "values": values,
+            "ts_event_field": ts_event_field,
+            "ts_init_field": ts_init_field,
+            "context": context,
+            "key_fields": key_fields,
+            "table": table,
+            "conflict_cols": list(conflict_cols),
+            "update_cols": list(update_cols),
+            "dataset_id": dataset_id,
+            "stage": stage,
+            "instrument_key": instrument_key,
+            "ts_field": ts_field,
+            "run_id_batch": run_id_batch,
+            "run_id_row": run_id_row,
+            "source": source,
+            "publish_bus": publish_bus,
+        }
+        logger.info("upsert", extra={"count": len(values)})
 
 
-class _FakeReadDeps:
+class _FakeReadDeps(StrategyReadDepsStrict):
     def __init__(self) -> None:
         self.safe_table_calls: list[tuple[str, set[str]]] = []
         self.last_execute: dict[str, Any] | None = None
@@ -33,11 +98,15 @@ class _FakeReadDeps:
     def _execute_read(
         self,
         sql: Any,
-        params: dict[str, Any],
+        params: Mapping[str, object],
         *,
-        columns: list[str],
+        columns: Sequence[str],
     ) -> Any:  # noqa: D401
-        self.last_execute = {"sql": str(sql), "params": params, "columns": columns}
+        self.last_execute = {
+            "sql": str(sql),
+            "params": dict(params),
+            "columns": list(columns),
+        }
 
         # Return a sentinel object that mimics a DataFrame in tests as needed
         class _DF:  # minimal duck-typed stand-in
@@ -48,21 +117,21 @@ class _FakeReadDeps:
     def _fetch_one(
         self,
         sql: Any,
-        params: dict[str, Any],
+        params: Mapping[str, object],
     ) -> tuple[Any, ...] | None:  # pragma: no cover
         return None
 
     def _fetch_all(
         self,
         sql: Any,
-        params: dict[str, Any],
+        params: Mapping[str, object],
     ) -> list[tuple[Any, ...]]:  # pragma: no cover
         return []
 
 
 def test_strategy_write_service_calls_upsert_and_publish() -> None:
     deps = _FakeWriteDeps()
-    svc = StrategySignalWriteService(deps, logger=object())
+    svc = StrategySignalWriteService(deps, logger=_FakeLogger())
     sig = StrategySignal(
         strategy_id="s",
         instrument_id="i",

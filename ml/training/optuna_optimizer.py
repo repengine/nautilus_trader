@@ -485,5 +485,30 @@ class XGBoostOptunaOptimizer:
 
 # Explicit exports
 __all__ = [
+    "LightGBMOptunaOptimizer",
     "XGBoostOptunaOptimizer",
 ]
+
+
+class LightGBMOptunaOptimizer:
+    """Thin wrapper reusing the XGBoost optimizer for LightGBM parameter sweeps."""
+
+    def __init__(self, config: OptunaConfig) -> None:
+        self._delegate = XGBoostOptunaOptimizer(config)
+
+    def optimize(
+        self,
+        objective: Callable[[Any], float],
+        n_trials: int | None = None,
+        timeout: int | None = None,
+        callbacks: list[Callable[[Any, Any], None]] | None = None,
+    ) -> dict[str, Any]:
+        return self._delegate.optimize(
+            objective,
+            n_trials=n_trials,
+            timeout=timeout,
+            callbacks=callbacks,
+        )
+
+    def get_study_summary(self, study: Any | None = None) -> dict[str, Any]:
+        return self._delegate.get_study_summary(study)

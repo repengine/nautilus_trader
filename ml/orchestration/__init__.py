@@ -34,10 +34,12 @@ from ml.orchestration.config_loader import to_pipeline_args
 # Core orchestrator classes
 from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import HPOConfig
+from ml.orchestration.pipeline_orchestrator import IntegrationConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
 from ml.orchestration.pipeline_orchestrator import PreIngestionOptions
 from ml.orchestration.pipeline_orchestrator import PromotionsConfig
+from ml.orchestration.pipeline_orchestrator import StudentDistillConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 
 # Promotion helpers
@@ -52,10 +54,12 @@ from ml.orchestration.scheduler import run_forever
 __all__ = [
     "DatasetBuildConfig",
     "HPOConfig",
+    "IntegrationConfig",
     "MLPipelineOrchestrator",
     "OrchestratorConfig",
     "PreIngestionOptions",
     "PromotionsConfig",
+    "StudentDistillConfig",
     "TeacherTrainConfig",
     "compute_next_run",
     "load_orchestrator_config",

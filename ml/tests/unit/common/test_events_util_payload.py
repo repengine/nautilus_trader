@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
 import sys
 
+from pytest import MonkeyPatch
 from ml.common.events_util import build_bus_payload
 from ml.config.events import EventStatus, Source, Stage
 
 
-def test_build_bus_payload_enum_and_trace_injection(monkeypatch) -> None:
+def test_build_bus_payload_enum_and_trace_injection(monkeypatch: MonkeyPatch) -> None:
     # Inject fake tracing.inject_trace_context to tag metadata
     def fake_inject(md: dict[str, Any]) -> dict[str, Any]:
         md = dict(md)
@@ -20,7 +21,7 @@ def test_build_bus_payload_enum_and_trace_injection(monkeypatch) -> None:
     mod = SimpleNamespace(inject_trace_context=fake_inject)
     monkeypatch.setitem(sys.modules, "ml.observability.tracing", mod)
 
-    payload = build_bus_payload(
+    payload: dict[str, Any] = build_bus_payload(
         dataset_id="features",
         instrument_id="EURUSD.SIM",
         stage=Stage.FEATURE_COMPUTED,
@@ -41,12 +42,13 @@ def test_build_bus_payload_enum_and_trace_injection(monkeypatch) -> None:
     assert payload["metadata"]["trace_tag"] == "ok"
 
 
-def test_build_bus_payload_without_tracing_module(monkeypatch) -> None:
+def test_build_bus_payload_without_tracing_module(monkeypatch: MonkeyPatch) -> None:
+    del monkeypatch
     # Remove tracing module to exercise ImportError branch
     if "ml.observability.tracing" in sys.modules:
         del sys.modules["ml.observability.tracing"]
 
-    payload = build_bus_payload(
+    payload: dict[str, Any] = build_bus_payload(
         dataset_id="predictions",
         instrument_id="BTCUSD.COINBASE",
         stage="PREDICTIONS",

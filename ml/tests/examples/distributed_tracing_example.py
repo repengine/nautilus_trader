@@ -22,7 +22,8 @@ Run with tracing and OTLP export:
 """
 
 import time
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import pandas as pd
 
@@ -225,9 +226,13 @@ def example_performance_when_disabled():
     """
     print("\n=== Performance Example ===")
 
-    @trace_cold_path_decorator("performance_test")
-    def fast_operation(x: int) -> int:
+    def _fast_operation_impl(x: int) -> int:
         return x * 2
+
+    fast_operation = cast(
+        Callable[[int], int],
+        trace_cold_path_decorator("performance_test")(_fast_operation_impl),
+    )
 
     # Measure performance with tracing decorators
     start_time = time.perf_counter()

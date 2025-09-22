@@ -24,7 +24,7 @@ def test_populate_l2_efficient_builds_loader_config(
     def _fake_populate(config: Any, *, service: object) -> object:
         recorded["config"] = config
         recorded["service"] = service
-        from ml.data.loaders.l2_efficient import L2PopulateResult
+        from ml.data.ingest.l2_efficient import L2PopulateResult
 
         return L2PopulateResult(total_records=0, total_size_mb=0.0, symbols_processed=1)
 

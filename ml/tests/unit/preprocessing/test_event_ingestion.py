@@ -28,7 +28,7 @@ def _write_release_calendar(path: Path) -> None:
     df.write_parquet(path)
 
 
-def test_event_ingestion_creates_normalized_events(tmp_path) -> None:
+def test_event_ingestion_creates_normalized_events(tmp_path: Path) -> None:
     economic_stub = tmp_path / "economic.csv"
     _write_stub_csv(
         economic_stub,

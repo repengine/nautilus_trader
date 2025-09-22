@@ -16,11 +16,15 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from nautilus_trader.model.identifiers import ClientOrderId
     from nautilus_trader.model.identifiers import InstrumentId
+    from nautilus_trader.model.identifiers import StrategyId
+    from nautilus_trader.model.identifiers import TraderId
     from nautilus_trader.model.objects import Quantity
     from nautilus_trader.model.position import Position
 
     from ml.actors.base import MLSignal
+    from nautilus_trader.core.uuid import UUID4
     from nautilus_trader.model.enums import OrderSide
     from nautilus_trader.model.instruments import Instrument
     from nautilus_trader.model.orders import Order
@@ -135,6 +139,12 @@ class OrderExecutorProtocol(Protocol):
         signal: MLSignal,
         market_state: dict[str, float],
         instrument: Instrument,
+        *,
+        trader_id: TraderId | None = None,
+        strategy_id: StrategyId | None = None,
+        client_order_id: ClientOrderId | None = None,
+        init_id: UUID4 | None = None,
+        ts_init: int | None = None,
     ) -> Order | None:
         """
         Create an order based on signal confidence and market conditions.

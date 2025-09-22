@@ -302,11 +302,10 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         if (
             self.include_microstructure or self.include_trade_flow
         ) and self.data_requirements == DataRequirements.L1_ONLY:
-            msg = (
+            raise ValueError(
                 "Microstructure or trade flow features require data_requirements >= L1_L2; "
                 "set data_requirements accordingly."
             )
-            raise ValueError(msg)
 
     def get_feature_names(self) -> list[str]:
         """
@@ -326,6 +325,10 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
             DataRequirements,
             getattr(self, "data_requirements", DataRequirements.L1_ONLY),
         )
+        if (
+            self.include_microstructure or self.include_trade_flow
+        ) and allowable == DataRequirements.L1_ONLY:
+            allowable = DataRequirements.L1_L2
         runner = PipelineRunner(spec, allowable=allowable)
         return runner.compute_feature_names()
 

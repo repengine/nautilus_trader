@@ -24,14 +24,16 @@ from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.l2_cache import L2MinuteCache
 from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
+from ml.stores.feature_store import FeatureStore
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 if TYPE_CHECKING:
     import pandas as _pd
     import polars as _pl
-
-    from ml.stores.feature_store import FeatureStore
+    from pandas import DataFrame as PandasDataFrame
+else:  # pragma: no cover - typing fallback
+    PandasDataFrame = Any
 
 # Local runtime aliases to avoid Optional[Module] union typing
 PL: Any = cast(Any, pl_runtime)
@@ -53,6 +55,7 @@ class TFTDatasetBuilder:
         self,
         catalog: ParquetDataCatalog,
         symbols: list[str],
+        instrument_ids: list[str] | None = None,
         feature_config: MLFeatureConfig | None = None,
         feature_store: FeatureStore | None = None,
         *,
@@ -68,6 +71,7 @@ class TFTDatasetBuilder:
         vintage_base_dir: str | _Path | None = None,
         events_base_dir: str | _Path | None = None,
         student_mode: bool = False,
+        macro_series_ids: tuple[str, ...] | None = None,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -85,7 +89,15 @@ class TFTDatasetBuilder:
 
         """
         self.catalog = catalog
-        self.symbols = symbols
+        self._original_symbols = symbols
+        self.symbols = [sym.split(".")[0] for sym in symbols]
+        self.instrument_ids = instrument_ids
+        self._symbol_instrument_map: dict[str, list[str]] = {}
+        if instrument_ids:
+            for inst in instrument_ids:
+                base = inst.split(".")[0]
+                self._symbol_instrument_map.setdefault(base, []).append(inst)
+                self._symbol_instrument_map.setdefault(inst, []).append(inst)
         self.feature_config = feature_config or MLFeatureConfig()
         self.feature_store = feature_store
         self.include_macro = include_macro
@@ -103,6 +115,7 @@ class TFTDatasetBuilder:
         )
         self._event_provider: Any | None = None
         self.student_mode = student_mode
+        self.macro_series_ids = macro_series_ids
 
         if self.student_mode:
             self.include_macro = False
@@ -113,6 +126,25 @@ class TFTDatasetBuilder:
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
             f"(FeatureStore: {'enabled' if feature_store else 'disabled'})",
         )
+
+    def _resolve_instrument_ids(self, override: list[str] | None = None) -> list[str]:
+        if override:
+            return override
+        if self.instrument_ids:
+            return self.instrument_ids
+        candidates: list[str] = []
+        for symbol in self.symbols:
+            if "." in symbol:
+                candidates.append(symbol)
+                continue
+            for exchange in ["NYSE", "NASDAQ", "ARCA", "ARCX", "XNAS", "XNYS"]:
+                candidates.append(f"{symbol}.{exchange}")
+        if candidates:
+            logger.warning(
+                "Instrument IDs not provided; falling back to heuristic venues %s",
+                ["NYSE", "NASDAQ", "ARCA", "ARCX", "XNAS", "XNYS"],
+            )
+        return candidates
 
     def prepare_training_data_from_store(
         self,
@@ -162,20 +194,20 @@ class TFTDatasetBuilder:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
         # Use provided instruments or default to configured symbols
-        if instrument_ids is None:
-            # Convert symbols to instrument_ids with exchange suffix
-            instrument_ids = []
-            for symbol in self.symbols:
-                # Try common exchanges
-                for exchange in ["NYSE", "NASDAQ", "ARCA"]:
-                    instrument_ids.append(f"{symbol}.{exchange}")
+        resolved_ids = self._resolve_instrument_ids(instrument_ids)
+        if not resolved_ids:
+            msg = "No instrument identifiers available for feature store load"
+            raise ValueError(msg)
 
-        logger.info(f"Loading features from FeatureStore for {len(instrument_ids)} instruments")
+        logger.info(
+            "Loading features from FeatureStore for %d instruments",
+            len(resolved_ids),
+        )
 
         # Collect all feature data
         all_data: list[_pl.DataFrame] = []
 
-        for instrument_id in instrument_ids:
+        for instrument_id in resolved_ids:
             logger.info(f"Processing {instrument_id} from FeatureStore...")
 
             try:
@@ -273,6 +305,7 @@ class TFTDatasetBuilder:
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
+                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
                 ),
             )
         logger.info(
@@ -386,6 +419,7 @@ class TFTDatasetBuilder:
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
+                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
                 )
                 macro_cols = [c for c in direct_df.columns if c not in before_cols]
                 if macro_cols:
@@ -429,6 +463,7 @@ class TFTDatasetBuilder:
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
                     vintage_base_dir=self.vintage_base_dir,
+                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
                 )
                 try:  # pragma: no cover
                     import pandas as _pd
@@ -611,8 +646,10 @@ class TFTDatasetBuilder:
 
                 df = _cast("_pl.DataFrame", pl.DataFrame())
                 last_err: Exception | None = None
-                for venue in candidate_venues:
-                    instrument_id = f"{symbol}.{venue}"
+                instrument_candidates = self._symbol_instrument_map.get(symbol)
+                if not instrument_candidates:
+                    instrument_candidates = [f"{symbol}.{venue}" for venue in candidate_venues]
+                for instrument_id in instrument_candidates:
                     try:
                         df = bars_to_dataframe(self.catalog, [instrument_id], start=start, end=end)
                         if not df.is_empty():
@@ -821,11 +858,72 @@ class TFTDatasetBuilder:
         # Combine all symbols with proper typing
         final_df: _pl.DataFrame | _pd.DataFrame
         if use_polars:
-            # all_data_pl contains Polars DataFrames
-            final_df = pl.concat(all_data_pl, how="vertical")
+            lazy_frames = [df.lazy() for df in all_data_pl]
+            final_df = pl.concat(lazy_frames).collect(streaming=True)
+            all_data_pl.clear()
+
+            if self.include_macro:
+                from ml.data.fred_join import join_fred_asof
+
+                base_cols = set(final_df.columns)
+                joined = _cast(
+                    "_pl.DataFrame",
+                    join_fred_asof(
+                        final_df,
+                        timestamp_col="timestamp",
+                        lag_days=self.macro_lag_days,
+                        fred_path=self.fred_path,
+                        vintage_base_dir=self.vintage_base_dir,
+                        series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    ),
+                )
+                macro_cols = [
+                    col
+                    for col in joined.columns
+                    if col not in base_cols and col != "timestamp_right"
+                ]
+                if "timestamp_right" in joined.columns:
+                    joined = joined.drop("timestamp_right")
+                if macro_cols:
+                    df_pd = joined.to_pandas()
+                    df_pd = df_pd.fillna(dict.fromkeys(macro_cols, 0.0))
+                    df_pd["is_macro_available"] = (
+                        df_pd[macro_cols].notna().any(axis=1).astype("int32")
+                    )
+                    joined = pl.from_pandas(df_pd)
+                final_df = joined
         else:
             # all_data_pd contains Pandas DataFrames
             final_df = pd.concat(all_data_pd, ignore_index=True)
+            if self.include_macro:
+                from ml.data.fred_join import join_fred_asof
+
+                base_cols = set(final_df.columns)
+                final_df_pd: PandasDataFrame = cast(PandasDataFrame, final_df)
+                final_df_pd = cast(
+                    PandasDataFrame,
+                    join_fred_asof(
+                        final_df_pd,
+                        timestamp_col="timestamp",
+                        lag_days=self.macro_lag_days,
+                        fred_path=self.fred_path,
+                        vintage_base_dir=self.vintage_base_dir,
+                        series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    ),
+                )
+                macro_cols = [
+                    col
+                    for col in final_df_pd.columns
+                    if col not in base_cols and col != "timestamp_right"
+                ]
+                if "timestamp_right" in final_df_pd.columns:
+                    final_df_pd = final_df_pd.drop(columns=["timestamp_right"])
+                if macro_cols:
+                    final_df_pd = final_df_pd.fillna(dict.fromkeys(macro_cols, 0.0))
+                    final_df_pd["is_macro_available"] = (
+                        final_df_pd[macro_cols].notna().any(axis=1).astype("int32")
+                    )
+                final_df = final_df_pd
 
         logger.info(f"Built dataset with shape: {final_df.shape}")
 
@@ -1238,15 +1336,21 @@ class TFTDatasetBuilder:
         current_prices = pl.col("close")
         forward_returns = (future_prices - current_prices) / current_prices
 
-        # Binary classification
+        # Binary classification + forward return sidecar for downstream Sharpe metrics
         targets = df.select(
             [
                 (forward_returns > threshold).cast(pl.Int32).alias("y"),
+                forward_returns.cast(pl.Float32).alias("forward_return"),
             ],
         )
 
-        # Fill NaN at the end
-        targets = targets.fill_null(0)
+        # Fill trailing NaNs introduced by the horizon shift
+        targets = targets.with_columns(
+            [
+                pl.col("y").fill_null(0),
+                pl.col("forward_return").fill_null(0.0),
+            ],
+        )
 
         return targets
 
@@ -1264,15 +1368,16 @@ class TFTDatasetBuilder:
         current_prices = df["close"]
         forward_returns = (future_prices - current_prices) / current_prices
 
-        # Binary classification
+        # Binary classification + forward return sidecar for downstream Sharpe metrics
         targets = pd.DataFrame(
             {
                 "y": (forward_returns > threshold).astype(int),
+                "forward_return": forward_returns.astype(float),
             },
         )
 
-        # Fill NaN at the end
-        targets = targets.fillna(0)
+        # Fill trailing NaNs introduced by the horizon shift
+        targets = targets.fillna({"y": 0, "forward_return": 0.0})
 
         from typing import cast as _cast
 

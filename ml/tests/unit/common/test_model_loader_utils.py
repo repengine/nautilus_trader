@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import types
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Sequence
 
 import pytest
 
@@ -12,13 +12,10 @@ class _OnnxLikeSession:
     def __init__(self) -> None:
         self._ran: bool = False
 
-    def get_inputs(self):  # type: ignore[no-untyped-def]
-        class _Inp:
-            name = "x"
+    def get_inputs(self) -> list[SimpleNamespace]:
+        return [SimpleNamespace(name="x")]
 
-        return [_Inp()]
-
-    def run(self, _outs: Any, _feed: dict[str, Any]):  # type: ignore[no-untyped-def]
+    def run(self, _outs: Sequence[str] | None, _feed: dict[str, Any]) -> None:
         self._ran = True
 
 
@@ -26,7 +23,7 @@ class _SklearnLikeModel:
     def __init__(self) -> None:
         self._pred_called: bool = False
 
-    def predict(self, _x: Any) -> None:  # type: ignore[no-untyped-def]
+    def predict(self, _x: Any) -> None:
         self._pred_called = True
 
 
@@ -50,13 +47,10 @@ def test_maybe_warm_up_model_noop_when_disabled() -> None:
 
 def test_maybe_warm_up_model_handles_exceptions() -> None:
     class _Bad:
-        def get_inputs(self):  # type: ignore[no-untyped-def]
-            class _Inp:
-                name = "x"
+        def get_inputs(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(name="x")]
 
-            return [_Inp()]
-
-        def run(self, *_a: Any, **_k: Any) -> None:  # type: ignore[no-untyped-def]
+        def run(self, *_a: Any, **_k: Any) -> None:
             raise RuntimeError("boom")
 
     bad = _Bad()
@@ -73,7 +67,7 @@ def test_assert_features_parity_happy_path() -> None:
 
 def test_assert_features_parity_no_manifest_names_is_noop() -> None:
     # No manifest names: function returns without validation
-    assert_features_parity(None, None, ["a", "b"])  # type: ignore[arg-type]
+    assert_features_parity(None, None, ["a", "b"])
 
 
 def test_assert_features_parity_raises_on_mismatch() -> None:
@@ -81,4 +75,3 @@ def test_assert_features_parity_raises_on_mismatch() -> None:
     meta = {"feature_schema": {"f1": "float32", "f2": "float32", "f3": "float32"}}
     with pytest.raises(ValueError):
         assert_features_parity(names, meta, ["f2", "f1", "f3"])  # wrong order
-

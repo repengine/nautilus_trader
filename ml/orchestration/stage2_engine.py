@@ -434,12 +434,14 @@ class BacktestStage2EngineRunner:
         from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.objects import Price
         from nautilus_trader.model.orders.market import MarketOrder
-        from nautilus_trader.trading.strategy import Strategy
+        from nautilus_trader.trading.strategy import Strategy as _RuntimeStrategy
 
         from nautilus_trader.model.enums import OrderSide
         from nautilus_trader.model.enums import TimeInForce
 
-        class _QThresholdStrategy(Strategy):
+        strategy_base = cast(type[Any], _RuntimeStrategy)
+
+        class _QThresholdStrategy(strategy_base):  # type: ignore[misc,valid-type]
             def __init__(self, qmap: dict[str, dict[int, float]], starting_balance: float) -> None:
                 super().__init__()
                 self._qmap = qmap

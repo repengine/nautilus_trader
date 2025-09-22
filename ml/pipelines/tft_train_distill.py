@@ -1,102 +1,32 @@
 #!/usr/bin/env python3
 """
-End-to-end pipeline to build a TFT dataset, train/calibrate a TFT teacher, and distill a
-student.
+Compatibility wrapper around the unified pipeline orchestrator for TFT teacher + student runs.
 
-This composes existing CLIs to keep responsibilities single-purpose.
-
-Steps
------
-1. Build dataset: ml/scripts/build_tft_dataset.py
-2. Train teacher: ml/training/teacher/tft_cli.py (optional if --train is set)
-3. Distill student: ml/training/distillation/cli.py
-
+The legacy pipeline staged dataset build, teacher training, and student distillation
+manually. This wrapper now forwards arguments to ``ml.orchestration.pipeline_orchestrator``
+so that a single orchestrator path handles registration, promotions, and validation.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
-from typing import Any
+
+from ml.orchestration.pipeline_orchestrator import main as orchestrator_main
 
 
-def main(argv: list[str] | None = None) -> int:
-    """
-    Run the TFT teacher+student training pipeline.
+LOGGER = logging.getLogger(__name__)
 
-    Parameters
-    ----------
-    argv : list[str] | None, optional
-        Command-line style arguments. When ``None`` (default) the current
-        process arguments are used.
 
-    Returns
-    -------
-    int
-        Zero on success; non-zero when any stage fails.
-
-    Examples
-    --------
-    >>> main([
-    ...     "--symbols", "SPY.NYSE",
-    ...     "--out_dir", "./ml_out",
-    ...     "--teacher_model_id", "tft_teacher_v1",
-    ...     "--student_model_id", "tft_student_v1",
-    ...     "--model_registry_dir", "./ml_registry",
-    ... ])
-    0
-
-    """
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", default="data/tier1")
-    ap.add_argument("--symbols", required=True)
-    ap.add_argument("--out_dir", required=True)
-    ap.add_argument("--include_macro", action="store_true")
-    ap.add_argument("--macro_lag_days", type=int, default=1)
-    ap.add_argument("--include_micro", action="store_true")
-    ap.add_argument("--include_l2", action="store_true")
-    ap.add_argument("--include_events", action="store_true")
-    ap.add_argument("--include_calendar", action="store_true")
-    ap.add_argument("--fred_vintage_dir", default=None)
-    ap.add_argument("--events_dir", default=None)
-    ap.add_argument("--student_mode", action="store_true")
-    ap.add_argument("--horizon_minutes", type=int, default=15)
-    ap.add_argument("--threshold", type=float, default=0.001)
-    ap.add_argument("--lookback_periods", type=int, default=30)
-    # Teacher config
-    ap.add_argument("--train_teacher", action="store_true")
-    ap.add_argument("--teacher_model_id", required=True)
-    # Feature registry parameters can be derived from a sidecar file or registered on demand
-    ap.add_argument("--feature_registry_dir", default=None)
-    ap.add_argument("--feature_set_id", default=None)
-    ap.add_argument(
-        "--register_features",
-        action="store_true",
-        help="Register a new feature set if not provided",
-    )
-    ap.add_argument("--model_registry_dir", required=True)
-    ap.add_argument("--student_model_id", required=True)
-    ap.add_argument(
-        "--emit_teacher_predictions",
-        action="store_true",
-        help="Emit placeholder teacher logits from feature NPZ when skipping training",
-    )
-    args = ap.parse_args(argv)
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1) Build dataset
-    # Import via scripts shim so tests can monkeypatch easily
-    from ml.scripts.build_tft_dataset import main as build_main
-
-    build_args = [
+def build_orchestrator_args(args: argparse.Namespace) -> list[str]:
+    cli_args: list[str] = [
         "--data_dir",
-        str(args.data_dir),
+        args.data_dir,
         "--symbols",
         args.symbols,
         "--out_dir",
-        str(out_dir),
+        args.out_dir,
         "--horizon_minutes",
         str(args.horizon_minutes),
         "--threshold",
@@ -105,214 +35,107 @@ def main(argv: list[str] | None = None) -> int:
         str(args.lookback_periods),
     ]
     if args.include_macro:
-        build_args += ["--include_macro", "--macro_lag_days", str(args.macro_lag_days)]
+        cli_args += ["--include_macro", "--macro_lag_days", str(args.macro_lag_days)]
     if args.include_micro:
-        build_args += ["--include_micro"]
+        cli_args += ["--include_micro"]
     if args.include_l2:
-        build_args += ["--include_l2"]
+        cli_args += ["--include_l2"]
     if args.include_events:
-        build_args += ["--include_events"]
+        cli_args += ["--include_events"]
     if args.include_calendar:
-        build_args += ["--include_calendar"]
-    if args.fred_vintage_dir:
-        build_args += ["--fred_vintage_dir", str(args.fred_vintage_dir)]
-    if args.events_dir:
-        build_args += ["--events_dir", str(args.events_dir)]
-    if args.student_mode:
-        build_args += ["--student_mode"]
-    rc = build_main(build_args)
-    if rc != 0:
-        return rc
+        cli_args += ["--include_calendar"]
+    if args.feature_registry_dir:
+        cli_args += ["--feature_registry_dir", args.feature_registry_dir]
+    if args.feature_set_id:
+        cli_args += ["--feature_set_id", args.feature_set_id]
 
-    features_npz = out_dir / "features_npz.npz"
-    if args.emit_teacher_predictions and args.train_teacher:
-        import logging as _logging
-
-        _logging.getLogger(__name__).info(
-            "Skipping --emit_teacher_predictions because --train_teacher is enabled",
-        )
-    elif args.emit_teacher_predictions:
-        try:
-            from ml.cli.emit_teacher_predictions import main as emit_main
-        except Exception as exc:  # pragma: no cover - dependency issue
-            raise SystemExit(f"emit_teacher_predictions CLI unavailable: {exc}")
-        if not features_npz.exists():
-            raise SystemExit("features_npz.npz missing after dataset build")
-        emit_args = [
-            "--features_npz",
-            str(features_npz),
-            "--out_npz",
-            str(out_dir / "teacher_preds.npz"),
-            "--overwrite",
-        ]
-        rc = emit_main(emit_args)
-        if rc != 0:
-            return rc
-
-    # 2) Train teacher and calibrate
-    teacher_npz = out_dir / "teacher_preds.npz"
-    # Resolve feature registry parameters if not explicitly provided
-    feature_registry_dir: str | None = args.feature_registry_dir
-    feature_set_id: str | None = args.feature_set_id
-    # Sidecar support: out_dir/feature_set.json may contain registry info
-    sidecar = out_dir / "feature_set.json"
-    if (feature_registry_dir is None or feature_set_id is None) and sidecar.exists():
-        import json as _json
-
-        try:
-            with sidecar.open("r", encoding="utf-8") as f:
-                sc: dict[str, Any] = _json.load(f)
-            feature_registry_dir = feature_registry_dir or sc.get("feature_registry_dir")
-            feature_set_id = feature_set_id or sc.get("feature_set_id")
-        except Exception as exc:
-            # Log and record metric, then fall through to register logic / validation
-            try:
-                import logging as _logging
-
-                from ml.common.metrics_manager import MetricsManager as _MM
-
-                _logging.getLogger(__name__).warning(
-                    "Malformed feature sidecar; continuing without sidecar params: %s",
-                    exc,
-                    exc_info=True,
-                )
-                _MM.default().inc(
-                    "ml_pipeline_warnings_total",
-                    "Pipeline warnings",
-                    labels={
-                        "component": "tft_train_distill",
-                        "op": "load_feature_sidecar",
-                        "error_type": "exception",
-                    },
-                    labelnames=("component", "op", "error_type"),
-                )
-            except Exception as log_exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
-                    "Logging/metrics for feature sidecar warning failed: %s",
-                    log_exc,
-                    exc_info=True,
-                )
-
-    # Optional auto-register when requested
-    if (feature_registry_dir is not None) and args.register_features and feature_set_id is None:
-        try:
-            import hashlib as _hashlib
-
-            from ml.registry.base import DataRequirements as _DataReq
-            from ml.registry.feature_registry import FeatureManifest
-            from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
-            from ml.registry.feature_registry import FeatureRole
-            from ml.registry.feature_registry import FeatureStage
-
-            reg_path = Path(feature_registry_dir)
-            reg_path.mkdir(parents=True, exist_ok=True)
-            freg = _FeatureRegistry(reg_path)
-            # Minimal manifest sufficient for registration; content not validated in tests
-            feature_names = ["f1"]
-            dtypes = ["float32"]
-            signature = _hashlib.sha256(",".join(feature_names).encode()).hexdigest()
-            schema_hash = signature
-            manifest = FeatureManifest(
-                feature_set_id="",  # Let registry assign
-                name="Auto-Registered Features",
-                version="1.0.0",
-                role=FeatureRole.TEACHER,
-                data_requirements=_DataReq.L1_ONLY,
-                feature_names=feature_names,
-                feature_dtypes=dtypes,
-                schema_hash=schema_hash,
-                pipeline_signature=signature,
-                pipeline_version="1.0.0",
-                stage=FeatureStage.CANDIDATE,
-            )
-            feature_set_id = freg.register_feature_set(manifest)
-        except Exception as exc:
-            # Leave as None; validation below will fail with a clear message
-            try:
-                import logging as _logging
-
-                from ml.common.metrics_manager import MetricsManager as _MM
-
-                _logging.getLogger(__name__).warning(
-                    "Auto-registration of features failed: %s",
-                    exc,
-                    exc_info=True,
-                )
-                _MM.default().inc(
-                    "ml_pipeline_errors_total",
-                    "ML pipeline errors",
-                    labels={
-                        "component": "tft_train_distill",
-                        "op": "register_features",
-                        "error_type": "exception",
-                    },
-                    labelnames=("component", "op", "error_type"),
-                )
-            except Exception as log_exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
-                    "Logging/metrics for auto-register failure also failed: %s",
-                    log_exc,
-                    exc_info=True,
-                )
-
-    # Final validation now: both must be available for teacher/distill steps
-    if feature_registry_dir is None or feature_set_id is None:
-        raise SystemExit(
-            "feature_registry_dir and feature_set_id are required (via args or sidecar/registration)",
-        )
     if args.train_teacher:
-        from ml.training.teacher.tft_cli import main as tft_main
-
-        train_csv = out_dir / "dataset.csv"
-        tft_args = [
-            "--train_data_csv",
-            str(train_csv),
-            "--out_dir",
-            str(out_dir),
-            "--model_id",
+        cli_args += [
+            "--train",
+            "--teacher_model_id",
             args.teacher_model_id,
-            "--feature_registry_dir",
-            str(feature_registry_dir),
-            "--feature_set_id",
-            str(feature_set_id),
-            "--max_epochs",
-            "5",
         ]
-        rc = tft_main(tft_args)
-        if rc != 0:
-            return rc
     else:
-        # Expect teacher_preds.npz precomputed
-        if not teacher_npz.exists():
-            raise SystemExit("Teacher preds missing and --train_teacher not set")
+        LOGGER.info(
+            "Skipping teacher training; existing predictions at %s must be present",
+            Path(args.out_dir) / "teacher_preds.npz",
+        )
 
-    # 3) Distill student and register
-    from ml.training.distillation.cli import main as distill_main
-
-    distill_args = [
-        "--features_npz",
-        str(features_npz),
-        "--teacher_npz",
-        str(teacher_npz),
-        "--out_dir",
-        str(out_dir),
-        "--model_id",
+    cli_args += [
+        "--distill_student",
+        "--student_model_id",
         args.student_model_id,
-        "--parent_id",
-        args.teacher_model_id,
-        "--registry_dir",
-        str(args.model_registry_dir),
-        "--feature_registry_dir",
-        str(feature_registry_dir),
-        "--feature_set_id",
-        str(feature_set_id),
+        "--student_model_registry_dir",
+        args.model_registry_dir,
     ]
-    rc = distill_main(distill_args)
-    return rc
+    if args.student_parent_model_id:
+        cli_args += ["--student_parent_model_id", args.student_parent_model_id]
+    else:
+        cli_args += ["--student_parent_model_id", args.teacher_model_id]
+    if args.student_feature_registry_dir:
+        cli_args += ["--student_feature_registry_dir", args.student_feature_registry_dir]
+    if args.student_feature_set_id:
+        cli_args += ["--student_feature_set_id", args.student_feature_set_id]
+    if args.student_objective != "logit_mse":
+        cli_args += ["--student_objective", args.student_objective]
+    if args.student_kd_lambda != 0.5:
+        cli_args += ["--student_kd_lambda", str(args.student_kd_lambda)]
+    if args.student_use_val_for_distill:
+        cli_args += ["--student_use_val_for_distill"]
+    cli_args += [
+        "--student_early_stopping",
+        str(args.student_early_stopping),
+    ]
+    if args.student_opset is not None:
+        cli_args += ["--student_opset", str(args.student_opset)]
+
+    return [str(value) for value in cli_args]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", default="data/tier1")
+    parser.add_argument("--symbols", required=True)
+    parser.add_argument("--out_dir", required=True)
+    parser.add_argument("--include_macro", action="store_true")
+    parser.add_argument("--macro_lag_days", type=int, default=1)
+    parser.add_argument("--include_micro", action="store_true")
+    parser.add_argument("--include_l2", action="store_true")
+    parser.add_argument("--include_events", action="store_true")
+    parser.add_argument("--include_calendar", action="store_true")
+    parser.add_argument("--horizon_minutes", type=int, default=15)
+    parser.add_argument("--threshold", type=float, default=0.001)
+    parser.add_argument("--lookback_periods", type=int, default=30)
+    parser.add_argument("--feature_registry_dir", default=None)
+    parser.add_argument("--feature_set_id", default=None)
+    parser.add_argument("--train_teacher", action="store_true")
+    parser.add_argument("--teacher_model_id", required=True)
+    parser.add_argument("--model_registry_dir", required=True)
+    parser.add_argument("--student_model_id", required=True)
+    parser.add_argument("--student_parent_model_id", default=None)
+    parser.add_argument("--student_feature_registry_dir", default=None)
+    parser.add_argument("--student_feature_set_id", default=None)
+    parser.add_argument(
+        "--student_objective",
+        default="logit_mse",
+        choices=["logit_mse", "soft_ce", "hybrid"],
+    )
+    parser.add_argument("--student_kd_lambda", type=float, default=0.5)
+    parser.add_argument("--student_early_stopping", type=int, default=200)
+    parser.add_argument("--student_opset", type=int, default=None)
+    parser.add_argument("--student_use_val_for_distill", action="store_true")
+    parser.add_argument(
+        "--emit_teacher_predictions",
+        action="store_true",
+        help="Deprecated: orchestrator no longer generates placeholder logits",
+    )
+    args = parser.parse_args(argv)
+
+    if args.emit_teacher_predictions:
+        LOGGER.warning("emit_teacher_predictions is deprecated; ignoring flag")
+
+    cli_args = build_orchestrator_args(args)
+    return orchestrator_main(cli_args)
 
 
 if __name__ == "__main__":

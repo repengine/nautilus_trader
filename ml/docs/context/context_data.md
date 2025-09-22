@@ -84,6 +84,11 @@ This section documents the latest backfills, gap fills, macro refresh, and datas
   - Shards of 5 symbols (example):
     - `for off in 0 5 10 15 20; do python ml/scripts/populate_l2_efficient.py --tier 1 --days 14 --check-gaps --max-symbols 5 --symbol-offset $off --rate-limit 10 --sleep-between-symbols 1; done`
 
+- Orchestrator auto-fill (pre-build coverage sweep):
+  - `python -m ml.cli.pipeline_orchestrator --auto_fill_universe --symbols SPY.NYSE,QQQ.NASDAQ --include_l2`
+  - Backfills bars/TBBO/trades using `IngestionOrchestrator.backfill_gaps` with coverage policy targets (7y L0, 1y L1, 30d L2/3)
+  - Depth ingestion reuses `populate_l2_efficient`; pass `--auto_fill_l2_days` to override the default 30-day window and `--auto_fill_allow_dataset_l2_ingest` if the dataset stage should still invoke the legacy L2 path
+
 - FRED refresh (90d):
   - Set `FRED_API_KEY` then refresh via `FREDDataLoader` or `ml/scripts/fred_integration_bridge.py`.
   - Vintage snapshots land via `ALFREDDataLoader`, which persists per-series releases under `data/fred/vintages/<series>/<yyyymmdd>.parquet` and a normalized `release_calendar.parquet` used for strict point-in-time joins.
@@ -774,6 +779,17 @@ config = BuildConfig(
 results = execute(config)
 print(f"Success: {results['succeeded']}, Failed: {results['failed']}")
 ```
+
+The CLI orchestrator (`ml.cli.pipeline_orchestrator`) mirrors this flow. When
+`--include_l2` is enabled it now triggers the efficient L2 ingestion helpers
+before dataset construction, and when `--register_features` is supplied the
+orchestrator exports a feature manifest to the configured registry path. If
+`--include_macro` is requested the orchestrator (and dataset CLI) now run a
+smart macro refresh that verifies the FRED parquet and optional ALFRED vintage
+calendars are no older than `--macro_freshness_hours`, refreshing them unless
+`--skip_macro_refresh` is passed. All builds run the dataset validator with
+configurable thresholds (row count, target balance, feature coverage, and
+required macro series) so production runs fail fast when the data is incomplete.
 
 ### Feature Manifest Export
 

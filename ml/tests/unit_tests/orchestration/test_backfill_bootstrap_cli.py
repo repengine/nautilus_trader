@@ -4,12 +4,12 @@ from typing import Any
 import os
 import shlex
 
-import pytest
+from pytest import MonkeyPatch
 
 from ml.core.integration import MLIntegrationManager
 
 
-def test_backfill_bootstrap_builds_cli_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_backfill_bootstrap_builds_cli_args(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     # Arrange environment for catalog-mode backfill
     monkeypatch.setenv("ML_BACKFILL_ON_START", "1")
     monkeypatch.setenv("BACKFILL_DATASET_ID", "EQUS.MINI")
@@ -22,16 +22,16 @@ def test_backfill_bootstrap_builds_cli_args(monkeypatch: pytest.MonkeyPatch, tmp
 
     captured: dict[str, Any] = {"cmd": None}
 
-    def fake_run(cmd: list[str], check: bool = False) -> None:  # type: ignore[unused-argument]
+    def fake_run(cmd: list[str], check: bool = False) -> None:
         captured["cmd"] = cmd
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
     mgr = MLIntegrationManager.__new__(MLIntegrationManager)
-    mgr.db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"  # type: ignore[attr-defined]
+    setattr(mgr, "db_connection", "postgresql://postgres:postgres@localhost:5432/nautilus")
 
     # Act
-    MLIntegrationManager._maybe_run_backfill_on_start(mgr)  # type: ignore[arg-type]
+    MLIntegrationManager._maybe_run_backfill_on_start(mgr)
 
     # Assert
     cmd = captured["cmd"]
@@ -45,4 +45,3 @@ def test_backfill_bootstrap_builds_cli_args(monkeypatch: pytest.MonkeyPatch, tmp
     assert "--coverage-mode catalog" in joined
     assert "--client-mode catalog" in joined
     assert f"--catalog-path {tmp_path}" in joined
-

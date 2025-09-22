@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     import mlflow
     import optuna
 
+    from ml.config.shared import OptunaConfig
+
     # Provide names for type annotations to satisfy static checkers without runtime import
     from ml.registry import ModelManifest
 
@@ -143,6 +145,9 @@ class BaseMLTrainer(ABC):
 
         self._log_info(f"Starting training with {len(data)} samples")
 
+        train_kwargs = dict(kwargs)
+        validation_returns = train_kwargs.pop("validation_returns", None)
+
         # Start MLflow run if configured
         if self._should_use_mlflow():
             self._start_mlflow_run()
@@ -176,13 +181,14 @@ class BaseMLTrainer(ABC):
                 y_train,
                 X_val,
                 y_val,
-                **kwargs,
+                validation_returns=validation_returns,
+                **train_kwargs,
             )
-            kwargs.update(best_params)
+            train_kwargs.update(best_params)
 
         # Cross-validation if configured
         if self._should_use_cv():
-            cv_results = self._cross_validate(X_train, y_train, **kwargs)
+            cv_results = self._cross_validate(X_train, y_train, **train_kwargs)
             self._cv_results = cv_results
 
         # Train the model
@@ -191,7 +197,7 @@ class BaseMLTrainer(ABC):
             y_train,
             X_val,
             y_val,
-            **kwargs,
+            **train_kwargs,
         )
 
         self._model = training_results["model"]
@@ -263,23 +269,17 @@ class BaseMLTrainer(ABC):
             "best_params": best_params,
         }
 
-    def _log_info(self, message: str) -> None:
-        """
-        Log info message.
-        """
-        logger.info(message)
+    def _log_info(self, message: str, *args: object, **kwargs: Any) -> None:
+        """Log info message."""
+        logger.info(message, *args, **kwargs)
 
-    def _log_warning(self, message: str) -> None:
-        """
-        Log warning message.
-        """
-        logger.warning(message)
+    def _log_warning(self, message: str, *args: object, **kwargs: Any) -> None:
+        """Log warning message."""
+        logger.warning(message, *args, **kwargs)
 
-    def _log_error(self, message: str) -> None:
-        """
-        Log error message.
-        """
-        logger.error(message)
+    def _log_error(self, message: str, *args: object, **kwargs: Any) -> None:
+        """Log error message."""
+        logger.error(message, *args, **kwargs)
 
     def prepare_data_with_feature_store(
         self,
@@ -498,6 +498,7 @@ class BaseMLTrainer(ABC):
             HAS_OPTUNA
             and hasattr(self._config, "optuna_config")
             and self._config.optuna_config is not None
+            and getattr(self._config.optuna_config, "enabled", True)
         )
 
     def _should_use_cv(self) -> bool:
@@ -516,6 +517,8 @@ class BaseMLTrainer(ABC):
         y_train: npt.NDArray[np.float64],
         X_val: npt.NDArray[np.float64],
         y_val: npt.NDArray[np.float64],
+        *,
+        validation_returns: npt.NDArray[np.float64] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -545,33 +548,71 @@ class BaseMLTrainer(ABC):
 
         self._log_info("Starting hyperparameter optimization with Optuna")
 
-        def objective(trial: optuna.Trial) -> float:
-            # Get suggested parameters from model-specific method
-            params = self._suggest_hyperparameters(trial)
-            params.update(kwargs)
+        optuna_kwargs = dict(kwargs)
+        optuna_returns = optuna_kwargs.pop("validation_returns", validation_returns)
+        optuna_cfg: OptunaConfig | None = getattr(self._config, "optuna_config", None)
+        metric_name = self._resolve_optuna_metric_name(y_train, optuna_cfg)
+        direction = self._resolve_optuna_direction(metric_name, optuna_cfg)
 
-            # Train model with suggested params
+        sampler: optuna.samplers.BaseSampler = optuna.samplers.TPESampler(seed=42)
+        pruner: optuna.pruners.BasePruner | None = None
+        if optuna_cfg is not None:
+            try:
+                sampler = self._build_optuna_sampler(optuna_cfg)
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                self._log_warning(
+                    "Optuna sampler '%s' unavailable (%s); falling back to TPE",
+                    optuna_cfg.sampler,
+                    exc,
+                )
+            try:
+                pruner = self._build_optuna_pruner(optuna_cfg)
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                self._log_warning(
+                    "Optuna pruner '%s' unavailable (%s); disabling pruning",
+                    optuna_cfg.pruner,
+                    exc,
+                )
+
+        def objective(trial: optuna.Trial) -> float:
+            params = self._suggest_hyperparameters(trial)
+            params.update(optuna_kwargs)
+
             model = self._create_model(params)
             if hasattr(model, "fit"):
-                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_val, y_val)],
+                    verbose=False,
+                )
             else:
-                # For models that don't have fit method (e.g., XGBoost native)
-                model = self._train_with_params(X_train, y_train, X_val, y_val, params)
+                model = self._train_with_params(
+                    X_train,
+                    y_train,
+                    X_val,
+                    y_val,
+                    params,
+                )
 
-            # Evaluate
             predictions = self.predict(model, X_val)
-            metrics = self._calculate_objective_metric(y_val, predictions)
-            return metrics
+            score = self._calculate_optuna_metric(
+                metric_name,
+                y_val,
+                predictions,
+                validation_returns=optuna_returns,
+            )
+            return score
 
-        # Create study
         study = optuna.create_study(
-            direction="maximize" if self._is_classification_problem(y_train) else "minimize",
-            sampler=optuna.samplers.TPESampler(seed=42),
+            direction=direction,
+            sampler=sampler,
+            pruner=pruner,
         )
 
-        # Optimize
-        n_trials = getattr(getattr(self._config, "optuna_config", None), "n_trials", 100)
-        study.optimize(objective, n_trials=n_trials)
+        n_trials = getattr(optuna_cfg, "n_trials", 100)
+        timeout = getattr(optuna_cfg, "timeout", None)
+        study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
         self._optuna_study = study
         best_params = study.best_params
@@ -596,6 +637,150 @@ class BaseMLTrainer(ABC):
 
         """
         ...
+
+    def _resolve_optuna_metric_name(
+        self,
+        y_train: npt.NDArray[np.float64],
+        optuna_cfg: OptunaConfig | None,
+    ) -> str:
+        metric = (optuna_cfg.metric if optuna_cfg is not None else "") or ""
+        if metric:
+            return metric
+        return "accuracy" if self._is_classification_problem(y_train) else "rmse"
+
+    def _resolve_optuna_direction(
+        self,
+        metric_name: str,
+        optuna_cfg: OptunaConfig | None,
+    ) -> str:
+        metric_direction = self._optuna_direction_for_metric(metric_name)
+        if optuna_cfg is not None and optuna_cfg.direction != metric_direction:
+            self._log_warning(
+                "Optuna direction '%s' mismatches metric '%s'; using '%s'",
+                optuna_cfg.direction,
+                metric_name,
+                metric_direction,
+            )
+        return metric_direction
+
+    @staticmethod
+    def _optuna_direction_for_metric(metric_name: str) -> str:
+        metric = metric_name.lower()
+        if metric in {"rmse", "mae"}:
+            return "minimize"
+        return "maximize"
+
+    def _calculate_optuna_metric(
+        self,
+        metric_name: str,
+        y_true: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
+        *,
+        validation_returns: npt.NDArray[np.float64] | None = None,
+    ) -> float:
+        metric = metric_name.lower()
+        targets = np.asarray(y_true, dtype=np.float64).reshape(-1)
+        predictions = np.asarray(y_pred, dtype=np.float64).reshape(-1)
+        is_classification = self._is_classification_problem(targets)
+
+        if metric == "sharpe_ratio":
+            if validation_returns is None:
+                self._log_warning(
+                    "Optuna metric '%s' requested without validation returns; using accuracy",
+                    metric_name,
+                )
+                return self._calculate_optuna_metric("accuracy", targets, predictions)
+            return self._calculate_sharpe_metric(predictions, targets, validation_returns)
+
+        if metric == "auc":
+            if not HAS_SKLEARN:
+                self._log_warning("sklearn unavailable; falling back to accuracy for AUC metric")
+                metric = "accuracy"
+            else:
+                from sklearn.metrics import roc_auc_score
+
+                try:
+                    return float(roc_auc_score(targets, predictions))
+                except ValueError as exc:
+                    self._log_warning(
+                        "roc_auc_score failed (%s); falling back to accuracy",
+                        exc,
+                    )
+                    metric = "accuracy"
+
+        if metric == "accuracy":
+            labels = self._probabilities_to_labels(predictions)
+            return float(np.mean(labels == targets.astype(int)))
+
+        if metric == "rmse":
+            return float(np.sqrt(np.mean((targets - predictions) ** 2)))
+
+        if metric == "mae":
+            return float(np.mean(np.abs(targets - predictions)))
+
+        if metric == "r2":
+            ss_res = np.sum((targets - predictions) ** 2)
+            ss_tot = np.sum((targets - np.mean(targets)) ** 2)
+            return float(1.0 - (ss_res / ss_tot if ss_tot != 0 else 0.0))
+
+        if is_classification:
+            labels = self._probabilities_to_labels(predictions)
+            return float(np.mean(labels == targets.astype(int)))
+
+        return float(-np.mean((targets - predictions) ** 2))
+
+    @staticmethod
+    def _probabilities_to_labels(
+        predictions: npt.NDArray[np.float64],
+        threshold: float = 0.5,
+    ) -> npt.NDArray[np.int64]:
+        return (predictions >= threshold).astype(np.int64)
+
+    def _calculate_sharpe_metric(
+        self,
+        predictions: npt.NDArray[np.float64],
+        targets: npt.NDArray[np.float64],
+        validation_returns: npt.NDArray[np.float64],
+    ) -> float:
+        signals = (
+            self._probabilities_to_labels(predictions)
+            if self._is_classification_problem(targets)
+            else np.sign(predictions)
+        )
+        returns = np.asarray(validation_returns, dtype=np.float64).reshape(-1)
+        n = min(len(signals), len(returns))
+        if n == 0:
+            return 0.0
+        strategy_returns = returns[:n] * signals[:n]
+        strategy_returns = strategy_returns[np.isfinite(strategy_returns)]
+        if strategy_returns.size == 0:
+            return 0.0
+        std = np.std(strategy_returns)
+        if std == 0.0:
+            return 0.0
+        sharpe = np.sqrt(252.0) * np.mean(strategy_returns) / std
+        return float(sharpe)
+
+    def _build_optuna_sampler(self, cfg: OptunaConfig) -> optuna.samplers.BaseSampler:
+        sampler_name = cfg.sampler.lower()
+        if sampler_name == "random":
+            return optuna.samplers.RandomSampler()
+        if sampler_name == "cmaes":
+            return optuna.samplers.CmaEsSampler()
+        if sampler_name == "grid":
+            self._log_warning("Grid sampler requires explicit search space; using TPE instead")
+            return optuna.samplers.TPESampler(seed=42)
+        return optuna.samplers.TPESampler(seed=42)
+
+    def _build_optuna_pruner(self, cfg: OptunaConfig) -> optuna.pruners.BasePruner | None:
+        pruner_name = cfg.pruner.lower()
+        if pruner_name == "none":
+            return None
+        if pruner_name == "hyperband":
+            return optuna.pruners.HyperbandPruner()
+        if pruner_name == "percentile":
+            return optuna.pruners.PercentilePruner(25.0)
+        return optuna.pruners.MedianPruner()
 
     def _train_with_params(
         self,
@@ -629,34 +814,6 @@ class BaseMLTrainer(ABC):
         """
         results = self._train_model(X_train, y_train, X_val, y_val, **params)
         return results["model"]
-
-    def _calculate_objective_metric(
-        self,
-        y_true: npt.NDArray[np.float64],
-        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
-    ) -> float:
-        """
-        Calculate metric for Optuna optimization.
-
-        Parameters
-        ----------
-        y_true : np.ndarray
-            True values.
-        y_pred : np.ndarray
-            Predicted values.
-
-        Returns
-        -------
-        float
-            Metric value.
-
-        """
-        if self._is_classification_problem(y_true):
-            # Use accuracy for classification
-            return float(np.mean(y_true == y_pred))
-        else:
-            # Use negative MSE for regression (Optuna maximizes by default)
-            return float(-np.mean((y_true - y_pred) ** 2))
 
     def _cross_validate(
         self,
@@ -1058,11 +1215,9 @@ class BaseMLTrainer(ABC):
 
         """
         # Convert predictions to trading signals
-        if self._is_classification_problem(predictions):
-            # For classification, assume binary signals (0/1 -> -1/1)
-            signals = np.where(predictions > 0.5, 1, -1)
+        if self._is_classifier_objective():
+            signals = np.where(predictions >= 0.5, 1.0, -1.0)
         else:
-            # For regression, use sign of prediction
             signals = np.sign(predictions)
 
         # Calculate strategy returns
@@ -1390,6 +1545,12 @@ class BaseMLTrainer(ABC):
             return True
 
         return False
+
+    def _is_classifier_objective(self) -> bool:
+        objective = str(getattr(self._config, "objective", "")).lower()
+        if not objective:
+            return False
+        return any(token in objective for token in ("binary", "class", "logit"))
 
     def _calculate_classification_metrics(
         self,

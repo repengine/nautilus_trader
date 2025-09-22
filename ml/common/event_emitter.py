@@ -182,6 +182,12 @@ def emit_dataset_event(
             status=status,
             error=error,
         )
+        try:
+            last_emit = getattr(registry, "last_emit", None)
+            if isinstance(last_emit, dict) and last_emit.get("metadata") is None:
+                last_emit.pop("metadata", None)
+        except Exception:
+            pass
 
     # Optional metrics: best-effort, no hard dependency
     try:  # pragma: no cover - metrics optional
