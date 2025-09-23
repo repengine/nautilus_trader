@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.service import (
@@ -90,7 +90,7 @@ def _make_service() -> DashboardService:
 def test_list_models_uses_cache() -> None:
     svc = _make_service()
     stub = StubModelRegistry(["m1"])
-    svc._model_registry = stub
+    svc._model_registry = cast(Any, stub)
     key = svc._cache_key("models")
     _reset_metric(_REGISTRY_CACHE_HITS, entry=key)
     _reset_metric(_REGISTRY_CACHE_MISSES, entry=key)
@@ -109,7 +109,7 @@ def test_list_models_uses_cache() -> None:
 
 def test_list_models_records_fallback_on_error() -> None:
     svc = _make_service()
-    svc._model_registry = FailingModelRegistry()
+    svc._model_registry = cast(Any, FailingModelRegistry())
     key = svc._cache_key("models")
     fallback_labels = {"registry": "model", "reason": "list_failed"}
     _reset_metric(_REGISTRY_CACHE_MISSES, entry=key)
@@ -126,7 +126,7 @@ def test_list_models_records_fallback_on_error() -> None:
 def test_deploy_model_invalidates_cache() -> None:
     svc = _make_service()
     stub = StubModelRegistry(["initial"])
-    svc._model_registry = stub
+    svc._model_registry = cast(Any, stub)
     key = svc._cache_key("models")
     _reset_metric(_REGISTRY_CACHE_MISSES, entry=key)
     _reset_metric(_REGISTRY_CACHE_HITS, entry=key)

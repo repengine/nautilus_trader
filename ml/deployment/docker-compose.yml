@@ -242,9 +242,18 @@ services:
       context: ../..
       dockerfile: ml/deployment/Dockerfile.pipeline
     environment:
-      ML_DASHBOARD_USE_COMPOSE: "${ML_DASHBOARD_USE_COMPOSE:-0}"
+      # Database configuration
+      ML_DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
+      ML_DASHBOARD_USE_COMPOSE: "${ML_DASHBOARD_USE_COMPOSE:-1}"
       ML_DASHBOARD_TIMEOUT: "${ML_DASHBOARD_TIMEOUT:-2.5}"
       ML_DASHBOARD_HOST: "0.0.0.0"
+      # Service URLs for Docker networking
+      ML_SIGNAL_ACTOR_URL: "http://ml_signal_actor:8000"
+      ML_STRATEGY_URL: "http://ml_strategy:8001"
+      ML_PIPELINE_URL: "http://ml_pipeline:8080"
+      PROMETHEUS_URL: "http://prometheus:9090"
+      GRAFANA_URL: "http://grafana:3000"
+      # Host ports for external access (used in UI links)
       ML_ACTOR_HOST_PORT: "${ML_ACTOR_HOST_PORT:-8000}"
       ML_STRATEGY_HOST_PORT: "${ML_STRATEGY_HOST_PORT:-8001}"
       ML_PIPELINE_HOST_PORT: "${ML_PIPELINE_HOST_PORT:-8081}"

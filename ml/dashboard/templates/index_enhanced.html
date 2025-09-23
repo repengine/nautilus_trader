@@ -717,27 +717,222 @@
           </div>
         </div>
 
-        <!-- Pipeline Card -->
-        <div class="card">
+        <!-- Pipeline Card - Expanded -->
+        <div class="card" style="grid-column: span 2;">
           <div class="card-header">
             <h3 class="card-title">
-              <span>⚙️</span> Pipeline Control
+              <span>⚙️</span> ML Pipeline Orchestrator
             </h3>
           </div>
           <div class="card-body">
-            <div style="margin-bottom: 1rem;">
-              <input id="pipelineInstrument" placeholder="Instrument (e.g., SPY.EQUS)" value="SPY.EQUS" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); margin-bottom: 0.75rem;" />
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-primary" onclick="runPipeline('backfill')" style="flex: 1;">
-                  Run Backfill
-                </button>
-                <button class="btn btn-primary" onclick="runPipeline('daily')" style="flex: 1;">
-                  Run Daily
-                </button>
-              </div>
+            <!-- Tab Navigation -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
+              <button class="tab-btn active" onclick="switchPipelineTab('ingestion')" data-tab="ingestion">
+                📊 Data Ingestion
+              </button>
+              <button class="tab-btn" onclick="switchPipelineTab('dataset')" data-tab="dataset">
+                🧩 Dataset Build
+              </button>
+              <button class="tab-btn" onclick="switchPipelineTab('training')" data-tab="training">
+                🧠 Model Training
+              </button>
+              <button class="tab-btn" onclick="switchPipelineTab('backtest')" data-tab="backtest">
+                📈 Backtesting
+              </button>
+              <button class="tab-btn" onclick="switchPipelineTab('full')" data-tab="full">
+                🚀 Full Pipeline
+              </button>
             </div>
-            <div id="pipelineResult" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 0.875rem; color: var(--text-secondary);">
-              Ready to execute pipeline tasks
+
+            <!-- Tab Contents -->
+            <!-- Data Ingestion Tab -->
+            <div class="pipeline-tab" id="ingestion-tab">
+              <h4 style="margin-bottom: 1rem; color: var(--text-primary);">Data Ingestion & Backfill</h4>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Instruments (comma-separated)</label>
+                <input id="backfill-instruments" placeholder="SPY.EQUS, QQQ.EQUS, IWM.EQUS" value="SPY.EQUS" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Start Date</label>
+                  <input type="date" id="backfill-start" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">End Date</label>
+                  <input type="date" id="backfill-end" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Data Types</label>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                  <label><input type="checkbox" id="include-bars" checked /> Bars (OHLCV)</label>
+                  <label><input type="checkbox" id="include-quotes" checked /> Quotes (TBBO)</label>
+                  <label><input type="checkbox" id="include-trades" /> Trades</label>
+                  <label><input type="checkbox" id="include-l2" /> L2 Order Book</label>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="runOrchestratorTask('backfill')" style="width: 100%;">
+                🔄 Run Data Backfill
+              </button>
+            </div>
+
+            <!-- Dataset Build Tab -->
+            <div class="pipeline-tab" id="dataset-tab" style="display: none;">
+              <h4 style="margin-bottom: 1rem; color: var(--text-primary);">Feature Engineering & Dataset Build</h4>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Dataset ID</label>
+                <input id="dataset-id" placeholder="tft_dataset_v1" value="tft_dataset" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Horizon (minutes)</label>
+                  <input type="number" id="horizon-minutes" value="15" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Lookback Periods</label>
+                  <input type="number" id="lookback-periods" value="30" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Feature Sets</label>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                  <label><input type="checkbox" id="include-micro" checked /> Microstructure</label>
+                  <label><input type="checkbox" id="include-macro" /> Macro Features</label>
+                  <label><input type="checkbox" id="include-events" /> Event Features</label>
+                  <label><input type="checkbox" id="include-calendar" /> Calendar Features</label>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Threshold (%)</label>
+                <input type="number" id="threshold" value="0.1" step="0.01" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <button class="btn btn-primary" onclick="runOrchestratorTask('build_dataset')" style="width: 100%;">
+                🏗️ Build Dataset
+              </button>
+            </div>
+
+            <!-- Model Training Tab -->
+            <div class="pipeline-tab" id="training-tab" style="display: none;">
+              <h4 style="margin-bottom: 1rem; color: var(--text-primary);">Model Training & Optimization</h4>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Training Mode</label>
+                <select id="training-mode" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" onchange="updateTrainingOptions()">
+                  <option value="hpo">Hyperparameter Optimization</option>
+                  <option value="teacher">Teacher Model Training</option>
+                  <option value="student">Student Model Distillation</option>
+                </select>
+              </div>
+
+              <!-- HPO Options -->
+              <div id="hpo-options">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                  <div class="form-group">
+                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">HPO Epochs</label>
+                    <input type="number" id="hpo-epochs" value="10" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                  </div>
+                  <div class="form-group">
+                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Batch Size</label>
+                    <input type="number" id="hpo-batch-size" value="32" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Teacher Options -->
+              <div id="teacher-options" style="display: none;">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Model ID</label>
+                  <input id="teacher-model-id" placeholder="tft_teacher_v1" value="tft_teacher" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Max Epochs</label>
+                  <input type="number" id="teacher-max-epochs" value="100" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+              </div>
+
+              <!-- Student Options -->
+              <div id="student-options" style="display: none;">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Student Model ID</label>
+                  <input id="student-model-id" placeholder="tft_student_v1" value="tft_student" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Distillation Temperature</label>
+                  <input type="number" id="distill-temperature" value="3.0" step="0.1" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+              </div>
+
+              <button class="btn btn-primary" onclick="runTraining()" style="width: 100%;">
+                🎯 Start Training
+              </button>
+            </div>
+
+            <!-- Backtesting Tab -->
+            <div class="pipeline-tab" id="backtest-tab" style="display: none;">
+              <h4 style="margin-bottom: 1rem; color: var(--text-primary);">Strategy Backtesting</h4>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Strategy ID</label>
+                <input id="backtest-strategy" placeholder="ml_momentum_v1" value="ml_momentum" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Start Date</label>
+                  <input type="date" id="backtest-start" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+                <div class="form-group">
+                  <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">End Date</label>
+                  <input type="date" id="backtest-end" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Capital ($)</label>
+                <input type="number" id="backtest-capital" value="100000" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <button class="btn btn-primary" onclick="runBacktest()" style="width: 100%;">
+                📊 Run Backtest
+              </button>
+            </div>
+
+            <!-- Full Pipeline Tab -->
+            <div class="pipeline-tab" id="full-tab" style="display: none;">
+              <h4 style="margin-bottom: 1rem; color: var(--text-primary);">Complete ML Pipeline</h4>
+              <div class="alert" style="background: var(--bg-secondary); padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem;">
+                <strong>⚠️ Full Pipeline Mode</strong><br/>
+                This will run the complete ML pipeline end-to-end:
+                <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                  <li>Data ingestion and backfill</li>
+                  <li>Feature engineering and dataset build</li>
+                  <li>Hyperparameter optimization</li>
+                  <li>Teacher model training</li>
+                  <li>Student model distillation</li>
+                  <li>Model registration and deployment</li>
+                </ol>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem;">Pipeline Config File</label>
+                <input id="pipeline-config" placeholder="configs/pipeline.yaml" value="configs/pipeline.yaml" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);" />
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label><input type="checkbox" id="auto-promote" /> Auto-promote models after training</label>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label><input type="checkbox" id="auto-deploy" /> Auto-deploy to production</label>
+              </div>
+              <button class="btn btn-primary" onclick="runFullPipeline()" style="width: 100%; background: var(--success);">
+                🚀 Run Complete Pipeline
+              </button>
+            </div>
+
+            <!-- Pipeline Status -->
+            <div id="pipelineResult" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 0.875rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span id="pipelineStatus" style="color: var(--text-secondary);">Ready to execute pipeline tasks</span>
+                <div id="pipelineProgress" style="display: none;">
+                  <div class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
+                </div>
+              </div>
+              <div id="pipelineDetails" style="margin-top: 0.5rem; display: none;">
+                <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-secondary);"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -959,13 +1154,14 @@
       // Store Health
       async function refreshStores() {
         const container = document.getElementById('storesContainer');
-        const summary = await fetchAPI('/api/observability/stores');
+        const response = await fetchAPI('/api/observability/stores');
 
-        if (!summary || summary.length === 0) {
+        if (!response || !response.stores || response.stores.length === 0) {
           container.innerHTML = '<p style="color: var(--text-secondary);">No store data available</p>';
           return;
         }
 
+        const summary = response.stores;
         container.innerHTML = summary.map(store => {
           const statusColor = store.healthy ? 'var(--success)' :
                              store.fallback_active ? 'var(--warning)' : 'var(--danger)';
@@ -1111,7 +1307,128 @@
         `).join('');
       }
 
-      // Pipeline
+      // Pipeline Tab Management
+      function switchPipelineTab(tabName) {
+        // Hide all tabs
+        document.querySelectorAll('.pipeline-tab').forEach(tab => {
+          tab.style.display = 'none';
+        });
+        // Remove active class from all buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        // Show selected tab
+        document.getElementById(`${tabName}-tab`).style.display = 'block';
+        // Add active class to clicked button
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+      }
+
+      // Training options update
+      function updateTrainingOptions() {
+        const mode = document.getElementById('training-mode').value;
+        document.getElementById('hpo-options').style.display = mode === 'hpo' ? 'block' : 'none';
+        document.getElementById('teacher-options').style.display = mode === 'teacher' ? 'block' : 'none';
+        document.getElementById('student-options').style.display = mode === 'student' ? 'block' : 'none';
+      }
+
+      // Pipeline Status Management
+      function updatePipelineStatus(message, isRunning = false) {
+        const statusEl = document.getElementById('pipelineStatus');
+        const progressEl = document.getElementById('pipelineProgress');
+        statusEl.textContent = message;
+        progressEl.style.display = isRunning ? 'block' : 'none';
+      }
+
+      // Orchestrator Task Runner
+      async function runOrchestratorTask(task) {
+        const config = {};
+
+        // Gather config based on task
+        if (task === 'backfill') {
+          config.instruments = document.getElementById('backfill-instruments').value.split(',').map(s => s.trim());
+          config.start_date = document.getElementById('backfill-start').value;
+          config.end_date = document.getElementById('backfill-end').value;
+          config.include_bars = document.getElementById('include-bars').checked;
+          config.include_quotes = document.getElementById('include-quotes').checked;
+          config.include_trades = document.getElementById('include-trades').checked;
+          config.include_l2 = document.getElementById('include-l2').checked;
+        } else if (task === 'build_dataset') {
+          config.dataset_id = document.getElementById('dataset-id').value;
+          config.horizon_minutes = parseInt(document.getElementById('horizon-minutes').value);
+          config.lookback_periods = parseInt(document.getElementById('lookback-periods').value);
+          config.threshold = parseFloat(document.getElementById('threshold').value) / 100;
+          config.include_micro = document.getElementById('include-micro').checked;
+          config.include_macro = document.getElementById('include-macro').checked;
+          config.include_events = document.getElementById('include-events').checked;
+          config.include_calendar = document.getElementById('include-calendar').checked;
+        }
+
+        updatePipelineStatus(`Starting ${task.replace('_', ' ')}...`, true);
+
+        try {
+          const response = await fetch(`/api/orchestrator/${task}`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(config)
+          });
+
+          const result = await response.json();
+
+          if (response.ok && result.ok) {
+            updatePipelineStatus(`✅ ${task.replace('_', ' ')} completed successfully`, false);
+            showNotification(`${task.replace('_', ' ')} started`, 'success');
+          } else {
+            updatePipelineStatus(`❌ ${task.replace('_', ' ')} failed: ${result.result?.error || 'Unknown error'}`, false);
+            showNotification(`${task.replace('_', ' ')} failed`, 'error');
+          }
+        } catch (error) {
+          updatePipelineStatus(`❌ Error: ${error.message}`, false);
+          showNotification('Request failed', 'error');
+        }
+      }
+
+      // Training runner
+      async function runTraining() {
+        const mode = document.getElementById('training-mode').value;
+        const config = { mode };
+
+        if (mode === 'hpo') {
+          config.epochs = parseInt(document.getElementById('hpo-epochs').value);
+          config.batch_size = parseInt(document.getElementById('hpo-batch-size').value);
+          await runOrchestratorTask('run_hpo');
+        } else if (mode === 'teacher') {
+          config.model_id = document.getElementById('teacher-model-id').value;
+          config.max_epochs = parseInt(document.getElementById('teacher-max-epochs').value);
+          await runOrchestratorTask('train_teacher');
+        } else if (mode === 'student') {
+          config.model_id = document.getElementById('student-model-id').value;
+          config.temperature = parseFloat(document.getElementById('distill-temperature').value);
+          await runOrchestratorTask('distill_student');
+        }
+      }
+
+      // Backtest runner
+      async function runBacktest() {
+        const config = {
+          strategy_id: document.getElementById('backtest-strategy').value,
+          start_date: document.getElementById('backtest-start').value,
+          end_date: document.getElementById('backtest-end').value,
+          capital: parseInt(document.getElementById('backtest-capital').value)
+        };
+        await runOrchestratorTask('backtest');
+      }
+
+      // Full pipeline runner
+      async function runFullPipeline() {
+        const config = {
+          config_file: document.getElementById('pipeline-config').value,
+          auto_promote: document.getElementById('auto-promote').checked,
+          auto_deploy: document.getElementById('auto-deploy').checked
+        };
+        await runOrchestratorTask('full_pipeline');
+      }
+
+      // Pipeline (legacy)
       async function runPipeline(mode) {
         const instrument = document.getElementById('pipelineInstrument').value;
         const resultDiv = document.getElementById('pipelineResult');

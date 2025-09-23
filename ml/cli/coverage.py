@@ -5,7 +5,8 @@ Thin wrapper delegating to :mod:`ml.tasks.monitoring.coverage`.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from collections.abc import Sequence
 from datetime import datetime as _datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -33,7 +34,7 @@ def plan_backfill(
     *,
     instruments: list[str] | None = None,
     registry_path: Path | None = None,
-    persistence_config: "PersistenceConfig" | None = None,
+    persistence_config: PersistenceConfig | None = None,
     output_file: Path | None = None,
     now_fn: Callable[[], datetime] | None = None,
 ) -> None:

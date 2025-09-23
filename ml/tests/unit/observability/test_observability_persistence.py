@@ -3,16 +3,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ml.core.integration import MLIntegrationManager
 from ml.observability.persistence import ObservabilityPersistor
 from ml.observability.service import ObservabilityService
+from ml.tests.utils.stubs import build_integration_manager_stub
+from ml.core.integration import MLIntegrationManager
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestObservabilityPersistorJsonl:
     def test_persist_writes_non_empty_tables_as_jsonl(
         self,
         tmp_path: Path,
-        default_instrument_id,
+        default_instrument_id: InstrumentId,
     ) -> None:
         svc = ObservabilityService()
 
@@ -62,10 +64,12 @@ class TestObservabilityPersistorJsonl:
         # All four tables should be written
         assert set(written.keys()) == {"latency", "metrics", "correlation", "health"}
         for name, path in written.items():
+            assert isinstance(path, Path)
             assert path.exists()
             # JSONL has one JSON object per line
             lines = path.read_text().strip().splitlines()
-            assert len(lines) == len(tables[name])  # type: ignore[index]
+            table = tables[name]
+            assert len(lines) == len(table)
             # Verify first line parses
             json.loads(lines[0])
 
@@ -74,13 +78,13 @@ class TestIntegrationFlush:
     def test_integration_manager_flushes_observability_to_path(
         self,
         tmp_path: Path,
-        default_instrument_id,
+        default_instrument_id: InstrumentId,
     ) -> None:
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+        mgr = build_integration_manager_stub()
 
         # Initialize service and add a couple of rows
         MLIntegrationManager.initialize_observability_pipeline(mgr)
-        svc = mgr.observability_service  # type: ignore[attr-defined]
+        svc = mgr.observability_service
         assert svc is not None
 
         svc.add_latency_stage(
@@ -106,6 +110,8 @@ class TestIntegrationFlush:
         )
 
         # Assert files exist for non-empty tables
-        assert out["latency"].exists()  # type: ignore[index]
-        assert out["health"].exists()  # type: ignore[index]
+        assert isinstance(out.get("latency"), Path)
+        assert isinstance(out.get("health"), Path)
+        assert out["latency"].exists()
+        assert out["health"].exists()
         # metrics and correlation may be empty in this scenario and may be absent

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ml.common.protocols import MLComponentMixin
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.stubs import build_integration_manager_stub
 
 
 class _StubComp(MLComponentMixin):
@@ -13,7 +14,7 @@ class _StubComp(MLComponentMixin):
 
 
 def test_aggregate_health_summaries() -> None:
-    mgr = object.__new__(MLIntegrationManager)
+    mgr = build_integration_manager_stub()
 
     # Provide stub components
     mgr.feature_store = _StubComp(True)
@@ -25,7 +26,7 @@ def test_aggregate_health_summaries() -> None:
     mgr.strategy_registry = _StubComp(True)
     mgr.data_registry = _StubComp(True)
 
-    summary = MLIntegrationManager.aggregate_health(mgr)  # type: ignore[misc]
+    summary = MLIntegrationManager.aggregate_health(mgr)
 
     assert isinstance(summary, dict)
     assert summary["system"]["healthy"] is True  # type: ignore[index]

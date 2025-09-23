@@ -953,7 +953,6 @@ class TestBaseMLInferenceActorInitialization:
                 prediction_threshold=-0.1,  # Should be non-negative
             )
             # May not fail at config level - test if actual validation exists
-            pass
         except (TypeError, ValueError, ValidationError):
             pass  # Expected if validation exists
 
@@ -969,7 +968,6 @@ class TestBaseMLInferenceActorInitialization:
                 max_inference_latency_ms=0.0,  # Should be positive
             )
             # May not fail at config level - test validates the constraint exists
-            pass
         except (TypeError, ValueError, ValidationError):
             pass  # Expected if validation exists
 

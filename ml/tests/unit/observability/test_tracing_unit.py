@@ -121,19 +121,21 @@ class TestTracingFunctionsWhenDisabled:
         Test trace_cold_path_decorator is passthrough when disabled.
         """
 
-        @trace_cold_path_decorator("test_operation")
-        def test_function(x: int, y: int) -> int:
+        def _base(x: int, y: int) -> int:
             return x + y
 
-        # Function should work normally
+        test_function = trace_cold_path_decorator("test_operation")(_base)
         result = test_function(5, 3)
         assert result == 8
 
         # Test with correlation_id parameter
-        @trace_cold_path_decorator("test_op", correlation_id_param="corr_id")
-        def test_function_with_corr(data: str, corr_id: str) -> str:
+        def _with_corr(data: str, corr_id: str) -> str:
             return f"{data}_{corr_id}"
 
+        test_function_with_corr = trace_cold_path_decorator(
+            "test_op",
+            correlation_id_param="corr_id",
+        )(_with_corr)
         result = test_function_with_corr("test", corr_id="abc123")
         assert result == "test_abc123"
 
@@ -143,14 +145,15 @@ class TestTracingFunctionsWhenDisabled:
         """
 
         class MockActor:
-            @trace_inference("signal_generation")
-            def on_bar(self, bar):
+            def on_bar(self, bar: "MockBar") -> str:
                 return f"processed_{bar.symbol}"
 
         class MockBar:
             def __init__(self, symbol: str):
                 self.symbol = symbol
                 self.instrument_id = f"{symbol}.SIM"
+
+        MockActor.on_bar = trace_inference("signal_generation")(MockActor.on_bar)
 
         actor = MockActor()
         bar = MockBar("EURUSD")
@@ -301,18 +304,19 @@ class TestTracingFunctionSignatures:
         Test trace decorator parameter handling.
         """
 
-        # Test basic decorator
-        @trace_cold_path_decorator("test_op")
-        def func1():
+        def _func1() -> str:
             return "result1"
 
+        func1 = trace_cold_path_decorator("test_op")(_func1)
         assert func1() == "result1"
 
-        # Test decorator with correlation_id_param
-        @trace_cold_path_decorator("test_op", correlation_id_param="corr_id")
-        def func2(data: str, corr_id: str = "default"):
+        def _func2(data: str, corr_id: str = "default") -> str:
             return f"{data}_{corr_id}"
 
+        func2 = trace_cold_path_decorator(
+            "test_op",
+            correlation_id_param="corr_id",
+        )(_func2)
         assert func2("test") == "test_default"
         assert func2("test", corr_id="custom") == "test_custom"
 

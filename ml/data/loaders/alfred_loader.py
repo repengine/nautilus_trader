@@ -10,9 +10,11 @@ import os
 import time
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import fredapi as _fredapi
@@ -41,6 +43,9 @@ if _pd is None:
 POLARS = cast(Any, pl)
 PANDAS = cast(Any, _pd)
 
+if TYPE_CHECKING:  # pragma: no cover
+    import pandas as pd
+
 if _fredapi is None:
     # Defer hard failure until instantiation time
     _fredapi = None
@@ -64,8 +69,8 @@ def _ensure_polars_frame(obj: Any) -> PolarsDF:
     """
     Convert pandas DataFrame to Polars with normalized schema.
     """
-    df = POLARS.from_pandas(obj, include_index=False)
-    return cast(PolarsDF, df)
+    polars_frame = POLARS.from_pandas(obj, include_index=False)
+    return cast(PolarsDF, polars_frame)
 
 
 @dataclass(slots=True, frozen=True)
@@ -81,6 +86,7 @@ class ALFREDConfig:
     api_key: str | None = None
     max_retries: int = 2
     retry_delay_seconds: float = 1.0
+    window_days: int = 0
 
     def __post_init__(self) -> None:
         if not self.series_ids:
@@ -150,11 +156,7 @@ class ALFREDDataLoader:
                 attempt += 1
                 self._fetch_counter.labels(series=series_id).inc()
                 start = time.perf_counter()
-                df = self._client.get_series_all_releases(
-                    series_id,
-                    realtime_start=self._config.start_date,
-                    realtime_end=self._config.end_date,
-                )
+                pandas_frame = self._fetch_series_windowed(series_id)
                 duration = time.perf_counter() - start
                 self._fetch_duration_hist.labels(series=series_id).observe(duration)
                 break
@@ -170,7 +172,7 @@ class ALFREDDataLoader:
                 )
                 time.sleep(self._config.retry_delay_seconds)
 
-        if df.empty:
+        if pandas_frame.empty:
             logger.info("No ALFRED rows returned for %s", series_id)
             series_dir = self._config.out_dir / series_id
             series_dir.mkdir(parents=True, exist_ok=True)
@@ -188,30 +190,37 @@ class ALFREDDataLoader:
             return {"releases": releases, "rows": rows}
 
         assert _pd is not None
-        df = df.copy()  # Avoid mutating caller-owned frame
-        df["realtime_start"] = (
-            PANDAS.to_datetime(df["realtime_start"], utc=True)
+        pandas_frame = pandas_frame.copy()
+        pandas_frame["realtime_start"] = (
+            PANDAS.to_datetime(pandas_frame["realtime_start"], utc=True)
             .dt.tz_convert("UTC")
             .dt.tz_localize(None)
         )
-        df["realtime_end"] = PANDAS.to_datetime(df["realtime_end"], utc=True, errors="coerce")
-        if df["realtime_end"].notna().any():
-            df["realtime_end"] = (
-                PANDAS.to_datetime(df["realtime_end"], utc=True, errors="coerce")
-                .dt.tz_convert("UTC")
-                .dt.tz_localize(None)
+        if "realtime_end" in pandas_frame.columns:
+            pandas_frame["realtime_end"] = PANDAS.to_datetime(
+                pandas_frame["realtime_end"],
+                utc=True,
+                errors="coerce",
             )
-        df["date"] = (
-            PANDAS.to_datetime(df["date"], utc=True).dt.tz_convert("UTC").dt.tz_localize(None)
+            if pandas_frame["realtime_end"].notna().any():
+                pandas_frame["realtime_end"] = (
+                    PANDAS.to_datetime(pandas_frame["realtime_end"], utc=True, errors="coerce")
+                    .dt.tz_convert("UTC")
+                    .dt.tz_localize(None)
+                )
+        else:
+            pandas_frame["realtime_end"] = PANDAS.NaT
+        pandas_frame["date"] = (
+            PANDAS.to_datetime(pandas_frame["date"], utc=True).dt.tz_convert("UTC").dt.tz_localize(None)
         )
-        df["value"] = PANDAS.to_numeric(df["value"], errors="coerce")
-        df = df.dropna(subset=["value", "date", "realtime_start"])
+        pandas_frame["value"] = PANDAS.to_numeric(pandas_frame["value"], errors="coerce")
+        pandas_frame = pandas_frame.dropna(subset=["value", "date", "realtime_start"])
 
-        if df.empty:
+        if pandas_frame.empty:
             logger.warning("All ALFRED rows dropped for %s after cleaning", series_id)
             return {"releases": releases, "rows": rows}
 
-        polars_df = _ensure_polars_frame(df)
+        polars_df = _ensure_polars_frame(pandas_frame)
         polars_df = polars_df.rename(
             {
                 "date": "observation_ts",
@@ -260,6 +269,48 @@ class ALFREDDataLoader:
             rows,
         )
         return {"releases": releases, "rows": rows}
+
+    def _fetch_series_windowed(self, series_id: str) -> pd.DataFrame:
+        import pandas as pd
+
+        start_raw = self._config.start_date
+        end_raw = self._config.end_date
+        window_days = max(int(self._config.window_days or 0), 0)
+        if not start_raw and not end_raw:
+            return self._client.get_series_all_releases(series_id)
+
+        if not start_raw:
+            end_dt = datetime.strptime(end_raw, "%Y-%m-%d") if end_raw else datetime.now(tz=UTC)
+            start_dt = end_dt - timedelta(days=365)
+        else:
+            start_dt = datetime.strptime(start_raw, "%Y-%m-%d")
+        if not end_raw:
+            end_dt = datetime.now(tz=UTC)
+        else:
+            end_dt = datetime.strptime(end_raw, "%Y-%m-%d")
+
+        frames: list[pd.DataFrame] = []
+        current_start = start_dt
+        if window_days == 0:
+            window_days = max((end_dt - start_dt).days, 1)
+        delta = timedelta(days=window_days)
+        while current_start <= end_dt:
+            current_end = min(current_start + delta, end_dt)
+            frame = self._client.get_series_all_releases(
+                series_id,
+                realtime_start=current_start.strftime("%Y-%m-%d"),
+                realtime_end=current_end.strftime("%Y-%m-%d"),
+            )
+            if not frame.empty:
+                frames.append(frame)
+            current_start = current_end + timedelta(days=1)
+
+        if not frames:
+            return cast(pd.DataFrame, pd.DataFrame())
+
+        merged = pd.concat(frames, ignore_index=True)
+        merged = merged.drop_duplicates(subset=["realtime_start", "date"], keep="last")
+        return merged
 
 
 __all__ = ["ALFREDConfig", "ALFREDDataLoader"]

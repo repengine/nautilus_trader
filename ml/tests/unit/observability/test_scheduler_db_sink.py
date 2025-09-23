@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-from threading import Event
+from typing import cast
 
 import pandas as pd
 
 from ml.core.integration import MLIntegrationManager
+from ml.observability.service import ObservabilityService
+from ml.tests.utils.stubs import build_integration_manager_stub
+from nautilus_trader.model.identifiers import InstrumentId
 
 
-def test_background_db_flusher(tmp_path: Path, default_instrument_id) -> None:
-    mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+def test_background_db_flusher(tmp_path: Path, default_instrument_id: InstrumentId) -> None:
+    mgr: MLIntegrationManager = build_integration_manager_stub()
     MLIntegrationManager.initialize_observability_pipeline(mgr)
-    svc = mgr.observability_service  # type: ignore[attr-defined]
-    assert svc is not None
 
-    # Add one row so flush writes something
+    svc = mgr.observability_service
+    assert isinstance(svc, ObservabilityService)
+
     svc.add_latency_stage(
         correlation_id="c1",
         instrument_id=str(default_instrument_id),
@@ -24,26 +27,23 @@ def test_background_db_flusher(tmp_path: Path, default_instrument_id) -> None:
     )
 
     db = tmp_path / "obs.db"
-    # Start background DB flusher with very small interval for test
     MLIntegrationManager.start_observability_flush(
         mgr,
-        base_path=tmp_path,  # unused for db sink
+        base_path=tmp_path,
         interval_seconds=0.01,
         file_format="jsonl",
         sink="db",
         db_connection_string=f"sqlite:///{db}",
     )
 
-    # Allow a brief period then stop
     import time
 
     time.sleep(0.05)
     MLIntegrationManager.stop_observability_flush(mgr)
 
-    # Verify DB has the latency table populated
     import sqlalchemy as sa
 
-    eng = sa.create_engine(f"sqlite:///{db}")
-    with eng.connect() as conn:
-        lat_df = pd.read_sql("select * from obs_latency_watermarks", conn)
-        assert not lat_df.empty
+    engine = sa.create_engine(f"sqlite:///{db}")
+    with engine.connect() as connection:
+        latency_frame = pd.read_sql("select * from obs_latency_watermarks", connection)
+        assert not latency_frame.empty

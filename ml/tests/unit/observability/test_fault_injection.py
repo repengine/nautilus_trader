@@ -5,28 +5,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import pytest
 
 from ml.observability.scheduler import ObservabilityFlusher
-
-
-class DummyService:
-    def latency_watermarks_df(self) -> pd.DataFrame:
-        return pd.DataFrame([{"a": 1}])
-
-    def metrics_collection_df(self) -> pd.DataFrame:
-        return pd.DataFrame([{"a": 1}])
-
-    def event_correlation_df(self) -> pd.DataFrame:
-        return pd.DataFrame([{"a": 1}])
-
-    def health_scores_df(self) -> pd.DataFrame:
-        return pd.DataFrame([{"a": 1}])
+from ml.observability.service import ObservabilityService
 
 
 def test_background_flusher_handles_persist_errors(monkeypatch: Any, tmp_path: Path) -> None:
-    from ml import observability as obs_pkg  # type: ignore[import-not-found]
+    from ml import observability as obs_pkg
     from ml.observability import persistence as _persistence
 
     # Force ObservabilityPersistor.persist to raise
@@ -35,8 +21,16 @@ def test_background_flusher_handles_persist_errors(monkeypatch: Any, tmp_path: P
 
     monkeypatch.setattr(_persistence.ObservabilityPersistor, "persist", _boom)
 
+    svc = ObservabilityService()
+    svc.add_latency_stage(
+        correlation_id="c1",
+        instrument_id="inst",
+        pipeline_stage="stage",
+        ts_stage_start=1,
+        ts_stage_end=2,
+    )
     flusher = ObservabilityFlusher(
-        service=DummyService(),
+        service=svc,
         base_path=tmp_path,
         file_format="jsonl",
         interval_seconds=0.05,
@@ -51,8 +45,16 @@ def test_background_flusher_handles_persist_errors(monkeypatch: Any, tmp_path: P
 
 
 def test_background_flusher_handles_db_errors(tmp_path: Path) -> None:
+    svc = ObservabilityService()
+    svc.add_latency_stage(
+        correlation_id="c1",
+        instrument_id="inst",
+        pipeline_stage="stage",
+        ts_stage_start=1,
+        ts_stage_end=2,
+    )
     flusher = ObservabilityFlusher(
-        service=DummyService(),
+        service=svc,
         base_path=tmp_path,
         file_format="jsonl",
         interval_seconds=0.05,

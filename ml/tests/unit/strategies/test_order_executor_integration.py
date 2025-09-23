@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.protocols import OrderExecutorProtocol
-from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.identifiers import InstrumentId, StrategyId, TraderId
-from nautilus_trader.model.objects import Price, Quantity
-from nautilus_trader.model.orders import LimitOrder, MarketOrder
 from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, StrategyId, TraderId
+from nautilus_trader.model.objects import Price, Quantity
+from nautilus_trader.model.orders import LimitOrder, MarketOrder, Order
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 
 class _Px:
@@ -74,10 +75,7 @@ class _EngineCache:
         return None
 
     def client_order_id(self) -> Any:
-        # Use test kit helper to produce a valid ClientOrderId
-        from nautilus_trader.test_kit.stubs.identifiers import IdentifiersStub
-
-        return IdentifiersStub.client_order_id()
+        return TestIdStubs.client_order_id()
 
 
 @dataclass
@@ -102,36 +100,41 @@ class _EngineStrategy(MLTradingStrategy):
         self._portfolio = _EnginePortfolio()
 
     @property
-    def cache(self) -> _EngineCache:  # type: ignore[override]
+    def cache(self) -> _EngineCache:
         return self._cache
 
     @property
-    def portfolio(self) -> _EnginePortfolio:  # type: ignore[override]
+    def portfolio(self) -> _EnginePortfolio:
         return self._portfolio
 
     @property
-    def trader_id(self) -> TraderId:  # type: ignore[override]
+    def trader_id(self) -> TraderId:
         return TraderId("TRADER-TEST")
 
     @property
-    def id(self) -> StrategyId:  # type: ignore[override]
+    def id(self) -> StrategyId:
         return StrategyId("STRAT-TEST")
 
-    def submit_order(self, order: Any) -> None:  # type: ignore[override]
+    def submit_order(self, order: Any) -> None:
         self._submitted.append(order)
 
-    def _place_market_order(self, side: OrderSide, quantity: Quantity, reduce_only: bool = False):  # type: ignore[override]
-        # Simulate successful order placement with engine-provided IDs
+    def _place_market_order(
+        self,
+        side: OrderSide,
+        quantity: Quantity,
+        reduce_only: bool = False,
+    ) -> ClientOrderId:
         del reduce_only
-        # Store lightweight spec instead of real order object
-        self._submitted.append({
-            "type": "market",
-            "side": side.name,
-            "qty": float(quantity.as_double()),
-            "trader_id": str(self.trader_id),
-            "strategy_id": str(self.id),
-        })
-        return UUID4()
+        self._submitted.append(
+            {
+                "type": "market",
+                "side": side.name,
+                "qty": float(quantity.as_double()),
+                "trader_id": str(self.trader_id),
+                "strategy_id": str(self.id),
+            },
+        )
+        return TestIdStubs.client_order_id()
 
 
 class _EngineExecutor(OrderExecutorProtocol):
@@ -145,8 +148,14 @@ class _EngineExecutor(OrderExecutorProtocol):
         signal: MLSignal,
         market_state: dict[str, float],
         instrument: Any,
-    ) -> Any:
-        del signal
+        *,
+        trader_id: TraderId | None = None,
+        strategy_id: StrategyId | None = None,
+        client_order_id: ClientOrderId | None = None,
+        init_id: UUID4 | None = None,
+        ts_init: int | None = None,
+    ) -> Order | None:
+        del signal, trader_id, strategy_id, client_order_id, init_id, ts_init
         bid = market_state.get("bid", 0.0)
         ask = market_state.get("ask", 0.0)
         mid = (bid + ask) / 2.0 if (bid > 0 and ask > 0) else 0.0

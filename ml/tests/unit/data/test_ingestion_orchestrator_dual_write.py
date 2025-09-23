@@ -16,7 +16,8 @@ from ml.registry.protocols import RegistryProtocol
 from ml.ml_types import DataFrameLike
 from ml.stores.protocols import CoverageProviderProtocol, MarketDataWriterProtocol
 from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.data.ingest.service import IngestionChunk, IngestionRequest, IngestionWindow
+from ml.data.ingest.service import DatabentoIngestionService, IngestionChunk, IngestionRequest, IngestionWindow
+from ml.tests.utils.stubs import DatabentoServiceStub
 
 
 class _FakeCoverage(CoverageProviderProtocol):
@@ -126,10 +127,19 @@ class _FakeRegistry(RegistryProtocol):
         )
 
     def get_contract(self, dataset_id: str) -> DataContract:
-        return cast(DataContract, object())
+        return DataContract(
+            contract_id=f"contract-{dataset_id}",
+            dataset_id=dataset_id,
+            version="1.0.0",
+            validation_rules=[],
+        )
 
     def register_dataset(self, manifest: DatasetManifest) -> str:
         return manifest.dataset_id
+
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id, changes
+        return None
 
 
 def _make_fake_ingestor():
@@ -157,40 +167,6 @@ def _make_fake_ingestor():
             return pd.DataFrame({"ts_event": [start_ns + 1]})
 
     return _FakeIngestor()
-
-
-class _FakeServiceWithMetadata:
-    def __init__(self, start_ns: int, end_ns: int) -> None:
-        self._start_ns = start_ns
-        self._end_ns = end_ns
-        self.requests: list[IngestionRequest] = []
-        self.metadata_client = object()
-
-    def get_available_range_ns(
-        self,
-        *,
-        dataset: str,
-        schema: str | None = None,
-    ) -> tuple[int | None, int | None]:
-        del dataset, schema
-        return (self._start_ns, self._end_ns)
-
-    def ingest(
-        self,
-        request: IngestionRequest,
-        *,
-        on_chunk: Any = None,
-    ) -> list[Any]:
-        self.requests.append(request)
-        frame = pd.DataFrame({"ts_event": [int(request.start.timestamp() * 1_000_000_000)]})
-        if on_chunk is not None:
-            chunk = IngestionChunk(
-                symbol=request.symbols[0],
-                window=IngestionWindow(start=request.start, end=request.end),
-                frame=frame,
-            )
-            on_chunk(chunk)
-        return []
 
 
 def test_dual_write_invokes_both_sinks() -> None:
@@ -317,7 +293,8 @@ def test_backfill_clamps_window_to_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     planned_end = planned_start + DAY_NS
     meta_start = planned_start + 600_000_000_000
     meta_end = planned_end - 300_000_000_000
-    service = _FakeServiceWithMetadata(start_ns=meta_start, end_ns=meta_end)
+    service_stub = DatabentoServiceStub(start_ns=meta_start, end_ns=meta_end)
+    service = cast(DatabentoIngestionService, service_stub)
 
     orch = IngestionOrchestrator(
         coverage=cov,
@@ -336,8 +313,8 @@ def test_backfill_clamps_window_to_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     assert gaps == [(meta_start, meta_end - 1)]
-    assert service.requests
-    request = service.requests[0]
+    assert service_stub.requests
+    request = cast(IngestionRequest, service_stub.requests[0])
     expected_start = datetime.fromtimestamp(meta_start / 1_000_000_000, tz=UTC)
     expected_end = datetime.fromtimestamp((meta_end - 1) / 1_000_000_000, tz=UTC)
     assert request.start == expected_start

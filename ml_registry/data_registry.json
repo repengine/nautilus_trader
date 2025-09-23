@@ -1,8 +1,59 @@
 {
-  "manifests": {},
+  "manifests": {
+    "EQUS.MINI": {
+      "dataset_id": "EQUS.MINI",
+      "dataset_type": "bars",
+      "storage_kind": "postgres",
+      "location": "",
+      "partitioning": {
+        "by": "ts_event",
+        "interval": "daily"
+      },
+      "retention_days": 3650,
+      "schema": {
+        "instrument_id": "str",
+        "ts_event": "int64",
+        "ts_init": "int64",
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64",
+        "volume": "float64",
+        "symbol": "str",
+        "publisher_id": "str",
+        "rtype": "str"
+      },
+      "ts_field": "ts_event",
+      "seq_field": null,
+      "primary_keys": [
+        "instrument_id",
+        "ts_event"
+      ],
+      "schema_hash": "2dfbc2e6500113e6bce50afc11e8b4d088d1d7e2eb3150fb6fb834590b5ce5a7",
+      "constraints": {
+        "nullability": {
+          "instrument_id": false,
+          "ts_event": false,
+          "ts_init": false
+        }
+      },
+      "lineage": [],
+      "pipeline_signature": "auto_fill_orchestrator",
+      "version": "1.0.0",
+      "created_at": 1758598400572107008,
+      "last_modified": 1758598400572107008,
+      "metadata": {
+        "auto_registered": true,
+        "dataset_id": "EQUS.MINI",
+        "dataset_type": "bars",
+        "storage_path": "",
+        "ingestion": "databento_auto_fill"
+      }
+    }
+  },
   "contracts": {},
   "events": [],
   "watermarks": {},
   "lineage": [],
-  "last_updated": 1758575844.3759773
+  "last_updated": 1758596080.0015843
 }

@@ -4,6 +4,7 @@ Flask app factory for the Dashboard API.
 
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 
 from flask import Flask
@@ -23,7 +24,9 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     """
     Create a Flask application exposing the dashboard API.
     """
-    app = Flask(__name__)
+    # Configure Flask with static file serving
+    static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    app = Flask(__name__, static_folder=static_folder, static_url_path="/static")
     # Light, idempotent logging configuration for API usage
     try:
         configure_logging()
@@ -79,6 +82,14 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         if mode not in {"daily", "backfill", "realtime"}:
             return jsonify({"error": "invalid_mode"}), 400
         res = svc.trigger_pipeline(mode, payload)
+        return jsonify(res), 202 if res.get("ok") else 200
+
+    @app.post("/api/orchestrator/<task>")
+    def orchestrator_task(task: str) -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        res = svc.trigger_orchestrator_task(task, payload)
         return jsonify(res), 202 if res.get("ok") else 200
 
     @app.get("/api/registry/models")
@@ -248,10 +259,20 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
     @app.get("/")
     def index() -> tuple[str, int]:
+        # Check for enhanced UI preference via query param or cookie
+        use_enhanced = request.args.get("ui") == "enhanced" or request.cookies.get("ui_preference") == "enhanced"
+
+        # Check if enhanced template exists, fallback to standard if not
+        if use_enhanced:
+            template_path = os.path.join(app.root_path, "templates", "index_enhanced.html")
+            template = "index_enhanced.html" if os.path.exists(template_path) else "index.html"
+        else:
+            template = "index.html"
+
         # Minimal visual UI for local/dev usage
         return (
             render_template(
-                "index.html",
+                template,
                 grafana_embed_enabled=cfg.grafana_embed_enabled,
                 grafana_embed_urls=cfg.grafana_embed_urls(),
                 grafana_dashboard_url=cfg.grafana_dashboard_url(),

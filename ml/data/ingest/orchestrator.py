@@ -113,12 +113,17 @@ class IngestionOrchestrator:
                 if df.empty:
                     return
                 normalized_df = self._normalize_time_columns(df)
-                frames.append(normalized_df)
+                coerced_df = self._coerce_frame_to_manifest(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    frame=normalized_df,
+                )
+                frames.append(coerced_df)
                 self.writer.write(
                     dataset_id=dataset_id,
                     schema=schema,
                     instrument_id=instrument_id,
-                    df=normalized_df,
+                    df=coerced_df,
                 )
                 if self.raw_writer is not None:
                     try:
@@ -134,7 +139,7 @@ class IngestionOrchestrator:
                             if items:
                                 self.raw_writer.write(dataset_type=dataset_type, data=items)
                         else:
-                            self.raw_writer.write(dataset_type=dataset_type, data=normalized_df)
+                            self.raw_writer.write(dataset_type=dataset_type, data=coerced_df)
                     except Exception:
                         pass
 
@@ -288,6 +293,56 @@ class IngestionOrchestrator:
             )
 
         return (clamped_start, clamped_end)
+
+    def _coerce_frame_to_manifest(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        frame: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Align incoming frames with the registered schema before persistence."""
+        df = frame.copy()
+        # Ensure the instrument identifier column matches the requested instrument.
+        df.loc[:, "instrument_id"] = instrument_id
+
+        registry = self.registry
+        try:
+            manifest = registry.get_manifest(dataset_id)
+        except Exception:
+            return df
+
+        schema = getattr(manifest, "schema", {}) or {}
+        for column, expected_type in schema.items():
+            if column not in df.columns:
+                continue
+            try:
+                normalized_expected = expected_type.lower()
+            except AttributeError:
+                normalized_expected = str(expected_type).lower()
+
+            try:
+                if normalized_expected in {"str", "string"}:
+                    df.loc[:, column] = pd.Series(df[column], dtype="string")
+                elif normalized_expected in {"float", "float64"}:
+                    df.loc[:, column] = pd.Series(df[column], dtype="Float64")
+                elif normalized_expected in {"int", "int64"}:
+                    df.loc[:, column] = pd.to_numeric(df[column], errors="coerce").astype("int64")
+            except Exception as exc:  # pragma: no cover - defensive typing guard
+                LOGGER.debug(
+                    "Type coercion skipped for column %s on dataset %s: %s",
+                    column,
+                    dataset_id,
+                    exc,
+                    exc_info=True,
+                )
+        LOGGER.debug(
+            "Coerced frame dtypes | dataset=%s instrument=%s dtypes=%s",
+            dataset_id,
+            instrument_id,
+            {col: str(dtype) for col, dtype in df.dtypes.items()},
+        )
+        return df
 
     @staticmethod
     def _normalize_time_columns(df: pd.DataFrame) -> pd.DataFrame:

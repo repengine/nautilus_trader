@@ -62,7 +62,7 @@ class TestFeatureParityFix:
         self,
         mock_bars_data: list[dict[str, float]],
         bars_df: pl.DataFrame,
-    ):
+    ) -> None:
         """
         Test that default config (L1 only) maintains feature count parity.
         """
@@ -98,7 +98,7 @@ class TestFeatureParityFix:
         self,
         mock_bars_data: list[dict[str, float]],
         bars_df: pl.DataFrame,
-    ):
+    ) -> None:
         """
         Test that microstructure config (L1+L2) maintains feature count parity.
         """
@@ -139,7 +139,7 @@ class TestFeatureParityFix:
         self,
         mock_bars_data: list[dict[str, float]],
         bars_df: pl.DataFrame,
-    ):
+    ) -> None:
         """
         Test that full config (L1+L2+L3) maintains feature count parity.
         """
@@ -175,7 +175,10 @@ class TestFeatureParityFix:
         ), f"Feature count mismatch: batch={batch_count}, online={online_count}"
         assert batch_count == 37, f"Expected 37 features for full config, got {batch_count}"
 
-    def test_microstructure_features_computed_online(self, mock_bars_data: list[dict[str, float]]):
+    def test_microstructure_features_computed_online(
+        self,
+        mock_bars_data: list[dict[str, float]],
+    ) -> None:
         """
         Test that microstructure features are actually computed in online mode.
         """
@@ -215,7 +218,10 @@ class TestFeatureParityFix:
         non_zero_count = np.count_nonzero(microstructure_features)
         assert non_zero_count > 0, "All microstructure features are zero"
 
-    def test_trade_flow_features_computed_online(self, mock_bars_data: list[dict[str, float]]):
+    def test_trade_flow_features_computed_online(
+        self,
+        mock_bars_data: list[dict[str, float]],
+    ) -> None:
         """
         Test that trade flow features are actually computed in online mode.
         """
@@ -268,7 +274,7 @@ class TestFeatureParityFix:
         self,
         mock_bars_data: list[dict[str, float]],
         bars_df: pl.DataFrame,
-    ):
+    ) -> None:
         """
         Test that microstructure feature values match between batch and online modes.
         """
@@ -312,7 +318,10 @@ class TestFeatureParityFix:
             max_diff < tolerance
         ), f"Feature value parity failed: max_diff={max_diff:.2e} > {tolerance:.0e}"
 
-    def test_regression_scaler_dimension_mismatch(self, mock_bars_data: list[dict[str, float]]):
+    def test_regression_scaler_dimension_mismatch(
+        self,
+        mock_bars_data: list[dict[str, float]],
+    ) -> None:
         """
         Regression test for the original issue: StandardScaler dimension mismatch.
 

@@ -14,8 +14,12 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock
 
-from ml.registry.persistence import BackendType
+from ml.registry.persistence import BackendType, PersistenceConfig
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, StrategyStoreNoOp
 
 
 @pytest.mark.unit
@@ -27,11 +31,18 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     _orig = _dr.DataRegistry
 
-    def _factory(*args: object, **kwargs: object) -> object:
-        pc = kwargs.get("persistence_config")
-        if getattr(pc, "backend", None) == _BT.POSTGRES:
+    def _factory(
+        registry_path: Path,
+        batch_save_interval: float = 0.1,
+        persistence_config: PersistenceConfig | None = None,
+    ) -> _dr.DataRegistry:
+        if persistence_config is not None and persistence_config.backend == _BT.POSTGRES:
             raise RuntimeError("PG backend unavailable")
-        return _orig(*args, **kwargs)
+        return _orig(
+            registry_path=registry_path,
+            batch_save_interval=batch_save_interval,
+            persistence_config=persistence_config,
+        )
 
     monkeypatch.setattr(_dr, "DataRegistry", _factory)
 
@@ -41,9 +52,9 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(_pl.Path, "home", lambda: tmp_path)
 
     # Provide mock stores to avoid DB initialization
-    mock_feat = MagicMock()
-    mock_model = MagicMock()
-    mock_strat = MagicMock()
+    mock_feat = cast(FeatureStore, FeatureStoreNoOp())
+    mock_model = cast(ModelStore, ModelStoreNoOp())
+    mock_strat = cast(StrategyStore, StrategyStoreNoOp())
 
     # Use a POSTGRES-looking DSN to exercise registry fallback, without DB I/O
     dsn = "postgresql://postgres:postgres@localhost:5432/nautilus"
@@ -55,7 +66,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
         return _EM.get_engine("sqlite:///:memory:")
 
     monkeypatch.setattr(_dp, "create_engine", _fake_create_engine)
-    store = cast(Any, DataStore)(
+    store = DataStore(
         connection_string=dsn,
         feature_store=mock_feat,
         model_store=mock_model,

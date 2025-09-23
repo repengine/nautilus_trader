@@ -5,13 +5,15 @@ from pathlib import Path
 from ml.core.integration import MLIntegrationManager
 from ml.observability.scheduler import ObservabilityFlusher
 from ml.observability.service import ObservabilityService
+from ml.tests.utils.stubs import build_integration_manager_stub
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestObservabilityFlusher:
     def test_tick_flushes_when_interval_elapsed(
         self,
         tmp_path: Path,
-        default_instrument_id,
+        default_instrument_id: InstrumentId,
     ) -> None:
         svc = ObservabilityService()
         # Add a row so flush writes something
@@ -45,14 +47,16 @@ class TestObservabilityFlusher:
         times[0] = 10.0
         wrote = flusher.tick()
         assert "latency" in wrote
-        assert wrote["latency"].exists()
+        latency_path = wrote["latency"]
+        assert isinstance(latency_path, Path)
+        assert latency_path.exists()
 
 
 class TestIntegrationFlusher:
     def test_integration_manager_single_flush(self, tmp_path: Path) -> None:
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+        mgr = build_integration_manager_stub()
         MLIntegrationManager.initialize_observability_pipeline(mgr)
-        svc = mgr.observability_service  # type: ignore[attr-defined]
+        svc = mgr.observability_service
         assert svc is not None
         svc.add_health(
             component_id="strategy_store",
@@ -70,5 +74,6 @@ class TestIntegrationFlusher:
             file_format="jsonl",
         )
         assert out is not None
-        assert out.get("health") is not None
-        assert out["health"].exists()  # type: ignore[index]
+        health_entry = out.get("health")
+        assert isinstance(health_entry, Path)
+        assert health_entry.exists()

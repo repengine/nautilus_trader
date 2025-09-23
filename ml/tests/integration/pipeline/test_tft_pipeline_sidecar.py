@@ -4,13 +4,15 @@ import json
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 import ml.pipelines.tft_train_distill as pipeline_mod
 
 
-def _stub_build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-redef]
-    # Create dataset and a sidecar feature_set.json
-    out_idx = argv.index("--out_dir") + 1 if argv and "--out_dir" in argv else -1
+def _stub_build_main(argv: list[str] | None = None) -> int:
+    if not argv:
+        raise AssertionError("expected argv")
+    out_idx = argv.index("--out_dir") + 1 if "--out_dir" in argv else -1
     out_dir = Path(argv[out_idx]) if out_idx > 0 else Path("/tmp")
     out_dir.mkdir(parents=True, exist_ok=True)
     df = pl.DataFrame(
@@ -38,32 +40,23 @@ def _stub_build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-r
     return 0
 
 
-def _stub_tft_main(argv: list[str] | None = None) -> int:  # type: ignore[no-redef]
-    # Must include feature registry args populated from sidecar
-    assert argv is not None and "--feature_set_id" in argv and "--feature_registry_dir" in argv
-    # Write teacher preds
-    out_idx = argv.index("--out_dir") + 1
-    out_dir = Path(argv[out_idx])
-    import numpy as np
-
-    np.savez_compressed(
-        out_dir / "teacher_preds.npz",
-        q_train=np.array([0.5, 0.5, 0.5]),
-        y_val_true=np.array([0, 1, 0]),
-    )
+def _stub_orchestrator_main(cli_args: list[str]) -> int:
+    if "--out_dir" not in cli_args:
+        raise AssertionError("Expected --out_dir in orchestrator args")
+    out_dir = Path(cli_args[cli_args.index("--out_dir") + 1])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Simulate dataset build to produce sidecar metadata for downstream stages.
+    _stub_build_main(["--out_dir", str(out_dir)])
+    data = json.loads((out_dir / "feature_set.json").read_text(encoding="utf-8"))
+    assert data["feature_set_id"] == "feature_set_123"
     return 0
 
 
-def _stub_distill_main(argv: list[str] | None = None) -> int:  # type: ignore[no-redef]
-    # Must include feature registry args populated from sidecar
-    assert argv is not None and "--feature_set_id" in argv and "--feature_registry_dir" in argv
-    return 0
-
-
-def test_pipeline_reads_sidecar_when_args_missing(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("ml.scripts.build_tft_dataset.main", _stub_build_main)
-    monkeypatch.setattr("ml.training.teacher.tft_cli.main", _stub_tft_main)
-    monkeypatch.setattr("ml.training.distillation.cli.main", _stub_distill_main)
+def test_pipeline_reads_sidecar_when_args_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("ml.pipelines.tft_train_distill.orchestrator_main", _stub_orchestrator_main)
 
     args = [
         "--data_dir",

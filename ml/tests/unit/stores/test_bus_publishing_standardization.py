@@ -11,9 +11,10 @@ This test module verifies that:
 
 import os
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from ml.common.message_bus import BusPublisherMixin, MessageBusConfig, NoopPublisher
+from ml.common.message_bus import BusPublisherMixin, NoopPublisher
+from ml.config.bus import MessageBusConfig
 from ml.stores import DataStore, FeatureStore
 from ml.stores.base import FeatureData
 

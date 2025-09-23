@@ -207,6 +207,121 @@ Quick Commands
 - Docs: make docs
 - Micro‑bench (local): pytest -q ml/tests/performance -k microbench --benchmark-only
 
+  Key Gaps to Address:
+
+  1. Experiment Tracking & Versioning 🔬
+
+  Missing:
+  - Automatic hyperparameter logging
+  - Experiment comparison UI
+  - Metric visualization over time
+  - A/B test results tracking
+  - Model lineage visualization
+
+  To Add:
+  # Need experiment tracking in MLPipelineOrchestrator
+  experiment_id = self.experiment_store.create_experiment(
+      name="tft_model_v2",
+      params=config.as_dict(),
+      tags={"author": user, "branch": git_branch}
+  )
+  # Log metrics during training
+  self.experiment_store.log_metrics(experiment_id, {"loss": 0.23, "sharpe": 1.5})
+
+  2. Distributed Training & Compute 🖥️
+
+  Missing:
+  - Kubernetes job orchestration
+  - Multi-GPU training support
+  - Distributed data processing (Spark/Ray)
+  - Resource allocation & scheduling
+  - Queue management for jobs
+
+  To Add:
+  - Ray/Dask integration for distributed compute
+  - Kubernetes operator for ML jobs
+  - GPU resource management
+
+  3. Model Serving & Deployment 🚀
+
+  Missing:
+  - Model serving endpoints (REST/gRPC)
+  - Canary deployments
+  - Shadow mode deployments
+  - Load balancing across model versions
+  - Request batching & caching
+
+  Current: Models are loaded directly in actors
+  Need: Dedicated model serving layer with KServe/Seldon-style capabilities
+
+  4. Visualization & Monitoring 📊
+
+  Missing:
+  - Training curves visualization
+  - Feature importance plots
+  - Confusion matrices
+  - ROC curves
+  - Data drift visualization
+  - Model performance degradation alerts
+
+  To Add:
+  - TensorBoard integration
+  - Custom Grafana dashboards for ML metrics
+  - Jupyter notebook integration in dashboard
+
+  5. Collaboration Features 👥
+
+  Missing:
+  - User authentication & teams
+  - Role-based access control (RBAC)
+  - Comments on experiments
+  - Shared projects/workspaces
+  - Approval workflows for production
+
+  6. Advanced Pipeline Features 🔄
+
+  Missing:
+  - DAG visualization
+  - Pipeline scheduling (Airflow-style)
+  - Conditional execution
+  - Pipeline templates
+  - Failure recovery & retries
+
+  7. Data Versioning & Lineage 📁
+
+  Missing:
+  - Dataset versioning (DVC-style)
+  - Data lineage tracking
+  - Feature store time travel
+  - Dataset comparison tools
+  - Data quality monitoring
+
+  8. AutoML Capabilities 🤖
+
+  Missing:
+  - Automated feature engineering
+  - Neural architecture search
+  - Hyperparameter optimization (beyond basic HPO)
+  - Automated model selection
+
+  9. Production Monitoring 📡
+
+  Missing:
+  - Prediction request logging
+  - Model performance monitoring
+  - Feature drift detection
+  - Outlier detection
+  - Champion/challenger testing
+
+  10. Developer Experience 💻
+
+  Missing:
+  - CLI for pipeline submission
+  - Python SDK for experiment tracking
+  - IDE plugins
+  - Pipeline YAML/DSL
+  - Local pipeline testing
+
 —
 
 Document version: 0.1-alpha

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
 
-from ml.core.integration import MLIntegrationManager
 from ml.observability.bootstrap import auto_start_if_configured
+from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.stubs import build_integration_manager_stub
 
 
 @contextmanager
-def env_vars(vars: dict[str, str]):
+def env_vars(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
     try:
         os.environ.update(vars)
@@ -21,8 +24,8 @@ def env_vars(vars: dict[str, str]):
                 os.environ[k] = v
 
 
-def test_auto_start_if_configured_starts_flusher(tmp_path) -> None:
-    mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+def test_auto_start_if_configured_starts_flusher(tmp_path: Path) -> None:
+    mgr = build_integration_manager_stub()
     with env_vars(
         {
             "ML_OBS_SINK": "db",

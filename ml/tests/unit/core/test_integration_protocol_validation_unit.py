@@ -7,6 +7,7 @@ import pytest
 
 from ml.common.protocols import MLComponentProtocol
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.stubs import build_integration_manager_stub
 
 
 class GoodComp(MLComponentProtocol):
@@ -26,17 +27,15 @@ class BadComp:  # Does not implement MLComponentProtocol
 
 class TestIntegrationProtocolValidation:
     def _make_manager_with_components(self) -> MLIntegrationManager:
-        # Bypass __init__ to avoid DB and heavy setup
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
-        # Populate components: mix of good, bad, and None
-        mgr.feature_store = GoodComp()  # type: ignore[attr-defined]
-        mgr.model_store = BadComp()  # type: ignore[attr-defined]
-        mgr.strategy_store = None  # type: ignore[attr-defined]
-        mgr.data_store = GoodComp()  # type: ignore[attr-defined]
-        mgr.feature_registry = GoodComp()  # type: ignore[attr-defined]
-        mgr.model_registry = GoodComp()  # type: ignore[attr-defined]
-        mgr.strategy_registry = BadComp()  # type: ignore[attr-defined]
-        mgr.data_registry = None  # type: ignore[attr-defined]
+        mgr = build_integration_manager_stub()
+        mgr.feature_store = GoodComp()
+        mgr.model_store = BadComp()
+        mgr.strategy_store = None
+        mgr.data_store = GoodComp()
+        mgr.feature_registry = GoodComp()
+        mgr.model_registry = GoodComp()
+        mgr.strategy_registry = BadComp()
+        mgr.data_registry = None
         return mgr
 
     def test_validation_warns_when_non_strict(self, caplog: pytest.LogCaptureFixture) -> None:

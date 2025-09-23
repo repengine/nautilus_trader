@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.stubs import build_integration_manager_stub
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
@@ -23,7 +24,7 @@ class CapturePublisher(MessagePublisherProtocol):
 class TestIntegrationPublisher:
     def test_set_message_publisher_applies_to_data_store(self, tmp_path: Path) -> None:
         # Arrange a lightweight manager with a real DataStore (sqlite + JSON registry)
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+        mgr = build_integration_manager_stub()
         reg_dir = tmp_path / "reg"
         registry = DataRegistry(
             registry_path=reg_dir,
@@ -36,7 +37,7 @@ class TestIntegrationPublisher:
             model_store=cast(Any, object()),
             strategy_store=cast(Any, object()),
         )
-        mgr.data_store = store  # type: ignore[attr-defined]
+        mgr.data_store = store
 
         pub = CapturePublisher()
 

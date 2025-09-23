@@ -4,6 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nautilus ML Dashboard</title>
+    <!-- Progressive Enhancement: Load enhanced styles if available -->
+    <link rel="stylesheet" href="/static/enhanced.css" onerror="this.onerror=null;">
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
       header { display:flex; justify-content: space-between; align-items:center; }
@@ -323,5 +325,7 @@
       setInterval(load, 15000);
       setInterval(loadEvents, 5000);
     </script>
+    <!-- Progressive Enhancement: Load enhanced JavaScript if available -->
+    <script src="/static/enhanced.js" onerror="this.onerror=null;" defer></script>
   </body>
   </html>

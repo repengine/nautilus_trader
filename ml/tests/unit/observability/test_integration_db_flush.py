@@ -5,13 +5,19 @@ from pathlib import Path
 import pandas as pd
 
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.stubs import build_integration_manager_stub
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestIntegrationDBFlush:
-    def test_flush_observability_to_db(self, tmp_path: Path, default_instrument_id) -> None:
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+    def test_flush_observability_to_db(
+        self,
+        tmp_path: Path,
+        default_instrument_id: InstrumentId,
+    ) -> None:
+        mgr = build_integration_manager_stub()
         MLIntegrationManager.initialize_observability_pipeline(mgr)
-        svc = mgr.observability_service  # type: ignore[attr-defined]
+        svc = mgr.observability_service
         assert svc is not None
 
         # Add minimal rows

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from ml.core.integration import MLIntegrationManager
 from ml.observability.service import ObservabilityService
+from ml.tests.utils.stubs import build_integration_manager_stub
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestObservabilityServiceFacade:
-    def test_service_builds_contract_dataframes(self, default_instrument_id) -> None:
+    def test_service_builds_contract_dataframes(self, default_instrument_id: InstrumentId) -> None:
         svc = ObservabilityService()
 
         # Populate latency rows
@@ -72,19 +74,22 @@ class TestObservabilityServiceFacade:
         assert set(["component_id", "health_score"]).issubset(set(df_health.columns))
 
         # Invariants from DTO builders
-        assert int(df_latency.loc[0, "stage_latency_ns"]) >= 0
+        stage_latency = cast(float, df_latency.loc[0, "stage_latency_ns"])
+        assert stage_latency >= 0.0
         assert np.all((df_health["health_score"] >= 0.0) & (df_health["health_score"] <= 1.0))
 
 
 class TestIntegrationObservability:
-    def test_integration_manager_initializes_and_collects(self, default_instrument_id) -> None:
-        # Avoid heavy __init__ by constructing via __new__ like other tests
-        mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
+    def test_integration_manager_initializes_and_collects(
+        self,
+        default_instrument_id: InstrumentId,
+    ) -> None:
+        mgr: MLIntegrationManager = build_integration_manager_stub()
 
         # Initialize service via the integration method
         MLIntegrationManager.initialize_observability_pipeline(mgr)
         svc = getattr(mgr, "observability_service", None)
-        assert svc is not None
+        assert isinstance(svc, ObservabilityService)
 
         # Add minimal rows through the service
         svc.add_latency_stage(
@@ -107,4 +112,4 @@ class TestIntegrationObservability:
         assert set(tables.keys()) == {"latency", "metrics", "correlation", "health"}
         # Verify latency table has our entry
         lat = tables["latency"]
-        assert getattr(lat, "empty", True) is False
+        assert not getattr(lat, "empty", True)

@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any
+from typing import Any, Iterable, Sequence, TypeVar, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from ml.tests.builders import DataBuilder, MockBuilder
 
 import numpy as np
 import pytest
@@ -42,10 +41,51 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.stores.data_store import DataStore
+from ml.stores.protocols import RawIngestionWriterProtocol
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.tests.builders import DataBuilder
+from ml.tests.builders import MockBuilder
 
 
 if HAS_POLARS:
     import polars as pl
+
+
+RecordList = Sequence[dict[str, Any]]
+FrameLike = list[dict[str, Any]] | PolarsDF
+StoreT = TypeVar("StoreT")
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+def _maybe_polars_frame(records: RecordList) -> FrameLike:
+    """Return a Polars DataFrame when available, otherwise a plain list copy."""
+    if HAS_POLARS:
+        return pl.DataFrame(records)
+    return [dict(row) for row in records]
+
+
+def _store_mock(spec_type: type[StoreT]) -> StoreT:
+    """Create a typed MagicMock matching the provided store specification."""
+    return cast(StoreT, MagicMock(spec=spec_type))
+
+
+class _UnitRawWriter(RawIngestionWriterProtocol):
+    """Minimal raw writer used to satisfy type checks in unit tests."""
+
+    def write(
+        self,
+        *,
+        dataset_type: DatasetType,
+        data: FrameLike | "pd.DataFrame",
+    ) -> int:
+        del dataset_type
+        if isinstance(data, list):
+            return len(data)
+        return len(cast(Sequence[object], data))
 
 
 # ========================================================================
@@ -201,21 +241,17 @@ def mock_registry() -> MagicMock:
 
 
 @pytest.fixture
-def data_store(mock_registry: MagicMock, mock_stores_bundle) -> DataStore:
+def data_store(mock_registry: MagicMock, mock_stores_bundle: dict[str, MagicMock]) -> DataStore:
     """
     Create a DataStore instance with proper PostgreSQL connection.
     """
 
-    class _UnitRawWriter:
-        def write(self, *, dataset_type, data):  # type: ignore[no-untyped-def]
-            return len(data) if hasattr(data, "__len__") else 0
-
     store = DataStore(
         registry=mock_registry,
         connection_string="sqlite:///:memory:",
-        feature_store=mock_stores_bundle["feature_store"],
-        model_store=mock_stores_bundle["model_store"],
-        strategy_store=mock_stores_bundle["strategy_store"],
+        feature_store=cast(FeatureStore, mock_stores_bundle["feature_store"]),
+        model_store=cast(ModelStore, mock_stores_bundle["model_store"]),
+        strategy_store=cast(StrategyStore, mock_stores_bundle["strategy_store"]),
         raw_writer=_UnitRawWriter(),
         fail_on_validation_error=True,
         allow_schema_migration=False,
@@ -270,12 +306,9 @@ class TestPreflightCheck:
         """
         Test preflight check passes for valid data.
         """
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        success, error, details = data_store.preflight_check("test_bars", df)
+        success, error, details = data_store.preflight_check("test_bars", frame)
 
         assert success is True
         assert error is None
@@ -293,12 +326,9 @@ class TestPreflightCheck:
         """
         data = [{"instrument_id": "EUR/USD", "close": 1.1000}]
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
+        frame = _maybe_polars_frame(data)
 
-        success, error, details = data_store.preflight_check("test_bars", df, strict=True)
+        success, error, details = data_store.preflight_check("test_bars", frame, strict=True)
 
         assert success is False
         assert "Missing required columns" in error
@@ -343,12 +373,9 @@ class TestPreflightCheck:
         for row in valid_bar_data:
             row["extra_field"] = 123
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        success, error, _details = data_store.preflight_check("test_bars", df, strict=True)
+        success, error, _details = data_store.preflight_check("test_bars", frame, strict=True)
 
         assert success is False
         assert "Unexpected columns" in error or "Schema hash mismatch" in details.get(
@@ -366,12 +393,9 @@ class TestPreflightCheck:
         """
         valid_bar_data[0]["instrument_id"] = None
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        success, error, _details = data_store.preflight_check("test_bars", df)
+        success, error, _details = data_store.preflight_check("test_bars", frame)
 
         assert success is False
         assert "Primary key field" in error or "null values" in error
@@ -425,12 +449,9 @@ class TestContractValidation:
         # Set a required field to null
         valid_bar_data[0]["instrument_id"] = None
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
 
         assert report.quality_score < 1.0
         assert report.failed_records > 0
@@ -453,12 +474,9 @@ class TestContractValidation:
         valid_bar_data[0]["close"] = -1.0
         valid_bar_data[1]["close"] = -0.5
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
 
         assert report.quality_score < 1.0
         assert report.failed_records >= 2
@@ -478,12 +496,9 @@ class TestContractValidation:
         # Create duplicate primary key
         valid_bar_data[1]["ts_event"] = valid_bar_data[0]["ts_event"]
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
 
         assert report.quality_score < 1.0
 
@@ -503,12 +518,9 @@ class TestContractValidation:
         # Make timestamps non-monotonic
         valid_bar_data[5]["ts_event"] = valid_bar_data[3]["ts_event"]
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
 
         assert report.quality_score < 1.0
 
@@ -563,12 +575,9 @@ class TestContractValidation:
             },
         ]
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
+        frame = _maybe_polars_frame(data)
 
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
 
         lateness_violations = [
             v for v in report.violations if v.rule_type == ValidationRuleType.LATENESS
@@ -597,15 +606,12 @@ class TestFailClosedWrites:
         # Create invalid data with negative price
         valid_bar_data[0]["close"] = -1.0
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
         with pytest.raises(ValueError, match=r"Data validation failed.*fail-closed"):
             data_store.write_ingestion(
                 dataset_id="test_bars",
-                records=df,
+                records=frame,
                 source="test",
                 run_id="test_run",
             )
@@ -620,15 +626,12 @@ class TestFailClosedWrites:
         # Data missing required columns
         data = [{"instrument_id": "EUR/USD", "close": 1.1000}]
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
+        frame = _maybe_polars_frame(data)
 
         with pytest.raises(ValueError, match="Preflight check failed"):
             data_store.write_ingestion(
                 dataset_id="test_bars",
-                records=df,
+                records=frame,
                 source="test",
                 run_id="test_run",
             )
@@ -667,13 +670,10 @@ class TestFailClosedWrites:
         )
         mock_registry.get_contract.return_value = contract
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
         # In strict mode, even warnings cause failure
-        report = data_store.validate_batch("test_bars", df, strict_mode=True)
+        report = data_store.validate_batch("test_bars", frame, strict_mode=True)
         assert report.quality_score < 1.0
 
     def test_lenient_mode_allows_warnings(
@@ -706,15 +706,12 @@ class TestFailClosedWrites:
         )
         mock_registry.get_contract.return_value = contract
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
         # Should not raise in lenient mode for warnings
         event = data_store.write_ingestion(
             dataset_id="test_bars",
-            records=df,
+            records=frame,
             source="test",
             run_id="test_run",
         )
@@ -783,9 +780,9 @@ class TestSchemaMigration:
         Test schema migration window allows dual writes.
         """
         # Mock the underlying stores to avoid database connections
-        feature_store = MagicMock()
-        model_store = MagicMock()
-        strategy_store = MagicMock()
+        feature_store = _store_mock(FeatureStore)
+        model_store = _store_mock(ModelStore)
+        strategy_store = _store_mock(StrategyStore)
 
         store = DataStore(
             registry=mock_registry,
@@ -821,9 +818,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=False,  # Explicitly disabled
         )
 
@@ -848,9 +845,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -881,9 +878,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=False,  # No migration allowed
         )
 
@@ -917,9 +914,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=False,
         )
 
@@ -964,9 +961,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=2,  # 2 hour window
         )
@@ -1007,9 +1004,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             fail_on_validation_error=True,
             allow_schema_migration=False,  # No migration window
         )
@@ -1051,9 +1048,9 @@ class TestSchemaMigration:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -1653,9 +1650,9 @@ class TestSchemaMigrationContracts:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=False,
             fail_on_validation_error=True,
         )
@@ -1682,10 +1679,7 @@ class TestSchemaMigrationContracts:
         ]
 
         for scenario_name, scenario_data in test_scenarios:
-            if HAS_POLARS:
-                df = pl.DataFrame(scenario_data)
-            else:
-                df = scenario_data
+            df = _maybe_polars_frame(scenario_data)
 
             # CONTRACT: All schema mismatches must be rejected
             with pytest.raises(ValueError, match="Preflight check failed"):
@@ -1712,9 +1706,9 @@ class TestSchemaMigrationContracts:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -1770,9 +1764,9 @@ class TestSchemaMigrationContracts:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=False,
         )
 
@@ -1819,9 +1813,9 @@ class TestSchemaMigrationContracts:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -1865,9 +1859,9 @@ class TestSchemaMigrationContracts:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
         )
 
         manifest = mock_registry.get_manifest.return_value
@@ -1891,10 +1885,7 @@ class TestSchemaMigrationContracts:
 
         # CONTRACT 3: Adding data rows should not change schema hash
         extended_data = valid_bar_data + valid_bar_data  # Double the data
-        if HAS_POLARS:
-            extended_df = pl.DataFrame(extended_data)
-        else:
-            extended_df = extended_data
+        extended_df = _maybe_polars_frame(extended_data)
 
         hash4 = store._compute_schema_hash(extended_df, manifest)
         assert hash1 == hash4
@@ -1904,10 +1895,7 @@ class TestSchemaMigrationContracts:
         for row in schema_changed_data:
             row["new_field"] = "different_schema"
 
-        if HAS_POLARS:
-            changed_df = pl.DataFrame(schema_changed_data)
-        else:
-            changed_df = schema_changed_data
+        changed_df = _maybe_polars_frame(schema_changed_data)
 
         hash5 = store._compute_schema_hash(changed_df, manifest)
         assert hash1 != hash5
@@ -1933,9 +1921,9 @@ class TestNegativeEdgeCases:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
         )
 
         # Empty list
@@ -1971,9 +1959,9 @@ class TestNegativeEdgeCases:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
         )
 
         # Non-dictionary entries in list
@@ -1983,7 +1971,7 @@ class TestNegativeEdgeCases:
             {"instrument_id": "GBP/USD", "close": 1.1},
         ]
 
-        success, _error, _details = store.preflight_check("test_bars", malformed_list, strict=True)
+        success, error, _details = store.preflight_check("test_bars", malformed_list, strict=True)
         # Should handle gracefully or fail predictably
         assert success is False or error is not None
 
@@ -1998,9 +1986,9 @@ class TestNegativeEdgeCases:
         store_zero = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=0,
         )
@@ -2015,9 +2003,9 @@ class TestNegativeEdgeCases:
         store_large = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=8760,  # 1 year
         )
@@ -2035,9 +2023,9 @@ class TestNegativeEdgeCases:
         store = DataStore(
             registry=mock_registry,
             connection_string="sqlite:///:memory:",
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=_store_mock(FeatureStore),
+            model_store=_store_mock(ModelStore),
+            strategy_store=_store_mock(StrategyStore),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )

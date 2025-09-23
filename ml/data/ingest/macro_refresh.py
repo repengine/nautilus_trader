@@ -254,6 +254,9 @@ def ensure_macro_ready(
     series_ids: Sequence[str] | None = None,
     fred_loader_factory: Callable[[Sequence[str] | None], _FREDLoaderProtocol] | None = None,
     alfred_loader_factory: Callable[[Sequence[str]], _ALFREDLoaderProtocol] | None = None,
+    alfred_realtime_start: str | None = None,
+    alfred_realtime_end: str | None = None,
+    alfred_window_days: int = 365,
 ) -> MacroRefreshResult:
     """Ensure macro artifacts exist within *max_age* and refresh when necessary."""
     fred_refreshed, fred_error = refresh_fred_if_stale(
@@ -266,11 +269,22 @@ def ensure_macro_ready(
     alfred_refreshed = False
     alfred_error: Exception | None = None
     if vintage_dir is not None:
+        loader_factory = alfred_loader_factory
+        if loader_factory is None:
+            def _factory(series: Sequence[str]) -> _ALFREDLoaderProtocol:
+                return _build_alfred_loader(
+                    series,
+                    alfred_realtime_start,
+                    alfred_realtime_end,
+                    alfred_window_days,
+                )
+
+            loader_factory = _factory
         alfred_refreshed, alfred_error = refresh_alfred_if_stale(
             base_dir=vintage_dir,
             max_age=max_age,
             series_ids=tuple(series_ids or ()),
-            loader_factory=alfred_loader_factory,
+            loader_factory=loader_factory,
         )
 
     return MacroRefreshResult(
@@ -309,9 +323,19 @@ def _build_fred_loader(series_ids: Sequence[str] | None) -> _FREDLoaderProtocol:
     return cast(_FREDLoaderProtocol, FREDDataLoader(config=FREDConfig(), indicators=indicators))
 
 
-def _build_alfred_loader(series_ids: Sequence[str]) -> _ALFREDLoaderProtocol:
+def _build_alfred_loader(
+    series_ids: Sequence[str],
+    realtime_start: str | None,
+    realtime_end: str | None,
+    window_days: int,
+) -> _ALFREDLoaderProtocol:
     from ml.data.loaders.alfred_loader import ALFREDConfig
     from ml.data.loaders.alfred_loader import ALFREDDataLoader
 
-    cfg = ALFREDConfig(series_ids=tuple(series_ids))
+    cfg = ALFREDConfig(
+        series_ids=tuple(series_ids),
+        start_date=realtime_start,
+        end_date=realtime_end,
+        window_days=window_days,
+    )
     return cast(_ALFREDLoaderProtocol, ALFREDDataLoader(cfg))

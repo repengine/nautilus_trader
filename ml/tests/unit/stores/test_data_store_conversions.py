@@ -8,25 +8,31 @@ Ensures correct mapping from dict/pandas (and polars when available) to dataclas
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
+from typing import cast
+
 from ml.stores.base import ModelPrediction, StrategySignal
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
 
 
 def _mk_store() -> DataStore:
-    reg = MagicMock()
-    from ml.stores.base import DummyStore
+    feature_store = cast(FeatureStore, FeatureStoreNoOp())
+    model_store = cast(ModelStore, ModelStoreNoOp())
+    strategy_store = cast(StrategyStore, StrategyStoreNoOp())
 
     return DataStore(
         connection_string="sqlite:///:memory:",
-        registry=reg,
-        feature_store=DummyStore(),
-        model_store=DummyStore(),
-        strategy_store=DummyStore(),
+        registry=RegistryTestStub(),
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
         fail_on_validation_error=False,
     )
 

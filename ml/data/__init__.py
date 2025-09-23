@@ -273,8 +273,10 @@ __all__ = [
 
 
 # Public dataset build facade (cold path)
+
 import hashlib
 import json
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace
@@ -282,17 +284,24 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import pyarrow.parquet as pq
 from numpy.typing import NDArray
+
+
+FloatArray = NDArray[np.float32]
 
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
-from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.ml_types import PolarsDF
+from ml.stores.protocols import DataStoreFacadeProtocol
 
+
+if TYPE_CHECKING:
+    from ml.data.tft_dataset_builder import TFTDatasetBuilder
 
 # (Avoid importing optional deps here; import lazily inside functions)
 
@@ -300,6 +309,43 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_FRED_PARQUET_PATH = Path("data/fred/fred_indicators_ml_format.parquet")
 
+
+
+@dataclass(slots=True)
+class _ChunkMeta:
+    path: Path
+    rows: int
+    positives: float
+    macro_counts: dict[str, int]
+    ts_start: datetime | None
+    ts_end: datetime | None
+
+
+
+def _derive_alfred_range(cfg: DatasetBuildConfig) -> tuple[str | None, str | None]:
+    start_dt = getattr(cfg, "start", None)
+    end_dt = getattr(cfg, "end", None)
+    start_iso = getattr(cfg, "start_iso", None)
+    end_iso = getattr(cfg, "end_iso", None)
+    if start_dt is None and start_iso:
+        start_dt = datetime.fromisoformat(start_iso)
+    if end_dt is None and end_iso:
+        end_dt = datetime.fromisoformat(end_iso)
+
+    buffer = timedelta(days=30)
+    if start_dt is not None:
+        start_dt = start_dt - buffer
+    if end_dt is not None:
+        end_dt = end_dt + buffer
+
+    def _normalize(dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(UTC)
+        return dt.date().isoformat()
+
+    return _normalize(start_dt), _normalize(end_dt)
 
 
 
@@ -425,7 +471,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
     def _as_tuple(value: object | None) -> tuple[str, str] | None:
         if not value:
             return None
-        if isinstance(value, (list, tuple)) and len(value) == 2:
+        if isinstance(value, list | tuple) and len(value) == 2:
             return (str(value[0]), str(value[1]))
         raise ValueError(f"Metadata window must be length-2 sequence, got {value!r}")
 
@@ -574,7 +620,6 @@ def _write_feature_npz_from_polars(
     chunk_size: int = 200_000,
 ) -> None:
     """Persist feature matrices to an ``.npz`` without loading all rows into memory."""
-
     from ml._imports import pl
 
     if pl is None:
@@ -587,7 +632,7 @@ def _write_feature_npz_from_polars(
     num_rows = df_sorted.height
     num_features = len(feature_names)
     if num_rows == 0 or num_features == 0:
-        np.savez_compressed(
+        np.savez(
             out_path,
             X_train=np.empty((0, num_features), dtype=np.float32),
             X_val=np.empty((0, num_features), dtype=np.float32),
@@ -674,7 +719,7 @@ def _write_feature_npz_from_polars(
         X_val = np.empty((0, num_features), dtype=np.float32)
 
     try:
-        np.savez_compressed(
+        np.savez(
             out_path,
             X_train=X_train,
             X_val=X_val,
@@ -691,6 +736,512 @@ def _write_feature_npz_from_polars(
             val_tmp.unlink()
 
 
+@dataclass(slots=True)
+class _StreamingFeatureWriter:
+    """Incrementally write feature matrices to NPZ using memory-mapped buffers."""
+
+    out_path: Path
+    feature_names: list[str]
+    total_rows: int
+    cutoff: int
+    _train_tmp: Path | None = None
+    _val_tmp: Path | None = None
+    _train_mem: np.memmap[Any, np.dtype[np.float32]] | None = None
+    _val_mem: np.memmap[Any, np.dtype[np.float32]] | None = None
+    _train_rows: int = 0
+    _val_rows: int = 0
+    _train_cursor: int = 0
+    _val_cursor: int = 0
+
+    def __post_init__(self) -> None:
+        if self.total_rows < 0:
+            msg = "total_rows must be non-negative"
+            raise ValueError(msg)
+        feature_dim = len(self.feature_names)
+        self._train_rows = max(min(self.cutoff, self.total_rows), 0)
+        self._val_rows = max(self.total_rows - self._train_rows, 0)
+        if feature_dim == 0:
+            return
+        if self._train_rows > 0:
+            self._train_tmp = self.out_path.with_name(self.out_path.name + ".train.tmp")
+            self._train_mem = np.memmap(
+                str(self._train_tmp),
+                dtype=np.float32,
+                mode="w+",
+                shape=(self._train_rows, feature_dim),
+            )
+        if self._val_rows > 0:
+            self._val_tmp = self.out_path.with_name(self.out_path.name + ".val.tmp")
+            self._val_mem = np.memmap(
+                str(self._val_tmp),
+                dtype=np.float32,
+                mode="w+",
+                shape=(self._val_rows, feature_dim),
+            )
+
+    @property
+    def feature_dim(self) -> int:
+        return len(self.feature_names)
+
+    def append(self, values: FloatArray, *, global_offset: int) -> None:
+        if self.feature_dim == 0:
+            return
+        if values.ndim != 2 or values.shape[1] != self.feature_dim:
+            msg = "Chunk feature matrix has unexpected shape"
+            raise ValueError(msg)
+        rows = values.shape[0]
+        if rows == 0:
+            return
+        train_remaining = max(self._train_rows - global_offset, 0)
+        train_take = min(train_remaining, rows)
+        if train_take > 0 and self._train_mem is not None:
+            self._train_mem[self._train_cursor : self._train_cursor + train_take] = values[:train_take]
+            self._train_cursor += train_take
+        val_take = rows - train_take
+        if val_take > 0 and self._val_mem is not None:
+            self._val_mem[self._val_cursor : self._val_cursor + val_take] = values[train_take:]
+            self._val_cursor += val_take
+
+    def finalize(self) -> None:
+        if self.feature_dim == 0:
+            empty = cast(FloatArray, np.empty((0, 0), dtype=np.float32))
+            np.savez(
+                self.out_path,
+                X_train=empty,
+                X_val=empty,
+                feature_names=np.array(self.feature_names, dtype=np.str_),
+            )
+            return
+        if self._train_mem is not None:
+            self._train_mem.flush()
+        if self._val_mem is not None:
+            self._val_mem.flush()
+        X_train: FloatArray
+        X_val: FloatArray
+        if self._train_tmp is not None and self._train_tmp.exists():
+            X_train = cast(
+                FloatArray,
+                np.memmap(
+                    str(self._train_tmp),
+                    dtype=np.float32,
+                    mode="r",
+                    shape=(self._train_rows, self.feature_dim),
+                ),
+            )
+        else:
+            X_train = cast(FloatArray, np.empty((0, self.feature_dim), dtype=np.float32))
+        if self._val_tmp is not None and self._val_tmp.exists():
+            X_val = cast(
+                FloatArray,
+                np.memmap(
+                    str(self._val_tmp),
+                    dtype=np.float32,
+                    mode="r",
+                    shape=(self._val_rows, self.feature_dim),
+                ),
+            )
+        else:
+            X_val = cast(FloatArray, np.empty((0, self.feature_dim), dtype=np.float32))
+        try:
+            np.savez(
+                self.out_path,
+                X_train=X_train,
+                X_val=X_val,
+                feature_names=np.array(self.feature_names, dtype=np.str_),
+            )
+        finally:
+            if isinstance(X_train, np.memmap):
+                del X_train
+            if isinstance(X_val, np.memmap):
+                del X_val
+            if self._train_tmp is not None and self._train_tmp.exists():
+                self._train_tmp.unlink()
+            if self._val_tmp is not None and self._val_tmp.exists():
+                self._val_tmp.unlink()
+
+
+def _validate_aggregated_dataset(
+    *,
+    config: DatasetValidationConfig,
+    total_rows: int,
+    positive_rate: float | None,
+    feature_coverage: dict[str, float],
+    macro_counts: dict[str, int],
+) -> DatasetValidationResult:
+    if total_rows < config.min_rows:
+        msg = f"Dataset has {total_rows} rows; minimum required is {config.min_rows}"
+        raise DatasetValidationError(msg)
+
+    if positive_rate is not None and config.min_positive_rate is not None:
+        if positive_rate < config.min_positive_rate:
+            msg = (
+                f"Target positive rate {positive_rate:.4f} below minimum "
+                f"{config.min_positive_rate:.4f}"
+            )
+            raise DatasetValidationError(msg)
+    if positive_rate is not None and config.max_positive_rate is not None:
+        if positive_rate > config.max_positive_rate:
+            msg = (
+                f"Target positive rate {positive_rate:.4f} above maximum "
+                f"{config.max_positive_rate:.4f}"
+            )
+            raise DatasetValidationError(msg)
+
+    if config.min_feature_coverage is not None:
+        low_coverage = [
+            (name, ratio)
+            for name, ratio in feature_coverage.items()
+            if ratio < config.min_feature_coverage
+        ]
+        if low_coverage:
+            worst_low_cov = min(low_coverage, key=lambda item: item[1])
+            msg = (
+                "Feature coverage below acceptance threshold; "
+                f"example: {worst_low_cov[0]}={worst_low_cov[1]:.3f} < {config.min_feature_coverage:.3f}"
+            )
+            raise DatasetValidationError(msg)
+
+    macro_present: tuple[str, ...] = ()
+    if config.require_macro_series:
+        required = set(config.require_macro_series)
+        actual = {name for name, count in macro_counts.items() if count > 0}
+        missing = required - actual
+        if missing:
+            msg = f"Missing macro series: {sorted(missing)}"
+            raise DatasetValidationError(msg)
+        macro_present = tuple(sorted(actual))
+        min_obs = config.macro_min_vintage_observations
+        policy = config.expected_vintage_policy or VintagePolicy.REAL_TIME
+        if min_obs is not None and policy is VintagePolicy.REAL_TIME:
+            failing = [name for name in required if macro_counts.get(name, 0) < min_obs]
+            if failing:
+                weakest_series = min(failing, key=lambda name: macro_counts.get(name, 0))
+                msg = (
+                    "Macro vintage coverage below threshold; "
+                    f"series {weakest_series} has {macro_counts.get(weakest_series, 0)} observations < {min_obs}"
+                )
+                raise DatasetValidationError(msg)
+    else:
+        macro_present = tuple(sorted(macro_counts.keys()))
+
+    return DatasetValidationResult(
+        row_count=total_rows,
+        positive_rate=positive_rate,
+        feature_coverage=feature_coverage,
+        macro_columns_present=macro_present,
+        macro_observation_counts=macro_counts,
+    )
+
+
+def _build_dataset_chunked(
+    *,
+    builder: TFTDatasetBuilder,
+    cfg: DatasetBuildConfig,
+    vintage_as_of: datetime | None,
+    build_ts: datetime,
+) -> tuple[BuildResult, DatasetValidationResult]:
+    from ml._imports import HAS_POLARS
+    from ml._imports import check_ml_dependencies
+    from ml._imports import pl
+
+    polars_module = pl
+    if not HAS_POLARS or polars_module is None:
+        check_ml_dependencies(["polars"])
+        import polars as polars_module_import
+
+        polars_module = polars_module_import
+    assert polars_module is not None
+
+    chunk_dir = cfg.out_dir / ".chunks"
+    if chunk_dir.exists():
+        shutil.rmtree(chunk_dir)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
+    chunk_metas: list[_ChunkMeta] = []
+
+    cursor = cast(datetime, cfg.start)
+    end = cast(datetime, cfg.end)
+    chunk_index = 0
+    chunk_delta = timedelta(days=cfg.chunk_days)
+
+    while cursor < end:
+        chunk_end = min(cursor + chunk_delta, end)
+        df_any = builder.build_training_dataset(
+            horizon_minutes=cfg.horizon_minutes,
+            min_return_threshold=cfg.threshold,
+            lookback_periods=cfg.lookback_periods,
+            use_polars=True,
+            start=cursor,
+            end=chunk_end,
+        )
+        if isinstance(df_any, polars_module.DataFrame):
+            df_chunk = df_any
+        else:
+            from ml._imports import HAS_PANDAS
+            from ml._imports import pd
+
+            if not HAS_PANDAS:
+                check_ml_dependencies(["pandas"])  # pragma: no cover
+            assert pd is not None
+            df_chunk = polars_module.from_pandas(df_any)
+
+        if not df_chunk.is_empty():
+            chunk_path = chunk_dir / f"chunk_{chunk_index:04d}.parquet"
+            df_chunk.write_parquet(str(chunk_path))
+
+            positives = 0.0
+            if "y" in df_chunk.columns:
+                positives = float(df_chunk["y"].sum())
+
+            macro_counts: dict[str, int] = {}
+            if cfg.macro_series_ids:
+                for macro in cfg.macro_series_ids:
+                    value_col = f"{macro}__value_vintage_ts"
+                    if value_col in df_chunk.columns:
+                        count_val = int(df_chunk[value_col].is_not_null().sum())
+                        macro_counts[macro] = count_val
+            ts_start = None
+            ts_end = None
+            if "timestamp" in df_chunk.columns and df_chunk.height > 0:
+                ts_series = df_chunk["timestamp"]
+                ts_start = cast(datetime | None, ts_series.min())
+                ts_end = cast(datetime | None, ts_series.max())
+
+            chunk_metas.append(
+                _ChunkMeta(
+                    path=chunk_path,
+                    rows=df_chunk.height,
+                    positives=positives,
+                    macro_counts=macro_counts,
+                    ts_start=ts_start,
+                    ts_end=ts_end,
+                ),
+            )
+
+        cursor = chunk_end
+        chunk_index += 1
+
+    if not chunk_metas:
+        dataset_parquet = cfg.out_dir / "dataset.parquet"
+        dataset_csv = cfg.out_dir / "dataset.csv"
+        features_npz = cfg.out_dir / "features_npz.npz"
+        if dataset_parquet.exists():
+            dataset_parquet.unlink()
+        if dataset_csv.exists():
+            dataset_csv.unlink()
+        empty_df = polars_module.DataFrame()
+        empty_df.write_parquet(str(dataset_parquet))
+        empty_df.write_csv(str(dataset_csv))
+        np.savez(
+            features_npz,
+            X_train=np.empty((0, 0), dtype=np.float32),
+            X_val=np.empty((0, 0), dtype=np.float32),
+            feature_names=np.array([], dtype=np.str_),
+        )
+        metadata = DatasetMetadata(
+            dataset_id=cfg.dataset_id,
+            vintage_policy=cfg.vintage_policy,
+            vintage_cutoff=format_dt(vintage_as_of) if vintage_as_of else None,
+            build_ts=format_dt(build_ts) or build_ts.isoformat(),
+            ts_event_start=None,
+            ts_event_end=None,
+            overall_window=None,
+            train_window=None,
+            validation_window=None,
+            test_window=None,
+            macro_observation_counts={},
+        )
+        metadata_path = cfg.out_dir / "dataset_metadata.json"
+        metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
+        validation_result = DatasetValidationResult(
+            row_count=0,
+            positive_rate=None,
+            feature_coverage={},
+            macro_columns_present=(),
+            macro_observation_counts={},
+        )
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+        return (
+            BuildResult(
+                dataset_parquet=dataset_parquet,
+                dataset_csv=dataset_csv,
+                features_npz=features_npz,
+                feature_names=[],
+                feature_set_id=None,
+                metadata=metadata,
+            ),
+            validation_result,
+        )
+
+    total_rows = sum(meta.rows for meta in chunk_metas)
+    positive_sum = sum(meta.positives for meta in chunk_metas)
+    macro_totals: dict[str, int] = {}
+    for meta in chunk_metas:
+        for macro, count in meta.macro_counts.items():
+            macro_totals[macro] = macro_totals.get(macro, 0) + count
+    if cfg.macro_series_ids:
+        for macro in cfg.macro_series_ids:
+            macro_totals.setdefault(macro, 0)
+    overall_start = min((meta.ts_start for meta in chunk_metas if meta.ts_start is not None), default=None)
+    overall_end = max((meta.ts_end for meta in chunk_metas if meta.ts_end is not None), default=None)
+
+    dataset_parquet = cfg.out_dir / "dataset.parquet"
+    dataset_csv = cfg.out_dir / "dataset.csv"
+    features_npz = cfg.out_dir / "features_npz.npz"
+
+    if dataset_parquet.exists():
+        dataset_parquet.unlink()
+    if dataset_csv.exists():
+        dataset_csv.unlink()
+    if features_npz.exists():
+        features_npz.unlink()
+
+    validation_cfg = cfg.validation or DatasetValidationConfig(require_macro_series=cfg.macro_series_ids)
+    if validation_cfg.require_macro_series is None and cfg.macro_series_ids:
+        validation_cfg = replace(validation_cfg, require_macro_series=cfg.macro_series_ids)
+    if validation_cfg.expected_vintage_policy is None:
+        validation_cfg = replace(validation_cfg, expected_vintage_policy=cfg.vintage_policy)
+    if (
+        validation_cfg.macro_min_vintage_observations is None
+        and cfg.include_macro
+        and cfg.vintage_policy is VintagePolicy.REAL_TIME
+        and cfg.macro_series_ids
+    ):
+        validation_cfg = replace(validation_cfg, macro_min_vintage_observations=1)
+    if cfg.vintage_policy is not VintagePolicy.REAL_TIME and validation_cfg.macro_min_vintage_observations is not None:
+        validation_cfg = replace(validation_cfg, macro_min_vintage_observations=None)
+
+    pq_writer: pq.ParquetWriter | None = None
+    csv_header_written = False
+    feature_names: list[str] | None = None
+    non_null_counts: dict[str, int] | None = None
+    feature_writer: _StreamingFeatureWriter | None = None
+    offset = 0
+    train_rows = int(total_rows * 0.8)
+    train_window_end: datetime | None = None
+    validation_window_start: datetime | None = None
+
+    for meta in chunk_metas:
+        df_chunk = polars_module.read_parquet(str(meta.path))
+        if df_chunk.is_empty():
+            continue
+        if "timestamp" in df_chunk.columns:
+            df_chunk = df_chunk.sort(["timestamp", "instrument_id"] if "instrument_id" in df_chunk.columns else ["timestamp"])
+        elif "time_index" in df_chunk.columns:
+            df_chunk = df_chunk.sort("time_index")
+
+        df_chunk = df_chunk.with_columns(
+            polars_module.arange(offset, offset + df_chunk.height, eager=True).alias("time_index"),
+        )
+        df_chunk = builder._add_known_future_features_polars(df_chunk)
+
+        if feature_names is None:
+            feature_names = _infer_feature_columns(df_chunk)
+            feature_writer = _StreamingFeatureWriter(
+                out_path=features_npz,
+                feature_names=feature_names,
+                total_rows=total_rows,
+                cutoff=train_rows,
+            )
+            non_null_counts = dict.fromkeys(feature_names, 0)
+
+        if feature_names:
+            assert non_null_counts is not None
+            for name in feature_names:
+                if name in df_chunk.columns:
+                    non_null_counts[name] += int(df_chunk[name].is_not_null().sum())
+            if feature_writer is not None:
+                values_raw = df_chunk.select(feature_names).to_numpy()
+                values = cast(FloatArray, np.asarray(values_raw, dtype=np.float32))
+                feature_writer.append(
+                    values,
+                    global_offset=offset,
+                )
+
+        if train_rows > 0 and train_window_end is None and offset <= train_rows - 1 < offset + df_chunk.height:
+            idx = train_rows - 1 - offset
+            if 0 <= idx < df_chunk.height and "timestamp" in df_chunk.columns:
+                train_window_end = cast(datetime, df_chunk[idx, "timestamp"])
+        if validation_window_start is None and offset <= train_rows < offset + df_chunk.height:
+            idx_val = train_rows - offset
+            if 0 <= idx_val < df_chunk.height and "timestamp" in df_chunk.columns:
+                validation_window_start = cast(datetime, df_chunk[idx_val, "timestamp"])
+
+        table = df_chunk.to_arrow()
+        if pq_writer is None:
+            pq_writer = pq.ParquetWriter(str(dataset_parquet), table.schema, compression="zstd")
+        pq_writer.write_table(table)
+
+        mode = "w" if not csv_header_written else "a"
+        with open(dataset_csv, mode, newline="") as csv_handle:
+            df_chunk.write_csv(csv_handle, include_header=not csv_header_written)
+        csv_header_written = True
+
+        offset += df_chunk.height
+        meta.path.unlink(missing_ok=True)
+
+    if pq_writer is not None:
+        pq_writer.close()
+    if feature_writer is not None:
+        feature_writer.finalize()
+
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+
+    positive_rate = positive_sum / total_rows if total_rows else None
+    if feature_names and non_null_counts is not None and total_rows > 0:
+        feature_coverage = {
+            name: non_null_counts[name] / total_rows
+            for name in feature_names
+        }
+    elif feature_names and non_null_counts is not None:
+        feature_coverage = dict.fromkeys(feature_names, 0.0)
+    else:
+        feature_coverage = {}
+
+    validation_result = _validate_aggregated_dataset(
+        config=validation_cfg,
+        total_rows=total_rows,
+        positive_rate=positive_rate,
+        feature_coverage=feature_coverage,
+        macro_counts=macro_totals,
+    )
+
+    logger.info(
+        "Dataset validation succeeded",
+        rows=validation_result.row_count,
+        positive_rate=validation_result.positive_rate,
+    )
+
+    dataset_id = cfg.dataset_id
+
+    metadata = DatasetMetadata(
+        dataset_id=dataset_id,
+        vintage_policy=cfg.vintage_policy,
+        vintage_cutoff=format_dt(vintage_as_of) if vintage_as_of else None,
+        build_ts=format_dt(build_ts) or build_ts.isoformat(),
+        ts_event_start=format_dt(overall_start) if overall_start else None,
+        ts_event_end=format_dt(overall_end) if overall_end else None,
+        overall_window=_format_window(overall_start, overall_end),
+        train_window=_format_window(overall_start, train_window_end),
+        validation_window=_format_window(validation_window_start, overall_end),
+        test_window=None,
+        macro_observation_counts=macro_totals,
+    )
+
+    metadata_path = cfg.out_dir / "dataset_metadata.json"
+    metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
+
+    return (
+        BuildResult(
+            dataset_parquet=dataset_parquet,
+            dataset_csv=dataset_csv,
+            features_npz=features_npz,
+            feature_names=list(feature_names or []),
+            feature_set_id=None,
+            metadata=metadata,
+        ),
+        validation_result,
+    )
 def _format_window(start: datetime | None, end: datetime | None) -> tuple[str, str] | None:
     if start is None or end is None:
         return None
@@ -883,25 +1434,30 @@ def build_tft_dataset(
 
     fred_parquet_path = cfg.macro_fred_path or DEFAULT_FRED_PARQUET_PATH
     macro_series_ids = cfg.macro_series_ids
+    alfred_start_str, alfred_end_str = _derive_alfred_range(cfg)
+    alfred_window_days = 180 if cfg.chunk_days else 365
     if cfg.include_macro and cfg.auto_refresh_macro and not cfg.student_mode:
         refresh_window = timedelta(hours=max(cfg.macro_staleness_hours, 0))
-        result = ensure_macro_ready(
+        macro_refresh = ensure_macro_ready(
             fred_path=fred_parquet_path,
             vintage_dir=cfg.fred_vintage_dir,
             max_age=refresh_window,
             series_ids=macro_series_ids,
+            alfred_realtime_start=alfred_start_str,
+            alfred_realtime_end=alfred_end_str,
+            alfred_window_days=alfred_window_days,
         )
-        if result.fred_error is not None:
+        if macro_refresh.fred_error is not None:
             logger.warning(
                 "FRED macro refresh failed; proceeding with existing artifacts",
-                error=str(result.fred_error),
+                error=str(macro_refresh.fred_error),
                 path=str(fred_parquet_path),
             )
-        if result.alfred_error is not None:
+        if macro_refresh.alfred_error is not None:
             logger.warning(
                 "ALFRED macro refresh failed; proceeding with existing artifacts",
-                error=str(result.alfred_error),
-                base_dir=str(result.alfred_base_dir),
+                error=str(macro_refresh.alfred_error),
+                base_dir=str(macro_refresh.alfred_base_dir),
             )
 
     fred_path_str = str(fred_parquet_path) if cfg.include_macro else None
@@ -936,52 +1492,39 @@ def build_tft_dataset(
         market_dataset_id=cfg.market_dataset_id,
     )
 
-    # Optional chunked build (date slices)
+    chunk_mode = bool(cfg.chunk_days > 0 and cfg.start and cfg.end)
+    if chunk_mode:
+        build_result, _ = _build_dataset_chunked(
+            builder=builder,
+            cfg=cfg,
+            vintage_as_of=vintage_as_of,
+            build_ts=build_ts,
+        )
+        return build_result
+
     from ml._imports import HAS_POLARS
     from ml._imports import pl
-    from ml.ml_types import PolarsDF
 
     assert HAS_POLARS and pl is not None
-    df: PolarsDF
-    if cfg.chunk_days > 0 and cfg.start and cfg.end:
-        from ml.ml_types import PolarsDF
 
-        dfs: list[PolarsDF] = []
-        cursor = cfg.start
-        while cursor < cfg.end:
-            chunk_end = min(cursor + timedelta(days=cfg.chunk_days), cfg.end)
-            dchunk = builder.build_training_dataset(
-                horizon_minutes=cfg.horizon_minutes,
-                min_return_threshold=cfg.threshold,
-                lookback_periods=cfg.lookback_periods,
-                use_polars=True,
-                start=cursor,
-                end=chunk_end,
-            )
-            if isinstance(dchunk, pl.DataFrame) and not dchunk.is_empty():
-                dfs.append(dchunk)
-            cursor = chunk_end
-        df = pl.concat(dfs, how="vertical") if dfs else pl.DataFrame()
-    else:
-        df_any = builder.build_training_dataset(
-            horizon_minutes=cfg.horizon_minutes,
-            min_return_threshold=cfg.threshold,
-            lookback_periods=cfg.lookback_periods,
-            use_polars=True,
-            start=cfg.start,
-            end=cfg.end,
-        )
-        # Ensure Polars for consistent artifact writing
-        if isinstance(df_any, pl.DataFrame):
-            df = df_any
-        else:  # pragma: no cover - fallback path
-            from ml._imports import HAS_PANDAS
-            from ml._imports import pd
+    df_any = builder.build_training_dataset(
+        horizon_minutes=cfg.horizon_minutes,
+        min_return_threshold=cfg.threshold,
+        lookback_periods=cfg.lookback_periods,
+        use_polars=True,
+        start=cfg.start,
+        end=cfg.end,
+    )
+    if isinstance(df_any, pl.DataFrame):
+        dataset_df = df_any
+    else:  # pragma: no cover - fallback path
+        from ml._imports import HAS_PANDAS
+        from ml._imports import pd
 
-            if not HAS_PANDAS:
-                check_ml_dependencies(["pandas"])  # pragma: no cover
-            assert pd is not None
-            df = pl.from_pandas(df_any)
+        if not HAS_PANDAS:
+            check_ml_dependencies(["pandas"])  # pragma: no cover
+        assert pd is not None
+        dataset_df = pl.from_pandas(df_any)
 
     # Validate dataset before persisting artifacts
     validation_cfg = cfg.validation or DatasetValidationConfig(
@@ -1000,7 +1543,7 @@ def build_tft_dataset(
         validation_cfg = replace(validation_cfg, macro_min_vintage_observations=1)
     if cfg.vintage_policy is not VintagePolicy.REAL_TIME and validation_cfg.macro_min_vintage_observations is not None:
         validation_cfg = replace(validation_cfg, macro_min_vintage_observations=None)
-    validation_result = validate_dataset(df, config=validation_cfg)
+    validation_result = validate_dataset(dataset_df, config=validation_cfg)
     logger.info(
         "Dataset validation succeeded",
         rows=validation_result.row_count,
@@ -1010,12 +1553,12 @@ def build_tft_dataset(
     # Persist dataset artifacts
     dataset_parquet = cfg.out_dir / "dataset.parquet"
     dataset_csv = cfg.out_dir / "dataset.csv"
-    df.write_parquet(str(dataset_parquet))
-    df.write_csv(str(dataset_csv))
+    dataset_df.write_parquet(str(dataset_parquet))
+    dataset_df.write_csv(str(dataset_csv))
 
     # Build feature matrix artifacts without materialising the entire dataset in memory
-    feature_names = _infer_feature_columns(df)
-    df_sorted = df.sort("time_index") if "time_index" in df.columns else df.clone()
+    feature_names = _infer_feature_columns(dataset_df)
+    df_sorted = dataset_df.sort("time_index") if "time_index" in dataset_df.columns else dataset_df.clone()
     cutoff = int(df_sorted.height * 0.8) if df_sorted.height > 0 else 0
     features_npz = cfg.out_dir / "features_npz.npz"
     _write_feature_npz_from_polars(

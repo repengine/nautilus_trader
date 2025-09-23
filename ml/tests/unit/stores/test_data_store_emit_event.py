@@ -42,7 +42,6 @@ class RegistryMockAdapter(RegistryProtocol):
 
     def emit_event(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
         stage: Stage,
@@ -53,7 +52,7 @@ class RegistryMockAdapter(RegistryProtocol):
         count: int,
         status: EventStatus,
         error: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         self._mock.emit_event(
             dataset_id=dataset_id,

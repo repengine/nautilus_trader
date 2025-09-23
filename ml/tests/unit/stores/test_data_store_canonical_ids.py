@@ -7,53 +7,45 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
+from types import MethodType
 
 import pytest
+
+from typing import cast
 
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 from ml.stores.data_store import DataStore
-
-
-class _MockRegistry:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-        self.watermarks: list[dict[str, Any]] = []
-
-    def emit_event(self, **kwargs: Any) -> None:
-        self.events.append(kwargs)
-
-    def update_watermark(self, **kwargs: Any) -> None:
-        self.watermarks.append(kwargs)
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
 
 
 @pytest.mark.unit
 def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
-    registry = _MockRegistry()
-
-    # Use simple mocks for underlying stores to avoid DB usage
-    class _Dummy:
-        def __getattr__(self, _name: str) -> Any:  # pragma: no cover - trivial
-            return lambda *a, **k: None
-
-    feature_store = _Dummy()
-    model_store = _Dummy()
-    strategy_store = _Dummy()
+    registry = RegistryTestStub()
+    feature_store = cast(FeatureStore, FeatureStoreNoOp())
+    model_store = cast(ModelStore, ModelStoreNoOp())
+    strategy_store = cast(StrategyStore, StrategyStoreNoOp())
 
     # Use an in-memory SQLite engine to keep this unit test DB-free
     connection_string = "sqlite:///:memory:"
 
     store = DataStore(
-        registry=registry,  # type: ignore[arg-type]
+        registry=registry,
         connection_string=connection_string,
-        feature_store=feature_store,  # type: ignore[arg-type]
-        model_store=model_store,  # type: ignore[arg-type]
-        strategy_store=strategy_store,  # type: ignore[arg-type]
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
     )
 
     # Avoid auto-registration path during unit test
-    monkeypatch.setattr(store, "_ensure_dataset_registered", lambda *a, **k: None)  # type: ignore[misc]
+    def _noop(_self: DataStore, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    cast(Any, store)._ensure_dataset_registered = MethodType(_noop, store)
 
     ts = int(time.time() * 1e9)
 

@@ -13,6 +13,7 @@ paths.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import logging
@@ -96,6 +97,14 @@ class BuildArtifacts:
     feature_set_id: str | None
     feature_names: tuple[str, ...] = ()
     dataset_metadata: DatasetMetadata | None = None
+
+
+class _EmptyDatasetError(RuntimeError):
+    """Raised when the dataset build produces zero rows."""
+
+    def __init__(self, message: str, *, row_count: int | None = None) -> None:
+        super().__init__(message)
+        self.row_count = row_count
 
 
 @dataclass(slots=True, frozen=True)
@@ -263,6 +272,9 @@ _DATASET_MANIFEST_DEFAULTS: dict[DatasetType, _DatasetManifestSpec] = {
             "low": "float64",
             "close": "float64",
             "volume": "float64",
+            "symbol": "str",
+            "publisher_id": "str",
+            "rtype": "str",
         },
         primary_keys=("instrument_id", "ts_event"),
         retention_days=730,
@@ -383,6 +395,58 @@ class MLPipelineOrchestrator:
     def __post_init__(self) -> None:
         if self.data_registry is None and self.registry is not None:
             object.__setattr__(self, "data_registry", self.registry)
+
+    @staticmethod
+    def _infer_dataset_row_count(result: object) -> int | None:
+        """Best-effort row count inference for API build results."""
+        metadata = getattr(result, "metadata", None)
+        if metadata is not None:
+            overall_window = getattr(metadata, "overall_window", None)
+            ts_start = getattr(metadata, "ts_event_start", None)
+            ts_end = getattr(metadata, "ts_event_end", None)
+            if overall_window is None and ts_start is None and ts_end is None:
+                return 0
+
+        dataset_parquet = getattr(result, "dataset_parquet", None)
+        if isinstance(dataset_parquet, Path) and dataset_parquet.exists():
+            try:
+                import pyarrow.parquet as pq
+            except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
+                logger.debug(
+                    "pyarrow unavailable for row count inference",
+                    extra={"dataset_parquet": str(dataset_parquet)},
+                )
+            else:
+                try:
+                    return int(pq.ParquetFile(str(dataset_parquet)).metadata.num_rows)
+                except Exception:  # pragma: no cover - defensive best effort
+                    logger.debug(
+                        "Unable to infer row count from dataset parquet",
+                        exc_info=True,
+                        extra={"dataset_parquet": str(dataset_parquet)},
+                    )
+            # fall through when inference fails
+        dataset_csv = getattr(result, "dataset_csv", None)
+        if isinstance(dataset_csv, Path) and dataset_csv.exists():
+            try:
+                with dataset_csv.open("r", encoding="utf-8") as handle:
+                    next(handle, None)  # header (if any)
+                    has_data = next(handle, None)
+                return 0 if has_data is None else None
+            except Exception:  # pragma: no cover - defensive best effort
+                logger.debug(
+                    "Unable to infer row count from dataset CSV",
+                    exc_info=True,
+                    extra={"dataset_csv": str(dataset_csv)},
+                )
+
+        return None
+
+    @staticmethod
+    def _compute_schema_hash(schema: dict[str, Any]) -> str:
+        """Compute a stable hash for the provided schema mapping."""
+        sorted_schema = dict(sorted(schema.items()))
+        return hashlib.sha256(str(sorted_schema).encode()).hexdigest()
 
     @staticmethod
     def _resolve_instrument_ids(
@@ -771,6 +835,7 @@ class MLPipelineOrchestrator:
         }
         constraints = {"nullability": non_nullable} if non_nullable else {}
         now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+        schema_hash = self._compute_schema_hash(schema)
         manifest = DatasetManifest(
             dataset_id=dataset_id,
             dataset_type=dataset_type,
@@ -782,7 +847,7 @@ class MLPipelineOrchestrator:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=list(spec.primary_keys),
-            schema_hash="auto",
+            schema_hash=schema_hash,
             constraints=constraints,
             lineage=[],
             pipeline_signature="auto_fill_orchestrator",
@@ -967,6 +1032,19 @@ class MLPipelineOrchestrator:
                 data_store=cast("DataStoreFacadeProtocol | None", self.data_store),
             )
             if not result.feature_names:
+                row_count = self._infer_dataset_row_count(result)
+                metadata = getattr(result, "metadata", None)
+                dataset_empty = row_count == 0
+                if not dataset_empty and metadata is not None:
+                    overall_window = getattr(metadata, "overall_window", None)
+                    ts_start = getattr(metadata, "ts_event_start", None)
+                    ts_end = getattr(metadata, "ts_event_end", None)
+                    dataset_empty = overall_window is None and ts_start is None and ts_end is None
+                if dataset_empty:
+                    raise _EmptyDatasetError(
+                        "Dataset build via API returned zero rows",
+                        row_count=row_count,
+                    )
                 raise ValueError("API dataset build returned no features; falling back to CLI")
             manifest_id = self._export_feature_manifest(cfg, result)
             # Persist feature registration metadata for HPO
@@ -1009,6 +1087,23 @@ class MLPipelineOrchestrator:
                 dataset_metadata=dataset_metadata,
             )
             return 0
+        except _EmptyDatasetError as empty_exc:
+            row_info = (
+                f" rows={empty_exc.row_count}"
+                if empty_exc.row_count is not None
+                else ""
+            )
+            logger.error(
+                "Dataset build produced no rows%s; extend the build window or ensure catalog coverage before rerunning.",
+                row_info,
+                extra={
+                    "dataset_id": cfg.dataset_id,
+                    "symbols": cfg.symbols,
+                    "start_iso": cfg.start_iso,
+                    "end_iso": cfg.end_iso,
+                },
+            )
+            return 1
         except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
             import logging as _logging
 

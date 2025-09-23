@@ -1609,7 +1609,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             self.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                stage=stage,
+                stage=stage.value,
                 source=source,
                 run_id=run_id,
                 ts_min=0,

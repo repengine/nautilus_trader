@@ -78,6 +78,8 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from ml.tests.builders import DataBuilder
 
+PIPELINE_INSTRUMENT: InstrumentId = InstrumentId(Symbol("SPY"), Venue("NYSE"))
+
 # Check if databento is available
 try:
     import databento as db
@@ -293,7 +295,6 @@ class TestEndToEndPipeline:
         self,
         test_database: _Any,
         temp_data_dir: Path,
-        default_instrument_id: _Any,
     ) -> None:
         """
         Test feature computation and storage in FeatureStore.
@@ -305,7 +306,7 @@ class TestEndToEndPipeline:
 
         # Load data
         # Use the same instrument identifier we wrote (SPY.NYSE)
-        df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
+        df = bars_to_dataframe(catalog, [str(PIPELINE_INSTRUMENT)])
 
         # Configure feature engineering
         config = FeatureConfig(
@@ -354,7 +355,7 @@ class TestEndToEndPipeline:
         # Store features using real PostgreSQL store
         for i, row in enumerate(_cast(_Any, features_df).to_dicts()):
             feature_store.store_features(
-                instrument_id=str(default_instrument_id),
+                instrument_id=str(PIPELINE_INSTRUMENT),
                 ts_event=mock_bars[i].ts_event,
                 features=row,
             )
@@ -368,7 +369,6 @@ class TestEndToEndPipeline:
     def test_signal_generation_from_features(
         self,
         temp_data_dir: Path,
-        default_instrument_id: _Any,
     ) -> None:
         """
         Test ML signal generation from computed features.
@@ -383,7 +383,7 @@ class TestEndToEndPipeline:
 
         # Load and compute features
         # Use the instrument we wrote to the catalog (SPY.NYSE)
-        df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
+        df = bars_to_dataframe(catalog, [str(PIPELINE_INSTRUMENT)])
         config = FeatureConfig(rsi_period=14)
         from ml.stores.protocols import FeatureStoreStrictProtocol
 
@@ -415,7 +415,7 @@ class TestEndToEndPipeline:
         signals = []
         for i in range(len(predictions)):
             signal = {
-                "instrument_id": str(default_instrument_id),
+                "instrument_id": str(PIPELINE_INSTRUMENT),
                 "ts_event": mock_bars[i].ts_event,
                 "prediction": int(predictions[i]) - 1,  # Convert to -1, 0, 1
                 "confidence": float(np.max(probabilities[i])),
@@ -437,7 +437,6 @@ class TestEndToEndPipeline:
         self,
         test_database: _Any,
         temp_data_dir: Path,
-        default_instrument_id: _Any,
     ) -> None:
         """
         Test that all data is correctly persisted to stores.
@@ -456,7 +455,7 @@ class TestEndToEndPipeline:
 
         # 1. Store features
         feature_store.store_features(
-            instrument_id=str(default_instrument_id),
+            instrument_id=str(PIPELINE_INSTRUMENT),
             ts_event=int(time.time_ns()),
             features={"rsi": 50.0, "volume_ratio": 1.2},
         )
@@ -464,7 +463,7 @@ class TestEndToEndPipeline:
         # 2. Store model predictions
         model_store.store_prediction(
             model_id="xgb_v1",
-            instrument_id=str(default_instrument_id),
+            instrument_id=str(PIPELINE_INSTRUMENT),
             ts_event=int(time.time_ns()),
             prediction=1,
             confidence=0.85,
@@ -473,7 +472,7 @@ class TestEndToEndPipeline:
         # 3. Store strategy decisions
         strategy_store.store_decision(
             strategy_id="ml_strategy_v1",
-            instrument_id=str(default_instrument_id),
+            instrument_id=str(PIPELINE_INSTRUMENT),
             ts_event=int(time.time_ns()),
             action="BUY",
             confidence=0.85,
@@ -492,7 +491,6 @@ class TestEndToEndPipeline:
     def test_pipeline_error_recovery(
         self,
         temp_data_dir: Path,
-        default_instrument_id: _Any,
     ) -> None:
         """
         Test pipeline error handling and recovery.
@@ -525,7 +523,7 @@ class TestEndToEndPipeline:
             # Should handle store errors gracefully
             try:
                 feature_store.store_features(
-                    instrument_id=str(default_instrument_id),
+                    instrument_id=str(PIPELINE_INSTRUMENT),
                     ts_event=123456,
                     features={},
                 )
@@ -549,7 +547,6 @@ class TestEndToEndPipeline:
         n_bars: int,
         n_features: int,
         temp_data_dir: Path,
-        default_instrument_id: _Any,
     ) -> None:
         """Property test: pipeline handles various data scales."""
         # Generate scaled mock data
@@ -563,7 +560,7 @@ class TestEndToEndPipeline:
 
         # Load data
         # Load data for the instrument just written (SPY.NYSE)
-        instrument_ids = [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))]
+        instrument_ids = [str(PIPELINE_INSTRUMENT)]
         df = bars_to_dataframe(catalog, instrument_ids)
         assert len(df) == n_bars
 
@@ -662,7 +659,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_online_feature_parity(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
+    def test_online_feature_parity(self, temp_data_dir: Path) -> None:
         """
         Test that online and batch feature computation match.
         """
@@ -671,10 +668,7 @@ class TestEndToEndPipeline:
         mock_bars = self._create_mock_bars("SPY", n_bars=50)
         catalog.write_data(mock_bars)
 
-        df = bars_to_dataframe(
-            catalog,
-            [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))],
-        )
+        df = bars_to_dataframe(catalog, [str(PIPELINE_INSTRUMENT)])
         config = FeatureConfig(rsi_period=14)
         engineer = FeatureEngineer(config)
 
