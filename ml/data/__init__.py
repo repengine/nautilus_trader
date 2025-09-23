@@ -282,14 +282,16 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
 from ml.stores.protocols import DataStoreFacadeProtocol
+from ml.ml_types import PolarsDF
 
 
 # (Avoid importing optional deps here; import lazily inside functions)
@@ -563,6 +565,132 @@ def _infer_feature_columns(df: Any) -> list[str]:
     return []
 
 
+def _write_feature_npz_from_polars(
+    df_sorted: PolarsDF,
+    feature_names: Sequence[str],
+    *,
+    out_path: Path,
+    cutoff: int,
+    chunk_size: int = 200_000,
+) -> None:
+    """Persist feature matrices to an ``.npz`` without loading all rows into memory."""
+
+    from ml._imports import pl
+
+    if pl is None:
+        msg = "Polars is required to write feature matrices"
+        raise RuntimeError(msg)
+    if not isinstance(df_sorted, pl.DataFrame):
+        msg = "df_sorted must be a Polars DataFrame"
+        raise TypeError(msg)
+
+    num_rows = df_sorted.height
+    num_features = len(feature_names)
+    if num_rows == 0 or num_features == 0:
+        np.savez_compressed(
+            out_path,
+            X_train=np.empty((0, num_features), dtype=np.float32),
+            X_val=np.empty((0, num_features), dtype=np.float32),
+            feature_names=np.array(feature_names, dtype=np.str_),
+        )
+        return
+
+    chunk_size = max(int(chunk_size), 1)
+    train_rows = int(min(max(cutoff, 0), num_rows))
+    val_rows = int(max(num_rows - train_rows, 0))
+
+    train_tmp = out_path.with_name(out_path.name + ".train.tmp") if train_rows > 0 else None
+    val_tmp = out_path.with_name(out_path.name + ".val.tmp") if val_rows > 0 else None
+
+    train_mem: np.memmap[Any, np.dtype[np.float32]] | None = None
+    val_mem: np.memmap[Any, np.dtype[np.float32]] | None = None
+    if train_tmp is not None and num_features > 0:
+        train_mem = np.memmap(
+            str(train_tmp),
+            dtype=np.float32,
+            mode="w+",
+            shape=(train_rows, num_features),
+        )
+    if val_tmp is not None and num_features > 0:
+        val_mem = np.memmap(
+            str(val_tmp),
+            dtype=np.float32,
+            mode="w+",
+            shape=(val_rows, num_features),
+        )
+
+    train_pos = 0
+    val_pos = 0
+    feature_expr = [pl.col(name).cast(pl.Float32) for name in feature_names]
+
+    row_start = 0
+    while row_start < num_rows:
+        length = min(chunk_size, num_rows - row_start)
+        if feature_expr:
+            chunk = df_sorted.slice(row_start, length).select(feature_expr)
+            chunk_np = chunk.to_numpy()
+        else:
+            chunk_np = np.empty((length, 0), dtype=np.float32)
+
+        row_end = row_start + length
+        if train_mem is not None and row_start < train_rows:
+            train_end = min(row_end, train_rows)
+            train_len = train_end - row_start
+            if train_len > 0:
+                train_mem[train_pos : train_pos + train_len] = chunk_np[:train_len]
+                train_pos += train_len
+        if val_mem is not None and row_end > train_rows:
+            val_chunk_start = max(train_rows - row_start, 0)
+            val_len = row_end - max(row_start, train_rows)
+            if val_len > 0:
+                val_mem[val_pos : val_pos + val_len] = chunk_np[val_chunk_start : val_chunk_start + val_len]
+                val_pos += val_len
+
+        row_start = row_end
+
+    X_train: NDArray[np.float32] | np.memmap[Any, np.dtype[np.float32]]
+    X_val: NDArray[np.float32] | np.memmap[Any, np.dtype[np.float32]]
+    if train_mem is not None:
+        assert train_tmp is not None
+        train_mem.flush()
+        X_train = np.memmap(
+            str(train_tmp),
+            dtype=np.float32,
+            mode="r",
+            shape=(train_rows, num_features),
+        )
+    else:
+        X_train = np.empty((0, num_features), dtype=np.float32)
+    if val_mem is not None:
+        assert val_tmp is not None
+        val_mem.flush()
+        X_val = np.memmap(
+            str(val_tmp),
+            dtype=np.float32,
+            mode="r",
+            shape=(val_rows, num_features),
+        )
+    else:
+        X_val = np.empty((0, num_features), dtype=np.float32)
+
+    try:
+        np.savez_compressed(
+            out_path,
+            X_train=X_train,
+            X_val=X_val,
+            feature_names=np.array(feature_names, dtype=np.str_),
+        )
+    finally:
+        if isinstance(X_train, np.memmap):
+            del X_train
+        if isinstance(X_val, np.memmap):
+            del X_val
+        if train_tmp is not None and train_tmp.exists():
+            train_tmp.unlink()
+        if val_tmp is not None and val_tmp.exists():
+            val_tmp.unlink()
+
+
 def _format_window(start: datetime | None, end: datetime | None) -> tuple[str, str] | None:
     if start is None or end is None:
         return None
@@ -583,13 +711,7 @@ def _compute_dataset_metadata(
     macro_observation_counts: dict[str, int] | None,
 ) -> DatasetMetadata:
     from ml._imports import pd
-
-    ts_series = None
-    if pd is not None and "ts_event" in df_pd_sorted.columns:
-        try:
-            ts_series = pd.to_datetime(df_pd_sorted["ts_event"], utc=True)
-        except Exception:
-            ts_series = None
+    from ml._imports import pl
 
     overall_window = None
     train_window = None
@@ -597,22 +719,55 @@ def _compute_dataset_metadata(
     ts_start = None
     ts_end = None
 
-    if ts_series is not None and hasattr(ts_series, "iloc") and len(ts_series) > 0:
-        start_dt = ts_series.iloc[0].to_pydatetime()
-        end_dt = ts_series.iloc[-1].to_pydatetime()
-        overall_window = _format_window(start_dt, end_dt)
-        ts_start = format_dt(start_dt)
-        ts_end = format_dt(end_dt)
+    if pl is not None and isinstance(df_pd_sorted, pl.DataFrame):
+        if "ts_event" in df_pd_sorted.columns:
+            ts_col = "ts_event"
+        elif "timestamp" in df_pd_sorted.columns:
+            ts_col = "timestamp"
+        else:
+            ts_col = None
 
-        if cutoff > 0:
-            train_start = start_dt
-            train_end = ts_series.iloc[max(cutoff - 1, 0)].to_pydatetime()
-            train_window = _format_window(train_start, train_end)
+        if ts_col is not None and df_pd_sorted.height > 0:
+            ts_series = df_pd_sorted.select(pl.col(ts_col)).to_series()
+            start_dt = ts_series[0]
+            end_dt = ts_series[len(ts_series) - 1]
+            overall_window = _format_window(start_dt, end_dt)
+            ts_start = format_dt(start_dt)
+            ts_end = format_dt(end_dt)
 
-        if cutoff < len(ts_series):
-            val_start = ts_series.iloc[cutoff].to_pydatetime()
-            val_end = end_dt
-            validation_window = _format_window(val_start, val_end)
+            if cutoff > 0:
+                train_start_dt = start_dt
+                train_end_dt = ts_series[min(cutoff - 1, len(ts_series) - 1)]
+                train_window = _format_window(train_start_dt, train_end_dt)
+
+            if cutoff < len(ts_series):
+                val_start_dt = ts_series[cutoff]
+                val_end_dt = end_dt
+                validation_window = _format_window(val_start_dt, val_end_dt)
+    else:
+        ts_series = None
+        if pd is not None and hasattr(df_pd_sorted, "columns") and "ts_event" in df_pd_sorted.columns:
+            try:
+                ts_series = pd.to_datetime(df_pd_sorted["ts_event"], utc=True)
+            except Exception:
+                ts_series = None
+
+        if ts_series is not None and hasattr(ts_series, "iloc") and len(ts_series) > 0:
+            start_dt = ts_series.iloc[0].to_pydatetime()
+            end_dt = ts_series.iloc[-1].to_pydatetime()
+            overall_window = _format_window(start_dt, end_dt)
+            ts_start = format_dt(start_dt)
+            ts_end = format_dt(end_dt)
+
+            if cutoff > 0:
+                train_start = start_dt
+                train_end = ts_series.iloc[max(cutoff - 1, 0)].to_pydatetime()
+                train_window = _format_window(train_start, train_end)
+
+            if cutoff < len(ts_series):
+                val_start = ts_series.iloc[cutoff].to_pydatetime()
+                val_end = end_dt
+                validation_window = _format_window(val_start, val_end)
 
     # Placeholder for explicit test split metadata (future extension)
     build_ts_iso = format_dt(build_ts)
@@ -858,35 +1013,20 @@ def build_tft_dataset(
     df.write_parquet(str(dataset_parquet))
     df.write_csv(str(dataset_csv))
 
-    # Build feature matrix artifacts
-    from ml._imports import HAS_PANDAS
-    from ml._imports import pd
-
-    if not HAS_PANDAS:
-        check_ml_dependencies(["pandas"])  # pragma: no cover
-    assert pd is not None
-    df_pd = df.to_pandas()
-    if "time_index" not in df_pd.columns:
-        try:
-            df_pd["time_index"] = np.arange(len(df_pd), dtype=np.int64)
-        except Exception:  # pragma: no cover - defensive
-            pass
-    feature_names = _infer_feature_columns(df_pd)
-    df_pd_sorted = df_pd.sort_values("time_index")
-    cutoff = int(len(df_pd_sorted) * 0.8) if len(df_pd_sorted) > 0 else 0
-    X = df_pd_sorted[feature_names].to_numpy(dtype=np.float32)
-    X_train = X[:cutoff]
-    X_val = X[cutoff:]
+    # Build feature matrix artifacts without materialising the entire dataset in memory
+    feature_names = _infer_feature_columns(df)
+    df_sorted = df.sort("time_index") if "time_index" in df.columns else df.clone()
+    cutoff = int(df_sorted.height * 0.8) if df_sorted.height > 0 else 0
     features_npz = cfg.out_dir / "features_npz.npz"
-    np.savez_compressed(
-        features_npz,
-        X_train=X_train,
-        X_val=X_val,
-        feature_names=np.array(feature_names),
+    _write_feature_npz_from_polars(
+        df_sorted,
+        feature_names,
+        out_path=features_npz,
+        cutoff=cutoff,
     )
 
     metadata = _compute_dataset_metadata(
-        df_pd_sorted,
+        df_sorted,
         cutoff,
         cfg.vintage_policy,
         vintage_as_of,
@@ -949,24 +1089,21 @@ def build_tft_dataset(
                 ensure_healthy=False,
             )
             data_registry = cast(RegistryProtocol, mgr.data_registry)
-            # Derive basic stats
-            count = len(df_pd_sorted) if "df_pd_sorted" in locals() else 0
-            # Attempt to extract time bounds (ns) from available columns
+            df_event = df_sorted
+            count = int(df_event.height)
             ts_min_ns = 0
             ts_max_ns = 0
             try:
-                if "timestamp" in df_pd_sorted.columns:  # pandas path
-                    ts_col = df_pd_sorted["timestamp"]
-                    # Support ints or pandas datetime
-                    if hasattr(ts_col, "dt"):
-                        ts_min_ns = int(getattr(ts_col.min(), "value", ts_col.min()))
-                        ts_max_ns = int(getattr(ts_col.max(), "value", ts_col.max()))
-                    else:
-                        ts_min_ns = int(ts_col.min())
-                        ts_max_ns = int(ts_col.max())
-                elif "ts_event" in df_pd_sorted.columns:
-                    ts_min_ns = int(df_pd_sorted["ts_event"].min())
-                    ts_max_ns = int(df_pd_sorted["ts_event"].max())
+                if "timestamp" in df_event.columns:
+                    ts_min_ns = int(
+                        df_event.select(pl.col("timestamp").cast(pl.Datetime("ns")).min()).item(),
+                    )
+                    ts_max_ns = int(
+                        df_event.select(pl.col("timestamp").cast(pl.Datetime("ns")).max()).item(),
+                    )
+                elif "ts_event" in df_event.columns:
+                    ts_min_ns = int(df_event.select(pl.col("ts_event").min()).item())
+                    ts_max_ns = int(df_event.select(pl.col("ts_event").max()).item())
             except Exception:
                 ts_min_ns = 0
                 ts_max_ns = 0

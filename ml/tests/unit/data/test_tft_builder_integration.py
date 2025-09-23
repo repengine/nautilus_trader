@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
 import polars as pl
+from pytest import MonkeyPatch
 
 import ml.data.tft_dataset_builder as builder_mod
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.tests.builders import DataBuilder
 
 
-def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl.DataFrame:  # type: ignore[no-redef]
+def _fake_bars_to_dataframe(
+    catalog: object,
+    instrument_ids: Sequence[str],
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> pl.DataFrame:
     # Produce 5 minutes of bars using DataBuilder for consistent test data
     base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
     base_ns = int(base.timestamp() * 1e9)
@@ -31,14 +38,14 @@ def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl
     )
 
 
-def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
+def test_tft_builder_macro_and_micro(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     # Monkeypatch bars loader
     monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
 
     # Monkeypatch micro aggregator
     class _FakeAgg:
         def __init__(self, base_dir: Path) -> None:
-            pass
+            del base_dir
 
         def compute_for_symbol(self, symbol: str) -> pl.DataFrame:
             base2 = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
@@ -69,6 +76,7 @@ def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
         micro_base_dir=str(tmp_path),
     )
     df = builder.build_training_dataset(use_polars=True, lookback_periods=2, horizon_minutes=1)
+    assert isinstance(df, pl.DataFrame)
     assert not df.is_empty()
     # Has target and known features
     assert "y" in df.columns

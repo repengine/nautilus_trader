@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import datetime as dt
 from datetime import datetime
+from typing import Literal, cast
+
+from sqlalchemy.engine import Engine
 
 from ml.dashboard.store_health import StoreHealthSummary
 from ml.dashboard.store_health import summarize_data_store
@@ -9,11 +12,16 @@ from ml.dashboard.store_health import summarize_feature_store
 
 
 class _FakeCursor:
-    def __init__(self, *, first_row: dict[str, int | None] | None = None, rows: list[dict[str, int | str | None]] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        first_row: dict[str, int | str | None] | None = None,
+        rows: list[dict[str, int | str | None]] | None = None,
+    ) -> None:
         self._first = first_row
         self._rows = rows or []
 
-    def first(self) -> dict[str, int | None] | None:
+    def first(self) -> dict[str, int | str | None] | None:
         return self._first
 
     def fetchall(self) -> list[dict[str, int | str | None]]:
@@ -40,7 +48,12 @@ class _SequenceCtx:
     def __enter__(self) -> _SequenceEngine:
         return self._engine
 
-    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> bool:
+    def __exit__(
+        self,
+        _exc_type: object,
+        _exc: object,
+        _tb: object,
+    ) -> Literal[False]:
         return False
 
 
@@ -51,7 +64,7 @@ class _HealthyStore:
 
 def test_summarize_feature_store_success() -> None:
     cursor = _FakeCursor(first_row={"ts_event": 1_000_000_000})
-    engine = _SequenceEngine([cursor])
+    engine = cast(Engine, _SequenceEngine([cursor]))
     summary = summarize_feature_store(_HealthyStore(), engine, now=datetime(2025, 1, 1, tzinfo=dt.UTC))
     assert isinstance(summary, StoreHealthSummary)
     assert summary.healthy is True
@@ -61,7 +74,7 @@ def test_summarize_feature_store_success() -> None:
 
 def test_summarize_feature_store_fallback_on_error() -> None:
     cursor = _FakeCursor(first_row={"ts_event": "abc"})
-    engine = _SequenceEngine([cursor])
+    engine = cast(Engine, _SequenceEngine([cursor]))
     summary = summarize_feature_store(_HealthyStore(), engine)
     assert summary.error == "invalid_timestamp"
     assert summary.healthy is True
@@ -77,7 +90,7 @@ def test_summarize_data_store_top_datasets() -> None:
             ],
         ),
     ]
-    engine = _SequenceEngine(cursors)
+    engine = cast(Engine, _SequenceEngine(cursors))
     summary = summarize_data_store(
         engine,
         top_limit=5,

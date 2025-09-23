@@ -1592,16 +1592,33 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     f"got {feature_data.instrument_id}",
                 )
 
-        # Store features
-        for feature in features:
-            self.feature_store.write_features(
-                feature_set_id=feature.feature_set_id,
-                instrument_id=feature.instrument_id,
-                features=feature.values,
-                ts_event=feature.ts_event,
-                ts_init=feature.ts_init,
-                publish_bus=False,
+        stage = Stage.FEATURE_COMPUTED
+
+        try:
+            for feature in features:
+                self.feature_store.write_features(
+                    feature_set_id=feature.feature_set_id,
+                    instrument_id=feature.instrument_id,
+                    features=feature.values,
+                    ts_event=feature.ts_event,
+                    ts_init=feature.ts_init,
+                    publish_bus=False,
+                )
+        except Exception as exc:
+            logger.exception("Feature store write failed", exc_info=True)
+            self.emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=0,
+                ts_max=0,
+                count=0,
+                status=EventStatus.FAILED.value,
+                error=str(exc),
             )
+            raise RuntimeError(f"Feature write failed: {exc}") from exc
 
         # Calculate timestamp range
         ts_min = min(f.ts_event for f in features)
@@ -1627,7 +1644,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self._emit_success_event_and_update(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
-            stage=Stage.FEATURE_COMPUTED.value,
+            stage=stage.value,
             source=source,
             run_id=run_id,
             ts_min=ts_min_s,

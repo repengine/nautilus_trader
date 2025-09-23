@@ -383,9 +383,9 @@ def join_fred_asof(
             )
 
             final_pivot = final_values.pivot(
-                values="value",
+                "series_id",
                 index="ts_effective_final",
-                columns="series_id",
+                values="value",
                 aggregate_function="last",
             )
 

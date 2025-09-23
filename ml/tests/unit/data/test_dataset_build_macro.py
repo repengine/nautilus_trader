@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import polars as pl
 import pytest
@@ -19,13 +20,15 @@ from ml.data.vintage import VintagePolicy
 def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     recorded: dict[str, object] = {}
 
-    def _fake_macro(**kwargs: object) -> MacroRefreshResult:
+    def _fake_macro(**kwargs: Any) -> MacroRefreshResult:
         recorded.update(kwargs)
+        fred_path = cast(Path, kwargs["fred_path"])
+        vintage_dir = cast(Path, kwargs["vintage_dir"])
         return MacroRefreshResult(
             fred_refreshed=False,
             alfred_refreshed=False,
-            fred_path=kwargs["fred_path"],
-            alfred_base_dir=kwargs["vintage_dir"],
+            fred_path=fred_path,
+            alfred_base_dir=vintage_dir,
         )
 
     class _CatalogStub:
@@ -33,10 +36,10 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
             self.path = path
 
     class _BuilderStub:
-        def __init__(self, **kwargs: object) -> None:
+        def __init__(self, **kwargs: Any) -> None:
             recorded["builder_params"] = kwargs
 
-        def build_training_dataset(self, **kwargs: object) -> pl.DataFrame:
+        def build_training_dataset(self, **kwargs: Any) -> pl.DataFrame:
             return pl.DataFrame(
                 {
                     "time_index": [0, 1],
@@ -102,12 +105,14 @@ def test_build_tft_dataset_rejects_missing_macro_observations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    def _fake_macro(**kwargs: object) -> MacroRefreshResult:
+    def _fake_macro(**kwargs: Any) -> MacroRefreshResult:
+        fred_path = cast(Path, kwargs["fred_path"])
+        vintage_dir = cast(Path, kwargs["vintage_dir"])
         return MacroRefreshResult(
             fred_refreshed=False,
             alfred_refreshed=False,
-            fred_path=kwargs["fred_path"],
-            alfred_base_dir=kwargs["vintage_dir"],
+            fred_path=fred_path,
+            alfred_base_dir=vintage_dir,
         )
 
     class _CatalogStub:
@@ -115,10 +120,10 @@ def test_build_tft_dataset_rejects_missing_macro_observations(
             self.path = path
 
     class _BuilderStub:
-        def __init__(self, **kwargs: object) -> None:
+        def __init__(self, **kwargs: Any) -> None:
             del kwargs
 
-        def build_training_dataset(self, **kwargs: object) -> pl.DataFrame:
+        def build_training_dataset(self, **kwargs: Any) -> pl.DataFrame:
             del kwargs
             return pl.DataFrame(
                 {

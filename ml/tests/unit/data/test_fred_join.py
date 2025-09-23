@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import pytest
-
 from datetime import datetime
 from pathlib import Path
+from pytest import MonkeyPatch
 
 from ml._imports import HAS_POLARS, pl
 
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not available")
-def test_join_fred_asof_polars_smoke(monkeypatch) -> None:
+def test_join_fred_asof_polars_smoke(monkeypatch: MonkeyPatch) -> None:
     assert pl is not None
     # Left frame: daily timestamps
     left = pl.DataFrame(
@@ -38,12 +38,12 @@ def test_join_fred_asof_polars_smoke(monkeypatch) -> None:
     join_fred_asof = fred_mod.join_fred_asof
 
     out = join_fred_asof(left, timestamp_col="timestamp", lag_days=1, fred_path=None)
-    assert isinstance(out, type(left))
+    assert isinstance(out, pl.DataFrame)
     assert out.height == left.height
 
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not available")
-def test_join_fred_asof_vintage_selection(monkeypatch, tmp_path) -> None:
+def test_join_fred_asof_vintage_selection(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     assert pl is not None
     from ml.data import fred_join as fred_mod
 
@@ -101,6 +101,7 @@ def test_join_fred_asof_vintage_selection(monkeypatch, tmp_path) -> None:
         fred_path=None,
         vintage_base_dir=vintage_dir,
     )
+    assert isinstance(out, pl.DataFrame)
 
     values = out.get_column("CPI").to_list()
     assert values[0] is None  # before first release

@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nautilus ML Control Plane</title>
+    <!-- Modern design system inspired styling -->
+    <style>
+      :root {
+        /* Light theme colors */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8f9fa;
+        --bg-tertiary: #e9ecef;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+        --text-tertiary: #adb5bd;
+        --border-color: #dee2e6;
+        --shadow-sm: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        --shadow-md: 0 0.5rem 1rem rgba(0,0,0,0.15);
+        --radius-sm: 0.375rem;
+        --radius-md: 0.5rem;
+        --radius-lg: 0.75rem;
+        --success: #198754;
+        --success-bg: #d1f2eb;
+        --warning: #ffc107;
+        --warning-bg: #fff3cd;
+        --danger: #dc3545;
+        --danger-bg: #f8d7da;
+        --info: #0dcaf0;
+        --info-bg: #cff4fc;
+        --primary: #0d6efd;
+        --primary-hover: #0b5ed7;
+      }
+
+      [data-theme="dark"] {
+        --bg-primary: #1a1d20;
+        --bg-secondary: #212529;
+        --bg-tertiary: #2c3034;
+        --text-primary: #e9ecef;
+        --text-secondary: #adb5bd;
+        --text-tertiary: #6c757d;
+        --border-color: #495057;
+        --shadow-sm: 0 0.125rem 0.25rem rgba(0,0,0,0.5);
+        --shadow-md: 0 0.5rem 1rem rgba(0,0,0,0.5);
+        --success: #25a06b;
+        --success-bg: #051b11;
+        --warning: #ffca2c;
+        --warning-bg: #332701;
+        --danger: #e35d6a;
+        --danger-bg: #2c0b0e;
+        --info: #3dd5f3;
+        --info-bg: #032830;
+        --primary: #408cfd;
+        --primary-hover: #5ba0ff;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        line-height: 1.6;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
+      /* Header */
+      .header {
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--border-color);
+        padding: 1rem 1.5rem;
+        box-shadow: var(--shadow-sm);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .header-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, var(--primary), var(--info));
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .header-controls {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+      }
+
+      .theme-toggle {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .theme-toggle:hover {
+        background: var(--primary);
+        color: white;
+      }
+
+      .auth-section {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .auth-section input {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 200px;
+      }
+
+      /* Status Banner */
+      .status-banner {
+        background: var(--bg-primary);
+        padding: 0.75rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .status-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+
+      .status-indicator.healthy {
+        background: var(--success-bg);
+        color: var(--success);
+      }
+
+      .status-indicator.warning {
+        background: var(--warning-bg);
+        color: var(--warning);
+      }
+
+      .status-indicator.error {
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+
+      .pulse {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.1); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+
+      /* Main Container */
+      .container {
+        max-width: 1400px;
+        margin: 2rem auto;
+        padding: 0 1.5rem;
+      }
+
+      /* Grid Layout */
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 1.5rem;
+        margin-top: 1.5rem;
+      }
+
+      /* Cards */
+      .card {
+        background: var(--bg-primary);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .card-header {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .card-body {
+        padding: 1.25rem;
+      }
+
+      /* Service Cards */
+      .service-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        transition: all 0.2s ease;
+      }
+
+      .service-item:hover {
+        background: var(--bg-tertiary);
+      }
+
+      .service-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .service-status {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .service-status.online {
+        background: var(--success);
+        box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.2);
+        animation: pulse 2s infinite;
+      }
+
+      .service-status.offline {
+        background: var(--danger);
+        box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
+      }
+
+      .service-name {
+        font-weight: 500;
+      }
+
+      .service-actions {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Buttons */
+      .btn {
+        padding: 0.375rem 0.75rem;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: white;
+      }
+
+      .btn-primary:hover {
+        background: var(--primary-hover);
+      }
+
+      .btn-success {
+        background: var(--success);
+        color: white;
+      }
+
+      .btn-danger {
+        background: var(--danger);
+        color: white;
+      }
+
+      .btn-icon {
+        padding: 0.375rem;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Metrics Display */
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+
+      .metric-card {
+        background: var(--bg-secondary);
+        padding: 1rem;
+        border-radius: var(--radius-md);
+        text-align: center;
+        border: 1px solid var(--border-color);
+      }
+
+      .metric-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--primary);
+        display: block;
+      }
+
+      .metric-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 0.25rem;
+      }
+
+      /* Store Health */
+      .store-grid {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .store-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem;
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+      }
+
+      .store-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .store-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
+
+      /* Events */
+      .event-filters {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .event-filters input {
+        flex: 1;
+        min-width: 120px;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+      }
+
+      .event-list {
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .event-item {
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+        background: var(--bg-secondary);
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        border-left: 3px solid var(--primary);
+      }
+
+      /* Loading States */
+      .skeleton {
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        border-radius: var(--radius-sm);
+        height: 1rem;
+        margin: 0.5rem 0;
+      }
+
+      @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* Tooltips */
+      .tooltip {
+        position: relative;
+        cursor: help;
+      }
+
+      .tooltip::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--text-primary);
+        color: var(--bg-primary);
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+      }
+
+      .tooltip:hover::after {
+        opacity: 1;
+      }
+
+      /* Links */
+      a {
+        color: var(--primary);
+        text-decoration: none;
+        transition: color 0.2s ease;
+      }
+
+      a:hover {
+        color: var(--primary-hover);
+        text-decoration: underline;
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
+        .dashboard-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .header-content {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      /* Charts Container */
+      .chart-container {
+        height: 200px;
+        margin-top: 1rem;
+        position: relative;
+      }
+
+      /* Progress Bars */
+      .progress {
+        height: 8px;
+        background: var(--bg-tertiary);
+        border-radius: 999px;
+        overflow: hidden;
+        margin: 0.5rem 0;
+      }
+
+      .progress-bar {
+        height: 100%;
+        background: var(--primary);
+        transition: width 0.3s ease;
+      }
+
+      /* Notifications */
+      .notification {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        padding: 1rem 1.5rem;
+        background: var(--bg-primary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        border-left: 4px solid var(--primary);
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+      }
+
+      @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+    </style>
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <div class="logo-icon">⚡</div>
+          <h1>Nautilus ML Control Plane</h1>
+        </div>
+        <div class="header-controls">
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+            <span id="themeIcon">🌙</span>
+          </button>
+          <div class="auth-section">
+            <input id="token" type="password" placeholder="Auth Token" />
+            <button class="btn btn-primary" onclick="saveToken()">Save</button>
+          </div>
+          <nav>
+            <a href="/metrics" target="_blank">Metrics</a> ·
+            <a href="/api/services" target="_blank">API</a>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <!-- Status Banner -->
+    <div class="status-banner">
+      <div class="status-content">
+        <div id="systemStatus" class="status-indicator healthy">
+          <span class="pulse" style="background: var(--success)"></span>
+          <span>System Operational</span>
+        </div>
+        <span id="lastUpdate" style="color: var(--text-secondary); font-size: 0.875rem;">
+          Last update: <span id="updateTime">--:--:--</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+      <!-- Key Metrics Overview -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">
+            <span>📊</span> System Metrics
+          </h3>
+          <button class="btn btn-icon" onclick="refreshMetrics()" title="Refresh">
+            🔄
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-value" id="requestRate">--</span>
+              <span class="metric-label">Req/s</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-value" id="p95Latency">--</span>
+              <span class="metric-label">P95 (ms)</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-value" id="errorRate">--</span>
+              <span class="metric-label">Errors/5m</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-value" id="uptime">--</span>
+              <span class="metric-label">Uptime</span>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="metricsChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard Grid -->
+      <div class="dashboard-grid">
+        <!-- Services Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>🚀</span> Services
+            </h3>
+            <button class="btn btn-icon" onclick="refreshServices()" title="Refresh">
+              🔄
+            </button>
+          </div>
+          <div class="card-body" id="servicesContainer">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Store Health Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>💾</span> Store Health
+            </h3>
+            <button class="btn btn-icon" onclick="refreshStores()" title="Refresh">
+              🔄
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="store-grid" id="storesContainer">
+              <div class="skeleton"></div>
+              <div class="skeleton"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Models Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>🧠</span> Models
+            </h3>
+            <button class="btn btn-icon" onclick="refreshModels()" title="Refresh">
+              🔄
+            </button>
+          </div>
+          <div class="card-body" id="modelsContainer">
+            <div class="skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Features Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>🧩</span> Features
+            </h3>
+            <button class="btn btn-icon" onclick="refreshFeatures()" title="Refresh">
+              🔄
+            </button>
+          </div>
+          <div class="card-body" id="featuresContainer">
+            <div class="skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Events Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>📡</span> Events
+            </h3>
+            <span id="eventCount" class="store-badge">0 events</span>
+          </div>
+          <div class="card-body">
+            <div class="event-filters">
+              <input id="filterInstrument" placeholder="Instrument (e.g., SPY)" />
+              <input id="filterSource" placeholder="Source (live/historical)" />
+              <button class="btn btn-primary" onclick="refreshEvents()">Filter</button>
+            </div>
+            <div class="event-list" id="eventsContainer">
+              <div class="skeleton"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pipeline Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>⚙️</span> Pipeline Control
+            </h3>
+          </div>
+          <div class="card-body">
+            <div style="margin-bottom: 1rem;">
+              <input id="pipelineInstrument" placeholder="Instrument (e.g., SPY.EQUS)" value="SPY.EQUS" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); margin-bottom: 0.75rem;" />
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-primary" onclick="runPipeline('backfill')" style="flex: 1;">
+                  Run Backfill
+                </button>
+                <button class="btn btn-primary" onclick="runPipeline('daily')" style="flex: 1;">
+                  Run Daily
+                </button>
+              </div>
+            </div>
+            <div id="pipelineResult" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 0.875rem; color: var(--text-secondary);">
+              Ready to execute pipeline tasks
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Theme Management
+      function initTheme() {
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        updateThemeIcon(savedTheme);
+      }
+
+      function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        updateThemeIcon(next);
+      }
+
+      function updateThemeIcon(theme) {
+        document.getElementById('themeIcon').textContent = theme === 'light' ? '🌙' : '☀️';
+      }
+
+      // Auth Management
+      function getHeaders() {
+        const token = localStorage.getItem('ml_dashboard_token');
+        const headers = { 'content-type': 'application/json' };
+        if (token) headers['X-ML-DASHBOARD-TOKEN'] = token;
+        return headers;
+      }
+
+      function saveToken() {
+        const token = document.getElementById('token').value;
+        if (token) {
+          localStorage.setItem('ml_dashboard_token', token);
+          showNotification('Token saved successfully', 'success');
+          document.getElementById('token').value = '';
+        }
+      }
+
+      // Load saved token on page load
+      window.addEventListener('DOMContentLoaded', () => {
+        const savedToken = localStorage.getItem('ml_dashboard_token');
+        if (savedToken) {
+          document.getElementById('token').placeholder = 'Token saved ✓';
+        }
+      });
+
+      // Notification System
+      function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = 'notification';
+        notification.style.borderLeftColor = type === 'success' ? 'var(--success)' :
+                                            type === 'error' ? 'var(--danger)' :
+                                            'var(--primary)';
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+          notification.style.animation = 'slideIn 0.3s ease reverse';
+          setTimeout(() => notification.remove(), 300);
+        }, 3000);
+      }
+
+      // API Calls
+      async function fetchAPI(endpoint) {
+        try {
+          const response = await fetch(endpoint, { headers: getHeaders() });
+          return await response.json();
+        } catch (error) {
+          console.error(`Error fetching ${endpoint}:`, error);
+          return null;
+        }
+      }
+
+      // Service Management
+      async function refreshServices() {
+        const container = document.getElementById('servicesContainer');
+        container.innerHTML = '<div class="skeleton"></div>';
+
+        const [health, services] = await Promise.all([
+          fetchAPI('/api/health/system'),
+          fetchAPI('/api/services')
+        ]);
+
+        if (!services) {
+          container.innerHTML = '<p style="color: var(--text-secondary);">Failed to load services</p>';
+          return;
+        }
+
+        container.innerHTML = services.map(service => {
+          const isHealthy = health?.services?.[service.name]?.healthy;
+          return `
+            <div class="service-item">
+              <div class="service-info">
+                <div class="service-status ${isHealthy ? 'online' : 'offline'}"></div>
+                <div>
+                  <div class="service-name">${service.name}</div>
+                  <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                    <a href="${service.endpoints?.health || '#'}" target="_blank">health</a> ·
+                    <a href="${service.endpoints?.metrics || '#'}" target="_blank">metrics</a>
+                  </div>
+                </div>
+              </div>
+              <div class="service-actions">
+                <button class="btn btn-icon btn-success" onclick="controlService('${service.name}', 'start')" title="Start">▶️</button>
+                <button class="btn btn-icon" onclick="controlService('${service.name}', 'restart')" title="Restart">🔄</button>
+                <button class="btn btn-icon btn-danger" onclick="controlService('${service.name}', 'stop')" title="Stop">⏹️</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        updateSystemStatus(health);
+      }
+
+      async function controlService(name, action) {
+        const response = await fetch(`/api/services/${name}:action`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ action })
+        });
+
+        const result = await response.json();
+        if (response.ok && result.ok) {
+          showNotification(`Service ${name} ${action} initiated`, 'success');
+          setTimeout(refreshServices, 2000);
+        } else {
+          showNotification(result.error || `Failed to ${action} ${name}`, 'error');
+        }
+      }
+
+      // System Status
+      function updateSystemStatus(health) {
+        const statusEl = document.getElementById('systemStatus');
+        const allHealthy = health && Object.values(health.services || {}).every(s => s.healthy);
+
+        if (allHealthy) {
+          statusEl.className = 'status-indicator healthy';
+          statusEl.innerHTML = '<span class="pulse" style="background: var(--success)"></span><span>All Systems Operational</span>';
+        } else {
+          statusEl.className = 'status-indicator warning';
+          statusEl.innerHTML = '<span class="pulse" style="background: var(--warning)"></span><span>Some Services Degraded</span>';
+        }
+
+        // Update timestamp
+        const now = new Date();
+        document.getElementById('updateTime').textContent = now.toLocaleTimeString();
+      }
+
+      // Metrics
+      async function refreshMetrics() {
+        const summary = await fetchAPI('/api/observability/summary');
+
+        if (summary?.ok && summary.metrics) {
+          document.getElementById('requestRate').textContent =
+            (summary.metrics.request_rate_per_second || 0).toFixed(2);
+          document.getElementById('p95Latency').textContent =
+            ((summary.metrics.latency_p95_seconds || 0) * 1000).toFixed(0);
+          document.getElementById('errorRate').textContent =
+            (summary.metrics.failures_last_5m || 0).toFixed(0);
+
+          // Calculate uptime (mock for now)
+          const uptimeHours = Math.floor(Math.random() * 720) + 24;
+          document.getElementById('uptime').textContent = `${uptimeHours}h`;
+
+          updateMetricsChart(summary.metrics);
+        }
+      }
+
+      // Metrics Chart
+      let metricsChart = null;
+
+      function updateMetricsChart(metrics) {
+        const ctx = document.getElementById('metricsChart').getContext('2d');
+
+        if (!metricsChart) {
+          metricsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: [{
+                label: 'Request Rate',
+                data: [],
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false }
+              },
+              scales: {
+                y: { beginAtZero: true }
+              }
+            }
+          });
+        }
+
+        // Add new data point (mock time series)
+        const now = new Date().toLocaleTimeString();
+        metricsChart.data.labels.push(now);
+        metricsChart.data.datasets[0].data.push(metrics.request_rate_per_second || 0);
+
+        // Keep only last 20 points
+        if (metricsChart.data.labels.length > 20) {
+          metricsChart.data.labels.shift();
+          metricsChart.data.datasets[0].data.shift();
+        }
+
+        metricsChart.update();
+      }
+
+      // Store Health
+      async function refreshStores() {
+        const container = document.getElementById('storesContainer');
+        const summary = await fetchAPI('/api/observability/stores');
+
+        if (!summary || summary.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-secondary);">No store data available</p>';
+          return;
+        }
+
+        container.innerHTML = summary.map(store => {
+          const statusColor = store.healthy ? 'var(--success)' :
+                             store.fallback_active ? 'var(--warning)' : 'var(--danger)';
+          const statusText = store.healthy ? 'Healthy' :
+                            store.fallback_active ? 'Fallback Mode' : 'Offline';
+
+          return `
+            <div class="store-item">
+              <div class="store-info">
+                <div class="service-status ${store.healthy ? 'online' : 'offline'}"></div>
+                <div>
+                  <strong>${store.store}</strong>
+                  <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                    ${store.latest_event_iso ? `Last: ${new Date(store.latest_event_iso).toLocaleTimeString()}` : 'No data'}
+                  </div>
+                </div>
+              </div>
+              <span class="store-badge" style="background: ${statusColor}20; color: ${statusColor};">
+                ${statusText}
+              </span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Models
+      async function refreshModels() {
+        const container = document.getElementById('modelsContainer');
+        const models = await fetchAPI('/api/registry/models');
+
+        if (!models || models.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-secondary);">No models registered</p>';
+          return;
+        }
+
+        container.innerHTML = models.map(model => `
+          <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-md); margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>${model.model_id}</strong>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                  ${model.architecture} · v${model.version} · ${model.deployment_status}
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="deployModel('${model.model_id}')">
+                Deploy
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      async function deployModel(modelId) {
+        const response = await fetch(`/api/registry/models/${modelId}:deploy`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ target: 'ml_signal_actor' })
+        });
+
+        const result = await response.json();
+        showNotification(
+          result.ok ? `Model ${modelId} deployed` : `Deployment failed: ${result.error}`,
+          result.ok ? 'success' : 'error'
+        );
+      }
+
+      // Features
+      async function refreshFeatures() {
+        const container = document.getElementById('featuresContainer');
+        const features = await fetchAPI('/api/registry/features');
+
+        if (!features || features.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-secondary);">No features registered</p>';
+          return;
+        }
+
+        container.innerHTML = features.map(feature => `
+          <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-md); margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>${feature.feature_set_id}</strong>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                  ${feature.role} · ${feature.stage}
+                </div>
+              </div>
+              <button class="btn btn-sm" onclick="promoteFeature('${feature.feature_set_id}')">
+                Promote
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      async function promoteFeature(featureId) {
+        const response = await fetch(`/api/registry/features/${featureId}:promote`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ stage: 'PROD' })
+        });
+
+        const result = await response.json();
+        showNotification(
+          result.ok ? `Feature ${featureId} promoted` : `Promotion failed: ${result.error}`,
+          result.ok ? 'success' : 'error'
+        );
+      }
+
+      // Events
+      async function refreshEvents() {
+        const container = document.getElementById('eventsContainer');
+        const events = await fetchAPI('/api/events');
+
+        const instrument = document.getElementById('filterInstrument').value;
+        const source = document.getElementById('filterSource').value;
+
+        if (!events || events.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-secondary);">No events available</p>';
+          return;
+        }
+
+        // Update count
+        document.getElementById('eventCount').textContent = `${events.length} events`;
+
+        // Filter events if needed
+        let filteredEvents = events;
+        if (instrument) {
+          filteredEvents = filteredEvents.filter(e =>
+            e.payload?.instrument_id?.includes(instrument));
+        }
+        if (source) {
+          filteredEvents = filteredEvents.filter(e =>
+            e.payload?.source?.toLowerCase() === source.toLowerCase());
+        }
+
+        container.innerHTML = filteredEvents.slice(0, 10).map(event => `
+          <div class="event-item">
+            <strong>${event.topic || 'Unknown'}</strong>
+            <div style="color: var(--text-secondary);">
+              ${new Date(event.timestamp).toLocaleTimeString()} ·
+              ${event.payload?.instrument_id || 'N/A'}
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // Pipeline
+      async function runPipeline(mode) {
+        const instrument = document.getElementById('pipelineInstrument').value;
+        const resultDiv = document.getElementById('pipelineResult');
+
+        if (!instrument) {
+          showNotification('Please enter an instrument', 'error');
+          return;
+        }
+
+        resultDiv.innerHTML = '<div class="skeleton"></div>';
+
+        const response = await fetch('/api/pipeline/run', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ mode, instrument })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.ok) {
+          resultDiv.innerHTML = `<span style="color: var(--success);">✓ Pipeline ${mode} started for ${instrument}</span>`;
+          showNotification(`Pipeline ${mode} initiated`, 'success');
+        } else {
+          resultDiv.innerHTML = `<span style="color: var(--danger);">✗ ${result.error || 'Pipeline failed'}</span>`;
+          showNotification(result.error || 'Pipeline failed', 'error');
+        }
+      }
+
+      // Auto-refresh
+      function startAutoRefresh() {
+        // Initial load
+        refreshServices();
+        refreshMetrics();
+        refreshStores();
+        refreshModels();
+        refreshFeatures();
+        refreshEvents();
+
+        // Set up intervals
+        setInterval(refreshServices, 15000);
+        setInterval(refreshMetrics, 10000);
+        setInterval(refreshStores, 30000);
+        setInterval(refreshEvents, 5000);
+      }
+
+      // Initialize
+      document.addEventListener('DOMContentLoaded', () => {
+        initTheme();
+        startAutoRefresh();
+      });
+    </script>
+  </body>
+</html>

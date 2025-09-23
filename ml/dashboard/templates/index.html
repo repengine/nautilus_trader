@@ -78,8 +78,8 @@
 
     <script>
       // @ts-check
-      /** @typedef {{[k:string]: string}} HeadersMap */
-      /** @typedef {{ok?:boolean, url?:string, topic?:string, error?:string}} ApiResult */
+      /* @typedef {Record<string, string>} HeadersMap */
+      /* @typedef {object} ApiResult */
       const el = (id) => document.getElementById(id);
       /** @type {HTMLElement} */ const status = /** @type {any} */(el('status'));
       /** @type {HTMLElement} */ const services = /** @type {any} */(el('services'));
@@ -258,7 +258,7 @@
       /** @param {'backfill'|'daily'|'realtime'} mode */
       async function run(mode){
         const instrument = el('instrument').value || 'SPY.EQUS';
-        /** @type {{mode:string, instrument:string}} */ const body = {mode, instrument};
+        /* @type {object} */ const body = {mode, instrument};
         try {
           const r = await fetch(`/api/pipeline/run`, { method:'POST', headers:getHeaders(), body: JSON.stringify(body) });
           /** @type {ApiResult} */ const j = await r.json();

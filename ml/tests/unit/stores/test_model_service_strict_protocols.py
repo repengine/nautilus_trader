@@ -196,6 +196,11 @@ class _EventRegistry(RegistryProtocol):
         self._manifests.add(getattr(manifest, "dataset_id", "unknown"))
         return "ok"
 
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id
+        del changes
+        return None
+
 
 class _EventDeps(ModelEventDepsStrict):
     def __init__(self) -> None:

@@ -267,7 +267,7 @@ class SqlMarketDataReader(RawReaderProtocol):
             ORDER BY ts_event
             """,
         )
-        params = {
+        params: dict[str, int | str] = {
             "instrument_id": instrument_id,
             "start_ns": int(start_ns),
             "end_ns": int(end_ns),

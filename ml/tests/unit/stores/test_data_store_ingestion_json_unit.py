@@ -61,7 +61,8 @@ def _set_noop_preflight(store: DataStore) -> None:
     ) -> tuple[bool, None, dict[str, object]]:
         return True, None, {"warnings": []}
 
-    store.preflight_check = types.MethodType(_noop_preflight, store)  # type: ignore[assignment]
+    store_any = cast(Any, store)
+    store_any.preflight_check = types.MethodType(_noop_preflight, store)
 
 
 

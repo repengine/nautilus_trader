@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ml.registry.base import ModelManifest
+
 from ml.orchestration.promotions import (
     register_and_promote_model,
     register_or_refresh_features,
@@ -17,7 +19,15 @@ from ml.registry.dataclasses import QualityGate
 class _ModelRegStub:
     calls: dict[str, Any]
 
-    def register_model(self, *, model_path: Path, manifest: Any, auto_deploy: bool, quality_gates: list[Any], enforce_quality: bool) -> str:  # type: ignore[override]
+    def register_model(
+        self,
+        *,
+        model_path: Path,
+        manifest: ModelManifest,
+        auto_deploy: bool,
+        quality_gates: list[QualityGate],
+        enforce_quality: bool,
+    ) -> str:
         self.calls["register_model"] = {
             "model_path": model_path,
             "manifest": manifest,
@@ -27,12 +37,17 @@ class _ModelRegStub:
         }
         return manifest.model_id
 
-    def track_performance(self, model_id: str, metrics: dict[str, Any]) -> None:  # type: ignore[override]
+    def track_performance(self, model_id: str, metrics: dict[str, float]) -> None:
         self.calls.setdefault("track_performance", []).append(
             {"model_id": model_id, "metrics": metrics},
         )
 
-    def deploy_model(self, model_id: str, target: str, config: dict[str, Any] | None = None) -> bool:  # type: ignore[override]
+    def deploy_model(
+        self,
+        model_id: str,
+        target: str,
+        config: dict[str, Any] | None = None,
+    ) -> bool:
         self.calls.setdefault("deploy_model", []).append({"model_id": model_id, "target": target})
         return True
 
@@ -41,17 +56,17 @@ class _ModelRegStub:
 class _FeatureRegStub:
     features: dict[str, dict[str, Any]]
 
-    def get_feature_set(self, fid: str) -> Any:  # type: ignore[override]
+    def get_feature_set(self, fid: str) -> Any:
         info = self.features.get(fid)
         if info is None:
             return None
         return type("Info", (), {"manifest": type("M", (), info)})
 
-    def register_feature_set(self, manifest: Any) -> str:  # type: ignore[override]
+    def register_feature_set(self, manifest: Any) -> str:
         self.features[manifest.feature_set_id] = {"stage": manifest.stage}
         return manifest.feature_set_id
 
-    def update_manifest(self, feature_set_id: str, **kwargs: Any) -> None:  # type: ignore[override]
+    def update_manifest(self, feature_set_id: str, **kwargs: Any) -> None:
         self.features.setdefault(feature_set_id, {}).update({"updated": True, **kwargs})
 
 

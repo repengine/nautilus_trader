@@ -192,6 +192,11 @@ class _EventRegistry(RegistryProtocol):
         self._manifests.add(getattr(manifest, "dataset_id", "unknown"))
         return "ok"
 
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id
+        del changes
+        return None
+
     def get_contracts(self) -> list[object]:  # pragma: no cover - optional helper
         return []
 

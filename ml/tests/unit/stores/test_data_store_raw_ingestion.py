@@ -94,6 +94,9 @@ class _TestRegistry(RegistryProtocol):
     def register_dataset(self, manifest: DatasetManifest) -> str:
         return manifest.dataset_id
 
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        return None
+
 
 class _FakeRawWriter(RawIngestionWriterProtocol):
     def __init__(self, fail: bool = False, zero: bool = False) -> None:

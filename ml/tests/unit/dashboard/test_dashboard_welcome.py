@@ -14,7 +14,7 @@ def test_start_services_invokes_compose(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_run(cmd: list[str], **_: object) -> None:
         calls.append(cmd)
 
-    monkeypatch.setattr(welcome.subprocess, "run", fake_run)
+    monkeypatch.setattr("ml.dashboard_bootstrap.welcome.subprocess.run", fake_run)
 
     welcome.start_services(compose_file="compose.yml", services=("grafana",), detach=True)
 
@@ -23,7 +23,10 @@ def test_start_services_invokes_compose(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_build_welcome_summary_status_only(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_response = mock.Mock(status_code=200)
-    monkeypatch.setattr(welcome.requests, "get", lambda url, timeout: fake_response)
+    monkeypatch.setattr(
+        "ml.dashboard_bootstrap.welcome.requests.get",
+        lambda url, timeout: fake_response,
+    )
     summary = welcome.build_welcome_summary(
         compose_file="compose.yml",
         services=("grafana",),

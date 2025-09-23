@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from pathlib import Path
+
+from pytest import MonkeyPatch
 
 import polars as pl
 
@@ -11,7 +15,12 @@ from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
-def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl.DataFrame:  # type: ignore[no-redef]
+def _fake_bars_to_dataframe(
+    catalog: ParquetDataCatalog,
+    instrument_ids: Sequence[str],
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> pl.DataFrame:
     base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
     ts = [base + timedelta(minutes=i) for i in range(60)]
     return pl.DataFrame(
@@ -27,7 +36,7 @@ def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl
     )
 
 
-def test_builder_includes_event_features(monkeypatch, tmp_path) -> None:
+def test_builder_includes_event_features(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
     builder = TFTDatasetBuilder(
         ParquetDataCatalog(path=str(tmp_path)),
@@ -37,6 +46,7 @@ def test_builder_includes_event_features(monkeypatch, tmp_path) -> None:
         include_events=True,
     )
     df = builder.build_training_dataset(use_polars=True, lookback_periods=10, horizon_minutes=1)
+    assert isinstance(df, pl.DataFrame)
     assert not df.is_empty()
     # Dataset built successfully with include_events flag exercised
     assert "timestamp" in df.columns

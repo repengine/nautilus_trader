@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +19,29 @@ class _StubFredLoader:
         self.target = target
         self.calls: list[dict[str, Any]] = []
 
-    def fetch_all_indicators(self, *, use_cache: bool, **_: Any) -> dict[str, Any]:
-        self.calls.append({"use_cache": use_cache})
+    def fetch_all_indicators(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        use_cache: bool = False,
+        **_: object,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "use_cache": use_cache,
+            },
+        )
         return {"SERIES": {}}
 
-    def export_ml_parquet(self, *, data: dict[str, Any] | None, out_path: Path | None) -> Path:
-        assert data is not None
+    def export_ml_parquet(
+        self,
+        data: object = None,
+        out_path: Path | None = None,
+        **_: object,
+    ) -> Path:
+        assert isinstance(data, dict)
         assert out_path is not None
         out_path.write_text("parquet", encoding="utf-8")
         return out_path
@@ -49,7 +66,7 @@ def test_refresh_fred_if_stale_refreshes_missing(tmp_path: Path) -> None:
     assert refreshed
     assert error is None
     assert target.exists()
-    assert loader.calls == [{"use_cache": False}]
+    assert loader.calls == [{"start_date": None, "end_date": None, "use_cache": False}]
 
 
 def test_refresh_fred_if_stale_skips_when_fresh(tmp_path: Path) -> None:

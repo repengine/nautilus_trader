@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.config.events import Stage
+from ml.config.events import EventStatus, Source, Stage
 from ml.stores.data_store import DataStore
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.registry.protocols import RegistryProtocol
@@ -31,12 +31,12 @@ class StubRegistry(RegistryProtocol):
         dataset_id: str,
         instrument_id: str,
         stage: Stage,
-        source: str,
+        source: Source,
         run_id: str,
         ts_min: int,
         ts_max: int,
         count: int,
-        status: str,
+        status: EventStatus,
         error: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
@@ -46,7 +46,7 @@ class StubRegistry(RegistryProtocol):
         self,
         dataset_id: str,
         instrument_id: str,
-        source: str,
+        source: Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
@@ -85,6 +85,9 @@ class StubRegistry(RegistryProtocol):
     def register_dataset(self, manifest: DatasetManifest) -> str:
         return manifest.dataset_id
 
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        return None
+
 
 class CapturePublisher(MessagePublisherProtocol):
     def __init__(self) -> None:
@@ -111,7 +114,7 @@ def test_data_store_stage_first_topics(tmp_path: Path) -> None:
             dataset_id="features",
             instrument_id="EURUSD.SIM",
             stage=Stage.FEATURE_COMPUTED,
-            source="historical",
+            source=Source.HISTORICAL,
             run_id="r1",
             ts_min=1,
             ts_max=2,

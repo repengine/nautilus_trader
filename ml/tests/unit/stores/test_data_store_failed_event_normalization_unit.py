@@ -101,15 +101,19 @@ class _RegistryCap(RegistryProtocol):
     def register_dataset(self, manifest: DatasetManifest) -> str:
         return manifest.dataset_id
 
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id
+        del changes
+        return None
+
 
 class _FailStore:
     def write_features(self, *a: Any, **k: Any) -> None:
         raise RuntimeError("store failed")
 
 
-@pytest.mark.skip(reason="write_features does not emit failure events in current implementation")
 def test_failed_event_source_normalized_to_live() -> None:
-    ds = cast(DataStore, object.__new__(DataStore))
+    ds: DataStore = object.__new__(DataStore)
     setattr(ds, "connection_string", "sqlite:///:memory:")
     fail_store = _FailStore()
     setattr(ds, "feature_store", cast(FeatureStore, fail_store))
@@ -131,7 +135,9 @@ def test_failed_event_source_normalized_to_live() -> None:
         _ts_event=1,
         _ts_init=1,
     )
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="Feature write failed: store failed"):
         DataStore.write_features(ds, instrument_id="X.SIM", features=[fd], source="unit")
     # Check last event has normalized source
     assert reg.events and reg.events[-1]["source"] == "live"
+    assert reg.events[-1]["status"] == EventStatus.FAILED.value
+    assert reg.events[-1]["count"] == 0

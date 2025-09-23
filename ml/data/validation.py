@@ -186,11 +186,11 @@ def validate_dataset(
             if min_obs is not None and policy is VintagePolicy.REAL_TIME:
                 failing = [macro for macro, cnt in macro_counts.items() if cnt < min_obs]
                 if failing:
-                    worst = min(failing, key=lambda name: macro_counts.get(name, 0))
-                    worst_count = macro_counts.get(worst, 0)
+                    worst_macro = min(failing, key=lambda name: macro_counts.get(name, 0))
+                    worst_macro_count = macro_counts.get(worst_macro, 0)
                     msg = (
                         "Macro vintage coverage below threshold; "
-                        f"series {worst} has {worst_count} observations < {min_obs}"
+                        f"series {worst_macro} has {worst_macro_count} observations < {min_obs}"
                     )
                     raise DatasetValidationError(msg)
 

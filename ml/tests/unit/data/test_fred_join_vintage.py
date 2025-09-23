@@ -74,6 +74,7 @@ def test_join_fred_asof_respects_vintage_cutoff(tmp_path: Path) -> None:
         vintage_policy=VintagePolicy.REAL_TIME,
         vintage_cutoff=cutoff,
     )
+    assert isinstance(joined, pl.DataFrame)
 
     assert joined["TEST"].to_list() == [1.1, 2.0]
     assert joined["TEST__value_real_time"].to_list() == [1.1, 2.0]
@@ -113,6 +114,7 @@ def test_join_fred_asof_final_policy_uses_latest(tmp_path: Path) -> None:
         series_filter={"TEST"},
         vintage_policy=VintagePolicy.FINAL,
     )
+    assert isinstance(joined, pl.DataFrame)
 
     assert joined["TEST"].to_list() == [1.0, 2.0]
     assert joined["TEST__value_real_time"].to_list() == [1.0, 2.0]

@@ -8,47 +8,123 @@ with expected parameters when writing features/predictions/signals.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, cast
 
 import pytest
 
+from ml.config.events import EventStatus, Source, Stage
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import QualityFlag
+from ml.registry.dataclasses import StorageKind
+from ml.registry.dataclasses import ValidationRule
+from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.protocols import RegistryProtocol
 from nautilus_trader.model.identifiers import InstrumentId
 
 
-class _StubRegistry:
+class _StubRegistry(RegistryProtocol):
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
         self.watermarks: list[dict[str, Any]] = []
 
     def emit_event(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
-        stage: str,
-        source: str,
+        stage: Stage,
+        source: Source,
         run_id: str,
         ts_min: int,
         ts_max: int,
         count: int,
-        status: str,
+        status: EventStatus,
         error: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
-        self.events.append(locals())
+        self.events.append(
+            {
+                "dataset_id": dataset_id,
+                "instrument_id": instrument_id,
+                "stage": stage.value,
+                "source": source.value,
+                "run_id": run_id,
+                "ts_min": ts_min,
+                "ts_max": ts_max,
+                "count": count,
+                "status": status.value,
+                "error": error,
+                "metadata": metadata or {},
+            },
+        )
 
     def update_watermark(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
-        source: str,
+        source: Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
     ) -> None:
-        self.watermarks.append(locals())
+        self.watermarks.append(
+            {
+                "dataset_id": dataset_id,
+                "instrument_id": instrument_id,
+                "source": source.value,
+                "last_success_ns": last_success_ns,
+                "count": count,
+                "completeness_pct": completeness_pct,
+            },
+        )
+
+    def get_manifest(self, dataset_id: str) -> DatasetManifest:
+        return DatasetManifest(
+            dataset_id=dataset_id,
+            dataset_type=DatasetType.FEATURES,
+            storage_kind=StorageKind.PARQUET,
+            location="/tmp",
+            partitioning={},
+            retention_days=1,
+            schema={"instrument_id": "str", "ts_event": "int64"},
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["instrument_id", "ts_event"],
+            schema_hash="",
+            constraints={},
+            lineage=[],
+            pipeline_signature="test",
+            version="1.0.0",
+        )
+
+    def get_contract(self, dataset_id: str) -> DataContract:
+        return DataContract(
+            contract_id=f"contract-{dataset_id}",
+            dataset_id=dataset_id,
+            version="1.0.0",
+            validation_rules=[
+                ValidationRule(
+                    rule_type=ValidationRuleType.MONOTONICITY,
+                    field_name="ts_event",
+                    parameters={"direction": "increasing"},
+                    severity=QualityFlag.FAIL,
+                    description="ts_event must increase",
+                ),
+            ],
+        )
+
+    def register_dataset(self, manifest: DatasetManifest) -> str:
+        return manifest.dataset_id
+
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id
+        del changes
+        return None
 
 
 class _NoOpStore:
@@ -80,14 +156,16 @@ class _NoOpStore:
 @pytest.fixture
 def stubbed_data_store(monkeypatch: pytest.MonkeyPatch) -> tuple[DataStore, _StubRegistry]:
     # Build an instance and replace internal stores and registry accessor
-    ds = object.__new__(DataStore)  # type: ignore[misc]
-    ds.connection_string = "sqlite:///:memory:"  # type: ignore[attr-defined]
-    ds.feature_store = _NoOpStore()  # type: ignore[attr-defined]
-    ds.model_store = _NoOpStore()  # type: ignore[attr-defined]
-    ds.strategy_store = _NoOpStore()  # type: ignore[attr-defined]
+    ds: DataStore = object.__new__(DataStore)
+    ds_any = cast(Any, ds)
+    ds_any.connection_string = "sqlite:///:memory:"
+    ds_any.feature_store = cast(FeatureStore, _NoOpStore())
+    ds_any.model_store = cast(ModelStore, _NoOpStore())
+    ds_any.strategy_store = cast(StrategyStore, _NoOpStore())
     stub_registry = _StubRegistry()
-    ds.registry = stub_registry  # type: ignore[attr-defined]
-    ds._get_dataset_ids = lambda: {  # type: ignore[attr-defined]
+    ds_any.registry = stub_registry
+    ds_any._data_registry = stub_registry
+    ds_any._get_dataset_ids = lambda: {
         "features": "features",
         "predictions": "predictions",
         "signals": "signals",
@@ -98,9 +176,9 @@ def stubbed_data_store(monkeypatch: pytest.MonkeyPatch) -> tuple[DataStore, _Stu
         def timestamp_ns(self) -> int:
             return 100
 
-    ds.clock = _Clock()  # type: ignore[attr-defined]
+    ds_any.clock = _Clock()
     # Avoid schema/registration side effects
-    ds._ensure_dataset_registered = lambda **kwargs: None  # type: ignore[attr-defined]
+    ds_any._ensure_dataset_registered = cast(Callable[..., None], lambda **kwargs: None)
     return ds, stub_registry
 
 
@@ -122,7 +200,7 @@ def test_data_store_emits_feature_events(
         _ts_event=ts_event,
         _ts_init=ts_init,
     )
-    ds.write_features(instrument_id=instrument_id_str, features=[fd])  # type: ignore[attr-defined]
+    ds.write_features(instrument_id=instrument_id_str, features=[fd])
     assert any(e for e in reg.events if e["dataset_id"] == "features")
 
 
@@ -147,7 +225,7 @@ def test_data_store_emits_prediction_events(
         _ts_event=ts_event,
         _ts_init=ts_init,
     )
-    ds.write_predictions(predictions=[mp])  # type: ignore[attr-defined]
+    ds.write_predictions(predictions=[mp])
     assert any(e for e in reg.events if e["dataset_id"] == "predictions")
 
 
@@ -173,5 +251,5 @@ def test_data_store_emits_signal_events(
         _ts_event=ts_event,
         _ts_init=ts_init,
     )
-    ds.write_signals(signals=[ss])  # type: ignore[attr-defined]
+    ds.write_signals(signals=[ss])
     assert any(e for e in reg.events if e["dataset_id"] == "signals")

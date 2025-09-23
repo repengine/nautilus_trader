@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ml.config.events import EventStatus
+from ml.config.events import Source
+
 import pandas as pd
 
 from ml.config.events import Stage
@@ -70,13 +73,13 @@ class _MemRegistry:
         self,
         dataset_id: str,
         instrument_id: str,
-        stage: str,
-        source: str,
+        stage: Stage,
+        source: Source,
         run_id: str,
         ts_min: int,
         ts_max: int,
         count: int,
-        status: str,
+        status: EventStatus,
         error: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
@@ -84,13 +87,13 @@ class _MemRegistry:
             {
                 "dataset_id": dataset_id,
                 "instrument_id": instrument_id,
-                "stage": stage,
-                "source": source,
+                "stage": stage.value,
+                "source": source.value,
                 "run_id": run_id,
                 "ts_min": ts_min,
                 "ts_max": ts_max,
                 "count": count,
-                "status": status,
+                "status": status.value,
             },
         )
 
@@ -98,7 +101,7 @@ class _MemRegistry:
         self,
         dataset_id: str,
         instrument_id: str,
-        source: str,
+        source: Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
@@ -107,12 +110,16 @@ class _MemRegistry:
             {
                 "dataset_id": dataset_id,
                 "instrument_id": instrument_id,
-                "source": source,
+                "source": source.value,
                 "last_success_ns": last_success_ns,
                 "count": count,
                 "completeness_pct": completeness_pct,
             },
         )
+
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        # Not required for this test scenario
+        return None
 
     # Protocol read methods not used here
     def get_manifest(self, dataset_id: str) -> Any:  # pragma: no cover - unused in this test

@@ -1,11 +1,22 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Callable, cast
 from unittest.mock import MagicMock
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus, Source, Stage
 from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import QualityFlag
+from ml.registry.dataclasses import StorageKind
+from ml.registry.dataclasses import ValidationRule
+from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.protocols import RegistryProtocol
 
 
 class CapturePublisher(MessagePublisherProtocol):
@@ -17,7 +28,7 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-class RegistryMockAdapter:
+class RegistryMockAdapter(RegistryProtocol):
     """
     Tiny adapter to make a MagicMock behave like a typed RegistryProtocol.
 
@@ -60,7 +71,6 @@ class RegistryMockAdapter:
 
     def update_watermark(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
         source: Source,
@@ -78,15 +88,57 @@ class RegistryMockAdapter:
             completeness_pct=completeness_pct,
         )
 
+    def get_manifest(self, dataset_id: str) -> DatasetManifest:
+        return DatasetManifest(
+            dataset_id=dataset_id,
+            dataset_type=DatasetType.FEATURES,
+            storage_kind=StorageKind.PARQUET,
+            location="/tmp",
+            partitioning={},
+            retention_days=1,
+            schema={"instrument_id": "str", "ts_event": "int64"},
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["instrument_id", "ts_event"],
+            schema_hash="",
+            constraints={},
+            lineage=[],
+            pipeline_signature="test",
+            version="1.0.0",
+        )
+
+    def get_contract(self, dataset_id: str) -> DataContract:
+        return DataContract(
+            contract_id=f"contract-{dataset_id}",
+            dataset_id=dataset_id,
+            version="1.0.0",
+            validation_rules=[
+                ValidationRule(
+                    rule_type=ValidationRuleType.MONOTONICITY,
+                    field_name="ts_event",
+                    parameters={"direction": "increasing"},
+                    severity=QualityFlag.FAIL,
+                    description="ts_event must increase",
+                ),
+            ],
+        )
+
+    def register_dataset(self, manifest: DatasetManifest) -> str:
+        return manifest.dataset_id
+
+    def update_manifest(self, dataset_id: str, changes: dict[str, object]) -> None:
+        del dataset_id, changes
+        return None
+
 
 class TestDataStoreEmitEvent:
     def test_emit_event_attaches_correlation_id_and_normalizes(self) -> None:
         # Arrange
         mock_registry = MagicMock()
         # Avoid DB connections by injecting store mocks
-        feature_store = cast(Any, MagicMock())
-        model_store = cast(Any, MagicMock())
-        strategy_store = cast(Any, MagicMock())
+        feature_store = cast(FeatureStore, MagicMock(spec=FeatureStore))
+        model_store = cast(ModelStore, MagicMock(spec=ModelStore))
+        strategy_store = cast(StrategyStore, MagicMock(spec=StrategyStore))
         capture = CapturePublisher()
         store = DataStore(
             connection_string="sqlite:///:memory:",
