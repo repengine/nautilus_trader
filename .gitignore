@@ -60,6 +60,7 @@ ml/tests/.env
 
 # Data
 *.parquet
+*.csv
 
 # IntelliJ and VSCode project
 *.iml
