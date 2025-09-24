@@ -8,21 +8,27 @@ def test_circuit_breaker_transitions() -> None:
     cb = CircuitBreaker(cfg, component_id="ml_actor")
 
     # Initially closed
-    assert cb.state == CircuitBreakerState.CLOSED
+    initial_state = cb.state
+    assert initial_state == CircuitBreakerState.CLOSED
     assert cb.can_execute() is True
 
     # First failure does not open
     cb.record_failure()
-    assert cb.state == CircuitBreakerState.CLOSED
+    post_first_failure = cb.state
+    assert post_first_failure == CircuitBreakerState.CLOSED
 
     # Second failure opens
     cb.record_failure()
-    assert cb.state == CircuitBreakerState.OPEN
+    state_after_second_failure = cb.state
+    assert state_after_second_failure == CircuitBreakerState.OPEN
     assert cb.can_execute() is True  # recovery_timeout=0 → HALF_OPEN immediately
-    assert cb.state == CircuitBreakerState.HALF_OPEN
+    state_after_probe = cb.state
+    assert state_after_probe == CircuitBreakerState.HALF_OPEN
 
     # Need two consecutive successes to close
     cb.record_success()
-    assert cb.state == CircuitBreakerState.HALF_OPEN
+    after_first_success = cb.state
+    assert after_first_success == CircuitBreakerState.HALF_OPEN
     cb.record_success()
-    assert cb.state == CircuitBreakerState.CLOSED
+    final_state = cb.state
+    assert final_state == CircuitBreakerState.CLOSED

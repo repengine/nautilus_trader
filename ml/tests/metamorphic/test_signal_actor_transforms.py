@@ -23,6 +23,9 @@ import copy
 import random
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+from unittest.mock import patch
+
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -39,6 +42,7 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalStrategy
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.actors.signal import MomentumStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 from ml.features.engineering import FeatureConfig
@@ -53,7 +57,7 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def base_signal_config() -> MLSignalActorConfig:
     """Create base signal actor configuration for testing."""
     return MLSignalActorConfig(
@@ -68,16 +72,25 @@ def base_signal_config() -> MLSignalActorConfig:
         parity_tolerance=1e-6,
         optimization_config=OptimizationConfig(level=OptimizationLevel.STANDARD),
         strategy_config=StrategyConfig(),
-        feature_config=FeatureConfig(),
-        warm_up_period=10,
-        min_signal_separation_bars=1,
+        feature_config=FeatureConfig(
+            lookback_window=16,
+            return_periods=[1, 5],
+            momentum_periods=[3],
+            ema_fast=10,
+            ema_slow=12,
+            macd_signal=9,
+            volume_ma_periods=[3],
+            normalize_features=True,
+        ),
+        warm_up_period=5,
+        min_signal_separation_bars=0,
         adaptive_window=20,
         enable_hot_reload=False,
         use_dummy_stores=True,
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_model():
     """Create a mock model for testing."""
     model = MagicMock()
@@ -86,7 +99,7 @@ def mock_model():
     return model
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def sample_bars() -> list[Bar]:
     """Create sample bars for testing."""
     instrument_id = InstrumentId.from_str("BTCUSDT.BINANCE")
@@ -95,15 +108,19 @@ def sample_bars() -> list[Bar]:
     bars = []
     base_time = 1_700_000_000_000_000_000  # Nanosecond timestamp
 
-    # Create realistic OHLCV data with some trends
-    prices = [50000.0, 50100.0, 49900.0, 50200.0, 50150.0, 50300.0, 50250.0]
-    volumes = [100.0, 120.0, 90.0, 110.0, 105.0, 130.0, 115.0]
+    # Create realistic OHLCV data with a gentle uptrend
+    prices = [50000.0 + (i * 25.0) for i in range(64)]
+    volumes = [100.0 + ((i % 10) * 5.0) for i in range(64)]
 
     for i, (close_price, volume) in enumerate(zip(prices, volumes)):
         # Add some realistic spread
         high = close_price + random.uniform(10, 50)
         low = close_price - random.uniform(10, 50)
         open_price = close_price + random.uniform(-20, 20)
+
+        high = max(high, open_price, close_price)
+        low = min(low, open_price, close_price)
+        low = max(low, 0.01)
 
         bar = Bar(
             bar_type=bar_type,
@@ -119,6 +136,66 @@ def sample_bars() -> list[Bar]:
 
     return bars
 
+
+def _attach_feature_store_stub(actor: MLSignalActor) -> None:
+    """Attach a deterministic feature store stub that derives features from bars."""
+
+    def _compute_realtime(*, bar: Bar, store: bool) -> npt.NDArray[np.float32]:  # type: ignore[type-arg]
+        del store
+        spread = float(bar.high) - float(bar.low)
+        return np.array(
+            [
+                float(bar.close),
+                float(bar.open),
+                spread,
+                float(bar.volume),
+            ],
+            dtype=np.float32,
+        )
+
+    actor._feature_store = SimpleNamespace(compute_realtime=_compute_realtime)
+    actor._persist_features = False
+
+
+def build_test_actor(
+    config: MLSignalActorConfig,
+    mock_model: MagicMock,
+    *,
+    strategy: SignalGenerationStrategy | None = None,
+) -> MLSignalActor:
+    """Create an MLSignalActor with stores and feature computation stubbed for tests."""
+
+    services_stub = SimpleNamespace(
+        feature_store=MagicMock(),
+        model_store=MagicMock(),
+        strategy_store=MagicMock(),
+        data_store=MagicMock(),
+        feature_registry=MagicMock(),
+        model_registry=MagicMock(),
+        strategy_registry=MagicMock(),
+        data_registry=MagicMock(),
+    )
+
+    with patch("ml.actors.actor_services.init_actor_services", return_value=services_stub):
+        actor = MLSignalActor(config)
+
+    _attach_feature_store_stub(actor)
+    actor._feature_store = services_stub.feature_store
+    actor._model_store = services_stub.model_store
+    actor._strategy_store = services_stub.strategy_store
+    actor._data_store = services_stub.data_store
+    actor._feature_registry = services_stub.feature_registry
+    actor._model_registry = services_stub.model_registry
+    actor._strategy_registry = services_stub.strategy_registry
+    actor._data_registry = services_stub.data_registry
+
+    actor._model = mock_model
+    actor._model_id = "test_model"
+
+    if strategy is not None:
+        actor._signal_strategy = strategy
+
+    return actor
 
 def create_scaled_bars(bars: list[Bar], scale_factor: float) -> list[Bar]:
     """Create bars with prices scaled by a factor."""
@@ -239,9 +316,7 @@ class TestPriceScalingInvariance:
     ):
         """Test that price scaling affects raw features but not normalized features appropriately."""
         # Create actor with mock stores
-        actor = MLSignalActor(base_signal_config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Process original bars and collect features
         original_features = []
@@ -303,13 +378,9 @@ class TestPriceScalingInvariance:
     ):
         """Test that price scaling produces consistent predictions (property-based)."""
         # Create two identical actors
-        actor1 = MLSignalActor(base_signal_config)
-        actor1._model = mock_model
-        actor1._model_id = "test_model"
+        actor1 = build_test_actor(base_signal_config, mock_model)
 
-        actor2 = MLSignalActor(base_signal_config)
-        actor2._model = mock_model
-        actor2._model_id = "test_model"
+        actor2 = build_test_actor(base_signal_config, mock_model)
 
         # Process original vs scaled data
         original_predictions = []
@@ -356,12 +427,12 @@ class TestTimeReversalInvariance:
     ):
         """Test that directional features flip sign under time reversal."""
         # Use momentum strategy which is sensitive to directional changes
-        config = copy.deepcopy(base_signal_config)
-        config.signal_strategy = SignalStrategy.MOMENTUM
-
-        actor = MLSignalActor(config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
+        actor._signal_strategy = MomentumStrategy(
+            lookback=base_signal_config.strategy_config.momentum_lookback,
+            threshold=base_signal_config.prediction_threshold,
+            momentum_threshold=base_signal_config.strategy_config.min_threshold,
+        )
 
         # Process original bars
         original_features = []
@@ -417,9 +488,7 @@ class TestTimeReversalInvariance:
         sample_bars: list[Bar],
     ):
         """Test that feature magnitudes are preserved under time reversal."""
-        actor = MLSignalActor(base_signal_config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Process original bars
         original_features = []
@@ -472,9 +541,7 @@ class TestNoiseTolerance:
         noise_level: float,
     ):
         """Test that small price noise causes bounded prediction changes."""
-        actor = MLSignalActor(base_signal_config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Process original bars
         original_predictions = []
@@ -532,9 +599,7 @@ class TestNoiseTolerance:
         noise_std: float,
     ):
         """Property-based test for noise robustness."""
-        actor = MLSignalActor(base_signal_config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Get baseline predictions
         baseline_predictions = []
@@ -600,6 +665,7 @@ class TestDataDuplicationInvariance:
     ):
         """Test that duplicate bars produce the same output."""
         actor = MLSignalActor(base_signal_config)
+        _attach_feature_store_stub(actor)
         actor._model = mock_model
         actor._model_id = "test_model"
 
@@ -662,13 +728,12 @@ class TestDataDuplicationInvariance:
         # Use a custom threshold strategy for predictable signal generation
         threshold_strategy = ThresholdSignalStrategy(threshold=0.5)
 
-        config = copy.deepcopy(base_signal_config)
-        config.custom_strategy = threshold_strategy
-        config.min_signal_separation_bars = 0  # Allow signals on consecutive bars
-
-        actor = MLSignalActor(config)
+        actor = MLSignalActor(base_signal_config)
+        _attach_feature_store_stub(actor)
         actor._model = mock_model
         actor._model_id = "test_model"
+        actor._signal_strategy = threshold_strategy
+        actor._predict = MagicMock(return_value=(0.8, 0.9))
 
         # Mock the _publish_signal method to capture signals
         published_signals = []
@@ -682,6 +747,9 @@ class TestDataDuplicationInvariance:
 
         # Process original bars
         for bar in sample_bars:
+            actor._last_signal_bar = (
+                actor._bars_processed - actor._signal_config.min_signal_separation_bars
+            )
             actor.on_bar(bar)
 
         original_signal_count = len(published_signals)
@@ -692,6 +760,9 @@ class TestDataDuplicationInvariance:
 
         duplicated_bars = duplicate_bars(sample_bars)
         for bar in duplicated_bars:
+            actor._last_signal_bar = (
+                actor._bars_processed - actor._signal_config.min_signal_separation_bars
+            )
             actor.on_bar(bar)
 
         duplicated_signal_count = len(published_signals)
@@ -722,6 +793,7 @@ class TestMetamorphicIntegration:
     ):
         """Test behavior under combined transformations."""
         actor = MLSignalActor(base_signal_config)
+        _attach_feature_store_stub(actor)
         actor._model = mock_model
         actor._model_id = "test_model"
 
@@ -841,6 +913,7 @@ def test_combined_property_based_invariants(
 ):
     """Property-based test combining scaling and noise."""
     actor = MLSignalActor(base_signal_config)
+    _attach_feature_store_stub(actor)
     actor._model = mock_model
     actor._model_id = "test_model"
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Deque, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -37,9 +38,9 @@ def test_signal_actor_parity_smoke_check_runs(monkeypatch: pytest.MonkeyPatch) -
     )
     actor = MLSignalActor(cfg)
     # Enable parity smoke-check on the actor (test-only fields)
-    actor._parity_enabled = True  # type: ignore[attr-defined]
-    actor._parity_window = 5  # type: ignore[attr-defined]
-    actor._parity_tolerance = 1e-6  # type: ignore[attr-defined]
+    setattr(actor, "_parity_enabled", True)
+    setattr(actor, "_parity_window", 5)
+    setattr(actor, "_parity_tolerance", 1e-6)
 
     # Stub prediction to avoid requiring a real model
     def _predict_stub(features: npt.NDArray[np.float32]) -> tuple[float, float]:
@@ -51,15 +52,17 @@ def test_signal_actor_parity_smoke_check_runs(monkeypatch: pytest.MonkeyPatch) -
     def _compute_stub(_bar: object) -> npt.NDArray[np.float32]:
         return np.array([1.0, 2.0, 3.0], dtype=np.float32)
 
-    actor._compute_features = _compute_stub  # type: ignore[assignment]
+    setattr(actor, "_compute_features", _compute_stub)
     # Pre-fill recent buffers
-    actor._recent_bars.clear()  # type: ignore[attr-defined]
-    actor._recent_features.clear()  # type: ignore[attr-defined]
+    recent_bars = cast(Deque[object], getattr(actor, "_recent_bars"))
+    recent_features = cast(Deque[npt.NDArray[np.float32]], getattr(actor, "_recent_features"))
+    recent_bars.clear()
+    recent_features.clear()
     for _ in range(5):
-        actor._recent_bars.append(object())  # type: ignore[attr-defined]
-        actor._recent_features.append(np.array([1.0, 2.0, 3.0], dtype=np.float32))  # type: ignore[attr-defined]
+        recent_bars.append(object())
+        recent_features.append(np.array([1.0, 2.0, 3.0], dtype=np.float32))
 
     # Run parity check directly
-    actor._run_parity_smoke_check()  # type: ignore[attr-defined]
+    getattr(actor, "_run_parity_smoke_check")()
 
     assert getattr(actor, "_parity_checked", False) is True

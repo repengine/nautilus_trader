@@ -146,7 +146,35 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
             return 0
 
         template = self._resolve_bar_type_template(dataset_id)
-        bt = _BarType.from_str(template.format(instrument_id=instrument_id))
+        resolved_instrument_id = self._resolve_instrument_token(
+            instrument_id=instrument_id,
+            df=df,
+        )
+        if resolved_instrument_id is None:
+            logger.warning(
+                "Skipping Parquet mirror write due to unresolved instrument identifier",
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "instrument_id": instrument_id,
+                },
+            )
+            return 0
+
+        try:
+            bt = _BarType.from_str(template.format(instrument_id=resolved_instrument_id))
+        except ValueError:
+            logger.warning(
+                "Skipping Parquet mirror write due to invalid bar type",
+                exc_info=True,
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "instrument_id": instrument_id,
+                    "resolved_instrument_id": resolved_instrument_id,
+                },
+            )
+            return 0
         for _, row in df.iterrows():
             bars.append(
                 _Bar(
@@ -180,6 +208,72 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
         if isinstance(candidate, str) and "{instrument_id}" in candidate:
             return candidate
         return self.default_bar_type_template
+
+    def _resolve_instrument_token(self, *, instrument_id: str, df: pd.DataFrame) -> str | None:
+        candidates = self._candidate_instrument_tokens(
+            instrument_id=instrument_id,
+            df=df,
+        )
+        for token in candidates:
+            try:
+                InstrumentId.from_str(token)
+            except Exception:
+                continue
+            return token
+        return None
+
+    def _candidate_instrument_tokens(
+        self,
+        *,
+        instrument_id: str,
+        df: pd.DataFrame,
+    ) -> list[str]:
+        candidates: list[str] = []
+        seen: set[str] = set()
+
+        def _add(value: str | None) -> None:
+            if value is None:
+                return
+            token = value.strip()
+            if not token or token in seen:
+                return
+            seen.add(token)
+            candidates.append(token)
+
+        _add(instrument_id)
+
+        symbol_like_columns = ("instrument_id", "instrument", "symbol")
+        for column in symbol_like_columns:
+            if column in df.columns:
+                _add(self._first_non_null_str(df[column]))
+
+        venues: list[str] = []
+        venue_columns = ("publisher_id", "venue", "exchange", "primary_exchange")
+        for column in venue_columns:
+            if column in df.columns:
+                venue_value = self._first_non_null_str(df[column])
+                if venue_value:
+                    venues.append(venue_value.replace(" ", ""))
+
+        base_tokens = [token for token in candidates if "." not in token]
+        for base in base_tokens:
+            for venue in venues:
+                _add(f"{base}.{venue}")
+
+        return candidates
+
+    @staticmethod
+    def _first_non_null_str(series: pd.Series) -> str | None:
+        if series.empty:
+            return None
+        idx = series.first_valid_index()
+        if idx is None:
+            return None
+        value = series.loc[idx]
+        if pd.isna(value):
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 @dataclass(slots=True)

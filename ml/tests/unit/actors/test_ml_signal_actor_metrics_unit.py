@@ -8,12 +8,13 @@ Stubs a counter with labels().inc() and verifies it is invoked.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import SignalActorHarness
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -43,35 +44,28 @@ def _stub_bar() -> object:
 
 
 def test_signals_generated_metric_incremented() -> None:
-    class _D:
-        pass
-
-    actor = _D()
-    actor._signal_strategy = ThresholdSignalStrategy(threshold=0.0)
-    actor._last_signal_bar = -1
-    actor._bars_processed = 0
-    actor._model_id = "m1"
-    actor._signal_config = SimpleNamespace(
-        min_signal_separation_bars=0,
-        signal_strategy="threshold",
-    )
-    actor._config = SimpleNamespace(log_predictions=False)
-    actor.id = SimpleNamespace(value="actor-1")
-    actor._prediction_history = []
-    actor._confidence_history = []
-    actor._adaptive_threshold = 0.0
-    actor._market_regime = None
-    actor._feature_set_id = None
-    actor.clock = SimpleNamespace(timestamp_ns=lambda: 123)
-    actor._performance_monitor = None
-    actor.log = SimpleNamespace(debug=lambda *a, **k: None)
-    # Do not set _strategy_store to avoid persistence call in this test
-    # Stub metric counter
     counter = _DummyCounter()
-    actor._signals_generated_metric = counter
-    # Publish suppressed
-    actor._publish_signal = lambda s: None
 
-    MLSignalActor._try_generate_signal(actor, _stub_bar(), 0.1, 0.9, np.zeros(1, dtype=np.float32))  # type: ignore[misc]
+    actor = SignalActorHarness(
+        _signal_strategy=ThresholdSignalStrategy(threshold=0.0),
+        _signal_config=SimpleNamespace(
+            min_signal_separation_bars=0,
+            signal_strategy="threshold",
+        ),
+        _config=SimpleNamespace(log_predictions=False),
+        id=SimpleNamespace(value="actor-1"),
+        _model_id="m1",
+        _last_signal_bar=-1,
+        _bars_processed=0,
+        clock=SimpleNamespace(timestamp_ns=lambda: 123),
+        _performance_monitor=None,
+        _signals_generated_metric=counter,
+        log=SimpleNamespace(debug=lambda *a, **k: None),
+        _publish_signal=lambda s: None,
+    )
+
+    actor_proxy = cast(MLSignalActor, actor)
+
+    MLSignalActor._try_generate_signal(actor_proxy, _stub_bar(), 0.1, 0.9, np.zeros(1, dtype=np.float32))
     # Expect metric called
     assert any(tag == "inc" for _, tag in counter.calls)

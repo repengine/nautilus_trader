@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from contextlib import contextmanager
 from typing import Any, Iterable
+from collections.abc import Iterator
 
 import pytest
 
@@ -18,7 +19,7 @@ from ml.stores.strategy_store import StrategyStore
 
 
 @contextmanager
-def _patch_engine_manager():
+def _patch_engine_manager() -> Iterator[None]:
     # Patch EngineManager.get_engine to a dummy engine to avoid real DB IO
     from ml.core import db_engine as _db
 
@@ -42,38 +43,38 @@ def _patch_engine_manager():
             return _DummyConn()
 
     try:
-        _db.EngineManager.get_engine = lambda *a, **k: _DummyEngine()  # type: ignore[assignment]
+        setattr(_db.EngineManager, "get_engine", lambda *a, **k: _DummyEngine())
         yield
     finally:
-        _db.EngineManager.get_engine = orig_get_engine  # type: ignore[assignment]
+        setattr(_db.EngineManager, "get_engine", orig_get_engine)
 
 
 @contextmanager
-def _capture_model_store_writes(sink: list[dict[str, Any]]):
+def _capture_model_store_writes(sink: list[dict[str, Any]]) -> Iterator[None]:
     orig_setup = ModelStore._setup_tables
     orig_exec = ModelStore._execute_write
     try:
-        ModelStore._setup_tables = lambda self: None  # type: ignore[assignment]
-        ModelStore._execute_write = lambda self, values: sink.extend(values)  # type: ignore[assignment]
+        setattr(ModelStore, "_setup_tables", lambda self: None)
+        setattr(ModelStore, "_execute_write", lambda self, values: sink.extend(values))
         with _patch_engine_manager():
             yield
     finally:
-        ModelStore._setup_tables = orig_setup  # type: ignore[assignment]
-        ModelStore._execute_write = orig_exec  # type: ignore[assignment]
+        setattr(ModelStore, "_setup_tables", orig_setup)
+        setattr(ModelStore, "_execute_write", orig_exec)
 
 
 @contextmanager
-def _capture_strategy_store_writes(sink: list[dict[str, Any]]):
+def _capture_strategy_store_writes(sink: list[dict[str, Any]]) -> Iterator[None]:
     orig_setup = StrategyStore._setup_tables
     orig_exec = StrategyStore._execute_write
     try:
-        StrategyStore._setup_tables = lambda self: None  # type: ignore[assignment]
-        StrategyStore._execute_write = lambda self, values: sink.extend(values)  # type: ignore[assignment]
+        setattr(StrategyStore, "_setup_tables", lambda self: None)
+        setattr(StrategyStore, "_execute_write", lambda self, values: sink.extend(values))
         with _patch_engine_manager():
             yield
     finally:
-        StrategyStore._setup_tables = orig_setup  # type: ignore[assignment]
-        StrategyStore._execute_write = orig_exec  # type: ignore[assignment]
+        setattr(StrategyStore, "_setup_tables", orig_setup)
+        setattr(StrategyStore, "_execute_write", orig_exec)
 
 
 def _ts_range(values: Iterable[dict[str, Any]]) -> tuple[int, int]:

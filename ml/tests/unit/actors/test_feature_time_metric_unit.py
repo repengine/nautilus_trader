@@ -9,12 +9,14 @@ the module-level histogram to assert observation.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 import ml.actors.signal as signal_mod
 from ml.actors.signal import MLSignalActor
+from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import SignalActorHarness
 
 
 class _DummyHist:
@@ -38,32 +40,33 @@ def _stub_bar() -> Any:
 
 
 def test_compute_features_records_feature_time() -> None:
-    # Build dummy actor self
-    class _D:
-        pass
-
-    actor = _D()
-    actor._feature_store = None
-    # Stub indicator manager
-    actor._indicator_manager = SimpleNamespace(
+    indicator_manager = SimpleNamespace(
         update_from_bar=lambda bar: None,
         all_initialized=lambda: True,
     )
-    # Stub feature engineer
-    actor._feature_engineer = SimpleNamespace(
+    feature_engineer = SimpleNamespace(
         calculate_features_online=lambda **kwargs: np.zeros(2, dtype=np.float32),
     )
-    # Required attributes
-    actor._feature_buffer = np.zeros(2, dtype=np.float32)
-    actor._feature_set_id = "fs1"
-    actor.id = "actor-1"
-    actor._config = SimpleNamespace(max_feature_latency_ms=1_000.0)
+
+    harness = SignalActorHarness(
+        _signal_strategy=ThresholdSignalStrategy(threshold=0.0),
+        _signal_config=SimpleNamespace(signal_strategy="threshold", min_signal_separation_bars=0),
+        _config=SimpleNamespace(max_feature_latency_ms=1_000.0),
+        id="actor-1",
+        _feature_store=None,
+        _indicator_manager=indicator_manager,
+        _feature_engineer=feature_engineer,
+        _feature_buffer=np.zeros(2, dtype=np.float32),
+        _feature_set_id="fs1",
+    )
+    actor = cast(MLSignalActor, harness)
+
     # Monkeypatch histogram
     hist = _DummyHist()
-    signal_mod._feature_time_by_feature_set_metric = hist  # type: ignore[attr-defined]
+    setattr(signal_mod, "_feature_time_by_feature_set_metric", hist)
 
-    # Call unbound method with dummy actor
-    res = MLSignalActor._compute_features(actor, _stub_bar())  # type: ignore[misc]
+    # Call unbound method with typed harness
+    res = MLSignalActor._compute_features(actor, _stub_bar())
     assert isinstance(res, np.ndarray)
     assert hist.observed, "Expected feature-time histogram observation"
     labels, _value = hist.observed[-1]

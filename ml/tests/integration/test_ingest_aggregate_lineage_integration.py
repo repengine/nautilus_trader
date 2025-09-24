@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, SupportsFloat, SupportsInt, cast
 
 import pandas as pd
 
@@ -21,10 +21,13 @@ def _envelopes_from_tbbo(df: pd.DataFrame) -> list[Envelope]:
                 "id": f"e{i}",
                 "parent_id": None,
                 "instrument_id": str(row.instrument_id),
-                "ts_event": int(row.ts_event),
+                "ts_event": int(cast(SupportsInt, row.ts_event)),
                 "stage": "FEATURE_COMPUTED",
                 "correlation_id": "c-ingest-1",
-                "payload": {"bid_px": float(row.bid_px), "ask_px": float(row.ask_px)},
+                "payload": {
+                    "bid_px": float(cast(SupportsFloat, row.bid_px)),
+                    "ask_px": float(cast(SupportsFloat, row.ask_px)),
+                },
             },
         )
     return envs
@@ -50,7 +53,10 @@ def test_ingest_to_aggregator_to_lineage_with_metrics() -> None:
     svc = ObservabilityService()
     writer = LineageWriter(service=svc)
     bus = InMemoryPublisher()
-    bus.subscribe("aggregated.#", lambda t, p: writer.handle(t, p))
+    def _forward(topic: str, payload: dict[str, Any]) -> None:
+        writer.handle(topic, cast(Envelope, payload))
+
+    bus.subscribe("aggregated.#", _forward)
     agg = AggregatingConsumer(downstream=bus, topic_mapper=lambda _stage: "aggregated.lineage")
 
     # Shuffle arrival order minimally by swapping pairs

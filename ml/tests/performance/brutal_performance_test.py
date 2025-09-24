@@ -558,9 +558,9 @@ class BrutalPerformanceTester:
             max_latency_us=max(latencies) if latencies else 0,
             mean_latency_us=statistics.mean(latencies) if latencies else 0,
             p50_latency_us=statistics.median(latencies) if latencies else 0,
-            p95_latency_us=np.percentile(latencies, 95) if latencies else 0,
-            p99_latency_us=np.percentile(latencies, 99) if latencies else 0,
-            p999_latency_us=np.percentile(latencies, 99.9) if latencies else 0,
+            p95_latency_us=float(np.percentile(latencies, 95)) if latencies else 0.0,
+            p99_latency_us=float(np.percentile(latencies, 99)) if latencies else 0.0,
+            p999_latency_us=float(np.percentile(latencies, 99.9)) if latencies else 0.0,
             total_time_s=total_time,
             throughput_ops_per_sec=total_messages / total_time,
             memory_allocated_bytes=0,  # Not measured in this test

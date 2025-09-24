@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
 
 from ml.core.integration import MLIntegrationManager
 from ml.preprocessing.event_ingestion import EventIngestionConfig
 
 
-def test_ingest_events_creates_artifact(tmp_path) -> None:
-    mgr = MLIntegrationManager.__new__(MLIntegrationManager)  # type: ignore[misc]
+def test_ingest_events_creates_artifact(tmp_path: Path) -> None:
+    mgr = object.__new__(MLIntegrationManager)
     cfg = EventIngestionConfig(
         start=datetime(2024, 1, 1, tzinfo=UTC),
         end=datetime(2024, 1, 31, tzinfo=UTC),

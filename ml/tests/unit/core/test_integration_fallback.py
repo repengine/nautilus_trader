@@ -4,6 +4,8 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import pytest
+
 from ml.core.integration import MLIntegrationManager
 
 
@@ -20,7 +22,7 @@ def _env(var: str, value: str) -> Iterator[None]:
             os.environ[var] = old
 
 
-def test_integration_manager_fallback_to_dummy(monkeypatch: object) -> None:
+def test_integration_manager_fallback_to_dummy(monkeypatch: pytest.MonkeyPatch) -> None:
     # Force Postgres check to fail
     monkeypatch.setattr(MLIntegrationManager, "_is_postgres_running", lambda self: False)
 

@@ -82,6 +82,59 @@ def test_parquet_catalog_market_data_writer_uses_manifest_template() -> None:
     assert str(bar.bar_type) == "SPY.XNYS-5-MINUTE-LAST-EXTERNAL"
 
 
+def test_parquet_catalog_market_data_writer_infers_instrument_suffix() -> None:
+    cat = _FakeCatalog()
+    writer = ParquetCatalogMarketDataWriter(cat)
+
+    df = pd.DataFrame(
+        {
+            "instrument_id": ["SPY"],
+            "symbol": ["SPY"],
+            "publisher_id": ["XNYS"],
+            "ts_event": [1],
+            "ts_init": [1],
+            "open": [100.0],
+            "high": [101.0],
+            "low": [99.5],
+            "close": [100.5],
+            "volume": [1000.0],
+        },
+    )
+
+    n = writer.write(dataset_id="bars_ds", schema="bars", instrument_id="SPY", df=df)
+    assert n == 1
+    bar = cast(Any, cat.items[0])
+    assert str(bar.bar_type) == "SPY.XNYS-1-MINUTE-LAST-EXTERNAL"
+
+
+def test_parquet_catalog_market_data_writer_skips_when_unresolved(caplog: Any) -> None:
+    cat = _FakeCatalog()
+    writer = ParquetCatalogMarketDataWriter(cat)
+
+    df = pd.DataFrame(
+        {
+            "instrument_id": ["SPY"],
+            "ts_event": [1],
+            "ts_init": [1],
+            "open": [100.0],
+            "high": [101.0],
+            "low": [99.5],
+            "close": [100.5],
+            "volume": [1000.0],
+        },
+    )
+
+    with caplog.at_level("WARNING"):
+        n = writer.write(dataset_id="bars_ds", schema="bars", instrument_id="SPY", df=df)
+
+    assert n == 0
+    assert not cat.items
+    assert any(
+        "Skipping Parquet mirror write due to unresolved instrument identifier" in record.message
+        for record in caplog.records
+    )
+
+
 def test_fanout_market_data_writer_calls_primary_and_mirror() -> None:
     calls: list[str] = []
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import polars as pl
@@ -46,7 +47,7 @@ def _frame() -> pd.DataFrame:
     )
 
 
-def test_alfred_loader_persists_vintages(tmp_path) -> None:
+def test_alfred_loader_persists_vintages(tmp_path: Path) -> None:
     cfg = ALFREDConfig(series_ids=("CPI",), out_dir=tmp_path, api_key="dummy")
     loader = ALFREDDataLoader(cfg, fred_client=_StubFred(_frame()))
 

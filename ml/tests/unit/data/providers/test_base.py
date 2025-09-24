@@ -8,7 +8,8 @@ Following TDD approach - tests written before implementation.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from hypothesis import given
@@ -16,12 +17,34 @@ from hypothesis import strategies as st
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 from ml.tests.builders import DataBuilder
 
 
 if TYPE_CHECKING:
     import polars as pl
+
+
+def _get_polars() -> ModuleType:
+    """Return the polars module, importing it if necessary."""
+    if pl_runtime is not None:
+        return pl_runtime
+    import polars as polars_module
+
+    return polars_module
+
+
+def _polars_dataframe(data: Any | None = None) -> Any:
+    """Convenience helper to construct a Polars DataFrame."""
+    polars = _get_polars()
+    if data is None:
+        return polars.DataFrame()
+    return polars.DataFrame(data)
+
+
+def _polars_series(values: Any) -> Any:
+    """Convenience helper to construct a Polars Series."""
+    return _get_polars().Series(values)
 
 
 @pytest.mark.property
@@ -49,7 +72,7 @@ class TestProviderProtocols:
                 start: datetime,
                 end: datetime,
             ) -> pl.DataFrame:
-                return pl.DataFrame()
+                return _polars_dataframe()
 
             def validate_data(self, data: pl.DataFrame) -> bool:
                 return True
@@ -73,7 +96,7 @@ class TestProviderProtocols:
 
         class ValidStaticProvider:
             def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
-                return pl.DataFrame({"instrument_id": instruments})
+                return _polars_dataframe({"instrument_id": instruments})
 
         provider: StaticDataProvider = ValidStaticProvider()
         result = provider.load_metadata(["SPY"])
@@ -127,7 +150,8 @@ class TestBaseDataProvider:
 
         # Valid data with required columns - using DataBuilder for consistent test data
         timestamps = DataBuilder.time_series(n_points=2, start_time=100, interval_ns=100)
-        valid_df = pl.DataFrame(
+        polars = _get_polars()
+        valid_df = polars.DataFrame(
             {
                 "instrument_id": ["SPY", "QQQ"],
                 "timestamp": timestamps,
@@ -137,12 +161,12 @@ class TestBaseDataProvider:
         assert provider.validate_data(valid_df)
 
         # Empty dataframe should fail
-        empty_df = pl.DataFrame()
+        empty_df = polars.DataFrame()
         assert not provider.validate_data(empty_df)
 
         # Data with nulls in required columns should fail
         timestamps_null = DataBuilder.time_series(n_points=2, start_time=100, interval_ns=100)
-        null_df = pl.DataFrame(
+        null_df = polars.DataFrame(
             {
                 "instrument_id": ["SPY", None],
                 "timestamp": timestamps_null,
@@ -184,7 +208,7 @@ class TestCachedDataProvider:
                 start: datetime,
                 end: datetime,
             ) -> pl.DataFrame:
-                return pl.DataFrame()
+                return _polars_dataframe()
 
         provider = DummyCachedProvider(cache_ttl_hours=24)
         assert provider.cache_ttl == 24
@@ -203,7 +227,7 @@ class TestCachedDataProvider:
                 start: datetime,
                 end: datetime,
             ) -> pl.DataFrame:
-                return pl.DataFrame()
+                return _polars_dataframe()
 
         provider = DummyCachedProvider()
 
@@ -242,7 +266,7 @@ class TestCachedDataProvider:
                 start: datetime,
                 end: datetime,
             ) -> pl.DataFrame:
-                return pl.DataFrame()
+                return _polars_dataframe()
 
         provider = DummyCachedProvider(cache_ttl_hours=ttl_hours)
         assert provider.cache_ttl == ttl_hours
@@ -268,7 +292,7 @@ class TestCachedDataProvider:
                 end: datetime,
             ) -> pl.DataFrame:
                 self.load_count += 1
-                return pl.DataFrame({"instrument_id": instruments})
+                return _polars_dataframe({"instrument_id": instruments})
 
         provider = TestProvider()
 
@@ -310,7 +334,7 @@ class TestBaseStaticProvider:
 
             def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
                 self.load_count += 1
-                return pl.DataFrame(
+                return _polars_dataframe(
                     {
                         "instrument_id": instruments,
                         "tick_size": [0.01] * len(instruments),
@@ -352,7 +376,7 @@ class TestBaseTimeSeriesProvider:
                 instruments: list[str],
                 timestamps: pl.Series,
             ) -> pl.DataFrame:
-                return pl.DataFrame(
+                return _polars_dataframe(
                     {
                         "timestamp": timestamps,
                         "instrument_id": instruments[0],
@@ -362,12 +386,12 @@ class TestBaseTimeSeriesProvider:
         provider = TestTimeSeriesProvider()
 
         # Valid timestamps
-        valid_ts = pl.Series([100, 200, 300])
+        valid_ts = _polars_series([100, 200, 300])
         result = provider.load_timeseries(["SPY"], valid_ts)
         assert len(result) == 3
 
         # Invalid timestamps (not sorted)
-        invalid_ts = pl.Series([300, 100, 200])
+        invalid_ts = _polars_series([300, 100, 200])
         with pytest.raises(ValueError, match="not sorted"):
             provider.load_timeseries(["SPY"], invalid_ts)
 
@@ -396,11 +420,11 @@ class TestBaseTimeSeriesProvider:
                 for ts in timestamps:
                     for inst in instruments:
                         rows.append({"timestamp": ts, "instrument_id": inst})
-                return pl.DataFrame(rows)
+                return _polars_dataframe(rows)
 
         provider = TestProvider()
 
-        timestamps = pl.Series(list(range(num_timestamps)))
+        timestamps = _polars_series(list(range(num_timestamps)))
         instruments = [f"INST{i}" for i in range(num_instruments)]
 
         result = provider.load_timeseries(instruments, timestamps)

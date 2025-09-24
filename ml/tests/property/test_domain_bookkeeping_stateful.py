@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -32,7 +33,7 @@ from nautilus_trader.core.uuid import UUID4
 
 # Strategies that can optionally use DataBuilder
 @st.composite
-def instrument_ids_strategy(draw, use_builder=False):
+def instrument_ids_strategy(draw: Any, use_builder: bool = False) -> str:
     """
     Generate instrument IDs, optionally using DataBuilder.
     """
@@ -110,7 +111,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
     pipelines = Bundle("pipelines")
     correlations = Bundle("correlations")
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         # Use a flexible mock; concrete MLIntegrationManager may evolve
         self.mock_integration_manager = MagicMock()
@@ -132,7 +133,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         }
 
     @initialize()
-    def init_system(self):
+    def init_system(self) -> None:
         """
         Initialize the domain bookkeeping system.
         """
@@ -232,7 +233,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         return event
 
     @rule(pipeline=pipelines)
-    def complete_pipeline(self, pipeline: PipelineExecution):
+    def complete_pipeline(self, pipeline: PipelineExecution) -> None:
         """
         Mark a pipeline execution as completed.
         """
@@ -257,7 +258,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         component=st.sampled_from(["data_store", "feature_store", "model_store", "strategy_store"]),
         health_change=st.floats(min_value=-0.3, max_value=0.3),
     )
-    def update_component_health(self, component: str, health_change: float):
+    def update_component_health(self, component: str, health_change: float) -> None:
         """
         Update the health score of a system component.
         """
@@ -280,7 +281,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
     @rule(
         failure_rate=st.floats(min_value=0.0, max_value=0.1),
     )
-    def simulate_message_bus_issues(self, failure_rate: float):
+    def simulate_message_bus_issues(self, failure_rate: float) -> None:
         """
         Simulate message bus connectivity or delivery issues.
         """
@@ -302,7 +303,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         else:
             self.message_bus_state["connected"] = True
 
-    def _update_pipeline_state(self, pipeline: PipelineExecution, event_type: EventType):
+    def _update_pipeline_state(self, pipeline: PipelineExecution, event_type: EventType) -> None:
         """
         Update pipeline state based on event type.
         """
@@ -352,7 +353,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
     # Invariants that must always hold
 
     @invariant()
-    def event_timestamps_monotonic(self):
+    def event_timestamps_monotonic(self) -> None:
         """
         Event timestamps must be monotonically increasing.
         """
@@ -363,7 +364,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             ), "Event timestamps must be monotonically increasing"
 
     @invariant()
-    def correlation_consistency(self):
+    def correlation_consistency(self) -> None:
         """
         All events with same correlation ID must have consistent instrument_id.
         """
@@ -379,7 +380,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
                 )
 
     @invariant()
-    def pipeline_state_consistency(self):
+    def pipeline_state_consistency(self) -> None:
         """
         Pipeline states must be consistent with their events.
         """
@@ -402,7 +403,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
                 ), f"Non-idle pipeline {pipeline.execution_id} missing start timestamp"
 
     @invariant()
-    def event_lineage_consistency(self):
+    def event_lineage_consistency(self) -> None:
         """
         Event lineage chains must be consistent.
         """
@@ -428,7 +429,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
                 ), f"Event {event.event_id} timestamp before parent timestamp"
 
     @invariant()
-    def health_scores_valid_range(self):
+    def health_scores_valid_range(self) -> None:
         """
         All health scores must be in valid range [0,1].
         """
@@ -436,7 +437,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             assert 0.0 <= health <= 1.0, f"Component {component} health out of range: {health}"
 
     @invariant()
-    def message_bus_metrics_consistency(self):
+    def message_bus_metrics_consistency(self) -> None:
         """
         Message bus metrics must be consistent.
         """
@@ -459,7 +460,7 @@ class TestDomainBookkeepingStateful:
     Stateful property-based tests for domain bookkeeping.
     """
 
-    def test_domain_bookkeeping_workflow_state_machine(self):
+    def test_domain_bookkeeping_workflow_state_machine(self) -> None:
         """
         Test domain bookkeeping workflows using state machine exploration.
 
@@ -470,10 +471,10 @@ class TestDomainBookkeepingStateful:
         # Run the state machine using Hypothesis helper and capture the instance
         from hypothesis.stateful import run_state_machine_as_test
 
-        class _CaptureMachine(DomainBookkeepingStateMachine):  # type: ignore[misc]
-            last_instance: _CaptureMachine | None = None
+        class _CaptureMachine(DomainBookkeepingStateMachine):
+            last_instance: DomainBookkeepingStateMachine | None = None
 
-            def __init__(self):
+            def __init__(self) -> None:
                 super().__init__()
                 _CaptureMachine.last_instance = self
 
@@ -484,7 +485,7 @@ class TestDomainBookkeepingStateful:
         # Additional post-execution validations
         self._validate_final_state(sm)
 
-    def _validate_final_state(self, state_machine: DomainBookkeepingStateMachine):
+    def _validate_final_state(self, state_machine: DomainBookkeepingStateMachine) -> None:
         """
         Perform additional validation of the final state.
         """
@@ -567,7 +568,7 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
 
     pipelines = Bundle("pipelines")
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.pipelines_dict: dict[str, PipelineExecution] = {}
         self.recovery_attempts = 0
@@ -596,7 +597,7 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
         pipeline_id=pipelines,
         failure_type=st.sampled_from(["network", "timeout", "data_quality"]),
     )
-    def inject_failure(self, pipeline_id: str, failure_type: str):
+    def inject_failure(self, pipeline_id: str, failure_type: str) -> None:
         """
         Inject a failure into a pipeline.
         """
@@ -608,7 +609,7 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
                 pipeline.error_message = f"Injected {failure_type} failure"
 
     @rule(pipeline_id=pipelines)
-    def attempt_recovery(self, pipeline_id: str):
+    def attempt_recovery(self, pipeline_id: str) -> None:
         """
         Attempt to recover a failed pipeline.
         """
@@ -639,7 +640,7 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
                         self.successful_recoveries += 1
 
     @invariant()
-    def recovery_rate_reasonable(self):
+    def recovery_rate_reasonable(self) -> None:
         """
         Recovery success rate should be reasonable.
         """
@@ -657,16 +658,16 @@ class TestPipelineRecoveryStateful:
     Stateful tests focused on pipeline recovery scenarios.
     """
 
-    def test_pipeline_recovery_workflows(self):
+    def test_pipeline_recovery_workflows(self) -> None:
         """
         Test pipeline recovery workflows with various failure patterns.
         """
         from hypothesis.stateful import run_state_machine_as_test
 
-        class _CaptureRecovery(PipelineRecoveryStateMachine):  # type: ignore[misc]
-            last_instance: _CaptureRecovery | None = None
+        class _CaptureRecovery(PipelineRecoveryStateMachine):
+            last_instance: PipelineRecoveryStateMachine | None = None
 
-            def __init__(self):
+            def __init__(self) -> None:
                 super().__init__()
                 _CaptureRecovery.last_instance = self
 

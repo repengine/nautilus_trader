@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.consumers.aggregator import AggregatingConsumer
 from ml.consumers.lineage_writer import LineageWriter
@@ -12,8 +14,12 @@ def test_aggregator_to_lineage_writer_flow() -> None:
     writer = LineageWriter(service=svc)
 
     bus = InMemoryPublisher()
+
+    def _forward(topic: str, payload: dict[str, Any]) -> None:
+        writer.handle(topic, cast(Envelope, payload))
+
     # Wire a subscriber that forwards to the writer
-    bus.subscribe("aggregated.#", lambda _t, p: writer.handle(_t, p))
+    bus.subscribe("aggregated.#", _forward)
 
     agg = AggregatingConsumer(downstream=bus, topic_mapper=lambda _stage: "aggregated.lineage")
 

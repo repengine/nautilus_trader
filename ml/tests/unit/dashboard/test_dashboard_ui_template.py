@@ -6,7 +6,7 @@ from pathlib import Path
 def test_ui_template_contains_ts_check_and_typed_helpers() -> None:
     tpl = Path("ml/dashboard/templates/index.html").read_text(encoding="utf-8")
     assert "// @ts-check" in tpl
-    assert "/** @typedef" in tpl
+    assert "/* @typedef" in tpl
     assert "function getHeaders()" in tpl
     assert "function renderGrafanaEmbeds" in tpl
     assert "function formatMetric" in tpl

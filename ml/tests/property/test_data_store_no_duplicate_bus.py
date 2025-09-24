@@ -97,6 +97,14 @@ class _StubRegistry:
         self._ensure_contract(manifest.dataset_id)
         return manifest.dataset_id
 
+    def update_manifest(
+        self,
+        dataset_id: str,
+        changes: dict[str, object],
+    ) -> None:
+        if dataset_id in self._manifests:
+            self._manifests[dataset_id] = self._manifests[dataset_id]
+
     def _ensure_contract(self, dataset_id: str) -> DataContract:
         if dataset_id not in self._contracts:
             self._contracts[dataset_id] = DataContract(

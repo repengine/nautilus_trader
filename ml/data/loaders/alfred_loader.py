@@ -61,11 +61,11 @@ class _FredVintageClient(Protocol):
         series_id: str,
         realtime_start: str | None = None,
         realtime_end: str | None = None,
-    ) -> Any:  # pragma: no cover - Protocol
+    ) -> "pd.DataFrame":  # pragma: no cover - Protocol
         ...
 
 
-def _ensure_polars_frame(obj: Any) -> PolarsDF:
+def _ensure_polars_frame(obj: "pd.DataFrame") -> PolarsDF:
     """
     Convert pandas DataFrame to Polars with normalized schema.
     """
@@ -306,7 +306,7 @@ class ALFREDDataLoader:
             current_start = current_end + timedelta(days=1)
 
         if not frames:
-            return cast(pd.DataFrame, pd.DataFrame())
+            return pd.DataFrame()
 
         merged = pd.concat(frames, ignore_index=True)
         merged = merged.drop_duplicates(subset=["realtime_start", "date"], keep="last")

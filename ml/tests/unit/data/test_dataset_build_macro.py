@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -43,7 +45,10 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
             return pl.DataFrame(
                 {
                     "time_index": [0, 1],
-                    "ts_event": [1_000_000_000, 2_000_000_000],
+                    "ts_event": [
+                        datetime.fromtimestamp(1_000_000_000 / 1_000_000_000, tz=UTC),
+                        datetime.fromtimestamp(2_000_000_000 / 1_000_000_000, tz=UTC),
+                    ],
                     "feature_a": [1.0, 2.0],
                     "y": [0.0, 1.0],
                 },
@@ -128,7 +133,10 @@ def test_build_tft_dataset_rejects_missing_macro_observations(
             return pl.DataFrame(
                 {
                     "time_index": [0, 1],
-                    "ts_event": [1_000_000_000, 2_000_000_000],
+                    "ts_event": [
+                        datetime.fromtimestamp(1_000_000_000 / 1_000_000_000, tz=UTC),
+                        datetime.fromtimestamp(2_000_000_000 / 1_000_000_000, tz=UTC),
+                    ],
                     "DGS10": [0.0, 0.0],
                     "DGS10__value_vintage_ts": [None, None],
                     "y": [0.0, 1.0],

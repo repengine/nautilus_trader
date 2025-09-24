@@ -217,7 +217,10 @@ def refresh_alfred_if_stale(
     base_dir.mkdir(parents=True, exist_ok=True)
 
     if loader_factory is None:
-        loader_factory = _build_alfred_loader
+        def _default_loader(series: Sequence[str]) -> _ALFREDLoaderProtocol:
+            return _build_alfred_loader(series, None, None, 365)
+
+        loader_factory = _default_loader
 
     start = time.perf_counter()
     try:

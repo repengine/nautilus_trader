@@ -25,6 +25,7 @@ from ml.data.l2_cache import L2MinuteCache
 from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
 from ml.data.vintage import VintagePolicy
+from ml.ml_types import DataFrameLike, PolarsDF
 from ml.stores.feature_store import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -166,11 +167,11 @@ class TFTDatasetBuilder:
     def _now_ns() -> int:
         return int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
 
-    def _to_polars(self, data: Any) -> _pl.DataFrame:
+    def _to_polars(self, data: DataFrameLike) -> PolarsDF:
         if pl is not None and isinstance(data, pl.DataFrame):
-            return data
+            return cast(PolarsDF, data)
         if pd is not None and isinstance(data, pd.DataFrame):
-            return pl.from_pandas(data)
+            return cast(PolarsDF, pl.from_pandas(data))
         raise TypeError(f"Unsupported data type for Polars conversion: {type(data)!r}")
 
     def _load_bars_dataframe(
@@ -185,13 +186,13 @@ class TFTDatasetBuilder:
                 end_ns = self._datetime_to_ns(end, fallback=self._now_ns())
                 assert self.data_store is not None
                 dataset_id = cast(str, self.market_dataset_id)
-                raw = self.data_store.read_range(
+                raw_result = self.data_store.read_range(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
                     start_ns=start_ns,
                     end_ns=end_ns,
                 )
-                frame = self._to_polars(raw)
+                frame = self._to_polars(cast(DataFrameLike, raw_result))
                 if not frame.is_empty():
                     if "timestamp" not in frame.columns and "ts_event" in frame.columns:
                         frame = frame.rename({"ts_event": "timestamp"})
@@ -238,7 +239,7 @@ class TFTDatasetBuilder:
                 exc_info=True,
                 extra={"instrument_id": instrument_id},
             )
-            return pl.DataFrame(
+            return cast(PolarsDF, pl.DataFrame(
                 {
                     "instrument_id": [],
                     "timestamp": [],
@@ -248,7 +249,7 @@ class TFTDatasetBuilder:
                     "close": [],
                     "volume": [],
                 },
-            )
+            ))
 
     def _resolve_instrument_ids(self, override: list[str] | None = None) -> list[str]:
         if override:

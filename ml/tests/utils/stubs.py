@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable, TYPE_CHECKING, cast
 
 from ml.actors.base import MLSignal
+from ml.actors.signal import MLSignalActor
 from ml.config.events import EventStatus, Source, Stage
 from ml.core.integration import MLIntegrationManager
 from ml.observability.service import ObservabilityService
@@ -22,6 +24,9 @@ from ml.registry.dataclasses import (
 from ml.registry.protocols import RegistryProtocol
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.protocols import OrderExecutorProtocol
+
+import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only imports
@@ -141,8 +146,17 @@ class RegistryTestStub(RegistryProtocol):
 
 @dataclass(slots=True)
 class FeatureStoreNoOp:
+    """Minimal in-memory store stub satisfying FeatureStore protocol methods."""
+
+    feature_batches: list[list[object]] = field(default_factory=list)
+
     def write_features(self, *args: object, **kwargs: object) -> None:  # noqa: D401
         del args, kwargs
+
+    def write_batch(self, data: Sequence[object], emit_events: bool = True) -> None:
+        """Record feature batches without performing any persistence."""
+        del emit_events
+        self.feature_batches.append(list(data))
 
 
 @dataclass(slots=True)
@@ -150,11 +164,27 @@ class ModelStoreNoOp:
     def write_prediction(self, *args: object, **kwargs: object) -> None:  # noqa: D401
         del args, kwargs
 
+    def write_batch(
+        self,
+        data: Sequence[object],
+        emit_events: bool = True,
+        publish_bus: bool = True,
+    ) -> None:
+        del data, emit_events, publish_bus
+
 
 @dataclass(slots=True)
 class StrategyStoreNoOp:
     def write_signal(self, *args: object, **kwargs: object) -> None:  # noqa: D401
         del args, kwargs
+
+    def write_batch(
+        self,
+        data: Sequence[object],
+        emit_events: bool = True,
+        publish_bus: bool = True,
+    ) -> None:
+        del data, emit_events, publish_bus
 
 
 @dataclass(slots=True)
@@ -209,6 +239,43 @@ class StrategyDecisionRecorder:
                 execution_params=execution_params,
             ),
         )
+
+
+@dataclass(slots=True)
+class SignalActorHarness:
+    """Typed stub exposing the MLSignalActor surface required by unit tests."""
+
+    _signal_strategy: object
+    _signal_config: object
+    _config: object
+    id: object
+    _model_id: str = "ml_model"
+    _last_signal_bar: int = 0
+    _bars_processed: int = 0
+    _prediction_history: list[Any] = field(default_factory=list)
+    _confidence_history: list[Any] = field(default_factory=list)
+    _adaptive_threshold: float = 0.0
+    _market_regime: Any | None = None
+    _feature_set_id: str | None = None
+    clock: object = field(default_factory=lambda: SimpleNamespace(timestamp_ns=lambda: 0))
+    _performance_monitor: Any | None = None
+    _signals_generated_metric: Any | None = None
+    log: object = field(default_factory=lambda: SimpleNamespace(debug=lambda *args, **kwargs: None))
+    _prediction_window: npt.NDArray[np.float32] = field(
+        default_factory=lambda: np.zeros(1, dtype=np.float32),
+    )
+    _window_index: int = 0
+    _window_count: int = 0
+    _strategy_store: Any | None = None
+    _feature_store: Any | None = None
+    _indicator_manager: Any | None = None
+    _feature_engineer: Any | None = None
+    _feature_buffer: npt.NDArray[np.float32] | None = None
+    _publish_signal: Callable[[Any], None] = field(default_factory=lambda: lambda _sig: None)
+
+    def as_actor(self) -> MLSignalActor:
+        """Return the harness as an MLSignalActor-compatible instance."""
+        return cast(MLSignalActor, self)
 
 
 @dataclass(slots=True)
@@ -380,6 +447,7 @@ def build_integration_manager_stub(
     mgr.model_store = None
     mgr.strategy_store = None
     mgr.data_store = None
+    mgr._data_store = None
     mgr.feature_registry = RegistryTestStub()
     mgr.model_registry = RegistryTestStub()
     mgr.strategy_registry = RegistryTestStub()

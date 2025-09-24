@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
+import numpy.typing as npt
 
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.stores.feature_store import FeatureStore
+from ml.stores.protocols import DataStoreFacadeProtocol
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 @pytest.mark.usefixtures("monkeypatch")
@@ -30,8 +34,8 @@ def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.Mon
             start: datetime,
             end: datetime,
             include_bars: bool = False,
-        ) -> tuple[np.ndarray, list[int], list[str]]:
-            features = np.array([[0.1], [0.2]], dtype=np.float32)
+        ) -> tuple[npt.NDArray[np.float32], list[int], list[str]]:
+            features: npt.NDArray[np.float32] = np.array([[0.1], [0.2]], dtype=np.float32)
             return features, timestamps, ["feat_0"]
 
     class _Store:
@@ -65,11 +69,11 @@ def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.Mon
             raise AssertionError("Catalog fallback should not be invoked when DataStore is available")
 
     builder = TFTDatasetBuilder(
-        catalog=_Catalog(),
+        catalog=cast(ParquetDataCatalog, _Catalog()),
         symbols=["SPY"],
         instrument_ids=["SPY.NYSE"],
-        feature_store=_FeatureStore(),
-        data_store=_Store(),
+        feature_store=cast(FeatureStore, _FeatureStore()),
+        data_store=cast(DataStoreFacadeProtocol, _Store()),
         market_dataset_id="EQUS.MINI",
         include_macro=False,
         include_micro=False,

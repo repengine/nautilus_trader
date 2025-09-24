@@ -96,6 +96,20 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     def registry_models() -> tuple[Any, int]:
         return jsonify(svc.list_models()), 200
 
+    @app.get("/api/registry/models/<model_id>/history")
+    def registry_model_history(model_id: str) -> tuple[Any, int]:
+        limit_raw = request.args.get("limit")
+        limit_value: int | None = None
+        if limit_raw:
+            try:
+                limit_value = int(limit_raw)
+                if limit_value < 0:
+                    raise ValueError
+            except Exception:
+                return jsonify({"error": "invalid_limit"}), 400
+        data = svc.get_model_performance_history(model_id, limit=limit_value)
+        return jsonify(data), 200
+
     @app.get("/api/registry/deployments")
     def registry_deployments() -> tuple[Any, int]:
         return jsonify(svc.list_deployments()), 200
@@ -259,14 +273,20 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
     @app.get("/")
     def index() -> tuple[str, int]:
-        # Check for enhanced UI preference via query param or cookie
-        use_enhanced = request.args.get("ui") == "enhanced" or request.cookies.get("ui_preference") == "enhanced"
+        # Check for UI preference via query param or cookie
+        ui_type = request.args.get("ui") or request.cookies.get("ui_preference") or "standard"
 
-        # Check if enhanced template exists, fallback to standard if not
-        if use_enhanced:
-            template_path = os.path.join(app.root_path, "templates", "index_enhanced.html")
-            template = "index_enhanced.html" if os.path.exists(template_path) else "index.html"
-        else:
+        # Map UI types to template files
+        template_map = {
+            "enhanced": "index_enhanced.html",
+            "advanced": "index_advanced.html",
+            "standard": "index.html"
+        }
+
+        # Check if requested template exists, fallback to standard if not
+        template = template_map.get(ui_type, "index.html")
+        template_path = os.path.join(app.root_path, "templates", template)
+        if not os.path.exists(template_path):
             template = "index.html"
 
         # Minimal visual UI for local/dev usage

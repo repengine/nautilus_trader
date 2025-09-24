@@ -226,6 +226,15 @@ class DataStoreFacadeProtocol(Protocol):
 
     """
 
+    def read_range(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> object: ...
+
     def flush(self) -> None: ...
 
     def get_features_at_or_before(

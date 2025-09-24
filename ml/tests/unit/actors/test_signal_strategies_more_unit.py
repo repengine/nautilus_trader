@@ -9,6 +9,7 @@ under deterministic contexts.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 
@@ -20,15 +21,15 @@ from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 
 
-def _stub_bar(instrument_id) -> object:
+def _stub_bar(instrument_id: InstrumentId) -> SimpleNamespace:
     return SimpleNamespace(bar_type=SimpleNamespace(instrument_id=instrument_id), ts_event=1)
 
 
-def test_extremes_strategy_detects_top_extreme(default_instrument_id) -> None:
+def test_extremes_strategy_detects_top_extreme(default_instrument_id: InstrumentId) -> None:
     strat = ExtremesStrategy(top_pct=0.1, threshold=0.5, window_size=10)
     # Prefill strategy ring buffer in context to avoid warmup early-exit
     preds = np.linspace(0.0, 0.9, 10, dtype=np.float32)
-    ctx = {
+    ctx: dict[str, Any] = {
         "timestamp_ns": 1,
         "model_id": "m1",
         "_pred_ring": preds.copy(),
@@ -46,11 +47,11 @@ def test_extremes_strategy_detects_top_extreme(default_instrument_id) -> None:
     assert isinstance(sig, MLSignal)
 
 
-def test_momentum_strategy_requires_slope(default_instrument_id) -> None:
+def test_momentum_strategy_requires_slope(default_instrument_id: InstrumentId) -> None:
     strat = MomentumStrategy(lookback=5, threshold=0.5, momentum_threshold=0.01)
     # Increasing predictions -> positive momentum
     preds = [0.1, 0.12, 0.15, 0.18, 0.22]
-    ctx = {"prediction_history": preds, "timestamp_ns": 1, "model_id": "m1"}
+    ctx: dict[str, Any] = {"prediction_history": preds, "timestamp_ns": 1, "model_id": "m1"}
     sig = strat.generate_signal(
         bar=_stub_bar(default_instrument_id),
         prediction=0.3,

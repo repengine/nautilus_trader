@@ -20,6 +20,7 @@ import math
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -94,8 +95,11 @@ def valid_bar_types(draw, instrument_id=None):
     if instrument_id is None:
         instrument_id = draw(valid_instrument_ids())
 
-    step = draw(st.sampled_from([1, 5, 15, 30, 60]))
     aggregation = draw(st.sampled_from([BarAggregation.MINUTE, BarAggregation.SECOND]))
+    if aggregation is BarAggregation.SECOND:
+        step = draw(st.sampled_from([1, 5, 10, 15, 30]))
+    else:
+        step = draw(st.sampled_from([1, 5, 15, 30]))
     price_type = draw(st.sampled_from([PriceType.MID, PriceType.BID, PriceType.ASK]))
 
     bar_spec = BarSpecification(step, aggregation, price_type)
@@ -198,6 +202,13 @@ def valid_bars(draw, bar_type=None, allow_extreme_values=False):
         precision=price_precision,
     ))
 
+    # Clamp OHLC relationships after rounding
+    open_val = float(open_price)
+    high_price_val = max(float(high_price), open_val)
+    low_price_val = min(float(low_price), open_val)
+    high_price = Price(round(high_price_val, price_precision), price_precision)
+    low_price = Price(round(max(low_price_val, 1e-8), price_precision), price_precision)
+
     close_price = draw(valid_prices(
         min_value=float(low_price),
         max_value=float(high_price),
@@ -279,7 +290,8 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
         feature_config = FeatureConfig(
             lookback_window=draw(st.integers(min_value=5, max_value=100)),
             normalize_features=draw(st.booleans()),
-            include_volume=draw(st.booleans()),
+            include_microstructure=draw(st.booleans()),
+            include_trade_flow=draw(st.booleans()),
         )
 
     if strategy is None:
@@ -319,64 +331,71 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
 # Property Tests
 # ============================================================================
 
+
+def create_actor_with_mock_stores(config: MLSignalActorConfig) -> MLSignalActor:
+    """Instantiate an MLSignalActor with stores/registries stubbed for tests."""
+
+    services_stub = SimpleNamespace(
+        feature_store=MagicMock(),
+        model_store=MagicMock(),
+        strategy_store=MagicMock(),
+        data_store=MagicMock(),
+        feature_registry=MagicMock(),
+        model_registry=MagicMock(),
+        strategy_registry=MagicMock(),
+        data_registry=MagicMock(),
+    )
+
+    with patch("ml.actors.actor_services.init_actor_services", return_value=services_stub):
+        actor = MLSignalActor(config)
+
+    mock_model = MagicMock()
+    mock_model.predict = MagicMock()
+    mock_model.run = MagicMock()
+
+    actor._config = config
+    actor._signal_config = config
+    actor._bars_processed = 0
+    actor._prediction_count = 0
+    actor._last_signal_bar = -config.min_signal_separation_bars
+    actor._model = mock_model
+    actor._model_id = config.model_id
+
+    actor._feature_buffer = np.zeros(10, dtype=np.float32)
+    actor._prediction_window = np.zeros(config.adaptive_window, dtype=np.float32)
+    actor._confidence_window = np.zeros(config.adaptive_window, dtype=np.float32)
+    actor._volatility_window = np.zeros(config.adaptive_window, dtype=np.float32)
+    actor._window_index = 0
+    actor._window_count = 0
+    actor._adaptive_threshold = config.prediction_threshold
+    actor._market_regime = "normal"
+    actor._prediction_history = []
+    actor._confidence_history = []
+
+    from ml.actors.signal import ThresholdSignalStrategy
+
+    actor._signal_strategy = ThresholdSignalStrategy(config.prediction_threshold)
+
+    actor._feature_store = services_stub.feature_store
+    actor._model_store = services_stub.model_store
+    actor._strategy_store = services_stub.strategy_store
+    actor._data_store = services_stub.data_store
+    actor._feature_registry = services_stub.feature_registry
+    actor._model_registry = services_stub.model_registry
+    actor._strategy_registry = services_stub.strategy_registry
+    actor._data_registry = services_stub.data_registry
+
+    actor._circuit_breaker = None
+    actor._health_monitor = None
+    actor._performance_monitor = MagicMock()
+
+    return actor
+
 @pytest.mark.property
 class TestMLSignalActorBounds:
     """
     Property tests for MLSignalActor output bounds.
     """
-
-    def _create_actor_with_mock_stores(self, config: MLSignalActorConfig) -> MLSignalActor:
-        """
-        Create an MLSignalActor with mocked stores for testing.
-        """
-        # Mock the model to return controlled predictions
-        mock_model = MagicMock()
-        mock_model.predict = MagicMock()
-        mock_model.run = MagicMock()
-
-        # Create actor with mocked dependencies
-        with patch("ml.actors.base.BaseMLInferenceActor.__init__"):
-            actor = MLSignalActor(config)
-
-            # Set up minimal required state
-            actor._config = config
-            actor._signal_config = config
-            actor._bars_processed = 0
-            actor._prediction_count = 0
-            actor._last_signal_bar = -config.min_signal_separation_bars
-            actor._model = mock_model
-            actor._model_id = config.model_id
-            actor.log = MagicMock()
-            actor.clock = TestClock()
-
-            # Initialize required buffers
-            actor._feature_buffer = np.zeros(10, dtype=np.float32)
-            actor._prediction_window = np.zeros(config.adaptive_window, dtype=np.float32)
-            actor._confidence_window = np.zeros(config.adaptive_window, dtype=np.float32)
-            actor._volatility_window = np.zeros(config.adaptive_window, dtype=np.float32)
-            actor._window_index = 0
-            actor._window_count = 0
-            actor._adaptive_threshold = config.prediction_threshold
-            actor._market_regime = "normal"
-            actor._prediction_history = []
-            actor._confidence_history = []
-
-            # Initialize strategy
-            from ml.actors.signal import ThresholdSignalStrategy
-            actor._signal_strategy = ThresholdSignalStrategy(config.prediction_threshold)
-
-            # Mock stores
-            actor._feature_store = MagicMock()
-            actor._model_store = MagicMock()
-            actor._strategy_store = MagicMock()
-            actor._data_store = MagicMock()
-
-            # Mock other components
-            actor._circuit_breaker = None
-            actor._health_monitor = None
-            actor._performance_monitor = MagicMock()
-
-            return actor
 
     @given(
         config=ml_signal_actor_configs(),
@@ -392,7 +411,7 @@ class TestMLSignalActorBounds:
         in any generated signal must be within [-1, 1] range.
         """
         # Create actor with controlled prediction output
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         # Mock model to return specific prediction values
         actor._model.run.return_value = [[prediction], [abs(prediction)]]
@@ -453,7 +472,7 @@ class TestMLSignalActorBounds:
 
         Invariant: All confidence values in signals must be valid probabilities.
         """
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         # Mock model to return specific confidence
         actor._model.run.return_value = [[0.5], [confidence_raw]]
@@ -513,7 +532,7 @@ class TestMLSignalActorBounds:
         Invariant: Extreme prices, volumes, or feature values should not
         cause crashes or produce invalid outputs.
         """
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         # Mock model with reasonable outputs regardless of input
         actor._model.run.return_value = [[0.7], [0.8]]
@@ -572,7 +591,7 @@ class TestMLSignalActorBounds:
         Invariant: Stronger predictions (higher absolute value) should generally
         lead to stronger signals when confidence is sufficient.
         """
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         predictions = []
         confidences = []
@@ -669,7 +688,7 @@ class TestMLSignalActorBounds:
         # Skip if no invalid values to test
         assume(has_invalid)
 
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         # Mock model to return valid outputs
         actor._model.run.return_value = [[0.5], [0.7]]
@@ -711,7 +730,7 @@ class TestMLSignalActorBounds:
         Invariant: Adaptive strategy should respect min_threshold and max_threshold
         regardless of market conditions.
         """
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
 
         # Use adaptive strategy specifically
         from ml.actors.signal import AdaptiveStrategy
@@ -807,11 +826,21 @@ class TestMLSignalActorEdgeCases:
 
         Invariant: Zero volume should not cause crashes or invalid outputs.
         """
-        # Set volume to zero for all bars
-        for bar in zero_volume_bars:
-            bar.volume = Quantity(0.0, 0)
+        zero_volume_bars = [
+            Bar(
+                bar_type=bar.bar_type,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                volume=Quantity(0.0, 0),
+                ts_event=bar.ts_event,
+                ts_init=bar.ts_init,
+            )
+            for bar in zero_volume_bars
+        ]
 
-        actor = self._create_actor_with_mock_stores(config)
+        actor = create_actor_with_mock_stores(config)
         actor._model.run.return_value = [[0.6], [0.8]]
         actor._model.predict = MagicMock(return_value=(0.6, 0.8))
 
@@ -841,7 +870,7 @@ class TestMLSignalActorEdgeCases:
         after initialization.
         """
         try:
-            actor = self._create_actor_with_mock_stores(config)
+            actor = create_actor_with_mock_stores(config)
 
             # Property: Initial adaptive threshold should be valid
             assert 0.0 <= actor._adaptive_threshold <= 1.0, (

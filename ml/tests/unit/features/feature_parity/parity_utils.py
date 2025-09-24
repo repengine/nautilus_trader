@@ -16,23 +16,25 @@ import numpy as np
 import numpy.typing as npt
 
 from ml._imports import HAS_POLARS
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 
+MockPolarsModule: Any
+
 try:
     # Optional test helper; define a local fallback if absent
-    from ...meta.test_fixtures import MockPolarsModule  # type: ignore[import-not-found]
+    from ...meta.test_fixtures import MockPolarsModule as _ImportedMockPolarsModule
 except Exception:  # pragma: no cover - test helper fallback
 
-    class MockPolarsModule:  # minimal stub used when Polars is unavailable
+    class _FallbackMockPolarsModule:  # minimal stub used when Polars is unavailable
         class Series:
             def __init__(self, name: str, data: Any) -> None:
                 self.name = name
                 self._data = np.asarray(data)
 
-            def to_numpy(self) -> npt.NDArray[np.float64]:  # type: ignore[override]
+            def to_numpy(self) -> npt.NDArray[np.float64]:
                 return np.asarray(self._data)
 
         class DataFrame:
@@ -46,10 +48,10 @@ except Exception:  # pragma: no cover - test helper fallback
             def columns(self) -> list[str]:
                 return list(self._columns)
 
-            def __getitem__(self, key: str) -> MockPolarsModule.Series:
-                return MockPolarsModule.Series(key, self.data[key])
+            def __getitem__(self, key: str) -> _FallbackMockPolarsModule.Series:
+                return _FallbackMockPolarsModule.Series(key, self.data[key])
 
-            def with_columns(self, series: Any) -> MockPolarsModule.DataFrame:
+            def with_columns(self, series: Any) -> _FallbackMockPolarsModule.DataFrame:
                 # Accept a single Series or a list of Series
                 items = series if isinstance(series, list) else [series]
                 for s in items:
@@ -61,6 +63,17 @@ except Exception:  # pragma: no cover - test helper fallback
                     if name not in self._columns:
                         self._columns.append(name)
                 return self
+
+    MockPolarsModule = _FallbackMockPolarsModule
+else:
+    MockPolarsModule = _ImportedMockPolarsModule
+
+
+def _polars_module() -> Any:
+    """Return the polars module if available, else the mock parity stub."""
+    if pl_runtime is not None:
+        return pl_runtime
+    return MockPolarsModule
 
 
 if TYPE_CHECKING:
@@ -332,10 +345,8 @@ class TestDataGenerators:
             "volume": volumes,
         }
 
-        if HAS_POLARS:
-            return pl.DataFrame(data)
-        else:
-            return MockPolarsModule.DataFrame(data)
+        polars = _polars_module()
+        return polars.DataFrame(data)
 
     def generate_trending_data(
         self,
@@ -400,10 +411,8 @@ class TestDataGenerators:
             "volume": volumes,
         }
 
-        if HAS_POLARS:
-            return pl.DataFrame(data)
-        else:
-            return MockPolarsModule.DataFrame(data)
+        polars = _polars_module()
+        return polars.DataFrame(data)
 
     def generate_volatile_data(
         self,
@@ -469,10 +478,8 @@ class TestDataGenerators:
             "volume": volumes,
         }
 
-        if HAS_POLARS:
-            return pl.DataFrame(data)
-        else:
-            return MockPolarsModule.DataFrame(data)
+        polars = _polars_module()
+        return polars.DataFrame(data)
 
     def generate_gapped_data(
         self,
@@ -553,10 +560,8 @@ class TestDataGenerators:
             "volume": volumes,
         }
 
-        if HAS_POLARS:
-            return pl.DataFrame(data)
-        else:
-            return MockPolarsModule.DataFrame(data)
+        polars = _polars_module()
+        return polars.DataFrame(data)
 
     def generate_with_microstructure_data(
         self,
@@ -607,7 +612,8 @@ class TestDataGenerators:
 
         if HAS_POLARS:
             for col, data in microstructure_data.items():
-                df = df.with_columns(pl.Series(col, data))
+                polars = _polars_module()
+                df = df.with_columns(polars.Series(col, data))
         else:
             # For MockPolarsModule, add to the data dict
             df.data.update(microstructure_data)
@@ -663,7 +669,8 @@ class TestDataGenerators:
 
         if HAS_POLARS:
             for col, data in trade_data.items():
-                df = df.with_columns(pl.Series(col, data))
+                polars = _polars_module()
+                df = df.with_columns(polars.Series(col, data))
         else:
             # For MockPolarsModule, add to the data dict
             df.data.update(trade_data)

@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from typing import Any, cast
 
 from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
@@ -580,8 +581,9 @@ class TestUnifiedFeatureCalculation:
         engineer = FeatureEngineer(config)
 
         with pytest.raises(ValueError, match="Invalid mode: invalid"):
-            engineer.calculate_features(
-                data={},
+            empty_data: dict[str, float] = {}
+            cast(Any, engineer).calculate_features(
+                data=empty_data,
                 mode="invalid",
             )
 
@@ -593,7 +595,7 @@ class TestUnifiedFeatureCalculation:
         engineer = FeatureEngineer(config)
 
         with pytest.raises(ValueError, match="indicator_manager is required for online mode"):
-            engineer.calculate_features(
+            cast(Any, engineer).calculate_features(
                 data={"close": 100.0},
                 mode="online",
             )

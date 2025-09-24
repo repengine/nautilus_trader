@@ -33,6 +33,15 @@ from sklearn.metrics import brier_score_loss
 from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score
 
+try:
+    from ml.training.teacher.tft_cli import main as teacher_main
+except Exception:  # pragma: no cover - optional dependency guard
+    def teacher_main(_args: list[str] | None = None) -> int:
+        raise RuntimeError("teacher_main is unavailable in this environment")
+
+
+__all__ = ["main", "teacher_main"]
+
 
 def _score(npz_path: Path) -> dict[str, float]:
     data = np.load(npz_path, allow_pickle=True)

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any, Iterable, Sequence, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Iterable, Sequence, TypeAlias, TypeVar, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -40,9 +40,10 @@ from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.ml_types import PandasDF, PolarsDF
 from ml.stores.data_store import DataStore
-from ml.stores.protocols import RawIngestionWriterProtocol
 from ml.stores.feature_store import FeatureStore
+from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.builders import DataBuilder
@@ -53,8 +54,8 @@ if HAS_POLARS:
     import polars as pl
 
 
-RecordList = Sequence[dict[str, Any]]
-FrameLike = list[dict[str, Any]] | PolarsDF
+RecordList: TypeAlias = Sequence[dict[str, Any]]
+FrameLike: TypeAlias = list[dict[str, Any]] | PolarsDF
 StoreT = TypeVar("StoreT")
 
 if TYPE_CHECKING:
@@ -66,6 +67,13 @@ def _maybe_polars_frame(records: RecordList) -> FrameLike:
     if HAS_POLARS:
         return pl.DataFrame(records)
     return [dict(row) for row in records]
+
+
+def _materialize_frame(records: RecordList) -> PandasDF:
+    """Return a pandas DataFrame for schema/hash dependent tests."""
+    import pandas as pd
+
+    return pd.DataFrame.from_records(records)
 
 
 def _store_mock(spec_type: type[StoreT]) -> StoreT:
@@ -80,7 +88,7 @@ class _UnitRawWriter(RawIngestionWriterProtocol):
         self,
         *,
         dataset_type: DatasetType,
-        data: FrameLike | "pd.DataFrame",
+        data: FrameLike | pd.DataFrame,
     ) -> int:
         del dataset_type
         if isinstance(data, list):
@@ -331,6 +339,7 @@ class TestPreflightCheck:
         success, error, details = data_store.preflight_check("test_bars", frame, strict=True)
 
         assert success is False
+        assert error is not None
         assert "Missing required columns" in error
         assert "missing_columns" in details
 
@@ -375,12 +384,13 @@ class TestPreflightCheck:
 
         frame = _maybe_polars_frame(valid_bar_data)
 
-        success, error, _details = data_store.preflight_check("test_bars", frame, strict=True)
+        success, error, details = data_store.preflight_check("test_bars", frame, strict=True)
 
         assert success is False
-        assert "Unexpected columns" in error or "Schema hash mismatch" in details.get(
-            "warnings",
-            [],
+        warnings = details.get("warnings", [])
+        assert error is not None
+        assert "Unexpected columns" in error or any(
+            "Schema hash mismatch" in str(warning) for warning in warnings
         )
 
     def test_preflight_check_primary_key_nulls(
@@ -398,6 +408,7 @@ class TestPreflightCheck:
         success, error, _details = data_store.preflight_check("test_bars", frame)
 
         assert success is False
+        assert error is not None
         assert "Primary key field" in error or "null values" in error
 
 
@@ -743,16 +754,11 @@ class TestFailClosedWrites:
         # Add violation that would normally fail
         valid_bar_data[0]["close"] = -1.0
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
-
         # Should not raise in monitor-only mode
         with patch("ml.stores.data_store.logger") as mock_logger:
             event = data_store.write_ingestion(
                 dataset_id="test_bars",
-                records=df,
+                records=_maybe_polars_frame(valid_bar_data),
                 source="test",
                 run_id="test_run",
             )
@@ -888,14 +894,12 @@ class TestSchemaMigration:
         for row in valid_bar_data:
             row["new_field"] = "test_value"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        frame = _maybe_polars_frame(valid_bar_data)
 
         # Should fail in strict mode due to hash mismatch
-        success, error, _details = store.preflight_check("test_bars", df, strict=True)
+        success, error, _details = store.preflight_check("test_bars", frame, strict=True)
         assert success is False
+        assert error is not None
         assert "Schema hash mismatch" in error or "Unexpected columns" in error
 
     def test_schema_hash_mismatch_metrics_emission(
@@ -927,10 +931,7 @@ class TestSchemaMigration:
         for row in valid_bar_data:
             row["extra_field"] = "test_value"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        df = _materialize_frame(valid_bar_data)
 
         with patch.object(schema_mismatch_counter, "labels") as mock_counter:
             mock_counter.return_value.inc = MagicMock()
@@ -1016,25 +1017,20 @@ class TestSchemaMigration:
         for row in modified_data:
             row["unexpected_field"] = "dangerous_value"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(modified_data)
-        else:
-            df = modified_data
-
         # Contract: Write should be prevented when schema doesn't match
         # and we're not in a migration window
         with pytest.raises(ValueError, match="Preflight check failed"):
             store.write_ingestion(
                 dataset_id="test_bars",
-                records=df,
+                records=_maybe_polars_frame(modified_data),
                 source="test",
                 run_id="unsafe_write_test",
             )
 
         # Verify no data was written to any store
-        store.feature_store.write_features.assert_not_called()
-        store.model_store.write_batch.assert_not_called()
-        store.strategy_store.write_batch.assert_not_called()
+        cast(MagicMock, store.feature_store).write_features.assert_not_called()
+        cast(MagicMock, store.model_store).write_batch.assert_not_called()
+        cast(MagicMock, store.strategy_store).write_batch.assert_not_called()
 
     def test_migration_window_allows_controlled_dual_writes(
         self,
@@ -1064,13 +1060,12 @@ class TestSchemaMigration:
         for row in modified_data:
             row["new_field"] = "migration_value"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(modified_data)
-        else:
-            df = modified_data
-
         # During migration window, preflight should pass with warnings
-        success, _error, details = store.preflight_check("test_bars", df, strict=False)
+        success, _error, details = store.preflight_check(
+            "test_bars",
+            _maybe_polars_frame(modified_data),
+            strict=False,
+        )
         assert success is True
         assert any("migration" in str(w).lower() for w in details.get("warnings", []))
         assert details.get("migration_mode") is True
@@ -1182,14 +1177,13 @@ class TestSchemaMigration:
         for row in valid_bar_data:
             row["new_field"] = "test"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
-
         # Preflight should pass with warning during migration
         # Use strict=False since we're testing migration scenario
-        success, _error, details = store.preflight_check("test_bars", df, strict=False)
+        success, error, details = store.preflight_check(
+            "test_bars",
+            _maybe_polars_frame(valid_bar_data),
+            strict=False,
+        )
 
         assert success is True, f"Preflight failed: {error}, Details: {details}"
         assert any("migration" in str(w).lower() for w in details.get("warnings", []))
@@ -1316,7 +1310,7 @@ class TestPropertyBased:
         ohlcv_data = DataBuilder.ohlcv_data(n_bars=num_records, as_dataframe=False)
         timestamps = DataBuilder.time_series(n_points=num_records)
 
-        data = []
+        data: list[dict[str, Any]] = []
         for i in range(num_records):
             row = {
                 "instrument_id": "EUR/USD" if np.random.random() > null_probability else None,
@@ -1335,13 +1329,8 @@ class TestPropertyBased:
 
             data.append(row)
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
-
         # Validation should not crash regardless of input
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", _maybe_polars_frame(data))
 
         # Quality score should be between 0 and 1
         assert 0.0 <= report.quality_score <= 1.0
@@ -1449,7 +1438,7 @@ class TestPropertyBased:
 
         # Generate data within and outside ranges
         timestamps = DataBuilder.time_series(n_points=10)
-        data = []
+        data: list[dict[str, Any]] = []
 
         for i in range(10):
             # Mix valid and invalid values
@@ -1473,12 +1462,7 @@ class TestPropertyBased:
                 },
             )
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
-
-        report = store.validate_batch("test_bars", df)
+        report = store.validate_batch("test_bars", _maybe_polars_frame(data))
 
         # Should have violations for out-of-range values
         range_violations = [v for v in report.violations if v.rule_type == ValidationRuleType.RANGE]
@@ -1597,10 +1581,7 @@ class TestPropertyBased:
 
             test_data.append(row)
 
-        if HAS_POLARS:
-            df = pl.DataFrame(test_data)
-        else:
-            df = test_data
+        df = _materialize_frame(test_data)
 
         # Property 1: Schema hash mismatch should be detected consistently
         success_no_migration, error_no_migration, details_no_migration = (
@@ -1609,8 +1590,9 @@ class TestPropertyBased:
 
         # Should fail without migration window due to extra column in strict mode
         assert success_no_migration is False
-        assert "Unexpected columns" in error_no_migration or "extra_columns" in str(
-            details_no_migration,
+        assert (
+            (error_no_migration is not None and "Unexpected columns" in error_no_migration)
+            or "extra_columns" in str(details_no_migration)
         )
 
         # Property 2: Schema hash computation should be deterministic
@@ -1691,9 +1673,9 @@ class TestSchemaMigrationContracts:
                 )
 
             # Verify no partial writes occurred
-            store.feature_store.write_features.assert_not_called()
-            store.model_store.write_batch.assert_not_called()
-            store.strategy_store.write_batch.assert_not_called()
+            cast(MagicMock, store.feature_store).write_features.assert_not_called()
+            cast(MagicMock, store.model_store).write_batch.assert_not_called()
+            cast(MagicMock, store.strategy_store).write_batch.assert_not_called()
 
     def test_contract_migration_window_controlled_access(
         self,
@@ -1718,10 +1700,7 @@ class TestSchemaMigrationContracts:
         for row in modified_data:
             row["migration_field"] = "allowed_during_window"
 
-        if HAS_POLARS:
-            df = pl.DataFrame(modified_data)
-        else:
-            df = modified_data
+        df = _maybe_polars_frame(modified_data)
 
         # CONTRACT 1: No access without migration window
         success, _error, details = store.preflight_check("test_bars", df, strict=True)
@@ -1785,10 +1764,7 @@ class TestSchemaMigrationContracts:
         for violation_type, data_modifier in violation_scenarios:
             modified_data = data_modifier(valid_bar_data)
 
-            if HAS_POLARS:
-                df = pl.DataFrame(modified_data)
-            else:
-                df = modified_data
+            df = _maybe_polars_frame(modified_data)
 
             with patch.object(schema_mismatch_counter, "labels") as mock_counter:
                 mock_counter.return_value.inc = MagicMock()
@@ -1866,10 +1842,7 @@ class TestSchemaMigrationContracts:
 
         manifest = mock_registry.get_manifest.return_value
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
+        df = _materialize_frame(valid_bar_data)
 
         # CONTRACT 1: Same data should produce same hash
         hash1 = store._compute_schema_hash(df, manifest)
@@ -1877,15 +1850,13 @@ class TestSchemaMigrationContracts:
         assert hash1 == hash2
 
         # CONTRACT 2: Different data order should produce same hash
-        if HAS_POLARS:
-            # Shuffle rows
-            shuffled_df = df.sample(fraction=1.0, shuffle=True, seed=42)
-            hash3 = store._compute_schema_hash(shuffled_df, manifest)
-            assert hash1 == hash3
+        shuffled_df = df.sample(frac=1.0, random_state=42)
+        hash3 = store._compute_schema_hash(shuffled_df, manifest)
+        assert hash1 == hash3
 
         # CONTRACT 3: Adding data rows should not change schema hash
         extended_data = valid_bar_data + valid_bar_data  # Double the data
-        extended_df = _maybe_polars_frame(extended_data)
+        extended_df = _materialize_frame(extended_data)
 
         hash4 = store._compute_schema_hash(extended_df, manifest)
         assert hash1 == hash4
@@ -1895,7 +1866,7 @@ class TestSchemaMigrationContracts:
         for row in schema_changed_data:
             row["new_field"] = "different_schema"
 
-        changed_df = _maybe_polars_frame(schema_changed_data)
+        changed_df = _materialize_frame(schema_changed_data)
 
         hash5 = store._compute_schema_hash(changed_df, manifest)
         assert hash1 != hash5
@@ -1965,13 +1936,17 @@ class TestNegativeEdgeCases:
         )
 
         # Non-dictionary entries in list
-        malformed_list = [
+        malformed_list: list[Any] = [
             {"instrument_id": "EUR/USD", "close": 1.0},
             "not_a_dict",
             {"instrument_id": "GBP/USD", "close": 1.1},
         ]
 
-        success, error, _details = store.preflight_check("test_bars", malformed_list, strict=True)
+        success, error, _details = store.preflight_check(
+            "test_bars",
+            cast(list[dict[str, Any]], malformed_list),
+            strict=True,
+        )
         # Should handle gracefully or fail predictably
         assert success is False or error is not None
 
@@ -2079,18 +2054,16 @@ class TestPrometheusMetrics:
         valid_bar_data[0]["close"] = -1.0  # Range violation
         valid_bar_data[1]["instrument_id"] = None  # Null violation
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
-
         # Clear metrics
         with patch.object(validation_violations_counter, "labels") as mock_violations:
             with patch.object(quality_score_histogram, "labels") as mock_quality:
                 mock_violations.return_value.inc = MagicMock()
                 mock_quality.return_value.observe = MagicMock()
 
-                report = data_store.validate_batch("test_bars", df)
+                report = data_store.validate_batch(
+                    "test_bars",
+                    _materialize_frame(valid_bar_data),
+                )
 
                 # Violations counter should be called for each violation
                 assert mock_violations.called
@@ -2143,16 +2116,15 @@ class TestPrometheusMetrics:
         for row in valid_bar_data:
             row["extra_field"] = 123
 
-        if HAS_POLARS:
-            df = pl.DataFrame(valid_bar_data)
-        else:
-            df = valid_bar_data
-
         with patch.object(schema_mismatch_counter, "labels") as mock_counter:
             mock_counter.return_value.inc = MagicMock()
 
             # Preflight check should detect schema mismatch
-            _success, _error, _details = data_store.preflight_check("test_bars", df, strict=False)
+            _success, _error, _details = data_store.preflight_check(
+                "test_bars",
+                _maybe_polars_frame(valid_bar_data),
+                strict=False,
+            )
 
             # In non-strict mode, may not increment counter for extra columns
             # But will increment for hash mismatch if detected
@@ -2182,7 +2154,7 @@ class TestIntegration:
         ohlcv_data = DataBuilder.ohlcv_data(n_bars=100, volatility=0.001, as_dataframe=False)
         timestamps = DataBuilder.time_series(n_points=100)
 
-        data = []
+        data: list[dict[str, Any]] = []
         for i in range(100):
             data.append(
                 {
@@ -2197,24 +2169,21 @@ class TestIntegration:
                 },
             )
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
+        frame = _materialize_frame(data)
 
         # 1. Preflight check
-        success, _error, _details = data_store.preflight_check("test_bars", df)
+        success, _error, _details = data_store.preflight_check("test_bars", frame)
         assert success is True
 
         # 2. Validation
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", frame)
         assert report.quality_score == 1.0
         assert report.failed_records == 0
 
         # 3. Write
         event = data_store.write_ingestion(
             dataset_id="test_bars",
-            records=df,
+            records=frame,
             source="test",
             run_id="integration_test",
         )
@@ -2256,14 +2225,9 @@ class TestIntegration:
                 },
             )
 
-        if HAS_POLARS:
-            df = pl.DataFrame(data)
-        else:
-            df = data
-
         # Measure validation time
         start_time = time.perf_counter()
-        report = data_store.validate_batch("test_bars", df)
+        report = data_store.validate_batch("test_bars", _materialize_frame(data))
         validation_time = time.perf_counter() - start_time
 
         # Validation should be fast

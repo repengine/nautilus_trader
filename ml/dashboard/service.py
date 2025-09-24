@@ -1570,11 +1570,15 @@ class DashboardService:
             from ml.stores.providers import SqlCoverageProvider
             from ml.stores.writers import DataStoreMarketDataWriter
 
+            def _noop_cli(argv: list[str] | None = None) -> int:
+                del argv
+                return 0
+
             orchestrator = MLPipelineOrchestrator(
                 coverage=SqlCoverageProvider(connection_string=self.config.db_connection or ""),
                 writer=DataStoreMarketDataWriter(data_store=integration.data_store),  # type: ignore
-                build_main=lambda argv: 0,  # Will be replaced with actual CLI
-                teacher_main=lambda argv: 0,
+                build_main=_noop_cli,  # Will be replaced with actual CLI
+                teacher_main=_noop_cli,
                 data_registry=integration.data_registry,
                 model_registry=integration.model_registry,
                 feature_registry=integration.feature_registry,

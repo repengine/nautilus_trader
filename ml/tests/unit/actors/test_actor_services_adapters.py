@@ -46,6 +46,16 @@ class _DummyStrategy(StrategyStoreStrictProtocol):  # runtime structural
 
 
 class _DummyDataStore(DataStoreFacadeProtocol):
+    def read_range(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> object:
+        return []
+
     def flush(self) -> None:  # noqa: D401
         return None
 

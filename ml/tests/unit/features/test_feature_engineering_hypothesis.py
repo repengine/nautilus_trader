@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from typing import Any, cast
 from hypothesis import assume
 from hypothesis import given
 from hypothesis import settings
@@ -157,8 +158,8 @@ class TestFeatureEngineerProperties:
         for rsi_col in rsi_columns:
             if rsi_col in features.columns or hasattr(features, "select"):
                 if hasattr(features, "select"):
-                    # Polars DataFrame
-                    rsi_values = features.select(rsi_col).to_numpy().flatten()
+                    polars_df = cast(Any, features)
+                    rsi_values = polars_df.select(rsi_col).to_numpy().flatten()
                 else:
                     # Pandas DataFrame
                     rsi_values = features[rsi_col].to_numpy()
@@ -294,8 +295,10 @@ class TestFeatureEngineerProperties:
         for ret_col in return_columns:
             if ret_col in features_base.columns or hasattr(features_base, "select"):
                 if hasattr(features_base, "select"):
-                    base_returns = features_base.select(ret_col).to_numpy().flatten()
-                    scaled_returns = features_scaled.select(ret_col).to_numpy().flatten()
+                    polars_base = cast(Any, features_base)
+                    polars_scaled = cast(Any, features_scaled)
+                    base_returns = polars_base.select(ret_col).to_numpy().flatten()
+                    scaled_returns = polars_scaled.select(ret_col).to_numpy().flatten()
                 else:
                     base_returns = features_base[ret_col].to_numpy()
                     scaled_returns = features_scaled[ret_col].to_numpy()

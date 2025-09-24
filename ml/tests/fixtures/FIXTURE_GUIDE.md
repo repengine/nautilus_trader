@@ -94,6 +94,40 @@ def test_integration(feature_store, model_store, strategy_store):
 4. **Shared database** - All stores use same test database
 5. **No SQLite** - PostgreSQL is the only supported database
 
+## ML Signal Actor Harness
+
+For unit tests that exercise the `MLSignalActor` hot-path helpers without spinning up
+the full integration stack, use the typed harness defined in
+`ml.tests.utils.stubs.SignalActorHarness`.
+
+```python
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import SignalActorHarness
+
+harness = SignalActorHarness(
+    _signal_strategy=ThresholdSignalStrategy(threshold=0.0),
+    _signal_config=SimpleNamespace(min_signal_separation_bars=2, signal_strategy="threshold"),
+    _config=SimpleNamespace(log_predictions=False),
+    id=SimpleNamespace(value="actor-1"),
+)
+
+actor = harness.as_actor()  # Treat as MLSignalActor
+MLSignalActor._try_generate_signal(
+    actor,
+    bar=_stub_bar(),
+    prediction=0.9,
+    confidence=0.8,
+    features=np.zeros(1, dtype=np.float32),
+)
+```
+
+The harness pre-populates all attributes touched by `_try_generate_signal` and related
+helpers (prediction history buffers, metrics stubs, strategy store, etc.). This keeps
+tests strictly typed and avoids `type: ignore` blocks or brittle `SimpleNamespace`
+construction. Extend the harness in the rare cases you need additional attributes
+rather than introducing new ad-hoc doubles.
+
 ## Anti-Patterns to Avoid
 
 ❌ **Don't do this:**

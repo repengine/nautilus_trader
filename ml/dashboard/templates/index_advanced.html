@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nautilus Trading Command Center</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a0e27 0%, #151a3a 100%);
+      color: #fff;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: rgba(10,14,39,0.95);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      padding: 10px 20px;
+      border-bottom: 1px solid rgba(0,212,255,0.2);
+    }
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .header h1 {
+      font-size: 24px;
+      background: linear-gradient(135deg, #00d4ff, #667eea);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .market-tickers {
+      display: flex;
+      gap: 15px;
+      font-size: 14px;
+    }
+    .ticker-up { color: #4ade80; }
+    .ticker-down { color: #f87171; }
+    .header-buttons {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-live {
+      background: #4ade80;
+      color: #000;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-settings {
+      background: rgba(99,102,241,0.2);
+      color: #6366f1;
+      padding: 8px 16px;
+      border: 1px solid #6366f1;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    /* Main Container */
+    .dashboard-content {
+      padding: 20px;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .metric-card {
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .metric-card.green {
+      background: rgba(74,222,128,0.1);
+      border: 1px solid #4ade80;
+    }
+    .metric-card.blue {
+      background: rgba(99,102,241,0.1);
+      border: 1px solid #6366f1;
+    }
+    .metric-card.yellow {
+      background: rgba(251,191,36,0.1);
+      border: 1px solid #fbbf24;
+    }
+    .metric-card.red {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid #ef4444;
+    }
+    .metric-card.purple {
+      background: rgba(168,85,247,0.1);
+      border: 1px solid #a855f7;
+    }
+    .metric-label {
+      font-size: 12px;
+      margin-bottom: 5px;
+      opacity: 0.9;
+    }
+    .metric-value {
+      font-size: 28px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .metric-change {
+      font-size: 14px;
+    }
+
+    /* Panels */
+    .panel {
+      background: rgba(21,26,58,0.8);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .panel h3 {
+      color: #00d4ff;
+      margin-bottom: 20px;
+      font-size: 18px;
+    }
+    .panel-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+
+    /* Stats Box */
+    .stats-box {
+      background: rgba(10,14,39,0.5);
+      border-radius: 8px;
+      padding: 15px;
+    }
+    .stats-box h4 {
+      color: #00d4ff;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .stat-item {
+      margin-bottom: 10px;
+    }
+    .stat-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #888;
+    }
+    .stat-value {
+      font-weight: bold;
+    }
+    .progress-bar {
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    .progress-fill.green { background: #4ade80; }
+    .progress-fill.blue { background: #6366f1; }
+    .progress-fill.yellow { background: #fbbf24; }
+
+    /* Tables */
+    .data-table {
+      width: 100%;
+      color: #fff;
+      border-collapse: collapse;
+    }
+    .data-table thead {
+      border-bottom: 2px solid rgba(0,212,255,0.2);
+    }
+    .data-table th {
+      text-align: left;
+      padding: 10px;
+      font-size: 12px;
+      color: #888;
+      font-weight: 600;
+    }
+    .data-table tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .data-table td {
+      padding: 12px 10px;
+      font-size: 13px;
+    }
+    .model-id {
+      font-family: 'SF Mono', Monaco, monospace;
+      color: #00d4ff;
+    }
+    .pnl-positive { color: #4ade80; font-weight: bold; }
+    .pnl-negative { color: #f87171; font-weight: bold; }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .status-live { background: #4ade80; color: #000; }
+    .status-test { background: #fbbf24; color: #000; }
+    .status-paused { background: #ef4444; color: #fff; }
+    .status-training { background: #6366f1; color: #fff; }
+
+    /* Experiment Cards */
+    .experiments-grid {
+      display: grid;
+      gap: 15px;
+    }
+    .experiment-card {
+      background: rgba(10,14,39,0.5);
+      border-radius: 6px;
+      padding: 15px;
+      border-left: 3px solid #4ade80;
+    }
+    .experiment-card.yellow { border-left-color: #fbbf24; }
+    .experiment-card.purple { border-left-color: #a855f7; }
+    .experiment-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .experiment-title {
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .experiment-subtitle {
+      font-size: 12px;
+      color: #888;
+    }
+    .btn-small {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-green { background: #4ade80; color: #000; }
+    .btn-yellow { background: #fbbf24; color: #000; }
+    .btn-purple { background: #a855f7; color: #fff; }
+
+    /* Feature Tags */
+    .feature-tags {
+      display: flex;
+      gap: 10px;
+      margin-top: 5px;
+    }
+    .feature-tag {
+      background: rgba(251,191,36,0.2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    /* Animations */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .loading {
+      animation: pulse 2s infinite;
+    }
+
+    /* Grid Layouts */
+    .two-column {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .dataset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .dataset-card {
+      background: rgba(10,14,39,0.5);
+      border-radius: 8px;
+      padding: 15px;
+      text-align: center;
+    }
+    .dataset-label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 5px;
+    }
+    .dataset-value {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .dataset-info {
+      font-size: 12px;
+    }
+
+    /* Action Buttons */
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-secondary {
+      background: rgba(99,102,241,0.2);
+      color: #6366f1;
+      padding: 10px 20px;
+      border: 1px solid #6366f1;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+      .panel-grid, .two-column {
+        grid-template-columns: 1fr;
+      }
+      .market-tickers {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-content">
+      <div class="header-left">
+        <h1>🚀 Nautilus Trading Command Center</h1>
+        <div class="market-tickers">
+          <span class="ticker-up" id="spy-ticker">SPY: $452.30 ▲1.2%</span>
+          <span class="ticker-up" id="qqq-ticker">QQQ: $378.45 ▲0.8%</span>
+          <span class="ticker-down" id="vix-ticker">VIX: 15.23 ▼3.2%</span>
+        </div>
+      </div>
+      <div class="header-buttons">
+        <button class="btn-live">🟢 LIVE TRADING</button>
+        <button class="btn-settings">⚙️ Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div class="dashboard-content">
+
+    <!-- Top Metrics -->
+    <div class="metrics-grid">
+      <div class="metric-card green">
+        <div class="metric-label">Daily P&L</div>
+        <div class="metric-value" id="daily-pnl">+$18,450</div>
+        <div class="metric-change">▲ 3.2%</div>
+        <canvas id="pnlSparkline" width="100" height="30"></canvas>
+      </div>
+      <div class="metric-card blue">
+        <div class="metric-label">Sharpe Ratio</div>
+        <div class="metric-value">2.15</div>
+        <div class="metric-change">30D Average</div>
+      </div>
+      <div class="metric-card yellow">
+        <div class="metric-label">Win Rate</div>
+        <div class="metric-value">72.3%</div>
+        <div class="metric-change">142/196 trades</div>
+      </div>
+      <div class="metric-card red">
+        <div class="metric-label">Max Drawdown</div>
+        <div class="metric-value">-5.8%</div>
+        <div class="metric-change">Risk: Low</div>
+      </div>
+      <div class="metric-card purple">
+        <div class="metric-label">Active Models</div>
+        <div class="metric-value">7</div>
+        <div class="metric-change">▲ 2 new today</div>
+      </div>
+    </div>
+
+    <!-- Data Ingestion Monitor -->
+    <div class="panel">
+      <h3>📊 Live Data Ingestion Monitor</h3>
+      <div class="panel-grid">
+        <div>
+          <canvas id="ingestionChart" style="max-height: 200px;"></canvas>
+        </div>
+        <div class="stats-box">
+          <h4>Ingestion Stats</h4>
+          <div class="stat-item">
+            <div class="stat-header">
+              <span class="stat-label">Bars/sec</span>
+              <span class="stat-value" style="color: #4ade80;">1,234</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill green" style="width: 75%;"></div>
+            </div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-header">
+              <span class="stat-label">Quotes/sec</span>
+              <span class="stat-value" style="color: #6366f1;">8,451</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill blue" style="width: 90%;"></div>
+            </div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-header">
+              <span class="stat-label">L2 Updates/sec</span>
+              <span class="stat-value" style="color: #fbbf24;">12,892</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill yellow" style="width: 95%;"></div>
+            </div>
+          </div>
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+            <div class="stat-label">Data Quality Score</div>
+            <div style="font-size: 24px; color: #4ade80; font-weight: bold;">98.7%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Performance & Experiments -->
+    <div class="two-column">
+      <!-- Model Performance -->
+      <div class="panel">
+        <h3>🧠 Model Performance & P&L</h3>
+        <div style="max-height: 400px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Model ID</th>
+                <th>Type</th>
+                <th style="text-align: right;">Daily P&L</th>
+                <th style="text-align: right;">Sharpe</th>
+                <th style="text-align: center;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="model-id">TFT_v3.2.1</td>
+                <td>Transformer</td>
+                <td style="text-align: right;" class="pnl-positive">+$5,234</td>
+                <td style="text-align: right;">2.45</td>
+                <td style="text-align: center;">
+                  <span class="status-badge status-live">LIVE</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="model-id">XGB_Student_v2</td>
+                <td>XGBoost</td>
+                <td style="text-align: right;" class="pnl-positive">+$3,892</td>
+                <td style="text-align: right;">2.18</td>
+                <td style="text-align: center;">
+                  <span class="status-badge status-live">LIVE</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="model-id">LSTM_Ensemble</td>
+                <td>LSTM</td>
+                <td style="text-align: right;" class="pnl-positive">+$2,145</td>
+                <td style="text-align: right;">1.95</td>
+                <td style="text-align: center;">
+                  <span class="status-badge status-test">A/B TEST</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="model-id">DeepLOB_v1.5</td>
+                <td>CNN</td>
+                <td style="text-align: right;" class="pnl-negative">-$423</td>
+                <td style="text-align: right;">0.82</td>
+                <td style="text-align: center;">
+                  <span class="status-badge status-paused">PAUSED</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="model-id">GNN_Market_v2</td>
+                <td>Graph NN</td>
+                <td style="text-align: right;" class="pnl-positive">+$1,892</td>
+                <td style="text-align: right;">1.73</td>
+                <td style="text-align: center;">
+                  <span class="status-badge status-training">TRAINING</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Active Experiments -->
+      <div class="panel">
+        <h3>🔬 Active Experiments</h3>
+        <div class="experiments-grid">
+          <!-- HPO -->
+          <div class="experiment-card">
+            <div class="experiment-header">
+              <div>
+                <div class="experiment-title">Hyperparameter Optimization</div>
+                <div class="experiment-subtitle">Trial 47/100 • XGBoost</div>
+              </div>
+              <button class="btn-small btn-green">View Details</button>
+            </div>
+            <div class="progress-bar" style="height: 6px; margin: 10px 0;">
+              <div class="progress-fill green" style="width: 47%;"></div>
+            </div>
+            <div style="display: flex; gap: 20px; font-size: 12px;">
+              <div>Best Sharpe: <strong style="color: #4ade80;">2.31</strong></div>
+              <div>Best Params: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">depth=8, lr=0.03</code></div>
+            </div>
+          </div>
+
+          <!-- Feature Selection -->
+          <div class="experiment-card yellow">
+            <div class="experiment-header">
+              <div>
+                <div class="experiment-title">Feature Selection</div>
+                <div class="experiment-subtitle">SHAP Analysis • 326 features</div>
+              </div>
+              <button class="btn-small btn-yellow">View Report</button>
+            </div>
+            <div style="margin-top: 10px; font-size: 12px;">
+              <div>Top Features:</div>
+              <div class="feature-tags">
+                <span class="feature-tag">volume_imbalance</span>
+                <span class="feature-tag">price_momentum</span>
+                <span class="feature-tag">bid_ask_spread</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Architecture Search -->
+          <div class="experiment-card purple">
+            <div class="experiment-header">
+              <div>
+                <div class="experiment-title">Architecture Search</div>
+                <div class="experiment-subtitle">Testing GRU variant • ETA: 23 min</div>
+              </div>
+              <button class="btn-small btn-purple">Stop</button>
+            </div>
+            <div class="progress-bar loading" style="height: 6px; margin: 10px 0;">
+              <div class="progress-fill" style="background: #a855f7; width: 73%;"></div>
+            </div>
+            <div style="display: flex; gap: 20px; font-size: 12px;">
+              <div>Current Loss: <strong style="color: #a855f7;">0.0234</strong></div>
+              <div>Epoch: <strong>73/100</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Portfolio & Positions -->
+    <div class="panel">
+      <h3>📈 Portfolio & Active Positions</h3>
+      <div class="panel-grid">
+        <div>
+          <canvas id="portfolioChart" style="max-height: 250px;"></canvas>
+        </div>
+        <div class="stats-box">
+          <h4>Position Summary</h4>
+          <div style="font-size: 13px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #888;">Total Value</span>
+              <span style="font-weight: bold;">$2,458,234</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #888;">Cash</span>
+              <span>$523,450</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #888;">Margin Used</span>
+              <span>$892,340</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #888;">Positions</span>
+              <span>12 active</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #888;">Daily Vol</span>
+              <span>8.3%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dataset Management -->
+    <div class="panel">
+      <h3>🗄️ Dataset Management</h3>
+      <div class="dataset-grid">
+        <div class="dataset-card">
+          <div class="dataset-label">Training Datasets</div>
+          <div class="dataset-value">18</div>
+          <div class="dataset-info" style="color: #4ade80;">3 updated today</div>
+        </div>
+        <div class="dataset-card">
+          <div class="dataset-label">Feature Sets</div>
+          <div class="dataset-value">326</div>
+          <div class="dataset-info" style="color: #6366f1;">12 new features</div>
+        </div>
+        <div class="dataset-card">
+          <div class="dataset-label">Data Size</div>
+          <div class="dataset-value">2.3TB</div>
+          <div class="dataset-info" style="color: #fbbf24;">85% utilized</div>
+        </div>
+        <div class="dataset-card">
+          <div class="dataset-label">Update Frequency</div>
+          <div class="dataset-value">5min</div>
+          <div class="dataset-info" style="color: #4ade80;">Real-time sync</div>
+        </div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn-primary">🏗️ Build New Dataset</button>
+        <button class="btn-secondary">🔄 Refresh All</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Initialize charts when page loads
+    window.addEventListener('DOMContentLoaded', () => {
+      // Ingestion Chart
+      const ingestionCtx = document.getElementById('ingestionChart');
+      if (ingestionCtx && typeof Chart !== 'undefined') {
+        new Chart(ingestionCtx, {
+          type: 'line',
+          data: {
+            labels: ['10:00', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30'],
+            datasets: [
+              {
+                label: 'Bars/sec',
+                data: [1200, 1234, 1189, 1245, 1278, 1234, 1256],
+                borderColor: '#4ade80',
+                backgroundColor: 'rgba(74,222,128,0.1)',
+                tension: 0.4
+              },
+              {
+                label: 'Quotes/sec',
+                data: [8200, 8451, 8320, 8512, 8398, 8423, 8478],
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99,102,241,0.1)',
+                tension: 0.4
+              },
+              {
+                label: 'L2/sec',
+                data: [12500, 12892, 12678, 13012, 12798, 12856, 12945],
+                borderColor: '#fbbf24',
+                backgroundColor: 'rgba(251,191,36,0.1)',
+                tension: 0.4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { color: '#fff' }
+              },
+              title: {
+                display: true,
+                text: 'Real-time Data Ingestion Rate',
+                color: '#fff'
+              }
+            },
+            scales: {
+              y: {
+                grid: { color: 'rgba(255,255,255,0.1)' },
+                ticks: { color: '#888' }
+              },
+              x: {
+                grid: { color: 'rgba(255,255,255,0.1)' },
+                ticks: { color: '#888' }
+              }
+            }
+          }
+        });
+      }
+
+      // Portfolio Chart
+      const portfolioCtx = document.getElementById('portfolioChart');
+      if (portfolioCtx && typeof Chart !== 'undefined') {
+        new Chart(portfolioCtx, {
+          type: 'line',
+          data: {
+            labels: ['9:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00'],
+            datasets: [{
+              label: 'Portfolio Value',
+              data: [2400000, 2405000, 2412000, 2408000, 2415000, 2422000, 2419000, 2428000, 2435000, 2442000, 2448000, 2453000, 2456000, 2458234],
+              borderColor: '#4ade80',
+              backgroundColor: 'rgba(74,222,128,0.1)',
+              fill: true,
+              tension: 0.4
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { color: '#fff' }
+              },
+              title: {
+                display: true,
+                text: 'Portfolio Value (Intraday)',
+                color: '#fff'
+              }
+            },
+            scales: {
+              y: {
+                grid: { color: 'rgba(255,255,255,0.1)' },
+                ticks: {
+                  color: '#888',
+                  callback: function(value) {
+                    return '$' + (value / 1000000).toFixed(2) + 'M';
+                  }
+                }
+              },
+              x: {
+                grid: { color: 'rgba(255,255,255,0.1)' },
+                ticks: { color: '#888' }
+              }
+            }
+          }
+        });
+      }
+
+      // P&L Sparkline
+      const pnlCtx = document.getElementById('pnlSparkline');
+      if (pnlCtx && typeof Chart !== 'undefined') {
+        new Chart(pnlCtx, {
+          type: 'line',
+          data: {
+            labels: ['', '', '', '', '', '', ''],
+            datasets: [{
+              data: [12000, 14500, 13800, 15200, 16800, 17200, 18450],
+              borderColor: '#4ade80',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: false
+            }]
+          },
+          options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false }
+            },
+            scales: {
+              y: { display: false },
+              x: { display: false }
+            }
+          }
+        });
+      }
+
+      // Simulate real-time updates
+      setInterval(() => {
+        // Update market prices
+        const spy = document.getElementById('spy-ticker');
+        if (spy) {
+          const price = (452.30 + (Math.random() - 0.5) * 2).toFixed(2);
+          const change = ((Math.random() - 0.5) * 0.5).toFixed(1);
+          spy.textContent = `SPY: $${price} ${change > 0 ? '▲' : '▼'}${Math.abs(change)}%`;
+          spy.className = change > 0 ? 'ticker-up' : 'ticker-down';
+        }
+
+        // Update P&L
+        const pnl = document.getElementById('daily-pnl');
+        if (pnl) {
+          const newPnl = (18450 + (Math.random() - 0.5) * 1000).toFixed(0);
+          pnl.textContent = `+$${parseInt(newPnl).toLocaleString()}`;
+        }
+      }, 3000);
+    });
+  </script>
+</body>
+</html>

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from collections.abc import Iterator
+
 try:  # optional dependency
     from hypothesis import given
     from hypothesis import strategies as st
@@ -12,10 +14,11 @@ from typing import Any
 from contextlib import contextmanager
 
 from ml.stores.base import StrategySignal
+from ml.stores.strategy_store import StrategyStore
 
 
 @contextmanager
-def _patch_strategy_store_io(sink: list[dict[str, Any]]):
+def _patch_strategy_store_io(sink: list[dict[str, Any]]) -> Iterator[None]:
     orig_setup = StrategyStore._setup_tables
     orig_exec = StrategyStore._execute_write
     from ml.core import db_engine as _db
@@ -40,18 +43,18 @@ def _patch_strategy_store_io(sink: list[dict[str, Any]]):
             return _DummyConn()
 
     try:
-        StrategyStore._setup_tables = lambda self: None  # type: ignore[assignment]
-        StrategyStore._execute_write = lambda self, values: sink.extend(values)  # type: ignore[assignment]
-        _db.EngineManager.get_engine = lambda *a, **k: _DummyEngine()  # type: ignore[assignment]
+        setattr(StrategyStore, "_setup_tables", lambda self: None)
+        setattr(StrategyStore, "_execute_write", lambda self, values: sink.extend(values))
+        setattr(_db.EngineManager, "get_engine", lambda *a, **k: _DummyEngine())
         yield
     finally:
-        StrategyStore._setup_tables = orig_setup  # type: ignore[assignment]
-        StrategyStore._execute_write = orig_exec  # type: ignore[assignment]
-        _db.EngineManager.get_engine = orig_get_engine  # type: ignore[assignment]
+        setattr(StrategyStore, "_setup_tables", orig_setup)
+        setattr(StrategyStore, "_execute_write", orig_exec)
+        setattr(_db.EngineManager, "get_engine", orig_get_engine)
 
 
 @st.composite
-def _signal_dict(draw: st.DrawFn) -> dict[str, Any]:  # type: ignore[name-defined]
+def _signal_dict(draw: Any) -> dict[str, Any]:
     sid = draw(st.text(min_size=1, max_size=10))
     inst = draw(st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True))
     stype = draw(st.sampled_from(["BUY", "SELL", "HOLD"]))
@@ -82,7 +85,7 @@ def _signal_dict(draw: st.DrawFn) -> dict[str, Any]:  # type: ignore[name-define
 def test_strategy_store_write_batch_invariants(
     signals: list[dict[str, Any]],
     base_ts: int,
-) -> None:  # noqa: ANN201
+) -> None:
     sink: list[dict[str, Any]] = []
     # Build monotonic timestamps and create data objects
     data: list[StrategySignal] = []
