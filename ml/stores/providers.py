@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any, Final, cast
@@ -14,8 +15,12 @@ from sqlalchemy import Column
 from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import text
+from sqlalchemy import bindparam
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql import column as sa_column
+from sqlalchemy.sql import func as sa_func
+from sqlalchemy.sql import select as sa_select
+from sqlalchemy.sql import table as sa_table
 
 from ml.core.db_engine import EngineManager
 from ml.registry.dataclasses import DatasetType
@@ -27,6 +32,15 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 DAY_NS: Final[int] = 86_400_000_000_000
 logger = logging.getLogger(__name__)
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(identifier: str, *, label: str) -> str:
+    if not _IDENTIFIER_RE.match(identifier):
+        raise ValueError(f"Invalid SQL identifier for {label}: {identifier!r}")
+    return identifier
 
 
 def _schema_to_dataclass(schema: str) -> type[Any]:
@@ -96,6 +110,8 @@ class SqlCoverageProvider(CoverageProviderProtocol):
     _engine: Engine = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        _validate_identifier(self.table_name, label="coverage.table")
+        _validate_identifier(self.ts_field, label="coverage.ts_field")
         self._engine = EngineManager.get_engine(self.connection_string)
 
     def read_bucket_coverage(
@@ -107,15 +123,17 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
-        q = text(
-            f"""
-            SELECT (({self.ts_field} / :day_ns)) AS bucket
-            FROM {self.table_name}
-            WHERE instrument_id = :instrument_id
-              AND {self.ts_field} >= :start_ns AND {self.ts_field} < :end_ns
-            GROUP BY bucket
-            """,
+        table = sa_table(
+            self.table_name,
+            sa_column("instrument_id"),
+            sa_column(self.ts_field),
         )
+        bucket_expr = sa_func.floor(sa_column(self.ts_field) / bindparam("day_ns")).label("bucket")
+        stmt = sa_select(bucket_expr).select_from(table).where(
+            sa_column("instrument_id") == bindparam("instrument_id"),
+            sa_column(self.ts_field) >= bindparam("start_ns"),
+            sa_column(self.ts_field) < bindparam("end_ns"),
+        ).group_by(bucket_expr)
         params = {
             "day_ns": DAY_NS,
             "instrument_id": instrument_id,
@@ -123,7 +141,7 @@ class SqlCoverageProvider(CoverageProviderProtocol):
             "end_ns": int(end_ns),
         }
         with self._engine.connect() as conn:
-            rows = conn.execute(q, params).fetchall()
+            rows = conn.execute(stmt, params).fetchall()
         return {int(r[0]) for r in rows}
 
 
@@ -144,6 +162,7 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
     _table: Table = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        _validate_identifier(self.table_name, label="writer.table")
         self._engine = EngineManager.get_engine(self.connection_string)
         self._meta = MetaData()
         try:
@@ -227,6 +246,7 @@ class SqlMarketDataReader(RawReaderProtocol):
     _engine: Engine = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        _validate_identifier(self.table_name, label="reader.table")
         self._engine = EngineManager.get_engine(self.connection_string)
 
     def read_range(
@@ -242,30 +262,34 @@ class SqlMarketDataReader(RawReaderProtocol):
                 f"Invalid range for SQL market data read ({start_ns=} >= {end_ns=})",
             )
 
-        query = text(
-            f"""
-            SELECT
-                instrument_id,
-                ts_event,
-                ts_init,
-                open,
-                high,
-                low,
-                close,
-                volume,
-                bid,
-                ask,
-                bid_size,
-                ask_size,
-                last,
-                trade_count,
-                vwap
-            FROM {self.table_name}
-            WHERE instrument_id = :instrument_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY ts_event
-            """,
+        selected_columns = [
+            "instrument_id",
+            "ts_event",
+            "ts_init",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
+            "last",
+            "trade_count",
+            "vwap",
+        ]
+        table = sa_table(
+            self.table_name,
+            *(sa_column(col) for col in selected_columns),
+        )
+        stmt = (
+            sa_select(*(sa_column(col) for col in selected_columns))
+            .select_from(table)
+            .where(sa_column("instrument_id") == bindparam("instrument_id"))
+            .where(sa_column("ts_event") >= bindparam("start_ns"))
+            .where(sa_column("ts_event") < bindparam("end_ns"))
+            .order_by(sa_column("ts_event"))
         )
         params: dict[str, int | str] = {
             "instrument_id": instrument_id,
@@ -274,7 +298,7 @@ class SqlMarketDataReader(RawReaderProtocol):
         }
 
         with self._engine.connect() as conn:
-            frame = pd.read_sql_query(query, conn, params=params)
+            frame = pd.read_sql_query(stmt, conn, params=params)
 
         if frame.empty:
             return self._empty_frame()

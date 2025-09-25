@@ -18,8 +18,8 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.registry.base import DataRequirements
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -100,6 +100,93 @@ class TestFeatureTransformMetamorphic:
                 rtol=1e-10,
                 err_msg="Moving averages should scale proportionally",
             )
+
+    @given(
+        st.floats(min_value=0.5, max_value=2.0),
+        st.lists(
+            st.floats(min_value=0.5, max_value=200.0, allow_nan=False, allow_infinity=False),
+            min_size=10,
+            max_size=40,
+        ),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_trade_flow_scaling_invariance(self, scale_factor: float, prices: list[float]) -> None:
+        cfg = FeatureConfig(include_trade_flow=True, data_requirements=DataRequirements.L1_L2)
+
+        base_df = pd.DataFrame(
+            {
+                "close": prices,
+                "high": [price * 1.01 for price in prices],
+                "low": [max(0.01, price * 0.99) for price in prices],
+                "volume": [100.0] * len(prices),
+                "trade_price": prices,
+                "trade_volume": [50.0] * len(prices),
+                "trade_side": [1 if i % 2 == 0 else -1 for i in range(len(prices))],
+            },
+        )
+
+        scaled_df = base_df.copy(deep=True)
+        for col in ("close", "high", "low", "trade_price"):
+            scaled_df[col] = scaled_df[col].astype(float) * scale_factor
+
+        engineer_base = FeatureEngineer(cfg)
+        engineer_scaled = FeatureEngineer(cfg)
+
+        features_base, _ = engineer_base.calculate_features_batch(base_df, fit_scaler=False)
+        features_scaled, _ = engineer_scaled.calculate_features_batch(scaled_df, fit_scaler=False)
+
+        row_base = features_base.iloc[-1]
+        row_scaled = features_scaled.iloc[-1]
+
+        assert pytest.approx(row_scaled["trade_flow_imbalance"], abs=1e-6) == row_base["trade_flow_imbalance"]
+        assert pytest.approx(row_scaled["trade_intensity"], abs=1e-6) == row_base["trade_intensity"]
+        assert pytest.approx(row_scaled["avg_price_impact"], abs=1e-6) == row_base["avg_price_impact"]
+
+    @given(
+        st.lists(
+            st.floats(min_value=0.5, max_value=200.0, allow_nan=False, allow_infinity=False),
+            min_size=10,
+            max_size=40,
+        ),
+        st.lists(
+            st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
+            min_size=10,
+            max_size=40,
+        ),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_trade_flow_missing_trades_matches_ohlcv(self, prices: list[float], volumes: list[float]) -> None:
+        assume_len = min(len(prices), len(volumes))
+        prices = prices[:assume_len]
+        volumes = volumes[:assume_len]
+
+        cfg = FeatureConfig(include_trade_flow=True)
+        engineer = FeatureEngineer(cfg)
+
+        base_df = pd.DataFrame(
+            {
+                "close": prices,
+                "high": [price * 1.01 for price in prices],
+                "low": [max(0.01, price * 0.99) for price in prices],
+                "volume": volumes,
+                "trade_price": [float("nan")] * len(prices),
+                "trade_volume": [0.0] * len(prices),
+                "trade_side": [0] * len(prices),
+            },
+        )
+
+        manual = engineer._calculate_trade_flow_features_from_ohlcv(
+            base_df,
+            len(base_df) - 1,
+            base_df.iloc[-1].to_dict(),
+        )
+        batch_features = engineer._calculate_trade_flow_features_batch(
+            base_df,
+            len(base_df) - 1,
+            base_df.iloc[-1].to_dict(),
+        )
+
+        assert batch_features == manual
 
     @given(
         prices=st.lists(

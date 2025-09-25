@@ -783,6 +783,77 @@
         });
       }
 
+      // Fetch real system status from control panel
+      async function fetchSystemStatus() {
+        try {
+          const response = await fetch('/api/control/status');
+          const data = await response.json();
+
+          // Update active models count
+          const activeModels = data.actors ? data.actors.active : 0;
+          const modelCards = document.querySelectorAll('.metric-card');
+          if (modelCards[4]) {
+            modelCards[4].querySelector('.metric-value').textContent = activeModels.toString();
+          }
+
+          // Update store health
+          if (data.stores) {
+            console.log('Store health:', data.stores);
+          }
+        } catch (err) {
+          console.error('Failed to fetch system status:', err);
+        }
+      }
+
+      // Control functions
+      window.startActor = async function(actorId, actorType, config) {
+        const response = await fetch('/api/control/actors/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actor_id: actorId, actor_type: actorType, config: config || {} })
+        });
+        const result = await response.json();
+        if (result.success) {
+          console.log(`Actor ${actorId} started`);
+          fetchSystemStatus();
+        }
+        return result;
+      };
+
+      window.triggerPipeline = async function(mode) {
+        const response = await fetch('/api/control/pipeline/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: mode, config: {} })
+        });
+        const result = await response.json();
+        if (result.success) {
+          console.log(`Pipeline ${result.run_id} started`);
+          fetchSystemStatus();
+        }
+        return result;
+      };
+
+      window.startIngestion = async function(symbols, source = 'databento') {
+        const response = await fetch('/api/control/ingestion/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols: symbols, source: source })
+        });
+        const result = await response.json();
+        if (result.success) {
+          console.log(`Ingestion ${result.task_id} started for ${symbols.join(', ')}`);
+          fetchSystemStatus();
+        }
+        return result;
+      };
+
+      // Fetch initial status
+      fetchSystemStatus();
+
+      // Update status every 10 seconds
+      setInterval(fetchSystemStatus, 10000);
+
       // Simulate real-time updates
       setInterval(() => {
         // Update market prices

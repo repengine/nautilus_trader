@@ -58,4 +58,4 @@ def test_execute_monkeypatched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert (tmp_path / "out" / "SPY" / "dataset.parquet").exists()
     progress = tmp_path / "out" / "progress.jsonl"
     lines = progress.read_text(encoding="utf-8").strip().splitlines()
-    assert any(json.loads(l).get("event") == "success" for l in lines)
+    assert any(json.loads(line).get("event") == "success" for line in lines)

@@ -16,7 +16,14 @@ from ml.stores.protocols import (
 
 
 class _DummyFeature(FeatureStoreStrictProtocol):  # runtime structural
-    def write_features(self, feature_set_id: str, instrument_id: str, features, ts_event: int, ts_init: int) -> None:  # type: ignore[no-untyped-def]
+    def write_features(
+        self,
+        feature_set_id: str,
+        instrument_id: str,
+        features: object,
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
         return None
 
     def flush(self) -> None:  # noqa: D401
@@ -24,10 +31,20 @@ class _DummyFeature(FeatureStoreStrictProtocol):  # runtime structural
 
 
 class _DummyModel(ModelStoreStrictProtocol):  # runtime structural
-    def write_prediction(self, model_id: str, instrument_id: str, prediction: float, confidence: float, features, inference_time_ms: float, ts_event: int, is_live: bool = False) -> None:  # type: ignore[no-untyped-def]
+    def write_prediction(
+        self,
+        model_id: str,
+        instrument_id: str,
+        prediction: float,
+        confidence: float,
+        features: object,
+        inference_time_ms: float,
+        ts_event: int,
+        is_live: bool = False,
+    ) -> None:
         return None
 
-    def write_batch(self, data, emit_events: bool = True) -> None:  # type: ignore[no-untyped-def]
+    def write_batch(self, data: object, emit_events: bool = True) -> None:
         return None
 
     def flush(self) -> None:  # noqa: D401
@@ -35,10 +52,21 @@ class _DummyModel(ModelStoreStrictProtocol):  # runtime structural
 
 
 class _DummyStrategy(StrategyStoreStrictProtocol):  # runtime structural
-    def write_signal(self, strategy_id: str, instrument_id: str, signal_type: str, strength: float, model_predictions, risk_metrics, execution_params, ts_event: int, is_live: bool = False) -> None:  # type: ignore[no-untyped-def]
+    def write_signal(
+        self,
+        strategy_id: str,
+        instrument_id: str,
+        signal_type: str,
+        strength: float,
+        model_predictions: object,
+        risk_metrics: object,
+        execution_params: object,
+        ts_event: int,
+        is_live: bool = False,
+    ) -> None:
         return None
 
-    def write_batch(self, data) -> None:  # type: ignore[no-untyped-def]
+    def write_batch(self, data: object) -> None:
         return None
 
     def flush(self) -> None:  # noqa: D401

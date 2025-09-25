@@ -11,7 +11,7 @@ Following the "write less tests, get more coverage" philosophy from TESTING_STRA
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,6 +24,13 @@ from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
 from ml.core.integration import MLIntegrationManager
 from nautilus_trader.core.uuid import UUID4
+
+
+class _MetricSample(TypedDict):
+    metric_name: str
+    labels: dict[str, str]
+    value: float
+    timestamp: int
 
 
 @pytest.mark.property
@@ -303,7 +310,10 @@ class TestMetricsCollectionInvariant:
         ),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_metrics_aggregation_consistency_invariant(self, metric_samples):
+    def test_metrics_aggregation_consistency_invariant(
+        self,
+        metric_samples: list[_MetricSample],
+    ) -> None:
         """
         Property: Metrics aggregation must maintain consistency across different groupings.
 
@@ -313,9 +323,9 @@ class TestMetricsCollectionInvariant:
         mock_metrics_collector = MagicMock()
 
         # Group metrics by different dimensions
-        by_instrument = {}
-        by_domain = {}
-        by_metric_name = {}
+        by_instrument: dict[str, float] = {}
+        by_domain: dict[str, float] = {}
+        by_metric_name: dict[str, float] = {}
 
         for sample in metric_samples:
             metric_name = sample["metric_name"]
@@ -345,7 +355,11 @@ class TestMetricsCollectionInvariant:
         total_value = sum(sample["value"] for sample in metric_samples)
 
         if by_instrument:
-            labeled_inst_total = sum(sample["value"] for sample in metric_samples if "instrument_id" in sample["labels"])  # type: ignore[index]
+            labeled_inst_total = sum(
+                sample["value"]
+                for sample in metric_samples
+                if "instrument_id" in sample["labels"]
+            )
             instrument_total = sum(by_instrument.values())
             # Allow for small floating point precision differences
             assert (
@@ -354,7 +368,11 @@ class TestMetricsCollectionInvariant:
 
         if by_domain:
             # Compare domain totals against the subset of samples that include domain labels
-            labeled_total = sum(sample["value"] for sample in metric_samples if "domain" in sample["labels"])  # type: ignore[index]
+            labeled_total = sum(
+                sample["value"]
+                for sample in metric_samples
+                if "domain" in sample["labels"]
+            )
             domain_total = sum(by_domain.values())
             assert (
                 abs(domain_total - labeled_total) < 1e-10

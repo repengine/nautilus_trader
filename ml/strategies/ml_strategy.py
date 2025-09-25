@@ -259,7 +259,10 @@ class MLTradingStrategy(BaseMLStrategy):
         if not self._config.execute_trades:
             quantity = self._calculate_position_size()
             self.log.info(
-                f"[DRY RUN] Would close {current_position.side.name} position and open {target_side.name} for {quantity} units (execute_trades=False)",
+                "[DRY RUN] Would close %s position and open %s for %s units (execute_trades=False)",
+                current_position.side.name,
+                target_side.name,
+                quantity,
             )
             return
 

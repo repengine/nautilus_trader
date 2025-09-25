@@ -8,6 +8,7 @@ import numpy.typing as npt
 import pytest
 
 from ml.actors.signal import MLSignalActor, MLSignalActorConfig
+from collections import deque
 
 
 def _bar_dict(ts_ns: int) -> dict[str, str | int]:
@@ -54,8 +55,8 @@ def test_signal_actor_parity_smoke_check_runs(monkeypatch: pytest.MonkeyPatch) -
 
     setattr(actor, "_compute_features", _compute_stub)
     # Pre-fill recent buffers
-    recent_bars = cast(Deque[object], getattr(actor, "_recent_bars"))
-    recent_features = cast(Deque[npt.NDArray[np.float32]], getattr(actor, "_recent_features"))
+    recent_bars = cast(deque[object], getattr(actor, "_recent_bars"))
+    recent_features = cast(deque[npt.NDArray[np.float32]], getattr(actor, "_recent_features"))
     recent_bars.clear()
     recent_features.clear()
     for _ in range(5):

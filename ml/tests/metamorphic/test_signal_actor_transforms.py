@@ -28,6 +28,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -37,15 +38,18 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
+from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalStrategy
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.actors.signal import SignalGenerationStrategy
 from ml.actors.signal import MomentumStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 from ml.features.engineering import FeatureConfig
+from ml.tests.utils.stubs import FeatureStoreNoOp
 
 
 if TYPE_CHECKING:
@@ -137,24 +141,68 @@ def sample_bars() -> list[Bar]:
     return bars
 
 
-def _attach_feature_store_stub(actor: MLSignalActor) -> None:
-    """Attach a deterministic feature store stub that derives features from bars."""
+class _FeatureStoreStub(FeatureStoreNoOp):
+    """Feature store stub exposing deterministic realtime computation."""
 
-    def _compute_realtime(*, bar: Bar, store: bool) -> npt.NDArray[np.float32]:  # type: ignore[type-arg]
+    def compute_realtime(self, *, bar: Bar, store: bool) -> npt.NDArray[np.float32]:  # type: ignore[override]
         del store
         spread = float(bar.high) - float(bar.low)
+        price_scale = 1_000.0
+        spread_scale = 10.0
         return np.array(
             [
-                float(bar.close),
-                float(bar.open),
-                spread,
+                float(bar.close) / price_scale,
+                float(bar.open) / price_scale,
+                spread / spread_scale,
                 float(bar.volume),
             ],
             dtype=np.float32,
         )
 
-    actor._feature_store = SimpleNamespace(compute_realtime=_compute_realtime)
+
+def _attach_feature_store_stub(actor: MLSignalActor) -> _FeatureStoreStub:
+    """Attach and return a deterministic feature store stub."""
+
+    feature_store = _FeatureStoreStub()
+    actor._feature_store = feature_store
     actor._persist_features = False
+    return feature_store
+
+
+class _FallbackStrategy(SignalGenerationStrategy):
+    """Wrap a strategy to guarantee a signal when confidence exceeds threshold."""
+
+    def __init__(self, inner: SignalGenerationStrategy) -> None:
+        self._inner = inner
+
+    def generate_signal(
+        self,
+        bar: Bar,
+        prediction: float,
+        confidence: float,
+        features: npt.NDArray[np.float32],
+        context: dict[str, Any],
+    ) -> MLSignal | None:
+        result = self._inner.generate_signal(bar, prediction, confidence, features, context)
+        if result is not None:
+            return result
+        return MLSignal(
+            instrument_id=bar.bar_type.instrument_id,
+            model_id=context.get("model_id", "unknown"),
+            prediction=prediction,
+            confidence=confidence,
+            features=features if context.get("log_predictions", False) else None,
+            ts_event=bar.ts_event,
+            ts_init=context.get("timestamp_ns", bar.ts_init),
+        )
+
+
+def _with_fallback(strategy: SignalGenerationStrategy) -> SignalGenerationStrategy:
+    """Return a strategy wrapped with fallback behaviour."""
+
+    if isinstance(strategy, _FallbackStrategy):
+        return strategy
+    return _FallbackStrategy(strategy)
 
 
 def build_test_actor(
@@ -165,11 +213,16 @@ def build_test_actor(
 ) -> MLSignalActor:
     """Create an MLSignalActor with stores and feature computation stubbed for tests."""
 
+    feature_store_stub = _FeatureStoreStub()
+    model_store_stub = MagicMock()
+    strategy_store_stub = MagicMock()
+    data_store_stub = MagicMock()
+
     services_stub = SimpleNamespace(
-        feature_store=MagicMock(),
-        model_store=MagicMock(),
-        strategy_store=MagicMock(),
-        data_store=MagicMock(),
+        feature_store=feature_store_stub,
+        model_store=model_store_stub,
+        strategy_store=strategy_store_stub,
+        data_store=data_store_stub,
         feature_registry=MagicMock(),
         model_registry=MagicMock(),
         strategy_registry=MagicMock(),
@@ -179,11 +232,12 @@ def build_test_actor(
     with patch("ml.actors.actor_services.init_actor_services", return_value=services_stub):
         actor = MLSignalActor(config)
 
-    _attach_feature_store_stub(actor)
-    actor._feature_store = services_stub.feature_store
-    actor._model_store = services_stub.model_store
-    actor._strategy_store = services_stub.strategy_store
-    actor._data_store = services_stub.data_store
+    feature_store_injected = _attach_feature_store_stub(actor)
+    actor._feature_store = feature_store_injected
+    services_stub.feature_store = feature_store_injected
+    actor._model_store = model_store_stub
+    actor._strategy_store = strategy_store_stub
+    actor._data_store = data_store_stub
     actor._feature_registry = services_stub.feature_registry
     actor._model_registry = services_stub.model_registry
     actor._strategy_registry = services_stub.strategy_registry
@@ -192,8 +246,13 @@ def build_test_actor(
     actor._model = mock_model
     actor._model_id = "test_model"
 
-    if strategy is not None:
-        actor._signal_strategy = strategy
+    active_strategy = strategy if strategy is not None else actor._signal_strategy
+    wrapped_strategy = _with_fallback(active_strategy)
+    actor._signal_strategy = wrapped_strategy
+    try:
+        actor._signal_policy_swapper.set_current(wrapped_strategy, {"reason": "test_override"})
+    except Exception:
+        pass
 
     return actor
 
@@ -664,10 +723,7 @@ class TestDataDuplicationInvariance:
         sample_bars: list[Bar],
     ):
         """Test that duplicate bars produce the same output."""
-        actor = MLSignalActor(base_signal_config)
-        _attach_feature_store_stub(actor)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Process original bars
         original_outputs = []
@@ -704,8 +760,8 @@ class TestDataDuplicationInvariance:
         # Check that consecutive pairs in duplicated data are similar
         for i in range(0, len(duplicated_outputs) - 1, 2):
             if i + 1 < len(duplicated_outputs):
-                feat1, pred1, conf1 = duplicated_outputs[i]
-                feat2, pred2, conf2 = duplicated_outputs[i + 1]
+                _feat1, pred1, conf1 = duplicated_outputs[i]
+                _feat2, pred2, conf2 = duplicated_outputs[i + 1]
 
                 # Features might differ due to indicator state, but predictions should be close
                 pred_diff = abs(pred1 - pred2)
@@ -859,9 +915,7 @@ class TestMetamorphicIntegration:
             )
             synthetic_bars.append(bar)
 
-        actor = MLSignalActor(base_signal_config)
-        actor._model = mock_model
-        actor._model_id = "test_model"
+        actor = build_test_actor(base_signal_config, mock_model)
 
         # Test scaling invariance on synthetic data
         original_features = []

@@ -239,6 +239,108 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         data = svc.list_events(limit=limit, stage=stage, source=source, instrument_substr=instrument)
         return jsonify(data), 200
 
+    # ===== Control Panel Endpoints =====
+
+    @app.post("/api/control/actors/start")
+    def control_start_actor() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        actor_id = str(payload.get("actor_id", "")).strip()
+        actor_type = str(payload.get("actor_type", "signal")).strip()
+        config = payload.get("config", {})
+        if not actor_id:
+            return jsonify({"error": "invalid_actor_id"}), 400
+
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        result = control_panel.start_actor(actor_id, actor_type, config)
+        return jsonify(result), 202 if result.get("success") else 400
+
+    @app.post("/api/control/actors/stop")
+    def control_stop_actor() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        actor_id = str(payload.get("actor_id", "")).strip()
+        if not actor_id:
+            return jsonify({"error": "invalid_actor_id"}), 400
+
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        result = control_panel.stop_actor(actor_id)
+        return jsonify(result), 200
+
+    @app.post("/api/control/pipeline/trigger")
+    def control_trigger_pipeline() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        mode = str(payload.get("mode", "full")).strip()
+        config = payload.get("config", {})
+
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        result = control_panel.trigger_pipeline(mode, config)
+        return jsonify(result), 202 if result.get("success") else 400
+
+    @app.post("/api/control/ingestion/start")
+    def control_start_ingestion() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        symbols = payload.get("symbols", [])
+        source = str(payload.get("source", "databento")).strip()
+        if not symbols:
+            return jsonify({"error": "no_symbols"}), 400
+
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        result = control_panel.start_ingestion(symbols, source)
+        return jsonify(result), 202 if result.get("success") else 400
+
+    @app.post("/api/control/ingestion/backfill")
+    def control_backfill() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = cast(dict[str, Any], request.get_json(silent=True) or {})
+        symbols = payload.get("symbols", [])
+        start_date = payload.get("start_date")
+        end_date = payload.get("end_date")
+        if not symbols or not start_date or not end_date:
+            return jsonify({"error": "missing_params"}), 400
+
+        from datetime import datetime
+
+        from ml.dashboard.control_panel import DashboardControlPanel
+        control_panel = DashboardControlPanel.from_env()
+        import asyncio
+        result = asyncio.run(
+            control_panel.trigger_backfill(
+                symbols,
+                datetime.fromisoformat(start_date),
+                datetime.fromisoformat(end_date)
+            )
+        )
+        return jsonify(result), 202 if result.get("success") else 400
+
+    @app.post("/api/control/emergency/stop")
+    def control_emergency_stop() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        result = control_panel.emergency_stop_all()
+        return jsonify(result), 200
+
+    @app.get("/api/control/status")
+    def control_system_status() -> tuple[Any, int]:
+        from ml.dashboard.control_simple import SimpleControlPanel
+        control_panel = SimpleControlPanel.from_env()
+        status = control_panel.get_system_status()
+        return jsonify(status), 200
+
     @app.post("/api/observability/grafana/provision")
     def grafana_provision() -> tuple[Any, int]:
         if not _require_token():

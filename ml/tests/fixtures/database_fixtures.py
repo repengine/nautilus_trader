@@ -186,7 +186,7 @@ class TestDatabase:
                     try:
                         from ml.cli.apply_migrations import (
                             split_statements as _split,
-                        )  # noqa: WPS433
+                        )
 
                         splitter: Callable[[str], Iterable[str]] = _split
                     except Exception:

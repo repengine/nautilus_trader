@@ -20,15 +20,24 @@ class _FakeBarType:
 
 
 class _FakeBar:
-    def __init__(self, instrument_id: str, ts: int, o: float, h: float, l: float, c: float, v: float) -> None:
+    def __init__(
+        self,
+        instrument_id: str,
+        ts: int,
+        open_price: float,
+        high_price: float,
+        low_price: float,
+        close_price: float,
+        volume: float,
+    ) -> None:
         self.bar_type = _FakeBarType(instrument_id)
         self.ts_event = ts
         self.ts_init = ts
-        self.open = _FakePrice(o)
-        self.high = _FakePrice(h)
-        self.low = _FakePrice(l)
-        self.close = _FakePrice(c)
-        self.volume = _FakePrice(v)
+        self.open = _FakePrice(open_price)
+        self.high = _FakePrice(high_price)
+        self.low = _FakePrice(low_price)
+        self.close = _FakePrice(close_price)
+        self.volume = _FakePrice(volume)
 
 
 class _FakeStore:

@@ -1,79 +1,8 @@
 {
-  "manifests": {
-    "DBEQ.BASIC": {
-      "dataset_id": "DBEQ.BASIC",
-      "dataset_type": "bars",
-      "storage_kind": "postgres",
-      "location": "",
-      "partitioning": {
-        "by": "ts_event",
-        "interval": "daily"
-      },
-      "retention_days": 3650,
-      "schema": {
-        "instrument_id": "str",
-        "ts_event": "int64",
-        "ts_init": "int64",
-        "open": "float64",
-        "high": "float64",
-        "low": "float64",
-        "close": "float64",
-        "volume": "float64",
-        "symbol": "str",
-        "publisher_id": "str",
-        "rtype": "str"
-      },
-      "ts_field": "ts_event",
-      "seq_field": null,
-      "primary_keys": [
-        "instrument_id",
-        "ts_event"
-      ],
-      "schema_hash": "2dfbc2e6500113e6bce50afc11e8b4d088d1d7e2eb3150fb6fb834590b5ce5a7",
-      "constraints": {
-        "nullability": {
-          "instrument_id": false,
-          "ts_event": false,
-          "ts_init": false
-        }
-      },
-      "lineage": [],
-      "pipeline_signature": "auto_fill_orchestrator",
-      "version": "1.0.0",
-      "created_at": 1758609112736644096,
-      "last_modified": 1758609112736644096,
-      "metadata": {
-        "schema_kind": "bars",
-        "bar_type_template": "{instrument_id}-1-MINUTE-LAST-EXTERNAL",
-        "auto_registered": true,
-        "dataset_id": "DBEQ.BASIC",
-        "dataset_type": "bars",
-        "storage_path": "",
-        "ingestion": "databento_auto_fill"
-      }
-    }
-  },
+  "manifests": {},
   "contracts": {},
-  "events": [
-    {
-      "dataset_id": "DBEQ.BASIC",
-      "instrument_id": "*",
-      "stage": "CATALOG_WRITTEN",
-      "source": "historical",
-      "run_id": "registry_register",
-      "ts_min": 0,
-      "ts_max": 0,
-      "ts_event": 0,
-      "count": 0,
-      "status": "success",
-      "error": null,
-      "created_at": 1758609112.8393645,
-      "metadata": {
-        "correlation_id": "9e2ade85a1d3f13f6a4a1cda590cbb95d590d98e88ba90b8f00c5b09060d396e"
-      }
-    }
-  ],
+  "events": [],
   "watermarks": {},
   "lineage": [],
-  "last_updated": 1758609112.8396983
+  "last_updated": 1758759932.2379968
 }

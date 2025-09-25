@@ -61,11 +61,11 @@ class _FredVintageClient(Protocol):
         series_id: str,
         realtime_start: str | None = None,
         realtime_end: str | None = None,
-    ) -> "pd.DataFrame":  # pragma: no cover - Protocol
+    ) -> pd.DataFrame:  # pragma: no cover - Protocol
         ...
 
 
-def _ensure_polars_frame(obj: "pd.DataFrame") -> PolarsDF:
+def _ensure_polars_frame(obj: pd.DataFrame) -> PolarsDF:
     """
     Convert pandas DataFrame to Polars with normalized schema.
     """

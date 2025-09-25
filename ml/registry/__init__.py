@@ -96,6 +96,8 @@ from ml.registry.strategy_registry import StrategyInfo
 from ml.registry.strategy_registry import StrategyManifest
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
+from ml.registry.summaries import ModelSummary
+from ml.registry.summaries import build_model_summaries
 from ml.registry.utils import assert_features_compatible
 
 # =============================================================================
@@ -132,6 +134,7 @@ __all__ = [
     "ModelManifest",
     "ModelRegistry",
     "ModelRole",
+    "ModelSummary",
     "PersistenceConfig",
     "PersistenceManager",
     "QualityFlag",
@@ -150,6 +153,7 @@ __all__ = [
     "Watermark",
     "assert_features_compatible",
     "build_feature_schema",
+    "build_model_summaries",
     "build_student_manifest",
     "calculate_sample_size",
     "compute_schema_hash",

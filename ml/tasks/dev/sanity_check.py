@@ -71,7 +71,7 @@ def rg(pattern: str) -> list[str]:
     """
     if shutil.which("rg"):
         _code, out = run(["rg", "-n", "-S", pattern])
-        return [l for l in out.splitlines() if l.strip()]
+        return [line for line in out.splitlines() if line.strip()]
     # Fallback: walk and search text files
     matches: list[str] = []
     rx = re.compile(pattern)
@@ -101,7 +101,7 @@ def check_legacy_schema_refs() -> None:
 def check_sql_fstrings_and_broad_excepts() -> None:
     header("Potential SQL f-strings and broad excepts in ml/")
     fstrings = rg(r"ml/.*(text\(f\"|f\"\"\"[\s\S]*SELECT|pl\.read_database\(f\")")
-    f_ml = [l for l in fstrings if "/ml/" in l]
+    f_ml = [line for line in fstrings if "/ml/" in line]
     if f_ml:
         print("Possible SQL f-strings:\n" + "\n".join(f_ml))
     else:

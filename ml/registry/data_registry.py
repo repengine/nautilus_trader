@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, overload
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
@@ -233,9 +234,16 @@ class DataRegistry(MLComponentMixin):
         """
         Convert dictionary to DatasetManifest.
         """
-        # Convert string enum values back to enum types
-        data["dataset_type"] = DatasetType(data["dataset_type"])
-        data["storage_kind"] = StorageKind(data["storage_kind"])
+        # Convert string enum values back to enum types (case-insensitive)
+        dataset_type_val = data.get("dataset_type")
+        if isinstance(dataset_type_val, str):
+            dataset_type_val = dataset_type_val.lower()
+        data["dataset_type"] = DatasetType(dataset_type_val)
+
+        storage_kind_val = data.get("storage_kind")
+        if isinstance(storage_kind_val, str):
+            storage_kind_val = storage_kind_val.lower()
+        data["storage_kind"] = StorageKind(storage_kind_val)
         return DatasetManifest(**data)
 
     def _manifest_to_dict(self, manifest: DatasetManifest) -> dict[str, Any]:
@@ -533,6 +541,7 @@ class DataRegistry(MLComponentMixin):
                 if session is None:
                     raise RuntimeError("Failed to get database session")
 
+                existing_manifest: DatasetManifest | None = None
                 try:
                     # Execute SQL function to register dataset
                     query = text(
@@ -579,12 +588,23 @@ class DataRegistry(MLComponentMixin):
                     # Cache locally
                     self._manifests[manifest.dataset_id] = manifest
 
+                except IntegrityError:
+                    session.rollback()
+                    logger.info(
+                        "Dataset '%s' already exists; hydrating manifest",
+                        manifest.dataset_id,
+                    )
+                    existing_manifest = self.get_manifest(manifest.dataset_id)
                 except Exception as e:
                     session.rollback()
                     logger.error("Failed to register dataset: %s", e)
                     raise
                 finally:
                     session.close()
+
+                if existing_manifest is not None:
+                    self._manifests[existing_manifest.dataset_id] = existing_manifest
+                    return existing_manifest.dataset_id
 
             # Log audit event
             self.persistence.log_audit(

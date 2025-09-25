@@ -2123,6 +2123,16 @@ class MLSignalActor(BaseMLInferenceActor):
             < self._signal_config.min_signal_separation_bars
         ):
             return
+        # Determine timestamp for context even if clock unavailable
+        clock_obj = getattr(self, "clock", None)
+        if clock_obj is None:
+            timestamp_ns = bar.ts_init
+        else:
+            try:
+                timestamp_ns = int(clock_obj.timestamp_ns())
+            except Exception:
+                timestamp_ns = bar.ts_init
+
         # Build context for strategy
         context = {
             "prediction_history": self._prediction_history,
@@ -2130,7 +2140,7 @@ class MLSignalActor(BaseMLInferenceActor):
             "adaptive_threshold": self._adaptive_threshold,
             "market_regime": self._market_regime,
             "log_predictions": self._config.log_predictions,
-            "timestamp_ns": self.clock.timestamp_ns(),
+            "timestamp_ns": timestamp_ns,
             "model_id": self._model_id if hasattr(self, "_model_id") else "unknown",
         }
         # Provide ring buffer metadata for strategies to avoid per-call allocations

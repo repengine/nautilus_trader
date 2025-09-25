@@ -24,6 +24,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,11 +34,20 @@ from sklearn.metrics import brier_score_loss
 from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score
 
+
 try:
-    from ml.training.teacher.tft_cli import main as teacher_main
+    from ml.training.teacher.tft_cli import main as _imported_teacher_main
 except Exception:  # pragma: no cover - optional dependency guard
-    def teacher_main(_args: list[str] | None = None) -> int:
+    _TEACHER_MAIN: Callable[[list[str] | None], int] | None = None
+else:
+    _TEACHER_MAIN = _imported_teacher_main
+
+
+def teacher_main(args: list[str] | None = None) -> int:
+    """Proxy to the teacher CLI entrypoint with optional dependency guard."""
+    if _TEACHER_MAIN is None:
         raise RuntimeError("teacher_main is unavailable in this environment")
+    return int(_TEACHER_MAIN(args))
 
 
 __all__ = ["main", "teacher_main"]

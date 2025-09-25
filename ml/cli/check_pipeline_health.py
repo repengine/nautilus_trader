@@ -13,8 +13,8 @@ from ml.tasks.monitoring.health import main as health_main
 __all__ = ["main"]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    return health_main(list(argv) if argv is not None else None)
+def main(_argv: Sequence[str] | None = None) -> int:
+    return health_main()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entrypoint

@@ -1,6 +1,6 @@
 """
 Shared model loading utilities for ML actors.
-"""  # ruff: noqa: I001
+"""
 
 from __future__ import annotations
 

@@ -75,7 +75,8 @@ def _ensure_functions_and_partitions(engine: Engine) -> None:
         try:
             conn.execute(
                 text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key "
+                    "ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
                 ),
             )
         except Exception:

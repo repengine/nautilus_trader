@@ -25,7 +25,8 @@ from ml.data.l2_cache import L2MinuteCache
 from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
 from ml.data.vintage import VintagePolicy
-from ml.ml_types import DataFrameLike, PolarsDF
+from ml.ml_types import DataFrameLike
+from ml.ml_types import PolarsDF
 from ml.stores.feature_store import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog

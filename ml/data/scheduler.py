@@ -32,12 +32,12 @@ from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
+from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.registry.data_registry import DataRegistry
-from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
@@ -348,18 +348,6 @@ class DataScheduler:
         }
         dataset_type = dt_map.get(dataset_type_label, DatasetType.BARS)
 
-        # Basic schema for bars; satisfies registry validation
-        schema = {
-            "instrument_id": "str",
-            "ts_event": "int64",
-            "ts_init": "int64",
-            "open": "float64",
-            "high": "float64",
-            "low": "float64",
-            "close": "float64",
-            "volume": "float64",
-        }
-
         try:
             # If manifest exists, this will succeed
             self._data_registry.get_manifest(dataset_id)
@@ -367,22 +355,18 @@ class DataScheduler:
         except Exception:
             # Register a minimal manifest
             try:
-                manifest = DatasetManifest(
+                manifest = build_auto_dataset_manifest(
                     dataset_id=dataset_id,
                     dataset_type=dataset_type,
-                    storage_kind=StorageKind.PARQUET,
                     location=location,
-                    partitioning={"by": "ts_event", "interval": "daily"},
-                    retention_days=int(getattr(self.config, "retention_days", 90)),
-                    schema=schema,
-                    ts_field="ts_event",
-                    seq_field=None,
-                    primary_keys=["instrument_id", "ts_event"],
-                    schema_hash="",
-                    constraints={},
-                    lineage=[],
+                    storage_kind=StorageKind.PARQUET,
                     pipeline_signature="data_scheduler_v1",
-                    version="1.0.0",
+                    retention_days=int(getattr(self.config, "retention_days", 90)),
+                    metadata={
+                        "auto_registered": True,
+                        "storage_path": str(Path(location).expanduser()),
+                        "source": "data_scheduler",
+                    },
                 )
                 self._data_registry.register_dataset(manifest)
             except Exception:

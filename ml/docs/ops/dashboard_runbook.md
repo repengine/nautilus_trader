@@ -18,6 +18,28 @@ endpoints. All workflows rely on the existing infra components described in
 - Export `ML_DASHBOARD_USE_COMPOSE=0` when running outside Docker Compose. The
   service controllers fall back to `NoopServiceController` in this mode.
 
+### Dashboard UI Modes
+
+The dashboard supports three UI modes optimized for different use cases:
+
+1. **Standard UI** (`http://localhost:8010/`)
+   - Basic monitoring interface with service status and pipeline controls
+   - Lightweight view for operational health checks
+   - Minimal resource usage
+
+2. **Enhanced UI** (`http://localhost:8010/?ui=enhanced`)
+   - ML Pipeline Orchestrator interface with tabbed navigation
+   - Advanced controls for data ingestion, dataset building, and model training
+   - Comprehensive model and feature management
+
+3. **Advanced Trading UI** (`http://localhost:8010/?ui=advanced`)
+   - Professional trading command center with real-time monitoring
+   - Live data ingestion visualization (bars/quotes/L2 metrics)
+   - Model P&L tracking and portfolio analytics
+   - Experiment tracking for hyperparameter optimization
+   - Dark theme inspired by professional trading platforms
+   - Chart.js integration for interactive data visualization
+
 ## Authentication Tokens
 
 - Preferred configuration: set `ML_DASHBOARD_TOKENS` to a JSON array of

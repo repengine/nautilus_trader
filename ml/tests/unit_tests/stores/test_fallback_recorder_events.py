@@ -27,8 +27,16 @@ class _StubWriter(MarketDataWriterProtocol):
         instrument_id: str,
         df: pd.DataFrame,
     ) -> int:
-        self.calls.append({"dataset_id": dataset_id, "schema": schema, "instrument_id": instrument_id, "rows": getattr(df, "shape", (len(df), 0))[0] if hasattr(df, "shape") else len(df)})
-        return getattr(df, "shape", (len(df), 0))[0] if hasattr(df, "shape") else len(df)
+        row_count = getattr(df, "shape", (len(df), 0))[0] if hasattr(df, "shape") else len(df)
+        self.calls.append(
+            {
+                "dataset_id": dataset_id,
+                "schema": schema,
+                "instrument_id": instrument_id,
+                "rows": row_count,
+            }
+        )
+        return row_count
 
 
 class _FakePrice:

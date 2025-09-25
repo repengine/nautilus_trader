@@ -29,7 +29,6 @@ import pytest
 
 from ml.actors.base import BaseMLInferenceActor, HealthStatus
 from ml.config.base import MLActorConfig, MLFeatureConfig, HealthMonitorConfig
-from ml.tests.fixtures.common import dummy_onnx_model
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.model.identifiers import ComponentId, InstrumentId
 

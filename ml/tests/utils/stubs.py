@@ -266,11 +266,14 @@ class SignalActorHarness:
     )
     _window_index: int = 0
     _window_count: int = 0
-    _strategy_store: Any | None = None
+    _model_store: Any | None = field(default_factory=ModelStoreNoOp)
+    _strategy_store: Any | None = field(default_factory=StrategyStoreNoOp)
+    _data_store: Any | None = None
     _feature_store: Any | None = None
     _indicator_manager: Any | None = None
     _feature_engineer: Any | None = None
     _feature_buffer: npt.NDArray[np.float32] | None = None
+    _last_feature_time_ns: int = 0
     _publish_signal: Callable[[Any], None] = field(default_factory=lambda: lambda _sig: None)
 
     def as_actor(self) -> MLSignalActor:
@@ -468,11 +471,9 @@ class DatabentoServiceStub:
     start_ns: int
     end_ns: int
     frame_factory: Callable[[object], object] | None = None
-
-    def __post_init__(self) -> None:
-        self.requests: list[object] = []
-        self.frames: list[object] = []
-        self.metadata_client = object()
+    requests: list[object] = field(default_factory=list, init=False)
+    frames: list[object] = field(default_factory=list, init=False)
+    metadata_client: object = field(default_factory=object, init=False)
 
     def get_available_range_ns(
         self,

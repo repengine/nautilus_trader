@@ -47,10 +47,15 @@ class _OnceSleeper:
 
 
 def _write_cfg(path: Path, out_dir: Path) -> None:
-    path.write_text(
-        f'{{\n  "dataset": {{ "data_dir": "data/tier1", "symbols": "SPY", "out_dir": "{out_dir}" }},\n  "hpo": {{"enabled": false}},\n  "teacher": {{"enabled": false}}\n}}',
-        encoding="utf-8",
+    payload = (
+        "{\n"
+        '  "dataset": { "data_dir": "data/tier1", "symbols": "SPY", '
+        f'"out_dir": "{out_dir}" }},\n'
+        '  "hpo": {"enabled": false},\n'
+        '  "teacher": {"enabled": false}\n'
+        "}"
     )
+    path.write_text(payload, encoding="utf-8")
 
 
 def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

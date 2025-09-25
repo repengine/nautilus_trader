@@ -88,6 +88,16 @@ Required elements
 - Section headers: use clear separators in code to improve scanability (e.g., “Enums”, “Metrics”, “Implementation”).
  - Logging: acquire via `logging.getLogger(__name__)` or `structlog.get_logger(__name__)`; both route through the central config.
 
+### Dataset Manifest Defaults (Cold Path)
+
+- Always construct dataset manifests through `ml.data.dataset_manifest_defaults.build_auto_dataset_manifest`.
+  - Pass the concrete dataset id and the resolved `DatasetType`; the helper injects partitioning, schema, constraints, and metadata overrides.
+  - Location handling: provide a relative path for Parquet-backed datasets (the helper expands users/home safely) or the canonical table name for SQL backends.
+- Never hand-roll manifest dictionaries in orchestrators, schedulers, or stores. If a new dataset needs custom metadata, add an override in
+  `ml/data/dataset_manifest_defaults.py` instead of duplicating schema logic.
+- Registry fixtures **must** stay in sync with these defaults. When adding a new override, update `ml_registry/data_registry.json` to seed the
+  canonical manifest (and add integration coverage when possible).
+
 Minimal template (example)
 
 ```python

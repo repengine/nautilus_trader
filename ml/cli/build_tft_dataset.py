@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.data.vintage import VintagePolicy
 from ml.tasks.datasets import TFTDatasetTaskConfig
 from ml.tasks.datasets import build_tft_dataset
 
@@ -70,6 +71,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--market_dataset_id")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument("--no_macro", action="store_true", help="Disable FRED macro join")
+    parser.add_argument(
+        "--vintage_policy",
+        default=VintagePolicy.REAL_TIME.value,
+        choices=[policy.value for policy in VintagePolicy],
+        help="Vintage policy for macro features (real_time or final)",
+    )
+    parser.add_argument(
+        "--vintage_as_of",
+        help="ISO8601 timestamp limiting macro revisions (optional)",
+        default=None,
+    )
     args = parser.parse_args(argv)
 
     if args.verbose or os.environ.get("ML_DEBUG"):
@@ -81,6 +93,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        vintage_policy = VintagePolicy(args.vintage_policy)
+    except ValueError as exc:  # pragma: no cover - guarded by argparse choices but defensive
+        raise SystemExit(f"Invalid vintage_policy: {args.vintage_policy}") from exc
 
     cfg = TFTDatasetTaskConfig(
         data_dir=Path(args.data_dir),
@@ -106,6 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         events_base_dir=Path(args.events_dir) if args.events_dir else None,
         student_mode=args.student_mode,
         market_dataset_id=args.market_dataset_id,
+        vintage_policy=vintage_policy,
+        vintage_as_of=_parse_optional_date(args.vintage_as_of),
     )
 
     LOGGER.info("Building TFT dataset %s", cfg)

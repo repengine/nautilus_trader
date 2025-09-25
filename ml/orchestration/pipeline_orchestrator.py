@@ -13,7 +13,6 @@ paths.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib
 import json
 import logging
@@ -41,6 +40,7 @@ from ml.data import DatasetValidationConfig
 from ml.data import compute_dataset_pipeline_signature
 from ml.data import load_dataset_metadata
 from ml.data import validate_dataset_metadata_expectations
+from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
@@ -48,7 +48,6 @@ from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
-from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
@@ -238,98 +237,6 @@ class _AutoFillMetrics:
             ),
         )
 
-
-@dataclass(slots=True, frozen=True)
-class _DatasetManifestSpec:
-    schema: dict[str, str]
-    primary_keys: tuple[str, ...]
-    retention_days: int
-    partitioning: dict[str, Any] = field(
-        default_factory=lambda: {"by": "ts_event", "interval": "daily"},
-    )
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-_DEFAULT_DATASET_MANIFEST_SPEC = _DatasetManifestSpec(
-    schema={
-        "instrument_id": "str",
-        "ts_event": "int64",
-        "ts_init": "int64",
-    },
-    primary_keys=("instrument_id", "ts_event"),
-    retention_days=365,
-)
-
-
-_DATASET_MANIFEST_DEFAULTS: dict[DatasetType, _DatasetManifestSpec] = {
-    DatasetType.BARS: _DatasetManifestSpec(
-        schema={
-            "instrument_id": "str",
-            "ts_event": "int64",
-            "ts_init": "int64",
-            "open": "float64",
-            "high": "float64",
-            "low": "float64",
-            "close": "float64",
-            "volume": "float64",
-            "symbol": "str",
-            "publisher_id": "str",
-            "rtype": "str",
-        },
-        primary_keys=("instrument_id", "ts_event"),
-        retention_days=730,
-        metadata={
-            "schema_kind": "bars",
-            "bar_type_template": "{instrument_id}-1-MINUTE-LAST-EXTERNAL",
-        },
-    ),
-    DatasetType.TRADES: _DatasetManifestSpec(
-        schema={
-            "instrument_id": "str",
-            "ts_event": "int64",
-            "ts_init": "int64",
-            "price": "float64",
-            "size": "float64",
-            "sequence": "int64",
-            "side": "str",
-        },
-        primary_keys=("instrument_id", "ts_event", "sequence"),
-        retention_days=365,
-        metadata={"schema_kind": "trades"},
-    ),
-    DatasetType.TBBO: _DatasetManifestSpec(
-        schema={
-            "instrument_id": "str",
-            "ts_event": "int64",
-            "ts_init": "int64",
-            "bid": "float64",
-            "ask": "float64",
-            "bid_size": "float64",
-            "ask_size": "float64",
-        },
-        primary_keys=("instrument_id", "ts_event"),
-        retention_days=365,
-        metadata={"schema_kind": "tbbo"},
-    ),
-    DatasetType.MBP1: _DatasetManifestSpec(
-        schema={
-            "instrument_id": "str",
-            "ts_event": "int64",
-            "ts_init": "int64",
-            "bid_px": "float64",
-            "ask_px": "float64",
-            "bid_sz": "float64",
-            "ask_sz": "float64",
-            "level": "int32",
-            "side": "str",
-        },
-        primary_keys=("instrument_id", "ts_event", "level", "side"),
-        retention_days=90,
-        partitioning={"by": "ts_event", "interval": "hourly"},
-        metadata={"schema_kind": "mbp1"},
-    ),
-}
-
 @dataclass(slots=True, frozen=True)
 class OrchestratorConfig:
     dataset: DatasetBuildConfig
@@ -441,12 +348,6 @@ class MLPipelineOrchestrator:
                 )
 
         return None
-
-    @staticmethod
-    def _compute_schema_hash(schema: dict[str, Any]) -> str:
-        """Compute a stable hash for the provided schema mapping."""
-        sorted_schema = dict(sorted(schema.items()))
-        return hashlib.sha256(str(sorted_schema).encode()).hexdigest()
 
     @staticmethod
     def _resolve_instrument_ids(
@@ -815,46 +716,16 @@ class MLPipelineOrchestrator:
         except Exception:
             pass
 
-        spec = _DATASET_MANIFEST_DEFAULTS.get(dataset_type, _DEFAULT_DATASET_MANIFEST_SPEC)
-        path = str(Path(location).expanduser())
-        schema = dict(spec.schema)
-        partitioning = dict(spec.partitioning)
-        metadata = dict(spec.metadata)
-        metadata.update(
-            {
-                "auto_registered": True,
-                "dataset_id": dataset_id,
-                "dataset_type": dataset_type.value,
-                "storage_path": path,
-            },
-        )
-        non_nullable = {
-            key: False
-            for key in ("instrument_id", "ts_event", "ts_init")
-            if key in schema
-        }
-        constraints = {"nullability": non_nullable} if non_nullable else {}
-        now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
-        schema_hash = self._compute_schema_hash(schema)
-        manifest = DatasetManifest(
+        manifest = build_auto_dataset_manifest(
             dataset_id=dataset_id,
             dataset_type=dataset_type,
+            location=location,
             storage_kind=StorageKind.PARQUET,
-            location=path,
-            partitioning=partitioning,
-            retention_days=spec.retention_days,
-            schema=schema,
-            ts_field="ts_event",
-            seq_field=None,
-            primary_keys=list(spec.primary_keys),
-            schema_hash=schema_hash,
-            constraints=constraints,
-            lineage=[],
             pipeline_signature="auto_fill_orchestrator",
-            version="1.0.0",
-            created_at=now_ns,
-            last_modified=now_ns,
-            metadata=metadata,
+            metadata={
+                "auto_registered": True,
+                "storage_path": str(Path(location).expanduser()),
+            },
         )
 
         try:
@@ -2256,8 +2127,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         auto_migrate=False,
         ensure_healthy=False,
     )
-    if mgr.data_store is None:
-        raise SystemExit("DataStore unavailable; configure ML_DB_CONNECTION for pipeline orchestration")
+    data_store = getattr(mgr, "data_store", None)
+    if data_store is None:
+        logger.info(
+            "DataStore unavailable; falling back to catalog-only runtime attachment",
+        )
     if mgr.data_registry is None:
         raise SystemExit("DataRegistry unavailable; configure ML_DB_CONNECTION for pipeline orchestration")
 
@@ -2285,18 +2159,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         coverage = SqlCoverageProvider(connection_string=args.db)
 
-    primary_writer = DataStoreMarketDataWriter(store=mgr.data_store)  # type: ignore[arg-type]
+    primary_writer: MarketDataWriterProtocol
     mirror_writers: tuple[MarketDataWriterProtocol, ...]
-    if args.write_mode == "parquet":
-        if parquet_catalog is None:
-            raise SystemExit("catalog_path is required when write_mode=parquet")
-        mirror_writers = (
-            ParquetCatalogMarketDataWriter(
+    if data_store is not None:
+        from ml.stores.data_store import DataStore as _DataStore
+
+        primary_writer = DataStoreMarketDataWriter(
+            store=cast(_DataStore, data_store),
+        )
+        if args.write_mode == "parquet":
+            if parquet_catalog is None:
+                raise SystemExit("catalog_path is required when write_mode=parquet")
+            parquet_writer = ParquetCatalogMarketDataWriter(
                 catalog=parquet_catalog,
                 manifest_resolver=manifest_resolver,
-            ),
-        )
+            )
+            mirror_writers = (parquet_writer,)
+        else:
+            mirror_writers = ()
     else:
+        if parquet_catalog is None:
+            raise SystemExit(
+                "DataStore unavailable and no catalog_path provided; cannot attach runtime writer",
+            )
+        primary_writer = ParquetCatalogMarketDataWriter(
+            catalog=parquet_catalog,
+            manifest_resolver=manifest_resolver,
+        )
         mirror_writers = ()
 
     writer = FanoutMarketDataWriter(primary=primary_writer, mirrors=mirror_writers)

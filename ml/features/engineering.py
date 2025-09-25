@@ -2126,8 +2126,12 @@ class FeatureEngineer:
 
         # spread_mean: Average relative spread from HL range
         hl_spreads = [
-            (h - l) / c if c > 0 else 0.0
-            for h, l, c in zip(recent_highs, recent_lows, recent_closes)
+            (high_price - low_price) / close_price if close_price > 0 else 0.0
+            for high_price, low_price, close_price in zip(
+                recent_highs,
+                recent_lows,
+                recent_closes,
+            )
         ]
         self.feature_buffer[feature_idx] = np.float32(np.mean(hl_spreads))
 
@@ -2738,7 +2742,7 @@ class FeatureEngineer:
         trade_sides: npt.NDArray[np.float64],
         start_idx: int,
         end_idx: int,
-    ) -> tuple[float, float, float, float]:
+    ) -> tuple[float, float, float, float, bool]:
         """
         Calculate trade metrics for given window.
         """
@@ -2779,10 +2783,14 @@ class FeatureEngineer:
             (buy_volume - sell_volume) / total_volume if total_volume > 0 else 0.0
         )
         vwap = vwap_numerator / total_volume if total_volume > 0 else 0.0
-        trade_intensity = min(float(trade_count) / 20.0, 5.0)  # Normalize and cap
+        if trade_count <= 0:
+            trade_intensity = 1.0
+        else:
+            trade_intensity = min(float(trade_count) / 20.0, 5.0)  # Normalize and cap
         avg_price_impact = float(np.mean(price_impacts)) if price_impacts else 0.0
 
-        return trade_flow_imbalance, vwap, trade_intensity, avg_price_impact
+        had_trades = trade_count > 0
+        return trade_flow_imbalance, vwap, trade_intensity, avg_price_impact, had_trades
 
     def _calculate_trade_flow_features_from_ohlcv(
         self: Self,
@@ -2881,7 +2889,13 @@ class FeatureEngineer:
             start_idx = max(0, idx - window + 1)
 
             # Calculate trade metrics
-            trade_flow_imbalance, vwap, trade_intensity, avg_price_impact = (
+            (
+                trade_flow_imbalance,
+                vwap,
+                trade_intensity,
+                avg_price_impact,
+                had_trades,
+            ) = (
                 self._calculate_trade_metrics(
                     trade_prices,
                     trade_volumes,
@@ -2890,6 +2904,9 @@ class FeatureEngineer:
                     idx,
                 )
             )
+
+            if not had_trades:
+                return self._calculate_trade_flow_features_from_ohlcv(df, idx, bar_data)
 
             features["trade_flow_imbalance"] = trade_flow_imbalance
             features["vwap"] = vwap if vwap > 0 else float(bar_data["close"])

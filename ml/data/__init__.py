@@ -144,7 +144,22 @@ See ml/_imports.py for dependency management patterns.
 # Enable postponed evaluation of annotations to avoid importing optional deps for types
 from __future__ import annotations
 
+import hashlib
+import json
+import shutil
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import replace
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+import numpy as np
+import pyarrow.parquet as pq
 import structlog
+from numpy.typing import NDArray
 
 # Core data conversion utilities
 from ml.data.catalog_utils import bars_to_dataframe
@@ -206,6 +221,11 @@ from ml.data.validation import DatasetValidationConfig
 from ml.data.validation import DatasetValidationError
 from ml.data.validation import DatasetValidationResult
 from ml.data.validation import validate_dataset
+from ml.data.vintage import VintagePolicy
+from ml.data.vintage import format_dt
+from ml.data.vintage import parse_dt
+from ml.ml_types import PolarsDF
+from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 __all__ = [
@@ -274,30 +294,7 @@ __all__ = [
 
 # Public dataset build facade (cold path)
 
-import hashlib
-import json
-import shutil
-from collections.abc import Sequence
-from dataclasses import dataclass
-from dataclasses import replace
-from datetime import UTC
-from datetime import datetime
-from datetime import timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
-
-import numpy as np
-import pyarrow.parquet as pq
-from numpy.typing import NDArray
-
-
 FloatArray = NDArray[np.float32]
-
-from ml.data.vintage import VintagePolicy
-from ml.data.vintage import format_dt
-from ml.data.vintage import parse_dt
-from ml.ml_types import PolarsDF
-from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 if TYPE_CHECKING:

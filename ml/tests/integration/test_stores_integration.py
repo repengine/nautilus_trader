@@ -184,7 +184,13 @@ class TestFeatureStore:
             conn.execute(
                 text(
                     """
-                    INSERT INTO ml_feature_values (feature_set_id, instrument_id, ts_event, ts_init, values)
+                    INSERT INTO ml_feature_values (
+                        feature_set_id,
+                        instrument_id,
+                        ts_event,
+                        ts_init,
+                        values
+                    )
                     VALUES (:fsid, :iid, :tse, :tsi, :vals)
                     ON CONFLICT (feature_set_id, instrument_id, ts_event)
                     DO UPDATE SET values = EXCLUDED.values
@@ -262,8 +268,28 @@ class TestModelStore:
             conn.execute(
                 text(
                     """
-                    INSERT INTO ml_model_predictions (model_id, instrument_id, ts_event, ts_init, prediction, confidence, features_used, inference_time_ms, is_live)
-                    VALUES (:mid, :iid, :tse, :tsi, :pred, :conf, :feats, :lat, :live)
+                    INSERT INTO ml_model_predictions (
+                        model_id,
+                        instrument_id,
+                        ts_event,
+                        ts_init,
+                        prediction,
+                        confidence,
+                        features_used,
+                        inference_time_ms,
+                        is_live
+                    )
+                    VALUES (
+                        :mid,
+                        :iid,
+                        :tse,
+                        :tsi,
+                        :pred,
+                        :conf,
+                        :feats,
+                        :lat,
+                        :live
+                    )
                     ON CONFLICT (model_id, instrument_id, ts_event)
                     DO UPDATE SET prediction = EXCLUDED.prediction
                     """,
@@ -312,8 +338,28 @@ class TestModelStore:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO ml_model_predictions (model_id, instrument_id, ts_event, ts_init, prediction, confidence, features_used, inference_time_ms, is_live)
-                        VALUES (:mid, :iid, :tse, :tsi, :pred, :conf, :feats, :lat, :live)
+                        INSERT INTO ml_model_predictions (
+                            model_id,
+                            instrument_id,
+                            ts_event,
+                            ts_init,
+                            prediction,
+                            confidence,
+                            features_used,
+                            inference_time_ms,
+                            is_live
+                        )
+                        VALUES (
+                            :mid,
+                            :iid,
+                            :tse,
+                            :tsi,
+                            :pred,
+                            :conf,
+                            :feats,
+                            :lat,
+                            :live
+                        )
                         ON CONFLICT (model_id, instrument_id, ts_event)
                         DO NOTHING
                         """,
@@ -396,8 +442,30 @@ class TestStrategyStore:
             conn.execute(
                 text(
                     """
-                    INSERT INTO ml_strategy_signals (strategy_id, instrument_id, ts_event, ts_init, signal_type, strength, model_predictions, risk_metrics, execution_params, is_live)
-                    VALUES (:sid, :iid, :tse, :tsi, :stype, :str, :mp, :rm, :ep, :live)
+                    INSERT INTO ml_strategy_signals (
+                        strategy_id,
+                        instrument_id,
+                        ts_event,
+                        ts_init,
+                        signal_type,
+                        strength,
+                        model_predictions,
+                        risk_metrics,
+                        execution_params,
+                        is_live
+                    )
+                    VALUES (
+                        :sid,
+                        :iid,
+                        :tse,
+                        :tsi,
+                        :stype,
+                        :str,
+                        :mp,
+                        :rm,
+                        :ep,
+                        :live
+                    )
                     ON CONFLICT (strategy_id, instrument_id, ts_event)
                     DO UPDATE SET strength = EXCLUDED.strength
                     """,

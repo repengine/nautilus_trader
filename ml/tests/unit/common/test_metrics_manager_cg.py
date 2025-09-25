@@ -31,8 +31,14 @@ def test_metrics_manager_counter_and_gauge(monkeypatch: pytest.MonkeyPatch) -> N
         def set(self, value: float) -> None:
             self.value = float(value)
 
-    monkeypatch.setattr("ml.common.metrics_manager._get_counter", lambda n, d, l: _FakeCtr())
-    monkeypatch.setattr("ml.common.metrics_manager._get_gauge", lambda n, d, l: _FakeGauge())
+    monkeypatch.setattr(
+        "ml.common.metrics_manager._get_counter",
+        lambda name, description, labels: _FakeCtr(),
+    )
+    monkeypatch.setattr(
+        "ml.common.metrics_manager._get_gauge",
+        lambda name, description, labels: _FakeGauge(),
+    )
 
     mm = MetricsManager()
     mm.inc(

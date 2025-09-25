@@ -24,8 +24,10 @@ ml_registry/models/
 ml_registry/strategies/
 ml_registry/features/
 ml_registry/datasets/
-.png
 .playwright-mcp/
+.png
+data/batch/
+ml_out/
 
 # Generated test artifacts
 ml/tests/integration/comprehensive_validation/*.json

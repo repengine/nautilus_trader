@@ -90,7 +90,6 @@ class MonitoredDataCatalog:
         start_time = time.perf_counter()
 
         try:
-            features: object
             # Load data using catalog utilities
             df = bars_to_dataframe(self.catalog, instrument_ids, start, end)
 

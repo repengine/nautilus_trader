@@ -60,10 +60,25 @@ def sanitize_and_dedup(
     from ml.common.timestamps import sanitize_timestamp_ns
 
     for v in values:
+        ts_event_val: int | None = None
         if ts_event_field in v:
-            v[ts_event_field] = sanitize_timestamp_ns(int(v[ts_event_field]), context=context)
+            ts_event_val = sanitize_timestamp_ns(int(v[ts_event_field]), context=context)
+            v[ts_event_field] = ts_event_val
+        ts_init_val: int
         if ts_init_field in v:
-            v[ts_init_field] = sanitize_timestamp_ns(int(v[ts_init_field]), context=context)
+            ts_init_val = sanitize_timestamp_ns(int(v[ts_init_field]), context=context)
+        elif ts_event_val is not None:
+            ts_init_val = ts_event_val
+            v[ts_init_field] = ts_event_val
+        else:
+            continue
+        if ts_event_val is None:
+            ts_event_val = sanitize_timestamp_ns(int(v[ts_event_field]), context=context)
+            v[ts_event_field] = ts_event_val
+        if ts_init_val < ts_event_val:
+            v[ts_init_field] = ts_event_val
+        else:
+            v[ts_init_field] = ts_init_val
 
     k1, k2, k3 = key_fields
     dedup: dict[tuple[str, str, int], dict[str, Any]] = {}

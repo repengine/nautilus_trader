@@ -172,7 +172,10 @@ class ObservabilityDBPersistor:
         """
         import time
 
-        from sqlalchemy import text as _text
+        from sqlalchemy import bindparam
+        from sqlalchemy.sql import column as _column
+        from sqlalchemy.sql import delete as _delete
+        from sqlalchemy.sql import table as _table
 
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
@@ -186,28 +189,25 @@ class ObservabilityDBPersistor:
             context="observability.apply_retention:cutoff",
         )
 
-        delete_specs: list[tuple[str, str]] = [
-            ("obs_latency_watermarks", "ts_stage_end"),
-            ("obs_metrics", "timestamp"),
-            ("obs_event_correlation", "ts_event"),
-            ("obs_health_scores", "timestamp"),
-        ]
+        retention_tables: dict[str, str] = {
+            "obs_latency_watermarks": "ts_stage_end",
+            "obs_metrics": "timestamp",
+            "obs_event_correlation": "ts_event",
+            "obs_health_scores": "timestamp",
+        }
 
         deleted: dict[str, int] = {}
         with self.engine.begin() as conn:
-            for table, ts_col in delete_specs:
+            for table_name, ts_column in retention_tables.items():
                 try:
-                    # Use parameterized DELETE to work across SQLite/PostgreSQL
-                    result = conn.execute(
-                        _text(
-                            f"DELETE FROM {table} WHERE {ts_col} < :cutoff",
-                        ),
-                        {"cutoff": int(cutoff_ns)},
-                    )
+                    stmt = _delete(
+                        _table(table_name, _column(ts_column)),
+                    ).where(_column(ts_column) < bindparam("cutoff"))
+                    result = conn.execute(stmt, {"cutoff": int(cutoff_ns)})
                     # SQLAlchemy 2.0: result.rowcount may be -1 depending on backend; coerce to int >= 0
                     count = int(result.rowcount or 0)
-                    deleted[table] = count
+                    deleted[table_name] = count
                 except Exception:
                     # If table doesn't exist yet or backend-specific behavior, record zero deletions
-                    deleted.setdefault(table, 0)
+                    deleted.setdefault(table_name, 0)
         return deleted

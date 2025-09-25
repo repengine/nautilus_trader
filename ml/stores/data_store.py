@@ -36,11 +36,13 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
+from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import QualityFlag
+from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.stores.base import FeatureData
@@ -3136,89 +3138,26 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         Ensure dataset is registered in the registry.
         """
         try:
-            # Check if already registered
             self.registry.get_manifest(dataset_id)
         except ValueError:
-            # Not registered, create a basic manifest
-            import hashlib
-
-            from ml.registry.dataclasses import DatasetManifest
-            from ml.registry.dataclasses import StorageKind
-
-            schema = self._get_schema_for_type(dataset_type)
-            schema_hash = hashlib.sha256(str(schema).encode()).hexdigest()
-
-            manifest = DatasetManifest(
+            location = f"ml_{dataset_type.value}"
+            manifest = build_auto_dataset_manifest(
                 dataset_id=dataset_id,
                 dataset_type=dataset_type,
+                location=location,
                 storage_kind=StorageKind.POSTGRES,
-                location=f"ml_{dataset_type.value}",
-                partitioning={"by": "ts_event", "interval": "monthly"},
-                retention_days=365,
-                schema=schema,
-                ts_field="ts_event",
-                seq_field=None,
-                primary_keys=["instrument_id", "ts_event"],
-                schema_hash=schema_hash,
-                constraints={
-                    "nullability": {
-                        "instrument_id": False,
-                        "ts_event": False,
-                        "ts_init": False,
-                    },
-                },
-                lineage=[],
                 pipeline_signature="data_store_auto",
-                version="1.0.0",
-                metadata={"auto_registered": True, "instrument_id": instrument_id},
+                retention_days=365,
+                metadata={
+                    "auto_registered": True,
+                    "instrument_id": instrument_id,
+                    "storage_table": location,
+                    "source": "data_store",
+                },
             )
 
             self.registry.register_dataset(manifest)
             logger.info("Auto-registered dataset %s", dataset_id)
-
-    def _get_schema_for_type(self, dataset_type: DatasetType) -> dict[str, str]:
-        """
-        Get default schema for dataset type.
-        """
-        if dataset_type == DatasetType.FEATURES:
-            return {
-                "instrument_id": "str",
-                "ts_event": "int64",
-                "ts_init": "int64",
-                "feature_values": "json",
-            }
-        elif dataset_type == DatasetType.PREDICTIONS:
-            return {
-                "instrument_id": "str",
-                "model_id": "str",
-                "ts_event": "int64",
-                "ts_init": "int64",
-                "prediction": "float64",
-                "confidence": "float64",
-                "metadata": "json",
-            }
-        elif dataset_type == DatasetType.SIGNALS:
-            return {
-                "instrument_id": "str",
-                "strategy_id": "str",
-                "ts_event": "int64",
-                "ts_init": "int64",
-                "signal_type": "str",
-                "signal_value": "float64",
-                "metadata": "json",
-            }
-        else:
-            # Default schema for market data types
-            return {
-                "instrument_id": "str",
-                "ts_event": "int64",
-                "ts_init": "int64",
-                "open": "float64",
-                "high": "float64",
-                "low": "float64",
-                "close": "float64",
-                "volume": "float64",
-            }
 
     def _compute_schema_hash(self, df: DataFrameLike, manifest: DatasetManifest) -> str:
         """

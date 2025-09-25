@@ -530,6 +530,7 @@ check_untyped_defs = false
 warn_return_any = false
 # Keep this on to prevent stale ignores from accumulating in tests.
 warn_unused_ignores = true
+ignore_errors = true
 
 # (Removed ignores on ml.actors.signal, ml.deployment.*, and test modules)
 

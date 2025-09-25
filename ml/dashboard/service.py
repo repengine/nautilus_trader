@@ -22,7 +22,7 @@ from datetime import datetime
 from threading import Event as ThreadEvent
 from threading import Lock
 from threading import Thread
-from typing import Any, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 from urllib.parse import urljoin
 
 import requests
@@ -69,6 +69,10 @@ from ml.registry import Watermark
 from ml.registry.base import DummyRegistry
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureStage
+
+
+if TYPE_CHECKING:
+    from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
 
 logger = logging.getLogger(__name__)
@@ -325,6 +329,7 @@ class DashboardService:
     _store_summary_cache: _TTLCache[dict[str, Any]] = field(init=False, repr=False)
     _prometheus_helper: PrometheusQueryHelper | None = field(init=False, repr=False)
     _grafana_status: _GrafanaStatus = field(init=False, repr=False)
+    _last_orchestrator: MLPipelineOrchestrator | None = field(default=None, init=False, repr=False)
 
     @classmethod
     def from_config(cls, config: DashboardConfig) -> DashboardService:
@@ -371,6 +376,7 @@ class DashboardService:
             ttl_seconds=self.config.store_health_cache_ttl_seconds,
             max_entries=self.config.store_health_cache_max_entries,
         )
+        self._last_orchestrator: MLPipelineOrchestrator | None = None
 
     # -----------------
     # Health & metadata
@@ -710,6 +716,36 @@ class DashboardService:
             return out
 
         return self._cached_registry_call(key=cache_key, fetch=_fetch)
+
+    def get_model_performance_history(
+        self,
+        model_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        registry = self._get_model_registry()
+        if registry is None:
+            return []
+        get_model = getattr(registry, "get_model", None)
+        if not callable(get_model):
+            return []
+        try:
+            model_info = get_model(model_id)
+        except Exception:
+            logger.debug("get_model failed", exc_info=True)
+            return []
+        if model_info is None:
+            return []
+        history = getattr(model_info, "performance_history", None)
+        if not isinstance(history, list):
+            return []
+        if limit is not None and limit >= 0:
+            history = history[-limit:]
+        result: list[dict[str, Any]] = []
+        for entry in history:
+            if isinstance(entry, Mapping):
+                result.append(dict(entry))
+        return result
 
     def list_deployments(self) -> dict[str, list[str]]:
         cache_key = self._cache_key("deployments")
@@ -1584,6 +1620,7 @@ class DashboardService:
                 feature_registry=integration.feature_registry,
                 strategy_registry=integration.strategy_registry,
             )
+            self._last_orchestrator = orchestrator
 
             # Execute the requested task
             if task == "backfill":

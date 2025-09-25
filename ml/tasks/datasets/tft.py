@@ -14,6 +14,7 @@ from ml.data import BuildResult
 from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset as _build_tft_dataset
+from ml.data.vintage import VintagePolicy
 
 
 FeatureRoleName = Literal["teacher", "student", "inference_support"]
@@ -54,6 +55,8 @@ class TFTDatasetTaskConfig:
     macro_fred_path: Path | None = None
     validation: DatasetValidationConfig | None = None
     market_dataset_id: str | None = None
+    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
+    vintage_as_of: datetime | None = None
 
 
 def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
@@ -90,6 +93,8 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         macro_fred_path=cfg.macro_fred_path,
         validation=cfg.validation,
         market_dataset_id=cfg.market_dataset_id,
+        vintage_policy=cfg.vintage_policy,
+        vintage_as_of=cfg.vintage_as_of,
     )
     return _build_tft_dataset(dataset_cfg)
 
