@@ -9,6 +9,7 @@ existing collected market data.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path as _Path
@@ -21,6 +22,8 @@ from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
 from ml.config.base import MLFeatureConfig
 from ml.data.catalog_utils import bars_to_dataframe
+from ml.data.ingest.market_bindings import MarketBindingStats
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.l2_cache import L2MinuteCache
 from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
@@ -65,6 +68,7 @@ class TFTDatasetBuilder:
         *,
         data_store: DataStoreFacadeProtocol | None = None,
         market_dataset_id: str | None = None,
+        market_bindings: Iterable[ResolvedMarketBinding] | None = None,
         include_macro: bool = False,
         macro_lag_days: int = 1,
         fred_path: str | None = None,
@@ -117,6 +121,7 @@ class TFTDatasetBuilder:
         self.feature_store = feature_store
         self.data_store = data_store
         self.market_dataset_id = market_dataset_id
+        self.market_bindings = tuple(market_bindings or ())
         self.include_macro = include_macro
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
@@ -146,13 +151,36 @@ class TFTDatasetBuilder:
             self.include_events = False
             self.include_l2 = False
 
+        self._binding_index: dict[str, ResolvedMarketBinding] = {}
+        self._binding_stats: dict[str, MarketBindingStats] = {}
+        for binding in self.market_bindings:
+            self._binding_stats[binding.binding_id] = MarketBindingStats(
+                binding_id=binding.binding_id,
+                dataset_id=binding.dataset_id,
+                descriptor_id=binding.descriptor_id,
+                symbol=binding.symbol,
+                instrument_ids=binding.instrument_ids,
+                schema=binding.schema,
+                storage_kind=binding.storage_kind,
+                source=binding.source,
+                license_start=binding.license_start,
+                license_end=binding.license_end,
+            )
+            for inst in binding.instrument_ids:
+                self._binding_index[inst.upper()] = binding
+            self._binding_index.setdefault(binding.symbol.upper(), binding)
+            base_symbol = binding.symbol.split(".")[0]
+            self._binding_index.setdefault(base_symbol.upper(), binding)
+
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
             f"(FeatureStore: {'enabled' if feature_store else 'disabled'})",
         )
 
     def _store_enabled(self) -> bool:
-        return self.data_store is not None and bool(self.market_dataset_id)
+        return self.data_store is not None and (
+            bool(self.market_dataset_id) or bool(self._binding_index)
+        )
 
     @staticmethod
     def _datetime_to_ns(value: datetime | None, *, fallback: int) -> int:
@@ -181,14 +209,17 @@ class TFTDatasetBuilder:
         start: datetime | None,
         end: datetime | None,
     ) -> _pl.DataFrame:
-        if self._store_enabled():
+        binding = self._resolve_binding(instrument_id)
+        binding_dataset_id = binding.dataset_id if binding else self.market_dataset_id
+        stats = self._binding_stats.get(binding.binding_id) if binding else None
+
+        if self._store_enabled() and binding_dataset_id:
             try:
                 start_ns = self._datetime_to_ns(start, fallback=0)
                 end_ns = self._datetime_to_ns(end, fallback=self._now_ns())
                 assert self.data_store is not None
-                dataset_id = cast(str, self.market_dataset_id)
                 raw_result = self.data_store.read_range(
-                    dataset_id=dataset_id,
+                    dataset_id=binding_dataset_id,
                     instrument_id=instrument_id,
                     start_ns=start_ns,
                     end_ns=end_ns,
@@ -219,6 +250,29 @@ class TFTDatasetBuilder:
                         if col in frame.columns
                     ]
                     frame = frame.select(keep)
+                    if "timestamp" in frame.columns:
+                        try:
+                            frame = frame.with_columns(
+                                _pl.col("timestamp").cast(
+                                    _pl.Datetime(time_unit="ns"),
+                                    strict=False,
+                                ),
+                            )
+                        except Exception:  # pragma: no cover - defensive casting
+                            logger.debug(
+                                "Failed to cast store timestamp to datetime",
+                                exc_info=True,
+                                extra={"instrument_id": instrument_id},
+                            )
+                    if stats is not None:
+                        row_count = int(frame.height)
+                        ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
+                        stats.record(
+                            source="store",
+                            row_count=row_count,
+                            ts_min_ns=ts_min_ns,
+                            ts_max_ns=ts_max_ns,
+                        )
                     return frame
             except Exception:
                 logger.warning(
@@ -228,12 +282,22 @@ class TFTDatasetBuilder:
                 )
 
         try:
-            return bars_to_dataframe(
+            frame = bars_to_dataframe(
                 self.catalog,
                 [instrument_id],
                 start=start,
                 end=end,
             )
+            if stats is not None and not frame.is_empty():
+                row_count = int(frame.height)
+                ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
+                stats.record(
+                    source="catalog",
+                    row_count=row_count,
+                    ts_min_ns=ts_min_ns,
+                    ts_max_ns=ts_max_ns,
+                )
+            return frame
         except Exception:  # pragma: no cover - catalog fallback path
             logger.debug(
                 "Parquet catalog read failed",
@@ -270,6 +334,44 @@ class TFTDatasetBuilder:
                 ["NYSE", "NASDAQ", "ARCA", "ARCX", "XNAS", "XNYS"],
             )
         return candidates
+
+    def _resolve_binding(self, instrument_id: str) -> ResolvedMarketBinding | None:
+        key = instrument_id.upper()
+        binding = self._binding_index.get(key)
+        if binding is not None:
+            return binding
+        base = key.split(".")[0]
+        return self._binding_index.get(base)
+
+    def _frame_time_bounds(self, frame: _pl.DataFrame) -> tuple[int | None, int | None]:
+        if frame.is_empty():
+            return (None, None)
+        series = None
+        if "timestamp" in frame.columns:
+            series = frame.get_column("timestamp")
+        elif "ts_event" in frame.columns:
+            series = frame.get_column("ts_event")
+        if series is None:
+            return (None, None)
+        try:
+            ts_min = series.min()
+            ts_max = series.max()
+        except Exception:
+            return (None, None)
+        return (self._coerce_to_ns(ts_min), self._coerce_to_ns(ts_max))
+
+    @staticmethod
+    def _coerce_to_ns(value: object) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, np.generic):
+            return int(value)
+        if isinstance(value, datetime):
+            dt_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return int(dt_value.timestamp() * 1_000_000_000)
+        return None
 
     def prepare_training_data_from_store(
         self,
@@ -1018,11 +1120,26 @@ class TFTDatasetBuilder:
                     joined = joined.drop("timestamp_right")
                 if macro_cols:
                     df_pd = joined.to_pandas()
-                    df_pd = df_pd.fillna(dict.fromkeys(macro_cols, 0.0))
-                    df_pd["is_macro_available"] = (
-                        df_pd[macro_cols].notna().any(axis=1).astype("int32")
-                    )
+                    value_cols = [
+                        col
+                        for col in macro_cols
+                        if col.endswith((
+                            "__value",
+                            "__value_real_time",
+                            "__value_final",
+                        ))
+                    ]
+                    if value_cols:
+                        fill_map = dict.fromkeys(value_cols, 0.0)
+                        df_pd = df_pd.fillna(fill_map)
+                        df_pd["is_macro_available"] = (
+                            df_pd[value_cols].notna().any(axis=1).astype("int32")
+                        )
+                    else:
+                        df_pd["is_macro_available"] = np.zeros(len(df_pd), dtype="int32")
                     joined = pl.from_pandas(df_pd)
+                else:
+                    joined = joined.with_columns(pl.lit(0).alias("is_macro_available"))
                 final_df = joined
         else:
             # all_data_pd contains Pandas DataFrames
@@ -1287,6 +1404,9 @@ class TFTDatasetBuilder:
                     logger.debug(f"Event feature join failed for {symbol}: {exc}")
 
         return dataset
+
+    def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:
+        return tuple(self._binding_stats.values())
 
     def _process_symbol_pandas(
         self,

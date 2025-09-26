@@ -21,11 +21,15 @@ Notes
 
 """
 
+import json
+from collections.abc import Mapping
 from dataclasses import is_dataclass
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import coerce_storage_kind
 from ml.data import DatasetValidationConfig
 from ml.orchestration.pipeline_orchestrator import AutoFillUniverseConfig
 from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
@@ -114,11 +118,20 @@ def _load_json_or_toml(path: Path) -> dict[str, Any]:
 
 def _build_dataset_cfg(data: dict[str, Any]) -> DatasetBuildConfig:
     macro_series = _as_tuple(data.get("macro_series_ids"))
+    market_inputs = _build_market_inputs(data.get("market_inputs"))
+    market_dataset_raw = data.get("market_dataset_id")
+    market_dataset_id = (
+        _as_str(market_dataset_raw)
+        if market_dataset_raw is not None
+        else None
+    )
     return DatasetBuildConfig(
         data_dir=_as_str(data.get("data_dir", "data/tier1")),
         symbols=_as_str(data.get("symbols", "SPY.NYSE")),
         out_dir=_as_str(data.get("out_dir", "ml_out")),
         dataset_id=_as_str(data.get("dataset_id", "tft_dataset")),
+        market_dataset_id=market_dataset_id,
+        market_inputs=market_inputs,
         instrument_ids=_as_tuple(data.get("instrument_ids")),
         include_macro=_coerce_bool(data.get("include_macro", False)),
         macro_lag_days=_as_int(data.get("macro_lag_days", 1)),
@@ -133,6 +146,62 @@ def _build_dataset_cfg(data: dict[str, Any]) -> DatasetBuildConfig:
         macro_fred_path=data.get("macro_fred_path"),
         validation=_build_validation_cfg(data.get("validation"), macro_series),
     )
+
+
+def _build_market_inputs(value: Any) -> tuple[MarketDatasetInput, ...] | None:
+    if value is None:
+        return None
+
+    def _symbols(payload: Mapping[str, Any]) -> tuple[str, ...] | None:
+        raw = payload.get("symbols")
+        return _as_tuple(raw) if raw is not None else None
+
+    entries: list[Any]
+    if isinstance(value, (list, tuple)):
+        entries = list(value)
+    else:
+        entries = [value]
+
+    inputs: list[MarketDatasetInput] = []
+    for entry in entries:
+        if isinstance(entry, MarketDatasetInput):
+            inputs.append(entry)
+            continue
+        if isinstance(entry, str):
+            inputs.append(MarketDatasetInput(descriptor_id=entry))
+            continue
+        if isinstance(entry, Mapping):
+            descriptor_id = entry.get("descriptor_id")
+            dataset_id = entry.get("dataset_id")
+            if descriptor_id is None and dataset_id is None:
+                msg = "market_inputs entries require descriptor_id or dataset_id"
+                raise ValueError(msg)
+            schema_override = entry.get("schema") or entry.get("schema_override")
+            storage_raw = entry.get("storage_kind") or entry.get("storage_kind_override")
+            storage_kind = None
+            if storage_raw is not None:
+                try:
+                    storage_kind = coerce_storage_kind(storage_raw)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Invalid storage_kind '{storage_raw}' in market_inputs",
+                    ) from exc
+            inputs.append(
+                MarketDatasetInput(
+                    descriptor_id=str(descriptor_id) if descriptor_id is not None else None,
+                    dataset_id=str(dataset_id) if dataset_id is not None else None,
+                    symbols=_symbols(entry),
+                    schema_override=str(schema_override) if schema_override is not None else None,
+                    storage_kind_override=storage_kind,
+                    start=str(entry.get("start")) if entry.get("start") is not None else None,
+                    end=str(entry.get("end")) if entry.get("end") is not None else None,
+                ),
+            )
+            continue
+        msg = f"Unsupported market_inputs entry type: {type(entry)!r}"
+        raise TypeError(msg)
+
+    return tuple(inputs) or None
 
 
 def _build_auto_fill_cfg(data: Any) -> AutoFillUniverseConfig | None:
@@ -348,6 +417,28 @@ def to_pipeline_args(cfg: OrchestratorConfig) -> list[str]:
         args += ["--include_micro"]
     if cfg.dataset.include_l2:
         args += ["--include_l2"]
+    if cfg.dataset.market_dataset_id:
+        args += ["--market_dataset_id", cfg.dataset.market_dataset_id]
+    if cfg.dataset.market_inputs:
+        payload: list[object] = []
+        for item in cfg.dataset.market_inputs:
+            entry: dict[str, object] = {}
+            if item.descriptor_id is not None:
+                entry["descriptor_id"] = item.descriptor_id
+            if item.dataset_id is not None:
+                entry["dataset_id"] = item.dataset_id
+            if item.symbols is not None:
+                entry["symbols"] = list(item.symbols)
+            if item.schema_override is not None:
+                entry["schema"] = item.schema_override
+            if item.storage_kind_override is not None:
+                entry["storage_kind"] = item.storage_kind_override.value
+            if item.start is not None:
+                entry["start"] = item.start
+            if item.end is not None:
+                entry["end"] = item.end
+            payload.append(entry or (item.descriptor_id or item.dataset_id or ""))
+        args += ["--market_inputs_json", json.dumps(payload)]
 
     # HPO flags
     if cfg.hpo.enabled:

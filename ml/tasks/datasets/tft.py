@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from ml.config.market_data import MarketDatasetInput
 from ml.data import BuildResult
 from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
@@ -55,6 +56,7 @@ class TFTDatasetTaskConfig:
     macro_fred_path: Path | None = None
     validation: DatasetValidationConfig | None = None
     market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
     vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
     vintage_as_of: datetime | None = None
 
@@ -93,6 +95,7 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         macro_fred_path=cfg.macro_fred_path,
         validation=cfg.validation,
         market_dataset_id=cfg.market_dataset_id,
+        market_inputs=cfg.market_inputs,
         vintage_policy=cfg.vintage_policy,
         vintage_as_of=cfg.vintage_as_of,
     )

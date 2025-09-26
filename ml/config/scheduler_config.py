@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Literal
 
+from ml.config.market_data import MarketDatasetInput
+
 
 @dataclass(frozen=True)
 class DatabentoConfig:
@@ -102,6 +104,8 @@ class SchedulerConfig:
     feature_store_connection: str | None = None
     # Backward-compat alias used in some tests
     connection_string: str | None = None
+    market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
 
 
 @dataclass(frozen=True)

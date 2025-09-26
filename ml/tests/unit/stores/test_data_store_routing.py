@@ -8,7 +8,6 @@ dataset manifest type.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -21,13 +20,8 @@ from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.data_store import DataStore
-
-
-def _schema_hash(schema: dict[str, str]) -> str:
-    # Replicate DataStore hashing: sort dict then sha256 of its str()
-    sorted_schema = dict(sorted(schema.items()))
-    return hashlib.sha256(str(sorted_schema).encode()).hexdigest()
 
 
 def _make_registry_for(
@@ -56,6 +50,22 @@ def _make_registry_for(
     else:
         raise AssertionError("Unsupported dataset_type for this test")
 
+    if dataset_type is DatasetType.PREDICTIONS:
+        primary_keys = ["instrument_id", "model_id", "ts_event"]
+    elif dataset_type is DatasetType.SIGNALS:
+        primary_keys = ["instrument_id", "strategy_id", "ts_event"]
+    else:
+        primary_keys = ["instrument_id", "ts_event"]
+
+    pipeline_signature = "unit_test"
+    schema_hash = compute_dataset_schema_hash(
+        schema=schema,
+        primary_keys=primary_keys,
+        ts_field="ts_event",
+        seq_field=None,
+        pipeline_signature=pipeline_signature,
+    )
+
     manifest = DatasetManifest(
         dataset_id=dataset_id,
         dataset_type=dataset_type,
@@ -66,11 +76,11 @@ def _make_registry_for(
         schema=schema,
         ts_field="ts_event",
         seq_field=None,
-        primary_keys=["instrument_id", "ts_event"],
-        schema_hash=_schema_hash(schema),
+        primary_keys=list(primary_keys),
+        schema_hash=schema_hash,
         constraints={"nullability": {"instrument_id": False, "ts_event": False, "ts_init": False}},
         lineage=[],
-        pipeline_signature="unit_test",
+        pipeline_signature=pipeline_signature,
         version="1.0.0",
     )
 

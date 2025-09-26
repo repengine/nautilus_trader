@@ -13,6 +13,8 @@ exercised in unit tests.
 from __future__ import annotations
 
 import logging
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -24,19 +26,81 @@ from sqlalchemy.exc import IntegrityError
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import load_market_feed_descriptors
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
+from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.resume import IngestState
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.service import IngestionChunk
 from ml.data.ingest.service import IngestionRequest
 from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
+from ml.stores.providers import SqlMarketDataWriter
+from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.writers import FanoutMarketDataWriter
 
 
 DAY_NS: Final[int] = 86_400_000_000_000
+
+
+def _coalesce_gap_windows(
+    gaps: Sequence[tuple[int, int]],
+) -> tuple[tuple[int, int], ...]:
+    """Merge contiguous daily gap windows into larger ranges."""
+    if not gaps:
+        return ()
+    ordered = sorted(gaps, key=lambda window: window[0])
+    merged: list[tuple[int, int]] = []
+    current_start, current_end = ordered[0]
+    for start, end in ordered[1:]:
+        if start <= current_end:
+            current_end = max(current_end, end)
+            continue
+        if start == current_end:
+            current_end = end
+            continue
+        merged.append((current_start, current_end))
+        current_start, current_end = start, end
+    merged.append((current_start, current_end))
+    return tuple(merged)
+
+
+def _max_chunk_days_for_schema(schema: str) -> int:
+    """Derive an upper bound for chunk sizes based on schema type."""
+    normalized = schema.lower()
+    if "mbp" in normalized or "mbo" in normalized or normalized.startswith("l2"):
+        return 31
+    if "tbbo" in normalized or "bbo" in normalized or "quote" in normalized:
+        return 365
+    if "trade" in normalized:
+        return 365
+    if "ohlcv" in normalized or "bar" in normalized:
+        return 1_095
+    return 365
+
+
+def _split_into_chunks(
+    *,
+    start_ns: int,
+    end_ns: int,
+    max_days: int,
+) -> tuple[tuple[int, int], ...]:
+    if start_ns >= end_ns:
+        return ()
+    chunks: list[tuple[int, int]] = []
+    cursor = start_ns
+    step_ns = max_days * DAY_NS
+    while cursor < end_ns:
+        chunk_end = min(end_ns, cursor + step_ns)
+        chunks.append((cursor, chunk_end))
+        cursor = chunk_end
+    return tuple(chunks)
 
 
 def _utc_now_ns() -> int:
@@ -57,6 +121,84 @@ class IngestionOrchestrator:
     domain_loader: DomainWindowLoaderProtocol | None = None
     service: DatabentoIngestionService | None = None
 
+    @staticmethod
+    def resolve_market_bindings(
+        *,
+        symbols: Sequence[str],
+        instrument_ids: Sequence[str] | None,
+        market_dataset_id: str | None,
+        market_inputs: Sequence[MarketDatasetInput] | None,
+    ) -> tuple[ResolvedMarketBinding, ...]:
+        descriptors = load_market_feed_descriptors().as_mapping()
+        return resolve_market_dataset_bindings(
+            symbols=symbols,
+            instrument_ids=instrument_ids,
+            market_dataset_id=market_dataset_id,
+            market_inputs=market_inputs,
+            descriptors=descriptors,
+        )
+
+    def backfill_binding(
+        self,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+        state: IngestState | None = None,
+    ) -> dict[str, list[tuple[int, int]]]:
+        """Backfill a resolved binding across all mapped instruments."""
+        self._log_binding(binding)
+        schema = binding.schema
+        if not schema:
+            msg = (
+                "Resolved binding missing schema; update feed descriptor to include schema for"
+                f" {binding.descriptor_id or binding.dataset_id}"
+            )
+            raise ValueError(msg)
+
+        instruments = binding.instrument_ids or (binding.symbol,)
+        results: dict[str, list[tuple[int, int]]] = {}
+        for instrument_id in instruments:
+            gaps = self.backfill_gaps(
+                dataset_id=binding.dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                lookback_days=lookback_days,
+                state=state,
+                symbol_hint=binding.symbol,
+            )
+            results[instrument_id] = gaps
+        return results
+
+    def _log_binding(self, binding: ResolvedMarketBinding) -> None:
+        extras = {
+            "binding_id": binding.binding_id,
+            "dataset_id": binding.dataset_id,
+            "descriptor_id": binding.descriptor_id,
+            "storage_kind": binding.storage_kind.value if binding.storage_kind else None,
+            "source": binding.source,
+        }
+
+        if binding.source != "descriptor":
+            LOGGER.warning(
+                "Using fallback market binding (non-descriptor source)",
+                extra=extras,
+            )
+
+        if (
+            binding.storage_kind is StorageKind.POSTGRES
+            and not self._writer_supports_sql()
+        ):
+            LOGGER.warning(
+                "SQL storage binding detected but writer is not SQL-backed",
+                extra=extras,
+            )
+
+    def _writer_supports_sql(self) -> bool:
+        writer = self.writer
+        if isinstance(writer, FanoutMarketDataWriter):
+            writer = writer.primary
+        return isinstance(writer, (SqlMarketDataWriter, DataStoreMarketDataWriter))
+
     def backfill_gaps(
         self,
         *,
@@ -65,6 +207,7 @@ class IngestionOrchestrator:
         instrument_id: str,
         lookback_days: int,
         state: IngestState | None = None,
+        symbol_hint: str | None = None,
     ) -> list[tuple[int, int]]:
         """
         Detect day-bucket gaps within lookback window, backfill them, then emit registry
@@ -89,13 +232,24 @@ class IngestionOrchestrator:
         else:
             end_bucket = int(end_bucket_candidate)
 
-        gaps: list[tuple[int, int]] = []
-        for b in range(int(start_bucket), int(end_bucket) + 1):
-            if b not in covered:
-                gaps.append((b * DAY_NS, (b + 1) * DAY_NS))
+        missing_windows: list[tuple[int, int]] = []
+        for bucket in range(int(start_bucket), int(end_bucket) + 1):
+            if bucket not in covered:
+                missing_windows.append((bucket * DAY_NS, (bucket + 1) * DAY_NS))
+
+        coalesced = _coalesce_gap_windows(missing_windows)
+        window_slices: list[tuple[int, int]] = []
+        max_chunk_days = _max_chunk_days_for_schema(schema)
+        for window_start, window_end in coalesced:
+            segments = _split_into_chunks(
+                start_ns=window_start,
+                end_ns=window_end,
+                max_days=max_chunk_days,
+            )
+            window_slices.extend(segments)
 
         requested: list[tuple[int, int]] = []
-        for ws, we in gaps:
+        for ws, we in window_slices:
             clamped = self._clamp_window_to_available_range(
                 dataset_id=dataset_id,
                 schema=schema,
@@ -107,7 +261,7 @@ class IngestionOrchestrator:
             start_ns, end_ns = clamped
             requested.append((start_ns, end_ns))
             frames: list[pd.DataFrame] = []
-            ingest_symbol = instrument_id.split(".")[0]
+            ingest_symbol = symbol_hint or instrument_id.split(".")[0]
 
             def _persist_frame(df: pd.DataFrame) -> None:
                 if df.empty:
@@ -150,6 +304,8 @@ class IngestionOrchestrator:
                 def _handle_chunk(chunk: IngestionChunk) -> None:
                     _persist_frame(chunk.frame)
 
+                span_days = max(1, math.ceil((end_ns - start_ns) / DAY_NS))
+                chunk_days = min(span_days, max_chunk_days)
                 self.service.ingest(
                     IngestionRequest(
                         dataset=dataset_id,
@@ -157,7 +313,7 @@ class IngestionOrchestrator:
                         symbols=(ingest_symbol,),
                         start=start_dt,
                         end=end_dt,
-                        chunk_days=1,
+                        chunk_days=chunk_days,
                         allow_cost=False,
                         reason="orchestrator_backfill",
                     ),
@@ -178,10 +334,30 @@ class IngestionOrchestrator:
                 _persist_frame(df)
 
             if not frames:
+                LOGGER.warning(
+                    "Ingestion returned no frames",
+                    extra={
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "instrument_id": instrument_id,
+                        "symbol": ingest_symbol,
+                        "lookback_days": lookback_days,
+                    },
+                )
                 continue
 
             df_combined = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
             if df_combined.empty or "ts_event" not in df_combined.columns:
+                LOGGER.warning(
+                    "Ingestion returned empty frame",
+                    extra={
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "instrument_id": instrument_id,
+                        "symbol": ingest_symbol,
+                        "lookback_days": lookback_days,
+                    },
+                )
                 continue
             ts_series = df_combined["ts_event"]
             if pd.api.types.is_datetime64_any_dtype(ts_series):
@@ -321,13 +497,21 @@ class IngestionOrchestrator:
             except AttributeError:
                 normalized_expected = str(expected_type).lower()
 
+            series = df[column]
             try:
-                if normalized_expected in {"str", "string"}:
-                    df.loc[:, column] = pd.Series(df[column], dtype="string")
+                if normalized_expected in {"str", "string", "object"}:
+                    df = df.assign(**{column: series.astype(str)})
                 elif normalized_expected in {"float", "float64"}:
-                    df.loc[:, column] = pd.Series(df[column], dtype="Float64")
+                    numeric = pd.to_numeric(series, errors="coerce")
+                    df = df.assign(**{column: numeric.astype("float64")})
                 elif normalized_expected in {"int", "int64"}:
-                    df.loc[:, column] = pd.to_numeric(df[column], errors="coerce").astype("int64")
+                    numeric = pd.to_numeric(series, errors="coerce")
+                    if numeric.isna().any():
+                        df = df.assign(**{column: numeric.astype("Int64")})
+                    else:
+                        df = df.assign(**{column: numeric.astype("int64")})
+                elif normalized_expected in {"bool", "boolean"}:
+                    df = df.assign(**{column: series.astype("bool")})
             except Exception as exc:  # pragma: no cover - defensive typing guard
                 LOGGER.debug(
                     "Type coercion skipped for column %s on dataset %s: %s",

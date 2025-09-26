@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import time
-from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
@@ -22,90 +21,12 @@ from sqlalchemy import text
 
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_processor import QualityFlags
-from ml.stores.feature_store import FeatureStore
-from ml.stores.model_store import ModelStore
-from ml.stores.strategy_store import StrategyStore
 from ml.tests.builders import DataBuilder
-
-
-@pytest.fixture
-def mock_persistence_manager(test_database):
-    """
-    Create mock persistence manager with real PostgreSQL connection.
-    """
-    mock = MagicMock()
-    mock.connection_string = test_database.connection_string
-    mock.session = MagicMock()
-    return mock
-
-
-@pytest.fixture
-def feature_store(test_database, mock_persistence_manager):
-    """
-    Create feature store with PostgreSQL connection.
-    """
-    store = FeatureStore(
-        connection_string=test_database.connection_string,
-        batch_size=10,
-        flush_interval_seconds=1.0,
-        persistence_manager=mock_persistence_manager,
-    )
-    yield store
-    # Cleanup
-    if hasattr(store, "_timer") and store._timer:
-        store._timer.cancel()
-
-
-@pytest.fixture
-def model_store(test_database, mock_persistence_manager):
-    """
-    Create model store with PostgreSQL connection.
-    """
-    store = ModelStore(
-        connection_string=test_database.connection_string,
-        batch_size=10,
-        flush_interval_seconds=1.0,
-        persistence_manager=mock_persistence_manager,
-    )
-    yield store
-    # Cleanup
-    if hasattr(store, "_timer") and store._timer:
-        store._timer.cancel()
-
-
-@pytest.fixture
-def strategy_store(test_database, mock_persistence_manager):
-    """
-    Create strategy store with PostgreSQL connection.
-    """
-    store = StrategyStore(
-        connection_string=test_database.connection_string,
-        batch_size=10,
-        flush_interval_seconds=1.0,
-        persistence_manager=mock_persistence_manager,
-    )
-    yield store
-    # Cleanup
-    if hasattr(store, "_timer") and store._timer:
-        store._timer.cancel()
-
-
-@pytest.fixture
-def data_processor(test_database):
-    """
-    Create data processor with PostgreSQL connection.
-    """
-    return DataProcessor(
-        connection_string=test_database.connection_string,
-        outlier_threshold=3.0,
-        staleness_threshold_seconds=60,
-    )
 
 
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestFeatureStore:
     """
     Test FeatureStore functionality with PostgreSQL.
@@ -128,7 +49,7 @@ class TestFeatureStore:
         import pandas as pd
         from sqlalchemy import text
 
-        df = (
+        feature_frame = (
             feature_store.read_features(
                 instrument_id=str(default_instrument_id),
                 start_ts=ts_event,
@@ -138,7 +59,7 @@ class TestFeatureStore:
             else pd.DataFrame()
         )
         # Fallback: direct SQL check
-        if df.empty:
+        if feature_frame.empty:
             with feature_store.engine.connect() as conn:
                 result = conn.execute(
                     text(
@@ -153,7 +74,7 @@ class TestFeatureStore:
                 ).fetchone()
                 assert result is not None
         else:
-            assert "sma_20" in df.columns and "rsi_14" in df.columns
+            assert "sma_20" in feature_frame.columns and "rsi_14" in feature_frame.columns
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -175,7 +96,7 @@ class TestFeatureStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_read_range(self, feature_store, mock_persistence_manager, default_instrument_id):
+    def test_read_range(self, feature_store, default_instrument_id):
         """
         Test reading features by time range.
         """
@@ -218,7 +139,6 @@ class TestFeatureStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestModelStore:
     """
     Test ModelStore functionality with PostgreSQL.
@@ -256,7 +176,6 @@ class TestModelStore:
     def test_read_latest_predictions(
         self,
         model_store,
-        mock_persistence_manager,
         default_instrument_id,
         sample_features,
     ):
@@ -321,7 +240,6 @@ class TestModelStore:
     def test_get_model_performance(
         self,
         model_store,
-        mock_persistence_manager,
         default_instrument_id,
         sample_features,
     ):
@@ -389,7 +307,6 @@ class TestModelStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestStrategyStore:
     """
     Test StrategyStore functionality with PostgreSQL.
@@ -428,7 +345,6 @@ class TestStrategyStore:
     def test_read_active_signals(
         self,
         strategy_store,
-        mock_persistence_manager,
         default_instrument_id,
     ):
         """
@@ -496,7 +412,6 @@ class TestStrategyStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestDataProcessor:
     """
     Test DataProcessor functionality with PostgreSQL.

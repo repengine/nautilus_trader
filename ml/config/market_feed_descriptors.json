@@ -1,0 +1,43 @@
+{
+  "descriptors": [
+    {
+      "descriptor_id": "EQUS.MINI",
+      "dataset_id": "EQUS.MINI",
+      "storage_kind": "postgres",
+      "schema": "ohlcv-1m",
+      "symbol_patterns": ["*"],
+      "instrument_id_templates": [
+        "{symbol}.XNAS",
+        "{symbol}.XNYS",
+        "{symbol}.ARCX"
+      ],
+      "license_start": "2010-01-01",
+      "license_end": null
+    },
+    {
+      "descriptor_id": "XNAS.ITCH",
+      "dataset_id": "XNAS.ITCH",
+      "storage_kind": "postgres",
+      "schema": "mbp-10",
+      "symbol_patterns": ["*.XNAS", "*"],
+      "instrument_id_templates": [
+        "{symbol}.XNAS"
+      ],
+      "license_start": "2018-01-01",
+      "license_end": null
+    },
+    {
+      "descriptor_id": "DBEQ.MINI",
+      "dataset_id": "DBEQ.MINI",
+      "storage_kind": "postgres",
+      "schema": "tbbo",
+      "symbol_patterns": ["*"],
+      "instrument_id_templates": [
+        "{symbol}.ARCX",
+        "{symbol}.XNAS"
+      ],
+      "license_start": "2016-01-01",
+      "license_end": null
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Generator
+from dataclasses import dataclass
 import errno
 import fcntl
 from pathlib import Path
@@ -273,6 +274,13 @@ def postgres_connection() -> str:
 # ============================================================================
 
 
+def _connect_timeout_seconds() -> int:
+    try:
+        return max(1, int(os.getenv("TEST_DB_CONNECT_TIMEOUT", "15")))
+    except ValueError:
+        return 15
+
+
 def is_postgresql_running() -> bool:
     """
     Check if PostgreSQL is running and accessible.
@@ -280,7 +288,10 @@ def is_postgresql_running() -> bool:
     try:
         import psycopg2  # Local import to avoid hard dependency for unit tests
 
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=_connect_timeout_seconds(),
+        )
         conn.close()
         return True
     except Exception:
@@ -585,10 +596,13 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
     import os as _os
 
     # Acquire interprocess DB lock during module-scope cleanup to avoid cross-worker races
+    print("clean_postgres_db_module: attempting DB lock")
     fh = _acquire_db_lock("db")
     try:
         if fh is None:
             print("clean_postgres_db_module: DB lock not acquired; proceeding without lock")
+        else:
+            print("clean_postgres_db_module: acquired DB lock")
     except Exception:
         fh = None
 
@@ -604,6 +618,175 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
 
     if fh is not None:
         _release_db_lock(fh)
+
+
+@dataclass(slots=True)
+class ModuleStoreBundle:
+    """Bundle of shared store instances for Postgres-backed tests."""
+
+    feature_store: Any
+    model_store: Any
+    strategy_store: Any
+    persistence_manager: MagicMock
+    engine: Engine
+
+
+def _truncate_store_tables(engine: Engine) -> None:
+    """Truncate primary store tables to isolate tests."""
+
+    from sqlalchemy import text as _text
+
+    tables = (
+        "ml_feature_values",
+        "ml_model_predictions",
+        "ml_strategy_signals",
+    )
+    with engine.begin() as conn:
+        for table in tables:
+            try:
+                conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
+            except Exception:
+                pass
+
+
+@pytest.fixture(scope="session")
+def module_test_database() -> Generator[TestDatabase, None, None]:
+    """Module-scoped PostgreSQL database with schema initialized once."""
+
+    if not is_postgresql_running():
+        pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
+
+    from ml.core.db_engine import EngineManager as _EM
+
+    engine = _EM.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
+    _truncate_store_tables(engine)
+    try:
+        try:
+            db.init_schema()
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "module_test_database init_schema failed; continuing",
+                exc_info=True,
+            )
+        yield db
+    finally:
+        db.cleanup()
+
+
+@pytest.fixture(scope="module")
+def module_store_bundle(module_test_database: TestDatabase) -> Generator[ModuleStoreBundle, None, None]:
+    """Create shared Feature/Model/Strategy stores backed by PostgreSQL."""
+
+    from ml.stores.feature_store import FeatureStore as _FeatureStore
+    from ml.stores.model_store import ModelStore as _ModelStore
+    from ml.stores.strategy_store import StrategyStore as _StrategyStore
+
+    persistence_manager = MagicMock()
+    persistence_manager.connection_string = module_test_database.connection_string
+    persistence_manager.session = MagicMock()
+
+    store_kwargs: dict[str, Any] = {
+        "connection_string": module_test_database.connection_string,
+        "batch_size": 10,
+        "flush_interval_seconds": 1.0,
+        "persistence_manager": persistence_manager,
+    }
+
+    feature_store = _FeatureStore(**store_kwargs)
+    model_store = _ModelStore(**store_kwargs)
+    strategy_store = _StrategyStore(**store_kwargs)
+
+    bundle = ModuleStoreBundle(
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
+        persistence_manager=persistence_manager,
+        engine=module_test_database.engine,
+    )
+
+    try:
+        yield bundle
+    finally:
+        for store in (feature_store, model_store, strategy_store):
+            try:
+                store.flush()
+            except Exception:
+                pass
+            timer = getattr(store, "_timer", None)
+            if timer is not None:
+                try:
+                    timer.cancel()
+                except Exception:
+                    pass
+
+
+@pytest.fixture
+def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
+    """Reset shared stores before each test and return the bundle."""
+
+    for store in (
+        module_store_bundle.feature_store,
+        module_store_bundle.model_store,
+        module_store_bundle.strategy_store,
+    ):
+        try:
+            store.flush()
+        except Exception:
+            pass
+    _truncate_store_tables(module_store_bundle.engine)
+    return module_store_bundle
+
+
+@pytest.fixture
+def data_processor(module_test_database: TestDatabase) -> Any:
+    """Provide a DataProcessor bound to the shared PostgreSQL database."""
+
+    from ml.stores.data_processor import DataProcessor as _DataProcessor
+
+    return _DataProcessor(
+        connection_string=module_test_database.connection_string,
+        outlier_threshold=3.0,
+        staleness_threshold_seconds=60,
+    )
+
+
+@pytest.fixture
+def feature_store(store_bundle: ModuleStoreBundle) -> Any:
+    """Provide a reset FeatureStore instance for tests."""
+
+    return store_bundle.feature_store
+
+
+@pytest.fixture
+def model_store(store_bundle: ModuleStoreBundle) -> Any:
+    """Provide a reset ModelStore instance for tests."""
+
+    return store_bundle.model_store
+
+
+@pytest.fixture
+def strategy_store(store_bundle: ModuleStoreBundle) -> Any:
+    """Provide a reset StrategyStore instance for tests."""
+
+    return store_bundle.strategy_store
+
+
+@pytest.fixture
+def mock_persistence_manager(store_bundle: ModuleStoreBundle) -> MagicMock:
+    """Return the shared persistence manager with call history reset."""
+
+    store_bundle.persistence_manager.reset_mock()
+    return store_bundle.persistence_manager
+
 
 
 # ============================================================================
@@ -967,6 +1150,10 @@ def pytest_configure(config: pytest.Config) -> None:
         if not config.getoption("--numprocesses", default=None):
             config.option.numprocesses = optimal_workers
 
+        current_dist = getattr(config.option, "dist", None)
+        if getattr(config.option, "numprocesses", 0) and current_dist in (None, "load", "loadscope"):
+            config.option.dist = "loadgroup"
+
     except ImportError:
         pass  # xdist not installed
 
@@ -1048,17 +1235,29 @@ def _acquire_db_lock(name: str = "db") -> Any:
     import os as _os
     import time as _time
 
-    timeout_env = _os.getenv("ML_TEST_DB_LOCK_TIMEOUT_SEC", "60")
+    timeout_env = _os.getenv("ML_TEST_DB_LOCK_TIMEOUT_SEC", "15")
     try:
-        timeout_sec = float(timeout_env)
+        timeout_sec = max(1.0, float(timeout_env))
     except Exception:
-        timeout_sec = 60.0
-
+        timeout_sec = 15.0
     deadline = _time.monotonic() + timeout_sec
+
+    def _pid_alive(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            _os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        else:
+            return True
+
     while True:
         try:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # Write PID for observability
+            # Record owning PID for observability/debugging
             try:
                 fh.seek(0)
                 fh.truncate()
@@ -1070,13 +1269,29 @@ def _acquire_db_lock(name: str = "db") -> Any:
         except OSError as e:  # pragma: no cover - contention path
             if e.errno not in (errno.EAGAIN, errno.EACCES):
                 raise
+
+            try:
+                owner_pid_str = lock_path.read_text().strip()
+                owner_pid = int(owner_pid_str) if owner_pid_str else -1
+            except Exception:
+                owner_pid = -1
+
+            if owner_pid > 0 and not _pid_alive(owner_pid):
+                try:
+                    fh.seek(0)
+                    fh.truncate()
+                    fh.flush()
+                except Exception:
+                    pass
+
             if _time.monotonic() >= deadline:
                 try:
                     fh.close()
                 except Exception:
                     pass
                 return None
-            _time.sleep(0.25)
+
+            _time.sleep(0.1)
 
 
 def _release_db_lock(fh: Any) -> None:
@@ -1201,23 +1416,35 @@ def pytest_sessionstart(session):
             print(f"Warning: DB preflight error: {e}")
 
 
-def pytest_sessionfinish(session, exitstatus):
-    """
-    Clean up after test session completes.
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Finalize shared resources once the controlling pytest process exits.
 
-    Ensures all resources are properly released.
+    Under xdist the hook is executed for each worker, but only the controller
+    should orchestrate global teardown. Workers operate with redirected stdout
+    streams that may already be closed when this hook fires, so disposing
+    engines or emitting logs from those processes triggers the observed
+    `ValueError: I/O operation on closed file`. Guarding here keeps cleanup
+    centralized and avoids spurious errors.
 
     """
-    # Final cleanup of all database connections
+    # Skip teardown for xdist workers; the controller owns shared cleanup.
+    if getattr(session.config, "workerinput", None) is not None:
+        return
+
+    # Final cleanup of all database connections.
     from ml.core.db_engine import EngineManager as _EM
 
     _EM.dispose_all()
 
-    # Log session summary
+    # Log session summary, tolerating closed logging streams during shutdown.
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Test session completed with exit status: {exitstatus}")
+    try:
+        logger.info("Test session completed with exit status: %s", exitstatus)
+    except ValueError:
+        # Streams may already be closed when pytest tears down logging.
+        pass
 
 
 # ============================================================================
@@ -1398,3 +1625,19 @@ def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TAKE_PROFIT_PCT", "0.04")
     monkeypatch.setenv("USE_STRATEGY_STORE", "true")
     monkeypatch.setenv("PERSIST_ALL_SIGNALS", "true")
+@pytest.fixture(scope="session", autouse=True)
+def _set_isolated_ml_registry_path(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[None, None, None]:
+    """Force ML registries to use a temporary directory during tests."""
+
+    previous_value = os.getenv("ML_REGISTRY_PATH")
+    registry_dir = tmp_path_factory.mktemp("ml_registry")
+    os.environ["ML_REGISTRY_PATH"] = str(registry_dir)
+    try:
+        yield
+    finally:
+        if previous_value is None:
+            os.environ.pop("ML_REGISTRY_PATH", None)
+        else:
+            os.environ["ML_REGISTRY_PATH"] = previous_value

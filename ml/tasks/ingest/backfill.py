@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,10 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import coerce_storage_kind
 from ml.data.ingest.api import ensure_service
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.nautilus_adapters import to_df_bars
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
@@ -45,6 +49,81 @@ def _parse_instruments(arg: str | None) -> list[str]:
 
 def _env_default(name: str, default: str | None = None) -> str | None:
     return os.getenv(name, default)
+
+
+def _parse_market_inputs(value: str | None) -> tuple[MarketDatasetInput, ...] | None:
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive guard
+        raise argparse.ArgumentTypeError("market_inputs_json must be valid JSON") from exc
+
+    if isinstance(payload, (str, dict)):
+        items: list[object] = [payload]
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        raise argparse.ArgumentTypeError(
+            "market_inputs_json must encode a descriptor string or list of descriptor objects",
+        )
+
+    parsed: list[MarketDatasetInput] = []
+    for entry in items:
+        if isinstance(entry, str):
+            parsed.append(MarketDatasetInput(descriptor_id=entry))
+            continue
+        if isinstance(entry, dict):
+            descriptor_id = entry.get("descriptor_id")
+            dataset_id = entry.get("dataset_id")
+            symbols_field = entry.get("symbols")
+            if symbols_field is None:
+                symbols_tuple = None
+            elif isinstance(symbols_field, str):
+                symbols_tuple = tuple(
+                    token.strip().upper()
+                    for token in symbols_field.split(",")
+                    if token.strip()
+                )
+            elif isinstance(symbols_field, (list, tuple)):
+                symbols_tuple = tuple(
+                    str(token).strip().upper()
+                    for token in symbols_field
+                    if str(token).strip()
+                )
+            else:
+                raise argparse.ArgumentTypeError(
+                    "symbols in market_inputs_json must be a list or comma-separated string",
+                )
+
+            schema_override = entry.get("schema") or entry.get("schema_override")
+            storage_raw = entry.get("storage_kind") or entry.get("storage_kind_override")
+            storage_kind = None
+            if storage_raw is not None:
+                try:
+                    storage_kind = coerce_storage_kind(storage_raw)
+                except ValueError as exc:
+                    raise argparse.ArgumentTypeError(
+                        f"Invalid storage_kind '{storage_raw}' in market_inputs_json",
+                    ) from exc
+
+            parsed.append(
+                MarketDatasetInput(
+                    descriptor_id=str(descriptor_id) if descriptor_id is not None else None,
+                    dataset_id=str(dataset_id) if dataset_id is not None else None,
+                    symbols=symbols_tuple,
+                    schema_override=str(schema_override) if schema_override is not None else None,
+                    storage_kind_override=storage_kind,
+                    start=str(entry.get("start")) if entry.get("start") is not None else None,
+                    end=str(entry.get("end")) if entry.get("end") is not None else None,
+                ),
+            )
+            continue
+        raise argparse.ArgumentTypeError(
+            "market_inputs_json entries must be descriptor strings or mapping objects",
+        )
+
+    return tuple(parsed) if parsed else None
 
 
 class _CatalogIngestClient:
@@ -144,6 +223,14 @@ def main(argv: list[str] | None = None) -> int:
         default=_env_default("DATABENTO_API_KEY"),
         help="Databento API key (for client-mode databento)",
     )
+    ap.add_argument(
+        "--market-dataset-id",
+        help="Optional dataset identifier used when resolving market feed bindings",
+    )
+    ap.add_argument(
+        "--market-inputs-json",
+        help="JSON payload describing MarketDatasetInput descriptors",
+    )
     ap.add_argument("--dry-run", action="store_true", help="Plan gaps only (no ingestion/writes)")
 
     args = ap.parse_args(argv)
@@ -151,6 +238,10 @@ def main(argv: list[str] | None = None) -> int:
     instruments = _parse_instruments(args.instruments)
     if not instruments:
         raise SystemExit("No instruments provided")
+
+    market_inputs = _parse_market_inputs(getattr(args, "market_inputs_json", None))
+    binding_dataset_id = getattr(args, "market_dataset_id", None) or args.dataset_id
+    use_bindings = bool(market_inputs or getattr(args, "market_dataset_id", None))
 
     # Coverage
     from ml.stores.protocols import CoverageProviderProtocol  # local import to avoid cycles
@@ -245,11 +336,50 @@ def main(argv: list[str] | None = None) -> int:
         domain_loader=domain_loader,
     )
 
+    resolved_bindings: tuple[ResolvedMarketBinding, ...] = ()
+    binding_lookup: dict[str, ResolvedMarketBinding] = {}
+    binding_ids_processed: set[str] = set()
+    if use_bindings:
+        base_symbols = sorted({inst.split(".")[0].upper() for inst in instruments})
+        resolved_bindings = IngestionOrchestrator.resolve_market_bindings(
+            symbols=base_symbols,
+            instrument_ids=tuple(instruments),
+            market_dataset_id=binding_dataset_id,
+            market_inputs=market_inputs,
+        )
+        binding_lookup = {
+            binding_item.symbol.upper(): binding_item
+            for binding_item in resolved_bindings
+        }
+        for binding_item in resolved_bindings:
+            for inst_id in binding_item.instrument_ids:
+                binding_lookup.setdefault(inst_id.upper(), binding_item)
+
     # State
     state = load_state(args.state_path)
 
     total_gaps: list[tuple[int, int]] = []
     for inst in instruments:
+        binding: ResolvedMarketBinding | None = None
+        if use_bindings:
+            binding = binding_lookup.get(inst.upper()) or binding_lookup.get(inst.split(".")[0].upper())
+        if binding is not None:
+            if binding.binding_id in binding_ids_processed:
+                continue
+            binding_results = orch.backfill_binding(
+                binding=binding,
+                lookback_days=int(args.lookback_days),
+                state=None if args.dry_run else state,
+            )
+            binding_ids_processed.add(binding.binding_id)
+            for instrument_id, windows in binding_results.items():
+                total_gaps.extend(windows)
+                print(
+                    f"{instrument_id}: planned {len(windows)} day window(s) via binding"
+                    f" {binding.binding_id}",
+                )
+            continue
+
         gaps = orch.backfill_gaps(
             dataset_id=args.dataset_id,
             schema=args.schema,
@@ -257,6 +387,11 @@ def main(argv: list[str] | None = None) -> int:
             lookback_days=int(args.lookback_days),
             state=None if args.dry_run else state,
         )
+        if use_bindings and binding is None:
+            print(
+                "Warning: no binding resolved for"
+                f" {inst}; using legacy dataset {args.dataset_id}/{args.schema}",
+            )
         total_gaps.extend(gaps)
         print(f"{inst}: planned {len(gaps)} day window(s)")
 

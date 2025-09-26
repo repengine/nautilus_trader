@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from ml.orchestration.config_loader import load_orchestrator_config, to_pipeline_args
@@ -22,7 +23,11 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
             "include_l2": true,
             "horizon_minutes": 30,
             "threshold": 0.002,
-            "lookback_periods": 40
+            "lookback_periods": 40,
+            "market_dataset_id": "LEGACY.BARS",
+            "market_inputs": [
+              {"descriptor_id": "EQUS.MINI", "symbols": ["SPY"]}
+            ]
           },
           "hpo": {"enabled": true, "epochs": 3, "batch_size": 16, "tail_rows": 100, "limit_groups": 10},
           "teacher": {"enabled": true, "model_id": "teacher_X", "max_epochs": 7},
@@ -41,10 +46,19 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     cfg = load_orchestrator_config(str(cfg_json))
+    assert cfg.dataset.market_inputs is not None
+    assert cfg.dataset.market_inputs[0].descriptor_id == "EQUS.MINI"
+    assert cfg.dataset.market_inputs[0].symbols == ("SPY",)
     args = to_pipeline_args(cfg)
     # Spot check
     assert "--include_macro" in args
     assert "--include_l2" in args
+    assert ["--market_dataset_id", "LEGACY.BARS"] == args[
+        args.index("--market_dataset_id") : args.index("--market_dataset_id") + 2
+    ]
+    market_inputs_json = args[args.index("--market_inputs_json") + 1]
+    payload = json.loads(market_inputs_json)
+    assert payload[0]["descriptor_id"] == "EQUS.MINI"
     assert "--hpo" in args
     assert ["--teacher_model_id", "teacher_X"] == args[
         args.index("--teacher_model_id") : args.index("--teacher_model_id") + 2

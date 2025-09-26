@@ -19,7 +19,6 @@ This module tests all aspects of Phase 5 implementation including:
 
 from __future__ import annotations
 
-import hashlib
 import time
 from typing import TYPE_CHECKING, Any, Iterable, Sequence, TypeAlias, TypeVar, cast
 from unittest.mock import MagicMock
@@ -40,6 +39,7 @@ from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.utils import compute_dataset_schema_hash
 from ml.ml_types import PandasDF, PolarsDF
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
@@ -71,6 +71,26 @@ def _maybe_polars_frame(records: RecordList) -> FrameLike:
 
 def _materialize_frame(records: RecordList) -> PandasDF:
     """Return a pandas DataFrame for schema/hash dependent tests."""
+    import pandas as pd
+
+    return pd.DataFrame.from_records(records)
+
+
+def _dataset_schema_hash(
+    schema: dict[str, str],
+    *,
+    primary_keys: Sequence[str],
+    ts_field: str,
+    pipeline_signature: str,
+    seq_field: str | None = None,
+) -> str:
+    return compute_dataset_schema_hash(
+        schema=schema,
+        primary_keys=primary_keys,
+        ts_field=ts_field,
+        seq_field=seq_field,
+        pipeline_signature=pipeline_signature,
+    )
     import pandas as pd
 
     return pd.DataFrame.from_records(records)
@@ -170,6 +190,15 @@ def mock_registry() -> MagicMock:
         "volume": "float64",
     }
 
+    primary_keys = ["instrument_id", "ts_event"]
+    pipeline_signature = "test"
+    schema_hash = _dataset_schema_hash(
+        schema=schema,
+        primary_keys=primary_keys,
+        ts_field="ts_event",
+        pipeline_signature=pipeline_signature,
+    )
+
     manifest = DatasetManifest(
         dataset_id="test_bars",
         dataset_type=DatasetType.BARS,
@@ -180,8 +209,8 @@ def mock_registry() -> MagicMock:
         schema=schema,
         ts_field="ts_event",
         seq_field=None,
-        primary_keys=["instrument_id", "ts_event"],
-        schema_hash=hashlib.sha256(str(dict(sorted(schema.items()))).encode()).hexdigest(),
+        primary_keys=primary_keys,
+        schema_hash=schema_hash,
         constraints={
             "nullability": {
                 "instrument_id": False,
@@ -190,7 +219,7 @@ def mock_registry() -> MagicMock:
             },
         },
         lineage=[],
-        pipeline_signature="test",
+        pipeline_signature=pipeline_signature,
         version="1.0.0",
     )
 
@@ -1240,7 +1269,12 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=hashlib.sha256(str(dict(sorted(schema.items()))).encode()).hexdigest(),
+            schema_hash=_dataset_schema_hash(
+                schema=schema,
+                primary_keys=["instrument_id", "ts_event"],
+                ts_field="ts_event",
+                pipeline_signature="test",
+            ),
             constraints={
                 "nullability": {
                     "instrument_id": False,
@@ -1392,7 +1426,12 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=hashlib.sha256(str(dict(sorted(schema.items()))).encode()).hexdigest(),
+            schema_hash=_dataset_schema_hash(
+                schema=schema,
+                primary_keys=["instrument_id", "ts_event"],
+                ts_field="ts_event",
+                pipeline_signature="test",
+            ),
             constraints={},
             lineage=[],
             pipeline_signature="test",
@@ -1523,7 +1562,12 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=hashlib.sha256(str(dict(sorted(base_schema.items()))).encode()).hexdigest(),
+            schema_hash=_dataset_schema_hash(
+                schema=base_schema,
+                primary_keys=["instrument_id", "ts_event"],
+                ts_field="ts_event",
+                pipeline_signature="test",
+            ),
             constraints={},
             lineage=[],
             pipeline_signature="test",

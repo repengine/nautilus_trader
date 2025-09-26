@@ -380,6 +380,8 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
         # Map UI types to template files
         template_map = {
+            "unified": "index_unified.html",   # Unified control + advanced
+            "control": "index_control.html",   # Control center only
             "enhanced": "index_enhanced.html",
             "advanced": "index_advanced.html",
             "standard": "index.html"

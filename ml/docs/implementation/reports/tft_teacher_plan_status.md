@@ -1,14 +1,23 @@
 # TFT Teacher Plan Implementation Status Report
 
 **Report Date:** 2025-09-12
-**Plan Document:** [ml/docs/development/tft_teacher_plan.md](../../development/tft_teacher_plan.md)
-**Status:** COMPREHENSIVE IMPLEMENTATION COMPLETED
+**Status:** OPERATIONAL — DATA COVERAGE REMEDIATION IN PROGRESS
 
 ---
 
 ## Executive Summary
 
-The TFT teacher plan has been **fully implemented** with all major components operational and production-ready. The implementation not only fulfills all requirements from the original plan but exceeds them with additional features, robustness enhancements, and comprehensive testing infrastructure.
+The TFT teacher plan remains **operational** with the full training, registry, and orchestration stack in place. A fresh seven-year dataset build was completed on **2025-09-25** (run id `orch_f6bd536dbda7`, runtime ≈66 minutes, 50,998,545 rows). During verification we identified **gaps in upstream market data coverage** for a subset of Tier-1 symbols, prompting a remediation track while the rest of the system continues to function normally. Guidance and action items are documented below.
+
+**Latest pipeline highlights (2025-09-25):**
+
+- ✅ End-to-end orchestration succeeded with macro enrichment (`CPIAUCSL`, `PCEPI`) and validation green
+- ✅ Metrics & events validators (`make validate-metrics`, `make validate-events`) are clean
+- ✅ Feed descriptors + resolver landed; dataset metadata now captures per-binding coverage stats
+- ⚠️ AAPL L0 catalog only contains Aug–Sep 2025 data; dataset rows limited to ~11k
+- ⚠️ BRK.B and VIX missing from dataset output (no rows ingested)
+- 🚧 Builder currently falls back to parquet-only ingestion because `market_dataset_id` was unset; SQL store (Postgres) still contains only the legacy `VIXY` universe.
+- ➡️ Remediation required: backfill Tier-1 L0 parquet coverage **and** refactor dataset bindings so the orchestrator/ builder derive raw feeds automatically before the next production rebuild
 
 **Key Achievements:**
 
@@ -219,6 +228,48 @@ The implementation includes several enhancements beyond the original specificati
 
 ---
 
+## Latest Dataset Build (2025-09-25)
+
+- **Run id:** `orch_f6bd536dbda7`
+- **Scope:** 79-symbol Tier-1 universe, 2018-09-22 → 2025-09-21, L0 + macro (`CPIAUCSL`, `PCEPI`)
+- **Output:** `ml_out/phase1_l0_macro_2025q3_vix/dataset.parquet` (~3.2 GB, 50,998,545 rows)
+- **Runtime:** ~4,015 s (≈66 min)
+- **Validation:** `make validate-metrics` and `make validate-events` ✅
+
+### Coverage Findings
+
+| Symbol/Domain | Status | Notes |
+| --- | --- | --- |
+| `AAPL` (L0) | ⚠️ Partial | Only ~11k rows (2025-08-26 → 2025-09-09). Upstream parquet `data/tier1/AAPL/l0/AAPL_ohlcv.parquet` shares the truncated range. No SQL coverage because the builder never hit Postgres. |
+| `BRK.B` (L0) | ❌ Missing | Dataset omits BRK.B. Catalog contains recent slices but share-class aliasing collapses to `BRK`; SQL manifest never queried. |
+| `VIX`/`VIXY` (volatility proxy) | ❌ Missing | `data/tier1/VIX/l0/` is empty; SQL store still holds 2018–2025 `VIXY` history, but lack of `market_dataset_id` kept the builder from reading it. |
+| Other Tier-1 L0 symbols | ✅ Healthy | Coverage extends to 2018-09-24 (or instrument listing date) through 2025-09-19; positive rate ≈0.29 overall. |
+
+### Market Dataset Binding Refactor Plan
+
+We identified a structural gap: `TFTDatasetBuilder` only consults SQL when supplied a single `market_dataset_id`. Because the orchestrator left this unset, every symbol fell back to parquet—even though Postgres still preserves legacy `VIXY` history. This single-ID contract is incompatible with the production requirement to blend multiple raw feeds (e.g., `EQUS.MINI` bars, `XNAS.ITCH` L2, `DBEQ.MINI` MBP, macro vintages).
+
+Planned remediation:
+
+1. **Introduce multi-binding inputs.** Add a `market_inputs: list[MarketDatasetBinding]` structure backed by declarative feed descriptors (YAML/JSON/python modules). Each descriptor encodes licensing windows, allowed schemas, venues, and symbol patterns (e.g., `EQUS.MINI`, `XNAS.ITCH`, `DBEQ.MINI`).
+2. **Provide a binding helper.** Build a resolver service that accepts the universe list + date range and returns the feed plan (datasets to hit, order, rationale). Co-locate it with `ml/data/ingest/orchestrator.IngestionOrchestrator` so ingestion and dataset builds share the same logic.
+3. **Resolve manifests per symbol.** Extend `TFTDatasetBuilder` to pick the right binding per symbol/share-class and call `DataStore.read_range(...)` before parquet fallback. Support stitched timelines for ticker renames (FB→META) and share classes (BRK.B).
+4. **Auto-populate bindings.** During orchestrator runtime, infer bindings from universe tiers and feature flags (L0/L1/L2/macro) so operators only supply symbols + horizon/date window. Register missing manifests via `_ensure_dataset_registered`.
+5. **Propagate metadata.** Record upstream dataset IDs in `dataset_metadata.json`, maintain watermark tracking, and emit per-binding metrics/observability.
+6. **Backfill while refactoring.** Re-run auto-fill/ingestion for `AAPL`, `BRK.B`, and volatility proxies so parquet mirrors the canonical SQL store throughout the rollout.
+
+### Required Remediation
+
+1. **Design + implement the binding refactor** (items above) and land supporting unit/integration tests.
+2. **Re-ingest L0 bars** for `AAPL`, `BRK.B`, and the chosen volatility proxy (`VIX` or `VIXY`) so parquet aligns with SQL while the binding work proceeds.
+3. **Confirm catalog + SQL span** (2018-09 onward) after ingestion; ensure manifests exist for each binding.
+4. **Rerun the pipeline** once coverage and bindings are in place; expect similar runtime (~66 min) with SQL reads enabled.
+5. **Update universe definitions** if we standardise on `VIXY` or another proxy to suppress auto-fill warnings.
+
+Open remediation items are tracked alongside the plan; the rest of the TFT training stack remains production-ready.
+
+---
+
 ## Performance Results
 
 Based on the plan document, the following results have been achieved:
@@ -343,24 +394,68 @@ Comparing against the 11-step operational checklist from the plan:
 
 ### Minor Implementation Gaps
 
-1. **L2/L3 availability masks:** Planned but not yet implemented in feature engineering
-2. **Regime robustness testing:** Framework ready but specific regime tests pending
-3. **Cost-aware backtesting:** Strategy integration pending
+1. **Feed binding rollout:** Resolver + descriptors merged; next step is wiring ingestion/backfill flows and enforcing SQL coverage gates when bindings regress to parquet.
+2. **Tier-1 coverage drift:** `AAPL`, `BRK.B`, and volatility proxies need L0 backfill in both SQL and parquet.
+3. **L2/L3 availability masks:** Planned but not yet implemented in feature engineering (keep on backlog).
 
 ### Recommended Next Steps
 
-1. **Implement availability masks** for L2/L3 data (is_l2_available, is_macro_available)
-2. **Add regime change detection** with VIX/earnings calendar integration
-3. **Integrate cost modeling** for realistic strategy backtesting
-4. **Expand HPO framework** with Bayesian optimization
-5. **Add A/B testing infrastructure** for model deployment
+1. **Ship the binding refactor + feed descriptors** (multi-binding config, helper resolver, builder + orchestrator changes, manifest metadata) and cover with unit/integration tests.
+2. **Backfill + validate** missing Tier-1 instruments so SQL + parquet remain aligned while bindings roll out.
+3. **Wire default bindings** for L2/L3 + macro domains and expose slim overrides for edge venues.
+4. **Re-enable SQL reads** in the pipeline after refactor and add regression tests that fail when we fall back to parquet unexpectedly.
+5. **Continue backlog items** (availability masks, regime detection, cost modeling) once data-plane fixes land.
 
 ---
 
 ## Conclusion
 
-The TFT teacher plan implementation is **COMPLETE and EXCEEDS ORIGINAL SCOPE**. The system is production-ready with comprehensive testing, monitoring, and deployment capabilities. All core requirements have been fulfilled, and significant additional features have been implemented to provide a robust, enterprise-grade ML training and deployment platform.
+The TFT teacher stack remains production-ready across training, distillation, registry, and deployment workflows. The latest 7-year dataset build completed successfully; the remaining blockers are **data-plane coverage (AAPL/BRK.B/volatility) and the single-feed `market_dataset_id` constraint**, which currently forces parquet-only reads. Once the multi-binding refactor lands and Tier-1 backfills are complete, the orchestrator can automatically source SQL + parquet inputs and the existing training flows can resume without further code changes.
 
-The implementation demonstrates excellent adherence to architectural principles, maintains high code quality standards, and provides extensive operational capabilities for continuous model development and deployment.
+**Recommendation:** Execute the binding refactor (including the feed descriptor/helper service), finish the targeted backfills, and rerun the pipeline to validate SQL-backed coverage before the next teacher/student promotion. Secondary backlog items (availability masks, regime tests, cost modelling) remain “done pending data-plane fixes.”
 
-**Recommendation:** The system is ready for production deployment with standard operational monitoring and the minor enhancements listed above can be addressed in future iterations.
+ Config Patterns
+
+  - Cold-path configs balance strict types with simple decoding: production-facing configs extend
+  NautilusConfig with frozen=True/kw_only=True so validation lives on constructors (ml/config/
+  base.py:27-144). Pipeline-specific payloads favour @dataclass(slots=True, frozen=True) to stay
+  msgspec-friendly while remaining lightweight (ml/data/__init__.py:354-394).
+  - File/env layering always flows through load_from_file/merge_env, which deserialize JSON into
+  the target struct then shallow-merge env overrides (ml/config/loader.py:25-70). New descriptors
+  should follow that decode path so CLI overrides and ML_*_JSON overlays keep working out of the
+  box.
+  - Repository configs that live alongside code (e.g., Databento safety) pair an immutable
+  struct with a loader that enforces shape/validation before returning typed instances (ml/
+  config/databento_policy.py:28-131). That pattern is ideal for feed descriptors: add a
+  @dataclass(slots=True, frozen=True)/msgspec.Struct definition plus a load_* helper that reads a
+  *.json under ml/config/.
+  - Public APIs stay narrow via module __all__ exports; cold-path facades import the dataclasses
+  and loaders rather than internal helpers (ml/config/__init__.py:1-119). Mirroring that means
+  exposing any MarketFeedDescriptor and loader from a single ml.config module so orchestrators/CLI
+  code import from the facade only.
+
+  Metadata Recommendation
+
+  - DatasetMetadata today tracks windows/vintage only (ml/data/__init__.py:407-419), while
+  Stage‑2 promotion and manifest sync assume those fields but ignore extras (ml/orchestration/
+  promotions.py:154-170, ml/orchestration/pipeline_orchestrator.py:1227-1253). That gives us
+  room to append a new optional market_bindings tuple without breaking existing guards, provided
+  we extend the dataclass/load/save helpers in tandem (ml/data/__init__.py:465-498, ml/data/
+  __init__.py:1008-1090).
+  - Each binding entry should capture the resolver outcome so downstream registry code
+  can reason about coverage: include binding_id, dataset_id, storage_kind, schema,
+  symbols_resolved, and coverage stats like ts_event_start/end and row_count. Those fields
+  align with what TFTDatasetBuilder already knows when it calls data_store.read_range (ml/data/
+  tft_dataset_builder.py:189-243) and what the registry records during ingest (ml/registry/
+  data_registry.py:1116-1194).
+  - Flagging fallback behaviour per binding (e.g., source=\"store\"|\"catalog\", fallback_used:
+  bool) will let observability differentiate hot-path SQL reads vs parquet rescue, and plugging
+  that into the manifest_metadata["market_inputs"] hash keeps promotion checks aware of feed
+  changes (ml/orchestration/pipeline_orchestrator.py:1227-1253).
+  - To make bindings visible to guardrails, extend DatasetMetadataExpectations with an optional
+  market_bindings predicate and feed it when we enforce guardrails in the orchestrator (ml/
+  orchestration/pipeline_orchestrator.py:1145-1186). That lets us fail fast if the resolver falls
+  back to an unexpected source (e.g., parquet instead of EQUS.MINI).
+  - Finally, fold binding identifiers into the pipeline signature so any descriptor tweak
+  invalidates cached manifests/tests: add the serialized market_bindings payload (sorted) to
+  compute_dataset_pipeline_signature before hashing (ml/data/__init__.py:560-587).

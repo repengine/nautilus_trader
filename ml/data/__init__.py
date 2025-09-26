@@ -161,6 +161,9 @@ import pyarrow.parquet as pq
 import structlog
 from numpy.typing import NDArray
 
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import load_market_feed_descriptors
+
 # Core data conversion utilities
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.catalog_utils import quotes_to_dataframe
@@ -180,6 +183,8 @@ from ml.data.ingest.common import BackoffPolicy
 # Ingestion utilities
 from ml.data.ingest.common import IngestState
 from ml.data.ingest.common import RateLimiter
+from ml.data.ingest.market_bindings import MarketBindingStats
+from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
 from ml.data.ingest.service import CostViolationError
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.service import IngestionChunk
@@ -261,6 +266,7 @@ __all__ = [
     "IngestionWindow",
     "InstrumentMetadataProvider",
     "L2MinuteCache",
+    "MarketBindingMetadata",
     "MarketCalendarProvider",
     "MicroMinuteCache",
     "MockCalendarSource",
@@ -335,12 +341,17 @@ def _derive_alfred_range(cfg: DatasetBuildConfig) -> tuple[str | None, str | Non
     if end_dt is not None:
         end_dt = end_dt + buffer
 
+    today_utc = datetime.now(tz=UTC).date()
+
     def _normalize(dt: datetime | None) -> str | None:
         if dt is None:
             return None
         if dt.tzinfo is not None:
             dt = dt.astimezone(UTC)
-        return dt.date().isoformat()
+        date_value = dt.date()
+        if date_value > today_utc:
+            date_value = today_utc
+        return date_value.isoformat()
 
     return _normalize(start_dt), _normalize(end_dt)
 
@@ -353,6 +364,7 @@ class DatasetBuildConfig:
     symbols: list[str]
     dataset_id: str = "tft_dataset"
     market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
     instrument_ids: list[str] | None = None
     # Feature options
     include_macro: bool = True
@@ -400,6 +412,24 @@ class BuildResult:
 
 
 @dataclass(frozen=True)
+class MarketBindingMetadata:
+    binding_id: str
+    dataset_id: str
+    descriptor_id: str | None
+    schema: str | None
+    storage_kind: str | None
+    symbols: tuple[str, ...]
+    instrument_ids: tuple[str, ...]
+    source: str
+    license_start: str | None
+    license_end: str | None
+    ts_event_start: str | None
+    ts_event_end: str | None
+    rows_from_store: int
+    rows_from_catalog: int
+
+
+@dataclass(frozen=True)
 class DatasetMetadata:
     dataset_id: str | None
     vintage_policy: VintagePolicy
@@ -412,6 +442,7 @@ class DatasetMetadata:
     validation_window: tuple[str, str] | None
     test_window: tuple[str, str] | None
     macro_observation_counts: dict[str, int]
+    market_bindings: tuple[MarketBindingMetadata, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +488,40 @@ def build_metadata_expectations(cfg: DatasetBuildConfig) -> DatasetMetadataExpec
     )
 
 
+def _ns_to_iso(value: int | None) -> str | None:
+    if value is None:
+        return None
+    dt_value = datetime.fromtimestamp(value / 1_000_000_000, tz=UTC)
+    return format_dt(dt_value)
+
+
+def _binding_stats_to_metadata(
+    stats: Sequence[MarketBindingStats],
+) -> tuple[MarketBindingMetadata, ...]:
+    entries: list[MarketBindingMetadata] = []
+    for stat in stats:
+        storage_kind_value = stat.storage_kind.value if stat.storage_kind else None
+        entries.append(
+            MarketBindingMetadata(
+                binding_id=stat.binding_id,
+                dataset_id=stat.dataset_id,
+                descriptor_id=stat.descriptor_id,
+                schema=stat.schema,
+                storage_kind=storage_kind_value,
+                symbols=(stat.symbol,),
+                instrument_ids=stat.instrument_ids,
+                source=stat.source,
+                license_start=stat.license_start,
+                license_end=stat.license_end,
+                ts_event_start=_ns_to_iso(stat.ts_event_start_ns),
+                ts_event_end=_ns_to_iso(stat.ts_event_end_ns),
+                rows_from_store=stat.rows_from_store,
+                rows_from_catalog=stat.rows_from_catalog,
+            ),
+        )
+    return tuple(entries)
+
+
 def load_dataset_metadata(path: Path) -> DatasetMetadata:
     """Load dataset metadata from a JSON file."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -478,6 +543,37 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         for key, value in macro_counts_raw.items()
     }
 
+    bindings_raw = raw.get("market_bindings")
+    market_bindings: tuple[MarketBindingMetadata, ...] | None = None
+    if isinstance(bindings_raw, list):
+        converted: list[MarketBindingMetadata] = []
+        for entry in bindings_raw:
+            if not isinstance(entry, dict):
+                continue
+            symbols_field = entry.get("symbols")
+            instrument_field = entry.get("instrument_ids")
+            symbols_tuple = tuple(str(item) for item in symbols_field) if isinstance(symbols_field, (list, tuple)) else ()
+            instruments_tuple = tuple(str(item) for item in instrument_field) if isinstance(instrument_field, (list, tuple)) else ()
+            converted.append(
+                MarketBindingMetadata(
+                    binding_id=str(entry.get("binding_id")),
+                    dataset_id=str(entry.get("dataset_id")),
+                    descriptor_id=(str(entry.get("descriptor_id")) if entry.get("descriptor_id") is not None else None),
+                    schema=(str(entry.get("schema")) if entry.get("schema") is not None else None),
+                    storage_kind=(str(entry.get("storage_kind")) if entry.get("storage_kind") is not None else None),
+                    symbols=symbols_tuple,
+                    instrument_ids=instruments_tuple,
+                    source=str(entry.get("source", "")),
+                    license_start=(str(entry.get("license_start")) if entry.get("license_start") is not None else None),
+                    license_end=(str(entry.get("license_end")) if entry.get("license_end") is not None else None),
+                    ts_event_start=(str(entry.get("ts_event_start")) if entry.get("ts_event_start") is not None else None),
+                    ts_event_end=(str(entry.get("ts_event_end")) if entry.get("ts_event_end") is not None else None),
+                    rows_from_store=int(entry.get("rows_from_store", 0) or 0),
+                    rows_from_catalog=int(entry.get("rows_from_catalog", 0) or 0),
+                ),
+            )
+        market_bindings = tuple(converted)
+
     return DatasetMetadata(
         dataset_id=str(raw.get("dataset_id")) if raw.get("dataset_id") else None,
         vintage_policy=policy,
@@ -490,6 +586,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         validation_window=_as_tuple(raw.get("validation_window")),
         test_window=_as_tuple(raw.get("test_window")),
         macro_observation_counts=macro_counts,
+        market_bindings=market_bindings,
     )
 
 
@@ -552,6 +649,27 @@ def _sorted_tuple(values: Sequence[str] | None) -> tuple[str, ...]:
     return tuple(sorted(str(item) for item in values))
 
 
+def _sorted_market_bindings(
+    bindings: Sequence[MarketBindingMetadata] | None,
+) -> tuple[tuple[str, ...], ...]:
+    if not bindings:
+        return ()
+    summary: list[tuple[str, ...]] = []
+    for binding in bindings:
+        summary.append(
+            (
+                binding.dataset_id,
+                binding.descriptor_id or "",
+                ",".join(sorted(binding.symbols)),
+                ",".join(sorted(binding.instrument_ids)),
+                binding.source,
+                binding.storage_kind or "",
+            ),
+        )
+    summary.sort()
+    return tuple(summary)
+
+
 def compute_dataset_pipeline_signature(
     *,
     dataset_id: str | None,
@@ -564,6 +682,7 @@ def compute_dataset_pipeline_signature(
     vintage_cutoff: str | None,
     ts_event_start: str | None,
     ts_event_end: str | None,
+    market_bindings: Sequence[MarketBindingMetadata] | None = None,
 ) -> str:
     """Compute a deterministic pipeline signature describing dataset lineage."""
     payload = {
@@ -577,6 +696,7 @@ def compute_dataset_pipeline_signature(
         "vintage_cutoff": vintage_cutoff,
         "ts_event_start": ts_event_start,
         "ts_event_end": ts_event_end,
+        "market_bindings": _sorted_market_bindings(market_bindings),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
     return f"tft_pipeline:{digest[:16]}"
@@ -1018,6 +1138,8 @@ def _build_dataset_chunked(
         cursor = chunk_end
         chunk_index += 1
 
+    binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
+
     if not chunk_metas:
         dataset_parquet = cfg.out_dir / "dataset.parquet"
         dataset_csv = cfg.out_dir / "dataset.csv"
@@ -1047,6 +1169,7 @@ def _build_dataset_chunked(
             validation_window=None,
             test_window=None,
             macro_observation_counts={},
+            market_bindings=binding_metadata,
         )
         metadata_path = cfg.out_dir / "dataset_metadata.json"
         metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
@@ -1223,6 +1346,7 @@ def _build_dataset_chunked(
         validation_window=_format_window(validation_window_start, overall_end),
         test_window=None,
         macro_observation_counts=macro_totals,
+        market_bindings=binding_metadata,
     )
 
     metadata_path = cfg.out_dir / "dataset_metadata.json"
@@ -1239,11 +1363,26 @@ def _build_dataset_chunked(
         ),
         validation_result,
     )
-def _format_window(start: datetime | None, end: datetime | None) -> tuple[str, str] | None:
-    if start is None or end is None:
+def _ensure_datetime(value: datetime | float | None) -> datetime | None:
+    if value is None:
         return None
-    start_iso = format_dt(start)
-    end_iso = format_dt(end)
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, (int, float, np.generic)):
+        try:
+            return datetime.fromtimestamp(float(value) / 1_000_000_000, tz=UTC)
+        except (OSError, OverflowError, ValueError):  # pragma: no cover - defensive
+            return None
+    return None
+
+
+def _format_window(start: datetime | float | None, end: datetime | float | None) -> tuple[str, str] | None:
+    start_dt = _ensure_datetime(start)
+    end_dt = _ensure_datetime(end)
+    if start_dt is None or end_dt is None:
+        return None
+    start_iso = format_dt(start_dt)
+    end_iso = format_dt(end_dt)
     if start_iso is None or end_iso is None:
         return None
     return (start_iso, end_iso)
@@ -1277,19 +1416,21 @@ def _compute_dataset_metadata(
 
         if ts_col is not None and df_pd_sorted.height > 0:
             ts_series = df_pd_sorted.select(pl.col(ts_col)).to_series()
-            start_dt = ts_series[0]
-            end_dt = ts_series[len(ts_series) - 1]
+            start_dt_raw = ts_series[0]
+            end_dt_raw = ts_series[len(ts_series) - 1]
+            start_dt = _ensure_datetime(start_dt_raw)
+            end_dt = _ensure_datetime(end_dt_raw)
             overall_window = _format_window(start_dt, end_dt)
-            ts_start = format_dt(start_dt)
-            ts_end = format_dt(end_dt)
+            ts_start = format_dt(start_dt) if start_dt is not None else None
+            ts_end = format_dt(end_dt) if end_dt is not None else None
 
             if cutoff > 0:
                 train_start_dt = start_dt
-                train_end_dt = ts_series[min(cutoff - 1, len(ts_series) - 1)]
+                train_end_dt = _ensure_datetime(ts_series[min(cutoff - 1, len(ts_series) - 1)])
                 train_window = _format_window(train_start_dt, train_end_dt)
 
             if cutoff < len(ts_series):
-                val_start_dt = ts_series[cutoff]
+                val_start_dt = _ensure_datetime(ts_series[cutoff])
                 val_end_dt = end_dt
                 validation_window = _format_window(val_start_dt, val_end_dt)
     else:
@@ -1355,6 +1496,28 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         "test_window": list(metadata.test_window) if metadata.test_window else None,
         "macro_observation_counts": metadata.macro_observation_counts,
     }
+    if metadata.market_bindings is not None:
+        payload["market_bindings"] = [
+            {
+                "binding_id": binding.binding_id,
+                "dataset_id": binding.dataset_id,
+                "descriptor_id": binding.descriptor_id,
+                "schema": binding.schema,
+                "storage_kind": binding.storage_kind,
+                "symbols": list(binding.symbols),
+                "instrument_ids": list(binding.instrument_ids),
+                "source": binding.source,
+                "license_start": binding.license_start,
+                "license_end": binding.license_end,
+                "ts_event_start": binding.ts_event_start,
+                "ts_event_end": binding.ts_event_end,
+                "rows_from_store": binding.rows_from_store,
+                "rows_from_catalog": binding.rows_from_catalog,
+            }
+            for binding in metadata.market_bindings
+        ]
+    else:
+        payload["market_bindings"] = None
     return payload
 
 
@@ -1466,6 +1629,15 @@ def build_tft_dataset(
         else:
             vintage_as_of = vintage_as_of.astimezone(UTC)
 
+    descriptor_map = load_market_feed_descriptors().as_mapping()
+    resolved_bindings = resolve_market_dataset_bindings(
+        symbols=cfg.symbols,
+        instrument_ids=cfg.instrument_ids,
+        market_dataset_id=cfg.market_dataset_id,
+        market_inputs=cfg.market_inputs,
+        descriptors=descriptor_map,
+    )
+
     builder = TFTDatasetBuilder(
         catalog=catalog,
         symbols=cfg.symbols,
@@ -1487,6 +1659,7 @@ def build_tft_dataset(
         vintage_as_of=vintage_as_of,
         data_store=data_store,
         market_dataset_id=cfg.market_dataset_id,
+        market_bindings=resolved_bindings,
     )
 
     chunk_mode = bool(cfg.chunk_days > 0 and cfg.start and cfg.end)
@@ -1574,6 +1747,8 @@ def build_tft_dataset(
         getattr(cfg, "dataset_id", None),
         getattr(validation_result, "macro_observation_counts", {}),
     )
+    binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
+    metadata = replace(metadata, market_bindings=binding_metadata)
     _validate_dataset_metadata(metadata)
     metadata_path = cfg.out_dir / "dataset_metadata.json"
     metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")

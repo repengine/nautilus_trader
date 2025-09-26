@@ -12,6 +12,13 @@ import logging
 import os
 
 
+_SMALL_TS_THRESHOLD = 10_000_000
+_PRESERVE_SMALL_TS_CONTEXT_PREFIXES = (
+    "ModelStore",
+    "StrategyStore",
+)
+
+
 def normalize_timestamp_ns(ts_value: int) -> tuple[int, bool]:
     """
     Normalize a UNIX timestamp to nanoseconds.
@@ -61,7 +68,18 @@ def sanitize_timestamp_ns(
     - reject: raise ValueError if normalization would be required
 
     """
-    norm, changed = normalize_timestamp_ns(ts_value)
+    if context.startswith(_PRESERVE_SMALL_TS_CONTEXT_PREFIXES):
+        try:
+            ts_int = int(ts_value)
+        except Exception:
+            norm, changed = normalize_timestamp_ns(ts_value)
+        else:
+            if -_SMALL_TS_THRESHOLD <= ts_int <= _SMALL_TS_THRESHOLD:
+                norm, changed = ts_int, False
+            else:
+                norm, changed = normalize_timestamp_ns(ts_int)
+    else:
+        norm, changed = normalize_timestamp_ns(ts_value)
     effective_mode = _get_mode(mode)
     if changed:
         if effective_mode == "reject":

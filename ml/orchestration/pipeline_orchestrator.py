@@ -14,26 +14,33 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import itertools
 import json
 import logging
 import os
 import time
 import uuid as _uuid
+from calendar import monthrange
+from collections import OrderedDict
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
 from datetime import UTC
+from datetime import date
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.config.coverage import CoveragePolicy
 from ml.config.coverage import get_max_lookback_days
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import coerce_storage_kind
+from ml.config.market_data import load_market_feed_descriptors
 from ml.data import DatasetMetadata
 from ml.data import DatasetMetadataExpectations
 from ml.data import DatasetValidationConfig
@@ -42,6 +49,8 @@ from ml.data import load_dataset_metadata
 from ml.data import validate_dataset_metadata_expectations
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
+from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
@@ -59,6 +68,7 @@ from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import DAY_NS
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
+from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import FanoutMarketDataWriter
 from ml.stores.writers import ParquetCatalogMarketDataWriter
@@ -71,6 +81,94 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from ml.config.scheduler_config import SchedulerConfig
+
+
+DEFAULT_LOOKBACK_YEARS: Final[int] = 7
+DEFAULT_MACRO_SERIES: Final[tuple[str, ...]] = (
+    "CPIAUCSL",
+    "PCEPI",
+    "PAYEMS",
+    "UNRATE",
+    "GDP",
+    "FEDFUNDS",
+)
+
+_WRITE_MODE_TOKEN_MAP: Final[dict[str, tuple[str, ...]]] = {
+    "datastore": ("datastore",),
+    "parquet": ("datastore", "parquet"),
+    "datastore+parquet": ("datastore", "parquet"),
+    "sql": ("sql",),
+    "sql+datastore": ("sql", "datastore"),
+    "sql+parquet": ("sql", "parquet"),
+    "sql+datastore+parquet": ("sql", "datastore", "parquet"),
+}
+
+_WRITE_MODE_ALLOWED_TOKENS: Final[frozenset[str]] = frozenset({"sql", "datastore", "parquet"})
+
+
+def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
+    """Normalize write-mode token strings to ordered mode tuples."""
+    normalized = raw_mode.strip().lower()
+    mapped = _WRITE_MODE_TOKEN_MAP.get(normalized)
+    if mapped is not None:
+        return mapped
+    if normalized:
+        tokens = tuple(token for token in normalized.split("+") if token)
+        if tokens:
+            invalid = [token for token in tokens if token not in _WRITE_MODE_ALLOWED_TOKENS]
+            if invalid:
+                raise SystemExit(
+                    f"Unsupported write_mode tokens {invalid}; allowed tokens are "
+                    f"{sorted(_WRITE_MODE_ALLOWED_TOKENS)}",
+                )
+            ordered = tuple(dict.fromkeys(tokens))
+            return ordered
+    raise SystemExit(f"Unsupported write_mode '{raw_mode}'")
+
+
+def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:
+    """Populate market inputs from feed descriptors when not explicitly provided."""
+    if cfg.market_inputs:
+        return cfg
+
+    descriptors = load_market_feed_descriptors().descriptors
+    if not descriptors:
+        return cfg
+
+    inputs: list[MarketDatasetInput] = []
+    for descriptor in descriptors:
+        inputs.append(
+            MarketDatasetInput(
+                descriptor_id=descriptor.descriptor_id,
+                dataset_id=descriptor.dataset_id,
+            ),
+        )
+
+    if not inputs:
+        return cfg
+
+    fallback_dataset_id = cfg.market_dataset_id
+    if fallback_dataset_id is None:
+        for entry in inputs:
+            if entry.dataset_id is not None:
+                fallback_dataset_id = entry.dataset_id
+                break
+
+    return replace(
+        cfg,
+        market_inputs=tuple(inputs),
+        market_dataset_id=fallback_dataset_id,
+    )
+
+
+def _compute_window_start_iso(*, end_iso: str, lookback_years: int = DEFAULT_LOOKBACK_YEARS) -> str:
+    """Compute ISO8601 start date by subtracting ``lookback_years`` from ``end_iso``."""
+    end_date = date.fromisoformat(end_iso)
+    target_year = end_date.year - lookback_years
+    days_in_month = monthrange(target_year, end_date.month)[1]
+    day = min(end_date.day, days_in_month)
+    start_date = date(target_year, end_date.month, day)
+    return start_date.isoformat()
 
 
 class _CliMain(Protocol):
@@ -113,6 +211,7 @@ class DatasetBuildConfig:
     out_dir: str
     dataset_id: str = "tft_dataset"
     market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
     instrument_ids: tuple[str, ...] | None = None
     include_macro: bool = False
     macro_lag_days: int = 1
@@ -287,6 +386,7 @@ class MLPipelineOrchestrator:
     strategy_store: object | None = None
     data_store: object | None = None
     partition_manager: object | None = None
+    domain_loader: DomainWindowLoaderProtocol | None = None
     integration_manager_factory: Callable[..., IntegrationManagerProtocol] | None = None
     _integration_manager: IntegrationManagerProtocol | None = field(
         default=None,
@@ -361,6 +461,207 @@ class MLPipelineOrchestrator:
         symbols_raw = dataset_cfg.symbols.split(",")
         return tuple(item.strip().upper() for item in symbols_raw if item.strip())
 
+    def _prepare_dataset_config(self, cfg: DatasetBuildConfig) -> DatasetBuildConfig:
+        base_cfg = _apply_default_market_inputs(cfg)
+        resolved_inputs, bindings = self._resolve_market_inputs(base_cfg)
+        if resolved_inputs:
+            instrument_ids = self._collect_instrument_ids(bindings, base_cfg.instrument_ids)
+            base_cfg = replace(
+                base_cfg,
+                market_inputs=resolved_inputs,
+                instrument_ids=instrument_ids,
+            )
+        logger.info(
+            "Dataset config prepared",
+            extra={
+                "symbols": base_cfg.symbols,
+                "instrument_ids": base_cfg.instrument_ids,
+                "market_inputs": 0 if base_cfg.market_inputs is None else len(base_cfg.market_inputs),
+            },
+        )
+        return base_cfg
+
+    def _resolve_market_inputs(
+        self,
+        cfg: DatasetBuildConfig,
+    ) -> tuple[tuple[MarketDatasetInput, ...] | None, tuple[ResolvedMarketBinding, ...]]:
+        coverage = self.coverage
+        if coverage is None:
+            return None, ()
+
+        symbol_map = self._symbol_to_instruments(cfg)
+        if not symbol_map:
+            return None, ()
+
+        try:
+            start_ns, end_ns = self._resolve_window_bounds_ns(cfg)
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("Unable to resolve coverage window; skipping market input resolution")
+            return None, ()
+
+        resolved_inputs: list[MarketDatasetInput] = []
+        resolved_bindings: list[ResolvedMarketBinding] = []
+        for symbol, instrument_ids in symbol_map.items():
+            candidates = IngestionOrchestrator.resolve_market_bindings(
+                symbols=[symbol],
+                instrument_ids=instrument_ids or None,
+                market_dataset_id=cfg.market_dataset_id,
+                market_inputs=cfg.market_inputs,
+            )
+            binding = self._select_binding_with_coverage(
+                candidates=candidates,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+            if binding is None and candidates:
+                binding = next(
+                    (
+                        candidate
+                        for candidate in candidates
+                        if (candidate.schema or "").lower() in {"ohlcv-1m", "bars"}
+                        or "ohlcv" in (candidate.schema or "").lower()
+                    ),
+                    None,
+                )
+            if binding is None and candidates:
+                binding = candidates[0]
+            if binding is None:
+                logger.warning(
+                    "No binding resolved for symbol",
+                    extra={"symbol": symbol, "market_dataset_id": cfg.market_dataset_id},
+                )
+                continue
+            resolved_inputs.append(
+                MarketDatasetInput(
+                    descriptor_id=binding.descriptor_id,
+                    dataset_id=binding.dataset_id,
+                    symbols=(symbol,),
+                    schema_override=binding.schema,
+                    storage_kind_override=binding.storage_kind,
+                ),
+            )
+            resolved_bindings.append(binding)
+            logger.debug(
+                "Binding resolved",
+                extra={
+                    "symbol": symbol,
+                    "dataset_id": binding.dataset_id,
+                    "schema": binding.schema,
+                    "instrument_ids": binding.instrument_ids,
+                },
+            )
+
+        if not resolved_inputs:
+            return None, ()
+        return tuple(resolved_inputs), tuple(resolved_bindings)
+
+    def _symbol_to_instruments(
+        self,
+        cfg: DatasetBuildConfig,
+    ) -> OrderedDict[str, tuple[str, ...]]:
+        symbols: OrderedDict[str, None] = OrderedDict()
+        raw_symbols = str(cfg.symbols or "").split(",")
+        for raw in raw_symbols:
+            token = raw.strip()
+            if not token:
+                continue
+            symbols.setdefault(token.split(".")[0].upper(), None)
+
+        instrument_mapping: dict[str, list[str]] = {}
+        for inst in cfg.instrument_ids or ():
+            token = inst.strip()
+            if not token:
+                continue
+            upper = token.upper()
+            base = upper.split(".")[0]
+            instrument_mapping.setdefault(base, []).append(upper)
+            symbols.setdefault(base, None)
+
+        ordered: OrderedDict[str, tuple[str, ...]] = OrderedDict()
+        for symbol in symbols.keys():
+            ordered[symbol] = tuple(instrument_mapping.get(symbol, ()))
+        return ordered
+
+    @staticmethod
+    def _collect_instrument_ids(
+        bindings: tuple[ResolvedMarketBinding, ...],
+        existing: tuple[str, ...] | None,
+    ) -> tuple[str, ...]:
+        collected: OrderedDict[str, None] = OrderedDict()
+        if existing:
+            for inst in existing:
+                token = inst.strip()
+                if token:
+                    collected.setdefault(token.upper(), None)
+
+        for binding in bindings:
+            for inst in binding.instrument_ids or (binding.symbol,):
+                token = inst.strip().upper()
+                if token:
+                    collected.setdefault(token, None)
+
+        return tuple(collected.keys())
+
+    def _select_binding_with_coverage(
+        self,
+        *,
+        candidates: tuple[ResolvedMarketBinding, ...],
+        start_ns: int,
+        end_ns: int,
+    ) -> ResolvedMarketBinding | None:
+        coverage = self.coverage
+        if coverage is None:
+            return None
+
+        for binding in candidates:
+            schema = binding.schema or ""
+            if not schema:
+                continue
+            instruments = binding.instrument_ids or (binding.symbol,)
+            for instrument in instruments:
+                try:
+                    buckets = coverage.read_bucket_coverage(
+                        dataset_id=binding.dataset_id,
+                        schema=schema,
+                        instrument_id=instrument,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                    )
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.debug(
+                        "Coverage lookup failed",
+                        exc_info=True,
+                        extra={
+                            "dataset_id": binding.dataset_id,
+                            "schema": schema,
+                            "instrument_id": instrument,
+                        },
+                    )
+                    buckets = set()
+                if buckets:
+                    return binding
+        return None
+
+    def _resolve_window_bounds_ns(self, cfg: DatasetBuildConfig) -> tuple[int, int]:
+        end_dt = parse_dt(cfg.end_iso) if cfg.end_iso else None
+        if end_dt is None:
+            end_dt = datetime.now(tz=UTC)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=UTC)
+        start_iso = cfg.start_iso
+        if start_iso is None:
+            start_iso = _compute_window_start_iso(end_iso=end_dt.date().isoformat())
+        start_dt = parse_dt(start_iso)
+        if start_dt is None:
+            start_dt = datetime.fromisoformat(start_iso).replace(tzinfo=UTC)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=UTC)
+        start_ns = int(start_dt.timestamp() * 1_000_000_000)
+        end_ns = int(end_dt.timestamp() * 1_000_000_000)
+        if end_ns <= start_ns:
+            end_ns = start_ns + DAY_NS
+        return start_ns, end_ns
+
     def _auto_fill_universe(
         self,
         dataset_cfg: DatasetBuildConfig,
@@ -384,6 +685,7 @@ class MLPipelineOrchestrator:
             "tbbo": "tbbo",
             "trades": "trades",
         }
+        processed_binding_keys: set[tuple[str, str]] = set()
 
         if auto_fill_cfg.include_bars:
             lookback = get_max_lookback_days("bars", policy)
@@ -395,6 +697,7 @@ class MLPipelineOrchestrator:
                     lookback_days=lookback,
                     metrics=metrics,
                     dataset_cfg=dataset_cfg,
+                    processed_bindings=processed_binding_keys,
                 )
 
         if auto_fill_cfg.include_tbbo:
@@ -407,6 +710,7 @@ class MLPipelineOrchestrator:
                     lookback_days=lookback,
                     metrics=metrics,
                     dataset_cfg=dataset_cfg,
+                    processed_bindings=processed_binding_keys,
                 )
 
         if auto_fill_cfg.include_trades:
@@ -419,6 +723,7 @@ class MLPipelineOrchestrator:
                     lookback_days=lookback,
                     metrics=metrics,
                     dataset_cfg=dataset_cfg,
+                    processed_bindings=processed_binding_keys,
                 )
 
         if auto_fill_cfg.include_l2:
@@ -448,6 +753,7 @@ class MLPipelineOrchestrator:
         lookback_days: int,
         metrics: _AutoFillMetrics,
         dataset_cfg: DatasetBuildConfig,
+        processed_bindings: set[tuple[str, str]] | None = None,
     ) -> None:
         if lookback_days <= 0:
             logger.debug(
@@ -467,58 +773,136 @@ class MLPipelineOrchestrator:
             metrics.operations_total.labels(schema=schema, status="skipped").inc()
             return
 
+        binding_used: ResolvedMarketBinding | None = None
+        effective_dataset_id = dataset_id
+        effective_schema = schema
+        binding_key: tuple[str, str] | None = None
+        if dataset_cfg.market_inputs or dataset_cfg.market_dataset_id:
+            base_symbol = instrument_id.split(".")[0].upper()
+            resolved = IngestionOrchestrator.resolve_market_bindings(
+                symbols=[base_symbol],
+                instrument_ids=(instrument_id,),
+                market_dataset_id=dataset_cfg.market_dataset_id,
+                market_inputs=dataset_cfg.market_inputs,
+            )
+            if resolved:
+                target_schema = (effective_schema or "").lower()
+                matched_binding = next(
+                    (
+                        candidate
+                        for candidate in resolved
+                        if candidate.schema is not None
+                        and candidate.schema.lower() == target_schema
+                    ),
+                    None,
+                )
+                if matched_binding is not None:
+                    binding_used = matched_binding
+                    effective_dataset_id = binding_used.dataset_id
+                    if binding_used.schema:
+                        effective_schema = binding_used.schema
+                    if processed_bindings is not None:
+                        binding_key = (binding_used.binding_id, effective_schema)
+                        if binding_key in processed_bindings:
+                            logger.debug(
+                                "Auto-fill binding already processed; skipping instrument",
+                                extra={
+                                    "binding_id": binding_used.binding_id,
+                                    "schema": effective_schema,
+                                    "instrument_id": instrument_id,
+                                },
+                            )
+                            metrics.operations_total.labels(
+                                schema=effective_schema,
+                                status="skipped",
+                            ).inc()
+                            return
+                        processed_bindings.add(binding_key)
+            elif dataset_cfg.market_inputs:
+                logger.warning(
+                    "No binding resolved for instrument %s; falling back to dataset %s",
+                    instrument_id,
+                    dataset_id,
+                )
+
         start_time = time.perf_counter()
         status = "success"
         try:
-            dataset_type = self._map_schema_to_dataset_type(schema)
+            dataset_type = self._map_schema_to_dataset_type(effective_schema)
             self._ensure_dataset_registered(
-                dataset_id=dataset_id,
+                dataset_id=effective_dataset_id,
                 dataset_type=dataset_type,
                 location=dataset_cfg.data_dir,
             )
-            gaps = self.backfill(
-                dataset_id=dataset_id,
-                schema=schema,
-                instrument_id=instrument_id,
-                lookback_days=lookback_days,
-            )
-            if gaps:
-                unresolved = self._remaining_coverage_gaps(
-                    dataset_id=dataset_id,
-                    schema=schema,
+            if binding_used is not None:
+                binding_results = self.backfill_binding(
+                    binding=binding_used,
+                    lookback_days=lookback_days,
+                )
+                gaps = binding_results.get(instrument_id)
+                if gaps is None:
+                    gaps = list(itertools.chain.from_iterable(binding_results.values()))
+                logger.info(
+                    "Auto-fill %s using binding %s | instrument=%s dataset=%s gaps=%d lookback_days=%d",
+                    effective_schema,
+                    binding_used.binding_id,
+                    instrument_id,
+                    effective_dataset_id,
+                    len(gaps),
+                    lookback_days,
+                )
+            else:
+                gaps = self.backfill(
+                    dataset_id=effective_dataset_id,
+                    schema=effective_schema,
                     instrument_id=instrument_id,
                     lookback_days=lookback_days,
                 )
-                if unresolved:
-                    status = "error"
-                    raise RuntimeError(
-                        "Auto-fill completed with unresolved coverage gaps "
-                        f"(dataset={dataset_id} schema={schema} instrument={instrument_id} gaps={len(unresolved)})",
-                    )
-            logger.info(
-                "Auto-fill %s complete | instrument=%s dataset=%s gaps=%d lookback_days=%d",
-                schema,
-                instrument_id,
-                dataset_id,
-                len(gaps),
-                lookback_days,
-            )
+            unresolved: list[tuple[int, int]] = []
+            if gaps:
+                unresolved = self._remaining_coverage_gaps(
+                    dataset_id=effective_dataset_id,
+                    schema=effective_schema,
+                    instrument_id=instrument_id,
+                    lookback_days=lookback_days,
+                )
+            if binding_used is None and not unresolved:
+                logger.info(
+                    "Auto-fill %s complete | instrument=%s dataset=%s gaps=%d lookback_days=%d",
+                    effective_schema,
+                    instrument_id,
+                    effective_dataset_id,
+                    len(gaps),
+                    lookback_days,
+                )
+            if unresolved:
+                status = "partial"
+                logger.warning(
+                    "Auto-fill %s completed with unresolved coverage gaps",
+                    effective_schema,
+                    extra={
+                        "instrument_id": instrument_id,
+                        "dataset_id": effective_dataset_id,
+                        "gap_count": len(unresolved),
+                        "lookback_days": lookback_days,
+                    },
+                )
         except Exception as exc:  # pragma: no cover - defensive guard
             status = "error"
             logger.error(
                 "Auto-fill %s failed for %s (dataset=%s lookback=%s): %s",
-                schema,
+                effective_schema,
                 instrument_id,
-                dataset_id,
+                effective_dataset_id,
                 lookback_days,
                 exc,
                 exc_info=True,
             )
             raise
         finally:
-            metrics.operations_total.labels(schema=schema, status=status).inc()
-            metrics.latency_seconds.labels(schema=schema).observe(
-                time.perf_counter() - start_time,
+            metrics.operations_total.labels(schema=effective_schema, status=status).inc()
+            metrics.latency_seconds.labels(schema=effective_schema).observe(
+                max(time.perf_counter() - start_time, 0.0),
             )
 
     def _remaining_coverage_gaps(
@@ -785,6 +1169,19 @@ class MLPipelineOrchestrator:
         )
         scheduler.run_daily_update()
 
+    def _create_ingestion_orchestrator(self) -> IngestionOrchestrator:
+        if self.ingestor is None:
+            raise RuntimeError("Ingestor is not configured for pipeline orchestrator")
+        return IngestionOrchestrator(
+            coverage=self.coverage,
+            writer=self.writer,
+            registry=cast(RegistryProtocol, self.data_registry),
+            ingestor=cast(DatabentoIngestor, self.ingestor),
+            raw_writer=self.raw_writer,
+            domain_loader=self.domain_loader,
+            service=self.service,
+        )
+
     def backfill(
         self,
         *,
@@ -793,18 +1190,23 @@ class MLPipelineOrchestrator:
         instrument_id: str,
         lookback_days: int,
     ) -> list[tuple[int, int]]:
-        orchestrator = IngestionOrchestrator(
-            coverage=self.coverage,
-            writer=self.writer,
-            registry=self.data_registry,  # type: ignore[arg-type]
-            ingestor=self.ingestor,  # type: ignore[arg-type]
-            raw_writer=self.raw_writer,
-            service=self.service,
-        )
+        orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_gaps(
             dataset_id=dataset_id,
             schema=schema,
             instrument_id=instrument_id,
+            lookback_days=lookback_days,
+        )
+
+    def backfill_binding(
+        self,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+    ) -> dict[str, list[tuple[int, int]]]:
+        orchestrator = self._create_ingestion_orchestrator()
+        return orchestrator.backfill_binding(
+            binding=binding,
             lookback_days=lookback_days,
         )
 
@@ -846,6 +1248,7 @@ class MLPipelineOrchestrator:
             api_cfg = APICfg(
                 data_dir=Path(cfg.data_dir),
                 out_dir=Path(cfg.out_dir),
+                dataset_id=cfg.dataset_id,
                 symbols=symbols_list,
                 instrument_ids=instrument_ids_list,
                 include_macro=cfg.include_macro,
@@ -976,13 +1379,7 @@ class MLPipelineOrchestrator:
             )
             return 1
         except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug(
-                "API-based dataset build failed; falling back to CLI: %s",
-                exc,
-                exc_info=True,
-            )
+            logger.warning("API dataset build failed; falling back to CLI: %s", exc, exc_info=True)
 
         # Fallback to invoking the CLI main with assembled args
         args: list[str] = [
@@ -1015,10 +1412,28 @@ class MLPipelineOrchestrator:
             args += ["--events_dir", cfg.events_dir]
         if cfg.student_mode:
             args += ["--student_mode"]
-        if cfg.instrument_ids:
-            args += ["--instrument_ids", ",".join(cfg.instrument_ids)]
         if cfg.market_dataset_id:
             args += ["--market_dataset_id", cfg.market_dataset_id]
+        if cfg.market_inputs:
+            inputs_payload: list[object] = []
+            for item in cfg.market_inputs:
+                entry: dict[str, object] = {}
+                if item.descriptor_id is not None:
+                    entry["descriptor_id"] = item.descriptor_id
+                if item.dataset_id is not None:
+                    entry["dataset_id"] = item.dataset_id
+                if item.symbols is not None:
+                    entry["symbols"] = list(item.symbols)
+                if item.schema_override is not None:
+                    entry["schema"] = item.schema_override
+                if item.storage_kind_override is not None:
+                    entry["storage_kind"] = item.storage_kind_override.value
+                if item.start is not None:
+                    entry["start"] = item.start
+                if item.end is not None:
+                    entry["end"] = item.end
+                inputs_payload.append(entry or (item.descriptor_id or item.dataset_id or ""))
+            args += ["--market_inputs_json", json.dumps(inputs_payload)]
         if not cfg.auto_refresh_macro:
             args += ["--skip_macro_refresh"]
         if cfg.macro_staleness_hours != 24:
@@ -1201,6 +1616,7 @@ class MLPipelineOrchestrator:
             vintage_cutoff=metadata.vintage_cutoff,
             ts_event_start=metadata.ts_event_start,
             ts_event_end=metadata.ts_event_end,
+            market_bindings=metadata.market_bindings,
         )
 
     def _synchronize_dataset_manifest(
@@ -1240,6 +1656,18 @@ class MLPipelineOrchestrator:
                     "ts_event_start": metadata.ts_event_start,
                     "ts_event_end": metadata.ts_event_end,
                 },
+                "market_bindings": [
+                    {
+                        "binding_id": binding.binding_id,
+                        "dataset_id": binding.dataset_id,
+                        "descriptor_id": binding.descriptor_id,
+                        "source": binding.source,
+                        "storage_kind": binding.storage_kind,
+                        "symbols": list(binding.symbols),
+                        "instrument_ids": list(binding.instrument_ids),
+                    }
+                    for binding in (metadata.market_bindings or ())
+                ],
             },
         )
 
@@ -1532,6 +1960,9 @@ class MLPipelineOrchestrator:
         return distill_main(args)
 
     def run(self, cfg: OrchestratorConfig) -> int:
+        dataset_cfg = self._prepare_dataset_config(cfg.dataset)
+        cfg = replace(cfg, dataset=dataset_cfg)
+
         # 0) Optional pre-ingestion stage (unified orchestrator path)
         if cfg.pre_ingestion is not None:
             # Prefer environment CATALOG_PATH to keep configs portable
@@ -1830,8 +2261,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--write_mode",
         default="parquet",
-        choices=["parquet", "datastore"],
-        help="Mirror DataStore writes to Parquet (parquet) or keep datastore-only persistence",
+        choices=tuple(sorted(_WRITE_MODE_TOKEN_MAP.keys())),
+        help=(
+            "Ingestion writer fanout: parquet (DataStore+Parquet), datastore, sql, "
+            "sql+datastore, sql+parquet, or sql+datastore+parquet"
+        ),
     )
 
     # Dataset build
@@ -1853,6 +2287,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--market_dataset_id",
         default=None,
         help="Identifier for the canonical market data dataset (defaults to auto-fill dataset)",
+    )
+    parser.add_argument(
+        "--market_inputs_json",
+        default=None,
+        help="JSON payload describing market feed inputs",
     )
     parser.add_argument(
         "--skip_macro_refresh",
@@ -2159,35 +2598,58 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         coverage = SqlCoverageProvider(connection_string=args.db)
 
-    primary_writer: MarketDataWriterProtocol
-    mirror_writers: tuple[MarketDataWriterProtocol, ...]
-    if data_store is not None:
-        from ml.stores.data_store import DataStore as _DataStore
+    mode_tokens = _resolve_write_mode_tokens(args.write_mode)
+    writer_chain: list[MarketDataWriterProtocol] = []
 
-        primary_writer = DataStoreMarketDataWriter(
-            store=cast(_DataStore, data_store),
-        )
-        if args.write_mode == "parquet":
-            if parquet_catalog is None:
-                raise SystemExit("catalog_path is required when write_mode=parquet")
-            parquet_writer = ParquetCatalogMarketDataWriter(
+    if "sql" in mode_tokens:
+        writer_chain.append(SqlMarketDataWriter(connection_string=args.db))
+
+    if "datastore" in mode_tokens:
+        if data_store is None:
+            logger.warning(
+                "write_mode requested DataStore persistence but DataStore is unavailable; "
+                "skipping datastore writer",
+            )
+        else:
+            from ml.stores.data_store import DataStore as _DataStore
+
+            writer_chain.append(
+                DataStoreMarketDataWriter(
+                    store=cast(_DataStore, data_store),
+                ),
+            )
+
+    if "parquet" in mode_tokens:
+        if parquet_catalog is None:
+            raise SystemExit("catalog_path is required when write_mode includes parquet")
+        writer_chain.append(
+            ParquetCatalogMarketDataWriter(
                 catalog=parquet_catalog,
                 manifest_resolver=manifest_resolver,
-            )
-            mirror_writers = (parquet_writer,)
-        else:
-            mirror_writers = ()
-    else:
-        if parquet_catalog is None:
-            raise SystemExit(
-                "DataStore unavailable and no catalog_path provided; cannot attach runtime writer",
-            )
-        primary_writer = ParquetCatalogMarketDataWriter(
-            catalog=parquet_catalog,
-            manifest_resolver=manifest_resolver,
+            ),
         )
-        mirror_writers = ()
 
+    if not writer_chain:
+        if data_store is not None:
+            from ml.stores.data_store import DataStore as _DataStore
+
+            writer_chain.append(
+                DataStoreMarketDataWriter(
+                    store=cast(_DataStore, data_store),
+                ),
+            )
+        elif parquet_catalog is not None:
+            writer_chain.append(
+                ParquetCatalogMarketDataWriter(
+                    catalog=parquet_catalog,
+                    manifest_resolver=manifest_resolver,
+                ),
+            )
+        else:
+            raise SystemExit("No ingestion writers available; configure DataStore or catalog")
+
+    primary_writer = writer_chain[0]
+    mirror_writers = tuple(writer_chain[1:])
     writer = FanoutMarketDataWriter(primary=primary_writer, mirrors=mirror_writers)
     integration_factory: Callable[..., IntegrationManagerProtocol] | None = cast(
         Callable[..., IntegrationManagerProtocol],
@@ -2245,22 +2707,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         integration_manager_factory=integration_factory,
     )
 
-    if args.ingest and ingestor is not None:
-        if ingestion_service is None:
-            logging.getLogger(__name__).warning(
-                "Ingestion requested but DatabentoIngestionService unavailable; skipping",
-            )
-        else:
-            schema_map = {"bars": "ohlcv-1m", "tbbo": "tbbo", "trades": "trades"}
-            provider_schema = schema_map.get(str(args.schema).lower(), str(args.schema))
-            instruments = [s.strip() for s in str(args.instruments).split(",") if s.strip()]
-            for inst in instruments:
-                orch.backfill(
-                    dataset_id=args.dataset_id,
-                    schema=provider_schema,
-                    instrument_id=inst,
-                    lookback_days=int(args.lookback_days),
-                )
+    # Deferred ingestion block runs after dataset config is prepared
     data_dir_effective = Path(args.data_dir)
     if args.catalog_path and str(args.data_dir) == "data/tier1":
         data_dir_effective = Path(args.catalog_path)
@@ -2271,6 +2718,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if item.strip()
     )
     macro_series_ids: tuple[str, ...] | None = raw_macro_series_ids or None
+    if bool(args.include_macro) and macro_series_ids is None:
+        macro_series_ids = DEFAULT_MACRO_SERIES
 
     raw_instrument_ids = tuple(
         item.strip()
@@ -2331,12 +2780,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         or getattr(args, "dataset_id", "")
     )
 
+    market_inputs_tuple = _parse_market_inputs_json(getattr(args, "market_inputs_json", None))
+
+    end_iso = args.end_iso
+    start_iso = args.start_iso
+    if start_iso is None and end_iso:
+        start_iso = _compute_window_start_iso(end_iso=end_iso)
+
     ds_cfg = DatasetBuildConfig(
         data_dir=str(data_dir_effective),
         symbols=str(args.symbols),
         out_dir=str(args.out_dir),
         dataset_id=str(getattr(args, "dataset_id", "tft_dataset")),
         market_dataset_id=str(market_dataset_id) if market_dataset_id else None,
+        market_inputs=market_inputs_tuple,
         include_macro=bool(args.include_macro),
         macro_lag_days=int(args.macro_lag_days),
         include_micro=bool(args.include_micro),
@@ -2355,8 +2812,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         horizon_minutes=int(args.horizon_minutes),
         threshold=float(args.threshold),
         lookback_periods=int(args.lookback_periods),
-        start_iso=args.start_iso,
-        end_iso=args.end_iso,
+        start_iso=start_iso,
+        end_iso=end_iso,
         chunk_days=int(args.chunk_days),
         register_features=bool(args.dataset_register_features),
         feature_registry_dir=args.feature_registry_dir,
@@ -2366,7 +2823,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         vintage_as_of=args.vintage_as_of,
     )
 
+    ds_cfg = orch._prepare_dataset_config(ds_cfg)
+
     auto_fill_cfg = _build_auto_fill_config_from_args(args, ds_cfg)
+
+    if args.ingest and ingestor is not None:
+        if ingestion_service is None:
+            logging.getLogger(__name__).warning(
+                "Ingestion requested but DatabentoIngestionService unavailable; skipping",
+            )
+        else:
+            _resolved_inputs, resolved_bindings = orch._resolve_market_inputs(ds_cfg)
+            if auto_fill_cfg.enabled:
+                logger.info(
+                    "Starting auto-fill ingestion",
+                    extra={
+                        "symbol_count": len([s for s in ds_cfg.symbols.split(",") if s.strip()]),
+                        "instrument_count": 0 if ds_cfg.instrument_ids is None else len(ds_cfg.instrument_ids),
+                    },
+                )
+                orch._auto_fill_universe(ds_cfg, auto_fill_cfg)
+            elif resolved_bindings:
+                logger.info(
+                    "Starting binding-based ingestion",
+                    extra={"binding_count": len(resolved_bindings)},
+                )
+                policy = CoveragePolicy.from_env()
+                for binding in resolved_bindings:
+                    schema_label = binding.schema or "bars"
+                    lookback = get_max_lookback_days(schema_label, policy)
+                    orch.backfill_binding(binding=binding, lookback_days=lookback)
+            else:
+                schema_map = {"bars": "ohlcv-1m", "tbbo": "tbbo", "trades": "trades"}
+                provider_schema = schema_map.get(str(args.schema).lower(), str(args.schema))
+                instruments = ds_cfg.instrument_ids or tuple(
+                    token.strip()
+                    for token in str(args.instruments).split(",")
+                    if token.strip()
+                )
+                logger.info(
+                    "Starting fallback ingestion",
+                    extra={
+                        "schema": provider_schema,
+                        "instrument_count": len(instruments),
+                    },
+                )
+                for inst in instruments:
+                    orch.backfill(
+                        dataset_id=ds_cfg.market_dataset_id or ds_cfg.dataset_id,
+                        schema=provider_schema,
+                        instrument_id=inst,
+                        lookback_days=int(args.lookback_days),
+                    )
 
     hpo_cfg = HPOConfig(
         enabled=bool(args.hpo),
@@ -2434,6 +2942,83 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _parse_market_inputs_json(
+    value: str | None,
+) -> tuple[MarketDatasetInput, ...] | None:
+    """Parse CLI-provided JSON payload into MarketDatasetInput entries."""
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"market_inputs_json must be valid JSON: {exc}") from exc
+
+    items: list[object]
+    if isinstance(payload, (str, dict)):
+        items = [payload]
+    elif isinstance(payload, list):
+        items = list(payload)
+    else:
+        raise SystemExit("market_inputs_json must encode a list, object, or descriptor string")
+
+    inputs: list[MarketDatasetInput] = []
+    for entry in items:
+        if isinstance(entry, str):
+            inputs.append(MarketDatasetInput(descriptor_id=entry))
+            continue
+        if isinstance(entry, dict):
+            descriptor_id = entry.get("descriptor_id")
+            dataset_id = entry.get("dataset_id")
+            if descriptor_id is None and dataset_id is None:
+                raise SystemExit("market_inputs_json entries require descriptor_id or dataset_id")
+
+            symbols_field = entry.get("symbols")
+            symbols_tuple: tuple[str, ...] | None
+            if symbols_field is None:
+                symbols_tuple = None
+            elif isinstance(symbols_field, str):
+                symbols_tuple = tuple(
+                    token.strip().upper()
+                    for token in symbols_field.split(",")
+                    if token.strip()
+                ) or None
+            elif isinstance(symbols_field, (list, tuple)):
+                symbols_tuple = tuple(
+                    str(token).strip().upper()
+                    for token in symbols_field
+                    if str(token).strip()
+                ) or None
+            else:
+                raise SystemExit("market_inputs_json symbols must be string or iterable")
+
+            schema_override = entry.get("schema") or entry.get("schema_override")
+            storage_raw = entry.get("storage_kind") or entry.get("storage_kind_override")
+            storage_kind = None
+            if storage_raw is not None:
+                try:
+                    storage_kind = coerce_storage_kind(storage_raw)
+                except ValueError as exc:  # pragma: no cover - defensive guard
+                    raise SystemExit(
+                        f"Invalid storage_kind '{storage_raw}' in market_inputs_json",
+                    ) from exc
+
+            inputs.append(
+                MarketDatasetInput(
+                    descriptor_id=str(descriptor_id) if descriptor_id is not None else None,
+                    dataset_id=str(dataset_id) if dataset_id is not None else None,
+                    symbols=symbols_tuple,
+                    schema_override=str(schema_override) if schema_override is not None else None,
+                    storage_kind_override=storage_kind,
+                    start=str(entry.get("start")) if entry.get("start") is not None else None,
+                    end=str(entry.get("end")) if entry.get("end") is not None else None,
+                ),
+            )
+            continue
+        raise SystemExit("market_inputs_json entries must be strings or objects")
+
+    return tuple(inputs) if inputs else None
+
+
 def _build_validation_config_from_args(
     args: argparse.Namespace,
     macro_series_ids: tuple[str, ...] | None,
@@ -2474,10 +3059,8 @@ def _build_auto_fill_config_from_args(
             for item in str(raw_override).split(",")
             if item.strip()
         )
-    dataset_id = str(
-        getattr(args, "auto_fill_dataset_id", None)
-        or getattr(args, "dataset_id", "EQUS.MINI")
-    )
+    dataset_id_arg = getattr(args, "auto_fill_dataset_id", None)
+    dataset_id = str(dataset_id_arg or getattr(args, "dataset_id", "EQUS.MINI"))
     include_l2 = bool(getattr(args, "include_l2", False)) and not bool(
         getattr(args, "auto_fill_skip_l2", False),
     )
@@ -2500,12 +3083,20 @@ def _build_auto_fill_config_from_args(
     l3_days_raw = getattr(args, "auto_fill_l3_days", None)
     l3_days = int(l3_days_raw) if l3_days_raw is not None else None
 
+    include_bars = True
+    include_tbbo = True
+    include_trades = True
+    if dataset_id_arg and dataset_id != getattr(args, "dataset_id", dataset_id):
+        include_bars = False
+        include_tbbo = False
+        include_trades = False
+
     return AutoFillUniverseConfig(
         enabled=enabled,
         dataset_id=dataset_id,
-        include_bars=True,
-        include_tbbo=True,
-        include_trades=True,
+        include_bars=include_bars,
+        include_tbbo=include_tbbo,
+        include_trades=include_trades,
         include_l2=include_l2,
         include_l3=include_l3,
         l2_dataset_id=l2_dataset_id,

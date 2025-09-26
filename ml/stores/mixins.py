@@ -36,6 +36,9 @@ from ml.common.metrics_manager import MetricsManager
 from ml.config.events import EventStatus
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.utils import get_default_registry_path
 
 
 # =============================================================================
@@ -495,9 +498,9 @@ class ReadQueryMixin:
                     logger.debug("Mock inspection failed for execute_read: %s", exc, exc_info=True)
 
             data = [{col: row[idx] for idx, col in enumerate(columns)} for row in rows]
-            df = pd.DataFrame(data, columns=list(columns))
-            if len(df.index):
-                return df
+            frame = pd.DataFrame(data, columns=list(columns))
+            if len(frame.index):
+                return frame
 
         # Engine path with simple retry on deadlocks
         attempts = 3
@@ -618,13 +621,10 @@ class DataRegistryMixin:
         if self._data_registry is not None:
             return self._data_registry
 
-        from pathlib import Path
+        registry_path = get_default_registry_path()
+        from ml.registry import data_registry as _data_registry_mod
 
-        from ml.registry.data_registry import DataRegistry
-        from ml.registry.persistence import BackendType
-        from ml.registry.persistence import PersistenceConfig
-
-        registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+        registry_factory = getattr(_data_registry_mod, "DataRegistry")
 
         tried_postgres = False
         if self.connection_string and (
@@ -636,7 +636,7 @@ class DataRegistryMixin:
                     backend=BackendType.POSTGRES,
                     connection_string=self.connection_string,
                 )
-                self._data_registry = DataRegistry(
+                self._data_registry = registry_factory(
                     registry_path=registry_path,
                     persistence_config=pg_cfg,
                 )
@@ -647,7 +647,7 @@ class DataRegistryMixin:
 
         try:
             json_cfg = PersistenceConfig(backend=BackendType.JSON, json_path=registry_path)
-            self._data_registry = DataRegistry(
+            self._data_registry = registry_factory(
                 registry_path=registry_path,
                 persistence_config=json_cfg,
             )

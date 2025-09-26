@@ -74,6 +74,10 @@ from ml.config.lightgbm import UnifiedLightGBMConfig
 # =============================================================================
 from ml.config.loader import load_from_file
 from ml.config.loader import merge_env
+from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import MarketFeedDescriptor
+from ml.config.market_data import MarketFeedDescriptorSet
+from ml.config.market_data import load_market_feed_descriptors
 from ml.config.observability import ObservabilityConfig
 
 # =============================================================================
@@ -202,6 +206,9 @@ __all__ = [
     "MLSignalActorConfig",
     "MLStrategyConfig",
     "MLTrainingConfig",
+    "MarketDatasetInput",
+    "MarketFeedDescriptor",
+    "MarketFeedDescriptorSet",
     "MessageBusConfig",
     "ModelDeploymentConfig",
     "ModelRegistryConfig",
@@ -223,6 +230,7 @@ __all__ = [
     "XGBoostTrainingConfig",
     "get_config_defaults",
     "load_from_file",
+    "load_market_feed_descriptors",
     "merge_env",
     "validate_ml_config",
 ]

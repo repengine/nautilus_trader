@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,7 @@ from ml.common.timestamps import sanitize_timestamp_ns
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+from ml.registry.utils import compute_dataset_schema_hash
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,6 +64,7 @@ class DatasetManifestOverrides:
 
     dataset_type: DatasetType | None = None
     spec: DatasetManifestSpec | None = None
+    spec_by_type: Mapping[DatasetType, DatasetManifestSpec] | None = None
 
 
 _DEFAULT_SPEC = DatasetManifestSpec(
@@ -205,13 +206,15 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
     ),
     "EQUS.MINI": DatasetManifestOverrides(
         dataset_type=DatasetType.TRADES,
-        spec=_DATASET_TYPE_DEFAULTS[DatasetType.TRADES].copy_with(
-            metadata={
-                "schema_kind": "trades",
-                "source": "databento",
-                "dataset_family": "equities_mini",
-            },
-        ),
+        spec_by_type={
+            DatasetType.TRADES: _DATASET_TYPE_DEFAULTS[DatasetType.TRADES].copy_with(
+                metadata={
+                    "schema_kind": "trades",
+                    "source": "databento",
+                    "dataset_family": "equities_mini",
+                },
+            ),
+        },
     ),
     "XNAS.ITCH": DatasetManifestOverrides(
         dataset_type=DatasetType.TRADES,
@@ -226,9 +229,21 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
 }
 
 
-def _compute_schema_hash(schema: Mapping[str, str]) -> str:
-    payload = json.dumps(dict(schema), sort_keys=True, separators=(",", ":"))
-    return sha256(payload.encode("utf-8")).hexdigest()
+def _compute_schema_hash(
+    *,
+    schema: Mapping[str, str],
+    primary_keys: Sequence[str],
+    ts_field: str,
+    seq_field: str | None,
+    pipeline_signature: str,
+) -> str:
+    return compute_dataset_schema_hash(
+        schema=schema,
+        primary_keys=primary_keys,
+        ts_field=ts_field,
+        seq_field=seq_field,
+        pipeline_signature=pipeline_signature,
+    )
 
 
 def _merge_metadata(
@@ -251,18 +266,41 @@ def resolve_dataset_manifest_spec(
     resolved_type = dataset_type
     if override is not None:
         if override.dataset_type is not None:
-            if resolved_type is not None and resolved_type != override.dataset_type:
+            if (
+                resolved_type is not None
+                and resolved_type != override.dataset_type
+                and override.spec_by_type is None
+            ):
                 raise ValueError(
                     "Dataset type mismatch for override",
                 )
-            resolved_type = override.dataset_type
-        if override.spec is not None:
-            spec = override.spec
             if resolved_type is None:
                 resolved_type = override.dataset_type
+
+        if override.spec_by_type is not None:
+            if resolved_type is None:
+                if len(override.spec_by_type) == 1:
+                    resolved_type, spec = next(iter(override.spec_by_type.items()))
+                    return resolved_type, spec
+            else:
+                spec_by_type = override.spec_by_type.get(resolved_type)
+                if spec_by_type is not None:
+                    return resolved_type, spec_by_type
+
+        if override.spec is not None:
+            if resolved_type is None:
+                resolved_type = override.dataset_type
+            if (
+                override.dataset_type is not None
+                and resolved_type is not None
+                and resolved_type != override.dataset_type
+            ):
+                raise ValueError(
+                    "Dataset type mismatch for override",
+                )
             if resolved_type is None:
                 raise ValueError(f"Unable to infer dataset type for {dataset_id}")
-            return resolved_type, spec
+            return resolved_type, override.spec
 
     if resolved_type is None:
         raise ValueError(f"Dataset type is required for {dataset_id}")
@@ -301,7 +339,13 @@ def build_auto_dataset_manifest(
 
     now_ns = sanitize_timestamp_ns(time.time_ns(), context="dataset_manifest_defaults:now")
 
-    schema_hash = _compute_schema_hash(schema)
+    schema_hash = _compute_schema_hash(
+        schema=schema,
+        primary_keys=spec.primary_keys,
+        ts_field=spec.ts_field,
+        seq_field=spec.seq_field,
+        pipeline_signature=pipeline_signature,
+    )
     location_str = str(Path(location).expanduser()) if storage_kind is StorageKind.PARQUET else location
 
     return DatasetManifest(

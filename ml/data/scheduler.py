@@ -34,6 +34,7 @@ from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
@@ -1121,15 +1122,32 @@ class DataScheduler:
             raw_writer=raw_writer,
             domain_loader=domain_loader,
         )
-
-        for symbol in self.config.symbols:
-            orch.backfill_gaps(
-                dataset_id=self.config.databento.dataset,
-                schema=self.config.databento.schema,
-                instrument_id=symbol,
-                lookback_days=1,
-                state=None,
+        bindings: tuple[ResolvedMarketBinding, ...] = ()
+        if self.config.market_inputs or self.config.market_dataset_id:
+            base_symbols = sorted({sym.split(".")[0].upper() for sym in self.config.symbols})
+            bindings = IngestionOrchestrator.resolve_market_bindings(
+                symbols=base_symbols,
+                instrument_ids=tuple(self.config.symbols),
+                market_dataset_id=self.config.market_dataset_id or self.config.databento.dataset,
+                market_inputs=self.config.market_inputs,
             )
+
+        if bindings:
+            processed: set[str] = set()
+            for binding in bindings:
+                if binding.binding_id in processed:
+                    continue
+                orch.backfill_binding(binding=binding, lookback_days=1)
+                processed.add(binding.binding_id)
+        else:
+            for symbol in self.config.symbols:
+                orch.backfill_gaps(
+                    dataset_id=self.config.databento.dataset,
+                    schema=self.config.databento.schema,
+                    instrument_id=symbol,
+                    lookback_days=1,
+                    state=None,
+                )
 
     def _get_previous_trading_day(self) -> datetime:
         """

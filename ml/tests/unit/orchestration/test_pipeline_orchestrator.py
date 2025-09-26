@@ -15,8 +15,11 @@ import pandas as pd
 import pytest
 
 from ml.config.coverage import CoveragePolicy
+from ml.config.market_data import MarketDatasetInput
 from ml.data import DatasetMetadata
+from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.orchestration.pipeline_orchestrator import AutoFillUniverseConfig
+from ml.orchestration.pipeline_orchestrator import _apply_default_market_inputs
 from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import HPOConfig
 from ml.orchestration.pipeline_orchestrator import IntegrationConfig
@@ -25,6 +28,8 @@ from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
 from ml.orchestration.pipeline_orchestrator import StudentDistillConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 from ml.orchestration.pipeline_orchestrator import _build_auto_fill_config_from_args
+from ml.orchestration.pipeline_orchestrator import _parse_market_inputs_json
+from ml.orchestration.pipeline_orchestrator import _resolve_write_mode_tokens
 from ml.orchestration.pipeline_orchestrator import parse_args
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.data.vintage import VintagePolicy
@@ -48,6 +53,22 @@ class _Coverage:
 class _Writer:
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         return len(df.index) if df is not None and not df.empty else 0
+
+
+@dataclass
+class _CoverageWithAvailability:
+    available: dict[tuple[str, str, str], set[int]]
+
+    def read_bucket_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> set[int]:
+        return self.available.get((dataset_id, schema, instrument_id), set())
 
 
 @dataclass
@@ -432,11 +453,35 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
         schema: str,
         instrument_id: str,
         lookback_days: int,
+        **_: object,
     ) -> list[tuple[int, int]]:
         backfill_calls.append((dataset_id, schema, instrument_id, lookback_days))
         return []
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _fake_backfill)
+
+    target_instrument = "SPY.NYSE"
+
+    def _fake_backfill_binding(
+        self: MLPipelineOrchestrator,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+        **_: object,
+    ) -> dict[str, list[tuple[int, int]]]:
+        instruments = binding.instrument_ids or (binding.symbol,)
+        primary = target_instrument if target_instrument else (instruments[0] if instruments else binding.symbol)
+        backfill_calls.append(
+            (
+                binding.dataset_id,
+                binding.schema or "",
+                primary,
+                lookback_days,
+            ),
+        )
+        return {primary: []}
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _fake_backfill_binding)
 
     l2_configs: list[object] = []
 
@@ -463,10 +508,10 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
             data_dir=str(tmp_path),
-            symbols="SPY.NYSE",
+            symbols=target_instrument,
             out_dir=str(out_dir),
             include_l2=True,
-            instrument_ids=("SPY.NYSE",),
+            instrument_ids=(target_instrument,),
         ),
         hpo=HPOConfig(),
         teacher=TeacherTrainConfig(enabled=False),
@@ -482,14 +527,23 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
     assert ("ohlcv-1m", 14) in schemas
     assert ("tbbo", 7) in schemas
     assert ("trades", 7) in schemas
-    assert {instrument for _, _, instrument, _ in backfill_calls} == {"SPY.NYSE"}
+    assert {instrument for _, _, instrument, _ in backfill_calls} == {
+        "SPY.NYSE",
+        "SPY.ARCX",
+        "SPY.XNAS",
+        "SPY.XNYS",
+    }
     assert l2_configs, "Expected L2 auto-fill to run"
     l2_config = l2_configs[0]
     assert getattr(l2_config, "days") == 3
     assert Path(getattr(l2_config, "data_dir")).samefile(tmp_path)
 
 
-def test_auto_fill_universe_errors_when_gaps_remain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_fill_universe_logs_warning_when_gaps_remain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
     ingestor = _Ingestor()
@@ -524,6 +578,17 @@ def test_auto_fill_universe_errors_when_gaps_remain(tmp_path: Path, monkeypatch:
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _gap_backfill)
 
+    def _gap_backfill_binding(
+        self: MLPipelineOrchestrator,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+    ) -> dict[str, list[tuple[int, int]]]:
+        instruments = binding.instrument_ids or (binding.symbol,)
+        return {instrument: [(0, 1)] for instrument in instruments}
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _gap_backfill_binding)
+
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
             data_dir=str(tmp_path),
@@ -538,9 +603,10 @@ def test_auto_fill_universe_errors_when_gaps_remain(tmp_path: Path, monkeypatch:
             include_bars=True,
         ),
     )
-
-    with pytest.raises(RuntimeError, match="coverage gaps"):
-        orch.run(cfg)
+    caplog.set_level("WARNING")
+    rc = orch.run(cfg)
+    assert rc == 0
+    assert any("coverage gaps" in record.getMessage() for record in caplog.records)
 
 
 def test_ensure_dataset_registered_seeds_manifest(tmp_path: Path) -> None:
@@ -807,6 +873,35 @@ def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     assert auto_fill_cfg.l2_progress_file == str(tmp_path / "progress.json")
 
 
+def test_parse_args_handles_market_inputs_json() -> None:
+    args = parse_args(
+        [
+            "--market_inputs_json",
+            '[{"descriptor_id":"EQUS.MINI","symbols":["SPY","QQQ"],"schema":"ohlcv-1m"}]',
+        ],
+    )
+
+    parsed = _parse_market_inputs_json(str(args.market_inputs_json))
+    assert parsed is not None
+    assert parsed[0].descriptor_id == "EQUS.MINI"
+    assert parsed[0].symbols == ("SPY", "QQQ")
+    assert parsed[0].schema_override == "ohlcv-1m"
+
+
+def test_parse_market_inputs_json_normalizes_storage_kind_variants() -> None:
+    payload = json.dumps(
+        [
+            {"descriptor_id": "EQUS.MINI", "storage_kind": "POSTGRES"},
+            {"descriptor_id": "DBEQ.MINI", "storage_kind": "StorageKind.parquet"},
+        ],
+    )
+
+    parsed = _parse_market_inputs_json(payload)
+    assert parsed is not None
+    assert parsed[0].storage_kind_override is StorageKind.POSTGRES
+    assert parsed[1].storage_kind_override is StorageKind.PARQUET
+
+
 def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     coverage = _Coverage()
     writer = _Writer()
@@ -863,3 +958,67 @@ def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_
 
     rc = orch.run(cfg)
     assert rc == 0
+def test_resolve_write_mode_tokens_aliases() -> None:
+    assert _resolve_write_mode_tokens("parquet") == ("datastore", "parquet")
+    assert _resolve_write_mode_tokens("sql+datastore") == ("sql", "datastore")
+
+
+def test_resolve_write_mode_tokens_invalid() -> None:
+    with pytest.raises(SystemExit):
+        _resolve_write_mode_tokens("invalid-mode")
+
+
+def test_prepare_dataset_config_uses_coverage(tmp_path: Path) -> None:
+    coverage = _CoverageWithAvailability(
+        available={("EQUS.MINI", "ohlcv-1m", "SPY.XNAS"): {1}},
+    )
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=_Writer(),
+        data_registry=_Registry(),
+        ingestor=_Ingestor(),
+        build_main=_CliWrapper(_ok),
+        teacher_main=_CliWrapper(_ok),
+    )
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+        instrument_ids=("SPY.XNAS",),
+        end_iso="2025-09-25",
+    )
+    prepared = orch._prepare_dataset_config(cfg)
+    assert prepared.market_inputs is not None
+    assert prepared.market_inputs[0].dataset_id == "EQUS.MINI"
+    assert prepared.market_inputs[0].symbols == ("SPY",)
+    assert prepared.instrument_ids is not None
+    assert "SPY.XNAS" in prepared.instrument_ids
+
+
+def test_apply_default_market_inputs_assigns_descriptor() -> None:
+    base_cfg = DatasetBuildConfig(
+        data_dir="data",
+        symbols="SPY,QQQ",
+        out_dir="out",
+    )
+    updated = _apply_default_market_inputs(base_cfg)
+    assert updated.market_inputs is not None
+    assert any(
+        item.descriptor_id == "EQUS.MINI"
+        for item in updated.market_inputs
+    )
+    assert updated.market_dataset_id is not None
+
+
+def test_apply_default_market_inputs_respects_existing_inputs() -> None:
+    custom_input = MarketDatasetInput(descriptor_id="CUSTOM.FEED", dataset_id="CUSTOM.FEED")
+    base_cfg = DatasetBuildConfig(
+        data_dir="data",
+        symbols="SPY",
+        out_dir="out",
+        market_inputs=(custom_input,),
+        market_dataset_id="CUSTOM.FEED",
+    )
+    updated = _apply_default_market_inputs(base_cfg)
+    assert updated.market_inputs == (custom_input,)
+    assert updated.market_dataset_id == "CUSTOM.FEED"

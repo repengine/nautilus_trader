@@ -41,3 +41,10 @@ def test_sanitize_modes_warn_and_reject(
     # reject mode raises
     with pytest.raises(ValueError):
         sanitize_timestamp_ns(1_600_000_000, mode="reject", logger=logger, context="ctx")
+
+
+def test_sanitize_preserves_store_context_small_values() -> None:
+    preserved = sanitize_timestamp_ns(1_000, context="ModelStore.write_prediction")
+    assert preserved == 1_000
+    preserved_strategy = sanitize_timestamp_ns(500, context="StrategyStore.write_signal")
+    assert preserved_strategy == 500

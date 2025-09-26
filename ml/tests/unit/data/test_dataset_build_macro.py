@@ -16,6 +16,7 @@ from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset
 from ml.data.validation import DatasetValidationError
 from ml.data.ingest.macro_refresh import MacroRefreshResult
+from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.vintage import VintagePolicy
 
 
@@ -40,6 +41,22 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
     class _BuilderStub:
         def __init__(self, **kwargs: Any) -> None:
             recorded["builder_params"] = kwargs
+            stat = MarketBindingStats(
+                binding_id="binding-001",
+                dataset_id="EQUS.MINI",
+                descriptor_id="EQUS.MINI",
+                symbol="SPY",
+                instrument_ids=("SPY.XNAS",),
+                schema="ohlcv-1m",
+                storage_kind=None,
+                source="descriptor",
+                license_start=None,
+                license_end=None,
+            )
+            ts_start_ns = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
+            ts_end_ns = int(datetime(2024, 1, 2, tzinfo=UTC).timestamp() * 1_000_000_000)
+            stat.record(source="store", row_count=2, ts_min_ns=ts_start_ns, ts_max_ns=ts_end_ns)
+            self._stats = (stat,)
 
         def build_training_dataset(self, **kwargs: Any) -> pl.DataFrame:
             return pl.DataFrame(
@@ -53,6 +70,9 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
                     "y": [0.0, 1.0],
                 },
             )
+
+        def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:
+            return self._stats
 
     monkeypatch.setattr(
         "ml.data.ingest.macro_refresh.ensure_macro_ready",
@@ -89,11 +109,18 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
     assert isinstance(builder_params, dict)
     assert builder_params["fred_path"] == str(cfg.macro_fred_path)
     assert builder_params["macro_series_ids"] == cfg.macro_series_ids
+    assert builder_params["market_bindings"] == ()
     assert result.dataset_parquet.exists()
     assert result.dataset_csv.exists()
     assert result.features_npz.exists()
     assert result.metadata is not None
     assert result.metadata.vintage_policy is VintagePolicy.REAL_TIME
+    assert result.metadata.market_bindings is not None
+    assert len(result.metadata.market_bindings) == 1
+    binding_meta = result.metadata.market_bindings[0]
+    assert binding_meta.dataset_id == "EQUS.MINI"
+    assert binding_meta.rows_from_store == 2
+    assert binding_meta.symbols == ("SPY",)
     metadata_path = cfg.out_dir / "dataset_metadata.json"
     assert metadata_path.exists()
     metadata_raw = json.loads(metadata_path.read_text(encoding="utf-8"))

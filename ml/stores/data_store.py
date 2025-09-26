@@ -14,13 +14,11 @@ while adding contract validation, event emission, and watermark tracking.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import time
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
@@ -45,6 +43,8 @@ from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.utils import compute_dataset_schema_hash
+from ml.registry.utils import get_default_registry_path
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
@@ -379,7 +379,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     from ml.registry.persistence import BackendType
                     from ml.registry.persistence import PersistenceConfig
 
-                    default_registry_dir = Path.home() / ".nautilus" / "ml" / "registry"
+                    default_registry_dir = get_default_registry_path()
                     try:
                         default_registry_dir.mkdir(parents=True, exist_ok=True)
                     except Exception as exc:
@@ -3169,28 +3169,32 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             return manifest.schema_hash
 
         # Build schema dict from actual data
-        actual_schema = {}
+        actual_schema: dict[str, str] = {}
         for col in df_any.columns:
             if col in manifest.schema:
-                # Use expected type if column is in manifest
                 actual_schema[col] = manifest.schema[col]
             else:
-                # Infer type for extra columns
                 dtype = str(df_any[col].dtype)
-                if "int" in dtype.lower():
+                lower = dtype.lower()
+                if "int" in lower:
                     actual_schema[col] = "int64"
-                elif "float" in dtype.lower():
+                elif "float" in lower:
                     actual_schema[col] = "float64"
-                elif "bool" in dtype.lower():
+                elif "bool" in lower:
                     actual_schema[col] = "bool"
                 else:
                     actual_schema[col] = "str"
 
-        # Sort by key for consistent hashing
-        sorted_schema = dict(sorted(actual_schema.items()))
-        schema_str = str(sorted_schema)
+        for manifest_column, manifest_dtype in manifest.schema.items():
+            actual_schema.setdefault(manifest_column, manifest_dtype)
 
-        return hashlib.sha256(schema_str.encode()).hexdigest()
+        return compute_dataset_schema_hash(
+            schema=actual_schema,
+            primary_keys=manifest.primary_keys,
+            ts_field=manifest.ts_field,
+            seq_field=manifest.seq_field,
+            pipeline_signature=manifest.pipeline_signature,
+        )
 
     def _is_in_migration_window(self, dataset_id: str) -> bool:
         """

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -183,7 +184,30 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
         cols = set(map(str, df.columns))
 
         def _maybe(val: object) -> object | None:
-            return None if val is None else val
+            if val is None:
+                return None
+            try:
+                import numpy as np
+
+                if isinstance(val, np.generic):
+                    scalar = val.item()
+                    if isinstance(scalar, float) and math.isnan(scalar):
+                        return None
+                    return cast(object, scalar)
+            except ModuleNotFoundError:  # pragma: no cover - numpy optional in tooling
+                pass
+            if isinstance(val, float):
+                return None if math.isnan(val) else float(val)
+            if hasattr(val, "item"):
+                try:
+                    scalar = val.item()
+                except Exception:  # pragma: no cover - defensive fallback
+                    scalar = val
+                else:
+                    if isinstance(scalar, float) and math.isnan(scalar):
+                        return None
+                    return cast(object, scalar)
+            return val
 
         def _row(r: object) -> dict[str, object]:
             d: dict[str, object] = {

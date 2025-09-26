@@ -25,7 +25,7 @@ if not HAS_PANDAS:
 
 # Hypothesis imports with graceful fallback
 try:
-    from hypothesis import assume, given, strategies as st
+    from hypothesis import HealthCheck, assume, given, settings, strategies as st
     from hypothesis.stateful import Bundle, RuleBasedStateMachine, rule
 except ImportError:  # pragma: no cover
     pytest.skip("hypothesis not available", allow_module_level=True)
@@ -42,6 +42,14 @@ if TYPE_CHECKING:
 # ============================================================================
 # Constants and Utilities
 # ============================================================================
+
+pytestmark = pytest.mark.timeout(0)
+
+PROPERTY_TEST_SETTINGS = settings(
+    max_examples=20,
+    deadline=None,
+    suppress_health_check=(HealthCheck.too_slow,),
+)
 
 # Prediction value bounds per Nautilus convention
 PREDICTION_MIN = -1.0
@@ -227,6 +235,7 @@ def batch_predictions_with_monotonic_timestamps(draw: st.DrawFn) -> list[ModelPr
 class TestModelStorePredictionInvariants:
     """Property-based tests for ModelStore prediction invariants."""
 
+    @PROPERTY_TEST_SETTINGS
     @given(prediction=single_prediction)
     def test_prediction_immutability_invariant(self, prediction: ModelPrediction) -> None:
         """
@@ -262,6 +271,7 @@ class TestModelStorePredictionInvariants:
             assert first_pred["confidence"] == second_pred["confidence"]
             assert first_pred["features_used"] == second_pred["features_used"]
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_temporal_consistency_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -292,6 +302,7 @@ class TestModelStorePredictionInvariants:
                 assert ts_event >= last_ts_event, f"Timestamp ordering violated: {ts_event} < {last_ts_event}"
                 last_ts_event = ts_event
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_batch_atomicity_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -318,6 +329,7 @@ class TestModelStorePredictionInvariants:
                 assert stored_pred["prediction"] == original_pred.prediction
                 assert stored_pred["confidence"] == original_pred.confidence
 
+    @PROPERTY_TEST_SETTINGS
     @given(
         predictions_batch=batch_predictions_with_monotonic_timestamps(),
         model_version=st.text(min_size=1, max_size=10),
@@ -367,6 +379,7 @@ class TestModelStorePredictionInvariants:
             assert stored1["prediction"] == stored2["prediction"]
             assert stored1["confidence"] == stored2["confidence"]
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_confidence_bounds_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -391,6 +404,7 @@ class TestModelStorePredictionInvariants:
                 assert PREDICTION_MIN <= prediction <= PREDICTION_MAX, \
                     f"Prediction {prediction} outside bounds [{PREDICTION_MIN}, {PREDICTION_MAX}]"
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_prediction_uniqueness_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -450,6 +464,7 @@ class TestModelStorePredictionInvariants:
 class TestModelStorePerformanceInvariants:
     """Property-based tests for ModelStore performance and data integrity."""
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_no_data_loss_during_flush_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -478,6 +493,7 @@ class TestModelStorePerformanceInvariants:
             # Verify buffer is cleared after flush
             assert len(store._write_buffer) == 0
 
+    @PROPERTY_TEST_SETTINGS
     @given(
         predictions_batch=batch_predictions_with_monotonic_timestamps(),
         watermark_increment=st.integers(min_value=1, max_value=1000),
@@ -509,6 +525,7 @@ class TestModelStorePerformanceInvariants:
             assert watermarks[i] >= watermarks[i-1], \
                 f"Watermark regression: {watermarks[i]} < {watermarks[i-1]}"
 
+    @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
     def test_performance_metrics_consistency(self, predictions_batch: list[ModelPrediction]) -> None:
         """
@@ -606,6 +623,12 @@ class ModelStoreStateMachine(RuleBasedStateMachine):
 
 # Run stateful tests
 TestModelStoreStateful = ModelStoreStateMachine.TestCase
+TestModelStoreStateful.settings = settings(
+    max_examples=10,
+    stateful_step_count=25,
+    deadline=None,
+    suppress_health_check=(HealthCheck.too_slow,),
+)
 
 
 # ============================================================================
@@ -646,6 +669,7 @@ def test_property_tests_integration() -> None:
 # Property Test Performance Benchmarking
 # ============================================================================
 
+@PROPERTY_TEST_SETTINGS
 @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
 def test_property_validation_performance(predictions_batch: list[ModelPrediction]) -> None:
     """

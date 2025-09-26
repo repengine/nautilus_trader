@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+import hashlib
+import os
+from collections.abc import Mapping
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
+
+
+REGISTRY_PATH_ENV_VAR = "ML_REGISTRY_PATH"
+
+
+def get_default_registry_path() -> Path:
+    """Return the default registry path honoring environment overrides."""
+    env_value = os.getenv(REGISTRY_PATH_ENV_VAR)
+    if env_value:
+        return Path(env_value).expanduser()
+    return Path.home() / ".nautilus" / "ml" / "registry"
 
 
 def build_feature_schema(feature_names: list[str], dtypes: list[str]) -> dict[str, str]:
@@ -33,6 +49,43 @@ def build_feature_schema(feature_names: list[str], dtypes: list[str]) -> dict[st
         raise ValueError("feature_names and dtypes must be same length")
     return dict(zip(feature_names, dtypes))
 
+
+
+def compute_dataset_schema_hash(
+    *,
+    schema: Mapping[str, str],
+    primary_keys: Sequence[str],
+    ts_field: str,
+    seq_field: str | None = None,
+    pipeline_signature: str | None = None,
+) -> str:
+    """Compute stable schema hash used by dataset manifests and DataStore validation."""
+    hash_builder = hashlib.sha256()
+
+    for column_name in sorted(schema.keys()):
+        dtype = schema[column_name]
+        hash_builder.update(column_name.encode("utf-8"))
+        hash_builder.update(b"::")
+        hash_builder.update(dtype.encode("utf-8"))
+        hash_builder.update(b"\n")
+
+    hash_builder.update(b"|keys|")
+    for key in sorted(str(item) for item in primary_keys):
+        hash_builder.update(key.encode("utf-8"))
+        hash_builder.update(b",")
+
+    hash_builder.update(b"|ts|")
+    hash_builder.update(ts_field.encode("utf-8"))
+
+    if seq_field:
+        hash_builder.update(b"|seq|")
+        hash_builder.update(seq_field.encode("utf-8"))
+
+    signature = pipeline_signature or ""
+    hash_builder.update(b"|pipeline|")
+    hash_builder.update(signature.encode("utf-8"))
+
+    return hash_builder.hexdigest()
 
 def build_student_manifest(
     *,

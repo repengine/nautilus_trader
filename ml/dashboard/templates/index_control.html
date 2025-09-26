@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nautilus ML Control Center</title>
+
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Monaco Editor for code editing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        :root {
+            --bg-primary: #0f1419;
+            --bg-secondary: #1a1f2e;
+            --bg-tertiary: #252d3d;
+            --text-primary: #e8eaf0;
+            --text-secondary: #a0a9c5;
+            --accent-blue: #4a9eff;
+            --accent-green: #00d084;
+            --accent-red: #ff4757;
+            --accent-yellow: #ffd32c;
+            --border-color: #2a3441;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .glass {
+            background: rgba(26, 31, 46, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+        }
+
+        .tab-active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .monaco-container {
+            height: 400px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .api-endpoint {
+            font-family: 'Courier New', monospace;
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .status-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-live { background: var(--accent-green); color: white; }
+        .status-pending { background: var(--accent-yellow); color: black; }
+        .status-stopped { background: var(--accent-red); color: white; }
+
+        .control-panel {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .config-section {
+            background: var(--bg-secondary);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .input-group input,
+        .input-group select,
+        .input-group textarea {
+            width: 100%;
+            padding: 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+            color: white;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .accordion {
+            margin: 1rem 0;
+        }
+
+        .accordion-header {
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .accordion-content.active {
+            max-height: 2000px;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .metric-card {
+            background: var(--bg-tertiary);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+
+        .tab-container {
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+
+        .tab-list {
+            display: flex;
+            gap: 1rem;
+            padding: 0;
+            margin: 0;
+            list-style: none;
+        }
+
+        .tab-button {
+            padding: 1rem 2rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-weight: 600;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-button:hover {
+            color: var(--text-primary);
+        }
+
+        .tab-button.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .terminal {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            padding: 1rem;
+            border-radius: 8px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .terminal-line {
+            margin: 2px 0;
+        }
+
+        .terminal-prompt {
+            color: #0ff;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="glass rounded-xl p-6 mb-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold mb-2">🎛️ Nautilus ML Control Center</h1>
+                    <p class="text-gray-400">Interactive Configuration & Deployment Platform</p>
+                </div>
+                <div class="flex gap-4">
+                    <button class="btn btn-success" onclick="connectToSystem()">
+                        🔌 Connect System
+                    </button>
+                    <button class="btn btn-danger" onclick="emergencyStop()">
+                        🛑 Emergency Stop
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Navigation Tabs -->
+        <div class="tab-container">
+            <ul class="tab-list">
+                <li><button class="tab-button active" onclick="switchTab('dashboard')">📊 Dashboard</button></li>
+                <li><button class="tab-button" onclick="switchTab('actors')">🤖 Actors & Models</button></li>
+                <li><button class="tab-button" onclick="switchTab('strategies')">📈 Strategies</button></li>
+                <li><button class="tab-button" onclick="switchTab('pipelines')">⚙️ Pipelines</button></li>
+                <li><button class="tab-button" onclick="switchTab('features')">🔬 Features</button></li>
+                <li><button class="tab-button" onclick="switchTab('api')">🔌 API Explorer</button></li>
+                <li><button class="tab-button" onclick="switchTab('terminal')">💻 Terminal</button></li>
+            </ul>
+        </div>
+
+        <!-- Tab Contents -->
+        <div class="tab-panels">
+            <!-- Dashboard Tab -->
+            <div id="dashboard-tab" class="tab-content active">
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <div class="text-gray-400 text-sm">Active Actors</div>
+                        <div class="metric-value" id="active-actors">0</div>
+                        <div class="text-green-400 text-sm">↑ 2 deployed today</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="text-gray-400 text-sm">Running Pipelines</div>
+                        <div class="metric-value" id="running-pipelines">0</div>
+                        <div class="text-yellow-400 text-sm">3 scheduled</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="text-gray-400 text-sm">Model Registry</div>
+                        <div class="metric-value" id="model-count">12</div>
+                        <div class="text-blue-400 text-sm">5 production ready</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="text-gray-400 text-sm">Feature Sets</div>
+                        <div class="metric-value" id="feature-count">326</div>
+                        <div class="text-purple-400 text-sm">18 new today</div>
+                    </div>
+                </div>
+
+                <!-- System Health -->
+                <div class="config-section mt-6">
+                    <h3 class="text-xl font-semibold mb-4">System Health & Resources</h3>
+                    <div class="grid-3">
+                        <div>
+                            <div class="text-sm text-gray-400">PostgreSQL</div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="status-badge status-live">HEALTHY</span>
+                                <span class="text-sm">15 connections</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">Redis Cache</div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="status-badge status-live">HEALTHY</span>
+                                <span class="text-sm">2.3GB used</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-400">ONNX Runtime</div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="status-badge status-live">READY</span>
+                                <span class="text-sm">GPU enabled</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="config-section mt-6">
+                    <h3 class="text-xl font-semibold mb-4">Quick Actions</h3>
+                    <div class="grid grid-cols-4 gap-4">
+                        <button class="btn btn-primary" onclick="openActorBuilder()">
+                            🤖 New Actor
+                        </button>
+                        <button class="btn btn-primary" onclick="openStrategyBuilder()">
+                            📈 New Strategy
+                        </button>
+                        <button class="btn btn-primary" onclick="openPipelineScheduler()">
+                            ⚙️ Schedule Pipeline
+                        </button>
+                        <button class="btn btn-primary" onclick="openFeatureDesigner()">
+                            🔬 Design Features
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actors & Models Tab -->
+            <div id="actors-tab" class="tab-content">
+                <div class="grid-2">
+                    <!-- Actor Configuration Panel -->
+                    <div class="config-section">
+                        <h3 class="text-xl font-semibold mb-4">Deploy New Actor</h3>
+
+                        <div class="input-group">
+                            <label>Actor Type</label>
+                            <select id="actor-type">
+                                <option value="MLSignalActor">ML Signal Actor</option>
+                                <option value="EnhancedMLInferenceActor">Enhanced ML Inference Actor</option>
+                                <option value="BaseMLInferenceActor">Base ML Inference Actor</option>
+                            </select>
+                        </div>
+
+                        <div class="input-group">
+                            <label>Actor ID</label>
+                            <input type="text" id="actor-id" placeholder="e.g., momentum_signal_v1">
+                        </div>
+
+                        <div class="input-group">
+                            <label>Model Selection</label>
+                            <select id="model-selection">
+                                <option value="TFT_v3.2.1">TFT_v3.2.1 (Transformer)</option>
+                                <option value="XGB_Student_v2">XGB_Student_v2 (XGBoost)</option>
+                                <option value="LSTM_Ensemble">LSTM_Ensemble (LSTM)</option>
+                                <option value="DeepLOB_v1.5">DeepLOB_v1.5 (CNN)</option>
+                                <option value="custom">Custom Model Path...</option>
+                            </select>
+                        </div>
+
+                        <div class="accordion">
+                            <div class="accordion-header" onclick="toggleAccordion(this)">
+                                <span>Advanced Configuration</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="accordion-content">
+                                <div class="input-group">
+                                    <label>Signal Strategy</label>
+                                    <select id="signal-strategy">
+                                        <option value="threshold">Threshold Based</option>
+                                        <option value="extremes">Extremes Detection</option>
+                                        <option value="momentum">Momentum Analysis</option>
+                                        <option value="ensemble">Ensemble Methods</option>
+                                        <option value="adaptive">Adaptive Thresholds</option>
+                                    </select>
+                                </div>
+
+                                <div class="input-group">
+                                    <label>Prediction Threshold</label>
+                                    <input type="number" id="prediction-threshold"
+                                           min="0" max="1" step="0.01" value="0.75">
+                                </div>
+
+                                <div class="input-group">
+                                    <label>Optimization Level</label>
+                                    <select id="optimization-level">
+                                        <option value="O0">O0 - No optimization</option>
+                                        <option value="O1">O1 - Basic optimization</option>
+                                        <option value="O2">O2 - Aggressive optimization</option>
+                                        <option value="O3">O3 - Maximum performance</option>
+                                    </select>
+                                </div>
+
+                                <div class="input-group">
+                                    <label>Memory Limit (MB)</label>
+                                    <input type="number" id="memory-limit" value="512">
+                                </div>
+
+                                <div class="input-group">
+                                    <label>Feature Configuration (JSON)</label>
+                                    <textarea id="feature-config" rows="4" placeholder='{
+  "lookback_periods": [20, 50, 100],
+  "indicators": ["RSI", "MACD", "BB"],
+  "microstructure": true
+}'></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success w-full" onclick="deployActor()">
+                            🚀 Deploy Actor
+                        </button>
+                    </div>
+
+                    <!-- Active Actors List -->
+                    <div class="config-section">
+                        <h3 class="text-xl font-semibold mb-4">Active Actors</h3>
+                        <div id="actors-list" class="space-y-3">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Registry -->
+                <div class="config-section mt-6">
+                    <h3 class="text-xl font-semibold mb-4">Model Registry</h3>
+                    <table class="w-full">
+                        <thead>
+                            <tr class="border-b border-gray-700">
+                                <th class="text-left py-2">Model ID</th>
+                                <th class="text-left py-2">Type</th>
+                                <th class="text-left py-2">Version</th>
+                                <th class="text-left py-2">Performance</th>
+                                <th class="text-left py-2">Status</th>
+                                <th class="text-left py-2">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="model-registry-table">
+                            <!-- Dynamically populated -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Strategies Tab -->
+            <div id="strategies-tab" class="tab-content">
+                <div class="config-section">
+                    <h3 class="text-xl font-semibold mb-4">Strategy Builder</h3>
+
+                    <div class="grid-2 gap-6">
+                        <div>
+                            <div class="input-group">
+                                <label>Strategy Name</label>
+                                <input type="text" id="strategy-name" placeholder="e.g., momentum_breakout_v1">
+                            </div>
+
+                            <div class="input-group">
+                                <label>Base Strategy</label>
+                                <select id="base-strategy">
+                                    <option value="MLTradingStrategy">ML Trading Strategy</option>
+                                    <option value="SignalBasedStrategy">Signal Based Strategy</option>
+                                    <option value="HybridStrategy">Hybrid Strategy</option>
+                                    <option value="custom">Custom Implementation</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label>Risk Parameters</label>
+                                <div class="grid-2 gap-2">
+                                    <div>
+                                        <label class="text-xs text-gray-500">Max Position Size</label>
+                                        <input type="number" id="max-position" value="100000">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">Stop Loss %</label>
+                                        <input type="number" id="stop-loss" value="2.0" step="0.1">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">Take Profit %</label>
+                                        <input type="number" id="take-profit" value="5.0" step="0.1">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">Max Drawdown %</label>
+                                        <input type="number" id="max-drawdown" value="10.0" step="0.1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label>Strategy Logic (Python)</label>
+                            <div id="strategy-editor" class="monaco-container"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4 mt-6">
+                        <button class="btn btn-primary" onclick="validateStrategy()">
+                            ✓ Validate
+                        </button>
+                        <button class="btn btn-primary" onclick="backtestStrategy()">
+                            📊 Backtest
+                        </button>
+                        <button class="btn btn-success" onclick="deployStrategy()">
+                            🚀 Deploy Live
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Strategy Performance -->
+                <div class="config-section mt-6">
+                    <h3 class="text-xl font-semibold mb-4">Strategy Performance</h3>
+                    <canvas id="strategy-chart" height="100"></canvas>
+                </div>
+            </div>
+
+            <!-- Pipelines Tab -->
+            <div id="pipelines-tab" class="tab-content">
+                <div class="config-section">
+                    <h3 class="text-xl font-semibold mb-4">Pipeline Orchestration</h3>
+
+                    <div class="grid-3 gap-4">
+                        <!-- Dataset Building -->
+                        <div class="glass p-4 rounded-lg">
+                            <h4 class="font-semibold mb-3">📦 Dataset Building</h4>
+                            <div class="input-group">
+                                <label class="text-xs">Symbols</label>
+                                <input type="text" id="dataset-symbols" placeholder="SPY,QQQ,IWM">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs">Date Range</label>
+                                <input type="date" id="dataset-start">
+                                <input type="date" id="dataset-end" class="mt-1">
+                            </div>
+                            <button class="btn btn-primary btn-sm w-full" onclick="buildDataset()">
+                                Build Dataset
+                            </button>
+                        </div>
+
+                        <!-- Model Training -->
+                        <div class="glass p-4 rounded-lg">
+                            <h4 class="font-semibold mb-3">🧠 Model Training</h4>
+                            <div class="input-group">
+                                <label class="text-xs">Model Type</label>
+                                <select id="train-model-type">
+                                    <option value="teacher">Teacher Model</option>
+                                    <option value="student">Student (Distilled)</option>
+                                    <option value="ensemble">Ensemble</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs">Algorithm</label>
+                                <select id="train-algorithm">
+                                    <option value="transformer">Transformer (TFT)</option>
+                                    <option value="xgboost">XGBoost</option>
+                                    <option value="lstm">LSTM</option>
+                                    <option value="cnn">CNN (DeepLOB)</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary btn-sm w-full" onclick="trainModel()">
+                                Start Training
+                            </button>
+                        </div>
+
+                        <!-- Hyperparameter Optimization -->
+                        <div class="glass p-4 rounded-lg">
+                            <h4 class="font-semibold mb-3">🔧 Hyperparameter Tuning</h4>
+                            <div class="input-group">
+                                <label class="text-xs">Search Method</label>
+                                <select id="hpo-method">
+                                    <option value="optuna">Optuna</option>
+                                    <option value="grid">Grid Search</option>
+                                    <option value="random">Random Search</option>
+                                    <option value="bayesian">Bayesian</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs">Trials</label>
+                                <input type="number" id="hpo-trials" value="100">
+                            </div>
+                            <button class="btn btn-primary btn-sm w-full" onclick="startHPO()">
+                                Optimize
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Pipeline Schedule -->
+                    <div class="mt-6">
+                        <h4 class="font-semibold mb-3">⏰ Scheduled Pipelines</h4>
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-gray-700">
+                                    <th class="text-left py-2">Pipeline</th>
+                                    <th class="text-left py-2">Schedule</th>
+                                    <th class="text-left py-2">Last Run</th>
+                                    <th class="text-left py-2">Next Run</th>
+                                    <th class="text-left py-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pipeline-schedule">
+                                <tr>
+                                    <td class="py-2">Daily Feature Engineering</td>
+                                    <td>Daily @ 00:00 UTC</td>
+                                    <td>2025-09-24 00:00</td>
+                                    <td>2025-09-25 00:00</td>
+                                    <td><span class="status-badge status-live">ACTIVE</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="py-2">Weekly Model Retraining</td>
+                                    <td>Sunday @ 02:00 UTC</td>
+                                    <td>2025-09-22 02:00</td>
+                                    <td>2025-09-29 02:00</td>
+                                    <td><span class="status-badge status-live">ACTIVE</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Features Tab -->
+            <div id="features-tab" class="tab-content">
+                <div class="config-section">
+                    <h3 class="text-xl font-semibold mb-4">Feature Engineering Workshop</h3>
+
+                    <div class="grid-2 gap-6">
+                        <!-- Feature Designer -->
+                        <div>
+                            <h4 class="font-semibold mb-3">Feature Designer</h4>
+
+                            <div class="input-group">
+                                <label>Feature Set Name</label>
+                                <input type="text" id="feature-set-name" placeholder="e.g., microstructure_v2">
+                            </div>
+
+                            <div class="input-group">
+                                <label>Base Features</label>
+                                <div class="grid-2 gap-2">
+                                    <label class="flex items-center">
+                                        <input type="checkbox" checked> Price Features
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="checkbox" checked> Volume Features
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="checkbox"> Microstructure
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="checkbox"> Order Flow
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="input-group">
+                                <label>Technical Indicators</label>
+                                <select multiple id="technical-indicators" style="height: 100px">
+                                    <option value="rsi">RSI</option>
+                                    <option value="macd">MACD</option>
+                                    <option value="bb">Bollinger Bands</option>
+                                    <option value="ema">EMA</option>
+                                    <option value="atr">ATR</option>
+                                    <option value="vwap">VWAP</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label>Lookback Periods</label>
+                                <input type="text" id="lookback-periods" placeholder="10,20,50,100,200">
+                            </div>
+
+                            <button class="btn btn-primary w-full" onclick="generateFeatures()">
+                                Generate Features
+                            </button>
+                        </div>
+
+                        <!-- Feature Code Editor -->
+                        <div>
+                            <h4 class="font-semibold mb-3">Custom Feature Code</h4>
+                            <div id="feature-editor" class="monaco-container"></div>
+                        </div>
+                    </div>
+
+                    <!-- Feature Analysis -->
+                    <div class="mt-6">
+                        <h4 class="font-semibold mb-3">Feature Analysis</h4>
+                        <div class="grid-3 gap-4">
+                            <div class="metric-card">
+                                <div class="text-gray-400 text-sm">Total Features</div>
+                                <div class="metric-value">326</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="text-gray-400 text-sm">Feature Importance</div>
+                                <div class="metric-value">SHAP</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="text-gray-400 text-sm">Correlation</div>
+                                <div class="metric-value">0.73</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Explorer Tab -->
+            <div id="api-tab" class="tab-content">
+                <div class="config-section">
+                    <h3 class="text-xl font-semibold mb-4">API Documentation & Explorer</h3>
+
+                    <div class="grid-2 gap-6">
+                        <!-- API Endpoints -->
+                        <div>
+                            <h4 class="font-semibold mb-3">Available Endpoints</h4>
+
+                            <div class="accordion">
+                                <!-- Actor Management -->
+                                <div class="accordion-header" onclick="toggleAccordion(this)">
+                                    <span>🤖 Actor Management</span>
+                                    <span>▼</span>
+                                </div>
+                                <div class="accordion-content">
+                                    <div class="space-y-2 p-3">
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/control/actors/start')">
+                                            <span class="api-endpoint">POST /api/control/actors/start</span>
+                                            <p class="text-xs text-gray-400 mt-1">Deploy a new ML actor</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/control/actors/stop')">
+                                            <span class="api-endpoint">POST /api/control/actors/stop</span>
+                                            <p class="text-xs text-gray-400 mt-1">Stop a running actor</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/control/actors/reload')">
+                                            <span class="api-endpoint">POST /api/control/actors/reload</span>
+                                            <p class="text-xs text-gray-400 mt-1">Hot reload actor model</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('GET', '/api/actors/list')">
+                                            <span class="api-endpoint">GET /api/actors/list</span>
+                                            <p class="text-xs text-gray-400 mt-1">List all active actors</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pipeline Control -->
+                                <div class="accordion-header" onclick="toggleAccordion(this)">
+                                    <span>⚙️ Pipeline Control</span>
+                                    <span>▼</span>
+                                </div>
+                                <div class="accordion-content">
+                                    <div class="space-y-2 p-3">
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/control/pipeline/trigger')">
+                                            <span class="api-endpoint">POST /api/control/pipeline/trigger</span>
+                                            <p class="text-xs text-gray-400 mt-1">Trigger pipeline execution</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/pipeline/schedule')">
+                                            <span class="api-endpoint">POST /api/pipeline/schedule</span>
+                                            <p class="text-xs text-gray-400 mt-1">Schedule recurring pipeline</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Model Registry -->
+                                <div class="accordion-header" onclick="toggleAccordion(this)">
+                                    <span>🧠 Model Registry</span>
+                                    <span>▼</span>
+                                </div>
+                                <div class="accordion-content">
+                                    <div class="space-y-2 p-3">
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/models/register')">
+                                            <span class="api-endpoint">POST /api/models/register</span>
+                                            <p class="text-xs text-gray-400 mt-1">Register new model</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/models/promote')">
+                                            <span class="api-endpoint">POST /api/models/promote</span>
+                                            <p class="text-xs text-gray-400 mt-1">Promote model to production</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Data Ingestion -->
+                                <div class="accordion-header" onclick="toggleAccordion(this)">
+                                    <span>📊 Data Ingestion</span>
+                                    <span>▼</span>
+                                </div>
+                                <div class="accordion-content">
+                                    <div class="space-y-2 p-3">
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/control/ingestion/start')">
+                                            <span class="api-endpoint">POST /api/control/ingestion/start</span>
+                                            <p class="text-xs text-gray-400 mt-1">Start data ingestion</p>
+                                        </div>
+                                        <div class="cursor-pointer hover:bg-gray-800 p-2 rounded"
+                                             onclick="loadApiExample('POST', '/api/ingestion/backfill')">
+                                            <span class="api-endpoint">POST /api/ingestion/backfill</span>
+                                            <p class="text-xs text-gray-400 mt-1">Backfill historical data</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- API Tester -->
+                        <div>
+                            <h4 class="font-semibold mb-3">API Tester</h4>
+
+                            <div class="input-group">
+                                <label>Method</label>
+                                <select id="api-method">
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label>Endpoint</label>
+                                <input type="text" id="api-endpoint" placeholder="/api/control/status">
+                            </div>
+
+                            <div class="input-group">
+                                <label>Request Body (JSON)</label>
+                                <textarea id="api-body" rows="6" placeholder='{"key": "value"}'></textarea>
+                            </div>
+
+                            <button class="btn btn-primary w-full" onclick="testApi()">
+                                Send Request
+                            </button>
+
+                            <div class="input-group mt-4">
+                                <label>Response</label>
+                                <pre id="api-response" class="bg-black text-green-400 p-3 rounded overflow-auto" style="min-height: 200px">
+// Response will appear here
+                                </pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Terminal Tab -->
+            <div id="terminal-tab" class="tab-content">
+                <div class="config-section">
+                    <h3 class="text-xl font-semibold mb-4">System Terminal</h3>
+                    <div class="terminal" id="terminal-output">
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">nautilus@ml-control:~$</span> Welcome to Nautilus ML Control Center
+                        </div>
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">nautilus@ml-control:~$</span> Type 'help' for available commands
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-2">
+                        <input type="text" id="terminal-input" class="flex-1 bg-black text-green-400 p-2 rounded"
+                               placeholder="Enter command..." onkeypress="if(event.key==='Enter') executeCommand()">
+                        <button class="btn btn-primary" onclick="executeCommand()">Execute</button>
+                    </div>
+                </div>
+
+                <!-- Command Reference -->
+                <div class="config-section mt-6">
+                    <h4 class="font-semibold mb-3">Quick Commands</h4>
+                    <div class="grid-3 gap-2 text-sm">
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('status')">status</code>
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('list actors')">list actors</code>
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('list models')">list models</code>
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('health check')">health check</code>
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('metrics')">metrics</code>
+                        <code class="bg-gray-800 p-2 rounded cursor-pointer" onclick="runCommand('logs')">logs</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Monaco Editor
+        let strategyEditor, featureEditor;
+
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            // Strategy Editor
+            strategyEditor = monaco.editor.create(document.getElementById('strategy-editor'), {
+                value: `def on_signal(self, signal: MLSignal) -> None:
+    """Handle incoming ML signal."""
+    if signal.strength > self.config.threshold:
+        if signal.direction == SignalDirection.LONG:
+            self.buy(
+                instrument_id=signal.instrument_id,
+                quantity=self.calculate_position_size(signal),
+                order_type=OrderType.MARKET
+            )
+        elif signal.direction == SignalDirection.SHORT:
+            self.sell(
+                instrument_id=signal.instrument_id,
+                quantity=self.calculate_position_size(signal),
+                order_type=OrderType.MARKET
+            )`,
+                language: 'python',
+                theme: 'vs-dark',
+                automaticLayout: true
+            });
+
+            // Feature Editor
+            featureEditor = monaco.editor.create(document.getElementById('feature-editor'), {
+                value: `def compute_microstructure_features(self, data: pd.DataFrame) -> pd.DataFrame:
+    """Compute microstructure features from L2 data."""
+    features = pd.DataFrame()
+
+    # Bid-ask spread
+    features['spread'] = data['ask_price'] - data['bid_price']
+    features['spread_pct'] = features['spread'] / data['mid_price']
+
+    # Volume imbalance
+    features['volume_imbalance'] = (
+        data['bid_volume'] - data['ask_volume']
+    ) / (data['bid_volume'] + data['ask_volume'])
+
+    # Order flow
+    features['order_flow'] = data['trade_volume'] * data['trade_direction']
+
+    return features`,
+                language: 'python',
+                theme: 'vs-dark',
+                automaticLayout: true
+            });
+        });
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Accordion toggle
+        function toggleAccordion(header) {
+            const content = header.nextElementSibling;
+            content.classList.toggle('active');
+            const arrow = header.querySelector('span:last-child');
+            arrow.textContent = content.classList.contains('active') ? '▲' : '▼';
+        }
+
+        // Control Center Functions
+        async function connectToSystem() {
+            try {
+                const response = await fetch('/api/control/status');
+                const data = await response.json();
+
+                if (data.stores) {
+                    alert('✅ Successfully connected to Nautilus ML System');
+                    updateDashboard();
+                }
+            } catch (error) {
+                alert('❌ Failed to connect: ' + error.message);
+            }
+        }
+
+        async function emergencyStop() {
+            if (!confirm('⚠️ Are you sure you want to stop all running components?')) return;
+
+            try {
+                const response = await fetch('/api/control/emergency_stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                alert('🛑 Emergency stop executed. Stopped: ' +
+                      JSON.stringify(data.stopped_components));
+                updateDashboard();
+            } catch (error) {
+                console.error('Emergency stop failed:', error);
+            }
+        }
+
+        // Actor deployment
+        async function deployActor() {
+            const config = {
+                actor_id: document.getElementById('actor-id').value,
+                actor_type: document.getElementById('actor-type').value,
+                config: {
+                    model_id: document.getElementById('model-selection').value,
+                    signal_strategy: document.getElementById('signal-strategy').value,
+                    prediction_threshold: parseFloat(document.getElementById('prediction-threshold').value),
+                    optimization_level: document.getElementById('optimization-level').value,
+                    memory_limit_mb: parseInt(document.getElementById('memory-limit').value),
+                    feature_config: JSON.parse(document.getElementById('feature-config').value || '{}')
+                }
+            };
+
+            try {
+                const response = await fetch('/api/control/actors/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ Actor deployed successfully: ' + config.actor_id);
+                    updateActorsList();
+                } else {
+                    alert('❌ Deployment failed: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Deployment error: ' + error.message);
+            }
+        }
+
+        // Update actors list
+        async function updateActorsList() {
+            try {
+                const response = await fetch('/api/control/status');
+                const data = await response.json();
+
+                const container = document.getElementById('actors-list');
+                container.innerHTML = '';
+
+                for (const [id, actor] of Object.entries(data.actors.instances || {})) {
+                    const actorDiv = document.createElement('div');
+                    actorDiv.className = 'p-3 bg-gray-800 rounded';
+                    actorDiv.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-semibold">${id}</div>
+                                <div class="text-xs text-gray-400">${actor.actor_type}</div>
+                            </div>
+                            <div class="flex gap-2">
+                                <span class="status-badge status-live">${actor.status}</span>
+                                <button class="btn btn-sm btn-danger" onclick="stopActor('${id}')">Stop</button>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(actorDiv);
+                }
+            } catch (error) {
+                console.error('Failed to update actors list:', error);
+            }
+        }
+
+        // Stop actor
+        async function stopActor(actorId) {
+            if (!confirm(`Stop actor ${actorId}?`)) return;
+
+            try {
+                const response = await fetch('/api/control/actors/stop', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({actor_id: actorId})
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ Actor stopped: ' + actorId);
+                    updateActorsList();
+                }
+            } catch (error) {
+                console.error('Failed to stop actor:', error);
+            }
+        }
+
+        // API Explorer
+        function loadApiExample(method, endpoint) {
+            document.getElementById('api-method').value = method;
+            document.getElementById('api-endpoint').value = endpoint;
+
+            // Load example body based on endpoint
+            const examples = {
+                '/api/control/actors/start': {
+                    actor_id: 'example_actor',
+                    actor_type: 'MLSignalActor',
+                    config: {
+                        model_id: 'TFT_v3.2.1',
+                        signal_strategy: 'adaptive'
+                    }
+                },
+                '/api/control/pipeline/trigger': {
+                    mode: 'backtest',
+                    config: {
+                        symbols: ['SPY', 'QQQ'],
+                        start_date: '2024-01-01',
+                        end_date: '2024-01-31'
+                    }
+                },
+                '/api/control/ingestion/start': {
+                    symbols: ['AAPL', 'GOOGL'],
+                    source: 'databento'
+                }
+            };
+
+            if (method !== 'GET' && examples[endpoint]) {
+                document.getElementById('api-body').value = JSON.stringify(examples[endpoint], null, 2);
+            }
+        }
+
+        async function testApi() {
+            const method = document.getElementById('api-method').value;
+            const endpoint = document.getElementById('api-endpoint').value;
+            const body = document.getElementById('api-body').value;
+
+            try {
+                const options = {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'}
+                };
+
+                if (method !== 'GET' && body) {
+                    options.body = body;
+                }
+
+                const response = await fetch(endpoint, options);
+                const data = await response.json();
+
+                document.getElementById('api-response').textContent =
+                    JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('api-response').textContent =
+                    'Error: ' + error.message;
+            }
+        }
+
+        // Terminal commands
+        function executeCommand() {
+            const input = document.getElementById('terminal-input');
+            const command = input.value.trim();
+
+            if (!command) return;
+
+            addTerminalLine(`nautilus@ml-control:~$ ${command}`);
+            processCommand(command);
+            input.value = '';
+        }
+
+        function runCommand(cmd) {
+            document.getElementById('terminal-input').value = cmd;
+            executeCommand();
+        }
+
+        function addTerminalLine(text) {
+            const terminal = document.getElementById('terminal-output');
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            line.innerHTML = text;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        async function processCommand(command) {
+            const parts = command.split(' ');
+            const cmd = parts[0];
+
+            switch(cmd) {
+                case 'help':
+                    addTerminalLine('Available commands:');
+                    addTerminalLine('  status      - Show system status');
+                    addTerminalLine('  list        - List actors/models/pipelines');
+                    addTerminalLine('  health      - Check system health');
+                    addTerminalLine('  metrics     - Show performance metrics');
+                    addTerminalLine('  logs        - View recent logs');
+                    addTerminalLine('  clear       - Clear terminal');
+                    break;
+
+                case 'status':
+                    try {
+                        const response = await fetch('/api/control/status');
+                        const data = await response.json();
+                        addTerminalLine('System Status:');
+                        addTerminalLine(`  Actors: ${data.actors.active}`);
+                        addTerminalLine(`  Pipelines: ${data.pipelines.active}`);
+                        addTerminalLine(`  Ingestion Tasks: ${data.ingestion.active_tasks}`);
+                    } catch (error) {
+                        addTerminalLine('Error: ' + error.message);
+                    }
+                    break;
+
+                case 'list':
+                    if (parts[1] === 'actors') {
+                        const response = await fetch('/api/control/status');
+                        const data = await response.json();
+                        addTerminalLine('Active Actors:');
+                        for (const id of Object.keys(data.actors.instances || {})) {
+                            addTerminalLine(`  - ${id}`);
+                        }
+                    }
+                    break;
+
+                case 'clear':
+                    document.getElementById('terminal-output').innerHTML = '';
+                    break;
+
+                default:
+                    addTerminalLine(`Command not found: ${cmd}`);
+            }
+        }
+
+        // Initialize strategy performance chart
+        const strategyCtx = document.getElementById('strategy-chart')?.getContext('2d');
+        if (strategyCtx) {
+            new Chart(strategyCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 30}, (_, i) => `Day ${i+1}`),
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: Array.from({length: 30}, () => Math.random() * 10000 + 5000),
+                        borderColor: '#4a9eff',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#2a3441' },
+                            ticks: { color: '#a0a9c5' }
+                        },
+                        x: {
+                            grid: { color: '#2a3441' },
+                            ticks: { color: '#a0a9c5' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update dashboard periodically
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/control/status');
+                const data = await response.json();
+
+                document.getElementById('active-actors').textContent = data.actors.active;
+                document.getElementById('running-pipelines').textContent = data.pipelines.active;
+
+                updateActorsList();
+            } catch (error) {
+                console.error('Dashboard update failed:', error);
+            }
+        }
+
+        // Initialize dashboard
+        updateDashboard();
+        setInterval(updateDashboard, 5000);
+    </script>
+</body>
+</html>

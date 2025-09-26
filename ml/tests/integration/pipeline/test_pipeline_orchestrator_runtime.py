@@ -18,7 +18,8 @@ def test_pipeline_orchestrator_cli_attach_runtime(monkeypatch: pytest.MonkeyPatc
 
     build_calls: list[Path] = []
 
-    def _fake_build(cfg: Any) -> BuildResult:
+    def _fake_build(cfg: Any, **kwargs: Any) -> BuildResult:
+        assert kwargs.get("data_store") is None
         build_calls.append(Path(cfg.out_dir))
         output_dir = Path(cfg.out_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -80,4 +81,3 @@ def test_pipeline_orchestrator_cli_attach_runtime(monkeypatch: pytest.MonkeyPatc
     assert manager_calls[-1]["auto_start_postgres"] is True
     assert manager_calls[-1]["ensure_healthy"] is False
     assert manager_calls[-1]["db_connection"] == "postgresql://example"
-
