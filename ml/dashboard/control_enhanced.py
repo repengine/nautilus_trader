@@ -3,6 +3,7 @@ Enhanced control panel that bridges UI to real ML system components.
 
 This module demonstrates how to wire dashboard actions to actual ML infrastructure,
 tracking both requested operations AND their real execution status.
+
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ class EnhancedControlPanel(SimpleControlPanel):
     - User clicks "Start Actor" → Actually creates MLSignalActor instance
     - User triggers pipeline → Actually runs MLPipelineOrchestrator
     - Emergency stop → Actually cascades through all components
+
     """
 
     def __init__(self, *, integration: MLIntegrationManager | None = None) -> None:
@@ -71,6 +73,7 @@ class EnhancedControlPanel(SimpleControlPanel):
         3. We create real MLSignalActor instance
         4. Track both the request AND actual status
         5. Emit metrics for monitoring
+
         """
         dashboard_actions.labels(action_type="start_actor", status="requested").inc()
 
@@ -119,11 +122,21 @@ class EnhancedControlPanel(SimpleControlPanel):
         self,
         mode: str,
         config: Mapping[str, Any],
+        *,
+        job_id: str | None = None,
+        status: str = "queued",
     ) -> dict[str, Any]:
-        """Record pipeline request and emit telemetry."""
+        """
+        Record pipeline request and emit telemetry.
+        """
         dashboard_actions.labels(action_type="trigger_pipeline", status="requested").inc()
 
-        result = super().trigger_pipeline(mode, config)
+        result = super().trigger_pipeline(
+            mode,
+            config,
+            job_id=job_id,
+            status=status,
+        )
 
         try:
             start_time = time.perf_counter()
@@ -149,6 +162,7 @@ class EnhancedControlPanel(SimpleControlPanel):
         - Real ingestion rates from DataStore
         - Actual model performance from ModelStore
         - Live P&L from StrategyStore
+
         """
         metrics = {
             "ingestion": {
@@ -197,6 +211,7 @@ class EnhancedControlPanel(SimpleControlPanel):
         2. Flush pending writes to stores
         3. Cancel in-flight pipelines
         4. Emit alerts
+
         """
         dashboard_actions.labels(action_type="emergency_stop", status="triggered").inc()
 
@@ -232,8 +247,9 @@ def create_dashboard_metrics_endpoint() -> str:
     - Which UI features are actually used
     - Success/failure rates of operations
     - Performance impact of user actions
+
     """
-    from prometheus_client import generate_latest
+    from ml.common.metrics_export import generate_latest
 
     return generate_latest().decode("utf-8")
 

@@ -32,6 +32,9 @@ def test_model_store_emits_event_to_data_registry_json(
     )
 
     # ModelStore using Postgres for storage (or default); events go to JSON registry via injection
+    monkeypatch.setattr(
+        "ml.stores.model_store.ModelStore._init_engine_and_tables", lambda self: None
+    )
     ms = ModelStore(
         persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=tmp_path / "json"),
     )

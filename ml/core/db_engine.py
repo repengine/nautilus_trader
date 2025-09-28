@@ -260,6 +260,7 @@ class EngineManager:
                                 "ml_feature_values",
                                 "ml_model_predictions",
                                 "ml_strategy_signals",
+                                "ml_data_events",
                             ):
                                 try:
                                     _conn.execute(
@@ -314,7 +315,12 @@ class EngineManager:
                     del cls._instances[connection_string]
                     logger.debug(f"Disposed engine for {connection_string[:30]}...")
                 except Exception as e:
-                    logger.warning("Error disposing engine for %s...: %s", connection_string[:30], e, exc_info=True)
+                    logger.warning(
+                        "Error disposing engine for %s...: %s",
+                        connection_string[:30],
+                        e,
+                        exc_info=True,
+                    )
 
     @classmethod
     def dispose_all(cls) -> None:

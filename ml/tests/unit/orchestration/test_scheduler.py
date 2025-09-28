@@ -10,13 +10,13 @@ from typing import Any
 import pytest
 
 from ml.orchestration import config_loader as _cfg
-from ml.orchestration.pipeline_orchestrator import (
-    DatasetBuildConfig,
-    HPOConfig,
-    IntegrationConfig,
-    OrchestratorConfig,
-    TeacherTrainConfig,
-)
+from ml.orchestration.config_loader import OrchestratorRunConfig
+from ml.orchestration.config_loader import Stage as OrchestratorStage
+from ml.orchestration.config_loader import TrainingStageConfig
+from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import IntegrationConfig
+from ml.orchestration.config_types import TeacherTrainConfig
 from ml.orchestration.scheduler import compute_next_run, run_forever
 from ml.orchestration.scheduler import _EmitEventProtocol as _EmitProto
 from typing import cast
@@ -86,7 +86,6 @@ def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         run_forever(_cfg, _invoke, sleeper)
     # Dry-run means invoke not called
     assert called["n"] == 0
-
 
     # Non-stale lock prevents run
     lock_path.write_text("locked", encoding="utf-8")
@@ -193,32 +192,26 @@ def test_skip_if_outputs_exist(tmp_path: Path) -> None:
     assert called["n"] == 0
 
 
-def test_run_forever_passes_integration_args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_forever_passes_stage_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = OrchestratorConfig(
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+
+    run_cfg = OrchestratorRunConfig(
+        stage=OrchestratorStage.DATASET,
         dataset=DatasetBuildConfig(data_dir="data/tier1", symbols="SPY.NYSE", out_dir=str(out_dir)),
-        hpo=HPOConfig(),
-        teacher=TeacherTrainConfig(enabled=False),
-        integration=IntegrationConfig(
-            enabled=True,
-            db_connection="postgresql://example",
-            auto_start_postgres=True,
-            auto_migrate=False,
-            ensure_healthy=False,
-            strict_protocol_validation=True,
-            run_validators=False,
+        training=TrainingStageConfig(
+            teacher=TeacherTrainConfig(enabled=False),
+            hpo=HPOConfig(),
         ),
     )
 
     class _Loader:
-        def load_orchestrator_config(self, path: str | None) -> OrchestratorConfig:
-            _ = path
-            return cfg
-
-        def to_pipeline_args(self, loaded: OrchestratorConfig) -> list[str]:
-            return _cfg.to_pipeline_args(loaded)
+        def load_orchestrator_run_config(self, path: str | None) -> OrchestratorRunConfig:
+            assert path == str(cfg_path)
+            return run_cfg
 
     class _StubManager:
         def __init__(self, **_: Any) -> None:
@@ -230,7 +223,7 @@ def test_run_forever_passes_integration_args(tmp_path: Path, monkeypatch: pytest
     keys = ["ORCH_INTERVAL_MIN", "ORCH_CONFIG", "ORCH_FORCE", "ORCH_DRY_RUN", "ORCH_LOCK_PATH"]
     previous = {key: os.environ.get(key) for key in keys}
     os.environ["ORCH_INTERVAL_MIN"] = "1"
-    os.environ["ORCH_CONFIG"] = str(tmp_path / "config.json")
+    os.environ["ORCH_CONFIG"] = str(cfg_path)
     os.environ["ORCH_FORCE"] = "1"
     os.environ.pop("ORCH_DRY_RUN", None)
     os.environ["ORCH_LOCK_PATH"] = str(lock_path)
@@ -249,13 +242,8 @@ def test_run_forever_passes_integration_args(tmp_path: Path, monkeypatch: pytest
 
         assert invoke_args, "invoke_pipeline was not called"
         final_args = invoke_args[-1]
-        assert "--attach-runtime" in final_args
-        assert "--runtime-db-connection" in final_args
-        assert "postgresql://example" in final_args
-        assert "--runtime-auto-start-db" in final_args
-        assert "--runtime-no-ensure-healthy" in final_args
-        assert "--runtime-strict-protocol-validation" in final_args
-        assert "--runtime-skip-validators" in final_args
+        assert final_args[:2] == ["--config", str(cfg_path)]
+        assert final_args[-2:] == ["--stage", OrchestratorStage.DATASET.value]
     finally:
         for key, value in previous.items():
             if value is None:

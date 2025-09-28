@@ -10,10 +10,14 @@ lightweight entry point with predictable typing.
 from __future__ import annotations
 
 import argparse
-import os
 from collections.abc import Sequence
 from pathlib import Path
 
+import structlog
+
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
+from ml.common.db_connections import select_first_working_connection
 from ml.tasks.db import MigrationResult
 from ml.tasks.db import MigrationSchema
 from ml.tasks.db import apply_database_migrations
@@ -28,6 +32,9 @@ split_statements = _split_statements
 
 
 __all__ = ["apply_files", "build_plan", "main", "split_statements"]
+
+
+LOGGER = structlog.get_logger(__name__)
 
 
 def _parse_schema(value: str) -> MigrationSchema:
@@ -78,11 +85,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--print-only", action="store_true", help="Print migration plan and exit")
     args = parser.parse_args(argv)
 
-    db_url = (
-        args.db_url
-        or os.getenv("DATABASE_URL")
-        or "postgresql://postgres:postgres@localhost:5432/nautilus"
+    candidates = collect_postgres_candidates(
+        ConnectionRole.MIGRATION,
+        explicit=args.db_url,
     )
+    if not candidates.urls:
+        raise SystemExit("No PostgreSQL connection candidates found. Set --db-url or DATABASE_URL.")
+
+    try:
+        db_url = select_first_working_connection(candidates.urls)
+    except RuntimeError as exc:
+        db_url = candidates.urls[0]
+        LOGGER.warning(
+            "PostgreSQL connectivity probe failed; using first candidate",
+            connection=db_url,
+            error=str(exc),
+        )
 
     plan = build_migration_plan(include_optional=args.full, schema=args.schema)
     if args.print_only:

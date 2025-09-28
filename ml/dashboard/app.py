@@ -5,6 +5,7 @@ Flask app factory for the Dashboard API.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from typing import Any, cast
 
 from flask import Flask
@@ -18,6 +19,19 @@ from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.service import DashboardService
+
+
+def _status_to_http(status: str, success_code: int = 200) -> int:
+    normalized = status.lower()
+    if normalized in {"success", "purged"}:
+        return success_code
+    if normalized == "not_found":
+        return 404
+    if normalized == "unavailable":
+        return 503
+    if normalized in {"failed", "error"}:
+        return 500
+    return 500
 
 
 def create_app(config: DashboardConfig | None = None) -> Flask:
@@ -43,7 +57,9 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         svc.stop_event_polling()
 
     def _require_token() -> bool:
-        """Return True when dashboard authentication (if enabled) is satisfied."""
+        """
+        Return True when dashboard authentication (if enabled) is satisfied.
+        """
         provided = request.headers.get("X-ML-DASHBOARD-TOKEN")
         if not provided:
             auth_header = request.headers.get("Authorization") or ""
@@ -78,11 +94,59 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         if not _require_token():
             return jsonify({"error": "unauthorized"}), 401
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
-        mode = str(payload.get("mode", "")).strip().lower()
-        if mode not in {"daily", "backfill", "realtime"}:
-            return jsonify({"error": "invalid_mode"}), 400
-        res = svc.trigger_pipeline(mode, payload)
-        return jsonify(res), 202 if res.get("ok") else 200
+        pipeline_type_raw = payload.get("pipeline_type") or payload.get("mode") or "full"
+        pipeline_type = str(pipeline_type_raw).strip() or "full"
+
+        config_payload = payload.get("config")
+        if isinstance(config_payload, Mapping):
+            config_dict: Mapping[str, Any] = dict(config_payload)
+        else:
+            config_dict = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"pipeline_type", "mode", "config"}
+            }
+
+        res = svc.trigger_pipeline(pipeline_type, config_dict)
+        status_token = str(res.get("status", "ERROR")).upper()
+        if status_token == "QUEUED" and res.get("success"):
+            status_code = 202
+        elif status_token == "UNAVAILABLE":
+            status_code = 503
+        elif status_token == "INVALID":
+            status_code = 400
+        elif res.get("success"):
+            status_code = 202
+        else:
+            status_code = 500
+        return jsonify(res), status_code
+
+    @app.get("/api/pipeline/jobs")
+    def pipeline_jobs_list() -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        res = svc.list_pipeline_jobs()
+        status = res.get("status", "error")
+        code = _status_to_http(status)
+        return jsonify(res), code
+
+    @app.get("/api/pipeline/jobs/<job_id>")
+    def pipeline_job_detail(job_id: str) -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        res = svc.get_pipeline_job(job_id)
+        status = res.get("status", "error")
+        code = _status_to_http(status)
+        return jsonify(res), code
+
+    @app.delete("/api/pipeline/jobs/<job_id>")
+    def pipeline_job_purge(job_id: str) -> tuple[Any, int]:
+        if not _require_token():
+            return jsonify({"error": "unauthorized"}), 401
+        res = svc.purge_pipeline_job(job_id)
+        status = res.get("status", "error")
+        code = _status_to_http(status)
+        return jsonify(res), code
 
     @app.post("/api/orchestrator/<task>")
     def orchestrator_task(task: str) -> tuple[Any, int]:
@@ -157,7 +221,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         except Exception:
             limit = 100
         return (
-            jsonify(svc.list_watermarks(dataset_id=ds, instrument=instr or None, source=source or None, limit=limit)),
+            jsonify(
+                svc.list_watermarks(
+                    dataset_id=ds, instrument=instr or None, source=source or None, limit=limit
+                )
+            ),
             200,
         )
 
@@ -180,7 +248,9 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         gates = payload.get("gates")
         if gates is not None and not isinstance(gates, list):
             return jsonify({"error": "invalid_gates"}), 400
-        res = svc.promote_feature(feature_set_id, stage=stage, gates=cast(list[dict[str, Any]] | None, gates))
+        res = svc.promote_feature(
+            feature_set_id, stage=stage, gates=cast(list[dict[str, Any]] | None, gates)
+        )
         return jsonify(res), 202 if res.get("ok") else 200
 
     @app.post("/api/registry/features/<feature_set_id>:deprecate")
@@ -236,7 +306,9 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         stage = str(args.get("stage", "")) or None
         source = str(args.get("source", "")) or None
         instrument = str(args.get("instrument", "")) or None
-        data = svc.list_events(limit=limit, stage=stage, source=source, instrument_substr=instrument)
+        data = svc.list_events(
+            limit=limit, stage=stage, source=source, instrument_substr=instrument
+        )
         return jsonify(data), 200
 
     # ===== Control Panel Endpoints =====
@@ -253,6 +325,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
             return jsonify({"error": "invalid_actor_id"}), 400
 
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
         result = control_panel.start_actor(actor_id, actor_type, config)
         return jsonify(result), 202 if result.get("success") else 400
@@ -267,6 +340,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
             return jsonify({"error": "invalid_actor_id"}), 400
 
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
         result = control_panel.stop_actor(actor_id)
         return jsonify(result), 200
@@ -276,13 +350,50 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         if not _require_token():
             return jsonify({"error": "unauthorized"}), 401
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
-        mode = str(payload.get("mode", "full")).strip()
-        config = payload.get("config", {})
+        pipeline_type_raw = payload.get("pipeline_type") or payload.get("mode") or "full"
+        pipeline_type = str(pipeline_type_raw).strip() or "full"
+
+        config_payload = payload.get("config")
+        if isinstance(config_payload, Mapping):
+            config_dict: Mapping[str, Any] = dict(config_payload)
+        else:
+            config_dict = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"pipeline_type", "mode", "config"}
+            }
+
+        pipeline_result = svc.trigger_pipeline(pipeline_type, config_dict)
 
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
-        result = control_panel.trigger_pipeline(mode, config)
-        return jsonify(result), 202 if result.get("success") else 400
+        control_state = control_panel.trigger_pipeline(
+            pipeline_type,
+            config_dict,
+            job_id=str(pipeline_result.get("job_id")) if pipeline_result.get("job_id") else None,
+            status=str(pipeline_result.get("status", "QUEUED")).lower(),
+        )
+
+        response_payload = {
+            **pipeline_result,
+            "control_run_id": control_state["run_id"],
+            "control_status": control_state["status"],
+        }
+
+        status_token = str(pipeline_result.get("status", "ERROR")).upper()
+        if status_token == "QUEUED" and pipeline_result.get("success"):
+            status_code = 202
+        elif status_token == "UNAVAILABLE":
+            status_code = 503
+        elif status_token == "INVALID":
+            status_code = 400
+        elif pipeline_result.get("success"):
+            status_code = 202
+        else:
+            status_code = 500
+
+        return jsonify(response_payload), status_code
 
     @app.post("/api/control/ingestion/start")
     def control_start_ingestion() -> tuple[Any, int]:
@@ -295,6 +406,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
             return jsonify({"error": "no_symbols"}), 400
 
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
         result = control_panel.start_ingestion(symbols, source)
         return jsonify(result), 202 if result.get("success") else 400
@@ -313,14 +425,16 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         from datetime import datetime
 
         from ml.dashboard.control_panel import DashboardControlPanel
+
         control_panel = DashboardControlPanel.from_env()
         import asyncio
+
         result = asyncio.run(
             control_panel.trigger_backfill(
                 symbols,
                 datetime.fromisoformat(start_date),
-                datetime.fromisoformat(end_date)
-            )
+                datetime.fromisoformat(end_date),
+            ),
         )
         return jsonify(result), 202 if result.get("success") else 400
 
@@ -330,6 +444,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
             return jsonify({"error": "unauthorized"}), 401
 
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
         result = control_panel.emergency_stop_all()
         return jsonify(result), 200
@@ -337,6 +452,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     @app.get("/api/control/status")
     def control_system_status() -> tuple[Any, int]:
         from ml.dashboard.control_simple import SimpleControlPanel
+
         control_panel = SimpleControlPanel.from_env()
         status = control_panel.get_system_status()
         return jsonify(status), 200
@@ -380,11 +496,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
         # Map UI types to template files
         template_map = {
-            "unified": "index_unified.html",   # Unified control + advanced
-            "control": "index_control.html",   # Control center only
+            "unified": "index_unified.html",  # Unified control + advanced
+            "control": "index_control.html",  # Control center only
             "enhanced": "index_enhanced.html",
             "advanced": "index_advanced.html",
-            "standard": "index.html"
+            "standard": "index.html",
         }
 
         # Check if requested template exists, fallback to standard if not

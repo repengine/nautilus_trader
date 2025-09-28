@@ -6,6 +6,7 @@ from typing import Any, Literal, cast
 import pytest
 
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.config.events import Stage
 from ml.stores.base import ModelPrediction
 from ml.stores.model_store import ModelStore
 
@@ -33,6 +34,9 @@ def test_model_store_publishing_modes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cap = CapturePublisher()
+    monkeypatch.setattr(
+        "ml.stores.model_store.ModelStore._init_engine_and_tables", lambda self: None
+    )
     store = ModelStore(
         connection_string=None,
         enable_publishing=True,
@@ -62,6 +66,29 @@ def test_model_store_publishing_modes(
         )
 
     monkeypatch.setattr(store, "_execute_upsert_and_publish", _stub_execute_upsert_and_publish)
+
+    def _fake_execute_write(values: list[dict[str, Any]]) -> None:
+        store._execute_upsert_and_publish(  # type: ignore[misc]
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="test_model_store_publish_modes",
+            key_fields=("model_id", "instrument_id", "ts_event"),
+            table=None,
+            conflict_cols=("model_id", "instrument_id", "ts_event"),
+            update_cols=("prediction", "confidence", "features_used", "inference_time_ms"),
+            dataset_id="predictions",
+            stage=Stage.PREDICTION_EMITTED,
+            instrument_key="instrument_id",
+            ts_field="ts_event",
+            run_id_batch="unit-test-batch",
+            run_id_row="unit-test-row",
+            source="unit-test",
+            logger=None,
+            publish_bus=True,
+        )
+
+    monkeypatch.setattr(store, "_execute_write", _fake_execute_write)
 
     now = time.time_ns()
     preds = [

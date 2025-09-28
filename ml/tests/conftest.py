@@ -374,6 +374,11 @@ def clean_postgres_db() -> Generator[None, None, None]:
             pass
 
     def _truncate_and_verify(connection: Any) -> None:
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+
         result = connection.execute(
             text(
                 """
@@ -390,6 +395,10 @@ def clean_postgres_db() -> Generator[None, None, None]:
                 connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
             except Exception as exc:  # Best-effort cleanup
                 print(f"Warning during cleanup of {table}: {exc}")
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
 
         # Verify core tables are empty; retry once if necessary
         core_tables = ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values")
@@ -408,6 +417,10 @@ def clean_postgres_db() -> Generator[None, None, None]:
                     connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
                 except Exception as exc:
                     print(f"Retry cleanup warning for {table}: {exc}")
+                    try:
+                        connection.rollback()
+                    except Exception:
+                        pass
 
     try:
         with engine.connect() as conn:
@@ -465,6 +478,10 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
 
         try:
             with engine.connect() as conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
                 try:
                     conn.execute(_text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
@@ -578,6 +595,10 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                         conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
                     except Exception as exc:
                         print(f"Warning during module-scope cleanup of {table}: {exc}")
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                 for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
                     try:
                         count = conn.execute(_text(f"SELECT COUNT(*) FROM {table}"))
@@ -589,6 +610,10 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                             conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
                         except Exception as exc:
                             print(f"Retry cleanup warning for {table}: {exc}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
                 conn.commit()
         except Exception as exc:
             print(f"clean_postgres_db_module cleanup skipped: {exc}")
@@ -622,7 +647,9 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
 
 @dataclass(slots=True)
 class ModuleStoreBundle:
-    """Bundle of shared store instances for Postgres-backed tests."""
+    """
+    Bundle of shared store instances for Postgres-backed tests.
+    """
 
     feature_store: Any
     model_store: Any
@@ -632,7 +659,9 @@ class ModuleStoreBundle:
 
 
 def _truncate_store_tables(engine: Engine) -> None:
-    """Truncate primary store tables to isolate tests."""
+    """
+    Truncate primary store tables to isolate tests.
+    """
 
     from sqlalchemy import text as _text
 
@@ -651,7 +680,9 @@ def _truncate_store_tables(engine: Engine) -> None:
 
 @pytest.fixture(scope="session")
 def module_test_database() -> Generator[TestDatabase, None, None]:
-    """Module-scoped PostgreSQL database with schema initialized once."""
+    """
+    Module-scoped PostgreSQL database with schema initialized once.
+    """
 
     if not is_postgresql_running():
         pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
@@ -683,8 +714,12 @@ def module_test_database() -> Generator[TestDatabase, None, None]:
 
 
 @pytest.fixture(scope="module")
-def module_store_bundle(module_test_database: TestDatabase) -> Generator[ModuleStoreBundle, None, None]:
-    """Create shared Feature/Model/Strategy stores backed by PostgreSQL."""
+def module_store_bundle(
+    module_test_database: TestDatabase,
+) -> Generator[ModuleStoreBundle, None, None]:
+    """
+    Create shared Feature/Model/Strategy stores backed by PostgreSQL.
+    """
 
     from ml.stores.feature_store import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
@@ -731,7 +766,9 @@ def module_store_bundle(module_test_database: TestDatabase) -> Generator[ModuleS
 
 @pytest.fixture
 def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
-    """Reset shared stores before each test and return the bundle."""
+    """
+    Reset shared stores before each test and return the bundle.
+    """
 
     for store in (
         module_store_bundle.feature_store,
@@ -748,7 +785,9 @@ def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
 
 @pytest.fixture
 def data_processor(module_test_database: TestDatabase) -> Any:
-    """Provide a DataProcessor bound to the shared PostgreSQL database."""
+    """
+    Provide a DataProcessor bound to the shared PostgreSQL database.
+    """
 
     from ml.stores.data_processor import DataProcessor as _DataProcessor
 
@@ -761,32 +800,39 @@ def data_processor(module_test_database: TestDatabase) -> Any:
 
 @pytest.fixture
 def feature_store(store_bundle: ModuleStoreBundle) -> Any:
-    """Provide a reset FeatureStore instance for tests."""
+    """
+    Provide a reset FeatureStore instance for tests.
+    """
 
     return store_bundle.feature_store
 
 
 @pytest.fixture
 def model_store(store_bundle: ModuleStoreBundle) -> Any:
-    """Provide a reset ModelStore instance for tests."""
+    """
+    Provide a reset ModelStore instance for tests.
+    """
 
     return store_bundle.model_store
 
 
 @pytest.fixture
 def strategy_store(store_bundle: ModuleStoreBundle) -> Any:
-    """Provide a reset StrategyStore instance for tests."""
+    """
+    Provide a reset StrategyStore instance for tests.
+    """
 
     return store_bundle.strategy_store
 
 
 @pytest.fixture
 def mock_persistence_manager(store_bundle: ModuleStoreBundle) -> MagicMock:
-    """Return the shared persistence manager with call history reset."""
+    """
+    Return the shared persistence manager with call history reset.
+    """
 
     store_bundle.persistence_manager.reset_mock()
     return store_bundle.persistence_manager
-
 
 
 # ============================================================================
@@ -1151,7 +1197,11 @@ def pytest_configure(config: pytest.Config) -> None:
             config.option.numprocesses = optimal_workers
 
         current_dist = getattr(config.option, "dist", None)
-        if getattr(config.option, "numprocesses", 0) and current_dist in (None, "load", "loadscope"):
+        if getattr(config.option, "numprocesses", 0) and current_dist in (
+            None,
+            "load",
+            "loadscope",
+        ):
             config.option.dist = "loadgroup"
 
     except ImportError:
@@ -1417,14 +1467,14 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Finalize shared resources once the controlling pytest process exits.
+    """
+    Finalize shared resources once the controlling pytest process exits.
 
-    Under xdist the hook is executed for each worker, but only the controller
-    should orchestrate global teardown. Workers operate with redirected stdout
-    streams that may already be closed when this hook fires, so disposing
-    engines or emitting logs from those processes triggers the observed
-    `ValueError: I/O operation on closed file`. Guarding here keeps cleanup
-    centralized and avoids spurious errors.
+    Under xdist the hook is executed for each worker, but only the controller should
+    orchestrate global teardown. Workers operate with redirected stdout streams that may
+    already be closed when this hook fires, so disposing engines or emitting logs from
+    those processes triggers the observed `ValueError: I/O operation on closed file`.
+    Guarding here keeps cleanup centralized and avoids spurious errors.
 
     """
     # Skip teardown for xdist workers; the controller owns shared cleanup.
@@ -1625,11 +1675,15 @@ def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TAKE_PROFIT_PCT", "0.04")
     monkeypatch.setenv("USE_STRATEGY_STORE", "true")
     monkeypatch.setenv("PERSIST_ALL_SIGNALS", "true")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _set_isolated_ml_registry_path(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Generator[None, None, None]:
-    """Force ML registries to use a temporary directory during tests."""
+    """
+    Force ML registries to use a temporary directory during tests.
+    """
 
     previous_value = os.getenv("ML_REGISTRY_PATH")
     registry_dir = tmp_path_factory.mktemp("ml_registry")

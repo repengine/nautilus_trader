@@ -1,0 +1,13 @@
+stage = "ingest"
+
+[ingestion]
+enabled = true
+market_dataset_id = "EQUS.MINI"
+dataset_id = "EQUS.MINI"
+schema = "bars"
+instruments = ["SPY.NYSE"]
+symbols = ["SPY"]
+lookback_days = 1
+coverage_mode = "sql"
+write_mode = "parquet"
+catalog_path = "ml_out/ingest_smoke"

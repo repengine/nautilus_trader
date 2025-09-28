@@ -1,4 +1,6 @@
-"""High-level dashboard control helpers with typed integration points."""
+"""
+High-level dashboard control helpers with typed integration points.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +16,9 @@ from typing import Any
 from ml.common.logging_config import configure_logging
 from ml.core.integration import MLIntegrationManager
 from ml.dashboard.control_simple import SimpleControlPanel
+from ml.dashboard.services import PipelineIntegrationService
+from ml.dashboard.services import PipelineTriggerRequest
+from ml.dashboard.services import PipelineTriggerResult
 from ml.registry import DataRegistry
 from ml.registry import FeatureRegistry
 from ml.registry import ModelRegistry
@@ -31,9 +36,11 @@ except Exception:  # pragma: no cover - defensive
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class ControlPanelConfig:
-    """Configuration flags for dashboard control features."""
+    """
+    Configuration flags for dashboard control features.
+    """
 
     enable_actor_control: bool = True
     enable_pipeline_control: bool = True
@@ -48,13 +55,22 @@ class ControlPanelConfig:
 
 
 class DashboardControlPanel:
-    """Typed control façade used by dashboard service endpoints."""
+    """
+    Typed control façade used by dashboard service endpoints.
+    """
 
     def __init__(self, config: ControlPanelConfig) -> None:
         self.config = config
         self._state = SimpleControlPanel()
         self._pipeline_tasks: MutableMapping[str, asyncio.Task[None]] = {}
         self._integration = self._init_integration()
+        self._pipeline_service: PipelineIntegrationService | None = None
+        if self._integration is not None:
+            try:
+                self._pipeline_service = PipelineIntegrationService(self._integration)
+            except Exception:
+                logger.debug("Failed to initialise PipelineIntegrationService", exc_info=True)
+                self._pipeline_service = None
         self.data_store: DataStoreFacadeProtocol | None = self._get_attr("data_store")
         self.model_store: ModelStoreProtocol | None = self._get_attr("model_store")
         self.strategy_store: StrategyStoreProtocol | None = self._get_attr("strategy_store")
@@ -92,7 +108,9 @@ class DashboardControlPanel:
         actor_type: str,
         config: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Register an actor as started."""
+        """
+        Register an actor as started.
+        """
         if not self.config.enable_actor_control:
             return {"success": False, "error": "Actor control disabled"}
         if self._state.actor_count() >= self.config.max_concurrent_actors:
@@ -121,18 +139,70 @@ class DashboardControlPanel:
             return {"success": False, "error": "Pipeline control disabled"}
         if len(self._pipeline_tasks) >= self.config.max_pipeline_runs:
             return {"success": False, "error": "Max pipeline runs limit reached"}
-        run = self._state.trigger_pipeline(mode, config)
+        job_result = await self._trigger_pipeline_via_integration(mode, config)
+        job_id = job_result.job_id if job_result else None
+        status_text = job_result.status.lower() if job_result else "queued"
+
+        run = self._state.trigger_pipeline(
+            mode,
+            config=config,
+            job_id=job_id,
+            status=status_text,
+        )
         run_id = str(run.get("run_id", ""))
+        if job_result is not None:
+            run.update(
+                {
+                    "success": job_result.success,
+                    "pipeline_type": job_result.pipeline_type,
+                    "status": job_result.status,
+                    "message": job_result.message,
+                    "error": job_result.error,
+                },
+            )
         if run_id:
-            self._pipeline_tasks[run_id] = asyncio.create_task(self._pipeline_worker(run_id))
+            self._pipeline_tasks[run_id] = asyncio.create_task(
+                self._pipeline_worker(run_id, job_id=job_id),
+            )
         return run
 
-    async def _pipeline_worker(self, run_id: str) -> None:
+    async def _pipeline_worker(self, run_id: str, *, job_id: str | None) -> None:
         try:
-            await asyncio.sleep(0)
-            self._state.set_pipeline_status(run_id, "completed")
+            if job_id is None or self._pipeline_service is None:
+                await asyncio.sleep(0)
+                self._state.set_pipeline_status(run_id, "completed")
+                return
+            while True:
+                await asyncio.sleep(1.0)
+                progress = await self._pipeline_service.get_pipeline_progress(job_id)
+                status_lower = progress.status.lower()
+                status_repr = status_lower
+                if progress.status.upper() == "RUNNING" and progress.current_stage:
+                    status_repr = f"{status_lower}:{progress.current_stage.lower()}"
+                self._state.set_pipeline_status(run_id, status_repr)
+                if progress.status.upper() in {"COMPLETED", "FAILED", "CANCELLED", "UNKNOWN"}:
+                    break
+        except Exception:
+            logger.debug("Pipeline worker polling failed", exc_info=True)
         finally:
             self._pipeline_tasks.pop(run_id, None)
+
+    async def _trigger_pipeline_via_integration(
+        self,
+        pipeline_type: str,
+        config: Mapping[str, Any],
+    ) -> PipelineTriggerResult | None:
+        if self._pipeline_service is None:
+            return None
+        try:
+            request = PipelineTriggerRequest(
+                pipeline_type=pipeline_type,
+                config=dict(config),
+            )
+            return await self._pipeline_service.trigger_pipeline(request)
+        except Exception:
+            logger.debug("Pipeline trigger through integration failed", exc_info=True)
+            return None
 
     # ------------------------------------------------------------------
     # Ingestion control

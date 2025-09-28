@@ -69,17 +69,15 @@ class FakeRegistry:
 
 def _patch_db_init_and_write(monkeypatch: pytest.MonkeyPatch, store: Any) -> None:
     # Avoid DB setup and upserts in unit tests
-    monkeypatch.setattr(
-        store.__class__,
-        "_init_engine_and_tables",
-        lambda self: None,
-        raising=False,
-    )
     monkeypatch.setattr(store, "_execute_write", lambda values: None, raising=False)
 
 
 def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
     # Setup store with no DB and fake registry
+    monkeypatch.setattr(
+        "ml.stores.strategy_store.StrategyStore._init_engine_and_tables",
+        lambda self: None,
+    )
     store = StrategyStore(connection_string=None)
     _patch_db_init_and_write(monkeypatch, store)
     reg = FakeRegistry()
@@ -180,6 +178,10 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
 
 
 def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "ml.stores.model_store.ModelStore._init_engine_and_tables",
+        lambda self: None,
+    )
     store = ModelStore(connection_string=None)
     _patch_db_init_and_write(monkeypatch, store)
     reg = FakeRegistry()

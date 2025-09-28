@@ -13,7 +13,11 @@ from ml.common.trace_context import (
 )
 
 
-def _install_tracing_stub(record: dict[str, object]) -> None:
+def _install_tracing_stub(monkeypatch: MonkeyPatch, record: dict[str, object]) -> None:
+    """
+    Install a stub tracing module and register cleanup with pytest's monkeypatch.
+    """
+
     mod = ModuleType("ml.observability.tracing")
 
     def extract_and_link_trace_context(event_metadata: dict[str, object]) -> None:
@@ -25,23 +29,26 @@ def _install_tracing_stub(record: dict[str, object]) -> None:
         record["inject_called_with"] = metadata
         return metadata
 
-    setattr(mod, "extract_and_link_trace_context", extract_and_link_trace_context)
-    setattr(mod, "inject_trace_context", inject_trace_context)
-    sys.modules["ml.observability.tracing"] = mod
+    monkeypatch.setattr(
+        mod,
+        "extract_and_link_trace_context",
+        extract_and_link_trace_context,
+        raising=False,
+    )
+    monkeypatch.setattr(mod, "inject_trace_context", inject_trace_context, raising=False)
+    monkeypatch.setitem(sys.modules, "ml.observability.tracing", mod)
 
 
 def test_extract_and_link_from_event_calls_stub(monkeypatch: MonkeyPatch) -> None:
-    del monkeypatch
     record: dict[str, object] = {}
-    _install_tracing_stub(record)
+    _install_tracing_stub(monkeypatch, record)
     extract_and_link_from_event({"a": 1})
     assert "extract_called_with" in record
 
 
 def test_get_correlation_and_trace_context_happy_path(monkeypatch: MonkeyPatch) -> None:
-    del monkeypatch
     record: dict[str, object] = {}
-    _install_tracing_stub(record)
+    _install_tracing_stub(monkeypatch, record)
     meta = get_correlation_and_trace_context(
         run_id="rid",
         dataset_id="features",
@@ -65,7 +72,6 @@ def test_get_correlation_and_trace_context_happy_path(monkeypatch: MonkeyPatch) 
 
 
 def test_get_correlation_and_trace_context_without_tracing_module(monkeypatch: MonkeyPatch) -> None:
-    del monkeypatch
     # Remove tracing module to exercise ImportError branch
     sys.modules.pop("ml.observability.tracing", None)
     meta = get_correlation_and_trace_context(

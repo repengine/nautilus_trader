@@ -143,6 +143,16 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
     def flush(self) -> None:
         getattr(self._store, "flush")()
 
+    def write_signals(self, data: Sequence[Any]) -> None:
+        """
+        Write a batch of strategy signals if the underlying store exposes the helper.
+        """
+        writer = getattr(self._store, "write_signals", None)
+        if callable(writer):
+            writer(list(data))
+            return
+        self.write_batch(data)
+
 
 __all__ = [
     "FeatureStoreStrictAdapter",

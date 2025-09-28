@@ -1,0 +1,47 @@
+{
+  "stage": "dataset",
+  "dataset": {
+    "data_dir": "data/tier1",
+    "symbols": "SPY,QQQ",
+    "out_dir": "ml_out/test",
+    "include_macro": true,
+    "macro_series_ids": ["CPIAUCSL", "PCEPI"],
+    "instrument_ids": ["SPY.NYSE", "QQQ.NASDAQ"]
+  },
+  "ingestion": {
+    "enabled": true,
+    "dataset_id": "EQUS.MINI",
+    "schema": "bars",
+    "instruments": ["SPY.NYSE"],
+    "lookback_days": 14,
+    "coverage_mode": "sql",
+    "write_mode": "sql+parquet",
+    "catalog_path": "catalog"
+  },
+  "training": {
+    "teacher": {
+      "model_id": "teacher-v1",
+      "max_epochs": 3
+    },
+    "student": {
+      "enabled": true,
+      "model_id": "student-v1"
+    },
+    "hpo": {
+      "enabled": false,
+      "optuna_trials": 5
+    }
+  },
+  "promotions": {
+    "auto_register_model": true,
+    "gates_json": "{}"
+  },
+  "auto_fill": {
+    "enabled": true,
+    "dataset_id": "EQUS.MINI"
+  },
+  "integration": {
+    "enabled": true,
+    "db_connection": "postgresql://postgres:postgres@localhost:5432/nautilus"
+  }
+}

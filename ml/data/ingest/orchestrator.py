@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
@@ -49,10 +50,60 @@ from ml.stores.writers import FanoutMarketDataWriter
 DAY_NS: Final[int] = 86_400_000_000_000
 
 
+class BackfillWindowList(list[tuple[int, int]]):
+    """
+    List of persisted backfill windows enriched with ingestion metadata.
+    """
+
+    __slots__ = ("frames_written", "requested_windows", "rows_written")
+
+    requested_windows: tuple[tuple[int, int], ...]
+    frames_written: int
+    rows_written: int
+
+    def __init__(
+        self,
+        persisted: Iterable[tuple[int, int]] = (),
+        *,
+        requested: Iterable[tuple[int, int]] = (),
+        frames_written: int = 0,
+        rows_written: int = 0,
+    ) -> None:
+        super().__init__(persisted)
+        self.requested_windows = tuple(requested)
+        self.frames_written = int(frames_written)
+        self.rows_written = int(rows_written)
+
+    @property
+    def attempted_window_count(self) -> int:
+        """
+        Number of windows we attempted to ingest regardless of persistence.
+        """
+        return len(self.requested_windows)
+
+    @property
+    def persisted_window_count(self) -> int:
+        """
+        Number of windows that produced persisted frames.
+        """
+        return len(self)
+
+    def __repr__(self) -> str:  # pragma: no cover - debug representation
+        return (
+            "BackfillWindowList("  # nosec - repr only
+            f"persisted={list(self)!r}, "
+            f"requested={self.requested_windows!r}, "
+            f"frames_written={self.frames_written}, "
+            f"rows_written={self.rows_written})"
+        )
+
+
 def _coalesce_gap_windows(
     gaps: Sequence[tuple[int, int]],
 ) -> tuple[tuple[int, int], ...]:
-    """Merge contiguous daily gap windows into larger ranges."""
+    """
+    Merge contiguous daily gap windows into larger ranges.
+    """
     if not gaps:
         return ()
     ordered = sorted(gaps, key=lambda window: window[0])
@@ -72,7 +123,9 @@ def _coalesce_gap_windows(
 
 
 def _max_chunk_days_for_schema(schema: str) -> int:
-    """Derive an upper bound for chunk sizes based on schema type."""
+    """
+    Derive an upper bound for chunk sizes based on schema type.
+    """
     normalized = schema.lower()
     if "mbp" in normalized or "mbo" in normalized or normalized.startswith("l2"):
         return 31
@@ -144,8 +197,10 @@ class IngestionOrchestrator:
         binding: ResolvedMarketBinding,
         lookback_days: int,
         state: IngestState | None = None,
-    ) -> dict[str, list[tuple[int, int]]]:
-        """Backfill a resolved binding across all mapped instruments."""
+    ) -> dict[str, BackfillWindowList]:
+        """
+        Backfill a resolved binding across all mapped instruments.
+        """
         self._log_binding(binding)
         schema = binding.schema
         if not schema:
@@ -156,7 +211,7 @@ class IngestionOrchestrator:
             raise ValueError(msg)
 
         instruments = binding.instrument_ids or (binding.symbol,)
-        results: dict[str, list[tuple[int, int]]] = {}
+        results: dict[str, BackfillWindowList] = {}
         for instrument_id in instruments:
             gaps = self.backfill_gaps(
                 dataset_id=binding.dataset_id,
@@ -184,10 +239,7 @@ class IngestionOrchestrator:
                 extra=extras,
             )
 
-        if (
-            binding.storage_kind is StorageKind.POSTGRES
-            and not self._writer_supports_sql()
-        ):
+        if binding.storage_kind is StorageKind.POSTGRES and not self._writer_supports_sql():
             LOGGER.warning(
                 "SQL storage binding detected but writer is not SQL-backed",
                 extra=extras,
@@ -208,7 +260,7 @@ class IngestionOrchestrator:
         lookback_days: int,
         state: IngestState | None = None,
         symbol_hint: str | None = None,
-    ) -> list[tuple[int, int]]:
+    ) -> BackfillWindowList:
         """
         Detect day-bucket gaps within lookback window, backfill them, then emit registry
         events and update watermarks.
@@ -248,7 +300,10 @@ class IngestionOrchestrator:
             )
             window_slices.extend(segments)
 
-        requested: list[tuple[int, int]] = []
+        requested_windows: list[tuple[int, int]] = []
+        persisted_windows: list[tuple[int, int]] = []
+        frames_written = 0
+        rows_written = 0
         for ws, we in window_slices:
             clamped = self._clamp_window_to_available_range(
                 dataset_id=dataset_id,
@@ -259,11 +314,13 @@ class IngestionOrchestrator:
             if clamped is None:
                 continue
             start_ns, end_ns = clamped
-            requested.append((start_ns, end_ns))
+            requested_windows.append((start_ns, end_ns))
             frames: list[pd.DataFrame] = []
             ingest_symbol = symbol_hint or instrument_id.split(".")[0]
 
             def _persist_frame(df: pd.DataFrame) -> None:
+                nonlocal frames_written
+                nonlocal rows_written
                 if df.empty:
                     return
                 normalized_df = self._normalize_time_columns(df)
@@ -273,6 +330,9 @@ class IngestionOrchestrator:
                     frame=normalized_df,
                 )
                 frames.append(coerced_df)
+                frames_written += 1
+                window_rows = len(coerced_df.index)
+                rows_written += window_rows
                 self.writer.write(
                     dataset_id=dataset_id,
                     schema=schema,
@@ -306,29 +366,55 @@ class IngestionOrchestrator:
 
                 span_days = max(1, math.ceil((end_ns - start_ns) / DAY_NS))
                 chunk_days = min(span_days, max_chunk_days)
-                self.service.ingest(
-                    IngestionRequest(
+                try:
+                    self.service.ingest(
+                        IngestionRequest(
+                            dataset=dataset_id,
+                            schema=schema,
+                            symbols=(ingest_symbol,),
+                            start=start_dt,
+                            end=end_dt,
+                            chunk_days=chunk_days,
+                            allow_cost=False,
+                            reason="orchestrator_backfill",
+                        ),
+                        on_chunk=_handle_chunk,
+                    )
+                except Exception:
+                    LOGGER.error(
+                        "Ingestion service failed",
+                        exc_info=True,
+                        extra={
+                            "dataset_id": dataset_id,
+                            "schema": schema,
+                            "instrument_id": instrument_id,
+                            "symbol": ingest_symbol,
+                        },
+                    )
+                    raise
+            else:
+                try:
+                    df = self.ingestor.ingest_time_window(
                         dataset=dataset_id,
                         schema=schema,
-                        symbols=(ingest_symbol,),
-                        start=start_dt,
-                        end=end_dt,
-                        chunk_days=chunk_days,
-                        allow_cost=False,
-                        reason="orchestrator_backfill",
-                    ),
-                    on_chunk=_handle_chunk,
-                )
-            else:
-                df = self.ingestor.ingest_time_window(
-                    dataset=dataset_id,
-                    schema=schema,
-                    instrument=ingest_symbol,
-                    start_ns=start_ns,
-                    end_ns=end_ns,
-                    source=Source.HISTORICAL.value,
-                    state=state,
-                )
+                        instrument=ingest_symbol,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                        source=Source.HISTORICAL.value,
+                        state=state,
+                    )
+                except Exception:
+                    LOGGER.error(
+                        "Ingestor backfill failed",
+                        exc_info=True,
+                        extra={
+                            "dataset_id": dataset_id,
+                            "schema": schema,
+                            "instrument_id": instrument_id,
+                            "symbol": ingest_symbol,
+                        },
+                    )
+                    raise
                 if df.empty:
                     continue
                 _persist_frame(df)
@@ -359,6 +445,7 @@ class IngestionOrchestrator:
                     },
                 )
                 continue
+            persisted_windows.append((start_ns, end_ns))
             ts_series = df_combined["ts_event"]
             if pd.api.types.is_datetime64_any_dtype(ts_series):
                 ts_max = int(ts_series.max().value)
@@ -410,7 +497,12 @@ class IngestionOrchestrator:
                     },
                 )
 
-        return requested
+        return BackfillWindowList(
+            persisted=tuple(persisted_windows),
+            requested=tuple(requested_windows),
+            frames_written=frames_written,
+            rows_written=rows_written,
+        )
 
     def _clamp_window_to_available_range(
         self,
@@ -420,7 +512,9 @@ class IngestionOrchestrator:
         start_ns: int,
         end_ns: int,
     ) -> tuple[int, int] | None:
-        """Clamp ingestion window to provider metadata bounds."""
+        """
+        Clamp ingestion window to provider metadata bounds.
+        """
         service = self.service
         if service is None:
             return (start_ns, end_ns)
@@ -477,7 +571,9 @@ class IngestionOrchestrator:
         instrument_id: str,
         frame: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Align incoming frames with the registered schema before persistence."""
+        """
+        Align incoming frames with the registered schema before persistence.
+        """
         df = frame.copy()
         # Ensure the instrument identifier column matches the requested instrument.
         df.loc[:, "instrument_id"] = instrument_id
@@ -530,7 +626,9 @@ class IngestionOrchestrator:
 
     @staticmethod
     def _normalize_time_columns(df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure ts_event/ts_init columns are nanosecond integers."""
+        """
+        Ensure ts_event/ts_init columns are nanosecond integers.
+        """
         if "ts_event" in df.columns:
             event_series = df["ts_event"]
             if not pd.api.types.is_integer_dtype(event_series):
@@ -548,7 +646,10 @@ class IngestionOrchestrator:
             init_series = df["ts_init"]
             if not pd.api.types.is_integer_dtype(init_series):
                 converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
-                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
+                if (
+                    pd.api.types.is_datetime64_any_dtype(converted_init)
+                    and converted_init.notna().all()
+                ):
                     df.loc[:, "ts_init"] = converted_init.astype("int64")
                 else:
                     try:
@@ -586,6 +687,7 @@ class DomainWindowLoaderProtocol(Protocol):
         start_ns: int,
         end_ns: int,
     ) -> list[Any]: ...
+
 
 def _schema_to_dataset_type(schema: str) -> DatasetType:
     s = schema.lower()

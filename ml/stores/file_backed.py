@@ -5,6 +5,7 @@ These stores satisfy the core store protocols using structured JSONL persistence
 systems can continue producing durable artifacts when PostgreSQL is unavailable. They
 preserve correlation IDs and timestamps, integrate with the standard metrics bootstrap,
 and expose the minimal APIs required by the ML integration surface.
+
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import time
 from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterable
+from collections.abc import Mapping
 from collections.abc import MutableMapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,7 +55,9 @@ __all__ = [
 
 @dataclass(slots=True)
 class _JsonLineStore:
-    """Utility to append and reload JSONL datasets with locking and metrics."""
+    """
+    Utility to append and reload JSONL datasets with locking and metrics.
+    """
 
     path: Path
     history_limit: int = _DEFAULT_HISTORY_LIMIT
@@ -113,6 +117,7 @@ class FileFeatureStore(FeatureStoreProtocol):
     ----------
     base_path:
         Directory used to store feature records (``features.jsonl``).
+
     """
 
     def __init__(self, *, base_path: Path, history_limit: int = _DEFAULT_HISTORY_LIMIT) -> None:
@@ -211,7 +216,9 @@ class FileFeatureStore(FeatureStoreProtocol):
         return None
 
     # Compatibility helpers used in tests
-    def get_statistics(self, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]:
+    def get_statistics(
+        self, start_ns: int | None = None, end_ns: int | None = None
+    ) -> dict[str, Any]:
         records = self._store.records()
         return {
             "count": len(records),
@@ -223,7 +230,9 @@ class FileFeatureStore(FeatureStoreProtocol):
 
 
 class FileModelStore(ModelStoreProtocol):
-    """Model prediction store backed by JSONL persistence."""
+    """
+    Model prediction store backed by JSONL persistence.
+    """
 
     def __init__(self, *, base_path: Path, history_limit: int = _DEFAULT_HISTORY_LIMIT) -> None:
         self._paths = base_path
@@ -328,9 +337,11 @@ class FileModelStore(ModelStoreProtocol):
         ]
         return {
             "count": len(filtered),
-            "avg_confidence": float(pd.Series([rec["confidence"] for rec in filtered]).mean())
-            if filtered
-            else 0.0,
+            "avg_confidence": (
+                float(pd.Series([rec["confidence"] for rec in filtered]).mean())
+                if filtered
+                else 0.0
+            ),
         }
 
     def flush(self) -> None:
@@ -350,7 +361,9 @@ class FileModelStore(ModelStoreProtocol):
 
 
 class FileStrategyStore(StrategyStoreProtocol):
-    """Strategy signal persistence using JSONL with per-strategy indexes."""
+    """
+    Strategy signal persistence using JSONL with per-strategy indexes.
+    """
 
     def __init__(self, *, base_path: Path, history_limit: int = _DEFAULT_HISTORY_LIMIT) -> None:
         self._paths = base_path
@@ -417,6 +430,12 @@ class FileStrategyStore(StrategyStoreProtocol):
             )
         self._write_counter.labels(mode="batch").inc()
 
+    def write_signals(self, data: Sequence[StrategySignal]) -> None:
+        """
+        Compat helper mirroring the DB-backed store signature for legacy callers.
+        """
+        self.write_batch(data)
+
     def read_signals(
         self,
         strategy_id: str,
@@ -445,9 +464,9 @@ class FileStrategyStore(StrategyStoreProtocol):
         ]
         return {
             "count": len(bucket),
-            "avg_strength": float(pd.Series([rec["strength"] for rec in bucket]).mean())
-            if bucket
-            else 0.0,
+            "avg_strength": (
+                float(pd.Series([rec["strength"] for rec in bucket]).mean()) if bucket else 0.0
+            ),
         }
 
     def get_signal_distribution(
@@ -475,7 +494,9 @@ class FileStrategyStore(StrategyStoreProtocol):
 
 
 class FileDataStore:
-    """Simplified data-store facade that records dataset events to JSONL."""
+    """
+    Simplified data-store facade that records dataset events to JSONL.
+    """
 
     def __init__(self, *, base_path: Path, history_limit: int = _DEFAULT_HISTORY_LIMIT) -> None:
         self._paths = base_path
@@ -483,6 +504,7 @@ class FileDataStore:
         self._store = _JsonLineStore(self._paths / "events.jsonl", history_limit)
         self._ingestion_dir = self._paths / "ingestion"
         self._ingestion_dir.mkdir(parents=True, exist_ok=True)
+        self._features_by_instrument: MutableMapping[str, list[dict[str, Any]]] = defaultdict(list)
         self._event_counter = get_counter(
             "ml_file_datastore_events_total",
             "Total dataset events emitted via file-backed datastore",
@@ -574,6 +596,51 @@ class FileDataStore:
 
     def flush(self) -> None:
         self._store.flush()
+
+    def write_features(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        features: Mapping[str, float],
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
+        """
+        Persist feature snapshots in-memory so actors can read them during fallback.
+        """
+        record = {
+            "dataset_id": dataset_id,
+            "instrument_id": instrument_id,
+            "values": dict(features),
+            "ts_event": int(ts_event),
+            "ts_init": int(ts_init),
+        }
+        bucket = self._features_by_instrument[instrument_id]
+        idx = bisect_left([item["ts_event"] for item in bucket], record["ts_event"])
+        bucket.insert(idx, record)
+        if len(bucket) > self._store.history_limit:
+            del bucket[0]
+
+    def get_features_at_or_before(
+        self, instrument_id: str, ts_event: int
+    ) -> dict[str, float] | None:
+        """
+        Return the most recent feature mapping for an instrument at or before
+        ``ts_event``.
+        """
+        bucket = self._features_by_instrument.get(instrument_id)
+        if not bucket:
+            return None
+        idx = bisect_left([item["ts_event"] for item in bucket], int(ts_event))
+        candidate: dict[str, Any]
+        if idx < len(bucket) and bucket[idx]["ts_event"] == int(ts_event):
+            candidate = bucket[idx]
+        elif idx > 0:
+            candidate = bucket[idx - 1]
+        else:
+            return None
+        return {str(key): float(value) for key, value in candidate["values"].items()}
 
     # Compatibility hooks --------------------------------------------------
     def get_statistics(self) -> dict[str, Any]:

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from typing import Callable
+from typing import Sequence
 from typing import cast
 
 import json
@@ -16,23 +20,51 @@ import pytest
 
 from ml.config.coverage import CoveragePolicy
 from ml.config.market_data import MarketDatasetInput
+from ml.config.market_data import MarketFeedDescriptor
 from ml.data import DatasetMetadata
+from ml.config.market_data import MarketFeedDescriptorSet
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
-from ml.orchestration.pipeline_orchestrator import AutoFillUniverseConfig
+from ml.data.ingest.orchestrator import BackfillWindowList
+from ml.dashboard.services.pipelines_service import PipelineIntegrationService
+from ml.data.ingest.service import IngestionError
+
+# Reuse typed configuration structures from config_types to mirror runtime usage.
+from ml.orchestration.config_loader import IngestionStageConfig
+from ml.orchestration.config_loader import OrchestratorRunConfig
+from ml.orchestration.config_loader import Stage
+from ml.orchestration.config_loader import TrainingStageConfig
+from ml.orchestration.config_types import AutoFillUniverseConfig
+from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import IntegrationConfig
+from ml.orchestration.config_types import OrchestratorConfig
+from ml.orchestration.config_types import StudentDistillConfig
+from ml.orchestration.config_types import TeacherTrainConfig
+import ml.orchestration.pipeline_orchestrator as pipeline_orchestrator
 from ml.orchestration.pipeline_orchestrator import _apply_default_market_inputs
-from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
-from ml.orchestration.pipeline_orchestrator import HPOConfig
-from ml.orchestration.pipeline_orchestrator import IntegrationConfig
+from ml.orchestration.pipeline_orchestrator import _AutoFillMetrics
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
-from ml.orchestration.pipeline_orchestrator import StudentDistillConfig
-from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 from ml.orchestration.pipeline_orchestrator import _build_auto_fill_config_from_args
 from ml.orchestration.pipeline_orchestrator import _parse_market_inputs_json
 from ml.orchestration.pipeline_orchestrator import _resolve_write_mode_tokens
 from ml.orchestration.pipeline_orchestrator import parse_args
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.data.vintage import VintagePolicy
+from ml.stores.providers import DAY_NS
+
+
+@dataclass(slots=True)
+class _DiscoveryPayload:
+    dataset_id: str
+    schema: str
+    coverage_start_ns: int
+    coverage_end_ns: int
+    storage_kind: StorageKind | None = None
+    cost_usd: float | None = None
+
+    @property
+    def coverage_span_ns(self) -> int:
+        return max(self.coverage_end_ns - self.coverage_start_ns, 0)
 
 
 @dataclass
@@ -53,6 +85,22 @@ class _Coverage:
 class _Writer:
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         return len(df.index) if df is not None and not df.empty else 0
+
+
+class _StageRecorder:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.last_config: OrchestratorConfig | None = None
+
+    def run(self, cfg: OrchestratorConfig) -> int:  # pragma: no cover - simple stub
+        self.calls.append("run")
+        self.last_config = cfg
+        return 0
+
+    def run_training_only(self, cfg: OrchestratorConfig) -> int:  # pragma: no cover - simple stub
+        self.calls.append("train")
+        self.last_config = cfg
+        return 0
 
 
 @dataclass
@@ -78,6 +126,146 @@ class _Registry:
 
     def update_watermark(self, **kwargs: Any) -> None:  # pragma: no cover - stub
         return None
+
+
+@dataclass
+class _DiscoveryService:
+    result: _DiscoveryPayload | None
+    calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def discover_symbol_dataset(
+        self,
+        *,
+        symbol: str,
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> _DiscoveryPayload | None:
+        self.calls.append((symbol, schema))
+        return self.result
+
+    def ingest(
+        self, request: object, *, on_chunk: Callable[[object], None] | None = None
+    ) -> list[object]:
+        return []
+
+
+@dataclass
+class _ServiceStub:
+    allowed_dataset: str
+    calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def get_available_range_ns(
+        self,
+        *,
+        dataset: str,
+        schema: str | None = None,
+    ) -> tuple[int | None, int | None]:
+        self.calls.append((dataset, schema or ""))
+        if dataset != self.allowed_dataset:
+            raise IngestionError("dataset not permitted")
+        return (0, None)
+
+    def estimate_cost_usd(
+        self,
+        *,
+        dataset: str,
+        schema: str,
+        symbols: Sequence[str],
+        start: datetime,
+        end: datetime,
+    ) -> float:
+        del symbols, start, end
+        if dataset != self.allowed_dataset:
+            raise IngestionError("dataset not permitted")
+        return 0.0
+
+
+@dataclass
+class _IngestionOrchStub:
+    resolved_bindings: tuple[ResolvedMarketBinding, ...] = ()
+    binding_exception: Exception | None = None
+    coverage_exception: Exception | None = None
+    manual_exception: Exception | None = None
+    coverage_windows: list[tuple[int, int]] = field(default_factory=list)
+    manual_rows_written: int = 0
+    auto_fill_calls: int = 0
+    binding_calls: int = 0
+    coverage_calls: int = 0
+    manual_calls: int = 0
+
+    def _auto_fill_universe(
+        self,
+        _dataset_cfg: DatasetBuildConfig,
+        _auto_fill_cfg: AutoFillUniverseConfig,
+    ) -> None:
+        self.auto_fill_calls += 1
+
+    def _resolve_market_inputs(
+        self,
+        _cfg: DatasetBuildConfig,
+    ) -> tuple[tuple[MarketDatasetInput, ...] | None, tuple[ResolvedMarketBinding, ...]]:
+        return None, self.resolved_bindings
+
+    def backfill_binding(
+        self,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+    ) -> dict[str, BackfillWindowList]:
+        del lookback_days
+        self.binding_calls += 1
+        if self.binding_exception is not None:
+            raise self.binding_exception
+        return {
+            binding.symbol: BackfillWindowList(
+                rows_written=self.manual_rows_written,
+            ),
+        }
+
+    def backfill_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        policy: CoveragePolicy | None = None,
+    ) -> list[tuple[int, int]]:
+        del dataset_id, schema, instrument_id, policy
+        self.coverage_calls += 1
+        if self.coverage_exception is not None:
+            raise self.coverage_exception
+        return list(self.coverage_windows)
+
+    def backfill(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int,
+    ) -> BackfillWindowList:
+        del dataset_id, schema, instrument_id, lookback_days
+        self.manual_calls += 1
+        if self.manual_exception is not None:
+            raise self.manual_exception
+        return BackfillWindowList(rows_written=self.manual_rows_written)
+
+
+@dataclass
+class _OrchestratorRecorder:
+    run_calls: list[OrchestratorConfig] = field(default_factory=list)
+    run_training_calls: list[OrchestratorConfig] = field(default_factory=list)
+    ingestor: object = field(default_factory=object)
+    service: object = field(default_factory=object)
+
+    def run(self, cfg: OrchestratorConfig) -> int:
+        self.run_calls.append(cfg)
+        return 0
+
+    def run_training_only(self, cfg: OrchestratorConfig) -> int:
+        self.run_training_calls.append(cfg)
+        return 0
 
 
 def _write_dataset_metadata_file(out_dir: Path) -> None:
@@ -154,7 +342,9 @@ def _ok(_: list[str] | None = None) -> int:
     return 0
 
 
-def test_pipeline_orchestrator_runs_all_phases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pipeline_orchestrator_runs_all_phases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
     registry = _Registry()
@@ -242,7 +432,9 @@ def test_pipeline_orchestrator_runs_all_phases(tmp_path: Path, monkeypatch: pyte
     assert called == {"build": 1, "hpo": 1, "train": 1, "distill": 1}
 
 
-def test_pipeline_orchestrator_attach_runtime_sets_components(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pipeline_orchestrator_attach_runtime_sets_components(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
 
@@ -346,7 +538,9 @@ def test_pipeline_orchestrator_attach_runtime_sets_components(tmp_path: Path, mo
     assert orch_metrics_calls and orch_events_calls
 
 
-def test_pipeline_orchestrator_attach_runtime_skips_validators_when_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pipeline_orchestrator_attach_runtime_skips_validators_when_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
 
@@ -417,7 +611,9 @@ def test_pipeline_orchestrator_attach_runtime_skips_validators_when_disabled(tmp
     assert events_called is False
 
 
-def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_fill_universe_backfills_expected_schemas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
     ingestor = _Ingestor()
@@ -454,11 +650,24 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
         instrument_id: str,
         lookback_days: int,
         **_: object,
-    ) -> list[tuple[int, int]]:
+    ) -> BackfillWindowList:
         backfill_calls.append((dataset_id, schema, instrument_id, lookback_days))
-        return []
+        return BackfillWindowList((), requested=())
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _fake_backfill)
+    ensure_calls: list[tuple[str, StorageKind]] = []
+
+    def _capture_register(
+        self: MLPipelineOrchestrator,
+        *,
+        dataset_id: str,
+        dataset_type: DatasetType,
+        location: str,
+        storage_kind: StorageKind = StorageKind.PARQUET,
+    ) -> None:
+        ensure_calls.append((dataset_id, storage_kind))
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "_ensure_dataset_registered", _capture_register)
 
     target_instrument = "SPY.NYSE"
 
@@ -468,9 +677,13 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
         binding: ResolvedMarketBinding,
         lookback_days: int,
         **_: object,
-    ) -> dict[str, list[tuple[int, int]]]:
+    ) -> dict[str, BackfillWindowList]:
         instruments = binding.instrument_ids or (binding.symbol,)
-        primary = target_instrument if target_instrument else (instruments[0] if instruments else binding.symbol)
+        primary = (
+            target_instrument
+            if target_instrument
+            else (instruments[0] if instruments else binding.symbol)
+        )
         backfill_calls.append(
             (
                 binding.dataset_id,
@@ -479,7 +692,12 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
                 lookback_days,
             ),
         )
-        return {primary: []}
+        return {
+            primary: BackfillWindowList(
+                (),
+                requested=((0, DAY_NS),),
+            ),
+        }
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _fake_backfill_binding)
 
@@ -539,6 +757,318 @@ def test_auto_fill_universe_backfills_expected_schemas(tmp_path: Path, monkeypat
     assert Path(getattr(l2_config, "data_dir")).samefile(tmp_path)
 
 
+def test_prepare_dataset_config_discovers_market_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    ingestor = _Ingestor()
+    discovery = _DiscoveryPayload(
+        dataset_id="DBEQ.BASIC",
+        schema="ohlcv-1m",
+        coverage_start_ns=0,
+        coverage_end_ns=200 * DAY_NS,
+        storage_kind=None,
+        cost_usd=0.0,
+    )
+    service = _DiscoveryService(result=discovery)
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+        service=service,
+    )
+
+    monkeypatch.setattr(
+        "ml.orchestration.pipeline_orchestrator.load_market_feed_descriptors",
+        lambda: MarketFeedDescriptorSet(descriptors=()),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="AAPL",
+        out_dir=str(tmp_path / "out"),
+        start_iso="2024-01-01",
+        end_iso="2024-01-05",
+    )
+
+    prepared = orch._prepare_dataset_config(cfg)
+    assert prepared.market_inputs is not None
+    mapping = {item.dataset_id: item.schema_override for item in prepared.market_inputs}
+    assert mapping.get("DBEQ.BASIC") == "ohlcv-1m"
+    assert service.calls == [("AAPL", "ohlcv-1m")]
+
+
+def test_prepare_dataset_config_prefers_discovery_with_descriptor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    ingestor = _Ingestor()
+    discovery = _DiscoveryPayload(
+        dataset_id="DBEQ.BASIC",
+        schema="ohlcv-1m",
+        coverage_start_ns=0,
+        coverage_end_ns=200 * DAY_NS,
+        storage_kind=None,
+        cost_usd=0.0,
+    )
+    service = _DiscoveryService(result=discovery)
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+        service=service,
+    )
+
+    descriptor = MarketFeedDescriptor(
+        descriptor_id="eq-mini",
+        dataset_id="EQUS.MINI",
+        storage_kind=StorageKind.POSTGRES,
+        schema="ohlcv-1m",
+        symbol_patterns=("AAPL",),
+        instrument_id_templates=("AAPL.{venue}",),
+    )
+
+    monkeypatch.setattr(
+        "ml.orchestration.pipeline_orchestrator.load_market_feed_descriptors",
+        lambda: MarketFeedDescriptorSet(descriptors=(descriptor,)),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="AAPL",
+        out_dir=str(tmp_path / "out"),
+        start_iso="2024-01-01",
+        end_iso="2024-01-05",
+    )
+
+    prepared = orch._prepare_dataset_config(cfg)
+    assert prepared.market_inputs is not None
+    mapping = {item.dataset_id: item.schema_override for item in prepared.market_inputs}
+    assert mapping.get("DBEQ.BASIC") == "ohlcv-1m"
+    assert service.calls == [("AAPL", "ohlcv-1m")]
+
+
+def test_auto_fill_schema_prefers_discovery_when_binding_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    ingestor = _Ingestor()
+    discovery = _DiscoveryPayload(
+        dataset_id="DBEQ.BASIC",
+        schema="ohlcv-1m",
+        coverage_start_ns=0,
+        coverage_end_ns=200 * DAY_NS,
+        storage_kind=None,
+        cost_usd=0.0,
+    )
+    service = _DiscoveryService(result=discovery)
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+        service=service,
+    )
+
+    calls: list[tuple[str, str]] = []
+    ensure_calls: list[tuple[str, StorageKind]] = []
+
+    def _fake_backfill_binding(
+        self: MLPipelineOrchestrator,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+        **_: object,
+    ) -> dict[str, BackfillWindowList]:
+        calls.append((binding.dataset_id, binding.schema or ""))
+        return {
+            instrument_id: BackfillWindowList(
+                (),
+                requested=((0, DAY_NS),),
+            )
+            for instrument_id in binding.instrument_ids or (binding.symbol,)
+        }
+
+    def _capture_register(
+        self: MLPipelineOrchestrator,
+        *,
+        dataset_id: str,
+        dataset_type: DatasetType,
+        location: str,
+        storage_kind: StorageKind = StorageKind.PARQUET,
+    ) -> None:
+        ensure_calls.append((dataset_id, storage_kind))
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _fake_backfill_binding)
+    monkeypatch.setattr(MLPipelineOrchestrator, "_ensure_dataset_registered", _capture_register)
+    dataset_cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="AAPL",
+        out_dir=str(tmp_path / "out"),
+        start_iso="2024-01-01",
+        end_iso="2024-01-05",
+        market_inputs=(
+            MarketDatasetInput(
+                descriptor_id="EQUS.MINI",
+                dataset_id="EQUS.MINI",
+                schema_override="ohlcv-1m",
+            ),
+        ),
+    )
+
+    orch._auto_fill_schema(
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instrument_id="AAPL.ARCX",
+        lookback_days=5,
+        metrics=_AutoFillMetrics.default(),
+        dataset_cfg=dataset_cfg,
+        processed_bindings=set(),
+    )
+
+    assert calls
+    assert calls[0][0] == "EQUS.MINI"
+    assert len(calls) >= 2
+    assert calls[1][0] == "DBEQ.BASIC"
+    assert service.calls
+    assert ensure_calls
+    first_dataset_id, first_storage_kind = ensure_calls[0]
+    assert first_dataset_id == "EQUS.MINI"
+    assert first_storage_kind == StorageKind.POSTGRES
+    assert ensure_calls
+    first_dataset_id, first_storage_kind = ensure_calls[0]
+    assert first_dataset_id == "EQUS.MINI"
+    assert first_storage_kind == StorageKind.POSTGRES
+
+
+def test_auto_fill_schema_retries_discovery_on_zero_frame_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coverage = _CoverageWithAvailability(
+        {
+            ("EQUS.MINI", "ohlcv-1m", "AAPL.ARCX"): {0},
+        },
+    )
+    writer = _Writer()
+    ingestor = _Ingestor()
+    discovery = _DiscoveryPayload(
+        dataset_id="DBEQ.BASIC",
+        schema="ohlcv-1m",
+        coverage_start_ns=0,
+        coverage_end_ns=200 * DAY_NS,
+        storage_kind=None,
+        cost_usd=0.0,
+    )
+    service = _DiscoveryService(result=discovery)
+
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+        service=service,
+    )
+
+    descriptor = MarketFeedDescriptor(
+        descriptor_id="eq-mini",
+        dataset_id="EQUS.MINI",
+        storage_kind=StorageKind.POSTGRES,
+        schema="ohlcv-1m",
+        symbol_patterns=("AAPL",),
+        instrument_id_templates=("AAPL.{venue}",),
+    )
+    monkeypatch.setattr(
+        "ml.orchestration.pipeline_orchestrator.load_market_feed_descriptors",
+        lambda: MarketFeedDescriptorSet(descriptors=(descriptor,)),
+    )
+
+    calls: list[tuple[str, str]] = []
+
+    def _fake_backfill_binding(
+        self: MLPipelineOrchestrator,
+        *,
+        binding: ResolvedMarketBinding,
+        lookback_days: int,
+        **_: object,
+    ) -> dict[str, BackfillWindowList]:
+        calls.append((binding.dataset_id, binding.schema or ""))
+        instrument_ids = binding.instrument_ids or (binding.symbol,)
+        if len(calls) == 1:
+            return {
+                instrument: BackfillWindowList(
+                    (),
+                    requested=((0, DAY_NS),),
+                )
+                for instrument in instrument_ids
+            }
+        return {
+            instrument: BackfillWindowList(
+                ((0, DAY_NS),),
+                requested=((0, DAY_NS),),
+                frames_written=1,
+                rows_written=12,
+            )
+            for instrument in instrument_ids
+        }
+
+    monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _fake_backfill_binding)
+    monkeypatch.setattr(MLPipelineOrchestrator, "_ensure_dataset_registered", lambda *_, **__: None)
+
+    dataset_cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="AAPL",
+        out_dir=str(tmp_path / "out"),
+        start_iso="2024-01-01",
+        end_iso="2024-01-05",
+        market_inputs=(
+            MarketDatasetInput(
+                descriptor_id="eq-mini",
+                dataset_id="EQUS.MINI",
+                schema_override="ohlcv-1m",
+            ),
+        ),
+    )
+
+    orch._auto_fill_schema(
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instrument_id="AAPL.ARCX",
+        lookback_days=5,
+        metrics=_AutoFillMetrics.default(),
+        dataset_cfg=dataset_cfg,
+        processed_bindings=set(),
+    )
+
+    assert len(calls) == 2
+    assert calls[0][0] == "EQUS.MINI"
+    assert calls[1][0] == "DBEQ.BASIC"
+    assert service.calls
+
+
 def test_auto_fill_universe_logs_warning_when_gaps_remain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -573,8 +1103,13 @@ def test_auto_fill_universe_logs_warning_when_gaps_remain(
         schema: str,
         instrument_id: str,
         lookback_days: int,
-    ) -> list[tuple[int, int]]:
-        return [(0, 1)]
+    ) -> BackfillWindowList:
+        return BackfillWindowList(
+            ((0, 1),),
+            requested=((0, 1),),
+            frames_written=1,
+            rows_written=1,
+        )
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _gap_backfill)
 
@@ -583,9 +1118,15 @@ def test_auto_fill_universe_logs_warning_when_gaps_remain(
         *,
         binding: ResolvedMarketBinding,
         lookback_days: int,
-    ) -> dict[str, list[tuple[int, int]]]:
+    ) -> dict[str, BackfillWindowList]:
         instruments = binding.instrument_ids or (binding.symbol,)
-        return {instrument: [(0, 1)] for instrument in instruments}
+        return {
+            instrument: BackfillWindowList(
+                ((0, 1),),
+                requested=((0, 1),),
+            )
+            for instrument in instruments
+        }
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _gap_backfill_binding)
 
@@ -649,16 +1190,20 @@ def test_ensure_dataset_registered_seeds_manifest(tmp_path: Path) -> None:
         dataset_id="DBEQ.BASIC",
         dataset_type=DatasetType.MBP1,
         location=str(tmp_path),
+        storage_kind=StorageKind.POSTGRES,
     )
     mbp_manifest = registry.manifests["DBEQ.BASIC"]
     assert mbp_manifest.dataset_type == DatasetType.MBP1
+    assert mbp_manifest.storage_kind == StorageKind.POSTGRES
     assert mbp_manifest.retention_days == 90
     assert mbp_manifest.partitioning.get("interval") == "hourly"
     assert {"instrument_id", "ts_event", "ts_init", "level", "side"}.issubset(mbp_manifest.schema)
     assert registry.register_calls == initial_calls + 1
 
 
-def test_dataset_metadata_sync_updates_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dataset_metadata_sync_updates_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     coverage = _Coverage()
     writer = _Writer()
     registry = _CapturingRegistry()
@@ -837,6 +1382,7 @@ def test_guard_dataset_metadata_requires_macro_counts(tmp_path: Path) -> None:
 
     orch._guard_dataset_metadata(cfg=cfg, metadata=complete_metadata)
 
+
 def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     args = parse_args(
         [
@@ -934,7 +1480,7 @@ def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_
         schema: str,
         instrument_id: str,
         lookback_days: int,
-    ) -> list[tuple[int, int]]:
+    ) -> BackfillWindowList:
         raise AssertionError("backfill should not be invoked when Databento is unavailable")
 
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill", _fail_backfill)
@@ -958,6 +1504,8 @@ def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_
 
     rc = orch.run(cfg)
     assert rc == 0
+
+
 def test_resolve_write_mode_tokens_aliases() -> None:
     assert _resolve_write_mode_tokens("parquet") == ("datastore", "parquet")
     assert _resolve_write_mode_tokens("sql+datastore") == ("sql", "datastore")
@@ -1003,11 +1551,8 @@ def test_apply_default_market_inputs_assigns_descriptor() -> None:
     )
     updated = _apply_default_market_inputs(base_cfg)
     assert updated.market_inputs is not None
-    assert any(
-        item.descriptor_id == "EQUS.MINI"
-        for item in updated.market_inputs
-    )
-    assert updated.market_dataset_id is not None
+    assert any(item.descriptor_id == "EQUS.MINI" for item in updated.market_inputs)
+    assert updated.market_dataset_id is None
 
 
 def test_apply_default_market_inputs_respects_existing_inputs() -> None:
@@ -1022,3 +1567,606 @@ def test_apply_default_market_inputs_respects_existing_inputs() -> None:
     updated = _apply_default_market_inputs(base_cfg)
     assert updated.market_inputs == (custom_input,)
     assert updated.market_dataset_id == "CUSTOM.FEED"
+
+
+def test_prepare_dataset_config_skips_disallowed_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coverage = _Coverage()
+    writer = _Writer()
+    ingestor = _Ingestor()
+    service = _ServiceStub(allowed_dataset="EQUS.MINI")
+    orch = MLPipelineOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        data_registry=_Registry(),
+        ingestor=ingestor,
+        build_main=_CliWrapper(_ok),
+        hpo_main=None,
+        teacher_main=_CliWrapper(_ok),
+        service=service,
+    )
+
+    descriptors = (
+        MarketFeedDescriptor(
+            descriptor_id="tier1_l0",
+            dataset_id="tier1_l0",
+            storage_kind=StorageKind.POSTGRES,
+            schema="ohlcv-1m",
+            symbol_patterns=("*",),
+            instrument_id_templates=("{symbol}.XNAS",),
+        ),
+        MarketFeedDescriptor(
+            descriptor_id="EQUS.MINI",
+            dataset_id="EQUS.MINI",
+            storage_kind=StorageKind.POSTGRES,
+            schema="ohlcv-1m",
+            symbol_patterns=("*",),
+            instrument_id_templates=("{symbol}.XNAS",),
+        ),
+    )
+    monkeypatch.setattr(
+        "ml.orchestration.pipeline_orchestrator.load_market_feed_descriptors",
+        lambda: MarketFeedDescriptorSet(descriptors=descriptors),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+        start_iso="2024-01-01",
+        end_iso="2024-01-05",
+    )
+
+    prepared = orch._prepare_dataset_config(cfg)
+    assert prepared.market_inputs is not None
+    dataset_ids = {item.dataset_id for item in prepared.market_inputs}
+    assert "EQUS.MINI" in dataset_ids
+    assert "tier1_l0" not in dataset_ids
+    assert service.calls
+
+
+def test_execute_stage_dataset_disables_training_flags() -> None:
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(
+            data_dir="data",
+            symbols="SPY",
+            out_dir="out",
+        ),
+        hpo=HPOConfig(enabled=True),
+        teacher=TeacherTrainConfig(enabled=True),
+        student=StudentDistillConfig(enabled=True),
+    )
+    recorder = _StageRecorder()
+    rc = pipeline_orchestrator._execute_stage(
+        orch=recorder,
+        orchestrator_cfg=cfg,
+        stage=Stage.DATASET,
+        ds_cfg=cfg.dataset,
+        auto_fill_cfg=AutoFillUniverseConfig(),
+        args=SimpleNamespace(ingest=False),
+        ingestor=None,
+        ingestion_service=None,
+    )
+    assert rc == 0
+    assert recorder.calls == ["run"]
+    assert cfg.teacher.enabled is True
+    mutated = recorder.last_config
+    assert mutated is not None
+    assert mutated.teacher.enabled is False
+    assert mutated.hpo.enabled is False
+    assert mutated.student.enabled is False
+    assert mutated.promotions is None
+    assert mutated.integration is None
+
+
+def test_execute_stage_train_invokes_training_only() -> None:
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(
+            data_dir="data",
+            symbols="SPY",
+            out_dir="out",
+        ),
+        hpo=HPOConfig(enabled=True),
+        teacher=TeacherTrainConfig(enabled=True),
+        student=StudentDistillConfig(enabled=True),
+    )
+    recorder = _StageRecorder()
+    rc = pipeline_orchestrator._execute_stage(
+        orch=recorder,
+        orchestrator_cfg=cfg,
+        stage=Stage.TRAIN,
+        ds_cfg=cfg.dataset,
+        auto_fill_cfg=AutoFillUniverseConfig(),
+        args=SimpleNamespace(ingest=False),
+        ingestor=None,
+        ingestion_service=None,
+    )
+    assert rc == 0
+    assert recorder.calls == ["train"]
+    assert recorder.last_config is cfg
+
+
+def test_extract_config_args_handles_equals_form() -> None:
+    config, stage, rest = pipeline_orchestrator._extract_config_args(
+        ["--config=orchestrator.toml", "--stage=train", "--foo", "bar"],
+    )
+    assert config == "orchestrator.toml"
+    assert stage == "train"
+    assert rest == ["--foo", "bar"]
+
+
+def test_run_ingestion_stage_uses_resolved_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    binding = ResolvedMarketBinding(
+        binding_id="b-1",
+        symbol="SPY",
+        instrument_ids=("SPY.NYSE",),
+        dataset_id="EQUS.MINI",
+        descriptor_id=None,
+        schema="ohlcv-1m",
+        storage_kind=None,
+        license_start=None,
+        license_end=None,
+        start=None,
+        end=None,
+        source="test",
+    )
+    orch = _IngestionOrchStub(resolved_bindings=(binding,))
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        lookback_days=7,
+        market_dataset_id="EQUS.MINI",
+    )
+
+    def _fake_plan(
+        *,
+        ds_cfg: DatasetBuildConfig | None,
+        ingestion_cfg: IngestionStageConfig,
+    ) -> tuple[pipeline_orchestrator._IngestionPlanItem, ...]:
+        del ds_cfg, ingestion_cfg
+        return (
+            pipeline_orchestrator._IngestionPlanItem(
+                binding=binding,
+                dataset_id=binding.dataset_id,
+                schema="bars",
+                instrument_ids=binding.instrument_ids,
+            ),
+        )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_build_ingestion_plan",
+        _fake_plan,
+    )
+
+    rc = pipeline_orchestrator._run_ingestion_stage(
+        orch=cast(MLPipelineOrchestrator, orch),
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=AutoFillUniverseConfig(),
+        ingestion_cfg=ingestion_cfg,
+        ingestor=object(),
+        ingestion_service=object(),
+    )
+
+    assert rc == 0
+    assert orch.binding_calls == 1
+    assert orch.coverage_calls == 0
+    assert orch.manual_calls == 0
+
+
+def test_run_ingestion_stage_fallbacks_to_manual(monkeypatch: pytest.MonkeyPatch) -> None:
+    orch = _IngestionOrchStub(
+        resolved_bindings=(),
+        coverage_exception=IngestionError("coverage failure"),
+        manual_rows_written=5,
+    )
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        lookback_days=3,
+        market_dataset_id="EQUS.MINI",
+    )
+
+    def _manual_plan(
+        *,
+        ds_cfg: DatasetBuildConfig | None,
+        ingestion_cfg: IngestionStageConfig,
+    ) -> tuple[pipeline_orchestrator._IngestionPlanItem, ...]:
+        del ds_cfg, ingestion_cfg
+        return (
+            pipeline_orchestrator._IngestionPlanItem(
+                binding=None,
+                dataset_id="EQUS.MINI",
+                schema="bars",
+                instrument_ids=("SPY.NYSE",),
+            ),
+        )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_build_ingestion_plan",
+        _manual_plan,
+    )
+
+    rc = pipeline_orchestrator._run_ingestion_stage(
+        orch=cast(MLPipelineOrchestrator, orch),
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=AutoFillUniverseConfig(),
+        ingestion_cfg=ingestion_cfg,
+        ingestor=object(),
+        ingestion_service=object(),
+    )
+
+    assert rc == 0
+    assert orch.binding_calls == 0
+    assert orch.coverage_calls == 1
+    assert orch.manual_calls == 1
+
+
+def test_run_ingestion_stage_degrades_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    orch = _IngestionOrchStub()
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    auto_fill_cfg = AutoFillUniverseConfig()
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        lookback_days=2,
+        market_dataset_id="EQUS.MINI",
+    )
+    monkeypatch.delenv("DATABENTO_API_KEY", raising=False)
+
+    def _plan(
+        *,
+        ds_cfg: DatasetBuildConfig | None,
+        ingestion_cfg: IngestionStageConfig,
+    ) -> tuple[pipeline_orchestrator._IngestionPlanItem, ...]:
+        del ds_cfg, ingestion_cfg
+        return (
+            pipeline_orchestrator._IngestionPlanItem(
+                binding=None,
+                dataset_id="EQUS.MINI",
+                schema="bars",
+                instrument_ids=("SPY.NYSE",),
+            ),
+        )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_build_ingestion_plan",
+        _plan,
+    )
+
+    rc = pipeline_orchestrator._run_ingestion_stage(
+        orch=cast(MLPipelineOrchestrator, orch),
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=auto_fill_cfg,
+        ingestion_cfg=ingestion_cfg,
+        ingestor=None,
+        ingestion_service=None,
+    )
+
+    assert rc == 0
+    assert orch.binding_calls == 0
+    assert orch.coverage_calls == 0
+    assert orch.manual_calls == 0
+
+
+def test_run_ingestion_stage_returns_error_when_fallbacks_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orch = _IngestionOrchStub(
+        resolved_bindings=(),
+        coverage_exception=IngestionError("coverage failure"),
+        manual_exception=IngestionError("manual failure"),
+    )
+    ds_cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+    )
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        lookback_days=2,
+        market_dataset_id="EQUS.MINI",
+    )
+
+    def _failing_plan(
+        *,
+        ds_cfg: DatasetBuildConfig | None,
+        ingestion_cfg: IngestionStageConfig,
+    ) -> tuple[pipeline_orchestrator._IngestionPlanItem, ...]:
+        del ds_cfg, ingestion_cfg
+        return (
+            pipeline_orchestrator._IngestionPlanItem(
+                binding=None,
+                dataset_id="EQUS.MINI",
+                schema="bars",
+                instrument_ids=("SPY.NYSE",),
+            ),
+        )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_build_ingestion_plan",
+        _failing_plan,
+    )
+
+    rc = pipeline_orchestrator._run_ingestion_stage(
+        orch=cast(MLPipelineOrchestrator, orch),
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=AutoFillUniverseConfig(),
+        ingestion_cfg=ingestion_cfg,
+        ingestor=object(),
+        ingestion_service=object(),
+    )
+
+    assert rc == 1
+    assert orch.binding_calls == 0
+    assert orch.coverage_calls == 1
+    assert orch.manual_calls == 1
+
+
+def test_run_ingestion_stage_auto_fill_without_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
+    orch = _IngestionOrchStub()
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    auto_fill_cfg = AutoFillUniverseConfig(enabled=True)
+    ingestion_cfg = IngestionStageConfig(
+        enabled=False,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        lookback_days=1,
+        market_dataset_id="EQUS.MINI",
+    )
+
+    def _auto_plan(
+        *,
+        ds_cfg: DatasetBuildConfig | None,
+        ingestion_cfg: IngestionStageConfig,
+    ) -> tuple[pipeline_orchestrator._IngestionPlanItem, ...]:
+        del ds_cfg, ingestion_cfg
+        return (
+            pipeline_orchestrator._IngestionPlanItem(
+                binding=None,
+                dataset_id="EQUS.MINI",
+                schema="bars",
+                instrument_ids=("SPY.NYSE",),
+            ),
+        )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_build_ingestion_plan",
+        _auto_plan,
+    )
+
+    rc = pipeline_orchestrator._run_ingestion_stage(
+        orch=cast(MLPipelineOrchestrator, orch),
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=auto_fill_cfg,
+        ingestion_cfg=ingestion_cfg,
+        ingestor=None,
+        ingestion_service=None,
+    )
+
+    assert rc == 0
+    assert orch.auto_fill_calls == 1
+    assert orch.binding_calls == 0
+    assert orch.manual_calls == 0
+
+
+def test_pipeline_service_dispatch_dataset_stage() -> None:
+    orch = _OrchestratorRecorder()
+    service = PipelineIntegrationService(integration_manager=None)
+    run_cfg = OrchestratorRunConfig(
+        stage=Stage.DATASET,
+        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out"),
+        training=TrainingStageConfig(),
+    )
+
+    rc = service._dispatch_stage_run(cast(MLPipelineOrchestrator, orch), run_cfg)
+
+    assert rc == 0
+    assert len(orch.run_calls) == 1
+    mutated = orch.run_calls[0]
+    assert mutated.teacher.enabled is False
+    assert mutated.hpo.enabled is False
+    assert mutated.student.enabled is False
+    assert mutated.promotions is None
+    assert mutated.integration is None
+
+
+def test_pipeline_service_dispatch_ingest_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    orch = _OrchestratorRecorder()
+    service = PipelineIntegrationService(integration_manager=None)
+    run_cfg = OrchestratorRunConfig(
+        stage=Stage.INGEST,
+        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out"),
+        ingestion=IngestionStageConfig(
+            enabled=True, schema="bars", instruments=("SPY.NYSE",), lookback_days=4
+        ),
+        training=TrainingStageConfig(),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_ingestion_stage(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(pipeline_orchestrator, "_run_ingestion_stage", _fake_run_ingestion_stage)
+
+    rc = service._dispatch_stage_run(cast(MLPipelineOrchestrator, orch), run_cfg)
+
+    assert rc == 0
+    assert captured.get("orch") is orch
+    assert captured.get("ds_cfg") == run_cfg.dataset
+    ingestion_cfg = captured.get("ingestion_cfg")
+    assert isinstance(ingestion_cfg, IngestionStageConfig)
+    assert ingestion_cfg.enabled is True
+    assert ingestion_cfg.schema == "bars"
+    assert ingestion_cfg.instruments == ("SPY.NYSE",)
+
+
+def test_pipeline_service_ingest_stage_without_dataset(monkeypatch: pytest.MonkeyPatch) -> None:
+    orch = _OrchestratorRecorder()
+    service = PipelineIntegrationService(integration_manager=None)
+    run_cfg = OrchestratorRunConfig(
+        stage=Stage.INGEST,
+        dataset=None,
+        ingestion=IngestionStageConfig(
+            enabled=True,
+            dataset_id="EQUS.MINI",
+            schema="bars",
+            instruments=("SPY.NYSE",),
+            lookback_days=5,
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_ingestion_stage(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(pipeline_orchestrator, "_run_ingestion_stage", _fake_run_ingestion_stage)
+
+    rc = service._dispatch_stage_run(cast(MLPipelineOrchestrator, orch), run_cfg)
+
+    assert rc == 0
+    assert captured.get("ds_cfg") is None
+    ingestion_cfg = captured.get("ingestion_cfg")
+    assert isinstance(ingestion_cfg, IngestionStageConfig)
+    assert ingestion_cfg.dataset_id == "EQUS.MINI"
+    assert ingestion_cfg.instruments == ("SPY.NYSE",)
+
+
+def test_build_ingestion_plan_uses_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    binding = ResolvedMarketBinding(
+        binding_id="plan-001",
+        symbol="SPY",
+        instrument_ids=("SPY.NYSE",),
+        dataset_id="EQUS.MINI",
+        descriptor_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        storage_kind=None,
+        license_start=None,
+        license_end=None,
+        start=None,
+        end=None,
+        source="descriptor",
+    )
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+        market_dataset_id="EQUS.MINI",
+    )
+
+    def _fake_resolve(**_: object) -> tuple[ResolvedMarketBinding, ...]:
+        return (binding,)
+
+    monkeypatch.setattr(
+        pipeline_orchestrator.IngestionOrchestrator,
+        "resolve_market_bindings",
+        staticmethod(_fake_resolve),
+    )
+
+    plan = pipeline_orchestrator._build_ingestion_plan(
+        ds_cfg=ds_cfg,
+        ingestion_cfg=ingestion_cfg,
+    )
+
+    assert len(plan) == 1
+    item = plan[0]
+    assert item.binding is binding
+    assert item.dataset_id == "EQUS.MINI"
+    assert item.schema == "ohlcv-1m"
+    assert item.instrument_ids == ("SPY.NYSE",)
+
+
+def test_build_ingestion_plan_manual_when_no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        dataset_id="EQUS.MINI",
+        schema="bars",
+        instruments=("SPY.NYSE",),
+    )
+
+    def _no_bindings(**_: object) -> tuple[ResolvedMarketBinding, ...]:
+        return ()
+
+    monkeypatch.setattr(
+        pipeline_orchestrator.IngestionOrchestrator,
+        "resolve_market_bindings",
+        staticmethod(_no_bindings),
+    )
+
+    plan = pipeline_orchestrator._build_ingestion_plan(
+        ds_cfg=ds_cfg,
+        ingestion_cfg=ingestion_cfg,
+    )
+
+    assert len(plan) == 1
+    item = plan[0]
+    assert item.binding is None
+    assert item.dataset_id == "EQUS.MINI"
+    assert item.schema == "ohlcv-1m"
+    assert item.instrument_ids == ("SPY.NYSE",)
+
+
+def test_pipeline_service_infers_stage_and_ingestion_config() -> None:
+    service = PipelineIntegrationService(integration_manager=None)
+    payload = {
+        "dataset": {
+            "data_dir": "data",
+            "symbols": "SPY.NYSE",
+            "out_dir": "out",
+            "dataset_id": "CUSTOM.DATASET",
+        },
+        "ingestion": {
+            "enabled": False,
+        },
+    }
+
+    run_cfg = service._build_run_config(pipeline_type="ingest_only", payload=payload)
+
+    assert run_cfg.stage is Stage.INGEST
+    assert run_cfg.ingestion is not None
+    assert run_cfg.ingestion.enabled is True
+    assert run_cfg.ingestion.dataset_id == "CUSTOM.DATASET"
+    assert run_cfg.ingestion.instruments == ("SPY.NYSE",)
+
+
+def test_pipeline_service_respects_explicit_stage_override() -> None:
+    service = PipelineIntegrationService(integration_manager=None)
+    payload = {
+        "dataset": {
+            "data_dir": "data",
+            "symbols": "SPY.NYSE",
+            "out_dir": "out",
+        },
+        "stage": "train",
+    }
+
+    run_cfg = service._build_run_config(pipeline_type="ingest", payload=payload)
+
+    assert run_cfg.stage is Stage.TRAIN
+    assert run_cfg.ingestion is None

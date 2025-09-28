@@ -17,6 +17,7 @@ Non-goals: DAG engines, bus consumers, hot-path changes.
 
 import logging
 from collections.abc import Callable
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -30,15 +31,20 @@ from ml.common.metrics_bootstrap import get_histogram
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.orchestration.config_loader import OrchestratorRunConfig
+from ml.orchestration.config_loader import Stage as OrchestratorStage
 
 
 logger = logging.getLogger(__name__)
 
 
 class _ConfigLoaderProtocol(Protocol):
-    def load_orchestrator_config(self, path: str | None) -> Any: ...
-
-    def to_pipeline_args(self, cfg: Any) -> list[str]: ...
+    def load_orchestrator_run_config(
+        self,
+        path: str | Path,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> OrchestratorRunConfig: ...
 
 
 class _EmitEventProtocol(Protocol):
@@ -192,12 +198,18 @@ def run_forever(
     interval_env = os.getenv("ORCH_INTERVAL_MIN")
     interval_min = int(interval_env) if interval_env else None
     cfg_path = os.getenv("ORCH_CONFIG")
+    if cfg_path is None:
+        raise ValueError("ORCH_CONFIG must be set to run the orchestrator scheduler")
     force = os.getenv("ORCH_FORCE", "").strip() in {"1", "true", "yes"}
     lock_ttl_hours = int(os.getenv("ORCH_LOCK_TTL_HOURS", "12"))
 
     # Load orchestrator config once; callers can restart the service to pick up changes
-    cfg = config_loader.load_orchestrator_config(cfg_path)
-    args = config_loader.to_pipeline_args(cfg)
+    run_cfg = config_loader.load_orchestrator_run_config(cfg_path)
+    cfg = run_cfg.compose_orchestrator_config()
+    stage_override = run_cfg.stage
+    args = ["--config", cfg_path]
+    if stage_override is not OrchestratorStage.FULL:
+        args += ["--stage", stage_override.value]
 
     # Determine default lock path from config out_dir
     try:

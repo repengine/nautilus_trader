@@ -39,6 +39,33 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 - **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
   - Includes Databento guardrails (enabled on venv activate) and standardized dataset `EQUS.MINI` for US equities standard plan
 
+**Pipeline Orchestrator Quick Commands**
+
+- Ingestion only (auto-fill + Databento backfill with fallback metrics):
+
+  ```bash
+  uv run --active --no-sync python -m ml.cli.pipeline_orchestrator \
+    --config configs/orchestrator/nightly.toml \
+    --stage ingest \
+    --ingest
+  ```
+
+- Dataset refresh:
+
+  ```bash
+  uv run --active --no-sync python -m ml.cli.pipeline_orchestrator \
+    --config configs/orchestrator/nightly.toml \
+    --stage dataset
+  ```
+
+- Training resume (expects existing dataset artifacts):
+
+  ```bash
+  uv run --active --no-sync python -m ml.cli.pipeline_orchestrator \
+    --config configs/orchestrator/nightly.toml \
+    --stage train
+  ```
+
 ### 🔬 Research & Analysis
 
 - **[research/freqai_analysis.md](research/freqai_analysis.md)** - FreqAI integration patterns and insights
@@ -252,12 +279,14 @@ print(result.dataset_parquet)
 ```
 
 Notes:
+
 - Canonical market data store: use a Nautilus `ParquetDataCatalog` (e.g., `./catalog`) as the single source of truth for bars/quotes/trades. Configure ingestion to write here (either directly via `ParquetCatalogMarketDataWriter` or dual‑write alongside the SQL `DataStore`).
 - In orchestrated runs, if `--catalog_path` is provided and `--data_dir` is left at its default, the dataset builder will automatically read from `--catalog_path` to keep ingestion and training aligned.
 - Calendar/events flags add known‑future features (session, holidays; Fed/CPI/earnings proximity) safely on the cold path.
 - Use `start`, `end`, and `chunk_days` in `DatasetBuildConfig` for windowed builds when scaling to 60–90 days.
 
 For orchestrated runs, use `python -m ml.cli.pipeline_orchestrator` with:
+
 - `--include_calendar`, `--include_events`, `--include_macro`, `--include_l2` to enable richer features
 - `--start_iso`, `--end_iso`, `--chunk_days` to control the build window and memory footprint
 

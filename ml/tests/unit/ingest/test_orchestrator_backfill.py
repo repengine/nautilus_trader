@@ -13,6 +13,7 @@ from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.config.events import Stage
+from ml.data.ingest.orchestrator import BackfillWindowList
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor, IngestState
 from ml.stores.protocols import CoverageProviderProtocol, MarketDataWriterProtocol
@@ -314,9 +315,14 @@ def test_backfill_binding_uses_binding_and_logs_sql_warning(monkeypatch, caplog)
         lookback_days: int,
         state: IngestState | None = None,
         symbol_hint: str | None = None,
-    ) -> list[tuple[int, int]]:
+    ) -> BackfillWindowList:
         calls.append((dataset_id, schema, instrument_id, lookback_days))
-        return [(0, DAY_NS)]
+        return BackfillWindowList(
+            ((0, DAY_NS),),
+            requested=((0, DAY_NS),),
+            frames_written=1,
+            rows_written=1,
+        )
 
     monkeypatch.setattr(IngestionOrchestrator, "backfill_gaps", _fake_backfill)
 
@@ -353,7 +359,12 @@ def test_backfill_binding_warns_on_legacy_source(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
         IngestionOrchestrator,
         "backfill_gaps",
-        lambda self, **kwargs: [(0, DAY_NS)],
+        lambda self, **kwargs: BackfillWindowList(
+            ((0, DAY_NS),),
+            requested=((0, DAY_NS),),
+            frames_written=1,
+            rows_written=1,
+        ),
     )
 
     caplog.set_level("WARNING")

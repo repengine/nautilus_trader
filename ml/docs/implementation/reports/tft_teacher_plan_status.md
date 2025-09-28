@@ -32,6 +32,22 @@ The TFT teacher plan remains **operational** with the full training, registry, a
 
 ---
 
+## Latest Findings (2025-10-02)
+
+- ❗ `_apply_default_market_inputs` now unconditionally injects the first descriptor (`tier1_l0`) into `market_dataset_id` (`ml/orchestration/pipeline_orchestrator.py:129-160`). The Databento safety policy rejects that dataset, so ingestion fails before any frames persist.
+- ❗ `_resolve_market_inputs` selects the first descriptor candidate whenever coverage cannot confirm availability (`ml/orchestration/pipeline_orchestrator.py:531-540`), skipping cost/availability guards and locking symbols to the wrong feed even when EQUS is free.
+- ❗ `IngestionOrchestrator.backfill_gaps` retries silently after the Databento service raises (`ml/data/ingest/orchestrator.py:298-349`), so CLI runs appear to hang with no operator-facing error.
+- ❗ `TFTDatasetBuilder._load_bars_dataframe` sees the bad `market_dataset_id`, calls `DataStore.read_range`, logs a warning, and falls back to parquet (`ml/data/tft_dataset_builder.py:206-254`). Operators only see the “parquet fallback” symptom while ingestion keeps failing.
+
+**Remediation Plan:**
+
+- Remove the automatic `market_dataset_id` assignment and rely on per-symbol bindings unless an operator explicitly sets it.
+- Filter candidate bindings through availability/cost helpers before selection; fall back only when policies approve.
+- Surface ingestion failures with structured ERROR logs and abort the run to avoid silent loops.
+- Add structured logging around binding resolution so operators can see which dataset each symbol maps to at startup.
+
+---
+
 ## Implementation Status by Component
 
 ### 1. TFT Teacher Implementation ✅ **COMPLETE**
@@ -416,46 +432,46 @@ The TFT teacher stack remains production-ready across training, distillation, re
 
  Config Patterns
 
-  - Cold-path configs balance strict types with simple decoding: production-facing configs extend
+- Cold-path configs balance strict types with simple decoding: production-facing configs extend
   NautilusConfig with frozen=True/kw_only=True so validation lives on constructors (ml/config/
   base.py:27-144). Pipeline-specific payloads favour @dataclass(slots=True, frozen=True) to stay
   msgspec-friendly while remaining lightweight (ml/data/__init__.py:354-394).
-  - File/env layering always flows through load_from_file/merge_env, which deserialize JSON into
+- File/env layering always flows through load_from_file/merge_env, which deserialize JSON into
   the target struct then shallow-merge env overrides (ml/config/loader.py:25-70). New descriptors
   should follow that decode path so CLI overrides and ML_*_JSON overlays keep working out of the
   box.
-  - Repository configs that live alongside code (e.g., Databento safety) pair an immutable
+- Repository configs that live alongside code (e.g., Databento safety) pair an immutable
   struct with a loader that enforces shape/validation before returning typed instances (ml/
   config/databento_policy.py:28-131). That pattern is ideal for feed descriptors: add a
   @dataclass(slots=True, frozen=True)/msgspec.Struct definition plus a load_* helper that reads a
   *.json under ml/config/.
-  - Public APIs stay narrow via module __all__ exports; cold-path facades import the dataclasses
+- Public APIs stay narrow via module __all__ exports; cold-path facades import the dataclasses
   and loaders rather than internal helpers (ml/config/__init__.py:1-119). Mirroring that means
   exposing any MarketFeedDescriptor and loader from a single ml.config module so orchestrators/CLI
   code import from the facade only.
 
   Metadata Recommendation
 
-  - DatasetMetadata today tracks windows/vintage only (ml/data/__init__.py:407-419), while
+- DatasetMetadata today tracks windows/vintage only (ml/data/__init__.py:407-419), while
   Stage‑2 promotion and manifest sync assume those fields but ignore extras (ml/orchestration/
   promotions.py:154-170, ml/orchestration/pipeline_orchestrator.py:1227-1253). That gives us
   room to append a new optional market_bindings tuple without breaking existing guards, provided
   we extend the dataclass/load/save helpers in tandem (ml/data/__init__.py:465-498, ml/data/
   __init__.py:1008-1090).
-  - Each binding entry should capture the resolver outcome so downstream registry code
+- Each binding entry should capture the resolver outcome so downstream registry code
   can reason about coverage: include binding_id, dataset_id, storage_kind, schema,
   symbols_resolved, and coverage stats like ts_event_start/end and row_count. Those fields
   align with what TFTDatasetBuilder already knows when it calls data_store.read_range (ml/data/
   tft_dataset_builder.py:189-243) and what the registry records during ingest (ml/registry/
   data_registry.py:1116-1194).
-  - Flagging fallback behaviour per binding (e.g., source=\"store\"|\"catalog\", fallback_used:
+- Flagging fallback behaviour per binding (e.g., source=\"store\"|\"catalog\", fallback_used:
   bool) will let observability differentiate hot-path SQL reads vs parquet rescue, and plugging
   that into the manifest_metadata["market_inputs"] hash keeps promotion checks aware of feed
   changes (ml/orchestration/pipeline_orchestrator.py:1227-1253).
-  - To make bindings visible to guardrails, extend DatasetMetadataExpectations with an optional
+- To make bindings visible to guardrails, extend DatasetMetadataExpectations with an optional
   market_bindings predicate and feed it when we enforce guardrails in the orchestrator (ml/
   orchestration/pipeline_orchestrator.py:1145-1186). That lets us fail fast if the resolver falls
   back to an unexpected source (e.g., parquet instead of EQUS.MINI).
-  - Finally, fold binding identifiers into the pipeline signature so any descriptor tweak
+- Finally, fold binding identifiers into the pipeline signature so any descriptor tweak
   invalidates cached manifests/tests: add the serialized market_bindings payload (sorted) to
   compute_dataset_pipeline_signature before hashing (ml/data/__init__.py:560-587).

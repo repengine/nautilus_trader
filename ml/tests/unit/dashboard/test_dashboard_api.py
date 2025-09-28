@@ -14,6 +14,7 @@ from flask.testing import FlaskClient
 from ml.dashboard import DashboardConfig, create_app
 from ml.dashboard.config import DashboardToken
 from ml.dashboard.service import DashboardService
+from ml.dashboard.services import PipelineTriggerResult
 
 
 @pytest.fixture()
@@ -52,13 +53,294 @@ def test_services_action_unsupported_returns_ok(client: FlaskClient) -> None:
     assert data["ok"] in {False, True}
 
 
-def test_pipeline_run_emits_bus_event(client: FlaskClient) -> None:
-    # With default env, bus publishes to noop publisher; still returns 200/202
-    payload = {"mode": "backfill", "instrument": "SPY.EQUS", "dataset": "EQUS.MINI"}
-    resp = client.post("/api/pipeline/run", json=payload)
-    assert resp.status_code in {200, 202}
+def test_pipeline_run_triggers_pipeline_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    stub_token = "secret"
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", stub_token)
+
+    class _StubPipelineService:
+        def __init__(self) -> None:
+            self.requests: list[PipelineTriggerResult | None] = []
+            self.trigger_requests: list[Any] = []
+
+        async def trigger_pipeline(self, request):
+            self.trigger_requests.append(request)
+            return PipelineTriggerResult(
+                success=True,
+                job_id="job_123",
+                pipeline_type=request.pipeline_type,
+                status="QUEUED",
+                message="queued",
+                error=None,
+            )
+
+    stub = _StubPipelineService()
+    monkeypatch.setattr(DashboardService, "_get_pipeline_service", lambda self: stub)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+    payload = {
+        "pipeline_type": "ingest",
+        "config": {
+            "dataset": {
+                "data_dir": "data/tier1",
+                "symbols": "SPY.NYSE",
+                "out_dir": "out",
+            },
+        },
+    }
+    resp = client_local.post(
+        "/api/pipeline/run",
+        json=payload,
+        headers={"X-ML-DASHBOARD-TOKEN": stub_token},
+    )
+    assert resp.status_code == 202
     data = resp.get_json()
-    assert set(data.keys()).issuperset({"ok", "topic"})
+    assert data["success"] is True
+    assert data["job_id"] == "job_123"
+    assert stub.trigger_requests and stub.trigger_requests[0].pipeline_type == "ingest"
+    assert stub.trigger_requests[0].config == payload["config"]
+
+
+def test_pipeline_run_accepts_legacy_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    stub_token = "another"
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", stub_token)
+
+    class _StubPipelineService:
+        def __init__(self) -> None:
+            self.trigger_requests: list[Any] = []
+
+        async def trigger_pipeline(self, request):
+            self.trigger_requests.append(request)
+            return PipelineTriggerResult(
+                success=True,
+                job_id="job_legacy",
+                pipeline_type=request.pipeline_type,
+                status="QUEUED",
+                message=None,
+                error=None,
+            )
+
+    stub = _StubPipelineService()
+    monkeypatch.setattr(DashboardService, "_get_pipeline_service", lambda self: stub)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+    legacy_payload = {
+        "mode": "dataset",
+        "dataset": {
+            "data_dir": "data",
+            "symbols": "QQQ.NYSE",
+            "out_dir": "out",
+        },
+    }
+    resp = client_local.post(
+        "/api/pipeline/run",
+        json=legacy_payload,
+        headers={"X-ML-DASHBOARD-TOKEN": stub_token},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert data["job_id"] == "job_legacy"
+    assert stub.trigger_requests and stub.trigger_requests[0].pipeline_type == "dataset"
+    assert stub.trigger_requests[0].config == {"dataset": legacy_payload["dataset"]}
+
+
+def test_pipeline_run_service_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+    monkeypatch.setattr(DashboardService, "_get_pipeline_service", lambda self: None)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+    resp = client_local.post(
+        "/api/pipeline/run",
+        json={"pipeline_type": "ingest", "config": {}},
+        headers={"X-ML-DASHBOARD-TOKEN": "secret"},
+    )
+    assert resp.status_code == 503
+    data = resp.get_json()
+    assert data["status"] == "UNAVAILABLE"
+
+
+def test_control_pipeline_trigger_invokes_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    token = "control"
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", token)
+
+    class _StubPipelineService:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
+        async def trigger_pipeline(self, request):
+            self.requests.append(request)
+            return PipelineTriggerResult(
+                success=True,
+                job_id="job_ctrl",
+                pipeline_type=request.pipeline_type,
+                status="QUEUED",
+                message=None,
+                error=None,
+            )
+
+    stub = _StubPipelineService()
+    monkeypatch.setattr(DashboardService, "_get_pipeline_service", lambda self: stub)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+    resp = client_local.post(
+        "/api/control/pipeline/trigger",
+        json={
+            "pipeline_type": "train",
+            "config": {
+                "dataset": {
+                    "data_dir": "data",
+                    "symbols": "QQQ.NYSE",
+                    "out_dir": "out",
+                },
+            },
+        },
+        headers={"X-ML-DASHBOARD-TOKEN": token},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert data["job_id"] == "job_ctrl"
+    assert data["control_run_id"]
+    assert stub.requests and stub.requests[0].pipeline_type == "train"
+
+
+def test_control_pipeline_trigger_service_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    token = "control"
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", token)
+    monkeypatch.setattr(DashboardService, "_get_pipeline_service", lambda self: None)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+    resp = client_local.post(
+        "/api/control/pipeline/trigger",
+        json={"pipeline_type": "ingest", "config": {}},
+        headers={"X-ML-DASHBOARD-TOKEN": token},
+    )
+    assert resp.status_code == 503
+    data = resp.get_json()
+    assert data["status"] == "UNAVAILABLE"
+
+
+def test_pipeline_jobs_endpoint_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+
+    resp = client_local.get("/api/pipeline/jobs")
+    assert resp.status_code == 401
+
+
+def test_pipeline_jobs_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+
+    payload = {
+        "status": "success",
+        "jobs": [
+            {
+                "job_id": "training_123",
+                "pipeline_type": "training",
+                "status": "COMPLETED",
+            },
+        ],
+    }
+    monkeypatch.setattr(DashboardService, "list_pipeline_jobs", lambda self: payload)
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+
+    resp = client_local.get("/api/pipeline/jobs", headers={"X-ML-DASHBOARD-TOKEN": "secret"})
+    assert resp.status_code == 200
+    assert resp.get_json() == payload
+
+
+def test_pipeline_job_detail_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+    monkeypatch.setattr(
+        DashboardService,
+        "get_pipeline_job",
+        lambda self, job_id: {"status": "not_found", "error": "job_not_found"},
+    )
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+
+    resp = client_local.get(
+        "/api/pipeline/jobs/missing",
+        headers={"X-ML-DASHBOARD-TOKEN": "secret"},
+    )
+    assert resp.status_code == 404
+    assert resp.get_json()["status"] == "not_found"
+
+
+def test_pipeline_job_purge_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+    monkeypatch.setattr(
+        DashboardService,
+        "purge_pipeline_job",
+        lambda self, job_id: {
+            "status": "purged",
+            "result": {
+                "success": True,
+                "job_id": job_id,
+                "status": "purged",
+                "message": "Pipeline job purged",
+                "error": None,
+            },
+        },
+    )
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+
+    resp = client_local.delete(
+        "/api/pipeline/jobs/job_to_purge",
+        headers={"X-ML-DASHBOARD-TOKEN": "secret"},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "purged"
+    assert data["result"]["success"] is True
+
+
+def test_pipeline_job_purge_failure_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_DASHBOARD_USE_COMPOSE", "0")
+    monkeypatch.setenv("ML_DASHBOARD_TOKEN", "secret")
+    monkeypatch.setattr(
+        DashboardService,
+        "purge_pipeline_job",
+        lambda self, job_id: {
+            "status": "failed",
+            "result": {
+                "success": False,
+                "job_id": job_id,
+                "status": "failed",
+                "message": "Unable to delete job from store",
+                "error": "store_delete_failed",
+            },
+        },
+    )
+
+    app = create_app(DashboardConfig.from_env())
+    client_local = app.test_client()
+
+    resp = client_local.delete(
+        "/api/pipeline/jobs/job_failure",
+        headers={"X-ML-DASHBOARD-TOKEN": "secret"},
+    )
+    assert resp.status_code == 500
+    data = resp.get_json()
+    assert data["status"] == "failed"
 
 
 def test_metrics_and_health_endpoints(client: FlaskClient) -> None:
@@ -128,7 +410,9 @@ def test_dataset_watermarks_and_lineage_endpoints(client: FlaskClient) -> None:
 
 
 def test_registry_deploy_invalid_model_returns_ok_false(client: FlaskClient) -> None:
-    resp = client.post("/api/registry/models/does_not_exist:deploy", json={"target": "ml_signal_actor"})
+    resp = client.post(
+        "/api/registry/models/does_not_exist:deploy", json={"target": "ml_signal_actor"}
+    )
     assert resp.status_code in {200, 202}
     body = resp.get_json()
     assert body["model_id"] == "does_not_exist"
@@ -138,12 +422,17 @@ def test_registry_deploy_invalid_model_returns_ok_false(client: FlaskClient) -> 
 
 def test_registry_hot_reload_and_rollback_endpoints(client: FlaskClient) -> None:
     # Hot reload unknown model should be ok false/true
-    hr = client.post("/api/registry/models/unknown_model:hot_reload", json={"target": "ml_signal_actor"})
+    hr = client.post(
+        "/api/registry/models/unknown_model:hot_reload", json={"target": "ml_signal_actor"}
+    )
     assert hr.status_code in {200, 202}
     hrj = hr.get_json()
     assert hrj["target"] == "ml_signal_actor"
 
-    rb = client.post("/api/registry/deployments:rollback", json={"target": "ml_signal_actor", "to_model_id": "unknown_model"})
+    rb = client.post(
+        "/api/registry/deployments:rollback",
+        json={"target": "ml_signal_actor", "to_model_id": "unknown_model"},
+    )
     assert rb.status_code in {200, 202}
     rbj = rb.get_json()
     assert rbj["target"] == "ml_signal_actor"
@@ -172,7 +461,9 @@ def test_observability_status_endpoint(client: FlaskClient) -> None:
     assert set(body.keys()).issuperset({"ok", "url", "embed_urls"})
 
 
-def test_observability_summary_endpoint(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_observability_summary_endpoint(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class _FakeResponse:
         def __init__(self, value: float) -> None:
             self._value = value
@@ -187,12 +478,14 @@ def test_observability_summary_endpoint(client: FlaskClient, monkeypatch: pytest
                     "result": [
                         {
                             "value": [0, str(self._value)],
-                        }
+                        },
                     ],
-                }
+                },
             }
 
-    def _fake_get(url: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> _FakeResponse:
+    def _fake_get(
+        url: str, params: dict[str, Any] | None = None, timeout: float | None = None
+    ) -> _FakeResponse:
         query = (params or {}).get("query", "")
         mapping = {
             "sum(rate(ml_dashboard_requests_total[5m]))": 1.25,
@@ -230,7 +523,9 @@ def test_auth_guard_when_token_set(monkeypatch: pytest.MonkeyPatch) -> None:
     assert r2.status_code in {200, 202}
 
 
-def test_observability_stores_endpoint(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_observability_stores_endpoint(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = {"ok": True, "stores": [{"store": "feature", "healthy": True}]}
 
     monkeypatch.setattr(

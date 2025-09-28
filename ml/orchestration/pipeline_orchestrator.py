@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import itertools
 import json
 import logging
 import os
+import sys
 import time
 import uuid as _uuid
 from calendar import monthrange
@@ -30,9 +30,12 @@ from dataclasses import replace
 from datetime import UTC
 from datetime import date
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
+from ml.common.db_connections import ConnectionRole as _DbConnectionRole
+from ml.common.db_connections import collect_postgres_candidates as _collect_db_candidates
 from ml.common.logging_config import bind_log_context
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -50,13 +53,30 @@ from ml.data import validate_dataset_metadata_expectations
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
+from ml.data.ingest.orchestrator import BackfillWindowList
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
+from ml.data.ingest.service import IngestionError
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
+from ml.orchestration.config_loader import IngestionStageConfig
+from ml.orchestration.config_loader import Stage
+from ml.orchestration.config_loader import load_orchestrator_run_config
+from ml.orchestration.config_loader import to_pipeline_args
+from ml.orchestration.config_types import DEFAULT_LOOKBACK_YEARS
+from ml.orchestration.config_types import DEFAULT_MACRO_SERIES
+from ml.orchestration.config_types import AutoFillUniverseConfig
+from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import IntegrationConfig
+from ml.orchestration.config_types import OrchestratorConfig
+from ml.orchestration.config_types import PreIngestionOptions
+from ml.orchestration.config_types import PromotionsConfig
+from ml.orchestration.config_types import StudentDistillConfig
+from ml.orchestration.config_types import TeacherTrainConfig
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
@@ -83,16 +103,6 @@ if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from ml.config.scheduler_config import SchedulerConfig
 
 
-DEFAULT_LOOKBACK_YEARS: Final[int] = 7
-DEFAULT_MACRO_SERIES: Final[tuple[str, ...]] = (
-    "CPIAUCSL",
-    "PCEPI",
-    "PAYEMS",
-    "UNRATE",
-    "GDP",
-    "FEDFUNDS",
-)
-
 _WRITE_MODE_TOKEN_MAP: Final[dict[str, tuple[str, ...]]] = {
     "datastore": ("datastore",),
     "parquet": ("datastore", "parquet"),
@@ -105,9 +115,19 @@ _WRITE_MODE_TOKEN_MAP: Final[dict[str, tuple[str, ...]]] = {
 
 _WRITE_MODE_ALLOWED_TOKENS: Final[frozenset[str]] = frozenset({"sql", "datastore", "parquet"})
 
+_SCHEMA_ALIASES: Final[dict[str, str]] = {
+    "bars": "ohlcv-1m",
+    "ohlcv": "ohlcv-1m",
+    "tbbo": "tbbo",
+    "quotes": "tbbo",
+    "trades": "trades",
+}
+
 
 def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
-    """Normalize write-mode token strings to ordered mode tuples."""
+    """
+    Normalize write-mode token strings to ordered mode tuples.
+    """
     normalized = raw_mode.strip().lower()
     mapped = _WRITE_MODE_TOKEN_MAP.get(normalized)
     if mapped is not None:
@@ -127,7 +147,9 @@ def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
 
 
 def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:
-    """Populate market inputs from feed descriptors when not explicitly provided."""
+    """
+    Populate market inputs from feed descriptors when not explicitly provided.
+    """
     if cfg.market_inputs:
         return cfg
 
@@ -147,22 +169,16 @@ def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:
     if not inputs:
         return cfg
 
-    fallback_dataset_id = cfg.market_dataset_id
-    if fallback_dataset_id is None:
-        for entry in inputs:
-            if entry.dataset_id is not None:
-                fallback_dataset_id = entry.dataset_id
-                break
-
     return replace(
         cfg,
         market_inputs=tuple(inputs),
-        market_dataset_id=fallback_dataset_id,
     )
 
 
 def _compute_window_start_iso(*, end_iso: str, lookback_years: int = DEFAULT_LOOKBACK_YEARS) -> str:
-    """Compute ISO8601 start date by subtracting ``lookback_years`` from ``end_iso``."""
+    """
+    Compute ISO8601 start date by subtracting ``lookback_years`` from ``end_iso``.
+    """
     end_date = date.fromisoformat(end_iso)
     target_year = end_date.year - lookback_years
     days_in_month = monthrange(target_year, end_date.month)[1]
@@ -197,122 +213,13 @@ class BuildArtifacts:
 
 
 class _EmptyDatasetError(RuntimeError):
-    """Raised when the dataset build produces zero rows."""
+    """
+    Raised when the dataset build produces zero rows.
+    """
 
     def __init__(self, message: str, *, row_count: int | None = None) -> None:
         super().__init__(message)
         self.row_count = row_count
-
-
-@dataclass(slots=True, frozen=True)
-class DatasetBuildConfig:
-    data_dir: str
-    symbols: str
-    out_dir: str
-    dataset_id: str = "tft_dataset"
-    market_dataset_id: str | None = None
-    market_inputs: tuple[MarketDatasetInput, ...] | None = None
-    instrument_ids: tuple[str, ...] | None = None
-    include_macro: bool = False
-    macro_lag_days: int = 1
-    include_micro: bool = False
-    include_l2: bool = False
-    include_events: bool = False
-    include_calendar: bool = False
-    fred_vintage_dir: str | None = None
-    events_dir: str | None = None
-    student_mode: bool = False
-    horizon_minutes: int = 15
-    threshold: float = 0.001
-    lookback_periods: int = 30
-    emit_dataset_events: bool = False
-    # Optional time window and chunking for memory/perf control
-    start_iso: str | None = None
-    end_iso: str | None = None
-    chunk_days: int = 0
-    # Optional feature registration
-    register_features: bool = False
-    feature_registry_dir: str | None = None
-    feature_role: str = "teacher"
-    auto_refresh_macro: bool = True
-    macro_staleness_hours: int = 24
-    macro_series_ids: tuple[str, ...] | None = None
-    macro_fred_path: str | None = None
-    validation: DatasetValidationConfig | None = None
-    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
-    vintage_as_of: str | None = None
-
-
-@dataclass(slots=True, frozen=True)
-class AutoFillUniverseConfig:
-    enabled: bool = False
-    dataset_id: str = "EQUS.MINI"
-    include_bars: bool = True
-    include_tbbo: bool = True
-    include_trades: bool = True
-    include_l2: bool = False
-    include_l3: bool = False
-    l2_dataset_id: str = "DBEQ.BASIC"
-    l2_schema: str = "mbp-10"
-    l2_days: int | None = None
-    l2_progress_file: str | None = None
-    disable_dataset_l2_ingest: bool = True
-    instrument_ids: tuple[str, ...] | None = None
-    l3_dataset_id: str | None = None
-    l3_schema: str | None = None
-    l3_days: int | None = None
-
-
-@dataclass(slots=True, frozen=True)
-class HPOConfig:
-    enabled: bool = False
-    epochs: int = 2
-    batch_size: int = 32
-    tail_rows: int = 5000
-    limit_groups: int = 50
-    workers: int = 2
-    backend: str = "optuna"
-    metric: str = "prx"
-    direction: str | None = None
-    optuna_trials: int = 20
-    optuna_timeout: int | None = None
-    loss: str = "bce"
-    pos_weight: str = "auto"
-
-
-@dataclass(slots=True, frozen=True)
-class TeacherTrainConfig:
-    enabled: bool = True
-    model_id: str = "teacher_model"
-    feature_registry_dir: str | None = None
-    feature_set_id: str | None = None
-    max_epochs: int = 5
-
-
-@dataclass(slots=True, frozen=True)
-class StudentDistillConfig:
-    enabled: bool = False
-    model_id: str = "student_model"
-    parent_model_id: str | None = None
-    model_registry_dir: str | None = None
-    feature_registry_dir: str | None = None
-    feature_set_id: str | None = None
-    objective: str = "logit_mse"
-    kd_lambda: float = 0.5
-    early_stopping: int = 200
-    opset: int | None = None
-    use_val_for_distill: bool = False
-
-
-@dataclass(slots=True, frozen=True)
-class IntegrationConfig:
-    enabled: bool = False
-    db_connection: str | None = None
-    auto_start_postgres: bool = False
-    auto_migrate: bool = False
-    ensure_healthy: bool = True
-    strict_protocol_validation: bool | None = None
-    run_validators: bool = True
 
 
 @dataclass(slots=True, frozen=True)
@@ -336,32 +243,51 @@ class _AutoFillMetrics:
             ),
         )
 
+
 @dataclass(slots=True, frozen=True)
-class OrchestratorConfig:
-    dataset: DatasetBuildConfig
-    hpo: HPOConfig
-    teacher: TeacherTrainConfig
-    student: StudentDistillConfig = StudentDistillConfig()
-    # Optional promotions/feature refresh settings (used by config-driven scheduler)
-    promotions: PromotionsConfig | None = None
-    # Optional data ingestion pre-stage before dataset build
-    pre_ingestion: SchedulerConfig | None = None
-    pre_ingestion_options: PreIngestionOptions | None = None
-    auto_fill: AutoFillUniverseConfig | None = None
-    integration: IntegrationConfig | None = None
+class _IngestionMetrics:
+    """
+    Instrumentation bundle for ingestion-stage bookkeeping.
+    """
+
+    runs_total: Any
+    latency_seconds: Any
+    fallback_total: Any
+
+    @staticmethod
+    def default() -> _IngestionMetrics:
+        """
+        Initialise lazily to ensure metrics bootstrap occurs once per process.
+        """
+        return _IngestionMetrics(
+            runs_total=get_counter(
+                "nautilus_ml_ingestion_stage_runs_total",
+                "Pipeline ingestion stage executions",
+                labelnames=("component", "status"),
+            ),
+            latency_seconds=get_histogram(
+                "nautilus_ml_ingestion_stage_latency_seconds",
+                "Pipeline ingestion stage latency",
+                labelnames=("component", "status"),
+                buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+            ),
+            fallback_total=get_counter(
+                "ml_fallback_activations_total",
+                "Fallback activations",
+                labelnames=("component", "level"),
+            ),
+        )
 
 
 @dataclass(slots=True, frozen=True)
-class PromotionsConfig:
-    # Model promotions
-    auto_register_model: bool = False
-    gates_json: str | None = None
-    auto_promote: bool = False
-    deploy_target: str | None = None
-    # Feature registration/refresh
-    auto_register_features: bool = False
-    feature_metrics_json: str | None = None
-    refresh_features: bool = False
+class _IngestionAttemptReport:
+    """
+    Structured outcome for an ingestion attempt.
+    """
+
+    success: bool
+    context: dict[str, object]
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -388,6 +314,11 @@ class MLPipelineOrchestrator:
     partition_manager: object | None = None
     domain_loader: DomainWindowLoaderProtocol | None = None
     integration_manager_factory: Callable[..., IntegrationManagerProtocol] | None = None
+    write_mode_tokens: tuple[str, ...] = field(
+        default_factory=tuple,
+        init=False,
+        repr=False,
+    )
     _integration_manager: IntegrationManagerProtocol | None = field(
         default=None,
         init=False,
@@ -405,7 +336,9 @@ class MLPipelineOrchestrator:
 
     @staticmethod
     def _infer_dataset_row_count(result: object) -> int | None:
-        """Best-effort row count inference for API build results."""
+        """
+        Best-effort row count inference for API build results.
+        """
         metadata = getattr(result, "metadata", None)
         if metadata is not None:
             overall_window = getattr(metadata, "overall_window", None)
@@ -476,7 +409,9 @@ class MLPipelineOrchestrator:
             extra={
                 "symbols": base_cfg.symbols,
                 "instrument_ids": base_cfg.instrument_ids,
-                "market_inputs": 0 if base_cfg.market_inputs is None else len(base_cfg.market_inputs),
+                "market_inputs": (
+                    0 if base_cfg.market_inputs is None else len(base_cfg.market_inputs)
+                ),
             },
         )
         return base_cfg
@@ -501,6 +436,7 @@ class MLPipelineOrchestrator:
 
         resolved_inputs: list[MarketDatasetInput] = []
         resolved_bindings: list[ResolvedMarketBinding] = []
+        default_schema = self._infer_default_schema(cfg)
         for symbol, instrument_ids in symbol_map.items():
             candidates = IngestionOrchestrator.resolve_market_bindings(
                 symbols=[symbol],
@@ -508,52 +444,118 @@ class MLPipelineOrchestrator:
                 market_dataset_id=cfg.market_dataset_id,
                 market_inputs=cfg.market_inputs,
             )
-            binding = self._select_binding_with_coverage(
-                candidates=candidates,
+            binding: ResolvedMarketBinding | None
+            if candidates:
+                candidates = self._filter_candidate_bindings(
+                    candidates,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                    symbol=symbol,
+                    default_schema=default_schema,
+                )
+                if candidates:
+                    binding = self._select_binding_with_coverage(
+                        candidates=candidates,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                    )
+                else:
+                    binding = None
+                if binding is None and candidates:
+                    discovered = self._discover_binding_for_symbol(
+                        symbol=symbol,
+                        instrument_ids=instrument_ids or None,
+                        schema=default_schema,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                    )
+                    if discovered is not None:
+                        candidates = (discovered,)
+                        binding = discovered
+                if binding is None and candidates:
+                    binding = next(
+                        (
+                            candidate
+                            for candidate in candidates
+                            if (candidate.schema or "").lower() in {"ohlcv-1m", "bars"}
+                            or "ohlcv" in (candidate.schema or "").lower()
+                        ),
+                        None,
+                    )
+                if binding is None and candidates:
+                    binding = candidates[0]
+            else:
+                binding = self._discover_binding_for_symbol(
+                    symbol=symbol,
+                    instrument_ids=instrument_ids or None,
+                    schema=default_schema,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
+                if binding is None:
+                    logger.warning(
+                        "No binding resolved for symbol",
+                        extra={"symbol": symbol, "market_dataset_id": cfg.market_dataset_id},
+                    )
+                    continue
+                candidates = (binding,)
+            if binding is not None and not self._binding_allowed(
+                binding=binding,
                 start_ns=start_ns,
                 end_ns=end_ns,
-            )
-            if binding is None and candidates:
-                binding = next(
-                    (
-                        candidate
-                        for candidate in candidates
-                        if (candidate.schema or "").lower() in {"ohlcv-1m", "bars"}
-                        or "ohlcv" in (candidate.schema or "").lower()
-                    ),
-                    None,
+                symbol=symbol,
+                default_schema=default_schema,
+            ):
+                logger.info(
+                    "Binding rejected after validation",
+                    extra={
+                        "dataset_id": binding.dataset_id,
+                        "schema": binding.schema,
+                        "symbol": symbol,
+                    },
                 )
-            if binding is None and candidates:
-                binding = candidates[0]
+                continue
             if binding is None:
-                logger.warning(
-                    "No binding resolved for symbol",
-                    extra={"symbol": symbol, "market_dataset_id": cfg.market_dataset_id},
-                )
                 continue
             resolved_inputs.append(
                 MarketDatasetInput(
                     descriptor_id=binding.descriptor_id,
                     dataset_id=binding.dataset_id,
                     symbols=(symbol,),
-                    schema_override=binding.schema,
+                    schema_override=binding.schema or default_schema,
                     storage_kind_override=binding.storage_kind,
                 ),
             )
             resolved_bindings.append(binding)
-            logger.debug(
-                "Binding resolved",
+            logger.info(
+                "Binding selected",
                 extra={
                     "symbol": symbol,
                     "dataset_id": binding.dataset_id,
-                    "schema": binding.schema,
+                    "schema": binding.schema or default_schema,
                     "instrument_ids": binding.instrument_ids,
+                    "source": binding.source,
                 },
             )
 
         if not resolved_inputs:
             return None, ()
         return tuple(resolved_inputs), tuple(resolved_bindings)
+
+    @staticmethod
+    def _infer_default_schema(cfg: DatasetBuildConfig) -> str:
+        """
+        Infer a reasonable default schema for discovery lookups.
+        """
+        return "ohlcv-1m"
+
+    @staticmethod
+    def _ns_to_datetime(value: int) -> datetime:
+        """
+        Convert nanoseconds since epoch to an aware UTC datetime.
+        """
+        seconds = value / 1_000_000_000
+        return datetime.fromtimestamp(seconds, tz=UTC)
 
     def _symbol_to_instruments(
         self,
@@ -602,6 +604,139 @@ class MLPipelineOrchestrator:
 
         return tuple(collected.keys())
 
+    def _filter_candidate_bindings(
+        self,
+        candidates: tuple[ResolvedMarketBinding, ...],
+        *,
+        start_ns: int,
+        end_ns: int,
+        symbol: str,
+        default_schema: str,
+    ) -> tuple[ResolvedMarketBinding, ...]:
+        if not candidates:
+            return ()
+        filtered: list[ResolvedMarketBinding] = []
+        for binding in candidates:
+            if self._binding_allowed(
+                binding=binding,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                symbol=symbol,
+                default_schema=default_schema,
+            ):
+                filtered.append(binding)
+        return tuple(filtered)
+
+    def _binding_allowed(
+        self,
+        *,
+        binding: ResolvedMarketBinding,
+        start_ns: int,
+        end_ns: int,
+        symbol: str,
+        default_schema: str,
+    ) -> bool:
+        service = self.service
+        schema = binding.schema or default_schema
+        if not schema:
+            return False
+
+        if service is not None and binding.dataset_id:
+            try:
+                available_start_ns, available_end_ns = service.get_available_range_ns(
+                    dataset=binding.dataset_id,
+                    schema=schema,
+                )
+            except IngestionError as exc:
+                logger.info(
+                    "Binding rejected by ingestion service",
+                    extra={
+                        "dataset_id": binding.dataset_id,
+                        "schema": schema,
+                        "symbol": symbol,
+                        "reason": str(exc),
+                    },
+                )
+                return False
+            except Exception:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Binding availability check failed",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": binding.dataset_id,
+                        "schema": schema,
+                        "symbol": symbol,
+                    },
+                )
+            else:
+                if available_start_ns is not None and end_ns <= available_start_ns:
+                    logger.info(
+                        "Binding outside provider coverage",
+                        extra={
+                            "dataset_id": binding.dataset_id,
+                            "schema": schema,
+                            "symbol": symbol,
+                            "available_start_ns": available_start_ns,
+                            "requested_end_ns": end_ns,
+                        },
+                    )
+                    return False
+                if available_end_ns is not None and start_ns >= available_end_ns:
+                    logger.info(
+                        "Binding outside provider coverage",
+                        extra={
+                            "dataset_id": binding.dataset_id,
+                            "schema": schema,
+                            "symbol": symbol,
+                            "available_end_ns": available_end_ns,
+                            "requested_start_ns": start_ns,
+                        },
+                    )
+                    return False
+                try:
+                    cost_usd = service.estimate_cost_usd(
+                        dataset=binding.dataset_id,
+                        schema=schema,
+                        symbols=(symbol,),
+                        start=self._ns_to_datetime(start_ns),
+                        end=self._ns_to_datetime(end_ns),
+                    )
+                except IngestionError as exc:
+                    logger.info(
+                        "Binding rejected by cost policy",
+                        extra={
+                            "dataset_id": binding.dataset_id,
+                            "schema": schema,
+                            "symbol": symbol,
+                            "reason": str(exc),
+                        },
+                    )
+                    return False
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.debug(
+                        "Binding cost estimation failed",
+                        exc_info=True,
+                        extra={
+                            "dataset_id": binding.dataset_id,
+                            "schema": schema,
+                            "symbol": symbol,
+                        },
+                    )
+                else:
+                    if cost_usd > 0.0:
+                        logger.info(
+                            "Binding rejected due to non-zero cost",
+                            extra={
+                                "dataset_id": binding.dataset_id,
+                                "schema": schema,
+                                "symbol": symbol,
+                                "cost_usd": cost_usd,
+                            },
+                        )
+                        return False
+
+        return True
+
     def _select_binding_with_coverage(
         self,
         *,
@@ -641,6 +776,67 @@ class MLPipelineOrchestrator:
                 if buckets:
                     return binding
         return None
+
+    def _discover_binding_for_symbol(
+        self,
+        *,
+        symbol: str,
+        instrument_ids: tuple[str, ...] | None,
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> ResolvedMarketBinding | None:
+        service = self.service
+        if service is None:
+            return None
+
+        schema_token = schema.strip()
+        if not schema_token:
+            return None
+
+        discovery_func = getattr(service, "discover_symbol_dataset", None)
+        if discovery_func is None or not callable(discovery_func):
+            return None
+
+        try:
+            discovery = discovery_func(
+                symbol=symbol,
+                schema=schema_token,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug(
+                "Dataset discovery failed",
+                exc_info=True,
+                extra={
+                    "symbol": symbol,
+                    "schema": schema_token,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                },
+            )
+            return None
+
+        if discovery is None:
+            return None
+
+        instrument_tuple = instrument_ids or (symbol,)
+        binding_id = f"discovered:{discovery.dataset_id}:{symbol}"
+        return ResolvedMarketBinding(
+            binding_id=binding_id,
+            symbol=symbol,
+            instrument_ids=tuple(instrument_tuple),
+            dataset_id=discovery.dataset_id,
+            descriptor_id=None,
+            schema=discovery.schema,
+            storage_kind=discovery.storage_kind,
+            license_start=None,
+            license_end=None,
+            start=None,
+            end=None,
+            source="discovered",
+        )
 
     def _resolve_window_bounds_ns(self, cfg: DatasetBuildConfig) -> tuple[int, int]:
         end_dt = parse_dt(cfg.end_iso) if cfg.end_iso else None
@@ -777,6 +973,8 @@ class MLPipelineOrchestrator:
         effective_dataset_id = dataset_id
         effective_schema = schema
         binding_key: tuple[str, str] | None = None
+        now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+        lookback_ns = max(int(lookback_days), 1) * DAY_NS
         if dataset_cfg.market_inputs or dataset_cfg.market_dataset_id:
             base_symbol = instrument_id.split(".")[0].upper()
             resolved = IngestionOrchestrator.resolve_market_bindings(
@@ -828,20 +1026,127 @@ class MLPipelineOrchestrator:
         start_time = time.perf_counter()
         status = "success"
         try:
-            dataset_type = self._map_schema_to_dataset_type(effective_schema)
-            self._ensure_dataset_registered(
-                dataset_id=effective_dataset_id,
-                dataset_type=dataset_type,
-                location=dataset_cfg.data_dir,
-            )
             if binding_used is not None:
-                binding_results = self.backfill_binding(
-                    binding=binding_used,
-                    lookback_days=lookback_days,
-                )
-                gaps = binding_results.get(instrument_id)
-                if gaps is None:
-                    gaps = list(itertools.chain.from_iterable(binding_results.values()))
+
+                def _run_binding(
+                    binding_to_use: ResolvedMarketBinding,
+                ) -> dict[str, BackfillWindowList]:
+                    nonlocal effective_dataset_id
+                    nonlocal effective_schema
+                    effective_dataset_id = binding_to_use.dataset_id
+                    if binding_to_use.schema:
+                        effective_schema = binding_to_use.schema
+                    dataset_type_local = self._map_schema_to_dataset_type(effective_schema)
+                    storage_kind_local = binding_to_use.storage_kind or StorageKind.PARQUET
+                    self._ensure_dataset_registered(
+                        dataset_id=effective_dataset_id,
+                        dataset_type=dataset_type_local,
+                        location=dataset_cfg.data_dir,
+                        storage_kind=storage_kind_local,
+                    )
+                    return self.backfill_binding(
+                        binding=binding_to_use,
+                        lookback_days=lookback_days,
+                    )
+
+                def _aggregate_binding_results(
+                    results: dict[str, BackfillWindowList],
+                ) -> tuple[list[tuple[int, int]], list[tuple[int, int]], int, int]:
+                    persisted: list[tuple[int, int]] = []
+                    requested: list[tuple[int, int]] = []
+                    frames_total = 0
+                    rows_total = 0
+                    for window_list in results.values():
+                        persisted.extend(window_list)
+                        requested.extend(window_list.requested_windows)
+                        frames_total += window_list.frames_written
+                        rows_total += window_list.rows_written
+                    return persisted, requested, frames_total, rows_total
+
+                binding_results = _run_binding(binding_used)
+                (
+                    persisted_windows,
+                    requested_windows,
+                    frames_total,
+                    rows_total,
+                ) = _aggregate_binding_results(binding_results)
+                binding_result = binding_results.get(instrument_id)
+                if binding_result is not None:
+                    instrument_attempted = binding_result.attempted_window_count
+                    instrument_rows = binding_result.rows_written
+                else:
+                    instrument_attempted = len(requested_windows)
+                    instrument_rows = rows_total
+
+                if (
+                    instrument_attempted > 0
+                    and instrument_rows == 0
+                    and binding_used.source != "discovered"
+                ):
+                    base_symbol = instrument_id.split(".")[0].upper()
+                    logger.warning(
+                        "Binding produced zero frames; attempting discovery fallback",
+                        extra={
+                            "binding_id": binding_used.binding_id,
+                            "dataset_id": effective_dataset_id,
+                            "schema": effective_schema,
+                            "instrument_id": instrument_id,
+                        },
+                    )
+                    fallback_binding = self._discover_binding_for_symbol(
+                        symbol=base_symbol,
+                        instrument_ids=(instrument_id,),
+                        schema=effective_schema,
+                        start_ns=now_ns - lookback_ns,
+                        end_ns=now_ns,
+                    )
+                    if (
+                        fallback_binding is not None
+                        and fallback_binding.binding_id != binding_used.binding_id
+                    ):
+                        binding_used = fallback_binding
+                        binding_results = _run_binding(binding_used)
+                        (
+                            persisted_windows,
+                            requested_windows,
+                            frames_total,
+                            rows_total,
+                        ) = _aggregate_binding_results(binding_results)
+                        binding_result = binding_results.get(instrument_id)
+                        if binding_result is not None:
+                            instrument_attempted = binding_result.attempted_window_count
+                            instrument_rows = binding_result.rows_written
+                        else:
+                            instrument_attempted = len(requested_windows)
+                            instrument_rows = rows_total
+                        if processed_bindings is not None:
+                            processed_bindings.add((binding_used.binding_id, effective_schema))
+                        logger.info(
+                            "Discovery fallback applied | binding=%s dataset=%s schema=%s windows=%d",
+                            binding_used.binding_id,
+                            effective_dataset_id,
+                            effective_schema,
+                            len(persisted_windows),
+                        )
+                    else:
+                        logger.warning(
+                            "Discovery fallback unavailable or unchanged",
+                            extra={
+                                "instrument_id": instrument_id,
+                                "dataset_id": effective_dataset_id,
+                                "schema": effective_schema,
+                                "attempted_windows": instrument_attempted,
+                            },
+                        )
+                if binding_result is not None:
+                    gaps: BackfillWindowList | list[tuple[int, int]] = binding_result
+                else:
+                    gaps = BackfillWindowList(
+                        persisted=tuple(persisted_windows),
+                        requested=tuple(requested_windows),
+                        frames_written=frames_total,
+                        rows_written=rows_total,
+                    )
                 logger.info(
                     "Auto-fill %s using binding %s | instrument=%s dataset=%s gaps=%d lookback_days=%d",
                     effective_schema,
@@ -852,6 +1157,12 @@ class MLPipelineOrchestrator:
                     lookback_days,
                 )
             else:
+                dataset_type = self._map_schema_to_dataset_type(effective_schema)
+                self._ensure_dataset_registered(
+                    dataset_id=effective_dataset_id,
+                    dataset_type=dataset_type,
+                    location=dataset_cfg.data_dir,
+                )
                 gaps = self.backfill(
                     dataset_id=effective_dataset_id,
                     schema=effective_schema,
@@ -924,7 +1235,9 @@ class MLPipelineOrchestrator:
         )
         start_bucket = start_ns // DAY_NS
         end_bucket_candidate = ((now_ns - DAY_NS) // DAY_NS) - 1
-        end_bucket = int(start_bucket) if end_bucket_candidate < start_bucket else int(end_bucket_candidate)
+        end_bucket = (
+            int(start_bucket) if end_bucket_candidate < start_bucket else int(end_bucket_candidate)
+        )
         gaps: list[tuple[int, int]] = []
         for bucket in range(int(start_bucket), end_bucket + 1):
             if bucket not in covered:
@@ -952,9 +1265,7 @@ class MLPipelineOrchestrator:
         if l2_days is None:
             l2_days = get_max_lookback_days("l2", policy)
         symbols_iter = [
-            symbol.split(".")[0].upper()
-            if symbol and "." in symbol
-            else str(symbol).upper()
+            symbol.split(".")[0].upper() if symbol and "." in symbol else str(symbol).upper()
             for symbol in instruments
             if symbol
         ]
@@ -1029,9 +1340,7 @@ class MLPipelineOrchestrator:
         if l3_days is None:
             l3_days = get_max_lookback_days("l3", policy)
         symbols_iter = [
-            symbol.split(".")[0].upper()
-            if symbol and "." in symbol
-            else str(symbol).upper()
+            symbol.split(".")[0].upper() if symbol and "." in symbol else str(symbol).upper()
             for symbol in instruments
             if symbol
         ]
@@ -1089,6 +1398,7 @@ class MLPipelineOrchestrator:
         dataset_id: str,
         dataset_type: DatasetType,
         location: str,
+        storage_kind: StorageKind | None = None,
     ) -> None:
         registry_obj = self.data_registry
         if registry_obj is None:
@@ -1100,11 +1410,19 @@ class MLPipelineOrchestrator:
         except Exception:
             pass
 
+        # Determine storage_kind based on write_mode if not provided
+        if storage_kind is None:
+            write_mode_tokens = getattr(self, "write_mode_tokens", ())
+            if "sql" in write_mode_tokens:
+                storage_kind = StorageKind.POSTGRES
+            else:
+                storage_kind = StorageKind.PARQUET
+
         manifest = build_auto_dataset_manifest(
             dataset_id=dataset_id,
             dataset_type=dataset_type,
             location=location,
-            storage_kind=StorageKind.PARQUET,
+            storage_kind=storage_kind,
             pipeline_signature="auto_fill_orchestrator",
             metadata={
                 "auto_registered": True,
@@ -1189,7 +1507,7 @@ class MLPipelineOrchestrator:
         schema: str,
         instrument_id: str,
         lookback_days: int,
-    ) -> list[tuple[int, int]]:
+    ) -> BackfillWindowList:
         orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_gaps(
             dataset_id=dataset_id,
@@ -1203,7 +1521,7 @@ class MLPipelineOrchestrator:
         *,
         binding: ResolvedMarketBinding,
         lookback_days: int,
-    ) -> dict[str, list[tuple[int, int]]]:
+    ) -> dict[str, BackfillWindowList]:
         orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_binding(
             binding=binding,
@@ -1362,11 +1680,7 @@ class MLPipelineOrchestrator:
             )
             return 0
         except _EmptyDatasetError as empty_exc:
-            row_info = (
-                f" rows={empty_exc.row_count}"
-                if empty_exc.row_count is not None
-                else ""
-            )
+            row_info = f" rows={empty_exc.row_count}" if empty_exc.row_count is not None else ""
             logger.error(
                 "Dataset build produced no rows%s; extend the build window or ensure catalog coverage before rerunning.",
                 row_info,
@@ -1479,7 +1793,9 @@ class MLPipelineOrchestrator:
         cfg: DatasetBuildConfig,
         result: object,
     ) -> str | None:
-        """Export a feature manifest when registry configuration is provided."""
+        """
+        Export a feature manifest when registry configuration is provided.
+        """
         if not cfg.register_features or not cfg.feature_registry_dir:
             return None
 
@@ -1507,9 +1823,7 @@ class MLPipelineOrchestrator:
             logger.warning("Unknown feature_role '%s'; defaulting to TEACHER", cfg.feature_role)
             role = FeatureRole.TEACHER
 
-        data_requirements = (
-            DataRequirements.L1_L2 if cfg.include_l2 else DataRequirements.L1_ONLY
-        )
+        data_requirements = DataRequirements.L1_L2 if cfg.include_l2 else DataRequirements.L1_ONLY
         flags = {
             "include_macro": cfg.include_macro,
             "macro_lag_days": cfg.macro_lag_days,
@@ -1562,7 +1876,10 @@ class MLPipelineOrchestrator:
         cfg: DatasetBuildConfig,
         metadata: DatasetMetadata,
     ) -> None:
-        """Validate dataset metadata against configuration guardrails."""
+        """
+        Validate dataset metadata against configuration guardrails.
+        """
+
         def _normalize(value: str | None) -> str | None:
             if not value:
                 return None
@@ -1604,7 +1921,9 @@ class MLPipelineOrchestrator:
         cfg: DatasetBuildConfig,
         metadata: DatasetMetadata,
     ) -> str:
-        """Derive a stable pipeline signature covering vintage policy and scope."""
+        """
+        Derive a stable pipeline signature covering vintage policy and scope.
+        """
         return compute_dataset_pipeline_signature(
             dataset_id=cfg.dataset_id,
             symbols=cfg.symbols,
@@ -1902,16 +2221,16 @@ class MLPipelineOrchestrator:
             logger.error("Distillation enabled but missing features NPZ at %s", features_npz)
             return 1
         if not teacher_npz.exists():
-            logger.error("Distillation enabled but missing teacher predictions NPZ at %s", teacher_npz)
+            logger.error(
+                "Distillation enabled but missing teacher predictions NPZ at %s", teacher_npz
+            )
             return 1
 
         artifacts = self._build_artifacts
         feature_registry_dir = cfg.feature_registry_dir or (
             artifacts.feature_registry_dir if artifacts else None
         )
-        feature_set_id = cfg.feature_set_id or (
-            artifacts.feature_set_id if artifacts else None
-        )
+        feature_set_id = cfg.feature_set_id or (artifacts.feature_set_id if artifacts else None)
         if feature_registry_dir is None or feature_set_id is None:
             logger.error(
                 "Feature registry metadata required for distillation (have dir=%s id=%s)",
@@ -2004,6 +2323,57 @@ class MLPipelineOrchestrator:
         self._attach_runtime(cfg.integration, dataset_out_dir=out_dir)
         return 0
 
+    def run_training_only(self, cfg: OrchestratorConfig) -> int:
+        """
+        Run HPO, teacher training, and student distillation without rebuilding data.
+        """
+        dataset_cfg = self._prepare_dataset_config(cfg.dataset)
+        cfg = replace(cfg, dataset=dataset_cfg)
+
+        dataset_dir = Path(dataset_cfg.out_dir)
+        dataset_csv = dataset_dir / "dataset.csv"
+        if not dataset_csv.exists():
+            raise FileNotFoundError(
+                f"Dataset CSV not found at {dataset_csv}; run dataset stage first",
+            )
+
+        metadata_path = dataset_dir / "dataset_metadata.json"
+        dataset_metadata = load_dataset_metadata(metadata_path)
+
+        feature_registry_dir = (
+            cfg.teacher.feature_registry_dir
+            or dataset_cfg.feature_registry_dir
+            or (self._build_artifacts.feature_registry_dir if self._build_artifacts else None)
+        )
+        feature_set_id = (
+            cfg.teacher.feature_set_id
+            or getattr(dataset_metadata, "feature_set_id", None)
+            or (self._build_artifacts.feature_set_id if self._build_artifacts else None)
+        )
+
+        self._build_artifacts = BuildArtifacts(
+            out_dir=dataset_dir,
+            feature_registry_dir=feature_registry_dir,
+            feature_set_id=feature_set_id,
+            dataset_metadata=dataset_metadata,
+        )
+
+        rc = self.run_hpo(cfg.hpo, dataset_csv=dataset_csv, out_dir=dataset_dir)
+        if rc != 0:
+            return rc
+
+        rc = self.train_teacher(cfg.teacher, dataset_csv=dataset_csv, out_dir=dataset_dir)
+        if rc != 0:
+            return rc
+
+        rc = self.distill_student(cfg.student, dataset_dir=dataset_dir, teacher_cfg=cfg.teacher)
+        if rc != 0:
+            return rc
+
+        self._handle_promotions(cfg.promotions, out_dir=dataset_dir, dataset_csv=dataset_csv)
+        self._attach_runtime(cfg.integration, dataset_out_dir=dataset_dir)
+        return 0
+
     def _handle_promotions(
         self,
         promotions: PromotionsConfig | None,
@@ -2080,9 +2450,7 @@ class MLPipelineOrchestrator:
                             continue
                         comparison_value = item.get("comparison")
                         comparison: str = (
-                            str(comparison_value)
-                            if comparison_value is not None
-                            else "gte"
+                            str(comparison_value) if comparison_value is not None else "gte"
                         )
                         gates.append(
                             QualityGate(
@@ -2227,22 +2595,17 @@ class MLPipelineOrchestrator:
             pass
 
 
-@dataclass(slots=True, frozen=True)
-class PreIngestionOptions:
-    """
-    Options for the pre-ingestion scheduler stage.
-    """
-
-    use_orchestrator: bool = True
-    dual_write: bool = True
-    start_metrics_server: bool = False
-    metrics_port: int | None = None
-
-
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     import os
 
     parser = argparse.ArgumentParser(description="Run end-to-end ML pipeline (cold path)")
+    parser.add_argument("--config", default=None, help="Path to orchestrator JSON/TOML config")
+    parser.add_argument(
+        "--stage",
+        default=None,
+        choices=[member.value for member in Stage],
+        help="Pipeline stage to run (ingest, dataset, train, full)",
+    )
 
     # Ingestion/backfill
     parser.add_argument("--ingest", action="store_true", help="Run ingestion backfill first")
@@ -2252,9 +2615,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lookback_days", type=int, default=7)
     parser.add_argument("--coverage_mode", default="catalog", choices=["catalog", "sql"])
     parser.add_argument("--catalog_path", default=os.getenv("CATALOG_PATH", ""))
+    default_db_candidates = _collect_db_candidates(_DbConnectionRole.PRIMARY)
+    default_db_url = (
+        default_db_candidates.urls[0]
+        if default_db_candidates.urls
+        else "postgresql://postgres:postgres@localhost:5433/nautilus"
+    )
     parser.add_argument(
         "--db",
-        default=os.getenv("NAUTILUS_DB", "postgresql://postgres:postgres@localhost:5432/nautilus"),
+        default=default_db_url,
     )
 
     # Writer mode for ingestion
@@ -2553,8 +2922,87 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
+def _extract_config_args(
+    raw_args: Sequence[str],
+) -> tuple[str | None, str | None, list[str]]:
+    """
+    Split ``raw_args`` into config path, stage override, and remaining args.
+    """
+    config_path: str | None = None
+    stage_override: str | None = None
+    passthrough: list[str] = []
+    idx = 0
+    while idx < len(raw_args):
+        token = raw_args[idx]
+        if token == "--config":
+            if idx + 1 >= len(raw_args):
+                raise SystemExit("--config requires a file path")
+            config_path = raw_args[idx + 1]
+            idx += 2
+            continue
+        if token.startswith("--config="):
+            config_path = token.split("=", 1)[1]
+            idx += 1
+            continue
+        if token == "--stage":
+            if idx + 1 >= len(raw_args):
+                raise SystemExit("--stage requires a value")
+            stage_override = raw_args[idx + 1]
+            idx += 2
+            continue
+        if token.startswith("--stage="):
+            stage_override = token.split("=", 1)[1]
+            idx += 1
+            continue
+        passthrough.append(token)
+        idx += 1
+    return config_path, stage_override, passthrough
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    raw_args = list(argv) if argv is not None else sys.argv[1:]
+    config_path, stage_override, passthrough = _extract_config_args(raw_args)
+    stage_default: Stage | None = None
+
+    if config_path is not None:
+        run_cfg = load_orchestrator_run_config(config_path)
+        stage_default = run_cfg.stage
+        if stage_override is not None:
+            try:
+                stage_for_args = Stage(stage_override)
+            except ValueError as exc:  # pragma: no cover - defensive
+                raise SystemExit(f"Unsupported stage '{stage_override}'") from exc
+        else:
+            stage_for_args = run_cfg.stage
+        ingestion_cfg = run_cfg.ingestion if stage_for_args in {Stage.FULL, Stage.INGEST} else None
+        config_args: list[str]
+        if run_cfg.dataset is None:
+            if stage_for_args is not Stage.INGEST:
+                raise SystemExit("Dataset configuration is required for non-ingestion stages")
+            effective_ingestion = ingestion_cfg or IngestionStageConfig(enabled=True)
+            config_args = _ingestion_config_to_args(effective_ingestion)
+        else:
+            orchestrator_cfg = run_cfg.compose_orchestrator_config()
+            config_args = to_pipeline_args(orchestrator_cfg, ingestion=ingestion_cfg)
+        combined_args = config_args + passthrough
+        if stage_override is not None:
+            combined_args += ["--stage", stage_override]
+        args = parse_args(combined_args)
+        if args.stage is None:
+            args.stage = stage_for_args.value
+    else:
+        if stage_override is not None:
+            passthrough += ["--stage", stage_override]
+        args = parse_args(passthrough)
+
+    return _execute_with_namespace(args, stage_default=stage_default)
+
+
+def _execute_with_namespace(
+    args: argparse.Namespace,
+    *,
+    stage_default: Stage | None = None,
+) -> int:
     _run_id: str = f"orch_{_uuid.uuid4().hex[:12]}"
     bind_log_context(run_id=_run_id, component="ml.pipeline_orchestrator")
 
@@ -2563,7 +3011,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     mgr = MLIntegrationManager(
         db_connection=args.db,
         auto_start_postgres=False,
-        auto_migrate=False,
+        auto_migrate=True,
         ensure_healthy=False,
     )
     data_store = getattr(mgr, "data_store", None)
@@ -2572,7 +3020,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "DataStore unavailable; falling back to catalog-only runtime attachment",
         )
     if mgr.data_registry is None:
-        raise SystemExit("DataRegistry unavailable; configure ML_DB_CONNECTION for pipeline orchestration")
+        raise SystemExit(
+            "DataRegistry unavailable; configure ML_DB_CONNECTION for pipeline orchestration"
+        )
 
     registry = mgr.data_registry
     manifest_resolver = None
@@ -2707,6 +3157,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         integration_manager_factory=integration_factory,
     )
 
+    # Store write_mode_tokens for determining storage_kind
+    orch.write_mode_tokens = mode_tokens
+
     # Deferred ingestion block runs after dataset config is prepared
     data_dir_effective = Path(args.data_dir)
     if args.catalog_path and str(args.data_dir) == "data/tier1":
@@ -2741,7 +3194,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.include_l2 and not args.skip_l2_ingest and not auto_fill_blocks_l2:
         l2_symbols = None
         if args.l2_symbols:
-            l2_symbols = tuple(s.strip().upper() for s in str(args.l2_symbols).split(",") if s.strip())
+            l2_symbols = tuple(
+                s.strip().upper() for s in str(args.l2_symbols).split(",") if s.strip()
+            )
         l2_tier = None if l2_symbols else args.l2_tier
         progress_file = (
             Path(args.l2_progress_file)
@@ -2756,9 +3211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tier=l2_tier,
                 days=int(args.l2_days),
             )
-            symbols_desc = (
-                f"custom:{len(l2_symbols)}" if l2_symbols else f"tier:{l2_tier}"
-            )
+            symbols_desc = f"custom:{len(l2_symbols)}" if l2_symbols else f"tier:{l2_tier}"
             logger.info(
                 "Starting L2 ingestion (symbols=%s, days=%s)",
                 symbols_desc,
@@ -2826,55 +3279,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     ds_cfg = orch._prepare_dataset_config(ds_cfg)
 
     auto_fill_cfg = _build_auto_fill_config_from_args(args, ds_cfg)
+    ingestion_cfg = _build_ingestion_config_from_args(args, ds_cfg)
 
-    if args.ingest and ingestor is not None:
-        if ingestion_service is None:
-            logging.getLogger(__name__).warning(
-                "Ingestion requested but DatabentoIngestionService unavailable; skipping",
-            )
-        else:
-            _resolved_inputs, resolved_bindings = orch._resolve_market_inputs(ds_cfg)
-            if auto_fill_cfg.enabled:
-                logger.info(
-                    "Starting auto-fill ingestion",
-                    extra={
-                        "symbol_count": len([s for s in ds_cfg.symbols.split(",") if s.strip()]),
-                        "instrument_count": 0 if ds_cfg.instrument_ids is None else len(ds_cfg.instrument_ids),
-                    },
-                )
-                orch._auto_fill_universe(ds_cfg, auto_fill_cfg)
-            elif resolved_bindings:
-                logger.info(
-                    "Starting binding-based ingestion",
-                    extra={"binding_count": len(resolved_bindings)},
-                )
-                policy = CoveragePolicy.from_env()
-                for binding in resolved_bindings:
-                    schema_label = binding.schema or "bars"
-                    lookback = get_max_lookback_days(schema_label, policy)
-                    orch.backfill_binding(binding=binding, lookback_days=lookback)
-            else:
-                schema_map = {"bars": "ohlcv-1m", "tbbo": "tbbo", "trades": "trades"}
-                provider_schema = schema_map.get(str(args.schema).lower(), str(args.schema))
-                instruments = ds_cfg.instrument_ids or tuple(
-                    token.strip()
-                    for token in str(args.instruments).split(",")
-                    if token.strip()
-                )
-                logger.info(
-                    "Starting fallback ingestion",
-                    extra={
-                        "schema": provider_schema,
-                        "instrument_count": len(instruments),
-                    },
-                )
-                for inst in instruments:
-                    orch.backfill(
-                        dataset_id=ds_cfg.market_dataset_id or ds_cfg.dataset_id,
-                        schema=provider_schema,
-                        instrument_id=inst,
-                        lookback_days=int(args.lookback_days),
-                    )
+    stage_token = args.stage or (stage_default.value if stage_default is not None else None)
+    stage = Stage(stage_token) if stage_token is not None else Stage.FULL
+
+    ingestion_requested = bool(ingestion_cfg.enabled or auto_fill_cfg.enabled)
+    if stage in {Stage.FULL, Stage.INGEST} and ingestion_requested:
+        rc = _run_ingestion_stage(
+            orch=orch,
+            ds_cfg=ds_cfg,
+            auto_fill_cfg=auto_fill_cfg,
+            ingestion_cfg=ingestion_cfg,
+            ingestor=ingestor,
+            ingestion_service=ingestion_service,
+        )
+        if rc != 0:
+            return rc
+        if stage is Stage.INGEST:
+            return 0
+    elif stage is Stage.INGEST:
+        logger.info("Ingestion stage requested but ingestion inputs are disabled")
+        return 0
 
     hpo_cfg = HPOConfig(
         enabled=bool(args.hpo),
@@ -2922,9 +3348,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         auto_start_postgres=bool(args.runtime_auto_start_db),
         auto_migrate=bool(args.runtime_auto_migrate),
         ensure_healthy=not bool(args.runtime_no_ensure_healthy),
-        strict_protocol_validation=(
-            True if args.runtime_strict_protocol_validation else None
-        ),
+        strict_protocol_validation=(True if args.runtime_strict_protocol_validation else None),
         run_validators=not bool(args.runtime_skip_validators),
     )
 
@@ -2938,14 +3362,463 @@ def main(argv: Sequence[str] | None = None) -> int:
         auto_fill=auto_fill_cfg if auto_fill_cfg.enabled else None,
     )
 
-    orch.run(orchestrator_cfg)
+    return _execute_stage(
+        orch=orch,
+        orchestrator_cfg=orchestrator_cfg,
+        stage=stage,
+        ds_cfg=ds_cfg,
+        auto_fill_cfg=auto_fill_cfg,
+        args=args,
+        ingestor=ingestor,
+        ingestion_service=ingestion_service,
+    )
+
+
+def _run_ingestion_stage(
+    *,
+    orch: MLPipelineOrchestrator,
+    ds_cfg: DatasetBuildConfig | None,
+    auto_fill_cfg: AutoFillUniverseConfig,
+    ingestion_cfg: IngestionStageConfig,
+    ingestor: object | None,
+    ingestion_service: DatabentoIngestionService | None,
+) -> int:
+    """
+    Run ingestion/backfill operations prior to dataset construction.
+    """
+    metrics = _IngestionMetrics.default()
+    component_label = "pipeline_orchestrator_ingestion"
+    stage_status = "skipped"
+    work_performed = False
+    stage_start = time.perf_counter()
+    fallback_reports: list[dict[str, object]] = []
+    coverage_metric_emitted = False
+    file_metric_emitted = False
+
+    def _finalize() -> None:
+        elapsed = time.perf_counter() - stage_start
+        metrics.runs_total.labels(component=component_label, status=stage_status).inc()
+        metrics.latency_seconds.labels(component=component_label, status=stage_status).observe(
+            elapsed
+        )
+
+    def _normalise_schema_for_lookback(raw_schema: str | None) -> str:
+        token = (raw_schema or "bars").lower()
+        if "ohlcv" in token or "bar" in token:
+            return "bars"
+        if "tbbo" in token or "bbo" in token or "quote" in token:
+            return "quotes"
+        if "trade" in token:
+            return "trades"
+        if "mbp" in token or token.startswith(("l2", "l3")):
+            return "mbp"
+        return token
+
+    def _attempt_primary_ingestion(
+        plan_items: tuple[_IngestionPlanItem, ...],
+        *,
+        policy: CoveragePolicy,
+    ) -> _IngestionAttemptReport:
+        bindings = tuple(item.binding for item in plan_items if item.binding is not None)
+        context: dict[str, object] = {
+            "stage": Stage.INGEST.value,
+            "attempt": "primary",
+            "binding_count": len(bindings),
+            "datasets": sorted({item.dataset_id for item in plan_items}),
+        }
+        rows_written = 0
+        attempted_windows = 0
+        try:
+            for item in plan_items:
+                if item.binding is None:
+                    continue
+                binding = item.binding
+                schema_token = _normalise_schema_for_lookback(binding.schema or item.schema)
+                lookback_days = get_max_lookback_days(schema_token, policy)
+                results = orch.backfill_binding(
+                    binding=binding,
+                    lookback_days=lookback_days,
+                )
+                for window_list in results.values():
+                    rows_written += window_list.rows_written
+                    attempted_windows += window_list.attempted_window_count
+            context["rows_written"] = rows_written
+            context["attempted_windows"] = attempted_windows
+            return _IngestionAttemptReport(success=True, context=context)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            context["error_type"] = exc.__class__.__name__
+            return _IngestionAttemptReport(
+                success=False,
+                context=context,
+                reason=str(exc),
+            )
+
+    def _attempt_coverage_ingestion(
+        plan_items: tuple[_IngestionPlanItem, ...],
+        *,
+        policy: CoveragePolicy,
+    ) -> _IngestionAttemptReport:
+        context: dict[str, object] = {
+            "stage": Stage.INGEST.value,
+            "attempt": "coverage",
+            "plan_items": len(plan_items),
+            "datasets": sorted({item.dataset_id for item in plan_items}),
+            "instrument_total": sum(len(item.instrument_ids) for item in plan_items),
+        }
+        window_count = 0
+        try:
+            for item in plan_items:
+                if not item.instrument_ids:
+                    continue
+                for instrument_id in item.instrument_ids:
+                    windows = orch.backfill_coverage(
+                        dataset_id=item.dataset_id,
+                        schema=item.schema,
+                        instrument_id=instrument_id,
+                        policy=policy,
+                    )
+                    window_count += len(windows)
+            context["window_count"] = window_count
+            return _IngestionAttemptReport(success=True, context=context)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            context["error_type"] = exc.__class__.__name__
+            return _IngestionAttemptReport(
+                success=False,
+                context=context,
+                reason=str(exc),
+            )
+
+    def _attempt_manual_ingestion(
+        plan_items: tuple[_IngestionPlanItem, ...],
+        *,
+        lookback_days: int,
+        policy: CoveragePolicy,
+    ) -> _IngestionAttemptReport:
+        context: dict[str, object] = {
+            "stage": Stage.INGEST.value,
+            "attempt": "manual",
+            "lookback_days": lookback_days,
+            "plan_items": len(plan_items),
+            "datasets": sorted({item.dataset_id for item in plan_items}),
+            "instrument_total": sum(len(item.instrument_ids) for item in plan_items),
+        }
+        if context["instrument_total"] == 0:
+            return _IngestionAttemptReport(
+                success=False,
+                context=context,
+                reason="no_instruments",
+            )
+        rows_written = 0
+        attempted_windows = 0
+        try:
+            for item in plan_items:
+                if not item.instrument_ids:
+                    continue
+                schema_token = _normalise_schema_for_lookback(item.schema)
+                effective_lookback = lookback_days or get_max_lookback_days(schema_token, policy)
+                for instrument_id in item.instrument_ids:
+                    windows = orch.backfill(
+                        dataset_id=item.dataset_id,
+                        schema=item.schema,
+                        instrument_id=instrument_id,
+                        lookback_days=effective_lookback,
+                    )
+                    rows_written += windows.rows_written
+                    attempted_windows += windows.attempted_window_count
+            context["rows_written"] = rows_written
+            context["attempted_windows"] = attempted_windows
+            return _IngestionAttemptReport(success=True, context=context)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            context["error_type"] = exc.__class__.__name__
+            return _IngestionAttemptReport(
+                success=False,
+                context=context,
+                reason=str(exc),
+            )
+
+    def _find_existing_artifact() -> Path | None:
+        if ds_cfg is None:
+            return None
+        candidates: list[Path] = []
+        out_dir = Path(ds_cfg.out_dir)
+        data_dir = Path(ds_cfg.data_dir)
+        dataset_id_local = ds_cfg.dataset_id
+        candidates.append(out_dir / "dataset_metadata.json")
+        if dataset_id_local:
+            candidates.append(out_dir / dataset_id_local / "dataset_metadata.json")
+            candidates.append(data_dir / dataset_id_local / "dataset_metadata.json")
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    ingestion_requested = ingestion_cfg.enabled or auto_fill_cfg.enabled
+    if not ingestion_requested:
+        logger.info(
+            "Ingestion stage skipped (disabled)",
+            extra={"stage": Stage.INGEST.value, "status": stage_status},
+        )
+        return 0
+
+    try:
+        plan_items = _build_ingestion_plan(ds_cfg=ds_cfg, ingestion_cfg=ingestion_cfg)
+        binding_count = sum(1 for item in plan_items if item.binding is not None)
+        datasets_in_plan = sorted({item.dataset_id for item in plan_items})
+        schema_set = sorted({item.schema for item in plan_items})
+
+        should_register = getattr(orch, "data_store", None) is not None and hasattr(
+            orch, "_ensure_dataset_registered"
+        )
+        if should_register and plan_items:
+            location_root = Path(
+                ds_cfg.data_dir if ds_cfg is not None else (ingestion_cfg.catalog_path or "ml_out"),
+            )
+            for item in plan_items:
+                try:
+                    orch._ensure_dataset_registered(
+                        dataset_id=item.dataset_id,
+                        dataset_type=orch._map_schema_to_dataset_type(item.schema),
+                        location=str(location_root),
+                    )
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    logger.debug(
+                        "Dataset auto-registration skipped",
+                        exc_info=True,
+                        extra={
+                            "stage": Stage.INGEST.value,
+                            "dataset_id": item.dataset_id,
+                            "schema": item.schema,
+                            "reason": str(exc),
+                        },
+                    )
+
+        logger.info(
+            "Ingestion stage starting",
+            extra={
+                "stage": Stage.INGEST.value,
+                "plan_items": len(plan_items),
+                "binding_count": binding_count,
+                "datasets": datasets_in_plan,
+                "schemas": schema_set,
+            },
+        )
+
+        if auto_fill_cfg.enabled:
+            if ds_cfg is None:
+                logger.warning(
+                    "Auto-fill requested but dataset configuration missing; skipping",
+                    extra={"stage": Stage.INGEST.value},
+                )
+            else:
+                work_performed = True
+                logger.info(
+                    "Executing auto-fill ingestion",
+                    extra={
+                        "stage": Stage.INGEST.value,
+                        "symbol_count": len([s for s in ds_cfg.symbols.split(",") if s.strip()]),
+                        "instrument_count": (
+                            0 if ds_cfg.instrument_ids is None else len(ds_cfg.instrument_ids)
+                        ),
+                    },
+                )
+                orch._auto_fill_universe(ds_cfg, auto_fill_cfg)
+
+        if not ingestion_cfg.enabled:
+            stage_status = "success" if work_performed else "skipped"
+            logger.info(
+                "Ingestion stage skipped (disabled)",
+                extra={"stage": Stage.INGEST.value, "status": stage_status},
+            )
+            return 0
+
+        work_performed = True
+
+        if ingestor is None or ingestion_service is None:
+            stage_status = "degraded"
+            missing_key = not bool(os.getenv("DATABENTO_API_KEY", "").strip())
+            detail = (
+                "missing_databento_api_key" if missing_key else "ingestion_components_unavailable"
+            )
+            logger.error(
+                "Databento ingestion unavailable; running in degraded mode",
+                extra={"stage": Stage.INGEST.value, "detail": detail},
+            )
+            metrics.fallback_total.labels(component=component_label, level="dummy").inc()
+            return 0
+
+        policy = CoveragePolicy.from_env()
+        primary_bindings = tuple(item.binding for item in plan_items if item.binding is not None)
+        if primary_bindings:
+            primary_report = _attempt_primary_ingestion(plan_items, policy=policy)
+            if primary_report.success:
+                stage_status = "success"
+                logger.info(
+                    "Ingestion completed via primary bindings",
+                    extra={**primary_report.context},
+                )
+                return 0
+            fallback_reports.append(
+                {
+                    "level": "primary",
+                    "reason": primary_report.reason or "unknown",
+                    **primary_report.context,
+                },
+            )
+        else:
+            fallback_reports.append(
+                {
+                    "level": "primary",
+                    "reason": "no_bindings",
+                    "stage": Stage.INGEST.value,
+                },
+            )
+
+        coverage_candidates = tuple(item for item in plan_items if item.instrument_ids)
+        if coverage_candidates:
+            metrics.fallback_total.labels(component=component_label, level="cached").inc()
+            coverage_metric_emitted = True
+            coverage_report = _attempt_coverage_ingestion(
+                coverage_candidates,
+                policy=policy,
+            )
+            if coverage_report.success:
+                stage_status = "success"
+                logger.info(
+                    "Ingestion fallback succeeded via cached coverage",
+                    extra={**coverage_report.context},
+                )
+                return 0
+            fallback_reports.append(
+                {
+                    "level": "cached",
+                    "reason": coverage_report.reason or "unknown",
+                    **coverage_report.context,
+                },
+            )
+
+        metrics.fallback_total.labels(component=component_label, level="file").inc()
+        file_metric_emitted = True
+        manual_report = _attempt_manual_ingestion(
+            plan_items,
+            lookback_days=int(ingestion_cfg.lookback_days),
+            policy=policy,
+        )
+        if manual_report.success:
+            stage_status = "success"
+            logger.info(
+                "Ingestion fallback succeeded via manual lookback",
+                extra={**manual_report.context},
+            )
+            return 0
+        fallback_reports.append(
+            {
+                "level": "file",
+                "reason": manual_report.reason or "unknown",
+                **manual_report.context,
+            },
+        )
+
+        artifact_path = _find_existing_artifact()
+        if artifact_path is not None:
+            stage_status = "degraded"
+            if not file_metric_emitted:
+                metrics.fallback_total.labels(component=component_label, level="file").inc()
+            logger.warning(
+                "Using existing dataset artifacts as ingestion fallback",
+                extra={
+                    "stage": Stage.INGEST.value,
+                    "artifact": str(artifact_path),
+                },
+            )
+            return 0
+
+        stage_status = "error"
+        if not coverage_metric_emitted:
+            metrics.fallback_total.labels(component=component_label, level="cached").inc()
+        metrics.fallback_total.labels(component=component_label, level="dummy").inc()
+        logger.error(
+            "Ingestion fallback exhausted; no viable data sources",
+            extra={
+                "stage": Stage.INGEST.value,
+                "datasets": datasets_in_plan,
+                "schemas": schema_set,
+                "reports": fallback_reports,
+            },
+        )
+        return 1
+    except IngestionError as exc:
+        stage_status = "error"
+        logger.error(
+            "Ingestion stage failed",
+            extra={"stage": Stage.INGEST.value, "error": str(exc)},
+            exc_info=True,
+        )
+        if not coverage_metric_emitted:
+            metrics.fallback_total.labels(component=component_label, level="cached").inc()
+        metrics.fallback_total.labels(component=component_label, level="dummy").inc()
+        return 1
+    except Exception as exc:  # pragma: no cover - defensive guard
+        stage_status = "error"
+        logger.exception(
+            "Unexpected ingestion stage failure",
+            extra={"stage": Stage.INGEST.value, "error": str(exc)},
+        )
+        if not coverage_metric_emitted:
+            metrics.fallback_total.labels(component=component_label, level="cached").inc()
+        metrics.fallback_total.labels(component=component_label, level="dummy").inc()
+        return 1
+    finally:
+        _finalize()
+
+
+def _dataset_only_config(cfg: OrchestratorConfig) -> OrchestratorConfig:
+    """
+    Return a copy of ``cfg`` with training/promotions disabled.
+    """
+    hpo_disabled = replace(cfg.hpo, enabled=False)
+    teacher_disabled = replace(cfg.teacher, enabled=False)
+    student_disabled = replace(cfg.student, enabled=False)
+    return replace(
+        cfg,
+        hpo=hpo_disabled,
+        teacher=teacher_disabled,
+        student=student_disabled,
+        promotions=None,
+        integration=None,
+    )
+
+
+def _execute_stage(
+    *,
+    orch: MLPipelineOrchestrator,
+    orchestrator_cfg: OrchestratorConfig,
+    stage: Stage,
+    ds_cfg: DatasetBuildConfig,
+    auto_fill_cfg: AutoFillUniverseConfig,
+    args: argparse.Namespace,
+    ingestor: object | None,
+    ingestion_service: DatabentoIngestionService | None,
+) -> int:
+    """
+    Execute the requested pipeline ``stage`` using the prepared orchestrator.
+    """
+    if stage is Stage.DATASET:
+        dataset_only_cfg = _dataset_only_config(orchestrator_cfg)
+        return orch.run(dataset_only_cfg)
+    if stage is Stage.TRAIN:
+        return orch.run_training_only(orchestrator_cfg)
+    if stage is Stage.FULL:
+        return orch.run(orchestrator_cfg)
+    # Stage.INGEST handled earlier; reaching here implies nothing to do.
     return 0
 
 
 def _parse_market_inputs_json(
     value: str | None,
 ) -> tuple[MarketDatasetInput, ...] | None:
-    """Parse CLI-provided JSON payload into MarketDatasetInput entries."""
+    """
+    Parse CLI-provided JSON payload into MarketDatasetInput entries.
+    """
     if value is None:
         return None
     try:
@@ -2954,7 +3827,7 @@ def _parse_market_inputs_json(
         raise SystemExit(f"market_inputs_json must be valid JSON: {exc}") from exc
 
     items: list[object]
-    if isinstance(payload, (str, dict)):
+    if isinstance(payload, str | dict):
         items = [payload]
     elif isinstance(payload, list):
         items = list(payload)
@@ -2977,17 +3850,19 @@ def _parse_market_inputs_json(
             if symbols_field is None:
                 symbols_tuple = None
             elif isinstance(symbols_field, str):
-                symbols_tuple = tuple(
-                    token.strip().upper()
-                    for token in symbols_field.split(",")
-                    if token.strip()
-                ) or None
-            elif isinstance(symbols_field, (list, tuple)):
-                symbols_tuple = tuple(
-                    str(token).strip().upper()
-                    for token in symbols_field
-                    if str(token).strip()
-                ) or None
+                symbols_tuple = (
+                    tuple(
+                        token.strip().upper() for token in symbols_field.split(",") if token.strip()
+                    )
+                    or None
+                )
+            elif isinstance(symbols_field, list | tuple):
+                symbols_tuple = (
+                    tuple(
+                        str(token).strip().upper() for token in symbols_field if str(token).strip()
+                    )
+                    or None
+                )
             else:
                 raise SystemExit("market_inputs_json symbols must be string or iterable")
 
@@ -3046,6 +3921,310 @@ def _build_validation_config_from_args(
     return config if modified else None
 
 
+def _build_ingestion_config_from_args(
+    args: argparse.Namespace,
+    ds_cfg: DatasetBuildConfig | None,
+) -> IngestionStageConfig:
+    """
+    Construct an ingestion stage config from CLI arguments.
+    """
+    default_cfg = IngestionStageConfig()
+    dataset_id = str(
+        getattr(args, "dataset_id", "")
+        or (ds_cfg.dataset_id if ds_cfg else default_cfg.dataset_id),
+    )
+    schema = str(getattr(args, "schema", default_cfg.schema))
+
+    raw_instruments = getattr(args, "instruments", None)
+    instruments: tuple[str, ...]
+    if raw_instruments:
+        tokens = [token.strip() for token in str(raw_instruments).split(",") if token.strip()]
+        instruments = tuple(tokens) if tokens else default_cfg.instruments
+    elif ds_cfg is not None and ds_cfg.instrument_ids:
+        instruments = ds_cfg.instrument_ids
+    else:
+        instruments = default_cfg.instruments
+
+    raw_symbol_override = getattr(args, "symbols", None)
+    if raw_symbol_override:
+        symbol_tokens = tuple(
+            token.strip().upper() for token in str(raw_symbol_override).split(",") if token.strip()
+        )
+    elif ds_cfg is not None:
+        symbol_tokens = tuple(
+            token.strip().upper() for token in str(ds_cfg.symbols).split(",") if token.strip()
+        )
+    else:
+        symbol_tokens = tuple(inst.split(".")[0].upper() for inst in instruments if inst)
+    symbols: tuple[str, ...] | None = symbol_tokens or None
+
+    raw_instrument_ids = getattr(args, "instrument_ids", None)
+    if raw_instrument_ids:
+        instrument_ids_override = tuple(
+            token.strip() for token in str(raw_instrument_ids).split(",") if token.strip()
+        )
+    elif ds_cfg is not None and ds_cfg.instrument_ids:
+        instrument_ids_override = ds_cfg.instrument_ids
+    else:
+        instrument_ids_override = tuple(instruments)
+    instrument_ids: tuple[str, ...] | None = instrument_ids_override or None
+
+    lookback_days = int(getattr(args, "lookback_days", default_cfg.lookback_days))
+    coverage_mode = str(getattr(args, "coverage_mode", default_cfg.coverage_mode))
+    write_mode = str(getattr(args, "write_mode", default_cfg.write_mode))
+    catalog_path_raw = getattr(args, "catalog_path", None)
+    catalog_path = str(catalog_path_raw) if catalog_path_raw else None
+
+    market_dataset_id_raw = getattr(args, "market_dataset_id", None)
+    market_dataset_id = str(market_dataset_id_raw) if market_dataset_id_raw else None
+    if market_dataset_id is None and ds_cfg is not None:
+        market_dataset_id = ds_cfg.market_dataset_id
+
+    market_inputs = _parse_market_inputs_json(
+        getattr(args, "market_inputs_json", None),
+    )
+    if not market_inputs:
+        market_inputs = ds_cfg.market_inputs if ds_cfg is not None else None
+
+    return IngestionStageConfig(
+        enabled=bool(getattr(args, "ingest", False)),
+        dataset_id=dataset_id,
+        schema=schema,
+        instruments=instruments,
+        lookback_days=lookback_days,
+        coverage_mode=coverage_mode,
+        write_mode=write_mode,
+        catalog_path=catalog_path,
+        symbols=symbols,
+        instrument_ids=instrument_ids,
+        market_dataset_id=market_dataset_id,
+        market_inputs=market_inputs,
+    )
+
+
+def _ingestion_config_to_args(cfg: IngestionStageConfig) -> list[str]:
+    """
+    Convert an ingestion stage config into CLI arguments.
+    """
+    args: list[str] = []
+    if cfg.enabled:
+        args.append("--ingest")
+    args += ["--dataset_id", cfg.dataset_id]
+    args += ["--schema", cfg.schema]
+    if cfg.instruments:
+        args += ["--instruments", ",".join(cfg.instruments)]
+    if cfg.symbols:
+        args += ["--symbols", ",".join(cfg.symbols)]
+    if cfg.instrument_ids:
+        args += ["--instrument_ids", ",".join(cfg.instrument_ids)]
+    args += ["--lookback_days", str(cfg.lookback_days)]
+    args += ["--coverage_mode", cfg.coverage_mode]
+    args += ["--write_mode", cfg.write_mode]
+    if cfg.catalog_path:
+        args += ["--catalog_path", cfg.catalog_path]
+    if cfg.market_dataset_id:
+        args += ["--market_dataset_id", cfg.market_dataset_id]
+    if cfg.market_inputs:
+        payload: list[dict[str, object]] = []
+        for item in cfg.market_inputs:
+            entry: dict[str, object] = {}
+            if item.descriptor_id is not None:
+                entry["descriptor_id"] = item.descriptor_id
+            if item.dataset_id is not None:
+                entry["dataset_id"] = item.dataset_id
+            if item.symbols is not None:
+                entry["symbols"] = list(item.symbols)
+            if item.schema_override is not None:
+                entry["schema"] = item.schema_override
+            if item.storage_kind_override is not None:
+                entry["storage_kind"] = item.storage_kind_override.value
+            if item.start is not None:
+                entry["start"] = item.start
+            if item.end is not None:
+                entry["end"] = item.end
+        payload.append(entry)
+        args += ["--market_inputs_json", json.dumps(payload)]
+    return args
+
+
+@dataclass(slots=True, frozen=True)
+class _IngestionPlanItem:
+    """
+    Resolved ingestion work unit derived from configuration inputs.
+    """
+
+    binding: ResolvedMarketBinding | None
+    dataset_id: str
+    schema: str
+    instrument_ids: tuple[str, ...]
+
+
+def _build_ingestion_plan(
+    *,
+    ds_cfg: DatasetBuildConfig | None,
+    ingestion_cfg: IngestionStageConfig,
+) -> tuple[_IngestionPlanItem, ...]:
+    """
+    Construct per-binding ingestion plan items from configuration.
+    """
+    symbol_to_instruments: dict[str, list[str]] = {}
+
+    def _register(symbol: str, instrument_id: str | None = None) -> None:
+        symbol_norm = symbol.strip().upper()
+        if not symbol_norm:
+            return
+        bucket = symbol_to_instruments.setdefault(symbol_norm, [])
+        if instrument_id is None:
+            return
+        inst_norm = instrument_id.strip().upper()
+        if inst_norm and inst_norm not in bucket:
+            bucket.append(inst_norm)
+
+    def _extract_symbol(token: str) -> str:
+        stripped = token.strip()
+        if not stripped:
+            return ""
+        upper = stripped.upper()
+        if "." in upper:
+            return upper.split(".")[0]
+        return upper
+
+    for symbol in ingestion_cfg.symbols or ():
+        symbol_to_instruments.setdefault(symbol.strip().upper(), [])
+    for instrument in ingestion_cfg.instruments:
+        base = _extract_symbol(instrument)
+        if base:
+            _register(base, instrument)
+    for instrument in ingestion_cfg.instrument_ids or ():
+        base = _extract_symbol(instrument)
+        if base:
+            _register(base, instrument)
+
+    if ds_cfg is not None:
+        for raw_symbol in str(ds_cfg.symbols).split(","):
+            symbol_norm = raw_symbol.strip().upper()
+            if symbol_norm:
+                symbol_to_instruments.setdefault(symbol_norm, [])
+        for instrument in ds_cfg.instrument_ids or ():
+            base = _extract_symbol(instrument)
+            if base:
+                _register(base, instrument)
+
+    market_inputs = ingestion_cfg.market_inputs
+    if market_inputs is None and ds_cfg is not None:
+        market_inputs = ds_cfg.market_inputs
+    if market_inputs:
+        for item in market_inputs:
+            for symbol in item.symbols or ():
+                symbol_to_instruments.setdefault(symbol.strip().upper(), [])
+
+    if not symbol_to_instruments:
+        # Ensure the default instrument universe is represented even if symbols were not provided.
+        for instrument in ingestion_cfg.instruments:
+            base = _extract_symbol(instrument)
+            if base:
+                _register(base, instrument)
+
+    symbols_tuple = tuple(symbol_to_instruments.keys())
+    instrument_ids_all = tuple(
+        dict.fromkeys(chain.from_iterable(symbol_to_instruments.values())),
+    )
+
+    market_dataset_id = (
+        ingestion_cfg.market_dataset_id
+        or (ds_cfg.market_dataset_id if ds_cfg is not None else None)
+        or ingestion_cfg.dataset_id
+    )
+
+    fallback_dataset_id = (
+        ingestion_cfg.dataset_id
+        or market_dataset_id
+        or (ds_cfg.dataset_id if ds_cfg is not None else None)
+    )
+    if fallback_dataset_id is None:
+        raise ValueError("Ingestion configuration requires a dataset identifier")
+
+    fallback_schema = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
+    if not fallback_schema:
+        raise ValueError("Ingestion configuration requires a schema value")
+
+    resolved_bindings: tuple[ResolvedMarketBinding, ...] = ()
+    if symbols_tuple:
+        try:
+            resolved_bindings = IngestionOrchestrator.resolve_market_bindings(
+                symbols=symbols_tuple,
+                instrument_ids=instrument_ids_all or None,
+                market_dataset_id=market_dataset_id,
+                market_inputs=market_inputs,
+            )
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("Ingestion binding resolution failed", exc_info=True)
+
+    plan_items: list[_IngestionPlanItem] = []
+    for binding in resolved_bindings:
+        dataset_id = binding.dataset_id or fallback_dataset_id
+        schema = binding.schema or fallback_schema
+        schema = _SCHEMA_ALIASES.get(schema.lower(), schema)
+        binding_instruments = tuple(
+            dict.fromkeys(
+                binding.instrument_ids or symbol_to_instruments.get(binding.symbol.upper(), []),
+            ),
+        )
+        if not binding_instruments:
+            fallback_symbol = binding.symbol.strip().upper()
+            binding_instruments = (fallback_symbol,) if fallback_symbol else ()
+        plan_items.append(
+            _IngestionPlanItem(
+                binding=binding,
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_ids=binding_instruments,
+            ),
+        )
+
+    if not plan_items:
+        manual_instruments = instrument_ids_all
+        if not manual_instruments and ingestion_cfg.instrument_ids:
+            manual_instruments = tuple(
+                dict.fromkeys(
+                    instrument.strip()
+                    for instrument in ingestion_cfg.instrument_ids
+                    if instrument.strip()
+                ),
+            )
+        if not manual_instruments and ingestion_cfg.instruments:
+            manual_instruments = tuple(
+                dict.fromkeys(
+                    instrument.strip()
+                    for instrument in ingestion_cfg.instruments
+                    if instrument.strip()
+                ),
+            )
+        if not manual_instruments:
+            manual_instruments = tuple(symbol_to_instruments.keys())
+        if not manual_instruments:
+            manual_instruments = tuple(
+                _extract_symbol(instrument)
+                for instrument in ingestion_cfg.instruments
+                if instrument
+            )
+        manual_instruments = tuple(dict.fromkeys(filter(None, manual_instruments)))
+        if not manual_instruments:
+            raise ValueError(
+                "Ingestion configuration requires at least one instrument for manual fallback",
+            )
+        plan_items.append(
+            _IngestionPlanItem(
+                binding=None,
+                dataset_id=fallback_dataset_id,
+                schema=fallback_schema,
+                instrument_ids=manual_instruments,
+            ),
+        )
+
+    return tuple(plan_items)
+
+
 def _build_auto_fill_config_from_args(
     args: argparse.Namespace,
     _dataset_cfg: DatasetBuildConfig,
@@ -3055,9 +4234,7 @@ def _build_auto_fill_config_from_args(
     raw_override = getattr(args, "auto_fill_instrument_ids", None)
     if raw_override:
         instrument_override = tuple(
-            item.strip()
-            for item in str(raw_override).split(",")
-            if item.strip()
+            item.strip() for item in str(raw_override).split(",") if item.strip()
         )
     dataset_id_arg = getattr(args, "auto_fill_dataset_id", None)
     dataset_id = str(dataset_id_arg or getattr(args, "dataset_id", "EQUS.MINI"))
@@ -3065,17 +4242,15 @@ def _build_auto_fill_config_from_args(
         getattr(args, "auto_fill_skip_l2", False),
     )
     l2_dataset_id = str(
-        getattr(args, "auto_fill_l2_dataset_id", None) or "DBEQ.BASIC"
+        getattr(args, "auto_fill_l2_dataset_id", None) or "DBEQ.BASIC",
     )
     l2_schema = str(
-        getattr(args, "auto_fill_l2_schema", None) or "mbp-10"
+        getattr(args, "auto_fill_l2_schema", None) or "mbp-10",
     )
     l2_days_raw = getattr(args, "auto_fill_l2_days", None)
     l2_days = int(l2_days_raw) if l2_days_raw is not None else None
     l2_progress_file_raw = getattr(args, "auto_fill_l2_progress_file", None)
-    l2_progress_file = (
-        str(l2_progress_file_raw) if l2_progress_file_raw else None
-    )
+    l2_progress_file = str(l2_progress_file_raw) if l2_progress_file_raw else None
     allow_dataset_l2 = bool(getattr(args, "auto_fill_allow_dataset_l2_ingest", False))
     include_l3 = bool(getattr(args, "auto_fill_include_l3", False))
     l3_dataset_id_raw = getattr(args, "auto_fill_l3_dataset_id", None)

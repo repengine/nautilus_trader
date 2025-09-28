@@ -19,8 +19,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from sqlalchemy import text
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import OperationalError
 
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.protocols import MLComponentProtocol
 from ml.core.db_engine import EngineManager
@@ -145,15 +148,18 @@ class MLIntegrationManager:
             Block until all components are healthy
 
         """
-        # Use provided connection or default
-        self.db_connection = (
-            db_connection
-            or (config.db_connection if config else None)
-            or "postgresql://postgres:postgres@localhost:5432/nautilus"
+        candidate_source = db_connection or (config.db_connection if config else None)
+        self.partition_manager: PartitionManager | None = None
+        candidates = collect_postgres_candidates(
+            ConnectionRole.PRIMARY,
+            explicit=candidate_source,
         )
-
-        # Allow environment variables to opt-in
-        import os
+        if not candidates.urls:
+            raise ValueError(
+                "No PostgreSQL connection candidates found. Set NAUTILUS_DB or --db",
+            )
+        self._connection_candidates: tuple[str, ...] = candidates.urls
+        self.db_connection = self._connection_candidates[0]
 
         env_start = os.getenv("ML_AUTO_START_DB", "").lower() in {"1", "true", "yes"}
         env_migrate = os.getenv("ML_AUTO_MIGRATE", "").lower() in {"1", "true", "yes"}
@@ -287,6 +293,7 @@ class MLIntegrationManager:
         -------
         bool
             ``True`` when the file-backed stores were initialised successfully.
+
         """
         try:
             self._file_store_path.mkdir(parents=True, exist_ok=True)
@@ -492,14 +499,48 @@ class MLIntegrationManager:
 
     def _is_postgres_running(self) -> bool:
         """
-        Check if PostgreSQL is accessible.
+        Check whether any candidate PostgreSQL connection is reachable.
+        """
+        for candidate in self._connection_candidates:
+            if self._can_connect(candidate):
+                if candidate != self.db_connection:
+                    try:  # pragma: no cover - structlog guard
+                        alt_url = make_url(candidate)
+                        host = alt_url.host or "localhost"
+                        port = alt_url.port or "?"
+                    except Exception:  # pragma: no cover - defensive guard
+                        host = "localhost"
+                        port = "?"
+                    logger.info(
+                        "PostgreSQL reachable — updating integration connection (host=%s port=%s)",
+                        host,
+                        port,
+                    )
+                    EngineManager.dispose_engine(self.db_connection)
+                    self.db_connection = candidate
+                return True
+
+        logger.debug(
+            "postgres_unreachable candidates=%s",
+            list(self._connection_candidates),
+        )
+        return False
+
+    def _can_connect(self, connection_string: str) -> bool:
+        """
+        Probe whether a database connection string is usable.
         """
         try:
-            engine = EngineManager.get_engine(self.db_connection)
+            engine = EngineManager.get_engine(connection_string)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return True
         except OperationalError:
+            EngineManager.dispose_engine(connection_string)
+            return False
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("postgres_connect_probe_failed", exc_info=True)
+            EngineManager.dispose_engine(connection_string)
             return False
 
     def _start_postgres_container(self) -> None:

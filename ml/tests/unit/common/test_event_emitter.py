@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+import sys
+from types import ModuleType
+from typing import Any, cast
 
 from ml.common.event_emitter import (
     _ensure_correlation_id,
     emit_dataset_event,
     emit_dataset_event_and_watermark,
 )
-from typing import cast
 
 from ml.config.events import EventStatus, Source, Stage
 from ml.registry.protocols import RegistryProtocol
@@ -99,6 +100,22 @@ class _LegacyRegistry(_DummyRegistry):
         )
 
 
+def _install_tracing_stub(monkeypatch: MonkeyPatch) -> None:
+    """
+    Install a minimal tracing module that injects a deterministic trace-context.
+    """
+
+    mod = ModuleType("ml.observability.tracing")
+
+    def inject_trace_context(meta: dict[str, object]) -> dict[str, object]:
+        patched = dict(meta)
+        patched["trace_context"] = {"traceparent": "00-abc-01"}
+        return patched
+
+    monkeypatch.setattr(mod, "inject_trace_context", inject_trace_context, raising=False)
+    monkeypatch.setitem(sys.modules, "ml.observability.tracing", mod)
+
+
 def test_emit_dataset_event_and_watermark_attaches_correlation_and_updates_watermark() -> None:
     reg = _DummyRegistry()
     emit_dataset_event_and_watermark(
@@ -144,20 +161,7 @@ def test_emit_dataset_event_legacy_registry_without_metadata_kwarg() -> None:
 def test__ensure_correlation_id_preserves_existing_and_injects_trace_context(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    del monkeypatch
-    # install tracing stub that injects a trace_context
-    import sys
-    from types import ModuleType
-
-    mod = ModuleType("ml.observability.tracing")
-
-    def inject_trace_context(meta: dict[str, object]) -> dict[str, object]:
-        m = dict(meta)
-        m["trace_context"] = {"traceparent": "00-abc-01"}
-        return m
-
-    setattr(mod, "inject_trace_context", inject_trace_context)
-    sys.modules["ml.observability.tracing"] = mod
+    _install_tracing_stub(monkeypatch)
 
     meta = _ensure_correlation_id(
         metadata={"correlation_id": "keep_me"},

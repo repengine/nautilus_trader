@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from ml.stores.model_store import ModelStore
 
 
-from pathlib import Path
-
-
-def test_store_prediction_kwargs_alias_calls_write_prediction(monkeypatch: Any) -> None:
+def test_store_prediction_kwargs_alias_calls_write_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ml.stores.model_store.ModelStore._init_engine_and_tables", lambda self: None
+    )
     store = ModelStore(connection_string=None)
 
     captured: dict[str, Any] = {}

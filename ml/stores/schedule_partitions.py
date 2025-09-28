@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 import time
 from datetime import datetime
@@ -34,6 +33,9 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
+from ml.common.db_connections import select_first_working_connection
 from ml.stores.infrastructure import PartitionManager
 
 
@@ -63,10 +65,7 @@ def main() -> None:
     parser.add_argument(
         "--connection-string",
         type=str,
-        default=os.environ.get(
-            "ML_DB_CONNECTION",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
-        ),
+        default=None,
         help="PostgreSQL connection string (or set ML_DB_CONNECTION env var)",
     )
 
@@ -117,12 +116,36 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    candidates = collect_postgres_candidates(
+        ConnectionRole.PARTITION,
+        explicit=args.connection_string,
+    )
+    if not candidates.urls:
+        raise SystemExit(
+            "No PostgreSQL connection candidates found. Configure ML_DB_CONNECTION or use --connection-string."
+        )
+
+    resolved_connection = candidates.urls[0]
+    probe_warning: str | None = None
+    if args.connection_string is None:
+        try:
+            resolved_connection = select_first_working_connection(candidates.urls)
+        except RuntimeError as exc:
+            probe_warning = "PostgreSQL connectivity probe failed; using first candidate"
+            resolved_connection = candidates.urls[0]
+            logging.getLogger("partition_scheduler").debug(
+                "partition_connection_probe_failed: %s",
+                exc,
+            )
+
     # Setup logging
     logger = setup_logging(args.verbose)
+    if probe_warning is not None:
+        logger.warning("%s (%s)", probe_warning, resolved_connection)
 
     # Create partition manager
     manager = PartitionManager(
-        connection_string=args.connection_string,
+        connection_string=resolved_connection,
         months_ahead=args.months_ahead,
         retention_months=args.retention_months,
         logger=logger,

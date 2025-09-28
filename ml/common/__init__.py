@@ -37,6 +37,10 @@ from ml.common.cascade import emit_cascade
 
 # Correlation and cascading utilities
 from ml.common.correlation import make_correlation_id
+from ml.common.db_connections import ConnectionCandidates
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
+from ml.common.db_connections import select_first_working_connection
 from ml.common.event_emitter import emit_dataset_event
 from ml.common.event_emitter import emit_dataset_event_and_watermark
 
@@ -117,6 +121,8 @@ __all__ = [
     "MAX_PRICE_DECIMALS",
     "ArtifactIntegrityError",
     "BusPublisherMixin",
+    "ConnectionCandidates",
+    "ConnectionRole",
     "EventDict",
     "Handler",
     "InMemoryPublisher",
@@ -134,6 +140,7 @@ __all__ = [
     "build_topic_for_stage",
     "calculate_file_sha256",
     "clamp_price_str",
+    "collect_postgres_candidates",
     "emit_cascade",
     "emit_dataset_event",
     "emit_dataset_event_and_watermark",
@@ -154,6 +161,7 @@ __all__ = [
     "safe_divide_expr",
     "sanitize_timestamp_ns",
     "secure_onnx_load",
+    "select_first_working_connection",
     "to_source_enum",
     "to_source_str",
     "verify_artifact_integrity",

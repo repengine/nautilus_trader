@@ -58,11 +58,12 @@ class PartitionManager:
                 result = conn.execute(
                     text(
                         """
-                        SELECT MAX(tablename) as last_partition
+                        SELECT tablename
                         FROM pg_tables
                         WHERE schemaname = 'public'
                         AND tablename LIKE :pattern
                         ORDER BY tablename DESC
+                        LIMIT 1
                     """,
                     ),
                     {"pattern": f"{table_name}_%"},

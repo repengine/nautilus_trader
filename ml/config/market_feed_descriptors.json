@@ -1,6 +1,20 @@
 {
   "descriptors": [
     {
+      "descriptor_id": "tier1_l0",
+      "dataset_id": "tier1_l0",
+      "storage_kind": "postgres",
+      "schema": "ohlcv-1m",
+      "symbol_patterns": ["*"],
+      "instrument_id_templates": [
+        "{symbol}.XNAS",
+        "{symbol}.XNYS",
+        "{symbol}.ARCX"
+      ],
+      "license_start": "2010-01-01",
+      "license_end": null
+    },
+    {
       "descriptor_id": "EQUS.MINI",
       "dataset_id": "EQUS.MINI",
       "storage_kind": "postgres",

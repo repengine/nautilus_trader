@@ -35,7 +35,7 @@ services:
     networks:
       - nautilus-ml
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "cd / && redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5

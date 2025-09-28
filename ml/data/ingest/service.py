@@ -387,6 +387,34 @@ class DatabentoIngestionService:
             )
         return summaries
 
+    def estimate_cost_usd(
+        self,
+        *,
+        dataset: str,
+        schema: str,
+        symbols: Sequence[str],
+        start: datetime,
+        end: datetime,
+    ) -> float:
+        """
+        Estimate the Databento cost for a dataset/schema window.
+        """
+        if not symbols:
+            return 0.0
+        self._validate_dataset(dataset)
+        window = self._sanitize_window(start, end)
+        sample = tuple(symbol.strip() for symbol in symbols if symbol.strip())
+        if not sample:
+            return 0.0
+        estimate = self.metadata_client.get_cost(
+            dataset=dataset,
+            symbols=sample,
+            schema=schema,
+            start=window.start.isoformat(),
+            end=window.end.isoformat(),
+        )
+        return float(estimate)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -411,6 +439,7 @@ class DatabentoIngestionService:
         tuple[int | None, int | None]
             Start/end nanosecond timestamps in UTC. ``None`` indicates the provider did
             not supply a bound.
+
         """
         dataset_key = dataset.lower()
         schema_key = schema.lower() if schema is not None else None
@@ -541,26 +570,30 @@ class DatabentoIngestionService:
                 end=end_iso,
             )
         if hasattr(result, "to_df"):
-            df = cast(pd.DataFrame, result.to_df())
+            result_frame = cast(pd.DataFrame, result.to_df())
         else:
-            df = pd.DataFrame(result)
+            result_frame = pd.DataFrame(result)
 
-        if isinstance(df.index, pd.DatetimeIndex) and df.index.name == "ts_event" and "ts_event" not in df.columns:
-            df = df.reset_index()
+        if (
+            isinstance(result_frame.index, pd.DatetimeIndex)
+            and result_frame.index.name == "ts_event"
+            and "ts_event" not in result_frame.columns
+        ):
+            result_frame = result_frame.reset_index()
 
-        if "ts_event" not in df.columns and "ts" in df.columns:
+        if "ts_event" not in result_frame.columns and "ts" in result_frame.columns:
             try:
-                df["ts_event"] = pd.to_datetime(df["ts"], utc=True)
+                result_frame["ts_event"] = pd.to_datetime(result_frame["ts"], utc=True)
             except Exception:
                 pass
 
-        if "ts_event" in df.columns and pd.api.types.is_datetime64_any_dtype(df["ts_event"]):
-            df["ts_event"] = df["ts_event"].astype("int64")
+        if "ts_event" in result_frame.columns and pd.api.types.is_datetime64_any_dtype(result_frame["ts_event"]):
+            result_frame["ts_event"] = result_frame["ts_event"].astype("int64")
 
-        if "ts_init" not in df.columns and "ts_event" in df.columns:
-            df["ts_init"] = df["ts_event"]
+        if "ts_init" not in result_frame.columns and "ts_event" in result_frame.columns:
+            result_frame["ts_init"] = result_frame["ts_event"]
 
-        return df
+        return result_frame
 
     @staticmethod
     def _parse_dataset_ranges(
@@ -585,7 +618,9 @@ class DatabentoIngestionService:
         return parsed
 
     @staticmethod
-    def _extract_schema_ranges(range_info: Mapping[str, Any]) -> dict[str, tuple[int | None, int | None]]:
+    def _extract_schema_ranges(
+        range_info: Mapping[str, Any],
+    ) -> dict[str, tuple[int | None, int | None]]:
         result: dict[str, tuple[int | None, int | None]] = {}
 
         raw_schema = range_info.get("schema")

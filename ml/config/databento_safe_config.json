@@ -1,23 +1,36 @@
 {
   "datasets": [
     "DBEQ.BASIC",
-    "EQUS.MINI"
+    "EQUS.MINI",
+    "XNAS.ITCH"
   ],
   "schemas": {
     "ohlcv-1m": {
-      "max_days": 1095
+      "max_days": null
     },
     "trades": {
       "max_days": 365
     },
-    "bbo-1s": {
+    "tbbo": {
       "max_days": 365
     },
-    "mbp-10": {
-      "max_days": 31
-    },
     "mbp-1": {
-      "max_days": 31
+      "max_days": 30
+    },
+    "mbp-10": {
+      "max_days": 30
+    },
+    "mbo": {
+      "max_days": 30
+    },
+    "statistics": {
+      "max_days": null
+    },
+    "status": {
+      "max_days": null
+    },
+    "instrument-definitions": {
+      "max_days": null
     }
   },
   "global": {

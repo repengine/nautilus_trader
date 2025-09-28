@@ -8,6 +8,7 @@ bootstrap. Logging uses structlog configuration from ml.common.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hashlib
 import hmac
@@ -15,6 +16,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from collections.abc import Coroutine
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
@@ -32,13 +34,11 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.message_bus import publisher_from_config
 from ml.common.message_topics import build_stage_topic
-from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.retry_utils import retry_with_backoff
 from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
-from ml.config.events import Source
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
 from ml.dashboard.config import DashboardConfig
@@ -55,6 +55,10 @@ from ml.dashboard.metrics_snapshot import DashboardMetricsSnapshot
 from ml.dashboard.metrics_snapshot import DashboardSuccessReport
 from ml.dashboard.metrics_snapshot import build_dashboard_snapshot
 from ml.dashboard.metrics_snapshot import evaluate_success_criteria
+from ml.dashboard.services import PipelineIntegrationService
+from ml.dashboard.services import PipelineJobState
+from ml.dashboard.services import PipelineProgress
+from ml.dashboard.services import PipelineTriggerRequest
 from ml.dashboard.store_health import StoreHealthSummary
 from ml.dashboard.store_health import summarize_all_stores
 from ml.registry import BackendType
@@ -72,6 +76,7 @@ from ml.registry.feature_registry import FeatureStage
 
 
 if TYPE_CHECKING:
+    from ml.core.integration import MLIntegrationManager
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
 
@@ -159,11 +164,14 @@ _AUTH_VALIDATIONS_TOTAL = get_counter(
 
 
 _CacheValueT = TypeVar("_CacheValueT")
+PipelineRunResultT = TypeVar("PipelineRunResultT")
 
 
 @dataclass(slots=True)
 class _CacheEntry(Generic[_CacheValueT]):
-    """Cache entry containing the value and its monotonic expiry."""
+    """
+    Cache entry containing the value and its monotonic expiry.
+    """
 
     value: _CacheValueT
     expires_at: float
@@ -171,7 +179,9 @@ class _CacheEntry(Generic[_CacheValueT]):
 
 @dataclass(slots=True)
 class _TTLCache(Generic[_CacheValueT]):
-    """Simple TTL cache intended for cold-path dashboard usage."""
+    """
+    Simple TTL cache intended for cold-path dashboard usage.
+    """
 
     ttl_seconds: float
     max_entries: int
@@ -217,7 +227,9 @@ class _TTLCache(Generic[_CacheValueT]):
 
 
 def _env_allows_dummy() -> bool:
-    """Return True when environment permits dummy fallback."""
+    """
+    Return True when environment permits dummy fallback.
+    """
     import os
 
     value = os.getenv("ML_ALLOW_DUMMY", "").strip().lower()
@@ -244,6 +256,7 @@ def _safe_get(url: str, timeout: float) -> tuple[bool, int]:
 
 def _to_url(host_port: int, path: str, service_name: str | None = None) -> str:
     import os
+
     # Check for service-specific URL environment variable first (for Docker networking)
     if service_name:
         service_url_map = {
@@ -259,7 +272,9 @@ def _to_url(host_port: int, path: str, service_name: str | None = None) -> str:
 
 @dataclass
 class _EventCache:
-    """Bounded TTL cache for dashboard event history."""
+    """
+    Bounded TTL cache for dashboard event history.
+    """
 
     ttl_seconds: float
     max_entries: int
@@ -269,7 +284,9 @@ class _EventCache:
     _lock: Lock = field(default_factory=Lock)
 
     def snapshot(self) -> tuple[list[dict[str, Any]], bool]:
-        """Return cached events and whether they remain fresh."""
+        """
+        Return cached events and whether they remain fresh.
+        """
         now = self._clock()
         with self._lock:
             is_fresh = bool(self._events) and now < self._expires_at
@@ -282,14 +299,18 @@ class _EventCache:
             self._expires_at = self._clock() + self.ttl_seconds
 
     def stale_snapshot(self) -> list[dict[str, Any]]:
-        """Return cached events irrespective of expiry (best effort)."""
+        """
+        Return cached events irrespective of expiry (best effort).
+        """
         with self._lock:
             return list(self._events)
 
 
 @dataclass(slots=True)
 class _GrafanaStatus:
-    """Track Grafana provisioning attempts."""
+    """
+    Track Grafana provisioning attempts.
+    """
 
     ok: bool = False
     url: str | None = None
@@ -300,7 +321,9 @@ class _GrafanaStatus:
 
 @dataclass(slots=True)
 class _StoreClients:
-    """Lazily constructed store instances used for health summaries."""
+    """
+    Lazily constructed store instances used for health summaries.
+    """
 
     feature: object | None
     model: object | None
@@ -330,6 +353,12 @@ class DashboardService:
     _prometheus_helper: PrometheusQueryHelper | None = field(init=False, repr=False)
     _grafana_status: _GrafanaStatus = field(init=False, repr=False)
     _last_orchestrator: MLPipelineOrchestrator | None = field(default=None, init=False, repr=False)
+    _pipeline_service: PipelineIntegrationService | None = field(
+        default=None, init=False, repr=False
+    )
+    _pipeline_integration_manager: MLIntegrationManager | None = field(
+        default=None, init=False, repr=False
+    )
 
     @classmethod
     def from_config(cls, config: DashboardConfig) -> DashboardService:
@@ -377,6 +406,8 @@ class DashboardService:
             max_entries=self.config.store_health_cache_max_entries,
         )
         self._last_orchestrator: MLPipelineOrchestrator | None = None
+        self._pipeline_service = None
+        self._pipeline_integration_manager = None
 
     # -----------------
     # Health & metadata
@@ -403,7 +434,9 @@ class DashboardService:
                 ("ml_strategy", cfg.strategy_port, "/health"),
                 ("ml_pipeline", cfg.pipeline_port, "/health"),
             ):
-                ok, code = _safe_get(_to_url(port, hpath, service_name=name), cfg.request_timeout_seconds)
+                ok, code = _safe_get(
+                    _to_url(port, hpath, service_name=name), cfg.request_timeout_seconds
+                )
                 health["services"][name] = {"healthy": ok, "status_code": code}
 
             # Observability
@@ -528,6 +561,62 @@ class DashboardService:
                 return DummyRegistry()
             return None
         return registry
+
+    def _get_pipeline_service(self) -> PipelineIntegrationService | None:
+        if self._pipeline_service is not None:
+            return self._pipeline_service
+        try:
+            from ml.core.integration import MLIntegrationManager
+
+            integration = MLIntegrationManager(
+                db_connection=self.config.db_connection,
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
+        except Exception:
+            logger.debug("pipeline integration manager init failed", exc_info=True)
+            return None
+        self._pipeline_integration_manager = integration
+        self._pipeline_service = PipelineIntegrationService(integration)
+        return self._pipeline_service
+
+    @staticmethod
+    def _serialize_job_state(job_state: PipelineJobState) -> dict[str, Any]:
+        return {
+            "job_id": job_state.job_id,
+            "pipeline_type": job_state.pipeline_type,
+            "status": job_state.status,
+            "progress": job_state.progress,
+            "current_stage": job_state.current_stage,
+            "eta_seconds": job_state.eta_seconds,
+            "message": job_state.message,
+            "error": job_state.error,
+            "started_at": job_state.started_at,
+            "finished_at": job_state.finished_at,
+            "started_at_iso": job_state.started_at_iso,
+            "finished_at_iso": job_state.finished_at_iso,
+        }
+
+    @staticmethod
+    def _serialize_pipeline_progress(progress: PipelineProgress) -> dict[str, Any]:
+        return {
+            "job_id": progress.job_id,
+            "status": progress.status,
+            "progress": progress.progress,
+            "current_stage": progress.current_stage,
+            "eta_seconds": progress.eta_seconds,
+            "message": progress.message,
+            "error": progress.error,
+            "started_at": progress.started_at,
+            "finished_at": progress.finished_at,
+            "started_at_iso": progress.started_at_iso,
+            "finished_at_iso": progress.finished_at_iso,
+        }
+
+    @staticmethod
+    def _run_pipeline(coroutine: Coroutine[Any, Any, PipelineRunResultT]) -> PipelineRunResultT:
+        return asyncio.run(coroutine)
 
     def _build_model_registry(self) -> ModelRegistry | None:
         import os
@@ -848,7 +937,9 @@ class DashboardService:
         else:
             _EVENT_CACHE_MISSES.inc()
             try:
-                polled = self._poll_events(limit=max(limit_value, self.config.events_cache_max_entries))
+                polled = self._poll_events(
+                    limit=max(limit_value, self.config.events_cache_max_entries)
+                )
                 _EVENT_POLLS_TOTAL.inc()
                 self._event_cache.update(polled)
                 events = polled
@@ -906,7 +997,7 @@ class DashboardService:
                 logger.warning("list features failed", exc_info=True)
                 return []
             out: list[dict[str, Any]] = []
-            for fi in (infos or []):
+            for fi in infos or []:
                 if role and fi.manifest.role.value != role:
                     continue
                 if stage and fi.manifest.stage.value != stage:
@@ -1382,7 +1473,9 @@ class DashboardService:
     # -----------------
     # Grafana provisioning
     # -----------------
-    def provision_grafana_dashboard(self, *, title: str | None = None, force: bool = False) -> dict[str, Any]:
+    def provision_grafana_dashboard(
+        self, *, title: str | None = None, force: bool = False
+    ) -> dict[str, Any]:
         route = "/api/observability/grafana/provision"
         start = time.perf_counter()
         try:
@@ -1408,7 +1501,9 @@ class DashboardService:
                 title=title,
                 bundles=default_panel_bundles(),
             )
-            resolved_url = result.url or (self.config.grafana_dashboard_url() if result.ok else None)
+            resolved_url = result.url or (
+                self.config.grafana_dashboard_url() if result.ok else None
+            )
             status_label = "success" if result.ok else "error"
             _REQS_TOTAL.labels(route=route, method="POST", status=status_label).inc()
             self._grafana_status = _GrafanaStatus(
@@ -1462,7 +1557,7 @@ class DashboardService:
                     "request_rate_per_second": "sum(rate(ml_dashboard_requests_total[5m]))",
                     "latency_p95_seconds": "histogram_quantile(0.95, sum(rate(ml_dashboard_latency_seconds_bucket[5m])) by (le))",
                     "event_failures_increase": "sum(increase(ml_dashboard_events_failure_total[5m]))",
-                }
+                },
             )
             _REQS_TOTAL.labels(route=route, method="GET", status="success").inc()
             return {"ok": True, "metrics": metrics, "updated_at": time.time()}
@@ -1474,7 +1569,9 @@ class DashboardService:
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
 
     def get_metrics_snapshot(self) -> DashboardMetricsSnapshot:
-        """Return aggregated dashboard metrics useful for success criteria validation."""
+        """
+        Return aggregated dashboard metrics useful for success criteria validation.
+        """
         return build_dashboard_snapshot(
             registry_cache_hits=_REGISTRY_CACHE_HITS,
             registry_cache_misses=_REGISTRY_CACHE_MISSES,
@@ -1486,7 +1583,9 @@ class DashboardService:
         )
 
     def evaluate_success_criteria(self) -> DashboardSuccessReport:
-        """Evaluate dashboard success criteria using observed metrics."""
+        """
+        Evaluate dashboard success criteria using observed metrics.
+        """
         snapshot = self.get_metrics_snapshot()
         return evaluate_success_criteria(snapshot)
 
@@ -1523,48 +1622,53 @@ class DashboardService:
 
     def trigger_pipeline(
         self,
-        mode: str,
-        params: Mapping[str, Any] | None = None,
+        pipeline_type: str,
+        config: Mapping[str, Any],
     ) -> dict[str, Any]:
         """
-        Best-effort trigger notification for a pipeline run.
-
-        This does not execute the run directly; instead it emits a bus event so an
-        external orchestrator can react. For local use, you can wire this to a Compose
-        controller or CLI runner in a follow-up iteration.
-
+        Submit a pipeline request to the integration service.
         """
         start = time.perf_counter()
         route = "/api/pipeline/run"
-        params_json = json.loads(json.dumps(params or {}))  # ensure JSON-serializable
-        ok = False
-        topic = ""
         status_label = "error"
         try:
-            cfg = MessageBusConfig.from_env()
-            pub = publisher_from_config(cfg)
-            stage = Stage.DATA_INGESTED if mode == "backfill" else Stage.CATALOG_WRITTEN
-            topic = build_topic_for_stage(
-                stage,
-                instrument_id=params_json.get("instrument", "UNKNOWN"),
-                scheme=cfg.scheme,
-                prefix=cfg.topic_prefix,
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "success": False,
+                    "status": "UNAVAILABLE",
+                    "pipeline_type": pipeline_type,
+                    "error": "pipeline_service_unavailable",
+                }
+
+            request = PipelineTriggerRequest(
+                pipeline_type=pipeline_type,
+                config=dict(config),
             )
+            result = self._run_pipeline(service.trigger_pipeline(request))
+            status_label = result.status.lower()
             payload = {
-                "mode": mode,
-                "params": params_json,
-                "source": Source.BACKFILL.value if mode == "backfill" else Source.LIVE.value,
-                "status": EventStatus.SUCCESS.value,
+                "success": result.success,
+                "job_id": result.job_id,
+                "pipeline_type": result.pipeline_type,
+                "status": result.status,
+                "message": result.message,
+                "error": result.error,
             }
-            ok = bool(pub.publish(topic, payload))
-            status_label = "success" if ok else "noop"
+            return payload
         except Exception:
-            logger.debug("pipeline trigger publish failed", exc_info=True)
+            logger.debug("pipeline trigger failed", exc_info=True)
             status_label = "error"
+            return {
+                "success": False,
+                "status": "ERROR",
+                "pipeline_type": pipeline_type,
+                "error": "internal_error",
+            }
         finally:
             _REQS_TOTAL.labels(route=route, method="POST", status=status_label).inc()
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
-        return {"ok": ok, "topic": topic}
 
     def trigger_orchestrator_task(
         self,
@@ -1581,6 +1685,7 @@ class DashboardService:
         - train_teacher: Train teacher model
         - distill_student: Distill student model from teacher
         - full_pipeline: Run complete pipeline
+
         """
         start = time.perf_counter()
         route = f"/api/orchestrator/{task}"
@@ -1657,6 +1762,104 @@ class DashboardService:
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
 
         return {"ok": ok, "result": result}
+
+    def list_pipeline_jobs(self) -> dict[str, Any]:
+        start = time.perf_counter()
+        route = "/api/pipeline/jobs"
+        status_label = "error"
+        try:
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "status": "unavailable",
+                    "jobs": [],
+                    "error": "pipeline_service_unavailable",
+                }
+            jobs = self._run_pipeline(service.list_jobs())
+            payload = {
+                "status": EventStatus.SUCCESS.value,
+                "jobs": [self._serialize_job_state(job) for job in jobs],
+            }
+            status_label = EventStatus.SUCCESS.value
+            return payload
+        except Exception:
+            logger.debug("pipeline jobs listing failed", exc_info=True)
+            status_label = "error"
+            return {
+                "status": "error",
+                "jobs": [],
+                "error": "internal_error",
+            }
+        finally:
+            _REQS_TOTAL.labels(route=route, method="GET", status=status_label).inc()
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def get_pipeline_job(self, job_id: str) -> dict[str, Any]:
+        start = time.perf_counter()
+        route = "/api/pipeline/jobs/<job_id>"
+        status_label = "error"
+        try:
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "status": "unavailable",
+                    "error": "pipeline_service_unavailable",
+                }
+            progress = self._run_pipeline(service.get_pipeline_progress(job_id))
+            if progress.status == "UNKNOWN":
+                status_label = "not_found"
+                return {"status": "not_found", "error": "job_not_found"}
+            payload = {
+                "status": EventStatus.SUCCESS.value,
+                "job": self._serialize_pipeline_progress(progress),
+            }
+            status_label = EventStatus.SUCCESS.value
+            return payload
+        except Exception:
+            logger.debug("pipeline job detail failed", exc_info=True)
+            status_label = "error"
+            return {"status": "error", "error": "internal_error"}
+        finally:
+            _REQS_TOTAL.labels(route=route, method="GET", status=status_label).inc()
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def purge_pipeline_job(self, job_id: str) -> dict[str, Any]:
+        start = time.perf_counter()
+        route = "/api/pipeline/jobs/<job_id>"
+        status_label = "error"
+        try:
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "status": "unavailable",
+                    "error": "pipeline_service_unavailable",
+                }
+            result = self._run_pipeline(service.purge_job(job_id))
+            result_payload = {
+                "success": result.success,
+                "job_id": result.job_id,
+                "status": result.status.lower(),
+                "message": result.message,
+                "error": result.error,
+            }
+            status = result_payload["status"]
+            if status == "purged":
+                status_label = "success"
+            elif status == "not_found":
+                status_label = "not_found"
+            else:
+                status_label = "failed"
+            return {"status": status, "result": result_payload}
+        except Exception:
+            logger.debug("pipeline job purge failed", exc_info=True)
+            status_label = "error"
+            return {"status": "error", "error": "internal_error"}
+        finally:
+            _REQS_TOTAL.labels(route=route, method="DELETE", status=status_label).inc()
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
 
 
 def _bootstrap_logging() -> None:

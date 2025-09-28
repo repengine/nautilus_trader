@@ -1,8 +1,9 @@
 """
 Integration tests verifying dashboard actions trigger real ML system operations.
 
-These tests ensure that UI promises match backend capabilities by simulating
-actual user journeys through the dashboard.
+These tests ensure that UI promises match backend capabilities by simulating actual user
+journeys through the dashboard.
+
 """
 
 from __future__ import annotations
@@ -17,7 +18,9 @@ from ml.dashboard.control_simple import SimpleControlPanel
 
 
 class TestDashboardMLIntegration:
-    """Test that dashboard operations trigger real ML system components."""
+    """
+    Test that dashboard operations trigger real ML system components.
+    """
 
     def test_user_journey_start_actor_to_live_trading(self) -> None:
         """
@@ -81,6 +84,8 @@ class TestDashboardMLIntegration:
 
         assert result["success"] is True
         assert result["run_id"].startswith("run_")
+        assert result["job_id"] == result["run_id"]
+        assert result["status"] in {"queued", "running"}
 
         # In enhanced version, this would actually run:
         # orchestrator = MLPipelineOrchestrator(config)
@@ -91,7 +96,9 @@ class TestDashboardMLIntegration:
 
         # Verify state persistence
         panel._save_state()
-        assert panel._state_path.exists() or panel._state_path == Path("/tmp/dashboard_control_state.json")
+        assert panel._state_path.exists() or panel._state_path == Path(
+            "/tmp/dashboard_control_state.json"
+        )
 
     def test_user_journey_emergency_stop(self) -> None:
         """
@@ -128,7 +135,9 @@ class TestDashboardMLIntegration:
         ],
     )
     def test_telemetry_emission(self, action: str, expected_metric: str) -> None:
-        """Verify all user actions emit appropriate metrics."""
+        """
+        Verify all user actions emit appropriate metrics.
+        """
         panel = EnhancedControlPanel()
 
         # Mock Prometheus to capture metrics
@@ -145,10 +154,14 @@ class TestDashboardMLIntegration:
 
 
 class TestDashboardStateManagement:
-    """Test dashboard state persistence and recovery."""
+    """
+    Test dashboard state persistence and recovery.
+    """
 
     def test_state_persistence_across_restarts(self, tmp_path: Path) -> None:
-        """Verify dashboard state survives container restarts."""
+        """
+        Verify dashboard state survives container restarts.
+        """
         state_file = tmp_path / "test_state.json"
 
         # First session - user starts actors
@@ -168,7 +181,9 @@ class TestDashboardStateManagement:
         assert len(status["pipelines"]["runs"]) == 1
 
     def test_concurrent_dashboard_access(self) -> None:
-        """Test multiple dashboard instances don't corrupt state."""
+        """
+        Test multiple dashboard instances don't corrupt state.
+        """
         # This would test multi-user scenarios
         panel1 = SimpleControlPanel()
         panel2 = SimpleControlPanel()
@@ -185,10 +200,14 @@ class TestDashboardStateManagement:
 
 
 class TestDashboardAPIEndpoints:
-    """Test the Flask API endpoints match frontend expectations."""
+    """
+    Test the Flask API endpoints match frontend expectations.
+    """
 
     def test_api_control_status_endpoint(self) -> None:
-        """Test /api/control/status returns expected schema."""
+        """
+        Test /api/control/status returns expected schema.
+        """
         panel = SimpleControlPanel()
         status = panel.get_system_status()
 
@@ -202,7 +221,9 @@ class TestDashboardAPIEndpoints:
         assert isinstance(status["stores"], dict)
 
     def test_api_actor_lifecycle(self) -> None:
-        """Test actor start/stop/reload API flow."""
+        """
+        Test actor start/stop/reload API flow.
+        """
         panel = SimpleControlPanel()
 
         # Start
