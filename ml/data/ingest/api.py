@@ -16,6 +16,7 @@ from datetime import datetime
 
 import pandas as pd
 
+from ml.common.databento_credentials import resolve_databento_api_key
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.service import IngestionChunk
 from ml.data.ingest.service import IngestionRequest
@@ -46,7 +47,10 @@ def ensure_service(service: DatabentoIngestionService | None = None) -> Databent
     """
     Return the provided service instance or construct one from the environment.
     """
-    return service if service is not None else DatabentoIngestionService.from_env()
+    if service is not None:
+        return service
+    resolution = resolve_databento_api_key()
+    return DatabentoIngestionService.from_env(api_key=resolution.value)
 
 
 def fetch_symbol_data(

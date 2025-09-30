@@ -242,6 +242,8 @@ def mock_xgboost_model() -> Any:
         n_estimators=10,
         max_depth=3,
         tree_method="hist",
+        device="cpu",
+        predictor="cpu_predictor",
     )
     model.fit(X, y)
 

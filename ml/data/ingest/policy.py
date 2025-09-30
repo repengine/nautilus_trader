@@ -62,6 +62,17 @@ class DatabentoCoveragePolicy:
     strict: bool = False
     max_days_by_schema: dict[str, int] | None = None
 
+    def allow_dataset(self, dataset: str) -> None:
+        """Dynamically permit ``dataset`` even when an allowlist is active."""
+        if not dataset:
+            return
+        if self.allowed_datasets is None:
+            object.__setattr__(self, "allowed_datasets", {dataset})
+            return
+        updated = set(self.allowed_datasets)
+        updated.add(dataset)
+        object.__setattr__(self, "allowed_datasets", updated)
+
     @staticmethod
     def from_env() -> DatabentoCoveragePolicy:
         """

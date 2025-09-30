@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from sqlalchemy import text
 
+from ml.common.databento_credentials import resolve_databento_api_key
 from ml.common.logging_config import bind_log_context
 
 # Configure logging
@@ -1129,7 +1130,8 @@ def apply_backfill(
     rl = RateLimiter(per_minute=max(1, int(api_rate_limit * 60)))
 
     # Check for Databento API key (not needed for dry-run)
-    api_key = os.getenv("DATABENTO_API_KEY")
+    credential_resolution = resolve_databento_api_key()
+    api_key = credential_resolution.value
     if not api_key and not dry_run:
         logger.error("DATABENTO_API_KEY environment variable not set")
         print("\nTo set the API key:")
@@ -1140,8 +1142,7 @@ def apply_backfill(
     databento_client: DatabentoHistoricalClient | None = None
     if not dry_run and api_key:
         try:
-            os.environ.setdefault("DATABENTO_API_KEY", api_key)
-            ingestion_service = DatabentoIngestionService.from_env()
+            ingestion_service = DatabentoIngestionService.from_env(api_key=api_key)
             databento_client = build_historical_adapter(ingestion_service)
             logger.info("Initialized Databento ingestion service")
         except Exception as exc:

@@ -23,6 +23,7 @@ import uuid as _uuid
 from calendar import monthrange
 from collections import OrderedDict
 from collections.abc import Callable
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -30,6 +31,7 @@ from dataclasses import replace
 from datetime import UTC
 from datetime import date
 from datetime import datetime
+from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
@@ -43,7 +45,7 @@ from ml.config.coverage import CoveragePolicy
 from ml.config.coverage import get_max_lookback_days
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
-from ml.config.market_data import load_market_feed_descriptors
+from ml.config.market_data import load_market_feed_descriptors as _load_market_feed_descriptors
 from ml.data import DatasetMetadata
 from ml.data import DatasetMetadataExpectations
 from ml.data import DatasetValidationConfig
@@ -52,6 +54,10 @@ from ml.data import load_dataset_metadata
 from ml.data import validate_dataset_metadata_expectations
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
+from ml.data.ingest.discovery import DatasetDiscoveryError
+from ml.data.ingest.discovery import DatasetDiscoveryService
+from ml.data.ingest.discovery import DiscoveryPolicy
+from ml.data.ingest.discovery import DiscoveryRequest
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import BackfillWindowList
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
@@ -59,6 +65,8 @@ from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.service import IngestionError
+from ml.data.ingest.service import SymbolDatasetDiscovery
+from ml.data.ingest.symbology import DatabentoSymbologyResolver
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
@@ -96,11 +104,27 @@ from ml.tasks.ingest import PopulateL2TaskConfig
 from ml.tasks.ingest import populate_l2_efficient
 
 
+load_market_feed_descriptors = _load_market_feed_descriptors
+
+
 logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from ml.config.scheduler_config import SchedulerConfig
+
+
+@lru_cache(maxsize=1)
+def _get_allowed_databento_datasets() -> frozenset[str] | None:
+    try:
+        from ml.config.databento_policy import load_databento_safety_config
+
+        cfg = load_databento_safety_config(None)
+        datasets = cfg.datasets if hasattr(cfg, "datasets") else None
+        return frozenset(datasets) if datasets else None
+    except Exception:  # pragma: no cover - defensive guard
+        logger.debug("databento_safety_config_unavailable", exc_info=True)
+        return None
 
 
 _WRITE_MODE_TOKEN_MAP: Final[dict[str, tuple[str, ...]]] = {
@@ -148,31 +172,110 @@ def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
 
 def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:
     """
-    Populate market inputs from feed descriptors when not explicitly provided.
+    Seed dataset configs with descriptor-driven market inputs when ``market_dataset_id``
+    is explicitly provided.
     """
-    if cfg.market_inputs:
+    if cfg.market_inputs or not cfg.market_dataset_id:
         return cfg
 
-    descriptors = load_market_feed_descriptors().descriptors
-    if not descriptors:
+    descriptors = load_market_feed_descriptors().as_mapping()
+    descriptor = descriptors.get(cfg.market_dataset_id)
+
+    if descriptor is None:
         return cfg
 
-    inputs: list[MarketDatasetInput] = []
-    for descriptor in descriptors:
-        inputs.append(
-            MarketDatasetInput(
-                descriptor_id=descriptor.descriptor_id,
-                dataset_id=descriptor.dataset_id,
-            ),
+    symbols: list[str] = []
+    for raw_symbol in str(cfg.symbols).split(","):
+        token = raw_symbol.strip().upper()
+        if not token:
+            continue
+        base = token.split(".", maxsplit=1)[0]
+        if base and base not in symbols:
+            symbols.append(base)
+    if not symbols:
+        return cfg
+
+    inputs = tuple(
+        MarketDatasetInput(
+            descriptor_id=descriptor.descriptor_id,
+            dataset_id=descriptor.dataset_id,
+            symbols=(symbol,),
+            schema_override=descriptor.schema,
+            storage_kind_override=descriptor.storage_kind,
         )
-
-    if not inputs:
-        return cfg
+        for symbol in symbols
+    )
 
     return replace(
         cfg,
-        market_inputs=tuple(inputs),
+        market_inputs=inputs,
+        market_dataset_id=cfg.market_dataset_id,
     )
+
+
+def _collect_symbol_map(
+    *,
+    ds_cfg: DatasetBuildConfig | None,
+    ingestion_cfg: IngestionStageConfig,
+) -> dict[str, tuple[str, ...]]:
+    symbol_to_instruments: dict[str, list[str]] = {}
+
+    def _register(symbol: str, instrument_id: str | None = None) -> None:
+        symbol_norm = symbol.strip().upper()
+        if not symbol_norm:
+            return
+        bucket = symbol_to_instruments.setdefault(symbol_norm, [])
+        if instrument_id is None:
+            return
+        inst_norm = instrument_id.strip().upper()
+        if inst_norm and inst_norm not in bucket:
+            bucket.append(inst_norm)
+
+    def _extract_symbol(token: str) -> str:
+        stripped = token.strip()
+        if not stripped:
+            return ""
+        upper = stripped.upper()
+        if "." in upper:
+            return upper.split(".")[0]
+        return upper
+
+    for symbol in ingestion_cfg.symbols or ():
+        symbol_to_instruments.setdefault(symbol.strip().upper(), [])
+    for instrument in ingestion_cfg.instruments:
+        base = _extract_symbol(instrument)
+        if base:
+            _register(base, instrument)
+    for instrument in ingestion_cfg.instrument_ids or ():
+        base = _extract_symbol(instrument)
+        if base:
+            _register(base, instrument)
+
+    if ds_cfg is not None:
+        for raw_symbol in str(ds_cfg.symbols).split(","):
+            symbol_norm = raw_symbol.strip().upper()
+            if symbol_norm:
+                symbol_to_instruments.setdefault(symbol_norm, [])
+        for instrument in ds_cfg.instrument_ids or ():
+            base = _extract_symbol(instrument)
+            if base:
+                _register(base, instrument)
+
+    market_inputs = ingestion_cfg.market_inputs
+    if market_inputs is None and ds_cfg is not None:
+        market_inputs = ds_cfg.market_inputs
+    if market_inputs:
+        for item in market_inputs:
+            for symbol in item.symbols or ():
+                symbol_to_instruments.setdefault(symbol.strip().upper(), [])
+
+    if not symbol_to_instruments:
+        for instrument in ingestion_cfg.instruments:
+            base = _extract_symbol(instrument)
+            if base:
+                _register(base, instrument)
+
+    return {symbol: tuple(values) for symbol, values in symbol_to_instruments.items()}
 
 
 def _compute_window_start_iso(*, end_iso: str, lookback_years: int = DEFAULT_LOOKBACK_YEARS) -> str:
@@ -314,6 +417,7 @@ class MLPipelineOrchestrator:
     partition_manager: object | None = None
     domain_loader: DomainWindowLoaderProtocol | None = None
     integration_manager_factory: Callable[..., IntegrationManagerProtocol] | None = None
+    dataset_discovery: DatasetDiscoveryService | None = None
     write_mode_tokens: tuple[str, ...] = field(
         default_factory=tuple,
         init=False,
@@ -434,15 +538,34 @@ class MLPipelineOrchestrator:
             logger.debug("Unable to resolve coverage window; skipping market input resolution")
             return None, ()
 
+        default_schema = self._infer_default_schema(cfg)
+        effective_inputs: tuple[MarketDatasetInput, ...] | None = cfg.market_inputs
+        if (not effective_inputs) and self.dataset_discovery is not None:
+            discovery_inputs = self._discover_market_inputs(
+                symbol_map=symbol_map,
+                schema=default_schema,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                dataset_hint=cfg.market_dataset_id,
+            )
+            if discovery_inputs:
+                logger.info(
+                    "Dataset discovery inputs applied",
+                    extra={
+                        "stage": Stage.DATASET.value,
+                        "symbol_count": len(discovery_inputs),
+                    },
+                )
+                effective_inputs = discovery_inputs
+
         resolved_inputs: list[MarketDatasetInput] = []
         resolved_bindings: list[ResolvedMarketBinding] = []
-        default_schema = self._infer_default_schema(cfg)
         for symbol, instrument_ids in symbol_map.items():
             candidates = IngestionOrchestrator.resolve_market_bindings(
                 symbols=[symbol],
                 instrument_ids=instrument_ids or None,
                 market_dataset_id=cfg.market_dataset_id,
-                market_inputs=cfg.market_inputs,
+                market_inputs=effective_inputs,
             )
             binding: ResolvedMarketBinding | None
             if candidates:
@@ -472,18 +595,6 @@ class MLPipelineOrchestrator:
                     if discovered is not None:
                         candidates = (discovered,)
                         binding = discovered
-                if binding is None and candidates:
-                    binding = next(
-                        (
-                            candidate
-                            for candidate in candidates
-                            if (candidate.schema or "").lower() in {"ohlcv-1m", "bars"}
-                            or "ohlcv" in (candidate.schema or "").lower()
-                        ),
-                        None,
-                    )
-                if binding is None and candidates:
-                    binding = candidates[0]
             else:
                 binding = self._discover_binding_for_symbol(
                     symbol=symbol,
@@ -541,6 +652,53 @@ class MLPipelineOrchestrator:
         if not resolved_inputs:
             return None, ()
         return tuple(resolved_inputs), tuple(resolved_bindings)
+
+    def _discover_market_inputs(
+        self,
+        *,
+        symbol_map: Mapping[str, tuple[str, ...]],
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+        dataset_hint: str | None,
+    ) -> tuple[MarketDatasetInput, ...]:
+        service = self.dataset_discovery
+        if service is None or start_ns >= end_ns:
+            return ()
+        start_dt = self._ns_to_datetime(start_ns)
+        end_dt = self._ns_to_datetime(end_ns)
+        requests = tuple(
+            DiscoveryRequest(
+                symbol=symbol,
+                schema=schema,
+                start=start_dt,
+                end=end_dt,
+            )
+            for symbol in symbol_map
+        )
+        if not requests:
+            return ()
+        try:
+            inputs = service.discover(requests=requests, dataset_hint=dataset_hint)
+            coverage_policy = None
+            try:
+                coverage_policy = service.policy.coverage
+            except AttributeError:
+                coverage_policy = None
+            if coverage_policy is not None:
+                for market_input in inputs:
+                    coverage_policy.allow_dataset(market_input.dataset_id or "")
+            return inputs
+        except DatasetDiscoveryError as exc:
+            logger.warning(
+                "Dataset discovery unavailable",
+                extra={
+                    "stage": Stage.DATASET.value,
+                    "reason": str(exc),
+                    "symbol_count": len(requests),
+                },
+            )
+            return ()
 
     @staticmethod
     def _infer_default_schema(cfg: DatasetBuildConfig) -> str:
@@ -625,7 +783,18 @@ class MLPipelineOrchestrator:
                 default_schema=default_schema,
             ):
                 filtered.append(binding)
+        if filtered:
+            filtered.sort(key=self._binding_priority_key)
         return tuple(filtered)
+
+    @staticmethod
+    def _binding_priority_key(binding: ResolvedMarketBinding) -> tuple[int, str]:
+        dataset_id = binding.dataset_id.upper()
+        if dataset_id == "EQUS.MINI":
+            return (0, dataset_id)
+        if dataset_id == "XNAS.ITCH":
+            return (1, dataset_id)
+        return (2, dataset_id)
 
     def _binding_allowed(
         self,
@@ -795,6 +964,25 @@ class MLPipelineOrchestrator:
             return None
 
         discovery_func = getattr(service, "discover_symbol_dataset", None)
+        dataset_service = self.dataset_discovery
+        if (discovery_func is None or not callable(discovery_func)) and dataset_service is not None:
+            def _dataset_service_wrapper(
+                *,
+                symbol: str,
+                schema: str,
+                start_ns: int,
+                end_ns: int,
+            ) -> SymbolDatasetDiscovery | None:
+                return self._discover_symbol_via_dataset_service(
+                    dataset_service=dataset_service,
+                    symbol=symbol,
+                    schema=schema,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
+
+            discovery_func = _dataset_service_wrapper
+
         if discovery_func is None or not callable(discovery_func):
             return None
 
@@ -821,11 +1009,12 @@ class MLPipelineOrchestrator:
         if discovery is None:
             return None
 
-        instrument_tuple = instrument_ids or (symbol,)
-        binding_id = f"discovered:{discovery.dataset_id}:{symbol}"
+        resolved_symbol = getattr(discovery, "symbol", symbol)
+        instrument_tuple = instrument_ids or (resolved_symbol,)
+        binding_id = f"discovered:{discovery.dataset_id}:{resolved_symbol}"
         return ResolvedMarketBinding(
             binding_id=binding_id,
-            symbol=symbol,
+            symbol=resolved_symbol,
             instrument_ids=tuple(instrument_tuple),
             dataset_id=discovery.dataset_id,
             descriptor_id=None,
@@ -836,6 +1025,64 @@ class MLPipelineOrchestrator:
             start=None,
             end=None,
             source="discovered",
+        )
+
+    def _discover_symbol_via_dataset_service(
+        self,
+        *,
+        dataset_service: DatasetDiscoveryService,
+        symbol: str,
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> SymbolDatasetDiscovery | None:
+        if start_ns >= end_ns:
+            return None
+        request = DiscoveryRequest(
+            symbol=symbol,
+            schema=schema,
+            start=self._ns_to_datetime(start_ns),
+            end=self._ns_to_datetime(end_ns),
+        )
+        try:
+            discovered = dataset_service.discover_one(request=request)
+        except DatasetDiscoveryError as exc:
+            logger.debug(
+                "Dataset discovery service rejected symbol",
+                extra={
+                    "symbol": symbol,
+                    "schema": schema,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                    "reason": str(exc),
+                },
+            )
+            return None
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug(
+                "Dataset discovery service failed",
+                exc_info=True,
+                extra={
+                    "symbol": symbol,
+                    "schema": schema,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                },
+            )
+            return None
+
+        storage_kind = discovered.storage_kind or StorageKind.POSTGRES
+        resolved_symbol = discovered.symbol or symbol
+        return SymbolDatasetDiscovery(
+            dataset_id=discovered.dataset_id,
+            schema=discovered.schema,
+            storage_kind=storage_kind,
+            symbol=resolved_symbol,
+            requested_symbol=discovered.requested_symbol,
+            available_start_ns=discovered.available_start_ns,
+            available_end_ns=discovered.available_end_ns,
+            cost_usd=discovered.cost_usd,
+            instrument_id=discovered.instrument_id,
         )
 
     def _resolve_window_bounds_ns(self, cfg: DatasetBuildConfig) -> tuple[int, int]:
@@ -1915,6 +2162,18 @@ class MLPipelineOrchestrator:
                 raise ValueError(
                     f"Missing macro observations for series: {missing_str}",
                 )
+        if metadata.market_bindings:
+            for binding in metadata.market_bindings:
+                if (binding.dataset_id or "").upper() != "EQUS.MINI":
+                    continue
+                if not binding.source_datasets or not binding.aggregation_modes:
+                    raise ValueError(
+                        "EQUS.MINI metadata missing provenance fields (source_datasets/aggregation_modes)",
+                    )
+                if "scaled_volume" in binding.aggregation_modes and not binding.scaling_factors:
+                    raise ValueError(
+                        "EQUS.MINI scaling fallback lacks recorded scaling_factors",
+                    )
 
     @staticmethod
     def _compute_dataset_pipeline_signature(
@@ -2609,7 +2868,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     # Ingestion/backfill
     parser.add_argument("--ingest", action="store_true", help="Run ingestion backfill first")
-    parser.add_argument("--dataset_id", default="EQUS.MINI")
+    parser.add_argument("--dataset_id", default=None)
     parser.add_argument("--schema", default="bars", choices=["bars", "tbbo", "trades"])
     parser.add_argument("--instruments", default="SPY.NYSE")
     parser.add_argument("--lookback_days", type=int, default=7)
@@ -2655,7 +2914,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--market_dataset_id",
         default=None,
-        help="Identifier for the canonical market data dataset (defaults to auto-fill dataset)",
+        help="Identifier for the canonical market data dataset (defaults to auto-fill dataset when provided)",
     )
     parser.add_argument(
         "--market_inputs_json",
@@ -3108,12 +3367,22 @@ def _execute_with_namespace(
 
     ingestor: object | None = None
     ingestion_service: DatabentoIngestionService | None = None
+    dataset_discovery: DatasetDiscoveryService | None = None
     need_databento = bool(args.ingest or getattr(args, "auto_fill_universe", False))
     if need_databento:
         api_key = os.getenv("DATABENTO_API_KEY", "").strip()
         if api_key:
             client = DatabentoAPIClient(api_key=api_key)
             ingestor = DatabentoIngestor(client=client)
+            discovery_policy = DiscoveryPolicy.from_env(os.environ)
+            resolver = DatabentoSymbologyResolver(
+                client=client.symbology_client,
+            )
+            dataset_discovery = DatasetDiscoveryService(
+                metadata=client.metadata_client,
+                policy=discovery_policy,
+                resolver=resolver,
+            )
             try:
                 ingestion_service = DatabentoIngestionService.from_env()
             except Exception as exc:  # pragma: no cover - runtime warning only
@@ -3155,6 +3424,7 @@ def _execute_with_namespace(
         data_store=getattr(mgr, "data_store", None),
         partition_manager=getattr(mgr, "partition_manager", None),
         integration_manager_factory=integration_factory,
+        dataset_discovery=dataset_discovery,
     )
 
     # Store write_mode_tokens for determining storage_kind
@@ -3560,11 +3830,56 @@ def _run_ingestion_stage(
         )
         return 0
 
+    symbol_map_for_ingestion = _collect_symbol_map(ds_cfg=ds_cfg, ingestion_cfg=ingestion_cfg)
+
+    discovery_inputs: tuple[MarketDatasetInput, ...] | None = None
+    discover_method = getattr(orch, "_discover_market_inputs", None)
+    discovery_service = getattr(orch, "dataset_discovery", None)
+    if (
+        ingestion_cfg.market_inputs is None
+        and callable(discover_method)
+        and discovery_service is not None
+        and symbol_map_for_ingestion
+    ):
+        schema_token = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
+        end_ns = time.time_ns()
+        lookback_days = max(int(ingestion_cfg.lookback_days or 1), 1)
+        start_ns = end_ns - lookback_days * DAY_NS
+        discovery_inputs = discover_method(
+            symbol_map=symbol_map_for_ingestion,
+            schema=schema_token,
+            start_ns=start_ns,
+            end_ns=end_ns,
+            dataset_hint=ingestion_cfg.market_dataset_id or ingestion_cfg.dataset_id,
+        )
+    if discovery_inputs:
+        dataset_id_hint = ingestion_cfg.dataset_id or discovery_inputs[0].dataset_id
+        ingestion_cfg = replace(
+            ingestion_cfg,
+            market_inputs=discovery_inputs,
+            dataset_id=dataset_id_hint,
+        )
+
     try:
         plan_items = _build_ingestion_plan(ds_cfg=ds_cfg, ingestion_cfg=ingestion_cfg)
         binding_count = sum(1 for item in plan_items if item.binding is not None)
         datasets_in_plan = sorted({item.dataset_id for item in plan_items})
         schema_set = sorted({item.schema for item in plan_items})
+
+        ingestion_policy = getattr(ingestion_service, "_policy", None)
+        if ingestion_policy is not None:
+            for item in plan_items:
+                try:
+                    ingestion_policy.allow_dataset(item.dataset_id)
+                except Exception:
+                    logger.debug(
+                        "Unable to extend ingestion coverage policy",
+                        exc_info=True,
+                        extra={
+                            "dataset_id": item.dataset_id,
+                            "stage": Stage.INGEST.value,
+                        },
+                    )
 
         should_register = getattr(orch, "data_store", None) is not None and hasattr(
             orch, "_ensure_dataset_registered"
@@ -3929,10 +4244,10 @@ def _build_ingestion_config_from_args(
     Construct an ingestion stage config from CLI arguments.
     """
     default_cfg = IngestionStageConfig()
-    dataset_id = str(
-        getattr(args, "dataset_id", "")
-        or (ds_cfg.dataset_id if ds_cfg else default_cfg.dataset_id),
-    )
+    raw_dataset_id = getattr(args, "dataset_id", None)
+    dataset_id = str(raw_dataset_id).strip() if raw_dataset_id else None
+    if dataset_id is None and ds_cfg is not None and ds_cfg.market_dataset_id:
+        dataset_id = ds_cfg.market_dataset_id
     schema = str(getattr(args, "schema", default_cfg.schema))
 
     raw_instruments = getattr(args, "instruments", None)
@@ -3976,7 +4291,7 @@ def _build_ingestion_config_from_args(
     catalog_path = str(catalog_path_raw) if catalog_path_raw else None
 
     market_dataset_id_raw = getattr(args, "market_dataset_id", None)
-    market_dataset_id = str(market_dataset_id_raw) if market_dataset_id_raw else None
+    market_dataset_id = str(market_dataset_id_raw).strip() if market_dataset_id_raw else None
     if market_dataset_id is None and ds_cfg is not None:
         market_dataset_id = ds_cfg.market_dataset_id
 
@@ -4009,7 +4324,8 @@ def _ingestion_config_to_args(cfg: IngestionStageConfig) -> list[str]:
     args: list[str] = []
     if cfg.enabled:
         args.append("--ingest")
-    args += ["--dataset_id", cfg.dataset_id]
+    if cfg.dataset_id:
+        args += ["--dataset_id", cfg.dataset_id]
     args += ["--schema", cfg.schema]
     if cfg.instruments:
         args += ["--instruments", ",".join(cfg.instruments)]
@@ -4067,63 +4383,11 @@ def _build_ingestion_plan(
     """
     Construct per-binding ingestion plan items from configuration.
     """
-    symbol_to_instruments: dict[str, list[str]] = {}
-
-    def _register(symbol: str, instrument_id: str | None = None) -> None:
-        symbol_norm = symbol.strip().upper()
-        if not symbol_norm:
-            return
-        bucket = symbol_to_instruments.setdefault(symbol_norm, [])
-        if instrument_id is None:
-            return
-        inst_norm = instrument_id.strip().upper()
-        if inst_norm and inst_norm not in bucket:
-            bucket.append(inst_norm)
-
-    def _extract_symbol(token: str) -> str:
-        stripped = token.strip()
-        if not stripped:
-            return ""
-        upper = stripped.upper()
-        if "." in upper:
-            return upper.split(".")[0]
-        return upper
-
-    for symbol in ingestion_cfg.symbols or ():
-        symbol_to_instruments.setdefault(symbol.strip().upper(), [])
-    for instrument in ingestion_cfg.instruments:
-        base = _extract_symbol(instrument)
-        if base:
-            _register(base, instrument)
-    for instrument in ingestion_cfg.instrument_ids or ():
-        base = _extract_symbol(instrument)
-        if base:
-            _register(base, instrument)
-
-    if ds_cfg is not None:
-        for raw_symbol in str(ds_cfg.symbols).split(","):
-            symbol_norm = raw_symbol.strip().upper()
-            if symbol_norm:
-                symbol_to_instruments.setdefault(symbol_norm, [])
-        for instrument in ds_cfg.instrument_ids or ():
-            base = _extract_symbol(instrument)
-            if base:
-                _register(base, instrument)
+    symbol_to_instruments = _collect_symbol_map(ds_cfg=ds_cfg, ingestion_cfg=ingestion_cfg)
 
     market_inputs = ingestion_cfg.market_inputs
     if market_inputs is None and ds_cfg is not None:
         market_inputs = ds_cfg.market_inputs
-    if market_inputs:
-        for item in market_inputs:
-            for symbol in item.symbols or ():
-                symbol_to_instruments.setdefault(symbol.strip().upper(), [])
-
-    if not symbol_to_instruments:
-        # Ensure the default instrument universe is represented even if symbols were not provided.
-        for instrument in ingestion_cfg.instruments:
-            base = _extract_symbol(instrument)
-            if base:
-                _register(base, instrument)
 
     symbols_tuple = tuple(symbol_to_instruments.keys())
     instrument_ids_all = tuple(
@@ -4136,17 +4400,9 @@ def _build_ingestion_plan(
         or ingestion_cfg.dataset_id
     )
 
-    fallback_dataset_id = (
-        ingestion_cfg.dataset_id
-        or market_dataset_id
-        or (ds_cfg.dataset_id if ds_cfg is not None else None)
-    )
-    if fallback_dataset_id is None:
-        raise ValueError("Ingestion configuration requires a dataset identifier")
-
-    fallback_schema = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
-    if not fallback_schema:
-        raise ValueError("Ingestion configuration requires a schema value")
+    fallback_candidates: list[str | None] = [ingestion_cfg.dataset_id, market_dataset_id]
+    if market_inputs:
+        fallback_candidates.extend(item.dataset_id for item in market_inputs if item.dataset_id)
 
     resolved_bindings: tuple[ResolvedMarketBinding, ...] = ()
     if symbols_tuple:
@@ -4160,6 +4416,38 @@ def _build_ingestion_plan(
         except Exception:  # pragma: no cover - defensive guard
             logger.debug("Ingestion binding resolution failed", exc_info=True)
 
+    def _select_fallback_dataset() -> str | None:
+        allowed = _get_allowed_databento_datasets()
+        candidates_ordered: list[str] = []
+        candidates_ordered.extend(candidate for candidate in fallback_candidates if candidate)
+        candidates_ordered.extend(
+            binding.dataset_id for binding in resolved_bindings if binding.dataset_id
+        )
+        if ds_cfg is not None and ds_cfg.market_dataset_id:
+            candidates_ordered.append(ds_cfg.market_dataset_id)
+
+        if allowed:
+            for candidate in candidates_ordered:
+                if candidate in allowed:
+                    return candidate
+        for candidate in candidates_ordered:
+            if candidate:
+                return candidate
+        if allowed:
+            # Deterministic fallback so ingest runs without manual dataset wiring.
+            ordered_allowed = sorted(allowed)
+            if ordered_allowed:
+                return ordered_allowed[0]
+        return None
+
+    fallback_dataset_id = _select_fallback_dataset()
+    if fallback_dataset_id is None:
+        raise ValueError("Ingestion configuration requires a dataset identifier")
+
+    fallback_schema = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
+    if not fallback_schema:
+        raise ValueError("Ingestion configuration requires a schema value")
+
     plan_items: list[_IngestionPlanItem] = []
     for binding in resolved_bindings:
         dataset_id = binding.dataset_id or fallback_dataset_id
@@ -4167,7 +4455,7 @@ def _build_ingestion_plan(
         schema = _SCHEMA_ALIASES.get(schema.lower(), schema)
         binding_instruments = tuple(
             dict.fromkeys(
-                binding.instrument_ids or symbol_to_instruments.get(binding.symbol.upper(), []),
+                binding.instrument_ids or symbol_to_instruments.get(binding.symbol.upper(), ()),
             ),
         )
         if not binding_instruments:
@@ -4187,7 +4475,7 @@ def _build_ingestion_plan(
         if not manual_instruments and ingestion_cfg.instrument_ids:
             manual_instruments = tuple(
                 dict.fromkeys(
-                    instrument.strip()
+                    instrument.strip().upper()
                     for instrument in ingestion_cfg.instrument_ids
                     if instrument.strip()
                 ),
@@ -4195,7 +4483,7 @@ def _build_ingestion_plan(
         if not manual_instruments and ingestion_cfg.instruments:
             manual_instruments = tuple(
                 dict.fromkeys(
-                    instrument.strip()
+                    instrument.strip().upper()
                     for instrument in ingestion_cfg.instruments
                     if instrument.strip()
                 ),
@@ -4204,9 +4492,9 @@ def _build_ingestion_plan(
             manual_instruments = tuple(symbol_to_instruments.keys())
         if not manual_instruments:
             manual_instruments = tuple(
-                _extract_symbol(instrument)
+                instrument.strip().upper().split(".")[0]
                 for instrument in ingestion_cfg.instruments
-                if instrument
+                if instrument.strip()
             )
         manual_instruments = tuple(dict.fromkeys(filter(None, manual_instruments)))
         if not manual_instruments:

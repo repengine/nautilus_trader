@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import MarketFeedDescriptor
@@ -50,6 +51,9 @@ class MarketBindingStats:
     rows_from_catalog: int = 0
     ts_event_start_ns: int | None = None
     ts_event_end_ns: int | None = None
+    source_datasets: set[str] = field(default_factory=set)
+    aggregation_modes: set[str] = field(default_factory=set)
+    scaling_factors: list[float] = field(default_factory=list)
 
     def record(
         self,
@@ -58,6 +62,9 @@ class MarketBindingStats:
         row_count: int,
         ts_min_ns: int | None,
         ts_max_ns: int | None,
+        source_dataset: str | None = None,
+        aggregation_mode: str | None = None,
+        scaling_factor: float | None = None,
     ) -> None:
         if row_count <= 0:
             return
@@ -66,6 +73,12 @@ class MarketBindingStats:
         else:
             self.rows_from_catalog += row_count
         self._update_bounds(ts_min_ns, ts_max_ns)
+        if source_dataset:
+            self.source_datasets.add(source_dataset)
+        if aggregation_mode:
+            self.aggregation_modes.add(aggregation_mode)
+        if scaling_factor is not None:
+            self.scaling_factors.append(float(scaling_factor))
 
     def _update_bounds(self, ts_min_ns: int | None, ts_max_ns: int | None) -> None:
         if ts_min_ns is not None:
@@ -246,4 +259,3 @@ __all__ = [
     "ResolvedMarketBinding",
     "resolve_market_dataset_bindings",
 ]
-

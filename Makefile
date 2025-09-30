@@ -794,6 +794,16 @@ test-ml-invariants:  #-- Test critical ML invariants (RSI bounds, feature parity
 		ml/tests/unit/features/test_feature_engineering_hypothesis.py::TestFeatureEngineerProperties::test_feature_count_consistency \
 		-v
 
+.PHONY: parity-report
+parity-report:  #-- Generate EQUS↔ITCH parity summaries and guardrails
+	$(info $(M) Generating EQUS↔ITCH parity summaries...)
+	@if [ -z "$$DATABENTO_API_KEY" ]; then \
+		echo "DATABENTO_API_KEY must be set to run parity-report"; \
+		exit 1; \
+	fi
+	uv run --active --no-sync python -m ml.scripts.verify_eq_itch_parity --suite \
+		--suite-output ml/tests/validation_reports/equs_itch_parity_summary.json
+
 .PHONY: ml-coverage
 ml-coverage:  #-- Generate ML module coverage report with property tests
 	$(info $(M) Generating ML coverage report...)

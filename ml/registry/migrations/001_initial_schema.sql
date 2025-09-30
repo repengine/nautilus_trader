@@ -127,8 +127,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON registry_audit_log(user_id);
 
 -- Create views for common queries
 
--- Active models view
-CREATE OR REPLACE VIEW active_models AS
+DROP VIEW IF EXISTS active_models CASCADE;
+CREATE VIEW active_models AS
 SELECT
     m.*,
     COUNT(DISTINCT c.model_id) as num_children,
@@ -140,16 +140,16 @@ LEFT JOIN models p ON m.parent_id = p.model_id
 WHERE m.deployment_status = 'active'
 GROUP BY m.id, p.model_id, p.role;
 
--- Feature lineage view
-CREATE OR REPLACE VIEW feature_lineage AS
+DROP VIEW IF EXISTS feature_lineage CASCADE;
+CREATE VIEW feature_lineage AS
 WITH RECURSIVE feature_tree AS (
     SELECT
         feature_set_id,
         name,
         version,
         parent_feature_set_id,
-        0 as level,
-        ARRAY[feature_set_id] as path
+        0::integer AS level,
+        ARRAY[feature_set_id]::text[] AS path
     FROM features
     WHERE parent_feature_set_id IS NULL
 
@@ -161,14 +161,22 @@ WITH RECURSIVE feature_tree AS (
         f.version,
         f.parent_feature_set_id,
         ft.level + 1,
-        ft.path || f.feature_set_id
+        array_append(ft.path, f.feature_set_id)
     FROM features f
     JOIN feature_tree ft ON f.parent_feature_set_id = ft.feature_set_id
 )
-SELECT * FROM feature_tree;
+SELECT
+    feature_set_id,
+    name,
+    version,
+    parent_feature_set_id,
+    level,
+    path
+FROM feature_tree;
 
 -- Strategy compatibility view
-CREATE OR REPLACE VIEW strategy_compatibility AS
+DROP VIEW IF EXISTS strategy_compatibility CASCADE;
+CREATE VIEW strategy_compatibility AS
 SELECT
     s1.strategy_id as strategy_1,
     s2.strategy_id as strategy_2,
@@ -193,16 +201,19 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create triggers for automatic timestamp updates
+DROP TRIGGER IF EXISTS update_models_last_modified ON models;
 CREATE TRIGGER update_models_last_modified
     BEFORE UPDATE ON models
     FOR EACH ROW
     EXECUTE FUNCTION update_last_modified();
 
+DROP TRIGGER IF EXISTS update_features_last_modified ON features;
 CREATE TRIGGER update_features_last_modified
     BEFORE UPDATE ON features
     FOR EACH ROW
     EXECUTE FUNCTION update_last_modified();
 
+DROP TRIGGER IF EXISTS update_strategies_last_modified ON strategies;
 CREATE TRIGGER update_strategies_last_modified
     BEFORE UPDATE ON strategies
     FOR EACH ROW
@@ -264,6 +275,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create validation trigger for models
+DROP TRIGGER IF EXISTS validate_model_before_insert ON models;
 CREATE TRIGGER validate_model_before_insert
     BEFORE INSERT ON models
     FOR EACH ROW

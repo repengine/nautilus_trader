@@ -2,8 +2,6 @@ stage = "ingest"
 
 [ingestion]
 enabled = true
-market_dataset_id = "EQUS.MINI"
-dataset_id = "EQUS.MINI"
 schema = "bars"
 instruments = ["SPY.NYSE"]
 symbols = ["SPY"]

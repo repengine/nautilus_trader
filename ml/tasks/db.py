@@ -26,14 +26,24 @@ from ml.core.db_engine import EngineManager
 
 LOGGER = structlog.get_logger(__name__)
 
+IDEMPOTENT_ERROR_PHRASES: Final[tuple[str, ...]] = (
+    "already exists",
+    "does not exist",
+    "duplicate key",
+    "is not partitioned",
+)
+
 # Canonical baseline list mirrors MLIntegrationManager._run_migrations
 _BASE_MIGRATIONS: Final[tuple[str, ...]] = (
     "ml/registry/migrations/001_initial_schema.sql",
+    "ml/registry/migrations/002_add_cold_path_fields.sql",
+    "ml/registry/migrations/003_add_artifact_digest.sql",
     "ml/stores/migrations/001_stores_schema.sql",
     "ml/stores/migrations/002_auto_partitioning.sql",
     "ml/stores/migrations/003_market_data.sql",
     "ml/stores/migrations/004_data_registry.sql",
     "ml/stores/migrations/007_add_event_metadata.sql",
+    "ml/stores/migrations/010_backfill_market_data_provenance.sql",
 )
 
 # Optional extras (applied when --full or --include-optional is set)
@@ -44,9 +54,6 @@ _OPTIONAL_MIGRATIONS: Final[tuple[str, ...]] = (
     # Test-time optimizations/indices
     "ml/stores/migrations/006_disable_partition_triggers.sql",
     "ml/stores/migrations/007_brin_indexes.sql",
-    # Registry extension
-    "ml/registry/migrations/002_add_cold_path_fields.sql",
-    "ml/registry/migrations/003_add_artifact_digest.sql",
     # Canonicalize predictions dataset id and lineage
     "ml/stores/migrations/008_predictions_alias.sql",
     "ml/stores/migrations/009_update_parents_predictions.sql",
@@ -194,7 +201,7 @@ def split_sql_statements(sql: str) -> Iterable[str]:
 
         if ch == ";" and not in_single and not in_dollar:
             stmt = "".join(buffer).strip()
-            if stmt:
+            if stmt and _has_meaningful_sql(stmt):
                 statements.append(stmt)
             buffer.clear()
             i += 1
@@ -204,10 +211,51 @@ def split_sql_statements(sql: str) -> Iterable[str]:
         i += 1
 
     tail = "".join(buffer).strip()
-    if tail:
+    if tail and _has_meaningful_sql(tail):
         statements.append(tail)
 
     return statements
+
+
+def _has_meaningful_sql(statement: str) -> bool:
+    """Return True if ``statement`` contains executable SQL once comments are ignored."""
+    # Drop full-line comments (``--``) and whitespace before checking emptiness.
+    non_comment_lines = []
+    for line in statement.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("--") or not stripped:
+            continue
+        non_comment_lines.append(line)
+
+    if not "".join(non_comment_lines).strip():
+        return False
+
+    # Remove simple block comments in a lightweight scan so comment-only
+    # buffers such as ``/* doc */;`` are ignored. This deliberately avoids
+    # string parsing complexity because we only care about all-comment chunks.
+    cleaned: list[str] = []
+    in_block = False
+    i = 0
+    length = len(statement)
+    while i < length:
+        ch = statement[i]
+        nxt = statement[i + 1] if i + 1 < length else ""
+
+        if not in_block and ch == "/" and nxt == "*":
+            in_block = True
+            i += 2
+            continue
+
+        if in_block and ch == "*" and nxt == "/":
+            in_block = False
+            i += 2
+            continue
+
+        if not in_block:
+            cleaned.append(ch)
+        i += 1
+
+    return "".join(cleaned).strip() != ""
 
 
 def apply_migration_files(
@@ -247,10 +295,7 @@ def apply_migration_files(
                         connection.execute(text(statement))
                     except Exception as exc:
                         message = str(exc).lower()
-                        if any(
-                            phrase in message
-                            for phrase in ("already exists", "does not exist", "duplicate key")
-                        ):
+                        if any(phrase in message for phrase in IDEMPOTENT_ERROR_PHRASES):
                             LOGGER.warning(
                                 "Idempotent migration warning",
                                 file=str(path),

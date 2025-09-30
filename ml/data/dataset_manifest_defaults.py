@@ -91,6 +91,9 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
             "symbol": "str",
             "publisher_id": "str",
             "rtype": "str",
+            "source_dataset": "str",
+            "aggregation_mode": "str",
+            "scaling_factor": "float64",
         },
         metadata={
             "schema_kind": "bars",
@@ -212,6 +215,12 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
                     "schema_kind": "trades",
                     "source": "databento",
                     "dataset_family": "equities_mini",
+                    "canonicalization_modes": [
+                        "native",
+                        "reaggregated_trades",
+                        "scaled_volume",
+                    ],
+                    "fallback_source_dataset": "XNAS.ITCH",
                 },
             ),
         },

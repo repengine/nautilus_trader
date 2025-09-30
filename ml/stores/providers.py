@@ -245,6 +245,12 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                 d["source"] = _maybe(getattr(r, "source", None))
             elif self.default_source is not None:
                 d["source"] = self.default_source
+            if "source_dataset" in cols:
+                d["source_dataset"] = _maybe(getattr(r, "source_dataset", None))
+            if "aggregation_mode" in cols:
+                d["aggregation_mode"] = _maybe(getattr(r, "aggregation_mode", None))
+            if "scaling_factor" in cols:
+                d["scaling_factor"] = _maybe(getattr(r, "scaling_factor", None))
             return d
 
         records: list[dict[str, object]] = [_row(r) for r in df.itertuples(index=False)]
@@ -302,6 +308,9 @@ class SqlMarketDataReader(RawReaderProtocol):
             "last",
             "trade_count",
             "vwap",
+            "source_dataset",
+            "aggregation_mode",
+            "scaling_factor",
         ]
         table = sa_table(
             self.table_name,
@@ -386,6 +395,9 @@ class SqlMarketDataReader(RawReaderProtocol):
             "last",
             "trade_count",
             "vwap",
+            "source_dataset",
+            "aggregation_mode",
+            "scaling_factor",
         ]
         empty = pd.DataFrame({col: [] for col in columns})
         try:

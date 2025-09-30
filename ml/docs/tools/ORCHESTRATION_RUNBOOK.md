@@ -65,11 +65,32 @@ Key flags:
   - `--runtime-auto-start-db`, `--runtime-auto-migrate`, `--runtime-no-ensure-healthy`
   - `--runtime-strict-protocol-validation` (enforce protocol checks) and `--runtime-skip-validators` (skip metrics/event validators)
 
+### Databento Discovery (dynamic dataset selection)
+
+The orchestrator now auto-discovers Databento datasets per symbol and schema when no explicit `market_inputs` are provided. Discovery queries Databento metadata at runtime, evaluates coverage windows and cost estimates, and picks the cheapest viable dataset for each symbol.
+
+- Override behaviour with environment variables (default allowlist is `XNAS.ITCH`):
+  - `DATABENTO_DISCOVERY_DATASETS` – optional ordered allowlist of dataset ids to consider.
+  - `DATABENTO_DISCOVERY_DENYLIST` – datasets to exclude from discovery.
+  - `DATABENTO_DISCOVERY_MAX_COST_USD` – reject any candidate whose estimated cost exceeds this limit.
+  - `DATABENTO_DISCOVERY_MAX_CANDIDATES` – maximum number of datasets to probe per discovery run.
+- Discovery reuses the existing coverage policy (`DATABENTO_MAX_DAYS`, `DATABENTO_ALLOWED_SCHEMAS`, etc.) to clamp request windows safely.
+- When a static `market_inputs` section exists in the config, discovery is skipped and the explicit bindings are honoured.
+- Symbology resolution runs ahead of every cost probe and ingestion call. The orchestrator and `DatabentoIngestionService` share a resolver that invokes `Historical.symbology.resolve` to fetch the canonical instrument identifier, then normalises the symbol root (e.g., `INTC.XNAS` → instrument `4182`, symbol `INTC`). Logs surface the `input_symbol`, resolved symbol, and instrument id to aid audits.
+- `discover_symbol_dataset` is exposed on the ingestion service to power auto-fill gap checks; it returns the resolved symbol, dataset id, instrument id, storage kind, and the policy-clamped coverage window. Use it when you need to inspect the binding without triggering a download.
+- Cost guards now operate on the resolved symbol. If the original venue-qualified identifier fails a cost estimate, the resolver retries dataset-specific forms before falling back. Violations log `ingestion.cost_violation` with the chosen variant.
+
 When auto-fill is enabled the orchestrator derives coverage windows from the subscription policy (7y bars, 1y L1, ~30d L2/L3), invokes `IngestionOrchestrator.backfill_gaps` for bars/TBBO/trades, and then calls `populate_l2_efficient` before the dataset build begins. By default the depth stage is considered satisfied once auto-fill runs; use `--auto_fill_allow_dataset_l2_ingest` if you still want the dataset phase to run its own L2 ingestion.
 
 Auto-fill requests query Databento metadata before every download and clamp the ingestion window to the provider `available_end`. This keeps backfills inside the zero-cost guardrails and eliminates 422 responses. Instrument lists should use venue-qualified IDs (for example `SPY.XNYS`) so parquet writers can resolve the correct bar template from the dataset manifest.
 
 Every dataset build now writes `dataset_metadata.json` alongside the parquet/CSV artifacts detailing dataset id, `ts_event_start/end`, overall/train/validation/test windows, and the declared vintage policy/cutoff. Promotion gates (or downstream tooling) should inspect this file to guarantee models only train on the intended window with the expected revision policy.
+
+EQUS minute bars persisted by the orchestrator include explicit provenance columns:
+`source_dataset`, `aggregation_mode`, and `scaling_factor`. Downstream readers (DataStore,
+SQL readers, TFT builder) now expose these fields and registry events record aggregated
+values under `source_datasets`, `aggregation_modes`, and `scaling_factors`, enabling
+monitors to assert which fallback mode produced each window.
 
 When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/registries and, by default, runs the metrics/events validators so the runtime is safe for actors. Use `--runtime-skip-validators` during dry-runs if you only need wiring without the scans.
 
@@ -78,6 +99,10 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 - `CATALOG_PATH` for ParquetDataCatalog
 - `DATABENTO_API_KEY` for optional Databento ingestion
 - DB URL: `NAUTILUS_DB` or use orchestrator `--db` flag
+- Canonicalization toggles:
+  - `ML_EQUS_ENABLE_TRADE_REAGG` (default `1`) enables trade-level re-aggregation for missing EQUS windows.
+  - `ML_EQUS_ENABLE_VOLUME_SCALING` (default `1`) enables scaled ITCH fallback when trades are unavailable; tune with `ML_EQUS_SCALING_REFERENCE_DAYS`, `ML_EQUS_SCALING_MIN_RATIO`, `ML_EQUS_SCALING_MAX_RATIO`.
+- TFT builder guardrail: `ML_TFT_ALLOW_PARQUET_FALLBACK=1` opt-in only; disabled by default so SQL read failures raise instead of silently falling back to parquet.
 - Scheduler env:
   - `ORCH_SCHEDULE_TIME`, `ORCH_INTERVAL_MIN`, `ORCH_CONFIG`, `ORCH_DRY_RUN`, `ORCH_FORCE`
   - `ORCH_LOCK_PATH`, `ORCH_LOCK_TTL_HOURS`
@@ -87,11 +112,15 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 - Metrics (scheduler):
   - `nautilus_ml_orch_runs_total{status}`
   - `nautilus_ml_orch_phase_latency_seconds{phase}`
+- Metrics (canonicalization):
+  - `ml_canonicalization_volume_residual{mode,residual_type,dataset}` — absolute/relative volume residuals for EQUS fallback modes.
 - Events: Use DataRegistry `emit_event` with `Stage/Source/EventStatus` for pipeline phases.
 - Validators:
   - `make validate-metrics`
   - `make validate-events`
   - `make validate-nautilus-patterns` (advisory)
+- Parity harness: `make parity-report` regenerates `ml/tests/validation_reports/equs_itch_parity_summary.json` by executing the built-in Tier-1 suite (multiple symbols/windows across 2023–2025). Set `DATABENTO_API_KEY` in the environment before running.
+- Manual verification/backfill tool: `uv run --active --no-sync python -m ml.scripts.verify_eq_itch_parity --help` — include `--suite` to run the default matrix or `--suite-config <path>` to provide a custom JSON scenario list.
 
 ## Promotion Gates
 
@@ -208,3 +237,18 @@ start_metrics_server = false
 
 The orchestrator reads this config and automatically runs `DataScheduler` in orchestrator
 mode before dataset build, ensuring both SQL coverage and ParquetDataCatalog are populated.
+
+### EQUS.MINI Canonicalization & ITCH Fallback
+
+- `DatabentoIngestionService` canonicalises all `EQUS.MINI` minute bars with `ml.data.ingest.canonicalization.canonicalize_equities_minute_bars` before any store writes. The helper trims to 08:00–16:00 ET, ensures `ts_event/ts_init` are nanosecond integers, rounds prices to four decimals, and normalises volumes to `int64`.
+- When a requested window predates the provider's `EQUS.MINI` coverage, the ingestion service automatically replays the same request against `XNAS.ITCH`, applies the canonicalisation step, and persists the result under `dataset_id='EQUS.MINI'`. Lineage is captured in the registry seed (`ml/stores/migrations/004_data_registry.sql`), so downstream manifests continue to reference a single canonical dataset while acknowledging the ITCH parent.
+- Fallback activations increment `ml_fallback_activations_total{component="databento_ingestion_service",level="itch_to_equs"}` and emit an `ingestion.canonicalize.applied` log with row counts and trimming stats. Operators should alarm on sustained fallback activations during live ingest.
+- To spot-check canonicalisation and lineage locally:
+
+  ```bash
+  DATABENTO_API_KEY=... uv run --active --no-sync python -m ml.cli.pipeline_orchestrator \
+    --stage ingest --ingest --dataset_id EQUS.MINI --schema ohlcv-1m \
+    --symbols INTC --lookback_days 2 --write_mode sql --coverage_mode catalog
+  ```
+
+  The run should surface canonicalisation logs, increment the fallback counter only for pre-coverage windows, and complete without manifest constraint violations.

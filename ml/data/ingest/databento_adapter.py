@@ -15,12 +15,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
 from ml.data.ingest.policy import DatabentoCoveragePolicy
 from ml.data.ingest.resume import DatabentoLikeClient
+
+
+if TYPE_CHECKING:  # pragma: no cover - type hints only
+    from ml.data.ingest.service import DatabentoMetadataClient
+    from ml.data.ingest.symbology import DatabentoSymbologyClient
 
 
 @dataclass(slots=True)
@@ -157,3 +162,13 @@ class DatabentoAPIClient(DatabentoLikeClient):
         elif "ts_event" in df.columns:
             df["ts_init"] = df["ts_event"]
         return df
+
+    @property
+    def metadata_client(self) -> DatabentoMetadataClient:
+        """Expose the underlying metadata client for discovery helpers."""
+        return cast("DatabentoMetadataClient", self._db.metadata)
+
+    @property
+    def symbology_client(self) -> DatabentoSymbologyClient | None:
+        """Expose the underlying symbology client when available."""
+        return cast("DatabentoSymbologyClient | None", getattr(self._db, "symbology", None))

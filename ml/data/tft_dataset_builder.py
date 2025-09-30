@@ -9,6 +9,7 @@ existing collected market data.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable
 from datetime import UTC
 from datetime import datetime
@@ -122,6 +123,7 @@ class TFTDatasetBuilder:
         self.data_store = data_store
         self.market_dataset_id = market_dataset_id
         self.market_bindings = tuple(market_bindings or ())
+        self._allow_parquet_fallback = os.getenv("ML_TFT_ALLOW_PARQUET_FALLBACK", "0") == "1"
         self.include_macro = include_macro
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
@@ -203,6 +205,55 @@ class TFTDatasetBuilder:
             return cast(PolarsDF, pl.from_pandas(data))
         raise TypeError(f"Unsupported data type for Polars conversion: {type(data)!r}")
 
+    @staticmethod
+    def _extract_frame_metadata(frame: PolarsDF) -> tuple[str | None, str | None, float | None]:
+        if pl is None:
+            return None, None, None
+        source_dataset: str | None = None
+        aggregation_mode: str | None = None
+        scaling_factor: float | None = None
+
+        if "source_dataset" in frame.columns:
+            try:
+                values = (
+                    frame.get_column("source_dataset")
+                    .drop_nulls()
+                    .unique()
+                    .to_list()
+                )
+                if len(values) == 1 and values[0]:
+                    source_dataset = str(values[0])
+            except Exception:  # pragma: no cover - defensive guard
+                source_dataset = None
+
+        if "aggregation_mode" in frame.columns:
+            try:
+                modes = (
+                    frame.get_column("aggregation_mode")
+                    .drop_nulls()
+                    .unique()
+                    .to_list()
+                )
+                if len(modes) == 1 and modes[0]:
+                    aggregation_mode = str(modes[0])
+            except Exception:  # pragma: no cover - defensive guard
+                aggregation_mode = None
+
+        if "scaling_factor" in frame.columns:
+            try:
+                factors = (
+                    frame.get_column("scaling_factor")
+                    .drop_nulls()
+                    .unique()
+                    .to_list()
+                )
+                if len(factors) == 1:
+                    scaling_factor = float(factors[0])
+            except Exception:  # pragma: no cover - defensive guard
+                scaling_factor = None
+
+        return source_dataset, aggregation_mode, scaling_factor
+
     def _load_bars_dataframe(
         self,
         instrument_id: str,
@@ -213,11 +264,13 @@ class TFTDatasetBuilder:
         binding_dataset_id = binding.dataset_id if binding else self.market_dataset_id
         stats = self._binding_stats.get(binding.binding_id) if binding else None
 
+        store_attempted = False
         if self._store_enabled() and binding_dataset_id:
             try:
                 start_ns = self._datetime_to_ns(start, fallback=0)
                 end_ns = self._datetime_to_ns(end, fallback=self._now_ns())
                 assert self.data_store is not None
+                store_attempted = True
                 raw_result = self.data_store.read_range(
                     dataset_id=binding_dataset_id,
                     instrument_id=instrument_id,
@@ -246,6 +299,9 @@ class TFTDatasetBuilder:
                             "last",
                             "trade_count",
                             "vwap",
+                            "source_dataset",
+                            "aggregation_mode",
+                            "scaling_factor",
                         )
                         if col in frame.columns
                     ]
@@ -267,19 +323,32 @@ class TFTDatasetBuilder:
                     if stats is not None:
                         row_count = int(frame.height)
                         ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
+                        src_dataset, agg_mode, scaling_factor = self._extract_frame_metadata(frame)
                         stats.record(
                             source="store",
                             row_count=row_count,
                             ts_min_ns=ts_min_ns,
                             ts_max_ns=ts_max_ns,
+                            source_dataset=src_dataset,
+                            aggregation_mode=agg_mode,
+                            scaling_factor=scaling_factor,
                         )
                     return frame
-            except Exception:
+            except Exception as exc:
                 logger.warning(
                     "DataStore read_range failed; falling back to catalog",
                     exc_info=True,
                     extra={"instrument_id": instrument_id},
                 )
+                if not self._allow_parquet_fallback:
+                    raise RuntimeError(
+                        "DataStore read_range failed and parquet fallback is disabled",
+                    ) from exc
+
+        if store_attempted and not self._allow_parquet_fallback:
+            raise RuntimeError(
+                "DataStore returned no bars and parquet fallback is disabled",
+            )
 
         try:
             frame = bars_to_dataframe(
@@ -291,11 +360,15 @@ class TFTDatasetBuilder:
             if stats is not None and not frame.is_empty():
                 row_count = int(frame.height)
                 ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
+                src_dataset, agg_mode, scaling_factor = self._extract_frame_metadata(frame)
                 stats.record(
                     source="catalog",
                     row_count=row_count,
                     ts_min_ns=ts_min_ns,
                     ts_max_ns=ts_max_ns,
+                    source_dataset=src_dataset,
+                    aggregation_mode=agg_mode,
+                    scaling_factor=scaling_factor,
                 )
             return frame
         except Exception:  # pragma: no cover - catalog fallback path

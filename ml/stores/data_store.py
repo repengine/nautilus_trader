@@ -91,6 +91,14 @@ else:
     _BusPublisherBase = BusPublisherMixin  # type: ignore[assignment]
     _DataRegistryBase = DataRegistryMixin  # type: ignore[assignment]
 
+if TYPE_CHECKING:
+    import pandas as pd
+else:  # pragma: no cover - pandas optional in some environments
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - runtime optional dependency
+        pd = None  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 
@@ -1011,9 +1019,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         if hasattr(df_any[pk_field], "is_null"):
                             # Polars
                             null_count = df_any[pk_field].is_null().sum()
-                        elif hasattr(df_any[pk_field], "isnull"):
+                        elif hasattr(df_any[pk_field], "isna"):
                             # pandas
-                            null_count = df_any[pk_field].isnull().sum()
+                            null_count = df_any[pk_field].isna().sum()
                         else:
                             null_count = 0
 
@@ -1032,9 +1040,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         if hasattr(df[field], "is_null"):
                             # Polars
                             null_count = df[field].is_null().sum()
-                        elif hasattr(df[field], "isnull"):
+                        elif hasattr(df[field], "isna"):
                             # pandas
-                            null_count = df[field].isnull().sum()
+                            null_count = df[field].isna().sum()
                         else:
                             null_count = 0
 
@@ -1159,6 +1167,21 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         # Convert to DataFrame if needed
         df_obj = self._to_dataframe(records)
         df = cast(DataFrameLike, df_obj)
+
+        extra_metadata: dict[str, object] = {}
+        if pd is not None:
+            df_for_meta: pd.DataFrame | None
+            if isinstance(df, pd.DataFrame):
+                df_for_meta = df
+            elif hasattr(df, "to_pandas") and callable(getattr(df, "to_pandas")):
+                try:
+                    df_for_meta = df.to_pandas()
+                except Exception:  # pragma: no cover - defensive conversion
+                    df_for_meta = None
+            else:
+                df_for_meta = None
+            if df_for_meta is not None:
+                extra_metadata = self._extract_ingestion_metadata_from_dataframe(df_for_meta)
 
         # Extract instrument_id if not provided
         if instrument_id is None:
@@ -1362,7 +1385,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             ts_max=ts_max,
                             record_count=len(df),
                             status=EventStatus.SUCCESS.value,
-                            metadata={"no_write": True},
+                            metadata={"no_write": True, **extra_metadata},
                         )
                     else:
                         logger.warning(
@@ -1392,7 +1415,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             ts_max=ts_max,
                             record_count=len(df),
                             status=EventStatus.PARTIAL.value,
-                            metadata={"no_write": True},
+                            metadata={"no_write": True, **extra_metadata},
                         )
 
             # Create event
@@ -1415,6 +1438,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 metadata={
                     "quality_score": quality_report.quality_score,
                     "processing_time_ms": (time.perf_counter() - start_time) * 1000,
+                    **extra_metadata,
                 },
             )
 
@@ -1445,6 +1469,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         ),
                     ),
                     component=self.__class__.__name__,
+                    metadata=event.metadata,
                 )
                 # Publish to message bus on success (non-blocking best-effort)
                 if self._enable_publishing and self.publisher is not None:
@@ -1538,6 +1563,42 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             logger.error("Failed to write data to %s: %s", dataset_id, e)
             raise RuntimeError(f"Write operation failed: {e}") from e
+
+    @staticmethod
+    def _extract_ingestion_metadata_from_dataframe(df: pd.DataFrame) -> dict[str, object]:
+        if pd is None:
+            return {}
+        metadata: dict[str, object] = {}
+        if df.empty:
+            return metadata
+
+        if "source_dataset" in df.columns:
+            values = (
+                df["source_dataset"].dropna().astype(str).unique().tolist()
+            )
+            normalized = [value for value in values if value]
+            if normalized:
+                metadata["source_datasets"] = sorted(dict.fromkeys(normalized))
+
+        if "aggregation_mode" in df.columns:
+            modes = (
+                df["aggregation_mode"].dropna().astype(str).unique().tolist()
+            )
+            normalized_modes = [mode for mode in modes if mode]
+            if normalized_modes:
+                metadata["aggregation_modes"] = sorted(dict.fromkeys(normalized_modes))
+
+        if "scaling_factor" in df.columns:
+            factors = (
+                pd.to_numeric(df["scaling_factor"], errors="coerce")
+                .dropna()
+                .unique()
+                .tolist()
+            )
+            if factors:
+                metadata["scaling_factors"] = sorted({float(factor) for factor in factors})
+
+        return metadata
 
     def write_features(
         self,

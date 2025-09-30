@@ -11,6 +11,7 @@ pickle or creating invalid/empty files.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -24,6 +25,9 @@ from ml._imports import check_ml_dependencies
 from ml._imports import lgb
 from ml._imports import ort
 from ml._imports import xgb
+
+
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
 
 
 class TestModelFactory:
@@ -72,6 +76,12 @@ class TestModelFactory:
         rng = np.random.default_rng(42)
         X = rng.standard_normal((n_samples, n_features)).astype(np.float32)
 
+        cpu_params: dict[str, object] = {
+            "device": "cpu",
+            "tree_method": "hist",
+            "predictor": "cpu_predictor",
+        }
+
         if model_type == "classification":
             y = rng.integers(0, 2, n_samples)
             model = xgb.XGBClassifier(
@@ -79,6 +89,7 @@ class TestModelFactory:
                 max_depth=2,  # Shallow trees
                 random_state=42,
                 verbosity=0,
+                **cpu_params,
             )
         else:
             y = rng.standard_normal(n_samples).astype(np.float32)
@@ -87,6 +98,7 @@ class TestModelFactory:
                 max_depth=2,
                 random_state=42,
                 verbosity=0,
+                **cpu_params,
             )
 
         # Train minimal model

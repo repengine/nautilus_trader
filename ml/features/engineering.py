@@ -1177,18 +1177,32 @@ class FeatureEngineer:
         """
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
             # Polars DataFrame
-            open_prices = df["open"].to_numpy() if "open" in df.columns else df["close"].to_numpy()
-            high_prices = df["high"].to_numpy() if "high" in df.columns else df["close"].to_numpy()
-            low_prices = df["low"].to_numpy() if "low" in df.columns else df["close"].to_numpy()
-            close_prices = df["close"].to_numpy()
-            volumes = df["volume"].to_numpy() if "volume" in df.columns else np.zeros(len(df))
+            open_prices = self._ensure_float_array(
+                df["open"].to_numpy() if "open" in df.columns else df["close"].to_numpy()
+            )
+            high_prices = self._ensure_float_array(
+                df["high"].to_numpy() if "high" in df.columns else df["close"].to_numpy()
+            )
+            low_prices = self._ensure_float_array(
+                df["low"].to_numpy() if "low" in df.columns else df["close"].to_numpy()
+            )
+            close_prices = self._ensure_float_array(df["close"].to_numpy())
+            volume_source = df["volume"].to_numpy() if "volume" in df.columns else np.zeros(len(df))
+            volumes = self._ensure_float_array(volume_source)
         else:
             # Pandas DataFrame or fallback
-            open_prices = df["open"].to_numpy() if "open" in df.columns else df["close"].to_numpy()
-            high_prices = df["high"].to_numpy() if "high" in df.columns else df["close"].to_numpy()
-            low_prices = df["low"].to_numpy() if "low" in df.columns else df["close"].to_numpy()
-            close_prices = df["close"].to_numpy()
-            volumes = df["volume"].to_numpy() if "volume" in df.columns else np.zeros(len(df))
+            open_prices = self._ensure_float_array(
+                df["open"].to_numpy() if "open" in df.columns else df["close"].to_numpy()
+            )
+            high_prices = self._ensure_float_array(
+                df["high"].to_numpy() if "high" in df.columns else df["close"].to_numpy()
+            )
+            low_prices = self._ensure_float_array(
+                df["low"].to_numpy() if "low" in df.columns else df["close"].to_numpy()
+            )
+            close_prices = self._ensure_float_array(df["close"].to_numpy())
+            volume_source = df["volume"].to_numpy() if "volume" in df.columns else np.zeros(len(df))
+            volumes = self._ensure_float_array(volume_source)
         return open_prices, high_prices, low_prices, close_prices, volumes
 
     def _create_empty_features_dataframe(self: Self, feature_names: list[str]) -> DataFrameLike:
@@ -1206,6 +1220,11 @@ class FeatureEngineer:
                 check_ml_dependencies(["pandas"])
             assert pd is not None
             return cast(DataFrameLike, pd.DataFrame(columns=feature_names))
+
+    @staticmethod
+    def _ensure_float_array(array: npt.NDArray[Any]) -> npt.NDArray[np.float64]:
+        """Coerce an array to ``float64`` without unnecessary copies."""
+        return np.asarray(array, dtype=np.float64)
 
     def _create_pandas_features_dataframe(
         self: Self,
@@ -2246,13 +2265,21 @@ class FeatureEngineer:
         Extract data arrays from DataFrame for batch processing.
         """
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
-            close_array = df["close"].to_numpy()
-            high_array = df["high"].to_numpy() if "high" in df.columns else None
-            low_array = df["low"].to_numpy() if "low" in df.columns else None
+            close_array = self._ensure_float_array(df["close"].to_numpy())
+            high_array = (
+                self._ensure_float_array(df["high"].to_numpy()) if "high" in df.columns else None
+            )
+            low_array = (
+                self._ensure_float_array(df["low"].to_numpy()) if "low" in df.columns else None
+            )
         else:
-            close_array = df["close"].to_numpy()
-            high_array = df["high"].to_numpy() if "high" in df.columns else None
-            low_array = df["low"].to_numpy() if "low" in df.columns else None
+            close_array = self._ensure_float_array(df["close"].to_numpy())
+            high_array = (
+                self._ensure_float_array(df["high"].to_numpy()) if "high" in df.columns else None
+            )
+            low_array = (
+                self._ensure_float_array(df["low"].to_numpy()) if "low" in df.columns else None
+            )
         return close_array, high_array, low_array
 
     def _calculate_return_momentum_features(
@@ -2480,16 +2507,16 @@ class FeatureEngineer:
         """
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
             return (
-                df["bid_price"].to_numpy(),
-                df["ask_price"].to_numpy(),
-                df["bid_size"].to_numpy(),
-                df["ask_size"].to_numpy(),
+                self._ensure_float_array(df["bid_price"].to_numpy()),
+                self._ensure_float_array(df["ask_price"].to_numpy()),
+                self._ensure_float_array(df["bid_size"].to_numpy()),
+                self._ensure_float_array(df["ask_size"].to_numpy()),
             )
         return (
-            df["bid_price"].to_numpy(),
-            df["ask_price"].to_numpy(),
-            df["bid_size"].to_numpy(),
-            df["ask_size"].to_numpy(),
+            self._ensure_float_array(df["bid_price"].to_numpy()),
+            self._ensure_float_array(df["ask_price"].to_numpy()),
+            self._ensure_float_array(df["bid_size"].to_numpy()),
+            self._ensure_float_array(df["ask_size"].to_numpy()),
         )
 
     def _calculate_spread_metrics(
@@ -2725,14 +2752,14 @@ class FeatureEngineer:
         """
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
             return (
-                df["trade_price"].to_numpy(),
-                df["trade_volume"].to_numpy(),
-                df["trade_side"].to_numpy(),
+                self._ensure_float_array(df["trade_price"].to_numpy()),
+                self._ensure_float_array(df["trade_volume"].to_numpy()),
+                self._ensure_float_array(df["trade_side"].to_numpy()),
             )
         return (
-            df["trade_price"].to_numpy(),
-            df["trade_volume"].to_numpy(),
-            df["trade_side"].to_numpy(),
+            self._ensure_float_array(df["trade_price"].to_numpy()),
+            self._ensure_float_array(df["trade_volume"].to_numpy()),
+            self._ensure_float_array(df["trade_side"].to_numpy()),
         )
 
     def _calculate_trade_metrics(
@@ -2814,9 +2841,9 @@ class FeatureEngineer:
 
         # Estimate trade intensity from volume
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
-            volumes = df["volume"].to_numpy()
+            volumes = self._ensure_float_array(df["volume"].to_numpy())
         else:
-            volumes = df["volume"].to_numpy()
+            volumes = self._ensure_float_array(df["volume"].to_numpy())
 
         window = min(20, idx + 1)
         start_idx = max(0, idx - window + 1)

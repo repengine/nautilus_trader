@@ -15,7 +15,7 @@
       "max_days": 365
     },
     "mbp-1": {
-      "max_days": 30
+      "max_days": 365
     },
     "mbp-10": {
       "max_days": 30

@@ -49,6 +49,9 @@ def test_integration_manager_uses_env_connection(monkeypatch: pytest.MonkeyPatch
         MLIntegrationManager, "_validate_protocol_compliance", lambda self, strict=None: None
     )
     monkeypatch.setattr(MLIntegrationManager, "_maybe_run_backfill_on_start", lambda self: None)
+    monkeypatch.delenv("NAUTILUS_DB", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("ML_DB_CONNECTION", raising=False)
 
     with _env("ML_DB_CONNECTION", expected):
         mgr = MLIntegrationManager(config=None, ensure_healthy=False)

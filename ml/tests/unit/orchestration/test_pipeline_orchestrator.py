@@ -22,6 +22,7 @@ from ml.config.coverage import CoveragePolicy
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import MarketFeedDescriptor
 from ml.data import DatasetMetadata
+from ml.data import MarketBindingMetadata
 from ml.config.market_data import MarketFeedDescriptorSet
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import BackfillWindowList
@@ -61,6 +62,10 @@ class _DiscoveryPayload:
     coverage_end_ns: int
     storage_kind: StorageKind | None = None
     cost_usd: float | None = None
+    symbol: str = ""
+    requested_symbol: str = ""
+    available_start_ns: int | None = None
+    available_end_ns: int | None = None
 
     @property
     def coverage_span_ns(self) -> int:
@@ -142,7 +147,18 @@ class _DiscoveryService:
         end_ns: int,
     ) -> _DiscoveryPayload | None:
         self.calls.append((symbol, schema))
-        return self.result
+        payload = self.result
+        if payload is None:
+            return None
+        if not payload.symbol:
+            payload.symbol = symbol
+        if not payload.requested_symbol:
+            payload.requested_symbol = symbol
+        if payload.available_start_ns is None:
+            payload.available_start_ns = start_ns
+        if payload.available_end_ns is None:
+            payload.available_end_ns = end_ns
+        return payload
 
     def ingest(
         self, request: object, *, on_chunk: Callable[[object], None] | None = None
@@ -747,9 +763,6 @@ def test_auto_fill_universe_backfills_expected_schemas(
     assert ("trades", 7) in schemas
     assert {instrument for _, _, instrument, _ in backfill_calls} == {
         "SPY.NYSE",
-        "SPY.ARCX",
-        "SPY.XNAS",
-        "SPY.XNYS",
     }
     assert l2_configs, "Expected L2 auto-fill to run"
     l2_config = l2_configs[0]
@@ -1383,6 +1396,94 @@ def test_guard_dataset_metadata_requires_macro_counts(tmp_path: Path) -> None:
     orch._guard_dataset_metadata(cfg=cfg, metadata=complete_metadata)
 
 
+def test_guard_dataset_metadata_requires_provenance(tmp_path: Path) -> None:
+    orch = MLPipelineOrchestrator(
+        coverage=_Coverage(),
+        writer=_Writer(),
+        build_main=_CliWrapper(_ok),
+        teacher_main=_CliWrapper(_ok),
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path),
+        symbols="SPY.NYSE",
+        out_dir=str(tmp_path / "eq"),
+        dataset_id="EQUS.MINI",
+    )
+
+    incomplete_binding = MarketBindingMetadata(
+        binding_id="binding",
+        dataset_id="EQUS.MINI",
+        descriptor_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        storage_kind="postgres",
+        symbols=("SPY",),
+        instrument_ids=("SPY.NYSE",),
+        source="descriptor",
+        license_start=None,
+        license_end=None,
+        ts_event_start=None,
+        ts_event_end=None,
+        rows_from_store=100,
+        rows_from_catalog=0,
+    )
+
+    incomplete_metadata = DatasetMetadata(
+        dataset_id="EQUS.MINI",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2025-01-03T00:00:00+00:00",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={},
+        market_bindings=(incomplete_binding,),
+    )
+
+    with pytest.raises(ValueError, match="provenance fields"):
+        orch._guard_dataset_metadata(cfg=cfg, metadata=incomplete_metadata)
+
+    complete_binding = MarketBindingMetadata(
+        binding_id="binding",
+        dataset_id="EQUS.MINI",
+        descriptor_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        storage_kind="postgres",
+        symbols=("SPY",),
+        instrument_ids=("SPY.NYSE",),
+        source="descriptor",
+        license_start=None,
+        license_end=None,
+        ts_event_start=None,
+        ts_event_end=None,
+        rows_from_store=100,
+        rows_from_catalog=0,
+        source_datasets=("XNAS.ITCH",),
+        aggregation_modes=("scaled_volume",),
+        scaling_factors=(1.05,),
+    )
+
+    complete_metadata = DatasetMetadata(
+        dataset_id="EQUS.MINI",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2025-01-03T00:00:00+00:00",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={},
+        market_bindings=(complete_binding,),
+    )
+
+    orch._guard_dataset_metadata(cfg=cfg, metadata=complete_metadata)
+
+
 def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     args = parse_args(
         [
@@ -1518,7 +1619,7 @@ def test_resolve_write_mode_tokens_invalid() -> None:
 
 def test_prepare_dataset_config_uses_coverage(tmp_path: Path) -> None:
     coverage = _CoverageWithAvailability(
-        available={("EQUS.MINI", "ohlcv-1m", "SPY.XNAS"): {1}},
+        available={("XNAS.ITCH", "ohlcv-1m", "SPY.XNAS"): {1}},
     )
     orch = MLPipelineOrchestrator(
         coverage=coverage,
@@ -1534,24 +1635,24 @@ def test_prepare_dataset_config_uses_coverage(tmp_path: Path) -> None:
         out_dir=str(tmp_path / "out"),
         instrument_ids=("SPY.XNAS",),
         end_iso="2025-09-25",
+        market_dataset_id="XNAS.ITCH",
     )
     prepared = orch._prepare_dataset_config(cfg)
     assert prepared.market_inputs is not None
-    assert prepared.market_inputs[0].dataset_id == "EQUS.MINI"
+    assert prepared.market_inputs[0].dataset_id == "XNAS.ITCH"
     assert prepared.market_inputs[0].symbols == ("SPY",)
     assert prepared.instrument_ids is not None
     assert "SPY.XNAS" in prepared.instrument_ids
 
 
-def test_apply_default_market_inputs_assigns_descriptor() -> None:
+def test_apply_default_market_inputs_requires_explicit_dataset() -> None:
     base_cfg = DatasetBuildConfig(
         data_dir="data",
         symbols="SPY,QQQ",
         out_dir="out",
     )
     updated = _apply_default_market_inputs(base_cfg)
-    assert updated.market_inputs is not None
-    assert any(item.descriptor_id == "EQUS.MINI" for item in updated.market_inputs)
+    assert updated.market_inputs is None
     assert updated.market_dataset_id is None
 
 
@@ -1617,6 +1718,7 @@ def test_prepare_dataset_config_skips_disallowed_dataset(
         out_dir=str(tmp_path / "out"),
         start_iso="2024-01-01",
         end_iso="2024-01-05",
+        market_dataset_id="EQUS.MINI",
     )
 
     prepared = orch._prepare_dataset_config(cfg)
@@ -2130,6 +2232,40 @@ def test_build_ingestion_plan_manual_when_no_bindings(monkeypatch: pytest.Monkey
     assert item.dataset_id == "EQUS.MINI"
     assert item.schema == "ohlcv-1m"
     assert item.instrument_ids == ("SPY.NYSE",)
+
+
+def test_build_ingestion_plan_defaults_to_allowed_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ingestion_cfg = IngestionStageConfig(
+        enabled=True,
+        schema="bars",
+        instruments=("INTC.XNAS",),
+    )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator,
+        "_get_allowed_databento_datasets",
+        lambda: frozenset({"XNAS.ITCH"}),
+    )
+
+    monkeypatch.setattr(
+        pipeline_orchestrator.IngestionOrchestrator,
+        "resolve_market_bindings",
+        staticmethod(lambda **_: ()),
+    )
+
+    plan = pipeline_orchestrator._build_ingestion_plan(
+        ds_cfg=None,
+        ingestion_cfg=ingestion_cfg,
+    )
+
+    assert len(plan) == 1
+    item = plan[0]
+    assert item.binding is None
+    assert item.dataset_id == "XNAS.ITCH"
+    assert item.schema == "ohlcv-1m"
+    assert item.instrument_ids == ("INTC.XNAS",)
 
 
 def test_pipeline_service_infers_stage_and_ingestion_config() -> None:

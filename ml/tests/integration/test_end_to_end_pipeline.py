@@ -404,6 +404,9 @@ class TestEndToEndPipeline:
             random_state=42,
             objective="multi:softprob",
             num_class=3,
+            device="cpu",
+            tree_method="hist",
+            predictor="cpu_predictor",
         )
         model.fit(X, _y)
 

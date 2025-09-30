@@ -521,6 +521,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_dataset_modified ON ml_dataset_registry;
 CREATE TRIGGER trigger_update_dataset_modified
     BEFORE UPDATE ON ml_dataset_registry
     FOR EACH ROW
@@ -560,7 +561,19 @@ VALUES
     ('signals_momentum', 'Momentum Strategy Signals', '1.0.0', 'SIGNALS', 'postgres',
      'ml_strategy_signals', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 90,
      '{"strategy_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "signal_type": "str", "strength": "float64"}'::jsonb,
-     '', '{}'::jsonb, '["predictions"]'::jsonb, 'strategy_executor_v1')
+     '', '{}'::jsonb, '["predictions"]'::jsonb, 'strategy_executor_v1'),
+
+    -- Canonical EQUS.MINI aggregation with lineage to ITCH fallback
+    ('EQUS.MINI', 'EQUS Aggregated Minute Bars', '1.0.0', 'BARS', 'postgres',
+     'market_data', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 365,
+     '{"instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "open": "float64", "high": "float64", "low": "float64", "close": "float64", "volume": "float64"}'::jsonb,
+     '', '{}'::jsonb, '["XNAS.ITCH"]'::jsonb, 'databento_canonical_v1'),
+
+    -- Databento NASDAQ ITCH ingestion dataset
+    ('XNAS.ITCH', 'NASDAQ ITCH Market Data', '1.0.0', 'BARS', 'postgres',
+     'market_data', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 365,
+     '{"instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "open": "float64", "high": "float64", "low": "float64", "close": "float64", "volume": "float64"}'::jsonb,
+     '', '{}'::jsonb, '[]'::jsonb, 'databento_ingest_v1')
 ON CONFLICT (dataset_id) DO NOTHING;
 
 -- ============================================================================

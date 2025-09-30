@@ -35,17 +35,24 @@ CREATE TABLE IF NOT EXISTS market_data (
     -- Metadata
     source VARCHAR(50),  -- 'exchange', 'aggregator', 'synthetic'
     quality_flags INTEGER DEFAULT 0,  -- Bit flags for data quality
+    source_dataset VARCHAR(100),
+    aggregation_mode VARCHAR(50),
+    scaling_factor DOUBLE PRECISION,
 
     PRIMARY KEY (instrument_id, ts_event)
 ) PARTITION BY RANGE (ts_event);
 
--- Create partitions for market data (36 months)
-SELECT create_monthly_partitions('market_data', '2024-01-01'::DATE, 36);
+-- Pre-create partitions covering historical ingest windows (10 years)
+SELECT create_monthly_partitions('market_data', '2018-01-01'::DATE, 120);
+
+-- Default partition to capture out-of-range rows during fallback ingest
+CREATE TABLE IF NOT EXISTS market_data_default
+    PARTITION OF market_data DEFAULT;
 
 -- Indexes for efficient queries
-CREATE INDEX idx_market_data_time ON market_data USING BRIN (ts_event);
-CREATE INDEX idx_market_data_instrument ON market_data (instrument_id, ts_event DESC);
-CREATE INDEX idx_market_data_quality ON market_data (quality_flags) WHERE quality_flags > 0;
+CREATE INDEX IF NOT EXISTS idx_market_data_time ON market_data USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS idx_market_data_instrument ON market_data (instrument_id, ts_event DESC);
+CREATE INDEX IF NOT EXISTS idx_market_data_quality ON market_data (quality_flags) WHERE quality_flags > 0;
 
 -- ============================================================================
 -- Market Data Metadata
@@ -85,10 +92,10 @@ CREATE TABLE IF NOT EXISTS market_data_metadata (
 );
 
 -- Indexes for metadata
-CREATE INDEX idx_metadata_symbol ON market_data_metadata (symbol);
-CREATE INDEX idx_metadata_exchange ON market_data_metadata (exchange);
-CREATE INDEX idx_metadata_asset_class ON market_data_metadata (asset_class);
-CREATE INDEX idx_metadata_active ON market_data_metadata (is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_metadata_symbol ON market_data_metadata (symbol);
+CREATE INDEX IF NOT EXISTS idx_metadata_exchange ON market_data_metadata (exchange);
+CREATE INDEX IF NOT EXISTS idx_metadata_asset_class ON market_data_metadata (asset_class);
+CREATE INDEX IF NOT EXISTS idx_metadata_active ON market_data_metadata (is_active) WHERE is_active = TRUE;
 
 -- ============================================================================
 -- Market Data Statistics (for outlier detection)
@@ -124,7 +131,7 @@ CREATE TABLE IF NOT EXISTS market_data_statistics (
     PRIMARY KEY (instrument_id, period_start)
 );
 
-CREATE INDEX idx_stats_lookup ON market_data_statistics (instrument_id, period_start DESC);
+CREATE INDEX IF NOT EXISTS idx_stats_lookup ON market_data_statistics (instrument_id, period_start DESC);
 
 -- ============================================================================
 -- Position and Risk Tracking (referenced by DataProcessor)
@@ -157,8 +164,8 @@ CREATE TABLE IF NOT EXISTS ml_positions (
     PRIMARY KEY (strategy_id, instrument_id)
 );
 
-CREATE INDEX idx_positions_strategy ON ml_positions (strategy_id);
-CREATE INDEX idx_positions_instrument ON ml_positions (instrument_id);
+CREATE INDEX IF NOT EXISTS idx_positions_strategy ON ml_positions (strategy_id);
+CREATE INDEX IF NOT EXISTS idx_positions_instrument ON ml_positions (instrument_id);
 
 -- Risk limits configuration
 CREATE TABLE IF NOT EXISTS ml_risk_limits (
@@ -245,6 +252,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS market_data_stats_trigger ON market_data;
 CREATE TRIGGER market_data_stats_trigger
     AFTER INSERT ON market_data
     FOR EACH STATEMENT
@@ -255,7 +263,8 @@ CREATE TRIGGER market_data_stats_trigger
 -- ============================================================================
 
 -- Latest market data view
-CREATE OR REPLACE VIEW latest_market_data AS
+DROP VIEW IF EXISTS latest_market_data CASCADE;
+CREATE VIEW latest_market_data AS
 SELECT DISTINCT ON (instrument_id)
     instrument_id,
     ts_event,
@@ -268,8 +277,8 @@ SELECT DISTINCT ON (instrument_id)
 FROM market_data
 ORDER BY instrument_id, ts_event DESC;
 
--- Active positions summary
-CREATE OR REPLACE VIEW position_summary AS
+DROP VIEW IF EXISTS position_summary CASCADE;
+CREATE VIEW position_summary AS
 SELECT
     p.strategy_id,
     COUNT(*) as position_count,

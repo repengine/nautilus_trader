@@ -427,6 +427,9 @@ class MarketBindingMetadata:
     ts_event_end: str | None
     rows_from_store: int
     rows_from_catalog: int
+    source_datasets: tuple[str, ...] | None = None
+    aggregation_modes: tuple[str, ...] | None = None
+    scaling_factors: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +520,9 @@ def _binding_stats_to_metadata(
                 ts_event_end=_ns_to_iso(stat.ts_event_end_ns),
                 rows_from_store=stat.rows_from_store,
                 rows_from_catalog=stat.rows_from_catalog,
+                source_datasets=tuple(sorted(stat.source_datasets)) if stat.source_datasets else None,
+                aggregation_modes=tuple(sorted(stat.aggregation_modes)) if stat.aggregation_modes else None,
+                scaling_factors=tuple(sorted({float(value) for value in stat.scaling_factors})) if stat.scaling_factors else None,
             ),
         )
     return tuple(entries)

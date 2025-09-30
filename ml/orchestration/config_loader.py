@@ -108,7 +108,7 @@ class IngestionStageConfig:
     """
 
     enabled: bool = False
-    dataset_id: str = "EQUS.MINI"
+    dataset_id: str | None = None
     schema: str = "bars"
     instruments: tuple[str, ...] = ("SPY.NYSE",)
     lookback_days: int = 7
@@ -640,7 +640,8 @@ def to_pipeline_args(
     if ingestion is not None:
         if ingestion.enabled:
             args.append("--ingest")
-        args += ["--dataset_id", ingestion.dataset_id]
+        if ingestion.dataset_id:
+            args += ["--dataset_id", ingestion.dataset_id]
         args += ["--schema", ingestion.schema]
         if ingestion.instruments:
             args += ["--instruments", ",".join(ingestion.instruments)]
@@ -649,6 +650,8 @@ def to_pipeline_args(
         args += ["--write_mode", ingestion.write_mode]
         if ingestion.catalog_path:
             args += ["--catalog_path", ingestion.catalog_path]
+        if ingestion.market_dataset_id:
+            args += ["--market_dataset_id", ingestion.market_dataset_id]
 
     return args
 

@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -33,6 +35,9 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
+
+
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
 
 
 # Constants for testing
@@ -202,6 +207,9 @@ def test_ml_config() -> dict[str, Any]:
                 "learning_rate": 0.1,
                 "objective": "multi:softprob",
                 "num_class": 3,
+                "device": "cpu",
+                "tree_method": "hist",
+                "predictor": "cpu_predictor",
             },
         },
         "signal_config": {
@@ -295,6 +303,9 @@ def create_onnx_model_for_features(
             learning_rate=0.1,
             objective="binary:logistic",
             random_state=42,
+            device="cpu",
+            tree_method="hist",
+            predictor="cpu_predictor",
         )
         model.fit(X_train, y_train)
 
@@ -317,7 +328,14 @@ def create_onnx_model_for_features(
             y = rng.integers(0, 2, 200)
             import xgboost as _xgb2
 
-            model = _xgb2.XGBClassifier(n_estimators=10, max_depth=3, learning_rate=0.1)
+            model = _xgb2.XGBClassifier(
+                n_estimators=10,
+                max_depth=3,
+                learning_rate=0.1,
+                device="cpu",
+                tree_method="hist",
+                predictor="cpu_predictor",
+            )
             model.fit(X, y)
             initial_type2 = [("float_input", FloatTensorType([None, n_features]))]
             onnx_model2 = convert_xgboost(model, initial_types=initial_type2)

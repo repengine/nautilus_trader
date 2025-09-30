@@ -317,6 +317,25 @@ class IngestionOrchestrator:
             requested_windows.append((start_ns, end_ns))
             frames: list[pd.DataFrame] = []
             ingest_symbol = symbol_hint or instrument_id.split(".")[0]
+            seen_source_datasets: set[str] = set()
+            seen_aggregation_modes: set[str] = set()
+            scaling_factors: list[float] = []
+
+            def _unique_str(frame: pd.DataFrame, column: str) -> str | None:
+                if column not in frame.columns:
+                    return None
+                series = frame[column].dropna().astype(str).unique()
+                if len(series) == 1 and series[0]:
+                    return str(series[0])
+                return None
+
+            def _unique_float(frame: pd.DataFrame, column: str) -> float | None:
+                if column not in frame.columns:
+                    return None
+                numeric = pd.to_numeric(frame[column], errors="coerce").dropna().unique()
+                if len(numeric) == 1:
+                    return float(numeric[0])
+                return None
 
             def _persist_frame(df: pd.DataFrame) -> None:
                 nonlocal frames_written
@@ -333,6 +352,15 @@ class IngestionOrchestrator:
                 frames_written += 1
                 window_rows = len(coerced_df.index)
                 rows_written += window_rows
+                source_dataset = _unique_str(coerced_df, "source_dataset")
+                aggregation_mode = _unique_str(coerced_df, "aggregation_mode")
+                scaling_factor = _unique_float(coerced_df, "scaling_factor")
+                if source_dataset:
+                    seen_source_datasets.add(source_dataset)
+                if aggregation_mode:
+                    seen_aggregation_modes.add(aggregation_mode)
+                if scaling_factor is not None:
+                    scaling_factors.append(scaling_factor)
                 self.writer.write(
                     dataset_id=dataset_id,
                     schema=schema,
@@ -356,7 +384,6 @@ class IngestionOrchestrator:
                             self.raw_writer.write(dataset_type=dataset_type, data=coerced_df)
                     except Exception:
                         pass
-
             if self.service is not None:
                 start_dt = datetime.fromtimestamp(start_ns / 1_000_000_000, tz=UTC)
                 end_dt = datetime.fromtimestamp(end_ns / 1_000_000_000, tz=UTC)
@@ -454,6 +481,34 @@ class IngestionOrchestrator:
                 ts_max = int(ts_series.max())
                 ts_min = int(ts_series.min())
             count = len(df_combined.index)
+            event_metadata: dict[str, object] = {}
+            if "source_dataset" in df_combined.columns:
+                sources = df_combined["source_dataset"].dropna().astype(str).unique().tolist()
+                seen_source_datasets.update(str(value) for value in sources if value)
+            if seen_source_datasets:
+                event_metadata["source_datasets"] = sorted(seen_source_datasets)
+            if "aggregation_mode" in df_combined.columns:
+                modes = df_combined["aggregation_mode"].dropna().astype(str).unique().tolist()
+                seen_aggregation_modes.update(str(value) for value in modes if value)
+            if seen_aggregation_modes:
+                event_metadata["aggregation_modes"] = sorted(seen_aggregation_modes)
+            if "scaling_factor" in df_combined.columns:
+                scaling_series = pd.to_numeric(
+                    df_combined["scaling_factor"],
+                    errors="coerce",
+                ).dropna()
+                if not scaling_series.empty:
+                    scaling_factors.extend(float(value) for value in scaling_series.unique().tolist())
+            if scaling_factors:
+                # Deduplicate while preserving order of appearance
+                unique_scaling = []
+                seen_scaling = set()
+                for factor in scaling_factors:
+                    if factor in seen_scaling:
+                        continue
+                    seen_scaling.add(factor)
+                    unique_scaling.append(factor)
+                event_metadata["scaling_factors"] = unique_scaling
             self.registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
@@ -464,6 +519,7 @@ class IngestionOrchestrator:
                 ts_max=ts_max,
                 count=count,
                 status=EventStatus.SUCCESS,
+                metadata=event_metadata or None,
             )
             try:
                 self.registry.update_watermark(

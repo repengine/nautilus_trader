@@ -93,3 +93,38 @@ def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.Mon
     assert not dataset.is_empty()
     assert "instrument_id" in dataset.columns
     assert "feat_0" in dataset.columns
+
+
+def test_builder_raises_when_parquet_fallback_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FailingStore:
+        def read_range(
+            self,
+            dataset_id: str,
+            instrument_id: str,
+            start_ns: int,
+            end_ns: int,
+        ) -> Any:
+            raise RuntimeError("simulated store outage")
+
+    class _NoopCatalog:
+        def bars(self, *args: object, **kwargs: object) -> Any:  # pragma: no cover - defensive
+            raise AssertionError("catalog fallback should remain disabled")
+
+    monkeypatch.delenv("ML_TFT_ALLOW_PARQUET_FALLBACK", raising=False)
+
+    builder = TFTDatasetBuilder(
+        catalog=cast(ParquetDataCatalog, _NoopCatalog()),
+        symbols=["SPY"],
+        instrument_ids=["SPY.XNAS"],
+        feature_store=None,
+        data_store=cast(DataStoreFacadeProtocol, _FailingStore()),
+        market_dataset_id="EQUS.MINI",
+        include_macro=False,
+        include_micro=False,
+        include_l2=False,
+        include_events=False,
+        include_calendar=False,
+    )
+
+    with pytest.raises(RuntimeError, match="parquet fallback is disabled"):
+        builder._load_bars_dataframe("SPY.XNAS", start=None, end=None)

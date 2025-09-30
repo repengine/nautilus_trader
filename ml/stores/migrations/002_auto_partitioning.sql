@@ -185,20 +185,18 @@ CREATE OR REPLACE TRIGGER auto_create_partition_strategy_signals
 -- ============================================================================
 
 -- Uncomment if pg_cron is available:
-/*
--- Install pg_cron extension if not already installed
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-
--- Schedule daily partition maintenance at 2 AM
-SELECT cron.schedule(
-    'ml_partition_maintenance',
-    '0 2 * * *',  -- Daily at 2 AM
-    $$
-    SELECT auto_create_partitions();
-    SELECT auto_cleanup_partitions(24);  -- Keep 24 months of data
-    $$
-);
-*/
+-- -- Install pg_cron extension if not already installed
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+--
+-- -- Schedule daily partition maintenance at 2 AM
+-- SELECT cron.schedule(
+--     'ml_partition_maintenance',
+--     '0 2 * * *',  -- Daily at 2 AM
+--     $$
+--     SELECT auto_create_partitions();
+--     SELECT auto_cleanup_partitions(24);  -- Keep 24 months of data
+--     $$
+-- );
 
 -- ============================================================================
 -- Alternative: PostgreSQL 14+ Native Partitioning (if available)
@@ -207,7 +205,6 @@ SELECT cron.schedule(
 -- For PostgreSQL 14+, you can use automatic list/range partition creation
 -- This is a more modern approach but requires PostgreSQL 14 or later
 
-/*
 -- Example for PostgreSQL 14+ with automatic partition creation
 -- This would replace the manual partition creation
 
@@ -215,25 +212,25 @@ SELECT cron.schedule(
 -- DROP TABLE IF EXISTS ml_feature_values CASCADE;
 
 -- Recreate with automatic partitioning
-CREATE TABLE ml_feature_values (
-    id BIGSERIAL,
-    feature_set_id VARCHAR(255) NOT NULL,
-    instrument_id VARCHAR(100) NOT NULL,
-    ts_event BIGINT NOT NULL,
-    ts_init BIGINT NOT NULL,
-    values JSONB NOT NULL,
-    is_live BOOLEAN DEFAULT FALSE,
-    source VARCHAR(50),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (id, ts_event)
-) PARTITION BY RANGE (ts_event);
+-- CREATE TABLE ml_feature_values (
+--     id BIGSERIAL,
+--     feature_set_id VARCHAR(255) NOT NULL,
+--     instrument_id VARCHAR(100) NOT NULL,
+--     ts_event BIGINT NOT NULL,
+--     ts_init BIGINT NOT NULL,
+--     values JSONB NOT NULL,
+--     is_live BOOLEAN DEFAULT FALSE,
+--     source VARCHAR(50),
+--     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+--     PRIMARY KEY (id, ts_event)
+-- ) PARTITION BY RANGE (ts_event);
 
 -- Enable automatic partition creation (PostgreSQL 14+)
-ALTER TABLE ml_feature_values SET (
-    partition_auto_create = on,
-    partition_auto_create_interval = '1 month'
-);
-*/
+-- ALTER TABLE ml_feature_values SET (
+--     partition_auto_create = on,
+--     partition_auto_create_interval = '1 month'
+-- );
+-- End PostgreSQL 14+ example block
 
 -- ============================================================================
 -- Manual Execution Commands

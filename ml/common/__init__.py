@@ -37,6 +37,9 @@ from ml.common.cascade import emit_cascade
 
 # Correlation and cascading utilities
 from ml.common.correlation import make_correlation_id
+from ml.common.databento_credentials import CredentialResolution
+from ml.common.databento_credentials import CredentialSource
+from ml.common.databento_credentials import resolve_databento_api_key
 from ml.common.db_connections import ConnectionCandidates
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
@@ -123,6 +126,8 @@ __all__ = [
     "BusPublisherMixin",
     "ConnectionCandidates",
     "ConnectionRole",
+    "CredentialResolution",
+    "CredentialSource",
     "EventDict",
     "Handler",
     "InMemoryPublisher",
@@ -157,6 +162,7 @@ __all__ = [
     "normalize_timestamp_ns",
     "publisher_from_config",
     "record_stage_boundary",
+    "resolve_databento_api_key",
     "safe_divide",
     "safe_divide_expr",
     "sanitize_timestamp_ns",
