@@ -158,7 +158,6 @@ OLD/
 # Shell scripts (from remote)
 *.sh
 
-services/
 
 semantic_code_search_mcp_server/
 

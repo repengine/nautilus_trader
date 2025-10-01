@@ -11,9 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import ComponentId
-from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.config.registry import ModelRegistryConfig as ModelRegistryConfig
 from nautilus_trader.common.config import NautilusConfig
@@ -22,6 +19,9 @@ from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -221,6 +221,11 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     # Integration fields (enable automatic store initialization and testing fallbacks)
     db_connection: str | None = None
     use_dummy_stores: bool = False
+    # Async persistence configuration (enabled by default for production performance)
+    enable_async_persistence: bool = True
+    persistence_queue_size: PositiveInt = 10000
+    persistence_flush_interval: PositiveFloat = 1.0
+    persistence_batch_size: PositiveInt = 100
 
 
 class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):

@@ -1443,7 +1443,7 @@ def test_guard_dataset_metadata_requires_provenance(tmp_path: Path) -> None:
         market_bindings=(incomplete_binding,),
     )
 
-    with pytest.raises(ValueError, match="provenance fields"):
+    with pytest.raises(ValueError, match="source_datasets provenance"):
         orch._guard_dataset_metadata(cfg=cfg, metadata=incomplete_metadata)
 
     complete_binding = MarketBindingMetadata(
@@ -1462,8 +1462,6 @@ def test_guard_dataset_metadata_requires_provenance(tmp_path: Path) -> None:
         rows_from_store=100,
         rows_from_catalog=0,
         source_datasets=("XNAS.ITCH",),
-        aggregation_modes=("scaled_volume",),
-        scaling_factors=(1.05,),
     )
 
     complete_metadata = DatasetMetadata(

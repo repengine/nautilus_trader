@@ -311,7 +311,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ... )
 
     >>> # Validate data batch
-    >>> report = store.validate_batch("bars_eurusd_1m", df)
+    >>> report = store.validate_batch("bars_eurusd_1m", data_frame)
     >>> if report.quality_score < 0.95:
     ...     logger.warning(f"Data quality below threshold: {report.quality_score}")
 
@@ -884,7 +884,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         Examples
         --------
-        >>> success, error, details = store.preflight_check("bars_eurusd_1m", df)
+        >>> success, error, details = store.preflight_check("bars_eurusd_1m", data_frame)
         >>> if not success:
         ...     print(f"Preflight check failed: {error}")
         ...     print(f"Details: {details}")
@@ -895,9 +895,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             manifest = self._get_manifest(dataset_id)
 
             # Convert to DataFrame for validation
-            df_obj = self._to_dataframe(data)
-            df = cast(DataFrameLike, df_obj)
-            df_any = cast(Any, df)
+            data_frame_obj = self._to_dataframe(data)
+            data_frame = cast(DataFrameLike, data_frame_obj)
+            data_frame_any = cast(Any, data_frame)
 
             validation_details: dict[str, Any] = {
                 "dataset_id": dataset_id,
@@ -908,7 +908,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             # Empty data shortcut: accept empty DataFrames as valid shape
             try:
-                if hasattr(df_any, "__len__") and len(df_any) == 0:
+                if hasattr(data_frame_any, "__len__") and len(data_frame_any) == 0:
                     validation_details["empty_data"] = True
                     validation_details["preflight_passed"] = True
                     return True, None, validation_details
@@ -921,8 +921,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 )
 
             # Check 1: Required columns present
-            if hasattr(df, "columns"):
-                actual_columns = set(df.columns)
+            if hasattr(data_frame, "columns"):
+                actual_columns = set(data_frame.columns)
                 expected_columns = set(manifest.schema.keys())
 
                 missing_columns = expected_columns - actual_columns
@@ -957,11 +957,11 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             # Check 2: Data types compatibility
             type_mismatches: list[dict[str, str]] = []
-            if hasattr(df, "columns"):
+            if hasattr(data_frame, "columns"):
                 validation_details["checks_performed"].append("type_compatibility")
                 for col_name, expected_type in manifest.schema.items():
-                    if col_name in df.columns:
-                        actual_type = str(df[col_name].dtype)
+                    if col_name in data_frame.columns:
+                        actual_type = str(data_frame[col_name].dtype)
                         if not self._types_compatible(actual_type, expected_type):
                             type_mismatches.append(
                                 {
@@ -982,7 +982,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     )
 
             # Check 3: Schema hash compatibility
-            actual_schema_hash = self._compute_schema_hash(df, manifest)
+            actual_schema_hash = self._compute_schema_hash(data_frame, manifest)
             validation_details["actual_schema_hash"] = actual_schema_hash
             validation_details["checks_performed"].append("schema_hash")
 
@@ -1014,14 +1014,14 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             if manifest.primary_keys:
                 validation_details["checks_performed"].append("primary_keys")
                 for pk_field in manifest.primary_keys:
-                    if hasattr(df_any, "columns") and pk_field in df_any.columns:
+                    if hasattr(data_frame_any, "columns") and pk_field in data_frame_any.columns:
                         # Handle both Polars and pandas
-                        if hasattr(df_any[pk_field], "is_null"):
+                        if hasattr(data_frame_any[pk_field], "is_null"):
                             # Polars
-                            null_count = df_any[pk_field].is_null().sum()
-                        elif hasattr(df_any[pk_field], "isna"):
+                            null_count = data_frame_any[pk_field].is_null().sum()
+                        elif hasattr(data_frame_any[pk_field], "isna"):
                             # pandas
-                            null_count = df_any[pk_field].isna().sum()
+                            null_count = data_frame_any[pk_field].isna().sum()
                         else:
                             null_count = 0
 
@@ -1035,14 +1035,14 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             if manifest.constraints and "nullability" in manifest.constraints:
                 validation_details["checks_performed"].append("required_fields")
                 for field, nullable in manifest.constraints["nullability"].items():
-                    if not nullable and hasattr(df, "columns") and field in df.columns:
+                    if not nullable and hasattr(data_frame, "columns") and field in data_frame.columns:
                         # Handle both Polars and pandas
-                        if hasattr(df[field], "is_null"):
+                        if hasattr(data_frame[field], "is_null"):
                             # Polars
-                            null_count = df[field].is_null().sum()
-                        elif hasattr(df[field], "isna"):
+                            null_count = data_frame[field].is_null().sum()
+                        elif hasattr(data_frame[field], "isna"):
                             # pandas
-                            null_count = df[field].isna().sum()
+                            null_count = data_frame[field].isna().sum()
                         else:
                             null_count = 0
 
@@ -1165,29 +1165,29 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 logger.warning("Preflight warning for %s: %s", dataset_id, warning)
 
         # Convert to DataFrame if needed
-        df_obj = self._to_dataframe(records)
-        df = cast(DataFrameLike, df_obj)
+        data_frame_obj = self._to_dataframe(records)
+        data_frame = cast(DataFrameLike, data_frame_obj)
 
         extra_metadata: dict[str, object] = {}
         if pd is not None:
-            df_for_meta: pd.DataFrame | None
-            if isinstance(df, pd.DataFrame):
-                df_for_meta = df
-            elif hasattr(df, "to_pandas") and callable(getattr(df, "to_pandas")):
+            data_frame_for_meta: pd.DataFrame | None
+            if isinstance(data_frame, pd.DataFrame):
+                data_frame_for_meta = data_frame
+            elif hasattr(data_frame, "to_pandas") and callable(getattr(data_frame, "to_pandas")):
                 try:
-                    df_for_meta = df.to_pandas()
+                    data_frame_for_meta = data_frame.to_pandas()
                 except Exception:  # pragma: no cover - defensive conversion
-                    df_for_meta = None
+                    data_frame_for_meta = None
             else:
-                df_for_meta = None
-            if df_for_meta is not None:
-                extra_metadata = self._extract_ingestion_metadata_from_dataframe(df_for_meta)
+                data_frame_for_meta = None
+            if data_frame_for_meta is not None:
+                extra_metadata = self._extract_ingestion_metadata_from_dataframe(data_frame_for_meta)
 
         # Extract instrument_id if not provided
         if instrument_id is None:
-            if hasattr(df, "columns") and "instrument_id" in df.columns:
+            if hasattr(data_frame, "columns") and "instrument_id" in data_frame.columns:
                 # Handle both Polars and pandas
-                col = df["instrument_id"]
+                col = data_frame["instrument_id"]
                 if hasattr(col, "iloc"):
                     # pandas Series
                     instrument_id = str(col.iloc[0])
@@ -1200,7 +1200,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         # Validate data against contract based on enforcement mode
         # Only use strict_mode if contract enforcement is "strict"
         use_strict = contract.enforcement_mode == "strict"
-        quality_report = self.validate_batch(dataset_id, df, strict_mode=use_strict)
+        quality_report = self.validate_batch(dataset_id, data_frame, strict_mode=use_strict)
 
         # Check validation results with fail-closed approach
         if quality_report.quality_score < 1.0:
@@ -1256,8 +1256,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         # Extract timestamp range
         ts_field = manifest.ts_field
-        ts_min = int(cast(Any, df)[ts_field].min())
-        ts_max = int(cast(Any, df)[ts_field].max())
+        ts_min = int(cast(Any, data_frame)[ts_field].min())
+        ts_max = int(cast(Any, data_frame)[ts_field].max())
 
         # Determine appropriate store and stage based on dataset type
         stage = self._get_stage_for_dataset_type(manifest.dataset_type)
@@ -1266,7 +1266,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             # Route to appropriate store based on dataset type
             if manifest.dataset_type == DatasetType.FEATURES:
                 # Convert to FeatureData format and write
-                feature_data = self._df_to_feature_data(df, instrument_id)
+                feature_data = self._data_frame_to_feature_data(data_frame, instrument_id)
                 # Note: FeatureStore doesn't have a batch method, write individually
                 for feature in feature_data:
                     self.feature_store.write_features(
@@ -1279,7 +1279,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             elif manifest.dataset_type == DatasetType.PREDICTIONS:
                 # Convert to ModelPrediction format and write
-                predictions = self._df_to_predictions(df)
+                predictions = self._data_frame_to_predictions(data_frame)
                 try:
                     self.model_store.write_batch(predictions, emit_events=False, publish_bus=False)
                 except TypeError:
@@ -1287,7 +1287,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             elif manifest.dataset_type == DatasetType.SIGNALS:
                 # Convert to StrategySignal format and write
-                signals = self._df_to_signals(df)
+                signals = self._data_frame_to_signals(data_frame)
                 self.strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
 
             else:
@@ -1296,7 +1296,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     try:
                         written = self._raw_writer.write(
                             dataset_type=manifest.dataset_type,
-                            data=df,
+                            data=data_frame,
                         )
                         if written <= 0:
                             logger.warning(
@@ -1312,7 +1312,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                                 run_id=run_id,
                                 ts_min=ts_min,
                                 ts_max=ts_max,
-                                count=len(df),
+                                count=len(data_frame),
                                 reason="no_records_written",
                             )
                             return DataEvent(
@@ -1324,7 +1324,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                                 run_id=run_id,
                                 ts_min=ts_min,
                                 ts_max=ts_max,
-                                record_count=len(df),
+                                record_count=len(data_frame),
                                 status=EventStatus.PARTIAL.value,
                                 metadata={"no_write": True},
                             )
@@ -1338,7 +1338,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            count=len(df),
+                            count=len(data_frame),
                             error=str(e),
                         )
                         return DataEvent(
@@ -1350,7 +1350,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            record_count=len(df),
+                            record_count=len(data_frame),
                             status=EventStatus.FAILED.value,
                             error_message=str(e),
                         )
@@ -1372,7 +1372,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            count=len(df),
+                            count=len(data_frame),
                         )
                         return DataEvent(
                             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -1383,7 +1383,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            record_count=len(df),
+                            record_count=len(data_frame),
                             status=EventStatus.SUCCESS.value,
                             metadata={"no_write": True, **extra_metadata},
                         )
@@ -1401,7 +1401,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            count=len(df),
+                            count=len(data_frame),
                             reason="raw_writer_missing",
                         )
                         return DataEvent(
@@ -1413,7 +1413,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             run_id=run_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            record_count=len(df),
+                            record_count=len(data_frame),
                             status=EventStatus.PARTIAL.value,
                             metadata={"no_write": True, **extra_metadata},
                         )
@@ -1433,7 +1433,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 run_id=run_id,
                 ts_min=ts_min_s,
                 ts_max=ts_max_s,
-                record_count=len(df),
+                record_count=len(data_frame),
                 status=EventStatus.SUCCESS.value,
                 metadata={
                     "quality_score": quality_report.quality_score,
@@ -1459,7 +1459,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     run_id=run_id,
                     ts_min=ts_min_s,
                     ts_max=ts_max_s,
-                    count=len(df),
+                    count=len(data_frame),
                     status=EventStatus.SUCCESS,
                     dataset_type=str(
                         (
@@ -1486,7 +1486,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             instrument_id=instrument_id,
                             ts_min=ts_min,
                             ts_max=ts_max,
-                            count=len(df),
+                            count=len(data_frame),
                         )
                         topic = build_topic_for_stage(
                             stage_enum,
@@ -1502,7 +1502,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             "run_id": run_id,
                             "ts_min": ts_min_s,
                             "ts_max": ts_max_s,
-                            "count": len(df),
+                            "count": len(data_frame),
                             "status": EventStatus.SUCCESS.value,
                             "metadata": {"correlation_id": correlation_id},
                         }
@@ -1514,7 +1514,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             logger.info(
                 "Successfully wrote %d records to %s (quality=%.2f)",
-                len(df),
+                len(data_frame),
                 dataset_id,
                 quality_report.quality_score,
             )
@@ -1526,7 +1526,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 instrument_id=str(instrument_id or "unknown"),
                 ts_stage_start=ts_stage_start,
                 ts_stage_end=ts_stage_end,
-                row_count=len(df),
+                row_count=len(data_frame),
             )
 
             return event
@@ -1565,38 +1565,20 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             raise RuntimeError(f"Write operation failed: {e}") from e
 
     @staticmethod
-    def _extract_ingestion_metadata_from_dataframe(df: pd.DataFrame) -> dict[str, object]:
+    def _extract_ingestion_metadata_from_dataframe(data_frame: pd.DataFrame) -> dict[str, object]:
         if pd is None:
             return {}
         metadata: dict[str, object] = {}
-        if df.empty:
+        if data_frame.empty:
             return metadata
 
-        if "source_dataset" in df.columns:
+        if "source_dataset" in data_frame.columns:
             values = (
-                df["source_dataset"].dropna().astype(str).unique().tolist()
+                data_frame["source_dataset"].dropna().astype(str).unique().tolist()
             )
             normalized = [value for value in values if value]
             if normalized:
                 metadata["source_datasets"] = sorted(dict.fromkeys(normalized))
-
-        if "aggregation_mode" in df.columns:
-            modes = (
-                df["aggregation_mode"].dropna().astype(str).unique().tolist()
-            )
-            normalized_modes = [mode for mode in modes if mode]
-            if normalized_modes:
-                metadata["aggregation_modes"] = sorted(dict.fromkeys(normalized_modes))
-
-        if "scaling_factor" in df.columns:
-            factors = (
-                pd.to_numeric(df["scaling_factor"], errors="coerce")
-                .dropna()
-                .unique()
-                .tolist()
-            )
-            if factors:
-                metadata["scaling_factors"] = sorted({float(factor) for factor in factors})
 
         return metadata
 
@@ -2036,7 +2018,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         Examples
         --------
-        >>> df = store.read_range(
+        >>> data_frame = store.read_range(
         ...     dataset_id="features",
         ...     instrument_id="EUR/USD",
         ...     start_ns=1234567890000000000,
@@ -2132,7 +2114,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         Examples
         --------
-        >>> report = store.validate_batch("bars_eurusd_1m", df)
+        >>> report = store.validate_batch("bars_eurusd_1m", data_frame)
         >>> print(f"Quality score: {report.quality_score:.2%}")
         >>> if report.violations:
         ...     for violation in report.violations:
@@ -2146,8 +2128,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         contract = self._get_contract(dataset_id)
 
         # Convert to DataFrame for validation
-        df_obj = self._to_dataframe(data)
-        df = cast(DataFrameLike, df_obj)
+        data_frame_obj = self._to_dataframe(data)
+        data_frame = cast(DataFrameLike, data_frame_obj)
 
         # Track violations
         violations: list[ValidationViolation] = []
@@ -2170,14 +2152,14 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     description=rule.description,
                 )
 
-            violation = self._apply_validation_rule(rule, df, manifest)
+            violation = self._apply_validation_rule(rule, data_frame, manifest)
             if violation:
                 violations.append(violation)
                 # For simplicity, assume each violation affects unique records up to the total
                 # In a real implementation, we'd track actual record indices
                 if violation.severity == QualityFlag.FAIL:
                     # Add violation count but cap at total records to avoid overcounting
-                    for i in range(min(violation.violation_count, len(df))):
+                    for i in range(min(violation.violation_count, len(data_frame))):
                         failed_record_indices.add(i)
 
                 # Record violation metric
@@ -2189,7 +2171,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     ).inc(violation.violation_count)
 
         # Calculate quality score
-        total_records = len(df)
+        total_records = len(data_frame)
         failed_records = len(failed_record_indices)
         passed_records = total_records - failed_records
         quality_score = passed_records / total_records if total_records > 0 else 0.0
@@ -2199,10 +2181,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             # Calculate metrics
             from ml.common.dataframe_utils import total_nulls as _total_nulls
 
-            df_any = cast(Any, df)
-            null_count_total: int = _total_nulls(df_any)
+            data_frame_any = cast(Any, data_frame)
+            null_count_total: int = _total_nulls(data_frame_any)
 
-            base_count = (total_records * len(cast(Any, df).columns)) if total_records > 0 else 0
+            base_count = (total_records * len(cast(Any, data_frame).columns)) if total_records > 0 else 0
             null_rate = float(null_count_total) / float(base_count) if base_count else 0.0
 
             if "null_rate" in contract.quality_thresholds:
@@ -2496,7 +2478,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _apply_validation_rule(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
         """
@@ -2504,19 +2486,19 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         """
         try:
             if rule.rule_type == ValidationRuleType.TYPE_CHECK:
-                return self._validate_types(rule, df, manifest)
+                return self._validate_types(rule, data_frame, manifest)
             elif rule.rule_type == ValidationRuleType.RANGE:
-                return self._validate_range(rule, df)
+                return self._validate_range(rule, data_frame)
             elif rule.rule_type == ValidationRuleType.UNIQUENESS:
-                return self._validate_uniqueness(rule, df)
+                return self._validate_uniqueness(rule, data_frame)
             elif rule.rule_type == ValidationRuleType.MONOTONICITY:
-                return self._validate_monotonicity(rule, df)
+                return self._validate_monotonicity(rule, data_frame)
             elif rule.rule_type == ValidationRuleType.NULLABILITY:
-                return self._validate_nullability(rule, df)
+                return self._validate_nullability(rule, data_frame)
             elif rule.rule_type == ValidationRuleType.LATENESS:
-                return self._validate_lateness(rule, df, manifest)
+                return self._validate_lateness(rule, data_frame, manifest)
             elif rule.rule_type == ValidationRuleType.REGEX:
-                return self._validate_regex(rule, df)
+                return self._validate_regex(rule, data_frame)
             else:
                 logger.warning("Unknown validation rule type: %s", rule.rule_type)
                 return None
@@ -2534,10 +2516,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_types(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
         """
         Validate data types match schema.
         """
@@ -2546,9 +2528,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         # Check each column in schema
         for col_name, expected_type in manifest.schema.items():
-            if hasattr(df_any, "columns") and col_name in df_any.columns:
+            if hasattr(data_frame_any, "columns") and col_name in data_frame_any.columns:
                 # Get actual type
-                actual_type = str(df_any[col_name].dtype)
+                actual_type = str(data_frame_any[col_name].dtype)
 
                 # Simple type checking (would be more sophisticated in production)
                 if not self._types_compatible(actual_type, expected_type):
@@ -2570,18 +2552,18 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_regex(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
     ) -> ValidationViolation | None:
         """
         Validate a column against a regex pattern.
         """
         import re as _re
 
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
         field_name = rule.field_name
         params = rule.parameters
         pattern = str(params.get("pattern", ""))
-        if not pattern or not hasattr(df_any, "columns") or field_name not in df_any.columns:
+        if not pattern or not hasattr(data_frame_any, "columns") or field_name not in data_frame_any.columns:
             return None
 
         try:
@@ -2597,7 +2579,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 description="Invalid regex pattern",
             )
 
-        col = df_any[field_name]
+        col = data_frame_any[field_name]
         violations = 0
         samples: list[str] = []
 
@@ -2642,22 +2624,22 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             )
         return None
 
-    def _validate_range(self, rule: ValidationRule, df: object) -> ValidationViolation | None:
+    def _validate_range(self, rule: ValidationRule, data_frame: object) -> ValidationViolation | None:
         """
         Validate values are within specified range.
         """
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df_any, "columns") or field_name not in df_any.columns:
+        if not hasattr(data_frame_any, "columns") or field_name not in data_frame_any.columns:
             return None
 
         violations = 0
         sample_values = []
 
         # Get column values
-        col = df_any[field_name]
+        col = data_frame_any[field_name]
 
         # Check min
         if "min" in params:
@@ -2730,29 +2712,29 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_uniqueness(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
     ) -> ValidationViolation | None:
         """
         Validate uniqueness constraints.
         """
         field_name = rule.field_name
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
 
-        if not hasattr(df_any, "columns"):
+        if not hasattr(data_frame_any, "columns"):
             return None
 
         # Handle composite keys
         if "," in field_name:
             key_fields = [f.strip() for f in field_name.split(",")]
-            if all(f in df_any.columns for f in key_fields):
+            if all(f in data_frame_any.columns for f in key_fields):
                 # Check for duplicates on composite key
-                if hasattr(df_any, "is_duplicated"):
+                if hasattr(data_frame_any, "is_duplicated"):
                     # Polars
-                    duplicates = df_any.select(key_fields).is_duplicated()
+                    duplicates = data_frame_any.select(key_fields).is_duplicated()
                     duplicate_count = duplicates.sum()
-                elif hasattr(df_any, "duplicated"):
+                elif hasattr(data_frame_any, "duplicated"):
                     # pandas
-                    duplicates = df_any.duplicated(subset=key_fields)
+                    duplicates = data_frame_any.duplicated(subset=key_fields)
                     duplicate_count = duplicates.sum()
                 else:
                     duplicate_count = 0
@@ -2768,24 +2750,24 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     )
         else:
             # Single field uniqueness
-            if field_name in df_any.columns:
-                if hasattr(df_any, "is_duplicated"):
+            if field_name in data_frame_any.columns:
+                if hasattr(data_frame_any, "is_duplicated"):
                     # Polars
-                    duplicates = df_any.select([field_name]).is_duplicated()
+                    duplicates = data_frame_any.select([field_name]).is_duplicated()
                     duplicate_count = duplicates.sum()
                     sample_values = []
                     if duplicate_count > 0:
                         # Get sample duplicate values
-                        duplicate_vals = df_any[field_name].filter(duplicates)
+                        duplicate_vals = data_frame_any[field_name].filter(duplicates)
                         sample_values = duplicate_vals.head(5).to_list()
-                elif hasattr(df_any, "duplicated"):
+                elif hasattr(data_frame_any, "duplicated"):
                     # pandas
-                    duplicates = df_any.duplicated(subset=[field_name])
+                    duplicates = data_frame_any.duplicated(subset=[field_name])
                     duplicate_count = duplicates.sum()
                     sample_values = []
                     if duplicate_count > 0:
                         # Get sample duplicate values
-                        duplicate_vals = df_any[field_name][duplicates]
+                        duplicate_vals = data_frame_any[field_name][duplicates]
                         if hasattr(duplicate_vals, "head"):
                             sample_values = duplicate_vals.head(5).to_list()
                 else:
@@ -2807,20 +2789,20 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_monotonicity(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
     ) -> ValidationViolation | None:
         """
         Validate monotonic sequences (e.g., timestamps).
         """
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
 
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df_any, "columns") or field_name not in df_any.columns:
+        if not hasattr(data_frame_any, "columns") or field_name not in data_frame_any.columns:
             return None
 
-        col = df_any[field_name]
+        col = data_frame_any[field_name]
         direction = params.get("direction", "increasing")
         strict = params.get("strict", True)
 
@@ -2882,16 +2864,16 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_nullability(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
     ) -> ValidationViolation | None:
         """
         Validate null value constraints.
         """
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df_any, "columns"):
+        if not hasattr(data_frame_any, "columns"):
             return None
 
         nullable = params.get("nullable", True)
@@ -2902,8 +2884,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 from ml.common.dataframe_utils import column_nulls as _col_nulls
                 from ml.common.dataframe_utils import total_nulls as _total
 
-                total_nulls = _total(df_any)
-                fields_with_nulls = [col for col in df_any.columns if _col_nulls(df_any, col) > 0]
+                total_nulls = _total(data_frame_any)
+                fields_with_nulls = [col for col in data_frame_any.columns if _col_nulls(data_frame_any, col) > 0]
 
                 if total_nulls > 0:
                     return ValidationViolation(
@@ -2916,10 +2898,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     )
             else:
                 # Check specific field
-                if field_name in df_any.columns:
+                if field_name in data_frame_any.columns:
                     from ml.common.dataframe_utils import column_nulls as _col_nulls
 
-                    null_count = _col_nulls(df_any, field_name)
+                    null_count = _col_nulls(data_frame_any, field_name)
 
                     if null_count > 0:
                         return ValidationViolation(
@@ -2936,25 +2918,25 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     def _validate_lateness(
         self,
         rule: ValidationRule,
-        df: object,
+        data_frame: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
         """
         Validate data freshness/lateness.
         """
-        df_any = cast(Any, df)
+        data_frame_any = cast(Any, data_frame)
         params = rule.parameters
         max_lateness_ns = params.get("max_lateness_ns", 300_000_000_000)  # Default 5 minutes
 
         ts_field = manifest.ts_field
-        if not hasattr(df_any, "columns") or ts_field not in df_any.columns:
+        if not hasattr(data_frame_any, "columns") or ts_field not in data_frame_any.columns:
             return None
 
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
         current_ns = _sanitize(int(time.time_ns()), context="data_store._validate_lateness:now")
         latest_ts = _sanitize(
-            int(cast(Any, df)[ts_field].max()),
+            int(cast(Any, data_frame)[ts_field].max()),
             context="data_store._validate_lateness:latest",
         )
 
@@ -3007,7 +2989,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return "; ".join(parts)
 
-    def _df_to_feature_data(self, df: DataFrameLike, instrument_id: str) -> list[FeatureData]:
+    def _data_frame_to_feature_data(self, data_frame: DataFrameLike, instrument_id: str) -> list[FeatureData]:
         """
         Convert DataFrame to list of FeatureData.
         """
@@ -3017,10 +2999,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         feature_set_id = f"features_{instrument_id.lower().replace('/', '_')}"
 
         # Handle both Polars and pandas-like DataFrames
-        if hasattr(df, "iter_rows"):
+        if hasattr(data_frame, "iter_rows"):
             # Polars DataFrame
-            df_polars = cast(Any, df)
-            for row in df_polars.iter_rows(named=True):
+            data_frame_polars = cast(Any, data_frame)
+            for row in data_frame_polars.iter_rows(named=True):
                 features.append(
                     FeatureData(
                         feature_set_id=feature_set_id,
@@ -3034,9 +3016,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
                     ),
                 )
-        elif hasattr(df, "iterrows"):
+        elif hasattr(data_frame, "iterrows"):
             # pandas DataFrame
-            for _, row in df.iterrows():
+            for _, row in data_frame.iterrows():
                 features.append(
                     FeatureData(
                         feature_set_id=feature_set_id,
@@ -3052,7 +3034,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 )
         else:
             # Fallback for list of dicts
-            for row in df:
+            for row in data_frame:
                 if isinstance(row, dict):
                     features.append(
                         FeatureData(
@@ -3070,17 +3052,17 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return features
 
-    def _df_to_predictions(self, df: DataFrameLike | list[dict[str, Any]]) -> list[ModelPrediction]:
+    def _data_frame_to_predictions(self, data_frame: DataFrameLike | list[dict[str, Any]]) -> list[ModelPrediction]:
         """
         Convert DataFrame to list of ModelPrediction.
         """
         predictions = []
 
         # Handle both Polars and pandas-like DataFrames
-        if hasattr(df, "iter_rows"):
+        if hasattr(data_frame, "iter_rows"):
             # Polars DataFrame
-            df_polars = cast(Any, df)
-            for row in df_polars.iter_rows(named=True):
+            data_frame_polars = cast(Any, data_frame)
+            for row in data_frame_polars.iter_rows(named=True):
                 predictions.append(
                     ModelPrediction(
                         model_id=row["model_id"],
@@ -3093,9 +3075,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
                     ),
                 )
-        elif hasattr(df, "iterrows"):
+        elif hasattr(data_frame, "iterrows"):
             # pandas DataFrame
-            for _, row in df.iterrows():
+            for _, row in data_frame.iterrows():
                 predictions.append(
                     ModelPrediction(
                         model_id=row["model_id"],
@@ -3110,7 +3092,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 )
         else:
             # Fallback for list of dicts
-            for row in df:
+            for row in data_frame:
                 if isinstance(row, dict):
                     predictions.append(
                         ModelPrediction(
@@ -3127,17 +3109,17 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return predictions
 
-    def _df_to_signals(self, df: DataFrameLike | list[dict[str, Any]]) -> list[StrategySignal]:
+    def _data_frame_to_signals(self, data_frame: DataFrameLike | list[dict[str, Any]]) -> list[StrategySignal]:
         """
         Convert DataFrame to list of StrategySignal.
         """
         signals = []
 
         # Handle both Polars and pandas-like DataFrames
-        if hasattr(df, "iter_rows"):
+        if hasattr(data_frame, "iter_rows"):
             # Polars DataFrame
-            df_polars = cast(Any, df)
-            for row in df_polars.iter_rows(named=True):
+            data_frame_polars = cast(Any, data_frame)
+            for row in data_frame_polars.iter_rows(named=True):
                 signals.append(
                     StrategySignal(
                         strategy_id=row["strategy_id"],
@@ -3151,9 +3133,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
                     ),
                 )
-        elif hasattr(df, "iterrows"):
+        elif hasattr(data_frame, "iterrows"):
             # pandas DataFrame
-            for _, row in df.iterrows():
+            for _, row in data_frame.iterrows():
                 signals.append(
                     StrategySignal(
                         strategy_id=row["strategy_id"],
@@ -3169,7 +3151,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 )
         else:
             # Fallback for list of dicts
-            for row in df:
+            for row in data_frame:
                 if isinstance(row, dict):
                     signals.append(
                         StrategySignal(
@@ -3188,6 +3170,31 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                     )
 
         return signals
+
+    # ------------------------------------------------------------------
+    # Legacy compatibility helpers (used by older unit tests)
+    # ------------------------------------------------------------------
+
+    def _df_to_predictions(
+        self,
+        data_frame: DataFrameLike | list[dict[str, Any]],
+    ) -> list[ModelPrediction]:
+        """
+        Backwards-compatible alias for `_data_frame_to_predictions`.
+
+        Historically the unit tests referenced `_df_to_predictions`; retain the typed
+        wrapper so existing imports continue to work.
+        """
+        return self._data_frame_to_predictions(data_frame)
+
+    def _df_to_signals(
+        self,
+        data_frame: DataFrameLike | list[dict[str, Any]],
+    ) -> list[StrategySignal]:
+        """
+        Backwards-compatible alias for `_data_frame_to_signals`.
+        """
+        return self._data_frame_to_signals(data_frame)
 
     def _ensure_dataset_registered(
         self,
@@ -3220,22 +3227,22 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             self.registry.register_dataset(manifest)
             logger.info("Auto-registered dataset %s", dataset_id)
 
-    def _compute_schema_hash(self, df: DataFrameLike, manifest: DatasetManifest) -> str:
+    def _compute_schema_hash(self, data_frame: DataFrameLike, manifest: DatasetManifest) -> str:
         """
         Compute schema hash for the actual data.
         """
-        df_any = cast(Any, df)
-        if not hasattr(df_any, "columns"):
+        data_frame_any = cast(Any, data_frame)
+        if not hasattr(data_frame_any, "columns"):
             # For non-DataFrame data, use manifest hash
             return manifest.schema_hash
 
         # Build schema dict from actual data
         actual_schema: dict[str, str] = {}
-        for col in df_any.columns:
+        for col in data_frame_any.columns:
             if col in manifest.schema:
                 actual_schema[col] = manifest.schema[col]
             else:
-                dtype = str(df_any[col].dtype)
+                dtype = str(data_frame_any[col].dtype)
                 lower = dtype.lower()
                 if "int" in lower:
                     actual_schema[col] = "int64"

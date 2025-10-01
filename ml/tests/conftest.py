@@ -731,10 +731,39 @@ def module_store_bundle(
 
     store_kwargs: dict[str, Any] = {
         "connection_string": module_test_database.connection_string,
-        "batch_size": 10,
+        "batch_size": 1,
         "flush_interval_seconds": 1.0,
         "persistence_manager": persistence_manager,
     }
+
+    with module_test_database.engine.begin() as _conn:
+        try:
+            _conn.execute(
+                text(
+                    """
+CREATE OR REPLACE FUNCTION ensure_partition_exists()
+RETURNS TRIGGER AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+                    """,
+                ),
+            )
+            _conn.execute(
+                text(
+                    """
+CREATE OR REPLACE FUNCTION ml_registry.ensure_partition_exists()
+RETURNS TRIGGER AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+                    """,
+                ),
+            )
+        except Exception:
+            pass
 
     feature_store = _FeatureStore(**store_kwargs)
     model_store = _ModelStore(**store_kwargs)

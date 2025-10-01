@@ -38,6 +38,7 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 
 - **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
   - Includes Databento guardrails (enabled on venv activate) and standardized dataset `EQUS.MINI` for US equities standard plan
+  - Offline ingestion helper: `python -m ml.cli.ingest_dbn_archive --db-url postgresql://… data/batch/EQUS-*.zip`
 
 **Pipeline Orchestrator Quick Commands**
 

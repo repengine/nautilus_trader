@@ -92,8 +92,6 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
             "publisher_id": "str",
             "rtype": "str",
             "source_dataset": "str",
-            "aggregation_mode": "str",
-            "scaling_factor": "float64",
         },
         metadata={
             "schema_kind": "bars",

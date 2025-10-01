@@ -672,11 +672,9 @@ class MLIntegrationManager:
             logger.warning("CLI migration helpers unavailable (%s); using fallback plan", exc)
             migrations = [
                 "ml/registry/migrations/001_initial_schema.sql",
-                "ml/stores/migrations/001_stores_schema.sql",
-                "ml/stores/migrations/002_auto_partitioning.sql",
-                "ml/stores/migrations/003_market_data.sql",
-                "ml/stores/migrations/004_data_registry.sql",
-                "ml/stores/migrations/007_add_event_metadata.sql",
+                "ml/registry/migrations/002_add_cold_path_fields.sql",
+                "ml/registry/migrations/003_add_artifact_digest.sql",
+                "ml/stores/migrations/001_bootstrap_schema.sql",
             ]
 
             # Use the same splitter as the CLI when available

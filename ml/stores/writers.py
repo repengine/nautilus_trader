@@ -100,9 +100,9 @@ class CatalogWriteFacade:
             if len(records) == 0:
                 # Nothing to write
                 return object()
-            df = pd.DataFrame.from_records(records)
+            frame = pd.DataFrame.from_records(records)
         else:
-            df = records
+            frame = records
         if instrument_id is None:
             instrument_id = "UNKNOWN"
         # Default schema token for bars; writer may not require it strictly
@@ -110,7 +110,7 @@ class CatalogWriteFacade:
             dataset_id=dataset_id,
             schema="ohlcv",
             instrument_id=str(instrument_id),
-            df=df,
+            df=frame,
         )
         return object()
 
@@ -670,6 +670,7 @@ class LiveDataRecorder:
                         "low": float(b.low.as_double()),
                         "close": float(b.close.as_double()),
                         "volume": float(b.volume.as_double()),
+                        "source_dataset": "LIVE",
                     },
                 )
 

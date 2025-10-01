@@ -33,33 +33,16 @@ IDEMPOTENT_ERROR_PHRASES: Final[tuple[str, ...]] = (
     "is not partitioned",
 )
 
-# Canonical baseline list mirrors MLIntegrationManager._run_migrations
+# Canonical baseline list (consolidated 2025-10-01 from 18 fragmented migrations)
 _BASE_MIGRATIONS: Final[tuple[str, ...]] = (
     "ml/registry/migrations/001_initial_schema.sql",
     "ml/registry/migrations/002_add_cold_path_fields.sql",
     "ml/registry/migrations/003_add_artifact_digest.sql",
-    "ml/stores/migrations/001_stores_schema.sql",
-    "ml/stores/migrations/002_auto_partitioning.sql",
-    "ml/stores/migrations/003_market_data.sql",
-    "ml/stores/migrations/004_data_registry.sql",
-    "ml/stores/migrations/007_add_event_metadata.sql",
-    "ml/stores/migrations/010_backfill_market_data_provenance.sql",
+    "ml/stores/migrations/001_bootstrap_schema.sql",
 )
 
-# Optional extras (applied when --full or --include-optional is set)
-_OPTIONAL_MIGRATIONS: Final[tuple[str, ...]] = (
-    # Hardening & views
-    "ml/stores/migrations/005_schema_hardening.sql",
-    "ml/stores/migrations/005_views.sql",
-    # Test-time optimizations/indices
-    "ml/stores/migrations/006_disable_partition_triggers.sql",
-    "ml/stores/migrations/007_brin_indexes.sql",
-    # Canonicalize predictions dataset id and lineage
-    "ml/stores/migrations/008_predictions_alias.sql",
-    "ml/stores/migrations/009_update_parents_predictions.sql",
-    # Emergency fixes
-    "ml/migrations/999_fix_partitions_immediate.sql",
-)
+# Optional extras (no longer needed - consolidated into bootstrap)
+_OPTIONAL_MIGRATIONS: Final[tuple[str, ...]] = ()
 
 
 class MigrationSchema(str, Enum):

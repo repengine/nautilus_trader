@@ -428,8 +428,6 @@ class MarketBindingMetadata:
     rows_from_store: int
     rows_from_catalog: int
     source_datasets: tuple[str, ...] | None = None
-    aggregation_modes: tuple[str, ...] | None = None
-    scaling_factors: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -521,8 +519,6 @@ def _binding_stats_to_metadata(
                 rows_from_store=stat.rows_from_store,
                 rows_from_catalog=stat.rows_from_catalog,
                 source_datasets=tuple(sorted(stat.source_datasets)) if stat.source_datasets else None,
-                aggregation_modes=tuple(sorted(stat.aggregation_modes)) if stat.aggregation_modes else None,
-                scaling_factors=tuple(sorted({float(value) for value in stat.scaling_factors})) if stat.scaling_factors else None,
             ),
         )
     return tuple(entries)
@@ -558,8 +554,16 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
                 continue
             symbols_field = entry.get("symbols")
             instrument_field = entry.get("instrument_ids")
-            symbols_tuple = tuple(str(item) for item in symbols_field) if isinstance(symbols_field, (list, tuple)) else ()
-            instruments_tuple = tuple(str(item) for item in instrument_field) if isinstance(instrument_field, (list, tuple)) else ()
+            symbols_tuple = (
+                tuple(str(item) for item in symbols_field)
+                if isinstance(symbols_field, list | tuple)
+                else ()
+            )
+            instruments_tuple = (
+                tuple(str(item) for item in instrument_field)
+                if isinstance(instrument_field, list | tuple)
+                else ()
+            )
             converted.append(
                 MarketBindingMetadata(
                     binding_id=str(entry.get("binding_id")),
@@ -1374,7 +1378,7 @@ def _ensure_datetime(value: datetime | float | None) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    if isinstance(value, (int, float, np.generic)):
+    if isinstance(value, int | float | np.generic):
         try:
             return datetime.fromtimestamp(float(value) / 1_000_000_000, tz=UTC)
         except (OSError, OverflowError, ValueError):  # pragma: no cover - defensive

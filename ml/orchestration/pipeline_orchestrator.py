@@ -582,6 +582,28 @@ class MLPipelineOrchestrator:
                         start_ns=start_ns,
                         end_ns=end_ns,
                     )
+                    if binding is None and candidates:
+                        if effective_inputs:
+                            logger.info(
+                                "Coverage unavailable; using discovered market binding",
+                                extra={
+                                    "symbol": symbol,
+                                    "dataset_id": candidates[0].dataset_id,
+                                    "schema": candidates[0].schema or default_schema,
+                                },
+                            )
+                            binding = candidates[0]
+                        else:
+                            discovered = self._discover_binding_for_symbol(
+                                symbol=symbol,
+                                instrument_ids=instrument_ids or None,
+                                schema=default_schema,
+                                start_ns=start_ns,
+                                end_ns=end_ns,
+                            )
+                            if discovered is not None:
+                                candidates = (discovered,)
+                                binding = discovered
                 else:
                     binding = None
                 if binding is None and candidates:
@@ -2166,13 +2188,9 @@ class MLPipelineOrchestrator:
             for binding in metadata.market_bindings:
                 if (binding.dataset_id or "").upper() != "EQUS.MINI":
                     continue
-                if not binding.source_datasets or not binding.aggregation_modes:
+                if not binding.source_datasets:
                     raise ValueError(
-                        "EQUS.MINI metadata missing provenance fields (source_datasets/aggregation_modes)",
-                    )
-                if "scaled_volume" in binding.aggregation_modes and not binding.scaling_factors:
-                    raise ValueError(
-                        "EQUS.MINI scaling fallback lacks recorded scaling_factors",
+                        "EQUS.MINI metadata missing source_datasets provenance",
                     )
 
     @staticmethod

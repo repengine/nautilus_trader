@@ -43,7 +43,7 @@ class TestStorePersistence:
                 text(
                     """
                         SELECT instrument_id, ts_event
-                        FROM ml_feature_values
+                        FROM public.ml_feature_values
                         WHERE feature_set_id = :feature_set_id
                         LIMIT 1
                         """,
@@ -88,7 +88,7 @@ class TestStorePersistence:
                 text(
                     """
                         SELECT COUNT(*)
-                        FROM ml_model_predictions
+                        FROM public.ml_model_predictions
                         WHERE model_id = :model_id
                     """,
                 ),
@@ -132,7 +132,7 @@ class TestStorePersistence:
                 text(
                     """
                         SELECT COUNT(*)
-                        FROM ml_strategy_signals
+                        FROM public.ml_strategy_signals
                         WHERE strategy_id = :sid
                     """,
                 ),

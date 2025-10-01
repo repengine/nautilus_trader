@@ -115,6 +115,7 @@ class TestDatabase:
                     pool_size=2,  # Conservative for tests
                     max_overflow=3,  # Conservative for tests
                 )
+                event.listen(self.engine, "connect", self._enforce_search_path)
 
         # Create session factory
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
@@ -128,6 +129,23 @@ class TestDatabase:
         Enable foreign key constraints for SQLite.
         """
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+    @staticmethod
+    def _enforce_search_path(dbapi_conn: Any, connection_record: Any) -> None:
+        """
+        Ensure PostgreSQL sessions default to the public schema first.
+        """
+        try:
+            cursor = dbapi_conn.cursor()
+        except Exception:
+            return
+        try:
+            cursor.execute("SET search_path TO public, pg_catalog, ml_registry")
+        finally:
+            try:
+                cursor.close()
+            except Exception:
+                pass
 
     def init_schema(self, schema_files: list[Path] | None = None) -> None:
         """
@@ -272,17 +290,24 @@ $$ LANGUAGE plpgsql;
         self._schema_initialized = True
         _SCHEMA_INITIALIZED[engine_key] = True
 
+        # Re-run database hygiene to disable legacy triggers and ensure partitions.
+        try:
+            from ml.tests.fix_database_issues import _ensure_functions_and_partitions
+
+            _ensure_functions_and_partitions(self.engine)
+        except Exception:
+            # Non-fatal: tests depending on the helper will surface issues explicitly.
+            pass
+
     def _get_default_schema_files(self) -> list[Path]:
         """
         Get default ML schema files.
         """
         migrations_dir = Path(__file__).parent.parent.parent.parent / "stores" / "migrations"
 
-        # Core schema files for testing
+        # Consolidated bootstrap schema (2025-10-01: merged 18 migrations)
         schema_files = [
-            migrations_dir / "001_stores_schema.sql",
-            migrations_dir / "003_market_data.sql",
-            migrations_dir / "004_data_registry.sql",
+            migrations_dir / "001_bootstrap_schema.sql",
         ]
 
         # Filter to existing files
@@ -661,7 +686,7 @@ class DatabaseSnapshot:
         """
         Take snapshot of current database state.
         """
-        snapshot = {}
+        snapshot: dict[str, pd.DataFrame] = {}
 
         # Get all tables
         metadata = MetaData()
@@ -669,8 +694,8 @@ class DatabaseSnapshot:
 
         # Save data from each table
         for table in metadata.tables:
-            df = self.database.get_table_data(table)
-            snapshot[table] = df
+            table_frame = self.database.get_table_data(table)
+            snapshot[table] = table_frame
 
         self.snapshots[name] = snapshot
 

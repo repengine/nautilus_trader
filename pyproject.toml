@@ -430,6 +430,7 @@ max-complexity = 10
     "RUF100", # Unused noqa directives in some tests
     "PIE810", # startswith tuple grouping in tests
 ]
+"ml/data/tft_dataset_builder.py" = ["PD901"]
 
 [tool.mypy]
 python_version = "3.11"

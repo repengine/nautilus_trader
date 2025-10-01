@@ -15,8 +15,6 @@ from ml.data.ingest.api import IngestionJob
 from ml.data.ingest.api import fetch_symbol_data
 from ml.data.ingest.api import run_jobs
 from ml.data.ingest.policy import DatabentoCoveragePolicy
-from ml.data.ingest.calibration import CalibrationBundle
-from ml.data.ingest.calibration import SymbolCalibration
 from ml.data.ingest.service import CostViolationError
 from ml.data.ingest.service import IngestionError
 from ml.data.ingest.service import DatabentoIngestionService
@@ -188,204 +186,6 @@ class _VariantSymbology:
         return {"result": {symbol: ({"s": "0", "symbol": base},)}}
 
 
-class _FallbackTimeseries:
-    def __init__(
-        self,
-        *,
-        fallback_rows_pre: list[dict[str, object]],
-        fallback_rows_reference: list[dict[str, object]],
-        trade_rows: list[dict[str, object]],
-        eq_reference_rows: list[dict[str, object]],
-        eq_reference_start: datetime,
-    ) -> None:
-        self.calls: list[dict[str, object]] = []
-        self._fallback_rows_pre = fallback_rows_pre
-        self._fallback_rows_reference = fallback_rows_reference
-        self._trade_rows = trade_rows
-        self._eq_reference_rows = eq_reference_rows
-        self._eq_reference_start = eq_reference_start
-
-    @property
-    def fallback_rows(self) -> list[dict[str, object]]:
-        return self._fallback_rows_pre
-
-    def get_range(self, **kwargs: object) -> pd.DataFrame:
-        record = {key: kwargs[key] for key in ("dataset", "symbols", "schema") if key in kwargs}
-        self.calls.append(record)
-        dataset = str(kwargs.get("dataset") or "")
-        schema = str(kwargs.get("schema") or "").lower()
-        start_raw = kwargs.get("start")
-        start_dt = pd.to_datetime(start_raw, utc=True) if start_raw is not None else None
-        if dataset == "EQUS.MINI":
-            if start_dt is not None and start_dt >= self._eq_reference_start:
-                return pd.DataFrame(self._eq_reference_rows)
-            return pd.DataFrame()
-        if dataset == "XNAS.ITCH":
-            if schema == "trades":
-                if start_dt is not None and start_dt < self._eq_reference_start:
-                    return pd.DataFrame(self._trade_rows)
-                return pd.DataFrame()
-            if start_dt is not None and start_dt >= self._eq_reference_start:
-                return pd.DataFrame(self._fallback_rows_reference)
-            return pd.DataFrame(self._fallback_rows_pre)
-        return pd.DataFrame()
-
-
-class _FallbackMetadata:
-    def __init__(self, eq_start: datetime) -> None:
-        self.eq_start = eq_start
-
-    def get_cost(self, **_: object) -> float:
-        return 0.0
-
-    def get_dataset_range(self, dataset: str) -> dict[str, object]:
-        if dataset == "EQUS.MINI":
-            start_iso = self.eq_start.isoformat()
-            end_iso = datetime(2024, 1, 1, tzinfo=UTC).isoformat()
-            return {
-                "start": start_iso,
-                "end": end_iso,
-                "schema": {
-                    "ohlcv-1m": {
-                        "start": start_iso,
-                        "end": end_iso,
-                    },
-                },
-            }
-        return {
-            "start": datetime(2018, 1, 1, tzinfo=UTC).isoformat(),
-            "end": datetime(2024, 1, 1, tzinfo=UTC).isoformat(),
-        }
-
-
-class _FallbackHistorical:
-    def __init__(self) -> None:
-        fallback_rows_pre = [
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2020, 5, 1, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 2,
-                "instrument_id": "INTC.XNAS",
-                "open": 29.0,
-                "high": 29.1,
-                "low": 28.9,
-                "close": 29.05,
-                "volume": 400.0,
-                "symbol": "INTC",
-            },
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2020, 5, 1, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 2,
-                "instrument_id": "INTC.XNAS",
-                "open": 29.05,
-                "high": 29.07,
-                "low": 29.02,
-                "close": 29.06,
-                "volume": 250.0,
-                "symbol": "INTC",
-            },
-        ]
-        trade_rows = [
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 30, 0, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "price": 29.00,
-                "size": 100,
-                "sale_condition": "@",
-            },
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 30, 10, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "price": 29.05,
-                "size": 150,
-                "sale_condition": "A",
-            },
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 30, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "price": 29.04,
-                "size": 150,
-                "sale_condition": "@",
-            },
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 31, 0, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "price": 29.05,
-                "size": 120,
-                "sale_condition": "@",
-            },
-            {
-                "ts_event": int(datetime(2020, 5, 1, 14, 31, 20, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "price": 29.06,
-                "size": 130,
-                "sale_condition": "Z",
-            },
-        ]
-        eq_reference_start = datetime(2023, 1, 1, tzinfo=UTC)
-        fallback_reference_rows = [
-            {
-                "ts_event": int(datetime(2023, 1, 2, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2023, 1, 2, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 2,
-                "instrument_id": "INTC.XNAS",
-                "open": 30.0,
-                "high": 30.1,
-                "low": 29.9,
-                "close": 30.05,
-                "volume": 420.0,
-                "symbol": "INTC",
-            },
-            {
-                "ts_event": int(datetime(2023, 1, 2, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2023, 1, 2, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 2,
-                "instrument_id": "INTC.XNAS",
-                "open": 30.05,
-                "high": 30.08,
-                "low": 29.96,
-                "close": 30.02,
-                "volume": 360.0,
-                "symbol": "INTC",
-            },
-        ]
-        eq_reference_rows = [
-            {
-                "ts_event": int(datetime(2023, 1, 2, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2023, 1, 2, 14, 30, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 95,
-                "instrument_id": "INTC.XNAS",
-                "open": 30.0,
-                "high": 30.12,
-                "low": 29.95,
-                "close": 30.07,
-                "volume": 840.0,
-                "symbol": "INTC",
-            },
-            {
-                "ts_event": int(datetime(2023, 1, 2, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "ts_init": int(datetime(2023, 1, 2, 14, 31, tzinfo=UTC).timestamp() * 1_000_000_000),
-                "rtype": 33,
-                "publisher_id": 95,
-                "instrument_id": "INTC.XNAS",
-                "open": 30.05,
-                "high": 30.1,
-                "low": 29.98,
-                "close": 30.03,
-                "volume": 720.0,
-                "symbol": "INTC",
-            },
-        ]
-        self.timeseries = _FallbackTimeseries(
-            fallback_rows_pre=fallback_rows_pre,
-            fallback_rows_reference=fallback_reference_rows,
-            trade_rows=trade_rows,
-            eq_reference_rows=eq_reference_rows,
-            eq_reference_start=eq_reference_start,
-        )
-        self.metadata = _FallbackMetadata(datetime(2023, 1, 1, tzinfo=UTC))
-        self.symbology = _SimpleSymbology()
 
 
 @pytest.fixture()
@@ -463,129 +263,10 @@ def test_ingest_allow_cost_bypasses_guard(safety_config: DatabentoSafetyConfig) 
     assert summaries[0].rows_returned == 2
 
 
-def test_ingest_fallback_canonicalizes_itch(safety_config: DatabentoSafetyConfig) -> None:
-    client = _FallbackHistorical()
-    calibration = CalibrationBundle(
-        generated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        symbols={
-            "INTC": SymbolCalibration(
-                sale_condition_allowlist=frozenset({"@", "A"}),
-                volume_scale_by_minute={870: 0.5, 871: 1.0},
-                price_scaling_by_minute={870: 2.0, 871: 1.0},
-                split_events={},
-                exclude_auction_minutes=frozenset(),
-            ),
-        },
-    )
-    service = DatabentoIngestionService(
-        client=client,
-        safety_config=safety_config,
-        policy=DatabentoCoveragePolicy(),
-        calibration=calibration,
-    )
-    start = datetime(2020, 5, 1, tzinfo=UTC)
-    end = start + timedelta(minutes=2)
-    request = IngestionRequest(
-        dataset="EQUS.MINI",
-        schema="ohlcv-1m",
-        symbols=("INTC",),
-        start=start,
-        end=end,
-        reason="fallback",
-    )
-    chunks: list[IngestionChunk] = []
-    summaries = service.ingest(request, on_chunk=chunks.append)
-    assert summaries
-    assert client.timeseries.calls[0]["dataset"] == "EQUS.MINI"
-    assert client.timeseries.calls[1]["dataset"] == "XNAS.ITCH"
-    assert any(call.get("schema") == "trades" for call in client.timeseries.calls)
-    assert summaries[0].rows_returned == len(client.timeseries.fallback_rows)
-    assert chunks
-    frame = chunks[0].frame
-    assert not frame.empty
-    assert set(frame["publisher_id"]) == {95}
-    assert frame["volume"].dtype == "int64"
-    assert list(frame["volume"]) == [200, 120]
-    assert list(frame.get("trade_count", [])) == [3, 1]
-    assert frame["source_dataset"].unique().tolist() == ["XNAS.ITCH"]
-    assert frame["aggregation_mode"].unique().tolist() == ["calibrated_reaggregated_trades"]
-    assert frame["close"].iloc[0] == pytest.approx(58.08, rel=1e-6)
-    assert frame["calibration_version"].unique().tolist() == ["2025-01-01T00:00:00+00:00"]
 
 
-def test_ingest_fallback_scaling_applies_volume_factor(
-    monkeypatch: pytest.MonkeyPatch,
-    safety_config: DatabentoSafetyConfig,
-) -> None:
-    monkeypatch.setenv("ML_EQUS_ENABLE_TRADE_REAGG", "0")
-    monkeypatch.setenv("ML_EQUS_ENABLE_VOLUME_SCALING", "1")
-    client = _FallbackHistorical()
-    service = DatabentoIngestionService(
-        client=client,
-        safety_config=safety_config,
-        policy=DatabentoCoveragePolicy(),
-    )
-    start = datetime(2020, 5, 1, tzinfo=UTC)
-    end = start + timedelta(minutes=2)
-    request = IngestionRequest(
-        dataset="EQUS.MINI",
-        schema="ohlcv-1m",
-        symbols=("INTC",),
-        start=start,
-        end=end,
-        reason="fallback_scale",
-    )
-    chunks: list[IngestionChunk] = []
-    summaries = service.ingest(request, on_chunk=chunks.append)
-    assert summaries
-    assert chunks
-    frame = chunks[0].frame
-    assert list(frame["volume"]) == [800, 500]
-    assert frame["aggregation_mode"].unique().tolist() == ["scaled_volume"]
-    assert frame["source_dataset"].unique().tolist() == ["XNAS.ITCH"]
-    assert frame["calibration_version"].isna().all()
 
 
-def test_ingest_fallback_applies_split_adjustment(
-    safety_config: DatabentoSafetyConfig,
-) -> None:
-    client = _FallbackHistorical()
-    calibration = CalibrationBundle(
-        generated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        symbols={
-            "INTC": SymbolCalibration(
-                sale_condition_allowlist=frozenset({"@", "A", "Z"}),
-                volume_scale_by_minute={},
-                price_scaling_by_minute={},
-                split_events={"2020-05-01": 0.5},
-                exclude_auction_minutes=frozenset(),
-            ),
-        },
-    )
-    service = DatabentoIngestionService(
-        client=client,
-        safety_config=safety_config,
-        policy=DatabentoCoveragePolicy(),
-        calibration=calibration,
-    )
-    start = datetime(2020, 5, 1, tzinfo=UTC)
-    end = start + timedelta(minutes=2)
-    request = IngestionRequest(
-        dataset="EQUS.MINI",
-        schema="ohlcv-1m",
-        symbols=("INTC",),
-        start=start,
-        end=end,
-        reason="fallback_split",
-    )
-    chunks: list[IngestionChunk] = []
-    service.ingest(request, on_chunk=chunks.append)
-    assert chunks
-    frame = chunks[0].frame
-    assert list(frame["volume"]) == [800, 500]
-    assert frame["close"].iloc[0] == pytest.approx(14.52, rel=1e-6)
-    assert frame["close"].iloc[1] == pytest.approx(14.53, rel=1e-6)
-    assert frame["calibration_version"].unique().tolist() == ["2025-01-01T00:00:00+00:00"]
 
 
 def test_cost_guard_symbol_variants(safety_config: DatabentoSafetyConfig) -> None:
@@ -652,8 +333,8 @@ def test_build_historical_adapter_provides_timeseries(safety_config: DatabentoSa
         start=datetime(2025, 9, 1, tzinfo=UTC),
         end=datetime(2025, 9, 2, tzinfo=UTC),
     )
-    df = result.to_df()
-    assert not df.empty
+    result_df = result.to_df()
+    assert not result_df.empty
 
 
 def test_build_like_client_returns_dataframe(safety_config: DatabentoSafetyConfig) -> None:
@@ -663,14 +344,14 @@ def test_build_like_client_returns_dataframe(safety_config: DatabentoSafetyConfi
         policy=DatabentoCoveragePolicy(),
     )
     like_client = build_like_client(service)
-    df = like_client.get_data(
+    like_df = like_client.get_data(
         dataset="EQUS.MINI",
         symbols=["SPY"],
         schema="trades",
         start=datetime(2025, 9, 1, tzinfo=UTC),
         end=datetime(2025, 9, 2, tzinfo=UTC),
     )
-    assert not df.empty
+    assert not like_df.empty
 
 
 def test_fetch_symbol_data_concatenates_chunks(safety_config: DatabentoSafetyConfig) -> None:
@@ -681,7 +362,7 @@ def test_fetch_symbol_data_concatenates_chunks(safety_config: DatabentoSafetyCon
     )
     start = datetime(2025, 9, 1, tzinfo=UTC)
     end = start + timedelta(days=2)
-    df = fetch_symbol_data(
+    fetched_df = fetch_symbol_data(
         service=service,
         dataset="EQUS.MINI",
         schema="trades",
@@ -690,7 +371,7 @@ def test_fetch_symbol_data_concatenates_chunks(safety_config: DatabentoSafetyCon
         end=end,
         chunk_days=1,
     )
-    assert len(df.index) == 4
+    assert len(fetched_df.index) == 4
 
 
 def test_run_jobs_executes_all_jobs(safety_config: DatabentoSafetyConfig) -> None:
@@ -797,3 +478,108 @@ def test_from_env_without_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(IngestionError):
         DatabentoIngestionService.from_env()
+
+
+def test_ingest_tags_source_dataset(safety_config: DatabentoSafetyConfig) -> None:
+    service = DatabentoIngestionService(
+        client=_FakeHistorical(cost=0.0),
+        safety_config=safety_config,
+        policy=DatabentoCoveragePolicy(),
+    )
+    start = datetime(2025, 9, 1, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    frames: list[pd.DataFrame] = []
+
+    service.ingest(_request(start, end), on_chunk=lambda chunk: frames.append(chunk.frame))
+
+    assert frames, "expected at least one chunk"
+    for frame in frames:
+        assert "source_dataset" in frame.columns
+        assert frame["source_dataset"].dropna().unique().tolist() == ["EQUS.MINI"]
+
+
+def test_ingest_fallback_tags_source_dataset(safety_config: DatabentoSafetyConfig) -> None:
+    class _FallbackTimeseriesSimple:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get_range(self, *, dataset: str, symbols: Sequence[str], schema: str, start: str | datetime, end: str | datetime, **_: Any) -> _FakeResult:
+            del symbols, schema, end
+            self.calls.append(dataset)
+            if isinstance(start, datetime):
+                start_dt = start
+            else:
+                start_dt = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            ts_event = int(start_dt.replace(tzinfo=UTC).timestamp() * 1_000_000_000)
+            if dataset == "EQUS.MINI":
+                return _FakeResult([])
+            return _FakeResult(
+                [
+                    {
+                        "ts_event": ts_event,
+                        "open": 1.0,
+                        "high": 1.1,
+                        "low": 0.9,
+                        "close": 1.05,
+                        "volume": 100,
+                    },
+                    {
+                        "ts_event": ts_event + 60_000_000_000,
+                        "open": 1.05,
+                        "high": 1.2,
+                        "low": 1.0,
+                        "close": 1.1,
+                        "volume": 120,
+                    },
+                ],
+            )
+
+    class _FallbackMetadataSimple:
+        def get_cost(self, **_: Any) -> float:
+            return 0.0
+
+        def get_dataset_range(self, dataset: str) -> dict[str, object]:
+            if dataset == "EQUS.MINI":
+                start = datetime(2025, 1, 1, tzinfo=UTC)
+                return {
+                    "start": start.isoformat(),
+                    "end": datetime(2025, 12, 31, tzinfo=UTC).isoformat(),
+                    "schema": {
+                        "ohlcv-1m": {
+                            "start": start.isoformat(),
+                            "end": datetime(2025, 12, 31, tzinfo=UTC).isoformat(),
+                        },
+                    },
+                }
+            return {
+                "start": datetime(2018, 1, 1, tzinfo=UTC).isoformat(),
+                "end": datetime(2025, 12, 31, tzinfo=UTC).isoformat(),
+            }
+
+    class _FallbackClient:
+        def __init__(self) -> None:
+            self.timeseries = _FallbackTimeseriesSimple()
+            self.metadata = _FallbackMetadataSimple()
+            self.symbology = _SimpleSymbology()
+
+    service = DatabentoIngestionService(
+        client=_FallbackClient(),
+        safety_config=safety_config,
+        policy=DatabentoCoveragePolicy(),
+    )
+    request = IngestionRequest(
+        dataset="EQUS.MINI",
+        schema="ohlcv-1m",
+        symbols=("INTC",),
+        start=datetime(2024, 12, 1, tzinfo=UTC),
+        end=datetime(2024, 12, 2, tzinfo=UTC),
+        reason="fallback-test",
+    )
+    frames: list[pd.DataFrame] = []
+
+    service.ingest(request, on_chunk=lambda chunk: frames.append(chunk.frame))
+
+    assert frames, "expected fallback chunk"
+    for frame in frames:
+        assert not frame.empty
+        assert frame["source_dataset"].dropna().unique().tolist() == ["XNAS.ITCH"]

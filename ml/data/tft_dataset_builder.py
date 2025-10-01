@@ -206,12 +206,10 @@ class TFTDatasetBuilder:
         raise TypeError(f"Unsupported data type for Polars conversion: {type(data)!r}")
 
     @staticmethod
-    def _extract_frame_metadata(frame: PolarsDF) -> tuple[str | None, str | None, float | None]:
+    def _extract_frame_metadata(frame: PolarsDF) -> tuple[str | None, None, None]:
         if pl is None:
             return None, None, None
         source_dataset: str | None = None
-        aggregation_mode: str | None = None
-        scaling_factor: float | None = None
 
         if "source_dataset" in frame.columns:
             try:
@@ -225,34 +223,7 @@ class TFTDatasetBuilder:
                     source_dataset = str(values[0])
             except Exception:  # pragma: no cover - defensive guard
                 source_dataset = None
-
-        if "aggregation_mode" in frame.columns:
-            try:
-                modes = (
-                    frame.get_column("aggregation_mode")
-                    .drop_nulls()
-                    .unique()
-                    .to_list()
-                )
-                if len(modes) == 1 and modes[0]:
-                    aggregation_mode = str(modes[0])
-            except Exception:  # pragma: no cover - defensive guard
-                aggregation_mode = None
-
-        if "scaling_factor" in frame.columns:
-            try:
-                factors = (
-                    frame.get_column("scaling_factor")
-                    .drop_nulls()
-                    .unique()
-                    .to_list()
-                )
-                if len(factors) == 1:
-                    scaling_factor = float(factors[0])
-            except Exception:  # pragma: no cover - defensive guard
-                scaling_factor = None
-
-        return source_dataset, aggregation_mode, scaling_factor
+        return source_dataset, None, None
 
     def _load_bars_dataframe(
         self,
@@ -300,8 +271,6 @@ class TFTDatasetBuilder:
                             "trade_count",
                             "vwap",
                             "source_dataset",
-                            "aggregation_mode",
-                            "scaling_factor",
                         )
                         if col in frame.columns
                     ]
@@ -323,15 +292,13 @@ class TFTDatasetBuilder:
                     if stats is not None:
                         row_count = int(frame.height)
                         ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
-                        src_dataset, agg_mode, scaling_factor = self._extract_frame_metadata(frame)
+                        src_dataset, _, _ = self._extract_frame_metadata(frame)
                         stats.record(
                             source="store",
                             row_count=row_count,
                             ts_min_ns=ts_min_ns,
                             ts_max_ns=ts_max_ns,
                             source_dataset=src_dataset,
-                            aggregation_mode=agg_mode,
-                            scaling_factor=scaling_factor,
                         )
                     return frame
             except Exception as exc:
@@ -360,15 +327,13 @@ class TFTDatasetBuilder:
             if stats is not None and not frame.is_empty():
                 row_count = int(frame.height)
                 ts_min_ns, ts_max_ns = self._frame_time_bounds(frame)
-                src_dataset, agg_mode, scaling_factor = self._extract_frame_metadata(frame)
+                src_dataset, _, _ = self._extract_frame_metadata(frame)
                 stats.record(
                     source="catalog",
                     row_count=row_count,
                     ts_min_ns=ts_min_ns,
                     ts_max_ns=ts_max_ns,
                     source_dataset=src_dataset,
-                    aggregation_mode=agg_mode,
-                    scaling_factor=scaling_factor,
                 )
             return frame
         except Exception:  # pragma: no cover - catalog fallback path
@@ -437,7 +402,7 @@ class TFTDatasetBuilder:
     def _coerce_to_ns(value: object) -> int | None:
         if value is None:
             return None
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return int(value)
         if isinstance(value, np.generic):
             return int(value)

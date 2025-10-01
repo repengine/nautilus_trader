@@ -247,10 +247,6 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                 d["source"] = self.default_source
             if "source_dataset" in cols:
                 d["source_dataset"] = _maybe(getattr(r, "source_dataset", None))
-            if "aggregation_mode" in cols:
-                d["aggregation_mode"] = _maybe(getattr(r, "aggregation_mode", None))
-            if "scaling_factor" in cols:
-                d["scaling_factor"] = _maybe(getattr(r, "scaling_factor", None))
             return d
 
         records: list[dict[str, object]] = [_row(r) for r in df.itertuples(index=False)]
@@ -274,10 +270,20 @@ class SqlMarketDataReader(RawReaderProtocol):
     connection_string: str
     table_name: str = "market_data"
     _engine: Engine = field(init=False, repr=False)
+    _available_columns: tuple[str, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="reader.table")
         self._engine = EngineManager.get_engine(self.connection_string)
+        try:
+            from sqlalchemy import inspect as _inspect
+
+            inspector = _inspect(self._engine)
+            columns = inspector.get_columns(self.table_name)
+            self._available_columns = tuple(column["name"] for column in columns)
+        except Exception:
+            # Fallback to an empty tuple; read_range will surface a descriptive error.
+            self._available_columns = ()
 
     def read_range(
         self,
@@ -292,10 +298,15 @@ class SqlMarketDataReader(RawReaderProtocol):
                 f"Invalid range for SQL market data read ({start_ns=} >= {end_ns=})",
             )
 
-        selected_columns = [
-            "instrument_id",
-            "ts_event",
-            "ts_init",
+        available = set(self._available_columns)
+        required_columns: tuple[str, ...] = ("instrument_id", "ts_event", "ts_init")
+        missing_required = [column for column in required_columns if column not in available]
+        if missing_required:
+            raise RuntimeError(
+                f"SqlMarketDataReader missing required columns {missing_required} on table {self.table_name}",
+            )
+
+        optional_columns: tuple[str, ...] = (
             "open",
             "high",
             "low",
@@ -309,9 +320,9 @@ class SqlMarketDataReader(RawReaderProtocol):
             "trade_count",
             "vwap",
             "source_dataset",
-            "aggregation_mode",
-            "scaling_factor",
-        ]
+        )
+
+        selected_columns = [*required_columns, *[col for col in optional_columns if col in available]]
         table = sa_table(
             self.table_name,
             *(sa_column(col) for col in selected_columns),
@@ -360,6 +371,9 @@ class SqlMarketDataReader(RawReaderProtocol):
         frame = frame.rename(columns={"ts_event": "timestamp"})
         frame["instrument_id"] = frame["instrument_id"].astype(str)
 
+        if "source_dataset" not in frame.columns:
+            frame["source_dataset"] = None
+
         try:
             from ml._imports import HAS_POLARS
             from ml._imports import pl
@@ -396,8 +410,6 @@ class SqlMarketDataReader(RawReaderProtocol):
             "trade_count",
             "vwap",
             "source_dataset",
-            "aggregation_mode",
-            "scaling_factor",
         ]
         empty = pd.DataFrame({col: [] for col in columns})
         try:

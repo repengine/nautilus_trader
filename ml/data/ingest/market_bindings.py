@@ -52,8 +52,6 @@ class MarketBindingStats:
     ts_event_start_ns: int | None = None
     ts_event_end_ns: int | None = None
     source_datasets: set[str] = field(default_factory=set)
-    aggregation_modes: set[str] = field(default_factory=set)
-    scaling_factors: list[float] = field(default_factory=list)
 
     def record(
         self,
@@ -63,8 +61,6 @@ class MarketBindingStats:
         ts_min_ns: int | None,
         ts_max_ns: int | None,
         source_dataset: str | None = None,
-        aggregation_mode: str | None = None,
-        scaling_factor: float | None = None,
     ) -> None:
         if row_count <= 0:
             return
@@ -75,10 +71,6 @@ class MarketBindingStats:
         self._update_bounds(ts_min_ns, ts_max_ns)
         if source_dataset:
             self.source_datasets.add(source_dataset)
-        if aggregation_mode:
-            self.aggregation_modes.add(aggregation_mode)
-        if scaling_factor is not None:
-            self.scaling_factors.append(float(scaling_factor))
 
     def _update_bounds(self, ts_min_ns: int | None, ts_max_ns: int | None) -> None:
         if ts_min_ns is not None:

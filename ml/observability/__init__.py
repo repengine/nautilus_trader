@@ -143,6 +143,9 @@ from ml.observability.db_persistence import ObservabilityDBPersistor
 from ml.observability.migrations import apply_observability_indices
 from ml.observability.migrations import apply_observability_monthly_partitions
 
+# ML-specific async persistence
+from ml.observability.ml_async_persistence import MLPersistenceWorker
+
 # Persistence layers
 from ml.observability.persistence import ObservabilityPersistor
 from ml.observability.pipeline import aggregate_metrics_by_window
@@ -202,6 +205,7 @@ except Exception:
 
 
 __all__ = [
+    "MLPersistenceWorker",
     "ObservabilityAsyncDBPersistor",
     "ObservabilityAsyncWorker",
     "ObservabilityDBPersistor",

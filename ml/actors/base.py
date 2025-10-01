@@ -25,9 +25,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -47,6 +44,9 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -69,6 +69,7 @@ else:
 
 if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
+    from ml.observability.ml_async_persistence import MLPersistenceWorker
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
@@ -761,6 +762,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     _model_registry: Any
     _strategy_registry: Any
     _data_registry: Any
+    _persistence_worker: MLPersistenceWorker | None
 
     def __init__(self, config: MLActorConfig) -> None:
         """
@@ -862,6 +864,23 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._data_registry = services.data_registry
         self._persistence_manager = None
         self.log.info("Stores and registries initialized (runtime facade)")
+
+        # Initialize async persistence worker if enabled
+        self._persistence_worker = None
+        if self._config.enable_async_persistence:
+            from ml.observability.ml_async_persistence import MLPersistenceWorker
+
+            self._persistence_worker = MLPersistenceWorker(
+                feature_store=self._feature_store,
+                model_store=self._model_store,
+                queue_maxsize=self._config.persistence_queue_size,
+                flush_interval_seconds=self._config.persistence_flush_interval,
+                batch_size=self._config.persistence_batch_size,
+            )
+            self.log.info(
+                f"ML async persistence initialized: queue={self._config.persistence_queue_size}, "
+                f"flush_interval={self._config.persistence_flush_interval}s",
+            )
 
         # Propagate circuit breaker to underlying stores when available
         try:
@@ -988,6 +1007,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             # Subscribe to market data
             self.subscribe_bars(self._config.bar_type)
 
+            # Start async persistence worker
+            if self._persistence_worker:
+                self._persistence_worker.start()
+                self.log.info("ML persistence worker started")
+
             self.log.info(
                 f"Enhanced ML Actor configured: "
                 f"model={Path(self._config.model_path).name}, "
@@ -1075,13 +1099,30 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         ALWAYS flushes all stores to ensure no data is lost.
 
         """
-        # MANDATORY: Flush all stores to persist any pending data
-        self._feature_store.flush()
-        self._model_store.flush()
-        self._strategy_store.flush()
-        if hasattr(self._data_store, "flush"):
-            self._data_store.flush()
-        self.log.info("All stores flushed on shutdown")
+        # Stop async persistence worker first (drains queue)
+        if self._persistence_worker is not None:
+            import asyncio
+
+            try:
+                # Run async stop in sync context
+                asyncio.run(
+                    self._persistence_worker.stop(drain=True, timeout=5.0),
+                )
+                self.log.info(
+                    f"ML persistence worker stopped (final queue: "
+                    f"{self._persistence_worker.queue_size()})",
+                )
+            except Exception as e:
+                self.log.warning(f"Error stopping persistence worker: {e}")
+
+        # Fallback: flush stores directly for synchronous writes or after async drain
+        if self._persistence_worker is None:
+            self._feature_store.flush()
+            self._model_store.flush()
+            self._strategy_store.flush()
+            if hasattr(self._data_store, "flush"):
+                self._data_store.flush()
+            self.log.info("All stores flushed on shutdown (synchronous)")
 
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
@@ -1146,24 +1187,60 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
             except Exception:
                 feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
-            self._feature_store.write_features(
-                feature_set_id=getattr(self._config, "feature_set_id", "default"),
-                instrument_id=str(bar.bar_type.instrument_id),
-                features=feature_dict,
-                ts_event=bar.ts_event,
-                ts_init=bar.ts_init,
-            )
 
-            # MANDATORY: Store prediction for performance tracking
-            self._model_store.write_prediction(
-                model_id=self._model_id,
-                instrument_id=str(bar.bar_type.instrument_id),
-                prediction=float(prediction),
-                confidence=float(confidence),
-                features=feature_dict,
-                inference_time_ms=inference_time,
-                ts_event=bar.ts_event,
-            )
+            # MANDATORY: Store features for parity tracking (async if enabled)
+            if self._persistence_worker is not None:
+                # Non-blocking async enqueue
+                enqueued = self._persistence_worker.enqueue_features(
+                    feature_set_id=getattr(self._config, "feature_set_id", "default"),
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    features=feature_dict,
+                    ts_event=bar.ts_event,
+                    ts_init=bar.ts_init,
+                )
+                if not enqueued:
+                    self.log.warning(
+                        f"Persistence queue full - feature write dropped "
+                        f"(instrument: {bar.bar_type.instrument_id})",
+                    )
+            else:
+                # Synchronous fallback
+                self._feature_store.write_features(
+                    feature_set_id=getattr(self._config, "feature_set_id", "default"),
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    features=feature_dict,
+                    ts_event=bar.ts_event,
+                    ts_init=bar.ts_init,
+                )
+
+            # MANDATORY: Store prediction for performance tracking (async if enabled)
+            if self._persistence_worker is not None:
+                # Non-blocking async enqueue
+                enqueued = self._persistence_worker.enqueue_prediction(
+                    model_id=self._model_id,
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    prediction=float(prediction),
+                    confidence=float(confidence),
+                    features=feature_dict,
+                    inference_time_ms=inference_time,
+                    ts_event=bar.ts_event,
+                )
+                if not enqueued:
+                    self.log.warning(
+                        f"Persistence queue full - prediction write dropped "
+                        f"(instrument: {bar.bar_type.instrument_id})",
+                    )
+            else:
+                # Synchronous fallback
+                self._model_store.write_prediction(
+                    model_id=self._model_id,
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    prediction=float(prediction),
+                    confidence=float(confidence),
+                    features=feature_dict,
+                    inference_time_ms=inference_time,
+                    ts_event=bar.ts_event,
+                )
 
             # Record success in circuit breaker
             if self._circuit_breaker:

@@ -38,7 +38,7 @@ The TFT teacher plan remains **operational** with the full training, registry, a
 - ❗ `_resolve_market_inputs` selects the first descriptor candidate whenever coverage cannot confirm availability (`ml/orchestration/pipeline_orchestrator.py:531-540`), skipping cost/availability guards and locking symbols to the wrong feed even when EQUS is free.
 - ❗ `IngestionOrchestrator.backfill_gaps` retries silently after the Databento service raises (`ml/data/ingest/orchestrator.py:298-349`), so CLI runs appear to hang with no operator-facing error.
 - ❗ `TFTDatasetBuilder._load_bars_dataframe` sees the bad `market_dataset_id`, calls `DataStore.read_range`, logs a warning, and falls back to parquet (`ml/data/tft_dataset_builder.py:206-254`). Operators only see the “parquet fallback” symptom while ingestion keeps failing.
-- ✅ Builders now fail closed on SQL read issues unless `ML_TFT_ALLOW_PARQUET_FALLBACK=1`, and provenance metadata (`source_dataset`, `aggregation_mode`, `scaling_factor`) is propagated through stores and registry events.
+- ✅ Builders now fail closed on SQL read issues unless `ML_TFT_ALLOW_PARQUET_FALLBACK=1`, and provenance metadata (`source_dataset`) is propagated through stores and registry events.
 
 **Remediation Plan:**
 

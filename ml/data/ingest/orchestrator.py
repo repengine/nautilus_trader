@@ -249,7 +249,7 @@ class IngestionOrchestrator:
         writer = self.writer
         if isinstance(writer, FanoutMarketDataWriter):
             writer = writer.primary
-        return isinstance(writer, (SqlMarketDataWriter, DataStoreMarketDataWriter))
+        return isinstance(writer, SqlMarketDataWriter | DataStoreMarketDataWriter)
 
     def backfill_gaps(
         self,
@@ -318,8 +318,6 @@ class IngestionOrchestrator:
             frames: list[pd.DataFrame] = []
             ingest_symbol = symbol_hint or instrument_id.split(".")[0]
             seen_source_datasets: set[str] = set()
-            seen_aggregation_modes: set[str] = set()
-            scaling_factors: list[float] = []
 
             def _unique_str(frame: pd.DataFrame, column: str) -> str | None:
                 if column not in frame.columns:
@@ -329,38 +327,24 @@ class IngestionOrchestrator:
                     return str(series[0])
                 return None
 
-            def _unique_float(frame: pd.DataFrame, column: str) -> float | None:
-                if column not in frame.columns:
-                    return None
-                numeric = pd.to_numeric(frame[column], errors="coerce").dropna().unique()
-                if len(numeric) == 1:
-                    return float(numeric[0])
-                return None
-
-            def _persist_frame(df: pd.DataFrame) -> None:
+            def _persist_frame(frame: pd.DataFrame) -> None:
                 nonlocal frames_written
                 nonlocal rows_written
-                if df.empty:
+                if frame.empty:
                     return
-                normalized_df = self._normalize_time_columns(df)
+                normalized_frame = self._normalize_time_columns(frame)
                 coerced_df = self._coerce_frame_to_manifest(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    frame=normalized_df,
+                    frame=normalized_frame,
                 )
                 frames.append(coerced_df)
                 frames_written += 1
                 window_rows = len(coerced_df.index)
                 rows_written += window_rows
                 source_dataset = _unique_str(coerced_df, "source_dataset")
-                aggregation_mode = _unique_str(coerced_df, "aggregation_mode")
-                scaling_factor = _unique_float(coerced_df, "scaling_factor")
                 if source_dataset:
                     seen_source_datasets.add(source_dataset)
-                if aggregation_mode:
-                    seen_aggregation_modes.add(aggregation_mode)
-                if scaling_factor is not None:
-                    scaling_factors.append(scaling_factor)
                 self.writer.write(
                     dataset_id=dataset_id,
                     schema=schema,
@@ -421,7 +405,7 @@ class IngestionOrchestrator:
                     raise
             else:
                 try:
-                    df = self.ingestor.ingest_time_window(
+                    ingested_frame = self.ingestor.ingest_time_window(
                         dataset=dataset_id,
                         schema=schema,
                         instrument=ingest_symbol,
@@ -442,9 +426,9 @@ class IngestionOrchestrator:
                         },
                     )
                     raise
-                if df.empty:
+                if ingested_frame.empty:
                     continue
-                _persist_frame(df)
+                _persist_frame(ingested_frame)
 
             if not frames:
                 LOGGER.warning(
@@ -487,28 +471,6 @@ class IngestionOrchestrator:
                 seen_source_datasets.update(str(value) for value in sources if value)
             if seen_source_datasets:
                 event_metadata["source_datasets"] = sorted(seen_source_datasets)
-            if "aggregation_mode" in df_combined.columns:
-                modes = df_combined["aggregation_mode"].dropna().astype(str).unique().tolist()
-                seen_aggregation_modes.update(str(value) for value in modes if value)
-            if seen_aggregation_modes:
-                event_metadata["aggregation_modes"] = sorted(seen_aggregation_modes)
-            if "scaling_factor" in df_combined.columns:
-                scaling_series = pd.to_numeric(
-                    df_combined["scaling_factor"],
-                    errors="coerce",
-                ).dropna()
-                if not scaling_series.empty:
-                    scaling_factors.extend(float(value) for value in scaling_series.unique().tolist())
-            if scaling_factors:
-                # Deduplicate while preserving order of appearance
-                unique_scaling = []
-                seen_scaling = set()
-                for factor in scaling_factors:
-                    if factor in seen_scaling:
-                        continue
-                    seen_scaling.add(factor)
-                    unique_scaling.append(factor)
-                event_metadata["scaling_factors"] = unique_scaling
             self.registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
@@ -630,40 +592,39 @@ class IngestionOrchestrator:
         """
         Align incoming frames with the registered schema before persistence.
         """
-        df = frame.copy()
-        # Ensure the instrument identifier column matches the requested instrument.
-        df.loc[:, "instrument_id"] = instrument_id
+        aligned_frame = frame.copy()
+        aligned_frame.loc[:, "instrument_id"] = instrument_id
 
         registry = self.registry
         try:
             manifest = registry.get_manifest(dataset_id)
         except Exception:
-            return df
+            return aligned_frame
 
         schema = getattr(manifest, "schema", {}) or {}
         for column, expected_type in schema.items():
-            if column not in df.columns:
+            if column not in aligned_frame.columns:
                 continue
             try:
                 normalized_expected = expected_type.lower()
             except AttributeError:
                 normalized_expected = str(expected_type).lower()
 
-            series = df[column]
+            series = aligned_frame[column]
             try:
                 if normalized_expected in {"str", "string", "object"}:
-                    df = df.assign(**{column: series.astype(str)})
+                    aligned_frame = aligned_frame.assign(**{column: series.astype(str)})
                 elif normalized_expected in {"float", "float64"}:
                     numeric = pd.to_numeric(series, errors="coerce")
-                    df = df.assign(**{column: numeric.astype("float64")})
+                    aligned_frame = aligned_frame.assign(**{column: numeric.astype("float64")})
                 elif normalized_expected in {"int", "int64"}:
                     numeric = pd.to_numeric(series, errors="coerce")
                     if numeric.isna().any():
-                        df = df.assign(**{column: numeric.astype("Int64")})
+                        aligned_frame = aligned_frame.assign(**{column: numeric.astype("Int64")})
                     else:
-                        df = df.assign(**{column: numeric.astype("int64")})
+                        aligned_frame = aligned_frame.assign(**{column: numeric.astype("int64")})
                 elif normalized_expected in {"bool", "boolean"}:
-                    df = df.assign(**{column: series.astype("bool")})
+                    aligned_frame = aligned_frame.assign(**{column: series.astype("bool")})
             except Exception as exc:  # pragma: no cover - defensive typing guard
                 LOGGER.debug(
                     "Type coercion skipped for column %s on dataset %s: %s",
@@ -676,47 +637,41 @@ class IngestionOrchestrator:
             "Coerced frame dtypes | dataset=%s instrument=%s dtypes=%s",
             dataset_id,
             instrument_id,
-            {col: str(dtype) for col, dtype in df.dtypes.items()},
+            {col: str(dtype) for col, dtype in aligned_frame.dtypes.items()},
         )
-        return df
+        return aligned_frame
+
 
     @staticmethod
-    def _normalize_time_columns(df: pd.DataFrame) -> pd.DataFrame:
+    def _normalize_time_columns(frame: pd.DataFrame) -> pd.DataFrame:
         """
         Ensure ts_event/ts_init columns are nanosecond integers.
         """
-        if "ts_event" in df.columns:
-            event_series = df["ts_event"]
+        working = frame.copy()
+        if "ts_event" in working.columns:
+            event_series = working["ts_event"]
             if not pd.api.types.is_integer_dtype(event_series):
                 converted = pd.to_datetime(event_series, utc=True, errors="coerce")
                 if pd.api.types.is_datetime64_any_dtype(converted) and converted.notna().all():
-                    df.loc[:, "ts_event"] = converted.astype("int64")
+                    working.loc[:, "ts_event"] = converted.astype("int64")
                 else:
-                    try:
-                        numeric = pd.to_numeric(event_series, errors="raise")
-                    except Exception:
-                        numeric = None
-                    if numeric is not None and not numeric.isna().any():
-                        df.loc[:, "ts_event"] = numeric.astype("int64")
-        if "ts_init" in df.columns:
-            init_series = df["ts_init"]
+                    numeric = pd.to_numeric(event_series, errors="coerce")
+                    if numeric.notna().all():
+                        working.loc[:, "ts_event"] = numeric.astype("int64")
+        if "ts_init" in working.columns:
+            init_series = working["ts_init"]
             if not pd.api.types.is_integer_dtype(init_series):
                 converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
-                if (
-                    pd.api.types.is_datetime64_any_dtype(converted_init)
-                    and converted_init.notna().all()
-                ):
-                    df.loc[:, "ts_init"] = converted_init.astype("int64")
+                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
+                    working.loc[:, "ts_init"] = converted_init.astype("int64")
                 else:
-                    try:
-                        numeric_init = pd.to_numeric(init_series, errors="raise")
-                    except Exception:
-                        numeric_init = None
-                    if numeric_init is not None and not numeric_init.isna().any():
-                        df.loc[:, "ts_init"] = numeric_init.astype("int64")
-        elif "ts_event" in df.columns:
-            df.loc[:, "ts_init"] = df["ts_event"]
-        return df
+                    numeric_init = pd.to_numeric(init_series, errors="coerce")
+                    if numeric_init.notna().all():
+                        working.loc[:, "ts_init"] = numeric_init.astype("int64")
+        elif "ts_event" in working.columns:
+            working.loc[:, "ts_init"] = working["ts_event"]
+        return working
+
 
     def start_live(self) -> None:  # pragma: no cover - integration hook
         """
