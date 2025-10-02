@@ -39,6 +39,8 @@ from dataclasses import field
 from typing import Literal, TypedDict
 
 from ml.common.metrics_manager import MetricsManager
+from ml.stores.protocols import FeatureStoreStrictProtocol
+from ml.stores.protocols import ModelStoreStrictProtocol
 
 
 class _FeatureItem(TypedDict):
@@ -93,8 +95,8 @@ class MLPersistenceWorker:
 
     """
 
-    feature_store: object
-    model_store: object
+    feature_store: FeatureStoreStrictProtocol
+    model_store: ModelStoreStrictProtocol
     queue_maxsize: int = 10000
     flush_interval_seconds: float = 1.0
     batch_size: int = 100
@@ -315,9 +317,9 @@ class MLPersistenceWorker:
                 for _ in range(self.batch_size):
                     item = await asyncio.wait_for(self._queue.get(), timeout=0.05)
                     if item["kind"] == "feature":
-                        feature_batch.append(item)  # type: ignore[arg-type]
+                        feature_batch.append(item)
                     else:
-                        prediction_batch.append(item)  # type: ignore[arg-type]
+                        prediction_batch.append(item)
                     self._queue.task_done()
             except TimeoutError:
                 # Normal during idle periods; intentionally ignore

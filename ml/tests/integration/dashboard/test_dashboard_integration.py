@@ -38,3 +38,69 @@ def test_integration_registry_listings() -> None:
         assert r.status_code == 200
         assert isinstance(r.get_json(), list)
 
+
+@pytest.mark.integration
+def test_integration_trading_health() -> None:
+    """Test trading health endpoint."""
+    os.environ["ML_DASHBOARD_USE_COMPOSE"] = "0"
+    app = create_app(DashboardConfig.from_env())
+    client: FlaskClient = app.test_client()
+
+    r = client.get("/api/trading/health")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert isinstance(body, dict)
+    assert "healthy" in body
+    assert "trading_enabled" in body
+    assert "mode" in body
+
+
+@pytest.mark.integration
+def test_integration_trading_market_data() -> None:
+    """Test market data endpoint."""
+    os.environ["ML_DASHBOARD_USE_COMPOSE"] = "0"
+    app = create_app(DashboardConfig.from_env())
+    client: FlaskClient = app.test_client()
+
+    r = client.get("/api/trading/market-data")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert isinstance(body, dict)
+    assert "generated_at" in body
+    assert "total_positions" in body
+    assert "total_exposure" in body
+
+
+@pytest.mark.integration
+def test_integration_trading_toggle_unauthorized() -> None:
+    """Test trading toggle requires auth."""
+    os.environ["ML_DASHBOARD_USE_COMPOSE"] = "0"
+    os.environ["ML_DASHBOARD_TOKENS"] = "test-token-123"
+    app = create_app(DashboardConfig.from_env())
+    client: FlaskClient = app.test_client()
+
+    r = client.post("/api/trading/toggle", json={"enable": True})
+    assert r.status_code == 401
+    body = r.get_json()
+    assert body["error"] == "unauthorized"
+
+    # Clean up
+    os.environ.pop("ML_DASHBOARD_TOKENS", None)
+
+
+@pytest.mark.integration
+def test_integration_trading_emergency_unauthorized() -> None:
+    """Test emergency stop requires auth."""
+    os.environ["ML_DASHBOARD_USE_COMPOSE"] = "0"
+    os.environ["ML_DASHBOARD_TOKENS"] = "test-token-456"
+    app = create_app(DashboardConfig.from_env())
+    client: FlaskClient = app.test_client()
+
+    r = client.post("/api/trading/emergency")
+    assert r.status_code == 401
+    body = r.get_json()
+    assert body["error"] == "unauthorized"
+
+    # Clean up
+    os.environ.pop("ML_DASHBOARD_TOKENS", None)
+

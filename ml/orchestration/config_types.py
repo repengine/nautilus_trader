@@ -82,6 +82,9 @@ class DatasetBuildConfig:
     validation: DatasetValidationConfig | None = None
     vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
     vintage_as_of: str | None = None
+    include_macro_revisions: bool = False
+    macro_revision_mode: str = "core"
+    macro_revision_windows: tuple[int, ...] | None = None
 
 
 @dataclass(slots=True, frozen=True)

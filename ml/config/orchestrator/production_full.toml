@@ -1,0 +1,181 @@
+# ============================================================================
+# ML Pipeline - SPY Production with Full Macro Feature Set
+# ============================================================================
+# Comprehensive macro features covering:
+# - Duration / yield curve (rates regime)
+# - Credit spreads / risk appetite (capital flows)
+# - Growth / labor cycle (economic momentum)
+# - Inflation / cost pressure (pricing power)
+# - Cross-asset rotation (risk-on/off signals)
+# - Liquidity / balance sheet (Fed policy transmission)
+#
+# Based on multi-asset framework for capturing regime shifts
+# ============================================================================
+
+stage = "full"
+
+# ============================================================================
+# INGESTION - Multi-Instrument Universe
+# ============================================================================
+[ingestion]
+enabled = true
+dataset_id = "EQUS.MINI"
+schema = "bars"
+coverage_mode = "sql"
+write_mode = "sql+datastore"
+lookback_days = 2
+symbols = [
+    "AAPL","ABBV","ABT","ACN","ADBE","AMAT","AMD","AMZN","AVGO","BA",
+    "BAC","BRK.B","C","CAT","COIN","COP","COST","CRM","CRWD","CVX",
+    "DIA","DIS","EEM","EFA","FXE","GE","GLD","GOOG","GOOGL","GS",
+    "HD","IWM","JNJ","JPM","KO","LCID","LLY","MA","MCD","META",
+    "MMM","MRK","MS","MSFT","MSTR","NFLX","NKE","NVDA","ORCL","PEP",
+    "PG","PLTR","RIVN","SLV","SOFI","SPY","T","TLT","TMO","TSLA",
+    "TSM","TXN","UBER","UNG","UNH","USO","UUP","V","VEA","VIXY",
+    "VNQ","VNQI","VTI","VWO","VZ","WBD","WFC","WMT","XLE","XLF",
+    "XLI","XLK","XLV","XOM"
+]
+
+# ============================================================================
+# DATASET BUILD - Full Macro Feature Set
+# ============================================================================
+[dataset]
+data_dir = "data/tier1"
+symbols = "AAPL,ABBV,ABT,ACN,ADBE,AMAT,AMD,AMZN,AVGO,BA,BAC,BRK.B,C,CAT,COIN,COP,COST,CRM,CRWD,CVX,DIA,DIS,EEM,EFA,FXE,GE,GLD,GOOG,GOOGL,GS,HD,IWM,JNJ,JPM,KO,LCID,LLY,MA,MCD,META,MMM,MRK,MS,MSFT,MSTR,NFLX,NKE,NVDA,ORCL,PEP,PG,PLTR,RIVN,SLV,SOFI,SPY,T,TLT,TMO,TSLA,TSM,TXN,UBER,UNG,UNH,USO,UUP,V,VEA,VIXY,VNQ,VNQI,VTI,VWO,VZ,WBD,WFC,WMT,XLE,XLF,XLI,XLK,XLV,XOM"
+out_dir = "ml_out/production_full"
+dataset_id = "production_full_v1"
+
+# Time range - ACTUAL DATA: March 28, 2023 → September 30, 2025 (2.5 years!)
+# Training: Use last 12 months for training, hold out recent data for validation
+start_iso = "2023-03-28T00:00:00Z"     # Start of available data
+end_iso = "2025-09-30T23:59:59Z"       # End of available data
+
+# Feature flags
+include_macro = true
+include_calendar = true
+include_events = true
+include_l2 = false
+include_micro = false
+
+# Macro configuration
+macro_lag_days = 1
+auto_refresh_macro = true
+macro_staleness_hours = 24
+macro_fred_path = "data/fred/fred_indicators_ml_format.parquet"
+
+# ============================================================================
+# COMPREHENSIVE MACRO SERIES (30 series across 6 dimensions)
+# ============================================================================
+macro_series_ids = [
+    # ---- RATES / DURATION CURVE (5 series) ----
+    # Front vs. long duration, curve slope, real yields
+    "DGS2",           # 2-Year Treasury Constant Maturity Rate
+    "DGS10",          # 10-Year Treasury Constant Maturity Rate
+    "T10Y2Y",         # 10Y-2Y Spread (curve slope, recession signal)
+    "DFII10",         # 10-Year TIPS (real yield after inflation)
+    "FEDFUNDS",       # Federal Funds Effective Rate (policy anchor)
+
+    # ---- CREDIT / CAPITAL MARKETS RISK (4 series) ----
+    # Corporate spreads, funding stress, volatility
+    "BAMLC0A0CM",     # ICE BofA US Corporate Index OAS (IG credit)
+    "BAMLH0A0HYM2",   # ICE BofA US High Yield Index OAS (HY credit)
+    "TEDRATE",        # TED Spread (USD funding stress)
+    "VIXCLS",         # CBOE Volatility Index (equity risk premium)
+
+    # ---- GROWTH / LABOR CYCLE (4 series) ----
+    # Employment, production, broad activity
+    "PAYEMS",         # Total Nonfarm Payrolls
+    "UNRATE",         # Unemployment Rate
+    "INDPRO",         # Industrial Production Index
+    "CFNAI",          # Chicago Fed National Activity Index
+
+    # ---- INFLATION & COST PRESSURE (5 series) ----
+    # Consumer/producer prices, commodities, hard assets
+    "CPIAUCSL",       # Consumer Price Index (headline inflation)
+    "PCEPI",          # Personal Consumption Expenditures Price Index (Fed target)
+    "PPIACO",         # Producer Price Index (pipeline pressure)
+    "WTISPLC",        # WTI Crude Oil Spot Price (energy impulse)
+    "GOLDAMGBD228NLBM",  # London Gold Fix PM (hard-asset hedge)
+
+    # ---- CROSS-ASSET / RISK ROTATION (6 series) ----
+    # Equities, commodities, FX carry/risk
+    "SP500",          # S&P 500 Index (equity beta proxy)
+    "CRBINDX",        # Commodity Research Bureau Index (broad commodities)
+    "DTWEXBGS",       # Trade-Weighted US Dollar Index (global risk-on/off)
+    "DEXUSAL",        # USD/AUD Exchange Rate (commodity FX)
+    "DEXUSEU",        # USD/EUR Exchange Rate (core risk)
+    "DEXJPUS",        # JPY/USD Exchange Rate (carry vs. safe haven)
+
+    # ---- LIQUIDITY / BALANCE SHEET (2 series) ----
+    # Fed assets, bank credit (policy transmission)
+    "WALCL",          # Fed Total Assets (balance sheet size)
+    "TOTBKCR",        # Total Commercial Bank Credit
+]
+
+# Feature windows
+lookback_periods = 60
+horizon_minutes = 60
+threshold = 0.0005
+
+chunk_days = 30
+
+# Feature registry
+register_features = true
+feature_registry_dir = "~/.nautilus/ml/features"
+feature_role = "teacher"
+
+# Dataset validation
+[dataset.validation]
+min_rows = 10000                       # With 2.5 years of data, expect way more rows
+min_positive_rate = 0.35
+max_positive_rate = 0.65
+min_feature_coverage = 0.95
+
+vintage_policy = "real_time"
+emit_dataset_events = true
+
+# ============================================================================
+# HPO - Disabled for Initial Training
+# ============================================================================
+[hpo]
+enabled = false
+
+# ============================================================================
+# TEACHER TRAINING - TFT with Full Feature Set
+# ============================================================================
+[training.teacher]
+enabled = true
+model_id = "tft_spy_full_macro_v1"
+max_epochs = 50
+feature_registry_dir = "~/.nautilus/ml/features"
+
+# ============================================================================
+# STUDENT DISTILLATION
+# ============================================================================
+[training.student]
+enabled = true
+model_id = "xgb_spy_full_macro_v1"
+parent_model_id = "tft_spy_full_macro_v1"
+model_registry_dir = "~/.nautilus/ml/models"
+feature_registry_dir = "~/.nautilus/ml/features"
+objective = "logit_mse"
+kd_lambda = 0.5
+early_stopping = 200
+opset = 17
+
+# ============================================================================
+# PROMOTIONS
+# ============================================================================
+[promotions]
+auto_register_model = true
+auto_promote = false
+gates_json = '{"min_sharpe": 0.5, "min_win_rate": 0.48}'
+
+# ============================================================================
+# INTEGRATION
+# ============================================================================
+[integration]
+enabled = true
+db_connection = "postgresql://postgres:postgres@localhost:5433/nautilus"  # ml-postgres-1 with 95 instruments
+auto_migrate = true
+ensure_healthy = true

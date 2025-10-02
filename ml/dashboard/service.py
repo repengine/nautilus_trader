@@ -581,6 +581,13 @@ class DashboardService:
         self._pipeline_service = PipelineIntegrationService(integration)
         return self._pipeline_service
 
+    def get_integration_manager(self) -> MLIntegrationManager | None:
+        """Return the cached ML integration manager if available."""
+        if self._pipeline_integration_manager is not None:
+            return self._pipeline_integration_manager
+        self._get_pipeline_service()
+        return self._pipeline_integration_manager
+
     @staticmethod
     def _serialize_job_state(job_state: PipelineJobState) -> dict[str, Any]:
         return {
@@ -1859,6 +1866,152 @@ class DashboardService:
             return {"status": "error", "error": "internal_error"}
         finally:
             _REQS_TOTAL.labels(route=route, method="DELETE", status=status_label).inc()
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def build_dataset_pipeline(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        """
+        Trigger a dataset building pipeline.
+
+        Parameters
+        ----------
+        config : Mapping[str, Any]
+            Configuration for dataset building. Expected keys include symbols,
+            start_date, end_date, and dataset-specific parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            Response containing job_id, status, and optional error message.
+        """
+        return self.trigger_pipeline(pipeline_type="build_dataset", config=config)
+
+    def train_model_pipeline(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        """
+        Trigger a model training pipeline.
+
+        Parameters
+        ----------
+        config : Mapping[str, Any]
+            Configuration for model training. Expected keys include model_type,
+            algorithm, dataset_id, and training parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            Response containing job_id, status, and optional error message.
+        """
+        return self.trigger_pipeline(pipeline_type="train_model", config=config)
+
+    def run_hpo_pipeline(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        """
+        Trigger a hyperparameter optimization pipeline.
+
+        Parameters
+        ----------
+        config : Mapping[str, Any]
+            Configuration for HPO. Expected keys include search_method, trials,
+            model_config, and optimization parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            Response containing job_id, status, and optional error message.
+        """
+        return self.trigger_pipeline(pipeline_type="run_hpo", config=config)
+
+    def get_pipeline_progress(self, job_id: str) -> dict[str, Any]:
+        """
+        Get progress information for a pipeline job.
+
+        Parameters
+        ----------
+        job_id : str
+            The unique identifier for the pipeline job.
+
+        Returns
+        -------
+        dict[str, Any]
+            Progress information including status, progress percentage,
+            current_stage, eta_seconds, and optional error message.
+        """
+        start = time.perf_counter()
+        route = "/api/pipeline/jobs/<job_id>/progress"
+        status_label = "error"
+        try:
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "status": "unavailable",
+                    "error": "pipeline_service_unavailable",
+                }
+            progress = self._run_pipeline(service.get_pipeline_progress(job_id))
+            if progress.status == "UNKNOWN":
+                status_label = "not_found"
+                return {"status": "not_found", "error": "job_not_found"}
+            payload = self._serialize_pipeline_progress(progress)
+            status_label = "success"
+            return {"status": "success", "progress": payload}
+        except Exception:
+            logger.debug("pipeline progress retrieval failed", exc_info=True)
+            status_label = "error"
+            return {"status": "error", "error": "internal_error"}
+        finally:
+            _REQS_TOTAL.labels(route=route, method="GET", status=status_label).inc()
+            _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+
+    def cancel_pipeline_job(self, job_id: str) -> dict[str, Any]:
+        """
+        Cancel a running pipeline job.
+
+        Parameters
+        ----------
+        job_id : str
+            The unique identifier for the pipeline job to cancel.
+
+        Returns
+        -------
+        dict[str, Any]
+            Response containing success status, job_id, status, and optional
+            error message.
+        """
+        start = time.perf_counter()
+        route = "/api/pipeline/jobs/<job_id>/cancel"
+        status_label = "error"
+        try:
+            service = self._get_pipeline_service()
+            if service is None:
+                status_label = "unavailable"
+                return {
+                    "success": False,
+                    "status": "unavailable",
+                    "error": "pipeline_service_unavailable",
+                }
+            result = self._run_pipeline(service.cancel_pipeline(job_id))
+            result_payload = {
+                "success": result.success,
+                "job_id": result.job_id,
+                "status": result.status,
+                "message": result.message,
+                "error": result.error,
+            }
+            if result.success:
+                status_label = "success"
+            elif result.status == "NOT_FOUND":
+                status_label = "not_found"
+            else:
+                status_label = "failed"
+            return result_payload
+        except Exception:
+            logger.debug("pipeline job cancellation failed", exc_info=True)
+            status_label = "error"
+            return {
+                "success": False,
+                "status": "error",
+                "error": "internal_error",
+            }
+        finally:
+            _REQS_TOTAL.labels(route=route, method="POST", status=status_label).inc()
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
 
 

@@ -1,0 +1,174 @@
+{
+  "version": "1.0.0",
+  "description": "Sample instrument metadata for factor-based portfolio construction",
+  "instruments": [
+    {
+      "instrument_id": "US2Y.BOND",
+      "duration_bucket": 0,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "TREASURY",
+      "rating": "AAA",
+      "description": "US 2-Year Treasury Note - Short duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "US5Y.BOND",
+      "duration_bucket": 1,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "TREASURY",
+      "rating": "AAA",
+      "description": "US 5-Year Treasury Note - Medium duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "US10Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "TREASURY",
+      "rating": "AAA",
+      "description": "US 10-Year Treasury Note - Long duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "US30Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "TREASURY",
+      "rating": "AAA",
+      "description": "US 30-Year Treasury Bond - Long duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "FNMA3Y.BOND",
+      "duration_bucket": 1,
+      "issuer_type": 1,
+      "liquidity_tier": 2,
+      "region": "US",
+      "sector": "AGENCY",
+      "rating": "AA+",
+      "description": "Fannie Mae 3Y Note - Medium duration, quasi-sovereign (GSE), medium liquidity"
+    },
+    {
+      "instrument_id": "FHLMC5Y.BOND",
+      "duration_bucket": 1,
+      "issuer_type": 1,
+      "liquidity_tier": 2,
+      "region": "US",
+      "sector": "AGENCY",
+      "rating": "AA+",
+      "description": "Freddie Mac 5Y Note - Medium duration, quasi-sovereign (GSE), medium liquidity"
+    },
+    {
+      "instrument_id": "AAPL.NASDAQ",
+      "duration_bucket": 1,
+      "issuer_type": 2,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "CORPORATE",
+      "rating": "AA+",
+      "description": "Apple Inc. - Medium duration debt, investment grade corporate, high liquidity"
+    },
+    {
+      "instrument_id": "MSFT.NASDAQ",
+      "duration_bucket": 1,
+      "issuer_type": 2,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "CORPORATE",
+      "rating": "AAA",
+      "description": "Microsoft Corp. - Medium duration debt, investment grade corporate, high liquidity"
+    },
+    {
+      "instrument_id": "JPM5Y.BOND",
+      "duration_bucket": 1,
+      "issuer_type": 2,
+      "liquidity_tier": 1,
+      "region": "US",
+      "sector": "CORPORATE",
+      "rating": "A",
+      "description": "JP Morgan Chase 5Y Bond - Medium duration, investment grade corporate, high liquidity"
+    },
+    {
+      "instrument_id": "BAC3Y.BOND",
+      "duration_bucket": 0,
+      "issuer_type": 2,
+      "liquidity_tier": 2,
+      "region": "US",
+      "sector": "CORPORATE",
+      "rating": "A-",
+      "description": "Bank of America 3Y Bond - Short duration, investment grade corporate, medium liquidity"
+    },
+    {
+      "instrument_id": "XYZ7Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 3,
+      "liquidity_tier": 3,
+      "region": "US",
+      "sector": "CORPORATE",
+      "rating": "BB",
+      "description": "XYZ Corp 7Y Bond - Long duration, high yield corporate, low liquidity"
+    },
+    {
+      "instrument_id": "BUND10Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "EU",
+      "sector": "TREASURY",
+      "rating": "AAA",
+      "description": "German 10-Year Bund - Long duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "GILT10Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 0,
+      "liquidity_tier": 1,
+      "region": "UK",
+      "sector": "TREASURY",
+      "rating": "AA",
+      "description": "UK 10-Year Gilt - Long duration, sovereign, highly liquid"
+    },
+    {
+      "instrument_id": "JGB10Y.BOND",
+      "duration_bucket": 2,
+      "issuer_type": 0,
+      "liquidity_tier": 2,
+      "region": "ASIA",
+      "sector": "TREASURY",
+      "rating": "A+",
+      "description": "Japan 10-Year Government Bond - Long duration, sovereign, medium liquidity"
+    },
+    {
+      "instrument_id": "EMCORP5Y.BOND",
+      "duration_bucket": 1,
+      "issuer_type": 3,
+      "liquidity_tier": 3,
+      "region": "EM",
+      "sector": "CORPORATE",
+      "rating": "B+",
+      "description": "Emerging Market Corp 5Y Bond - Medium duration, high yield, low liquidity"
+    }
+  ],
+  "metadata": {
+    "duration_buckets": {
+      "0": "Short (0-2 years)",
+      "1": "Medium (2-7 years)",
+      "2": "Long (7+ years)"
+    },
+    "issuer_types": {
+      "0": "SOVEREIGN (Government bonds)",
+      "1": "QUASI_SOVEREIGN (Government-sponsored enterprises)",
+      "2": "CORPORATE_IG (Investment grade corporate)",
+      "3": "CORPORATE_HY (High yield corporate)"
+    },
+    "liquidity_tiers": {
+      "1": "High (On-the-run, benchmark bonds)",
+      "2": "Medium (Regular trading)",
+      "3": "Low (Infrequent trading)"
+    }
+  }
+}

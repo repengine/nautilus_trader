@@ -205,3 +205,21 @@ cython_debug/
 docs/
 tests/
 !docs/tutorials
+
+# ============================================================================
+# ML ARTIFACTS AND TRAINING DATA (CRITICAL - prevents 225GB+ from being included)
+# ============================================================================
+data/
+ml_out/
+datasets/
+lightning_logs/
+checkpoints/
+catalog/
+
+# Python coverage files
+coverage-ml.json
+coverage-ml.xml
+
+# JSON progress files
+*_progress_*.json
+universe_progress_*.json

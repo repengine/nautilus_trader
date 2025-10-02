@@ -1,6 +1,12 @@
 """
 CoveragePolicy — subscription-bound lookback windows for backfill.
 
+DEPRECATED: This module has been consolidated into ml.data.ingest.subscription.
+Use SubscriptionPolicy from ml.data.ingest.subscription instead.
+
+This module remains for backwards compatibility and will redirect all calls
+to the new unified subscription module.
+
 Environment overrides:
 - ML_L0_LOOKBACK_DAYS (default 2555 ~ 7y)
 - ML_L1_LOOKBACK_DAYS (default 365)
@@ -12,57 +18,53 @@ Use get_max_lookback_days(dataset_id_or_type) to derive the appropriate window.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+import warnings
+
+from ml.data.ingest.subscription import SubscriptionPolicy as _SubscriptionPolicy
+from ml.data.ingest.subscription import get_max_lookback_days as _get_max_lookback_days
 
 
 __all__ = ["CoveragePolicy", "get_max_lookback_days"]
 
 
-@dataclass(slots=True, frozen=True)
-class CoveragePolicy:
-    """Subscription coverage windows in days."""
-
-    l0_max_lookback_days: int = 365 * 7
-    l1_max_lookback_days: int = 365
-    l2_max_lookback_days: int = 30
-    l3_max_lookback_days: int = 30
-
-    @staticmethod
-    def from_env() -> CoveragePolicy:
-        def _get(name: str, default: int) -> int:
-            try:
-                return int(os.getenv(name, str(default)))
-            except Exception:
-                return default
-
-        return CoveragePolicy(
-            l0_max_lookback_days=_get("ML_L0_LOOKBACK_DAYS", 365 * 7),
-            l1_max_lookback_days=_get("ML_L1_LOOKBACK_DAYS", 365),
-            l2_max_lookback_days=_get("ML_L2_LOOKBACK_DAYS", 30),
-            l3_max_lookback_days=_get("ML_L3_LOOKBACK_DAYS", 30),
-        )
+# Emit deprecation warning on module import
+warnings.warn(
+    "ml.config.coverage is deprecated. Use ml.data.ingest.subscription.SubscriptionPolicy instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-def get_max_lookback_days(dataset_id_or_type: str, policy: CoveragePolicy | None = None) -> int:
+# Type alias for backwards compatibility
+CoveragePolicy = _SubscriptionPolicy
+
+
+def get_max_lookback_days(
+    dataset_id_or_type: str,
+    policy: CoveragePolicy | None = None,
+) -> int:
     """
     Map dataset identifier/type to a subscription-bound lookback window (days).
+
+    DEPRECATED: Use ml.data.ingest.subscription.get_max_lookback_days instead.
 
     Mapping:
     - L0: bars → 7 years
     - L1: quotes, trades → 1 year
     - L2/L3: mbp/tbbo/orderbook → 30 days
     Unknown types default to L2 window.
-    """
-    p = policy or CoveragePolicy.from_env()
-    key = dataset_id_or_type.strip().lower()
-    if key == "bars":
-        return p.l0_max_lookback_days
-    if key in {"quotes", "trades"}:
-        return p.l1_max_lookback_days
-    # L2/L3 families (keep conservative by default)
-    if key in {"mbp", "mbp1", "tbbo", "orderbook", "l2", "l3"}:
-        return p.l2_max_lookback_days
-    # Default conservative window
-    return p.l2_max_lookback_days
 
+    Parameters
+    ----------
+    dataset_id_or_type : str
+        Dataset identifier or type (bars, quotes, trades, etc.).
+    policy : CoveragePolicy | None, optional
+        Policy to use. If None, constructs from environment.
+
+    Returns
+    -------
+    int
+        Maximum lookback days for the specified level.
+
+    """
+    return _get_max_lookback_days(dataset_id_or_type, policy)

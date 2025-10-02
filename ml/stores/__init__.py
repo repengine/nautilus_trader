@@ -100,6 +100,10 @@ from ml.stores.file_backed import FileStrategyStore
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.infrastructure import check_db_prereqs
 from ml.stores.infrastructure import run_partition_maintenance
+
+# Instrument metadata store
+from ml.stores.instrument_metadata_store import DummyInstrumentMetadataStore
+from ml.stores.instrument_metadata_store import InstrumentMetadataStore
 from ml.stores.io_raw import ParquetCatalogRawReader
 from ml.stores.io_raw import ParquetCatalogRawWriter
 
@@ -135,6 +139,7 @@ from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.protocols import FeatureStoreProtocol
 from ml.stores.protocols import FeatureStoreStrictProtocol
+from ml.stores.protocols import InstrumentMetadataStoreProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.protocols import ModelStoreProtocol
 from ml.stores.protocols import ModelStoreStrictProtocol
@@ -179,6 +184,7 @@ __all__ = [
     "DataStore",
     "DataStoreFacadeProtocol",
     "DataStoreMarketDataWriter",
+    "DummyInstrumentMetadataStore",
     "DummyStore",
     "EngineInitMixin",
     "FeatureData",
@@ -190,6 +196,8 @@ __all__ = [
     "FileModelStore",
     "FileStrategyStore",
     "HealthMixin",
+    "InstrumentMetadataStore",
+    "InstrumentMetadataStoreProtocol",
     "LiveDataRecorder",
     "MarketDataWriterProtocol",
     "ModelPrediction",

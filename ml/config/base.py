@@ -11,6 +11,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.config.registry import ModelRegistryConfig as ModelRegistryConfig
 from nautilus_trader.common.config import NautilusConfig
@@ -19,9 +22,6 @@ from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import ComponentId
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):

@@ -1,20 +1,12 @@
-volumes:
-  postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: /home/nate/nautilus_data/postgres
-      o: bind
-  prometheus_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: /home/nate/nautilus_data/prometheus
-      o: bind
-  grafana_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: /home/nate/nautilus_data/grafana
-      o: bind
+# Override to use main nautilus-database
+services:
+  ml_pipeline:
+    environment:
+      DB_CONNECTION: postgresql://postgres:postgres@nautilus-database:5432/nautilus
+    networks:
+      - docker_nautilus-network
+      - nautilus-ml
 
+networks:
+  docker_nautilus-network:
+    external: true

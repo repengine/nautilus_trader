@@ -246,6 +246,16 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     include_trade_flow: bool = False
     validate_quality: bool = False
 
+    # Macro features (ALFRED/FRED)
+    include_macro: bool = False
+    macro_series_ids: list[str] = msgspec.field(default_factory=list)
+    include_macro_revisions: bool = False
+    macro_revision_mode: str = "core"  # "minimal", "core", "full"
+
+    # Calendar features (known-future for TFT)
+    include_calendar: bool = False
+    calendar_encoding: str = "cyclic"  # "cyclic", "onehot", "fourier"
+
     # --- Compatibility toggles for legacy tests (no-ops by default) ---
     # These mirror older boolean switches used in tests such as
     # enable_returns/enable_momentum/enable_volatility/enable_technical and
@@ -3125,6 +3135,22 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
         transforms.append(TransformSpec(name="microstructure", params={}))
     if getattr(cfg, "include_trade_flow", False):
         transforms.append(TransformSpec(name="trade_flow", params={}))
+
+    # Macro features (ALFRED/FRED with optional revisions)
+    if getattr(cfg, "include_macro", False):
+        macro_params = {
+            "series_ids": getattr(cfg, "macro_series_ids", []),
+            "include_revisions": getattr(cfg, "include_macro_revisions", False),
+            "revision_mode": getattr(cfg, "macro_revision_mode", "core"),
+        }
+        transforms.append(TransformSpec(name="macro", params=macro_params))
+
+    # Calendar features (known-future for TFT)
+    if getattr(cfg, "include_calendar", False):
+        calendar_params = {
+            "encoding": getattr(cfg, "calendar_encoding", "cyclic"),
+        }
+        transforms.append(TransformSpec(name="calendar", params=calendar_params))
 
     return PipelineSpec(transforms=transforms)
 

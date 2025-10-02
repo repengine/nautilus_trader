@@ -85,6 +85,9 @@ class TFTDatasetBuilder:
         macro_series_ids: tuple[str, ...] | None = None,
         vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME,
         vintage_as_of: datetime | None = None,
+        include_macro_revisions: bool = False,
+        macro_revision_mode: str = "core",
+        macro_revision_windows: tuple[int, ...] | None = None,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -147,6 +150,9 @@ class TFTDatasetBuilder:
             self.vintage_as_of = vintage_as_of.replace(tzinfo=UTC)
         else:
             self.vintage_as_of = vintage_as_of.astimezone(UTC)
+        self.include_macro_revisions = include_macro_revisions
+        self.macro_revision_mode = macro_revision_mode
+        self.macro_revision_windows = list(macro_revision_windows) if macro_revision_windows else None
 
         if self.student_mode:
             self.include_macro = False
@@ -1147,6 +1153,9 @@ class TFTDatasetBuilder:
                         series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
                         vintage_policy=self.vintage_policy,
                         vintage_cutoff=self.vintage_as_of,
+                        include_revisions=self.include_macro_revisions,
+                        revision_mode=self.macro_revision_mode,
+                        revision_windows=self.macro_revision_windows,
                     ),
                 )
                 macro_cols = [
@@ -1198,6 +1207,9 @@ class TFTDatasetBuilder:
                         series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
                         vintage_policy=self.vintage_policy,
                         vintage_cutoff=self.vintage_as_of,
+                        include_revisions=self.include_macro_revisions,
+                        revision_mode=self.macro_revision_mode,
+                        revision_windows=self.macro_revision_windows,
                     ),
                 )
                 macro_cols = [

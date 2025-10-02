@@ -37,6 +37,14 @@ class IngestionRateSnapshot:
     l2_updates_per_sec: float = 0.0
     data_quality: float = 0.0
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "bars_per_sec": self.bars_per_sec,
+            "quotes_per_sec": self.quotes_per_sec,
+            "l2_updates_per_sec": self.l2_updates_per_sec,
+            "data_quality": self.data_quality,
+        }
+
 
 @dataclass(slots=True)
 class PortfolioSnapshot:
@@ -46,6 +54,14 @@ class PortfolioSnapshot:
     cash: float = 0.0
     margin_used: float = 0.0
     positions: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "total_value": self.total_value,
+            "cash": self.cash,
+            "margin_used": self.margin_used,
+            "positions": self.positions,
+        }
 
 
 @dataclass(slots=True)
@@ -59,6 +75,17 @@ class StoreMetricsSnapshot:
     active_models: int = 0
     ingestion_rate: IngestionRateSnapshot = field(default_factory=IngestionRateSnapshot)
     portfolio: PortfolioSnapshot = field(default_factory=PortfolioSnapshot)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "daily_pnl": self.daily_pnl,
+            "sharpe_ratio": self.sharpe_ratio,
+            "win_rate": self.win_rate,
+            "max_drawdown": self.max_drawdown,
+            "active_models": self.active_models,
+            "ingestion_rate": self.ingestion_rate.to_dict(),
+            "portfolio": self.portfolio.to_dict(),
+        }
 
 
 @dataclass(slots=True)
@@ -225,6 +252,97 @@ class StoreIntegrationService(BaseIntegrationService):
             items=items,
             error=summary.error,
         )
+
+    async def get_portfolio_snapshot(self) -> PortfolioSnapshot:
+        """Get current portfolio state with positions and allocations."""
+        self._track_operation(operation="get_portfolio", status="started")
+        engine = self._resolve_engine()
+        if engine is None:
+            self._track_operation(operation="get_portfolio", status="no_engine")
+            return PortfolioSnapshot()
+
+        try:
+            portfolio, _ = await self._run_async(partial(self._compute_portfolio_metrics, engine))
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("portfolio metrics query failed", exc_info=True)
+            self._track_operation(operation="get_portfolio", status="failed")
+            return PortfolioSnapshot()
+
+        self._track_operation(operation="get_portfolio", status="success")
+        return portfolio
+
+    async def get_ingestion_snapshot(self) -> IngestionRateSnapshot:
+        """Get real-time data ingestion rates for bars, quotes, and L2 updates."""
+        self._track_operation(operation="get_ingestion", status="started")
+        engine = self._resolve_engine()
+        if engine is None:
+            self._track_operation(operation="get_ingestion", status="no_engine")
+            return IngestionRateSnapshot()
+
+        try:
+            now_ns = time.time_ns()
+            snapshot = await self._run_async(
+                partial(self._compute_ingestion_metrics, engine, now_ns),
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("ingestion metrics query failed", exc_info=True)
+            self._track_operation(operation="get_ingestion", status="failed")
+            return IngestionRateSnapshot()
+
+        self._track_operation(operation="get_ingestion", status="success")
+        return snapshot
+
+    async def get_experiments_snapshot(self) -> list[dict[str, Any]]:
+        """Get active ML experiments including HPO, feature selection, and architecture search."""
+        self._track_operation(operation="get_experiments", status="started")
+
+        experiments: list[dict[str, Any]] = []
+
+        # Try to get experiments from model registry
+        integration = self._integration
+        if integration is None:
+            self._track_operation(operation="get_experiments", status="no_integration")
+            return experiments
+
+        model_registry = getattr(integration, "model_registry", None)
+        feature_registry = getattr(integration, "feature_registry", None)
+
+        try:
+            # Query model registry for running experiments
+            if model_registry and hasattr(model_registry, "list_experiments"):
+                model_experiments = await self._run_async(
+                    partial(model_registry.list_experiments, status="running"),
+                )
+                for exp in model_experiments:
+                    experiments.append({
+                        "type": "model_training",
+                        "experiment_id": exp.get("experiment_id", ""),
+                        "status": exp.get("status", "unknown"),
+                        "created_at": exp.get("created_at", ""),
+                        "metrics": exp.get("metrics", {}),
+                    })
+
+            # Query feature registry for feature experiments
+            if feature_registry and hasattr(feature_registry, "list_experiments"):
+                feature_experiments = await self._run_async(
+                    partial(feature_registry.list_experiments, status="active"),
+                )
+                for exp in feature_experiments:
+                    experiments.append({
+                        "type": "feature_selection",
+                        "experiment_id": exp.get("experiment_id", ""),
+                        "status": exp.get("status", "unknown"),
+                        "created_at": exp.get("created_at", ""),
+                        "metrics": exp.get("metrics", {}),
+                    })
+
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("experiment query failed", exc_info=True)
+            self._track_operation(operation="get_experiments", status="failed")
+            return experiments
+
+        self._track_operation(operation="get_experiments", status="success")
+        return experiments
 
     def _collect_metrics_snapshot(self, engine: Engine) -> StoreMetricsSnapshot:
         now_ns = time.time_ns()

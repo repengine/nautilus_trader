@@ -22,6 +22,7 @@ def test_get_max_lookback_days_mapping_defaults() -> None:
     assert get_max_lookback_days("bars", p) == p.l0_max_lookback_days
     assert get_max_lookback_days("quotes", p) == p.l1_max_lookback_days
     assert get_max_lookback_days("trades", p) == p.l1_max_lookback_days
+    assert get_max_lookback_days("tbbo", p) == p.l1_max_lookback_days  # TBBO is L1 data
     assert get_max_lookback_days("mbp1", p) == p.l2_max_lookback_days
-    assert get_max_lookback_days("tbbo", p) == p.l2_max_lookback_days
+    assert get_max_lookback_days("mbp-1", p) == p.l2_max_lookback_days
     assert get_max_lookback_days("unknown", p) == p.l2_max_lookback_days

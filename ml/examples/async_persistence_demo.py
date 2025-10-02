@@ -11,7 +11,10 @@ Run with:
 
 import asyncio
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+
+from typing import Any, Final
 
 
 @dataclass
@@ -21,23 +24,48 @@ class SlowStore:
     write_delay_ms: float = 5.0
     write_count: int = 0
 
-    def write_features(self, **kwargs):
+    def write_features(
+        self,
+        feature_set_id: str,
+        instrument_id: str,
+        features: Mapping[str, float],
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
         """Simulate slow feature write."""
         time.sleep(self.write_delay_ms / 1000.0)
         self.write_count += 1
 
-    def write_prediction(self, **kwargs):
+    def write_prediction(
+        self,
+        model_id: str,
+        instrument_id: str,
+        prediction: float,
+        confidence: float,
+        features: Mapping[str, float],
+        inference_time_ms: float,
+        ts_event: int,
+        is_live: bool = False,
+    ) -> None:
         """Simulate slow prediction write."""
         time.sleep(self.write_delay_ms / 1000.0)
         self.write_count += 1
 
+    def write_batch(self, data: Sequence[Any], emit_events: bool = True) -> None:
+        """No-op batch writer to satisfy protocol requirements."""
+        self.write_count += len(data)
 
-async def demo_synchronous_writes():
+    def flush(self) -> None:
+        """Flush method required by store protocols."""
+        return None
+
+
+async def demo_synchronous_writes() -> None:
     """Demonstrate synchronous write latency."""
     print("\n=== SYNCHRONOUS WRITES (Current Implementation) ===")
 
     store = SlowStore(write_delay_ms=5.0)
-    bars_to_process = 10
+    bars_to_process: Final[int] = 10
 
     start = time.perf_counter()
     for i in range(bars_to_process):
@@ -73,7 +101,7 @@ async def demo_synchronous_writes():
     print(f"Writes completed: {store.write_count}")
 
 
-async def demo_async_writes():
+async def demo_async_writes() -> None:
     """Demonstrate async write latency with MLPersistenceWorker."""
     print("\n\n=== ASYNC WRITES (MLPersistenceWorker) ===")
 
@@ -92,7 +120,7 @@ async def demo_async_writes():
     worker.start()
     await asyncio.sleep(0.1)  # Let worker initialize
 
-    bars_to_process = 10
+    bars_to_process: Final[int] = 10
 
     start = time.perf_counter()
     for i in range(bars_to_process):
@@ -136,7 +164,7 @@ async def demo_async_writes():
     print(f"Queue size after drain: {worker.queue_size()}")
 
 
-async def demo_backpressure():
+async def demo_backpressure() -> None:
     """Demonstrate backpressure handling when queue fills."""
     print("\n\n=== BACKPRESSURE HANDLING (Queue Full) ===")
 
@@ -155,7 +183,7 @@ async def demo_backpressure():
     worker.start()
     await asyncio.sleep(0.1)
 
-    bars_to_process = 10
+    bars_to_process: Final[int] = 10
     dropped_count = 0
 
     print(f"Queue capacity: {worker.queue_maxsize}")
@@ -182,7 +210,7 @@ async def demo_backpressure():
     print(f"Writes completed: {slow_store.write_count}")
 
 
-async def demo_db_failure_resilience():
+async def demo_db_failure_resilience() -> None:
     """Demonstrate resilience to database failures."""
     print("\n\n=== DATABASE FAILURE RESILIENCE ===")
 
@@ -193,15 +221,40 @@ async def demo_db_failure_resilience():
         failure_mode: bool = True
         write_count: int = 0
 
-        def write_features(self, **kwargs):
+        def write_features(
+            self,
+            feature_set_id: str,
+            instrument_id: str,
+            features: Mapping[str, float],
+            ts_event: int,
+            ts_init: int,
+        ) -> None:
             if self.failure_mode:
                 raise Exception("DB connection lost!")
             self.write_count += 1
 
-        def write_prediction(self, **kwargs):
+        def write_prediction(
+            self,
+            model_id: str,
+            instrument_id: str,
+            prediction: float,
+            confidence: float,
+            features: Mapping[str, float],
+            inference_time_ms: float,
+            ts_event: int,
+            is_live: bool = False,
+        ) -> None:
             if self.failure_mode:
                 raise Exception("DB connection lost!")
             self.write_count += 1
+
+        def write_batch(self, data: Sequence[Any], emit_events: bool = True) -> None:
+            if self.failure_mode:
+                raise Exception("DB connection lost!")
+            self.write_count += len(data)
+
+        def flush(self) -> None:
+            return None
 
     from ml.observability.ml_async_persistence import MLPersistenceWorker
 
@@ -241,7 +294,7 @@ async def demo_db_failure_resilience():
     print(f"Writes completed after recovery: {failing_store.write_count}")
 
 
-async def main():
+async def main() -> None:
     """Run all demos."""
     print("=" * 70)
     print("MLPersistenceWorker Demo")

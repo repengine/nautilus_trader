@@ -1,0 +1,151 @@
+# ============================================================================
+# ML Pipeline - SPY with Revision-Aware Macro Features
+# ============================================================================
+# Extends spy_production_full_macro.toml with ALFRED revision features
+# ============================================================================
+
+stage = "full"
+
+# ============================================================================
+# DATASET BUILD - With Revision Features
+# ============================================================================
+[dataset]
+data_dir = "data/tier1"
+symbols = "SPY"
+out_dir = "ml_out/spy_revisions"
+dataset_id = "spy_revisions_v1"
+
+# Time range - ACTUAL DATA: March 28, 2023 → September 30, 2025 (2.5 years!)
+start_iso = "2023-03-28T00:00:00Z"
+end_iso = "2025-09-30T23:59:59Z"
+
+# Feature flags
+include_macro = true
+include_calendar = true
+include_events = true
+include_l2 = false
+include_micro = false
+
+# Macro configuration
+macro_lag_days = 1
+auto_refresh_macro = true
+macro_staleness_hours = 24
+macro_fred_path = "data/fred/fred_indicators_ml_format.parquet"
+fred_vintage_dir = "data/fred/vintages"
+
+# ============================================================================
+# REVISION FEATURES (NEW!)
+# ============================================================================
+include_macro_revisions = true
+macro_revision_mode = "core"  # Options: "minimal", "core", "full"
+macro_revision_windows = [1, 3, 12]  # Months for prior/revision features
+
+# ============================================================================
+# MACRO SERIES - 23 series with revision data
+# ============================================================================
+# We have ALFRED vintages for these 23 series
+# Excluded: CRBINDX, GOLDAMGBD228NLBM, SP500 (market-based, no revisions)
+macro_series_ids = [
+    # RATES / DURATION (5 series)
+    "DGS2",
+    "DGS10",
+    "T10Y2Y",
+    "DFII10",
+    "FEDFUNDS",
+
+    # CREDIT / RISK (4 series)
+    "BAMLC0A0CM",
+    "BAMLH0A0HYM2",
+    "TEDRATE",
+    "VIXCLS",
+
+    # GROWTH / LABOR (4 series)
+    "PAYEMS",
+    "UNRATE",
+    "INDPRO",
+    "CFNAI",
+
+    # INFLATION (3 series - excluding WTISPLC for now)
+    "CPIAUCSL",
+    "PCEPI",
+    "PPIACO",
+    "WTISPLC",
+
+    # FX (4 series)
+    "DTWEXBGS",
+    "DEXUSAL",
+    "DEXUSEU",
+    "DEXJPUS",
+
+    # LIQUIDITY (2 series)
+    "WALCL",
+    "TOTBKCR",
+]
+
+# Feature windows
+lookback_periods = 60
+horizon_minutes = 60
+threshold = 0.0005
+
+chunk_days = 30
+
+# Feature registry
+register_features = true
+feature_registry_dir = "~/.nautilus/ml/features"
+feature_role = "teacher"
+
+# Dataset validation
+[dataset.validation]
+min_rows = 10000
+min_positive_rate = 0.35
+max_positive_rate = 0.65
+min_feature_coverage = 0.95
+
+vintage_policy = "real_time"
+emit_dataset_events = true
+
+# ============================================================================
+# HPO - Disabled for Initial Training
+# ============================================================================
+[hpo]
+enabled = false
+
+# ============================================================================
+# TEACHER TRAINING - TFT with Revision Features
+# ============================================================================
+[training.teacher]
+enabled = true
+model_id = "tft_spy_revisions_v1"
+max_epochs = 50
+feature_registry_dir = "~/.nautilus/ml/features"
+
+# ============================================================================
+# STUDENT DISTILLATION
+# ============================================================================
+[training.student]
+enabled = true
+model_id = "xgb_spy_revisions_v1"
+parent_model_id = "tft_spy_revisions_v1"
+model_registry_dir = "~/.nautilus/ml/models"
+feature_registry_dir = "~/.nautilus/ml/features"
+objective = "logit_mse"
+kd_lambda = 0.5
+early_stopping = 200
+opset = 17
+
+# ============================================================================
+# PROMOTIONS
+# ============================================================================
+[promotions]
+auto_register_model = true
+auto_promote = false
+gates_json = '{"min_sharpe": 0.5, "min_win_rate": 0.48}'
+
+# ============================================================================
+# INTEGRATION
+# ============================================================================
+[integration]
+enabled = true
+db_connection = "postgresql://postgres:postgres@localhost:5433/nautilus"
+auto_migrate = true
+ensure_healthy = true

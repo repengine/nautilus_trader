@@ -179,6 +179,78 @@ class _TradeFlowTransform:
         return DataRequirements.L1_L2
 
 
+class _MacroTransform:
+    """
+    Macro features from ALFRED/FRED with revision awareness.
+
+    Provides economic indicators with optional revision features that capture
+    what traders see (headline + revisions + net signals).
+
+    """
+
+    name = "macro"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        """
+        Generate macro feature names based on params.
+
+        Parameters
+        ----------
+        params : dict
+            series_ids: List of FRED series (e.g., ["PAYEMS", "UNRATE"])
+            include_revisions: Whether to include revision features (default: False)
+            revision_mode: "minimal", "core", or "full" (default: "core")
+
+        Returns
+        -------
+        list[str]
+            Feature names in order.
+
+        """
+        series_ids: list[str] = params.get("series_ids", [])
+        include_revisions: bool = params.get("include_revisions", False)
+        revision_mode: str = params.get("revision_mode", "core")
+
+        if not series_ids:
+            return []
+
+        feature_names: list[str] = []
+
+        for series_id in series_ids:
+            # Base value (always included)
+            feature_names.append(f"{series_id}__value_real_time")
+
+            # Minimal mode features
+            if include_revisions and revision_mode in ["minimal", "core", "full"]:
+                feature_names.append(f"{series_id}_prior_1m")
+                feature_names.append(f"{series_id}_revision_1m")
+
+            # Core mode features
+            if include_revisions and revision_mode in ["core", "full"]:
+                feature_names.extend([
+                    f"{series_id}_mom_1m",
+                    f"{series_id}_pct_1m",
+                    f"{series_id}_net_signal_1m",
+                ])
+
+            # Full mode features
+            if include_revisions and revision_mode == "full":
+                feature_names.extend([
+                    f"{series_id}_prior_3m",
+                    f"{series_id}_prior_12m",
+                    f"{series_id}_mom_3m",
+                    f"{series_id}_mom_12m",
+                    f"{series_id}_pct_12m",
+                    f"{series_id}_revision_3m",
+                ])
+
+        return feature_names
+
+    def requires(self) -> DataRequirements:
+        """Macro features are L1_ONLY (no order book needed)."""
+        return DataRequirements.L1_ONLY
+
+
 class _CalendarTransform:
     """
     Calendar-based known-future features for TFT models.
@@ -461,17 +533,256 @@ class _StaticCovariatesTransform:
         return DataRequirements.L1_ONLY
 
 
+class _InstrumentMetadataTransform:
+    """
+    Instrument metadata features from the instrument_metadata store.
+
+    Provides temporal instrument metadata for factor-based portfolio construction:
+    - Duration buckets: 0=Short (0-2Y), 1=Medium (2-7Y), 2=Long (7Y+)
+    - Issuer types: 0=SOVEREIGN, 1=QUASI_SOVEREIGN, 2=CORPORATE_IG, 3=CORPORATE_HY
+    - Liquidity tiers: 1=High, 2=Medium, 3=Low
+
+    These features enable dynamic factor assignment and cross-sectional analysis.
+    """
+
+    name = "instrument_metadata"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        """
+        Generate instrument metadata feature names.
+
+        Parameters
+        ----------
+        params : dict
+            include_region: Include region metadata (default: False)
+            include_sector: Include sector metadata (default: False)
+            include_rating: Include credit rating metadata (default: False)
+
+        Returns
+        -------
+        list[str]
+            Feature names in order
+
+        """
+        features = [
+            "duration_bucket",
+            "issuer_type",
+            "liquidity_tier",
+        ]
+
+        if params.get("include_region", False):
+            features.append("region_encoded")
+
+        if params.get("include_sector", False):
+            features.append("sector_encoded")
+
+        if params.get("include_rating", False):
+            features.append("rating_encoded")
+
+        return features
+
+    def requires(self) -> DataRequirements:
+        """Instrument metadata is L1_ONLY (no market data needed)."""
+        return DataRequirements.L1_ONLY
+
+
 # Register optional transforms
 register_transform(_KeltnerTransform())
 register_transform(_OBVTransform())
 register_transform(_MicrostructureTransform())
 register_transform(_TradeFlowTransform())
+register_transform(_InstrumentMetadataTransform())
 
 # Register known-future transforms for TFT
 register_transform(_CalendarTransform())
 register_transform(_EventScheduleTransform())
 register_transform(_MacroIndicatorsTransform())
 register_transform(_StaticCovariatesTransform())
+
+# Register ALFRED/FRED macro features with revision awareness
+register_transform(_MacroTransform())
+
+
+class _MacroCompositesTransform:
+    """
+    Factorized macro composites - derived signals across economic dimensions.
+
+    Computes composite features from base macro series:
+    - Credit spreads (IG/HY spread, quality premium)
+    - Duration structure (term spread, curve slope, real yields)
+    - Liquidity conditions (Fed balance sheet, bank credit, funding stress)
+    - Growth/inflation regimes (momentum, stagflation risk, goldilocks)
+    - FX positioning (dollar strength, carry, stress)
+
+    These reduce dimensionality and increase signal density vs. raw series.
+    """
+
+    name = "macro_composites"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        """
+        Get composite feature names.
+
+        Returns all possible composites; actual availability depends on
+        which base series are present in the data.
+        """
+        from ml.features.macro_composites import get_composite_feature_names
+
+        return get_composite_feature_names()
+
+    def requires(self) -> DataRequirements:
+        """Composites only need L1 (timestamps) + base macro series."""
+        return DataRequirements.L1_ONLY
+
+
+# Register macro composites
+register_transform(_MacroCompositesTransform())
+
+
+class _EWMABetaTransform:
+    """
+    EWMA Beta features for cross-asset relationships.
+
+    Computes exponentially weighted moving average beta between an asset and a
+    benchmark/market. Measures systematic risk exposure with time-varying weights.
+
+    Features:
+    - ewma_beta: Rolling beta coefficient (cov / var_market)
+    - ewma_cov: Exponentially weighted covariance
+    - ewma_var_market: Exponentially weighted market variance
+    """
+
+    name = "ewma_beta"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        """
+        Generate EWMA beta feature names.
+
+        Parameters
+        ----------
+        params : dict
+            benchmark_id: Benchmark instrument ID (e.g., "SPY")
+            alpha: EWMA decay factor (default: 0.94)
+            include_components: Include cov/var components (default: False)
+
+        Returns
+        -------
+        list[str]
+            Feature names in order
+        """
+        benchmark_id = params.get("benchmark_id", "market")
+        include_components = params.get("include_components", False)
+
+        features = [f"ewma_beta_{benchmark_id}"]
+
+        if include_components:
+            features.extend([
+                f"ewma_cov_{benchmark_id}",
+                f"ewma_var_{benchmark_id}",
+            ])
+
+        return features
+
+    def requires(self) -> DataRequirements:
+        """Beta computation requires L1 data from multiple instruments."""
+        return DataRequirements.L1_ONLY
+
+
+class _ZScoreSpreadTransform:
+    """
+    Z-Scored Spread features for pairs trading.
+
+    Computes standardized price spreads between asset pairs using rolling statistics.
+    Enables mean-reversion strategies and statistical arbitrage.
+
+    Features:
+    - zscore_spread: Standardized spread (spread - mean) / std
+    - spread_raw: Raw price difference
+    - spread_mean: Rolling mean of spread
+    - spread_std: Rolling standard deviation
+    """
+
+    name = "zscore_spread"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        """
+        Generate z-scored spread feature names.
+
+        Parameters
+        ----------
+        params : dict
+            pair_id: Identifier for the asset pair (e.g., "GLD_GDX")
+            include_components: Include mean/std components (default: False)
+
+        Returns
+        -------
+        list[str]
+            Feature names in order
+        """
+        pair_id = params.get("pair_id", "pair")
+        include_components = params.get("include_components", False)
+
+        features = [f"zscore_spread_{pair_id}"]
+
+        if include_components:
+            features.extend([
+                f"spread_raw_{pair_id}",
+                f"spread_mean_{pair_id}",
+                f"spread_std_{pair_id}",
+            ])
+
+        return features
+
+    def requires(self) -> DataRequirements:
+        """Spread computation requires L1 data from multiple instruments."""
+        return DataRequirements.L1_ONLY
+
+
+# Register cross-asset transforms
+register_transform(_EWMABetaTransform())
+register_transform(_ZScoreSpreadTransform())
+
+
+@dataclass(frozen=True)
+class EWMABetaTransformSpec:
+    """Transform spec for EWMA beta computation between instrument and factor."""
+
+    name: str = "ewma_beta"
+    instrument_id: str = ""
+    factor_name: str = ""
+    alpha: float = 0.94
+
+    def compute_feature_names(self) -> list[str]:
+        """Return feature names produced by this transform."""
+        return [f"ewma_beta_{self.instrument_id}_{self.factor_name}"]
+
+
+@dataclass(frozen=True)
+class ZScoreSpreadTransformSpec:
+    """Transform spec for z-scored spread computation between two instruments."""
+
+    name: str = "zscore_spread"
+    instrument_id_1: str = ""
+    instrument_id_2: str = ""
+    window_size: int = 60
+
+    def compute_feature_names(self) -> list[str]:
+        """Return feature names produced by this transform."""
+        return [f"zscore_spread_{self.instrument_id_1}_{self.instrument_id_2}"]
+
+
+@dataclass(frozen=True)
+class RollingCorrelationTransformSpec:
+    """Transform spec for rolling correlation between two instruments."""
+
+    name: str = "rolling_correlation"
+    instrument_id_1: str = ""
+    instrument_id_2: str = ""
+    window_size: int = 60
+
+    def compute_feature_names(self) -> list[str]:
+        """Return feature names produced by this transform."""
+        return [f"correlation_{self.instrument_id_1}_{self.instrument_id_2}"]
 
 
 @dataclass(slots=True)

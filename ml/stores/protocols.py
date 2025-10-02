@@ -494,6 +494,115 @@ class StrategyClearDepsStrict(Protocol):
     strategy_signals_table: TableLike
 
 
+@runtime_checkable
+class InstrumentMetadataStoreProtocol(Protocol):
+    """
+    Protocol for instrument metadata store implementations.
+
+    Provides temporal instrument metadata for factor-based portfolio construction,
+    supporting dynamic assignment of instruments to duration buckets, issuer types,
+    and liquidity tiers.
+    """
+
+    def write_metadata(
+        self,
+        instrument_id: str,
+        duration_bucket: int,
+        issuer_type: int,
+        liquidity_tier: int,
+        ts_event: int,
+        ts_init: int,
+        region: str | None = None,
+        sector: str | None = None,
+        rating: str | None = None,
+        valid_from_ns: int | None = None,
+        valid_until_ns: int | None = None,
+    ) -> None:
+        """
+        Write instrument metadata to the store.
+
+        Parameters
+        ----------
+        instrument_id : str
+            Nautilus InstrumentId (e.g., "US10Y.BOND", "AAPL.NASDAQ")
+        duration_bucket : int
+            Duration classification: 0=Short (0-2Y), 1=Medium (2-7Y), 2=Long (7Y+)
+        issuer_type : int
+            Issuer classification: 0=SOVEREIGN, 1=QUASI_SOVEREIGN, 2=CORPORATE_IG, 3=CORPORATE_HY
+        liquidity_tier : int
+            Liquidity classification: 1=High, 2=Medium, 3=Low
+        ts_event : int
+            Event timestamp in nanoseconds
+        ts_init : int
+            Initialization timestamp in nanoseconds
+        region : str | None
+            Geographic region (e.g., 'US', 'EU', 'ASIA')
+        sector : str | None
+            Market sector (e.g., 'TREASURY', 'AGENCY', 'CORPORATE')
+        rating : str | None
+            Credit rating if applicable
+        valid_from_ns : int | None
+            Start of validity period (defaults to ts_event)
+        valid_until_ns : int | None
+            End of validity period (None = currently valid)
+        """
+        ...
+
+    def get_metadata(
+        self,
+        instrument_id: str,
+        ts_event: int | None = None,
+    ) -> Mapping[str, Any] | None:
+        """
+        Get metadata for an instrument at a specific point in time.
+
+        Parameters
+        ----------
+        instrument_id : str
+            Instrument identifier
+        ts_event : int | None
+            Query timestamp in nanoseconds (None = get current/latest)
+
+        Returns
+        -------
+        Mapping[str, Any] | None
+            Metadata dictionary or None if not found
+        """
+        ...
+
+    def get_instruments_by_factors(
+        self,
+        duration_bucket: int | None = None,
+        issuer_type: int | None = None,
+        liquidity_tier: int | None = None,
+        ts_event: int | None = None,
+    ) -> list[str]:
+        """
+        Get instruments matching factor criteria.
+
+        Parameters
+        ----------
+        duration_bucket : int | None
+            Filter by duration bucket
+        issuer_type : int | None
+            Filter by issuer type
+        liquidity_tier : int | None
+            Filter by liquidity tier
+        ts_event : int | None
+            Query timestamp (None = current)
+
+        Returns
+        -------
+        list[str]
+            List of matching instrument IDs
+        """
+        ...
+
+    def flush(self) -> None:
+        """Flush any pending writes to persistent storage."""
+        ...
+
+
 __all__ = [
     "BaseStoreProtocol",
     "CircuitBreakerProtocol",
@@ -501,6 +610,7 @@ __all__ = [
     "DataStoreFacadeProtocol",
     "FeatureStoreProtocol",
     "FeatureStoreStrictProtocol",
+    "InstrumentMetadataStoreProtocol",
     "LoggerLike",
     "MarketDataWriterProtocol",
     "ModelClearDepsStrict",

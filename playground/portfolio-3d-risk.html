@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Portfolio Risk Space</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            overflow: hidden;
+            color: white;
+        }
+        
+        #container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #canvas-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        #info-panel {
+            width: 320px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 25px;
+            overflow-y: auto;
+            box-shadow: -5px 0 20px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            font-size: 24px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+            font-weight: 800;
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .controls {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .control-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+        
+        .control-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+        
+        .control-label {
+            opacity: 0.8;
+        }
+        
+        .control-value {
+            font-weight: 700;
+            font-size: 13px;
+        }
+        
+        .metrics {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        
+        .metric-label {
+            color: #64748b;
+            font-weight: 600;
+        }
+        
+        .metric-value {
+            color: #1a1a2e;
+            font-weight: 700;
+        }
+        
+        .allocations-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin-bottom: 12px;
+        }
+        
+        .allocation-item {
+            display: flex;
+            align-items: center;
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .allocation-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .allocation-info {
+            flex: 1;
+        }
+        
+        .allocation-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        
+        .allocation-coords {
+            font-size: 9px;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        
+        .allocation-weight {
+            font-size: 13px;
+            font-weight: 800;
+            color: #6366f1;
+        }
+        
+        .instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.6;
+            max-width: 300px;
+            z-index: 10;
+        }
+        
+        .instruction-title {
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #fbbf24;
+        }
+        
+        .instruction-item {
+            margin-bottom: 5px;
+            color: #e5e7eb;
+        }
+        
+        .axis-label {
+            position: absolute;
+            font-size: 12px;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .legend {
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 12px;
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 10;
+        }
+        
+        .legend-title {
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: #fbbf24;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 10px;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container">
+            <div class="instructions">
+                <div class="instruction-title">🎮 Controls</div>
+                <div class="instruction-item">🖱️ Left drag: Rotate view</div>
+                <div class="instruction-item">🔴 Right click: Move portfolio</div>
+                <div class="instruction-item">⚪ Scroll: Zoom in/out</div>
+            </div>
+            
+            <div class="legend">
+                <div class="legend-title">Asset Classes</div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #3b82f6;"></div>
+                    Government Bonds
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6366f1;"></div>
+                    Investment Grade
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f59e0b;"></div>
+                    High Yield
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ec4899;"></div>
+                    Equities
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #10b981;"></div>
+                    Commodities
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #fbbf24;"></div>
+                    Portfolio
+                </div>
+            </div>
+        </div>
+        
+        <div id="info-panel">
+            <h1>Portfolio Navigator</h1>
+            <p class="subtitle">Navigate through 3D risk space to find optimal asset allocation based on macro conditions</p>
+            
+            <div class="controls">
+                <div class="control-title">📍 Portfolio Position</div>
+                <div class="control-item">
+                    <span class="control-label">Duration Risk:</span>
+                    <span class="control-value" id="duration-value">50%</span>
+                </div>
+                <div class="control-item">
+                    <span class="control-label">Credit Risk:</span>
+                    <span class="control-value" id="credit-value">50%</span>
+                </div>
+                <div class="control-item">
+                    <span class="control-label">Liquidity:</span>
+                    <span class="control-value" id="liquidity-value">50%</span>
+                </div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metric-row">
+                    <span class="metric-label">Risk Profile:</span>
+                    <span class="metric-value" id="risk-profile">Balanced</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Diversification:</span>
+                    <span class="metric-value" id="diversification">Medium</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Top Asset:</span>
+                    <span class="metric-value" id="top-asset">-</span>
+                </div>
+            </div>
+            
+            <div class="allocations-title">💼 Current Allocation</div>
+            <div id="allocations-list"></div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Asset definitions with 3D coordinates
+        const assets = [
+            // Safe haven / Low everything
+            { name: 'Cash', x: 0.1, y: 0.1, z: 0.1, color: 0x6b7280 },
+            { name: 'T-Bills', x: 0.2, y: 0.1, z: 0.2, color: 0x3b82f6 },
+            
+            // Low credit, varying duration and liquidity
+            { name: 'Short Treasuries', x: 0.4, y: 0.15, z: 0.3, color: 0x3b82f6 },
+            { name: 'Long Treasuries', x: 0.85, y: 0.1, z: 0.4, color: 0x3b82f6 },
+            
+            // Gold - low duration, low credit, HIGH liquidity sensitivity
+            { name: 'Gold', x: 0.25, y: 0.15, z: 0.85, color: 0x10b981 },
+            
+            // IG Credit
+            { name: 'IG Short', x: 0.45, y: 0.3, z: 0.35, color: 0x6366f1 },
+            { name: 'IG Long', x: 0.75, y: 0.35, z: 0.45, color: 0x6366f1 },
+            
+            // Commodities - low duration, medium credit, high liquidity
+            { name: 'Commodities', x: 0.3, y: 0.4, z: 0.75, color: 0x10b981 },
+            
+            // High Yield
+            { name: 'High Yield', x: 0.5, y: 0.7, z: 0.5, color: 0xf59e0b },
+            { name: 'EM Debt', x: 0.55, y: 0.8, z: 0.6, color: 0xf59e0b },
+            
+            // Equities - defensive
+            { name: 'Utilities', x: 0.5, y: 0.5, z: 0.4, color: 0xec4899 },
+            { name: 'Value Stocks', x: 0.6, y: 0.6, z: 0.5, color: 0xec4899 },
+            
+            // Equities - growth (high duration, medium credit, HIGH liquidity)
+            { name: 'Growth Stocks', x: 0.8, y: 0.5, z: 0.8, color: 0xec4899 },
+            { name: 'Tech Growth', x: 0.9, y: 0.6, z: 0.85, color: 0xec4899 },
+            
+            // Equities - cyclical/risky
+            { name: 'Cyclicals', x: 0.45, y: 0.75, z: 0.55, color: 0xec4899 },
+            { name: 'Small Caps', x: 0.7, y: 0.75, z: 0.7, color: 0xec4899 },
+            { name: 'EM Equities', x: 0.65, y: 0.85, z: 0.75, color: 0xec4899 }
+        ];
+        
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+        scene.fog = new THREE.Fog(0x1a1a2e, 10, 30);
+        
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(8, 6, 8);
+        camera.lookAt(5, 5, 5);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const container = document.getElementById('canvas-container');
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+        
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 10, 10);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+        
+        const pointLight = new THREE.PointLight(0x667eea, 1, 20);
+        pointLight.position.set(5, 8, 5);
+        scene.add(pointLight);
+        
+        // Create coordinate planes
+        const gridHelper1 = new THREE.GridHelper(10, 10, 0x667eea, 0x444444);
+        gridHelper1.position.set(5, 0, 5);
+        scene.add(gridHelper1);
+        
+        const gridHelper2 = new THREE.GridHelper(10, 10, 0x764ba2, 0x333333);
+        gridHelper2.rotation.x = Math.PI / 2;
+        gridHelper2.position.set(5, 5, 0);
+        scene.add(gridHelper2);
+        
+        // Create axes
+        const axesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.3, transparent: true });
+        
+        // X axis (Duration)
+        const xGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(10, 0, 0)
+        ]);
+        const xAxis = new THREE.Line(xGeometry, new THREE.LineBasicMaterial({ color: 0xff6b6b }));
+        scene.add(xAxis);
+        
+        // Y axis (Credit)
+        const yGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 10, 0)
+        ]);
+        const yAxis = new THREE.Line(yGeometry, new THREE.LineBasicMaterial({ color: 0x4ecdc4 }));
+        scene.add(yAxis);
+        
+        // Z axis (Liquidity)
+        const zGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, 10)
+        ]);
+        const zAxis = new THREE.Line(zGeometry, new THREE.LineBasicMaterial({ color: 0xffe66d }));
+        scene.add(zAxis);
+        
+        // Portfolio sphere
+        const portfolioGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+        const portfolioMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xfbbf24,
+            emissive: 0xf59e0b,
+            emissiveIntensity: 0.5,
+            shininess: 100
+        });
+        const portfolioSphere = new THREE.Mesh(portfolioGeometry, portfolioMaterial);
+        portfolioSphere.position.set(5, 5, 5);
+        portfolioSphere.castShadow = true;
+        scene.add(portfolioSphere);
+        
+        // Asset spheres and lines
+        const assetMeshes = [];
+        const allocationLines = [];
+        
+        assets.forEach(asset => {
+            const geometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: asset.color,
+                emissive: asset.color,
+                emissiveIntensity: 0.3
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(asset.x * 10, asset.y * 10, asset.z * 10);
+            mesh.castShadow = true;
+            scene.add(mesh);
+            
+            asset.mesh = mesh;
+            assetMeshes.push(mesh);
+            
+            // Create line
+            const lineGeometry = new THREE.BufferGeometry();
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+                color: asset.color,
+                transparent: true,
+                opacity: 0.3
+            });
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            scene.add(line);
+            
+            asset.line = line;
+            allocationLines.push(line);
+        });
+        
+        // Camera controls
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cameraRotation = { theta: Math.PI / 4, phi: Math.PI / 4 };
+        const cameraDistance = 12;
+        
+        // Portfolio dragging
+        let isDraggingPortfolio = false;
+        let dragPlane = new THREE.Plane();
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        
+        function updateCamera() {
+            camera.position.x = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
+            camera.position.y = 5 + cameraDistance * Math.cos(cameraRotation.phi);
+            camera.position.z = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
+            camera.lookAt(5, 5, 5);
+        }
+        
+        function calculateAllocations() {
+            const portfolioPos = portfolioSphere.position;
+            let weights = [];
+            
+            assets.forEach(asset => {
+                const dist = portfolioPos.distanceTo(asset.mesh.position);
+                const maxDist = 14.14; // sqrt(10^2 + 10^2 + 10^2)
+                const weight = Math.max(0, 1 - (dist / maxDist));
+                const exponentialWeight = Math.pow(weight, 3);
+                weights.push({ asset, weight: exponentialWeight });
+            });
+            
+            const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+            
+            if (totalWeight > 0) {
+                weights = weights.map(w => ({
+                    ...w,
+                    weight: w.weight / totalWeight
+                }));
+            }
+            
+            return weights.sort((a, b) => b.weight - a.weight);
+        }
+        
+        function updateDisplay() {
+            const allocations = calculateAllocations();
+            const pos = portfolioSphere.position;
+            
+            // Update position values
+            document.getElementById('duration-value').textContent = ((pos.x / 10) * 100).toFixed(0) + '%';
+            document.getElementById('credit-value').textContent = ((pos.y / 10) * 100).toFixed(0) + '%';
+            document.getElementById('liquidity-value').textContent = ((pos.z / 10) * 100).toFixed(0) + '%';
+            
+            // Determine risk profile
+            let profile = 'Balanced';
+            const dx = pos.x / 10, dy = pos.y / 10, dz = pos.z / 10;
+            
+            if (dx < 0.3 && dy < 0.3 && dz < 0.3) profile = 'Ultra Conservative';
+            else if (dx < 0.4 && dy < 0.4) profile = 'Conservative';
+            else if (dy > 0.7 || dx > 0.8) profile = 'Aggressive Growth';
+            else if (dz > 0.7 && dy < 0.5) profile = 'Liquidity Driven';
+            else if (dz > 0.7 && dx > 0.6) profile = 'Growth + Debasement';
+            
+            document.getElementById('risk-profile').textContent = profile;
+            
+            // Calculate diversification
+            const effectiveN = 1 / allocations.reduce((sum, a) => sum + a.weight * a.weight, 0);
+            let divScore = 'Low';
+            if (effectiveN > 8) divScore = 'High';
+            else if (effectiveN > 4) divScore = 'Medium';
+            document.getElementById('diversification').textContent = divScore + ` (${effectiveN.toFixed(1)} assets)`;
+            
+            // Top asset
+            if (allocations[0]) {
+                document.getElementById('top-asset').textContent = 
+                    `${allocations[0].asset.name} (${(allocations[0].weight * 100).toFixed(1)}%)`;
+            }
+            
+            // Update allocation list
+            const listEl = document.getElementById('allocations-list');
+            listEl.innerHTML = '';
+            
+            allocations.forEach(({ asset, weight }) => {
+                if (weight > 0.02) {
+                    const item = document.createElement('div');
+                    item.className = 'allocation-item';
+                    
+                    const colorHex = '#' + asset.color.toString(16).padStart(6, '0');
+                    
+                    item.innerHTML = `
+                        <div class="allocation-dot" style="background: ${colorHex};"></div>
+                        <div class="allocation-info">
+                            <div class="allocation-name">${asset.name}</div>
+                            <div class="allocation-coords">
+                                D:${(asset.x * 100).toFixed(0)}% 
+                                C:${(asset.y * 100).toFixed(0)}% 
+                                L:${(asset.z * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                        <div class="allocation-weight">${(weight * 100).toFixed(1)}%</div>
+                    `;
+                    listEl.appendChild(item);
+                }
+            });
+            
+            // Update lines
+            allocations.forEach(({ asset, weight }) => {
+                const points = [portfolioSphere.position, asset.mesh.position];
+                asset.line.geometry.setFromPoints(points);
+                asset.line.material.opacity = Math.max(0.1, weight * 0.8);
+                asset.line.material.linewidth = weight * 5;
+            });
+        }
+        
+        // Mouse events
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left click
+                isDragging = true;
+                previousMousePosition = { x: e.offsetX, y: e.offsetY };
+            } else if (e.button === 2) { // Right click
+                isDraggingPortfolio = true;
+                e.preventDefault();
+            }
+        });
+        
+        renderer.domElement.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaX = e.offsetX - previousMousePosition.x;
+                const deltaY = e.offsetY - previousMousePosition.y;
+                
+                cameraRotation.theta += deltaX * 0.01;
+                cameraRotation.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraRotation.phi + deltaY * 0.01));
+                
+                updateCamera();
+                previousMousePosition = { x: e.offsetX, y: e.offsetY };
+            } else if (isDraggingPortfolio) {
+                mouse.x = (e.offsetX / container.clientWidth) * 2 - 1;
+                mouse.y = -(e.offsetY / container.clientHeight) * 2 + 1;
+                
+                raycaster.setFromCamera(mouse, camera);
+                
+                // Create plane perpendicular to camera
+                dragPlane.setFromNormalAndCoplanarPoint(
+                    camera.getWorldDirection(dragPlane.normal),
+                    portfolioSphere.position
+                );
+                
+                const intersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(dragPlane, intersection);
+                
+                if (intersection) {
+                    portfolioSphere.position.copy(intersection);
+                    
+                    // Constrain to cube
+                    portfolioSphere.position.x = Math.max(0, Math.min(10, portfolioSphere.position.x));
+                    portfolioSphere.position.y = Math.max(0, Math.min(10, portfolioSphere.position.y));
+                    portfolioSphere.position.z = Math.max(0, Math.min(10, portfolioSphere.position.z));
+                    
+                    updateDisplay();
+                }
+            }
+        });
+        
+        renderer.domElement.addEventListener('mouseup', () => {
+            isDragging = false;
+            isDraggingPortfolio = false;
+        });
+        
+        renderer.domElement.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        
+        renderer.domElement.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.5;
+            const newDistance = cameraDistance + (e.deltaY > 0 ? zoomSpeed : -zoomSpeed);
+            if (newDistance > 5 && newDistance < 25) {
+                Object.defineProperty(window, 'cameraDistance', { 
+                    value: newDistance, 
+                    writable: true 
+                });
+                updateCamera();
+            }
+        });
+        
+        // Window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Gentle rotation of portfolio sphere
+            portfolioSphere.rotation.y += 0.01;
+            
+            // Pulse effect for portfolio
+            const scale = 1 + Math.sin(Date.now() * 0.003) * 0.1;
+            portfolioSphere.scale.set(scale, scale, scale);
+            
+            renderer.render(scene, camera);
+        }
+        
+        updateCamera();
+        updateDisplay();
+        animate();
+    </script>
+</body>
+</html>

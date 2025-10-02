@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from ml.orchestration.config_types import DatasetBuildConfig
     from ml.orchestration.config_types import HPOConfig
     from ml.orchestration.config_types import IntegrationConfig
-    from ml.orchestration.config_types import OrchestratorConfig
     from ml.orchestration.config_types import PromotionsConfig
     from ml.orchestration.config_types import StudentDistillConfig
     from ml.orchestration.config_types import TeacherTrainConfig
@@ -500,7 +499,6 @@ class PipelineIntegrationService(BaseIntegrationService):
         run_config: OrchestratorRunConfig,
     ) -> int:
         """Execute the orchestrator stage defined by ``run_config``."""
-
         from ml.orchestration.pipeline_orchestrator import _dataset_only_config
         from ml.orchestration.pipeline_orchestrator import _run_ingestion_stage
 

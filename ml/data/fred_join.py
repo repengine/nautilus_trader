@@ -165,6 +165,9 @@ def join_fred_asof(
     series_filter: set[str] | None = None,
     vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME,
     vintage_cutoff: datetime | None = None,
+    include_revisions: bool = False,
+    revision_mode: str = "core",
+    revision_windows: list[int] | None = None,
 ) -> DataFrameLike:
     """
     Join FRED macro features to a time-indexed market DataFrame using as-of semantics.
@@ -187,6 +190,16 @@ def join_fred_asof(
         Base directory containing ALFRED vintage release calendars. When provided,
         actual release timestamps are used for point-in-time joins, falling back to
         ``lag_days`` for any series without vintage data.
+    include_revisions : bool, default False
+        If True, compute revision-aware features (prior values, revision deltas, net signals).
+        Requires vintage_base_dir to be set and vintage data to be available.
+    revision_mode : {"minimal", "core", "full"}, default "core"
+        Feature mode when include_revisions=True:
+        - minimal: current, prior_1m, revision_1m (3 features/series)
+        - core: + mom_1m, pct_1m, net_signal_1m (6 features/series)
+        - full: + prior_3m/12m, revision_3m, mom_3m/12m, pct_12m (12 features/series)
+    revision_windows : list[int] | None, optional
+        Months to use for prior/revision features. Defaults to [1, 3, 12].
 
     """
     cutoff_utc: datetime | None
@@ -291,6 +304,30 @@ def join_fred_asof(
                 .select(["timestamp", "series_id", "value", "release_ts"])
             )
             frames.append(release_select)
+
+            # Compute revision features if requested
+            if include_revisions and vintage_dir is not None:
+                from ml.data.macro_revisions import compute_revision_features_pl
+
+                revision_features = compute_revision_features_pl(
+                    release_df,
+                    series_filter=series_filter,
+                    mode=revision_mode,  # type: ignore[arg-type]
+                    monthly_windows=revision_windows,
+                )
+
+                if not revision_features.is_empty():
+                    # revision_features has: timestamp, series_id, value, release_ts, feature_type
+                    # We need to rename feature_type to series_id for pivot compatibility
+                    revision_features = revision_features.select(
+                        [
+                            _pl.col("timestamp").cast(timestamp_dtype),
+                            _pl.col("feature_type").alias("series_id"),  # Use feature name as series
+                            _pl.col("value"),
+                            _pl.col("release_ts").cast(timestamp_dtype),
+                        ],
+                    )
+                    frames.append(revision_features)
 
         if not frames:
             return cast(DataFrameLike, df)

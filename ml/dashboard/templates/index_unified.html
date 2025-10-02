@@ -14,6 +14,9 @@
     <!-- Tailwind CSS for additional styling -->
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- Nautilus API Client -->
+    <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
+
     <style>
         :root {
             --bg-primary: #0f1419;
@@ -492,28 +495,28 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Daily P&L</div>
-                    <div class="metric-value">+$18,450</div>
-                    <div class="metric-change positive">▲ 3.2%</div>
+                    <div class="metric-value" id="daily-pnl">+$18,450</div>
+                    <div class="metric-change positive" id="daily-pnl-change">▲ 3.2%</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Sharpe Ratio</div>
-                    <div class="metric-value">2.15</div>
-                    <div class="metric-change">30D Average</div>
+                    <div class="metric-value" id="sharpe-ratio">2.15</div>
+                    <div class="metric-change" id="sharpe-change">30D Average</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Win Rate</div>
-                    <div class="metric-value">72.3%</div>
-                    <div class="metric-change">142/196 trades</div>
+                    <div class="metric-value" id="win-rate">72.3%</div>
+                    <div class="metric-change" id="win-rate-change">142/196 trades</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value">-5.8%</div>
-                    <div class="metric-change positive">Risk: Low</div>
+                    <div class="metric-value" id="max-drawdown-value">-5.8%</div>
+                    <div class="metric-change positive" id="drawdown-risk">Risk: Low</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Active Models</div>
                     <div class="metric-value" id="active-models">5</div>
-                    <div class="metric-change positive">▲ 2 new today</div>
+                    <div class="metric-change positive" id="models-change">▲ 2 new today</div>
                 </div>
             </div>
 
@@ -526,19 +529,19 @@
                     </div>
                     <div class="data-stats mt-4">
                         <div class="data-stat">
-                            <div class="data-stat-value">1,234</div>
+                            <div class="data-stat-value" id="ingestion-bars-sec">1,234</div>
                             <div class="data-stat-label">Bars/sec</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">8,451</div>
+                            <div class="data-stat-value" id="ingestion-quotes-sec">8,451</div>
                             <div class="data-stat-label">Quotes/sec</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">12,892</div>
+                            <div class="data-stat-value" id="ingestion-l2-sec">12,892</div>
                             <div class="data-stat-label">L2 Updates/sec</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">98.7%</div>
+                            <div class="data-stat-value" id="ingestion-quality">98.7%</div>
                             <div class="data-stat-label">Data Quality</div>
                         </div>
                     </div>
@@ -552,19 +555,19 @@
                     </div>
                     <div class="data-stats mt-4">
                         <div class="data-stat">
-                            <div class="data-stat-value">$2.4M</div>
+                            <div class="data-stat-value" id="portfolio-total">$2.4M</div>
                             <div class="data-stat-label">Total Value</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">$523k</div>
+                            <div class="data-stat-value" id="portfolio-cash">$523k</div>
                             <div class="data-stat-label">Cash</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">$892k</div>
+                            <div class="data-stat-value" id="portfolio-margin">$892k</div>
                             <div class="data-stat-label">Margin Used</div>
                         </div>
                         <div class="data-stat">
-                            <div class="data-stat-value">12</div>
+                            <div class="data-stat-value" id="portfolio-positions">12</div>
                             <div class="data-stat-label">Positions</div>
                         </div>
                     </div>
@@ -1475,28 +1478,30 @@
         // Control Functions
         async function connectToSystem() {
             try {
-                const response = await fetch('/api/control/status');
-                const data = await response.json();
-                if (data.stores) {
-                    alert('✅ Successfully connected to Nautilus ML System');
+                // Use new /api/health/system endpoint
+                const health = await apiClient.getSystemHealth();
+                if (health.status === 'healthy' || health.stores) {
+                    showSuccess('✅ Successfully connected to Nautilus ML System');
+                    updateDashboard();
+                } else {
+                    showError('⚠️ System connected but some services unhealthy');
                     updateDashboard();
                 }
             } catch (error) {
-                alert('❌ Failed to connect: ' + error.message);
+                showError(`❌ Failed to connect: ${error.message}`);
             }
         }
 
         async function emergencyStop() {
             if (!confirm('⚠️ Stop all running components?')) return;
             try {
-                const response = await fetch('/api/control/emergency_stop', {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                alert('🛑 Emergency stop executed');
+                // Use new /api/control/emergency/stop endpoint
+                const result = await apiClient.emergencyStop();
+                showSuccess('🛑 Emergency stop executed');
                 updateDashboard();
             } catch (error) {
                 console.error('Emergency stop failed:', error);
+                showError('Failed to execute emergency stop');
             }
         }
 
@@ -1512,48 +1517,104 @@
             };
 
             try {
-                const response = await fetch('/api/control/actors/start', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(config)
-                });
-                const data = await response.json();
-                if (data.success) {
-                    alert('✅ Actor deployed: ' + config.actor_id);
+                // Use new /api/actors/deploy endpoint
+                const result = await apiClient.deployActor(config);
+                if (result.success || result.actor_id) {
+                    showSuccess(`✅ Actor deployed: ${config.actor_id}`);
                     updateActorsList();
                 }
             } catch (error) {
-                alert('❌ Deployment failed: ' + error.message);
+                showError(`❌ Deployment failed: ${error.message}`);
             }
         }
 
         async function updateActorsList() {
             try {
-                const response = await fetch('/api/control/status');
-                const data = await response.json();
+                // Use new /api/actors/health endpoint
+                const health = await apiClient.getActorsHealth();
                 const container = document.getElementById('actors-list');
+
+                if (!container) return;
                 container.innerHTML = '';
 
-                for (const [id, actor] of Object.entries(data.actors.instances || {})) {
+                // Convert actors object to array (backend returns dict, not list)
+                const actorsObj = health.actors || {};
+                const actors = Object.values(actorsObj);
+                actors.forEach(actor => {
                     const actorDiv = document.createElement('div');
                     actorDiv.className = 'p-3 bg-gray-800 rounded mb-2';
+
+                    const statusClass = actor.status === 'running' ? 'text-green-400' : 'text-gray-400';
+                    const statusIcon = actor.status === 'running' ? '●' : '○';
+
                     actorDiv.innerHTML = `
                         <div class="flex justify-between items-center">
                             <div>
-                                <div class="font-semibold">${id}</div>
-                                <div class="text-xs text-gray-400">${actor.actor_type || actor.type}</div>
+                                <div class="font-semibold">
+                                    <span class="${statusClass}">${statusIcon}</span>
+                                    ${actor.actor_id || actor.id}
+                                </div>
+                                <div class="text-xs text-gray-400">${actor.actor_type || 'Unknown'}</div>
                             </div>
-                            <button class="btn btn-sm btn-danger" onclick="stopActor('${id}')">Stop</button>
+                            <div class="flex gap-2">
+                                ${actor.status === 'running' ?
+                                    `<button class="btn btn-xs btn-warning" onclick="pauseActorById('${actor.actor_id}')">Pause</button>
+                                     <button class="btn btn-xs btn-danger" onclick="stopActorById('${actor.actor_id}')">Stop</button>`
+                                    :
+                                    `<button class="btn btn-xs btn-primary" onclick="resumeActorById('${actor.actor_id}')">Resume</button>`
+                                }
+                            </div>
                         </div>
                     `;
                     container.appendChild(actorDiv);
+                });
+
+                if (actors.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-center py-4">No actors deployed</div>';
                 }
             } catch (error) {
                 console.error('Failed to update actors:', error);
+                showError('Failed to load actors list');
             }
         }
 
-        function executeCommand() {
+        async function pauseActorById(actorId) {
+            try {
+                await apiClient.pauseActor(actorId);
+                showSuccess(`Actor ${actorId} paused`);
+                updateActorsList();
+            } catch (error) {
+                showError(`Failed to pause actor: ${error.message}`);
+            }
+        }
+
+        async function resumeActorById(actorId) {
+            try {
+                await apiClient.resumeActor(actorId);
+                showSuccess(`Actor ${actorId} resumed`);
+                updateActorsList();
+            } catch (error) {
+                showError(`Failed to resume actor: ${error.message}`);
+            }
+        }
+
+        async function stopActorById(actorId) {
+            if (!confirm(`Stop actor ${actorId}?`)) return;
+            try {
+                await apiClient.stopActor(actorId);
+                showSuccess(`Actor ${actorId} stopped`);
+                updateActorsList();
+            } catch (error) {
+                showError(`Failed to stop actor: ${error.message}`);
+            }
+        }
+
+        function showSuccess(message) {
+            console.log('✅', message);
+            // Could add toast notification here
+        }
+
+        async function executeCommand() {
             const input = document.getElementById('terminal-input');
             const command = input.value.trim();
             if (!command) return;
@@ -1564,22 +1625,44 @@
             line.innerHTML = `<span class="terminal-prompt">nautilus@ml:~$</span> ${command}`;
             terminal.appendChild(line);
 
-            // Process command
+            // Process command using new API
             if (command === 'help') {
-                addTerminalLine('Available commands: status, list, clear');
-            } else if (command === 'status') {
-                fetch('/api/control/status')
-                    .then(r => r.json())
-                    .then(data => {
-                        addTerminalLine(`Actors: ${data.actors.active}`);
-                        addTerminalLine(`Pipelines: ${data.pipelines.active}`);
-                    });
+                addTerminalLine('Available commands: status, actors, pipelines, features, clear');
+                addTerminalLine('Type any command to execute remotely');
             } else if (command === 'clear') {
                 terminal.innerHTML = '';
+            } else {
+                try {
+                    // Execute command via API
+                    const result = await apiClient.executeCommand(command);
+                    if (result.output) {
+                        result.output.split('\n').forEach(line => addTerminalLine(line));
+                    } else if (result.result) {
+                        addTerminalLine(JSON.stringify(result.result, null, 2));
+                    }
+                } catch (error) {
+                    addTerminalLine(`Error: ${error.message}`, 'error');
+                }
             }
 
             input.value = '';
             terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        // Load command history
+        async function loadCommandHistory() {
+            try {
+                const history = await apiClient.getCommandHistory();
+                // Update history display if element exists
+                const historyEl = document.getElementById('command-history');
+                if (historyEl && history.commands) {
+                    historyEl.innerHTML = history.commands
+                        .map(cmd => `<div class="text-xs text-gray-400">${cmd}</div>`)
+                        .join('');
+                }
+            } catch (error) {
+                console.error('Failed to load command history:', error);
+            }
         }
 
         function addTerminalLine(text) {
@@ -1592,18 +1675,191 @@
 
         async function updateDashboard() {
             try {
-                const response = await fetch('/api/control/status');
-                const data = await response.json();
+                // Use new metrics endpoints instead of old /api/control/status
+                const [snapshot, portfolio, ingestion, experiments] = await Promise.all([
+                    apiClient.getMetricsSnapshot(),
+                    apiClient.getPortfolioMetrics(),
+                    apiClient.getIngestionMetrics(),
+                    apiClient.getExperiments()
+                ]);
 
-                const activeModels = document.getElementById('active-models');
-                if (activeModels) {
-                    activeModels.textContent = data.actors.active;
-                }
+                // Update metrics cards
+                updateMetricsCards(snapshot);
+                updatePortfolioChart(portfolio);
+                updateIngestionStatus(ingestion);
+                updateExperimentsList(experiments);
 
+                // Update actors list using new endpoint
                 updateActorsList();
             } catch (error) {
                 console.error('Dashboard update failed:', error);
+                // Show user-friendly error
+                showError('Failed to load dashboard data. Please check system connection.');
             }
+        }
+
+        /**
+         * Update all metrics cards with real-time data from the snapshot endpoint.
+         * @param {Object} snapshot - Metrics snapshot from /api/metrics/snapshot
+         * @param {number} snapshot.daily_pnl - Daily profit/loss in USD
+         * @param {number} snapshot.sharpe_ratio - Sharpe ratio (risk-adjusted return)
+         * @param {number} snapshot.win_rate - Percentage of winning trades (0-1)
+         * @param {number} snapshot.max_drawdown - Maximum drawdown percentage (0-1)
+         * @param {number} snapshot.active_models - Number of active models
+         */
+        function updateMetricsCards(snapshot) {
+            if (!snapshot) return;
+
+            // Daily P&L
+            const dailyPnl = document.getElementById('daily-pnl');
+            if (dailyPnl && snapshot.daily_pnl !== undefined) {
+                const pnl = snapshot.daily_pnl;
+                const formatted = pnl >= 0 ? `+$${Math.abs(pnl).toLocaleString()}` : `-$${Math.abs(pnl).toLocaleString()}`;
+                dailyPnl.textContent = formatted;
+                dailyPnl.parentElement.classList.toggle('positive', pnl >= 0);
+                dailyPnl.parentElement.classList.toggle('negative', pnl < 0);
+            }
+
+            // Sharpe Ratio
+            const sharpeRatio = document.getElementById('sharpe-ratio');
+            if (sharpeRatio && snapshot.sharpe_ratio !== undefined) {
+                sharpeRatio.textContent = snapshot.sharpe_ratio.toFixed(2);
+            }
+
+            // Win Rate
+            const winRate = document.getElementById('win-rate');
+            if (winRate && snapshot.win_rate !== undefined) {
+                const rate = (snapshot.win_rate * 100).toFixed(1);
+                winRate.textContent = `${rate}%`;
+            }
+
+            // Max Drawdown
+            const maxDrawdown = document.getElementById('max-drawdown-value');
+            if (maxDrawdown && snapshot.max_drawdown !== undefined) {
+                const dd = (snapshot.max_drawdown * 100).toFixed(1);
+                maxDrawdown.textContent = `-${dd}%`;
+
+                // Update risk assessment
+                const risk = document.getElementById('drawdown-risk');
+                if (risk) {
+                    const ddPercent = Math.abs(snapshot.max_drawdown);
+                    if (ddPercent < 0.05) {
+                        risk.textContent = 'Risk: Low';
+                        risk.className = 'metric-change positive';
+                    } else if (ddPercent < 0.15) {
+                        risk.textContent = 'Risk: Medium';
+                        risk.className = 'metric-change';
+                    } else {
+                        risk.textContent = 'Risk: High';
+                        risk.className = 'metric-change negative';
+                    }
+                }
+            }
+
+            // Active Models
+            const activeModels = document.getElementById('active-models');
+            if (activeModels && snapshot.active_models !== undefined) {
+                activeModels.textContent = snapshot.active_models.toString();
+            }
+        }
+
+        /**
+         * Update portfolio display with current position and cash data.
+         * @param {Object} portfolio - Portfolio data from /api/metrics/portfolio
+         * @param {number} portfolio.total_value - Total portfolio value in USD
+         * @param {number} portfolio.cash - Available cash in USD
+         * @param {number} portfolio.margin_used - Margin currently used in USD
+         * @param {number} portfolio.positions - Number of open positions
+         */
+        function updatePortfolioChart(portfolio) {
+            if (!portfolio) return;
+
+            // Update portfolio statistics
+            const formatCurrency = (value) => {
+                if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+                if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`;
+                return `$${value.toFixed(0)}`;
+            };
+
+            const totalValue = document.getElementById('portfolio-total');
+            if (totalValue && portfolio.total_value !== undefined) {
+                totalValue.textContent = formatCurrency(portfolio.total_value);
+            }
+
+            const cash = document.getElementById('portfolio-cash');
+            if (cash && portfolio.cash !== undefined) {
+                cash.textContent = formatCurrency(portfolio.cash);
+            }
+
+            const margin = document.getElementById('portfolio-margin');
+            if (margin && portfolio.margin_used !== undefined) {
+                margin.textContent = formatCurrency(portfolio.margin_used);
+            }
+
+            const positions = document.getElementById('portfolio-positions');
+            if (positions && portfolio.positions !== undefined) {
+                positions.textContent = portfolio.positions.toString();
+            }
+        }
+
+        /**
+         * Update data ingestion metrics display.
+         * @param {Object} ingestion - Ingestion data from /api/metrics/ingestion
+         * @param {number} ingestion.bars_per_sec - Bars ingested per second
+         * @param {number} ingestion.quotes_per_sec - Quotes ingested per second
+         * @param {number} ingestion.l2_updates_per_sec - L2 updates per second
+         * @param {number} ingestion.data_quality - Data quality score (0-1)
+         */
+        function updateIngestionStatus(ingestion) {
+            if (!ingestion) return;
+
+            const formatRate = (value) => {
+                if (value >= 1000) return Math.round(value).toLocaleString();
+                return Math.round(value).toString();
+            };
+
+            const barsSec = document.getElementById('ingestion-bars-sec');
+            if (barsSec && ingestion.bars_per_sec !== undefined) {
+                barsSec.textContent = formatRate(ingestion.bars_per_sec);
+            }
+
+            const quotesSec = document.getElementById('ingestion-quotes-sec');
+            if (quotesSec && ingestion.quotes_per_sec !== undefined) {
+                quotesSec.textContent = formatRate(ingestion.quotes_per_sec);
+            }
+
+            const l2Sec = document.getElementById('ingestion-l2-sec');
+            if (l2Sec && ingestion.l2_updates_per_sec !== undefined) {
+                l2Sec.textContent = formatRate(ingestion.l2_updates_per_sec);
+            }
+
+            const quality = document.getElementById('ingestion-quality');
+            if (quality && ingestion.data_quality !== undefined) {
+                const qualityPercent = (ingestion.data_quality * 100).toFixed(1);
+                quality.textContent = `${qualityPercent}%`;
+            }
+        }
+
+        /**
+         * Update experiments list display.
+         * Note: The experiments endpoint structure may vary. This handles the expected format.
+         * @param {Object} experiments - Experiments data from /api/metrics/experiments
+         */
+        function updateExperimentsList(experiments) {
+            if (!experiments) return;
+
+            // Experiments display is already shown in static HTML
+            // This function would update dynamic experiment cards if we had container IDs
+            // For now, we'll log that experiments were received
+            console.log('Experiments data received:', experiments);
+
+            // TODO: Add experiment cards container and dynamic rendering when needed
+        }
+
+        function showError(message) {
+            // Display error notification to user
+            console.error(message);
+            // Could add toast notification here
         }
 
         // Model actions
@@ -1626,6 +1882,293 @@
             const qqq = document.getElementById('qqq-price');
             if (spy) spy.textContent = '$' + (450 + Math.random() * 5).toFixed(2);
             if (qqq) qqq.textContent = '$' + (375 + Math.random() * 5).toFixed(2);
+        }
+
+        // ========================================================================
+        // PIPELINE TAB FUNCTIONS
+        // ========================================================================
+
+        async function updatePipelinesTab() {
+            try {
+                const jobs = await apiClient.getPipelineJobs();
+                renderPipelineJobs(jobs);
+            } catch (error) {
+                console.error('Failed to load pipeline jobs:', error);
+                showError('Failed to load pipelines');
+            }
+        }
+
+        function renderPipelineJobs(data) {
+            const container = document.getElementById('pipeline-jobs-list');
+            if (!container) return;
+
+            const jobs = data.jobs || [];
+            container.innerHTML = jobs.map(job => `
+                <div class="p-3 bg-gray-800 rounded mb-2">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="font-semibold">${job.job_id}</div>
+                            <div class="text-xs text-gray-400">${job.task_type || 'Unknown'}</div>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <span class="text-xs ${job.status === 'running' ? 'text-yellow-400' : job.status === 'completed' ? 'text-green-400' : 'text-gray-400'}">
+                                ${job.status}
+                            </span>
+                            ${job.status === 'running' ? `<button class="btn btn-xs btn-danger" onclick="cancelPipelineJob('${job.job_id}')">Cancel</button>` : ''}
+                        </div>
+                    </div>
+                    ${job.progress ? `<div class="text-xs text-gray-400 mt-1">Progress: ${job.progress}%</div>` : ''}
+                </div>
+            `).join('');
+
+            if (jobs.length === 0) {
+                container.innerHTML = '<div class="text-gray-400 text-center py-4">No pipeline jobs</div>';
+            }
+        }
+
+        async function triggerBuildDataset() {
+            const config = {
+                symbols: ['SPY', 'QQQ'], // Get from form
+                start_date: '2024-01-01',
+                end_date: '2024-12-31'
+            };
+
+            try {
+                const result = await apiClient.buildDataset(config);
+                showSuccess(`Dataset build started: ${result.job_id}`);
+                updatePipelinesTab();
+            } catch (error) {
+                showError(`Failed to build dataset: ${error.message}`);
+            }
+        }
+
+        async function triggerTrainModel() {
+            const config = {
+                model_type: 'TFT',
+                dataset_id: 'spy_features_2024'
+            };
+
+            try {
+                const result = await apiClient.trainModel(config);
+                showSuccess(`Model training started: ${result.job_id}`);
+                updatePipelinesTab();
+            } catch (error) {
+                showError(`Failed to train model: ${error.message}`);
+            }
+        }
+
+        async function triggerHPO() {
+            const config = {
+                model_type: 'TFT',
+                search_space: {}
+            };
+
+            try {
+                const result = await apiClient.runHPO(config);
+                showSuccess(`HPO started: ${result.job_id}`);
+                updatePipelinesTab();
+            } catch (error) {
+                showError(`Failed to start HPO: ${error.message}`);
+            }
+        }
+
+        async function cancelPipelineJob(jobId) {
+            if (!confirm(`Cancel job ${jobId}?`)) return;
+            try {
+                await apiClient.cancelJob(jobId);
+                showSuccess(`Job ${jobId} cancelled`);
+                updatePipelinesTab();
+            } catch (error) {
+                showError(`Failed to cancel job: ${error.message}`);
+            }
+        }
+
+        // ========================================================================
+        // FEATURES TAB FUNCTIONS
+        // ========================================================================
+
+        async function updateFeaturesTab() {
+            try {
+                const manifests = await apiClient.getFeatureManifests();
+                renderFeatureManifests(manifests);
+            } catch (error) {
+                console.error('Failed to load features:', error);
+                showError('Failed to load feature manifests');
+            }
+        }
+
+        function renderFeatureManifests(data) {
+            const container = document.getElementById('features-list');
+            if (!container) return;
+
+            const features = data.manifests || [];
+            container.innerHTML = features.map(feature => `
+                <div class="p-3 bg-gray-800 rounded mb-2">
+                    <div class="font-semibold">${feature.feature_set_id || feature.id}</div>
+                    <div class="text-xs text-gray-400">${feature.description || 'No description'}</div>
+                    <div class="text-xs text-gray-500 mt-1">Version: ${feature.version || '1.0.0'}</div>
+                </div>
+            `).join('');
+
+            if (features.length === 0) {
+                container.innerHTML = '<div class="text-gray-400 text-center py-4">No feature manifests</div>';
+            }
+        }
+
+        async function validateFeatureCode() {
+            const code = document.getElementById('feature-code-editor')?.value || '';
+
+            try {
+                const result = await apiClient.validateFeatureCode(code);
+                const resultEl = document.getElementById('validation-result');
+                if (resultEl) {
+                    if (result.valid) {
+                        resultEl.innerHTML = '<div class="text-green-400">✓ Code is valid</div>';
+                    } else {
+                        resultEl.innerHTML = `<div class="text-red-400">✗ ${result.errors?.join(', ') || 'Invalid code'}</div>`;
+                    }
+                }
+            } catch (error) {
+                showError(`Validation failed: ${error.message}`);
+            }
+        }
+
+        // ========================================================================
+        // STRATEGIES TAB FUNCTIONS
+        // ========================================================================
+
+        async function updateStrategiesTab() {
+            try {
+                const strategies = await apiClient.getStrategies();
+                renderStrategies(strategies);
+            } catch (error) {
+                console.error('Failed to load strategies:', error);
+                showError('Failed to load strategies');
+            }
+        }
+
+        function renderStrategies(data) {
+            const container = document.getElementById('strategies-list');
+            if (!container) return;
+
+            const strategies = data.strategies || [];
+            container.innerHTML = strategies.map(strategy => `
+                <div class="p-3 bg-gray-800 rounded mb-2">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="font-semibold">${strategy.strategy_id || strategy.id}</div>
+                            <div class="text-xs text-gray-400">${strategy.description || 'No description'}</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-xs btn-primary" onclick="backtestStrategy('${strategy.strategy_id}')">Backtest</button>
+                            <button class="btn btn-xs btn-secondary" onclick="deployStrategy('${strategy.strategy_id}')">Deploy</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            if (strategies.length === 0) {
+                container.innerHTML = '<div class="text-gray-400 text-center py-4">No strategies</div>';
+            }
+        }
+
+        function buildDefaultStrategyCode(strategyId) {
+            const safeName = (strategyId || `DashboardStrategy${Date.now()}`).replace(/[^A-Za-z0-9_]/g, '_');
+            return `from ml.strategies.ml_strategy import MLTradingStrategy
+
+class ${safeName}(MLTradingStrategy):
+    def on_start(self) -> None:
+        self.log_info("Strategy ${safeName} started")
+
+    def _process_ml_signal(self, signal, timestamp) -> None:
+        self.log_info("Signal received: %s", signal)
+`;
+        }
+
+        async function backtestStrategy(strategyId) {
+            const strategyName = strategyId || `DashboardStrategy${Date.now()}`;
+            const code = buildDefaultStrategyCode(strategyName);
+            const config = {
+                code,
+                strategy_name: strategyName,
+                start_date: '2024-01-01',
+                end_date: '2024-12-31',
+                initial_balance: 100000.0,
+                instruments: ['EURUSD.SIM'],
+                risk_params: {},
+            };
+
+            try {
+                const result = await apiClient.backtestStrategy(config);
+                showSuccess(`Backtest started: ${result.job_id || 'running'}`);
+                // Show results if available
+                if (result.metrics) {
+                    console.log('Backtest metrics:', result.metrics);
+                }
+            } catch (error) {
+                showError(`Backtest failed: ${error.message}`);
+            }
+        }
+
+        async function deployStrategy(strategyId) {
+            if (!confirm(`Deploy strategy ${strategyId} to live trading?`)) return;
+            try {
+                const strategyName = strategyId || `DashboardStrategy${Date.now()}`;
+                const code = buildDefaultStrategyCode(strategyName);
+                const result = await apiClient.deployStrategy({
+                    strategy_name: strategyName,
+                    strategy_code: code,
+                    environment: 'staging',
+                    risk_params: {},
+                    instruments: ['EURUSD.SIM'],
+                });
+                showSuccess(`Strategy ${strategyName} deployment status: ${result.status || 'submitted'}`);
+            } catch (error) {
+                showError(`Deployment failed: ${error.message}`);
+            }
+        }
+
+        // ========================================================================
+        // SETTINGS TAB FUNCTIONS
+        // ========================================================================
+
+        async function loadSettings() {
+            try {
+                const response = await apiClient.getSettings('dashboard');
+                populateSettingsForm(response);
+            } catch (error) {
+                console.error('Failed to load settings:', error);
+            }
+        }
+
+        function populateSettingsForm(response) {
+            const settings = response?.settings || response || {};
+            const themeSelect = document.getElementById('theme-select');
+            const refreshInput = document.getElementById('refresh-interval');
+
+            if (themeSelect && typeof settings.theme === 'string') {
+                themeSelect.value = settings.theme;
+            }
+
+            if (refreshInput && typeof settings.refresh_interval === 'number') {
+                refreshInput.value = String(settings.refresh_interval);
+            }
+
+            console.log('Settings loaded:', settings);
+        }
+
+        async function saveSettings() {
+            const updates = {
+                theme: document.getElementById('theme-select')?.value || 'dark',
+                refresh_interval: parseInt(document.getElementById('refresh-interval')?.value || '5000', 10)
+            };
+
+            try {
+                await apiClient.updateSettings('dashboard', updates, true);
+                showSuccess('Settings saved successfully');
+            } catch (error) {
+                showError(`Failed to save settings: ${error.message}`);
+            }
         }
 
         // Initialize dashboard

@@ -154,7 +154,7 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -397,6 +397,9 @@ class DatasetBuildConfig:
     macro_fred_path: Path | None = None
     vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
     vintage_as_of: datetime | None = None
+    include_macro_revisions: bool = False
+    macro_revision_mode: Literal["minimal", "core", "full"] = "core"
+    macro_revision_windows: tuple[int, ...] | None = None
     # Validation
     validation: DatasetValidationConfig | None = None
 
@@ -1670,6 +1673,9 @@ def build_tft_dataset(
         data_store=data_store,
         market_dataset_id=cfg.market_dataset_id,
         market_bindings=resolved_bindings,
+        include_macro_revisions=cfg.include_macro_revisions,
+        macro_revision_mode=cfg.macro_revision_mode,
+        macro_revision_windows=cfg.macro_revision_windows,
     )
 
     chunk_mode = bool(cfg.chunk_days > 0 and cfg.start and cfg.end)

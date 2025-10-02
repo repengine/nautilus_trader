@@ -1,4 +1,3 @@
-# ruff: noqa: RUF022
 """
 Nautilus Trader ML Feature Engineering Module.
 
@@ -159,8 +158,8 @@ This module follows all Universal ML Architecture Patterns:
 
 # Use lazy imports to avoid circular import issues
 __all__ = [
-    "aggregate_l2_minute_pl",
-    "aggregate_microstructure_minute_pl",
+    "CorrelationState",
+    "EWMABetaState",
     "FeatureConfig",
     "FeatureEngineer",
     "FeatureParityError",
@@ -170,12 +169,24 @@ __all__ = [
     "L2Aggregator",
     "L2MicrostructureFeatures",
     "L3TradeFlowFeatures",
+    "MacroDataCache",
+    "MacroFeatureTransform",
     "MicrostructureAggregator",
     "PipelineRunner",
     "PipelineSpec",
+    "TransformSpec",
+    "ZScoreSpreadState",
+    "aggregate_l2_minute_pl",
+    "aggregate_microstructure_minute_pl",
+    "compute_correlation_batch",
+    "compute_correlation_incremental",
+    "compute_ewma_beta_batch",
+    "compute_ewma_beta_incremental",
+    "compute_zscore_spread_batch",
+    "compute_zscore_spread_incremental",
+    "create_macro_transform_from_config",
     "register_feature_set_from_engineer",
     "register_transform",
-    "TransformSpec",
     "validate_feature_parity",
 ]
 
@@ -256,5 +267,53 @@ def __getattr__(name: str) -> object:
         from ml.features.feature_export import register_feature_set_from_engineer
 
         return register_feature_set_from_engineer
+    elif name == "MacroDataCache":
+        from ml.features.macro_cache import MacroDataCache
+
+        return MacroDataCache
+    elif name == "MacroFeatureTransform":
+        from ml.features.macro_transforms import MacroFeatureTransform
+
+        return MacroFeatureTransform
+    elif name == "create_macro_transform_from_config":
+        from ml.features.macro_transforms import create_macro_transform_from_config
+
+        return create_macro_transform_from_config
+    elif name == "CorrelationState":
+        from ml.features.cross_asset import CorrelationState
+
+        return CorrelationState
+    elif name == "EWMABetaState":
+        from ml.features.cross_asset import EWMABetaState
+
+        return EWMABetaState
+    elif name == "ZScoreSpreadState":
+        from ml.features.cross_asset import ZScoreSpreadState
+
+        return ZScoreSpreadState
+    elif name == "compute_correlation_incremental":
+        from ml.features.cross_asset import compute_correlation_incremental
+
+        return compute_correlation_incremental
+    elif name == "compute_correlation_batch":
+        from ml.features.cross_asset import compute_correlation_batch
+
+        return compute_correlation_batch
+    elif name == "compute_ewma_beta_incremental":
+        from ml.features.cross_asset import compute_ewma_beta_incremental
+
+        return compute_ewma_beta_incremental
+    elif name == "compute_ewma_beta_batch":
+        from ml.features.cross_asset import compute_ewma_beta_batch
+
+        return compute_ewma_beta_batch
+    elif name == "compute_zscore_spread_incremental":
+        from ml.features.cross_asset import compute_zscore_spread_incremental
+
+        return compute_zscore_spread_incremental
+    elif name == "compute_zscore_spread_batch":
+        from ml.features.cross_asset import compute_zscore_spread_batch
+
+        return compute_zscore_spread_batch
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
