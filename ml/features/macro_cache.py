@@ -84,6 +84,7 @@ class MacroSeriesSnapshot:
     revision_1m: float | None = None
     revision_3m: float | None = None
     initial_value: float | None = None
+    history: tuple[float, ...] = ()
 
 
 @dataclass(slots=True)
@@ -109,6 +110,8 @@ class MacroDataCache:
     vintage_base_dir: Path
     series_ids: list[str]
     enable_revisions: bool = True
+    aux_series_ids: list[str] = field(default_factory=list)
+    history_window: int = 400
     _snapshots: dict[str, MacroSeriesSnapshot] = field(default_factory=dict, init=False)
     _loaded: bool = field(default=False, init=False)
 
@@ -127,9 +130,11 @@ class MacroDataCache:
         _pl = pl
         assert _pl is not None
 
-        logger.info("Loading macro data cache for %d series", len(self.series_ids))
+        all_series: list[str] = list(dict.fromkeys([*self.series_ids, *self.aux_series_ids]))
 
-        for series_id in self.series_ids:
+        logger.info("Loading macro data cache for %d series", len(all_series))
+
+        for series_id in all_series:
             try:
                 snapshot = self._load_series_snapshot(series_id, _pl)
                 if snapshot is not None:
@@ -138,7 +143,11 @@ class MacroDataCache:
                 logger.warning("Failed to load %s: %s", series_id, e)
 
         self._loaded = True
-        logger.info("Macro cache loaded: %d/%d series", len(self._snapshots), len(self.series_ids))
+        logger.info(
+            "Macro cache loaded: %d/%d series",
+            len(self._snapshots),
+            len(all_series),
+        )
 
     def _load_series_snapshot(
         self,
@@ -160,6 +169,12 @@ class MacroDataCache:
 
         # Sort by release to get chronological order
         df = df.sort(["observation_ts", "release_ts"])
+
+        latest_per_observation = df.unique(
+            subset=["observation_ts"],
+            keep="last",
+        ).sort("observation_ts")
+        history_values = self._extract_history(latest_per_observation)
 
         # Get latest observation (most recent release)
         latest = df.filter(
@@ -216,7 +231,20 @@ class MacroDataCache:
             revision_1m=revision_1m,
             revision_3m=revision_3m,
             initial_value=initial_value,
+            history=history_values,
         )
+
+    def _extract_history(self, df: PolarsDataFrame) -> tuple[float, ...]:
+        """Return trailing value history limited by configured window."""
+        if self.history_window <= 0:
+            return tuple()
+
+        history_slice = df.tail(self.history_window)
+        if history_slice.is_empty():
+            return tuple()
+
+        values = history_slice["value"].to_list()
+        return tuple(float(v) for v in values)
 
     def _get_prior_value(
         self,

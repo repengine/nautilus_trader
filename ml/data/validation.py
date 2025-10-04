@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +43,69 @@ _VALIDATION_SECONDS = get_histogram(
 
 class DatasetValidationError(RuntimeError):
     """Raised when a dataset fails validation checks."""
+
+
+class MacroCoverageError(ValueError):
+    """Raised when macro coverage checks fail."""
+
+
+@dataclass(slots=True, frozen=True)
+class MacroCoverageValidator:
+    """Validate macro series coverage prior to dataset promotion."""
+
+    min_coverage: float = 0.9
+
+    def validate_macro_coverage(
+        self,
+        df_any: Any,
+        required_series: Sequence[str],
+    ) -> dict[str, float]:
+        """Ensure required macro series exist and meet coverage thresholds."""
+        if not required_series:
+            return {}
+
+        df, is_polars = _as_polars(df_any)
+
+        columns = tuple(required_series)
+        if is_polars:
+            available = {str(col) for col in df.columns}
+        else:
+            if hasattr(df_any, "columns"):
+                available = {str(col) for col in df_any.columns}
+            else:
+                available = set()
+
+        missing = [name for name in columns if name not in available]
+        if missing:
+            raise MacroCoverageError(f"Missing macro series: {missing}")
+
+        coverage: dict[str, float] = {}
+        for name in columns:
+            if is_polars:
+                valid = df.select(pl.col(name).is_not_null().mean()).item()
+                coverage[name] = float(valid)
+            elif pd is not None and isinstance(df_any, pd.DataFrame):
+                series = df_any[name]
+                coverage[name] = float(series.notna().mean())
+            else:
+                data = getattr(df_any, name, None)
+                if data is None:
+                    raise MacroCoverageError(f"Cannot access macro series: {name}")
+                if hasattr(data, "__len__") and len(data):
+                    non_null = sum(1 for value in data if value is not None)
+                    coverage[name] = float(non_null) / float(len(data))
+                else:
+                    coverage[name] = 0.0
+
+            if coverage[name] < self.min_coverage:
+                ratio = coverage[name]
+                msg = (
+                    "Macro coverage sparse for series "
+                    f"{name}: {ratio:.3f} < {self.min_coverage:.3f}"
+                )
+                raise MacroCoverageError(msg)
+
+        return coverage
 
 
 @dataclass(frozen=True)

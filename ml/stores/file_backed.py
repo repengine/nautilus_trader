@@ -21,21 +21,27 @@ from collections.abc import MutableMapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
+from functools import lru_cache
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.common.correlation import make_correlation_id
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
+from ml.stores.earnings_store import DummyEarningsStore
+from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import FeatureStoreProtocol
 from ml.stores.protocols import ModelStoreProtocol
 from ml.stores.protocols import StrategyStoreProtocol
@@ -44,14 +50,109 @@ from ml.stores.protocols import StrategyStoreProtocol
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_HISTORY_LIMIT = 1_000
+_FILE_STORAGE_LABEL = "file"
 
 __all__ = [
     "FileDataStore",
+    "FileEarningsStore",
     "FileFeatureStore",
     "FileModelStore",
     "FileStrategyStore",
 ]
 
+
+if TYPE_CHECKING:  # pragma: no cover - typing import only
+    from ml.stores.data_store import DataEvent
+else:
+    DataEvent = Any  # type: ignore[misc,assignment]
+
+pl = cast(Any, pl)
+_PL = pl
+
+
+def _make_data_event(**kwargs: Any) -> DataEvent:
+    """Create a `DataEvent` instance without causing import cycles."""
+    from ml.stores.data_store import DataEvent as _DataEvent  # Local import to avoid cyclic dependency
+
+    return _DataEvent(**kwargs)
+
+
+def _ensure_polars() -> None:
+    """Ensure polars is available before performing parquet operations."""
+    if not HAS_POLARS:  # pragma: no cover - defensive guard
+        raise RuntimeError(
+            "File-backed earnings storage requires the 'polars' package. "
+            "Install polars or disable file fallback via ML_FILE_STORE_PATH.",
+        )
+
+
+@lru_cache(maxsize=1)
+def _actuals_schema() -> dict[str, Any]:
+    _ensure_polars()
+    return {
+        "ticker": _PL.Utf8,
+        "period_end": _PL.Utf8,
+        "filing_date": _PL.Utf8,
+        "ts_event": _PL.Int64,
+        "ts_init": _PL.Int64,
+        "eps_basic": _PL.Float64,
+        "eps_diluted": _PL.Float64,
+        "revenue": _PL.Float64,
+        "net_income": _PL.Float64,
+        "operating_income": _PL.Float64,
+        "shares_outstanding": _PL.Int64,
+        "filing_type": _PL.Utf8,
+        "fiscal_year": _PL.Int32,
+        "fiscal_quarter": _PL.Int32,
+        "data_source": _PL.Utf8,
+    }
+
+
+@lru_cache(maxsize=1)
+def _estimates_schema() -> dict[str, Any]:
+    _ensure_polars()
+    return {
+        "ticker": _PL.Utf8,
+        "estimate_date": _PL.Utf8,
+        "period_end": _PL.Utf8,
+        "ts_event": _PL.Int64,
+        "ts_init": _PL.Int64,
+        "eps_consensus": _PL.Float64,
+        "revenue_consensus": _PL.Float64,
+        "num_analysts": _PL.Int32,
+        "data_source": _PL.Utf8,
+    }
+
+
+def _empty_frame(schema: Mapping[str, Any]) -> Any:
+    """Return an empty Polars frame respecting the provided schema."""
+    _ensure_polars()
+    columns = {
+        name: _PL.Series(name=name, values=[], dtype=dtype)
+        for name, dtype in schema.items()
+    }
+    return _PL.DataFrame(columns)
+
+
+def _frame_from_record(record: Mapping[str, Any], schema: Mapping[str, Any]) -> Any:
+    """Construct a single-row Polars frame from ``record`` enforcing ``schema``."""
+    _ensure_polars()
+    frame = _PL.DataFrame({name: [record.get(name)] for name in schema.keys()})
+    return frame.with_columns(
+        _PL.col(name).cast(dtype, strict=False) for name, dtype in schema.items()
+    ).select(list(schema.keys()))
+
+
+def _align_frame(frame: Any, schema: Mapping[str, Any]) -> Any:
+    """Align ``frame`` to the desired ``schema`` ordering and types."""
+    _ensure_polars()
+    aligned = frame
+    for name, dtype in schema.items():
+        if name not in aligned.columns:
+            aligned = aligned.with_columns(_PL.lit(None, dtype=dtype).alias(name))
+    return aligned.select(list(schema.keys())).with_columns(
+        _PL.col(name).cast(dtype, strict=False) for name, dtype in schema.items()
+    )
 
 @dataclass(slots=True)
 class _JsonLineStore:
@@ -493,12 +594,194 @@ class FileStrategyStore(StrategyStoreProtocol):
         self._store.flush()
 
 
+class FileEarningsStore(EarningsStoreProtocol):
+    """Parquet-backed earnings store used for file-system fallbacks."""
+
+    def __init__(self, *, base_path: Path, history_limit: int = 10_000) -> None:
+        _ensure_polars()
+        self._base_path = base_path
+        self._history_limit = history_limit
+        self._base_path.mkdir(parents=True, exist_ok=True)
+        self._actuals_path = self._base_path / "actuals.parquet"
+        self._estimates_path = self._base_path / "estimates.parquet"
+        self._lock = RLock()
+        self._actuals_schema = _actuals_schema()
+        self._estimates_schema = _estimates_schema()
+        self._actuals = self._load_frame(self._actuals_path, self._actuals_schema)
+        self._estimates = self._load_frame(self._estimates_path, self._estimates_schema)
+        self._actuals_dirty = False
+        self._estimates_dirty = False
+        _LOGGER.info("FileEarningsStore initialized at %s", self._base_path)
+
+    def _load_frame(self, path: Path, schema: Mapping[str, Any]) -> Any:
+        if path.exists():
+            try:
+                frame = _PL.read_parquet(path)
+            except Exception as exc:  # pragma: no cover - guarded IO path
+                _LOGGER.warning("Failed to load parquet '%s': %s", path, exc)
+                frame = _empty_frame(schema)
+        else:
+            frame = _empty_frame(schema)
+        return _align_frame(frame, schema)
+
+    def _trim_history(self, frame: Any, key_columns: Sequence[str]) -> Any:
+        if self._history_limit <= 0 or frame.height <= self._history_limit:
+            return frame
+        sort_columns = list(key_columns) + ["ts_event"]
+        descending = [False] * len(key_columns) + [False]
+        return frame.sort(sort_columns, descending=descending).tail(self._history_limit)
+
+    def write_actuals(
+        self,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = None,
+        net_income: float | None = None,
+        operating_income: float | None = None,
+        shares_outstanding: int | None = None,
+        filing_type: str | None = None,
+        fiscal_year: int | None = None,
+        fiscal_quarter: int | None = None,
+    ) -> None:
+        record = {
+            "ticker": str(ticker),
+            "period_end": str(period_end),
+            "filing_date": str(filing_date),
+            "ts_event": sanitize_timestamp_ns(int(ts_event), context="file_earnings_store.write_actuals:ts_event"),
+            "ts_init": sanitize_timestamp_ns(int(ts_init), context="file_earnings_store.write_actuals:ts_init"),
+            "eps_basic": float(eps_basic) if eps_basic is not None else None,
+            "eps_diluted": float(eps_diluted) if eps_diluted is not None else None,
+            "revenue": float(revenue) if revenue is not None else None,
+            "net_income": float(net_income) if net_income is not None else None,
+            "operating_income": float(operating_income) if operating_income is not None else None,
+            "shares_outstanding": int(shares_outstanding) if shares_outstanding is not None else None,
+            "filing_type": str(filing_type) if filing_type is not None else None,
+            "fiscal_year": int(fiscal_year) if fiscal_year is not None else None,
+            "fiscal_quarter": int(fiscal_quarter) if fiscal_quarter is not None else None,
+            "data_source": _FILE_STORAGE_LABEL,
+        }
+
+        with self._lock:
+            base = self._actuals.filter(
+                ~(
+                    (_PL.col("ticker") == record["ticker"]) & (_PL.col("period_end") == record["period_end"])
+                ),
+            )
+            appended = _PL.concat([base, _frame_from_record(record, self._actuals_schema)], how="vertical")
+            trimmed = self._trim_history(appended, ("ticker", "period_end"))
+            self._actuals = _align_frame(
+                trimmed.sort(["ticker", "period_end", "ts_event"], descending=[False, True, True]),
+                self._actuals_schema,
+            )
+            self._actuals_dirty = True
+
+    def write_estimates(
+        self,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = None,
+        num_analysts: int | None = None,
+    ) -> None:
+        record = {
+            "ticker": str(ticker),
+            "estimate_date": str(estimate_date),
+            "period_end": str(period_end),
+            "ts_event": sanitize_timestamp_ns(int(ts_event), context="file_earnings_store.write_estimates:ts_event"),
+            "ts_init": sanitize_timestamp_ns(int(ts_init), context="file_earnings_store.write_estimates:ts_init"),
+            "eps_consensus": float(eps_consensus) if eps_consensus is not None else None,
+            "revenue_consensus": float(revenue_consensus) if revenue_consensus is not None else None,
+            "num_analysts": int(num_analysts) if num_analysts is not None else None,
+            "data_source": _FILE_STORAGE_LABEL,
+        }
+
+        with self._lock:
+            base = self._estimates.filter(
+                ~(
+                    (_PL.col("ticker") == record["ticker"]) &
+                    (_PL.col("period_end") == record["period_end"]) &
+                    (_PL.col("estimate_date") == record["estimate_date"])
+                ),
+            )
+            appended = _PL.concat([base, _frame_from_record(record, self._estimates_schema)], how="vertical")
+            trimmed = self._trim_history(appended, ("ticker", "period_end", "estimate_date"))
+            self._estimates = _align_frame(
+                trimmed.sort(
+                    ["ticker", "period_end", "estimate_date", "ts_event"],
+                    descending=[False, True, True, True],
+                ),
+                self._estimates_schema,
+            )
+            self._estimates_dirty = True
+
+    def get_actuals(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        as_of_ts: int | None = None,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            frame = self._actuals.filter(_PL.col("ticker") == str(ticker))
+            if start_date is not None:
+                frame = frame.filter(_PL.col("period_end") >= str(start_date))
+            if end_date is not None:
+                frame = frame.filter(_PL.col("period_end") <= str(end_date))
+            if as_of_ts is not None:
+                frame = frame.filter(_PL.col("ts_event") < int(as_of_ts))
+
+            frame = frame.sort(["period_end", "ts_event"], descending=[True, True])
+            return cast(list[dict[str, Any]], frame.to_dicts())
+
+    def get_estimates(
+        self,
+        ticker: str,
+        period_end: str,
+        as_of_ts: int | None = None,
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            frame = self._estimates.filter(
+                (_PL.col("ticker") == str(ticker)) & (_PL.col("period_end") == str(period_end)),
+            )
+            if as_of_ts is not None:
+                frame = frame.filter(_PL.col("ts_event") < int(as_of_ts))
+
+            frame = frame.sort(["estimate_date", "ts_event"], descending=[True, True])
+            rows = cast(list[dict[str, Any]], frame.to_dicts())
+            if not rows:
+                return None
+            return rows[0]
+
+    def flush(self) -> None:
+        with self._lock:
+            if self._actuals_dirty:
+                _align_frame(self._actuals, self._actuals_schema).write_parquet(self._actuals_path)
+                self._actuals_dirty = False
+            if self._estimates_dirty:
+                _align_frame(self._estimates, self._estimates_schema).write_parquet(self._estimates_path)
+                self._estimates_dirty = False
+
+
 class FileDataStore:
     """
     Simplified data-store facade that records dataset events to JSONL.
     """
 
-    def __init__(self, *, base_path: Path, history_limit: int = _DEFAULT_HISTORY_LIMIT) -> None:
+    def __init__(
+        self,
+        *,
+        base_path: Path,
+        history_limit: int = _DEFAULT_HISTORY_LIMIT,
+        earnings_store: EarningsStoreProtocol | None = None,
+    ) -> None:
         self._paths = base_path
         self._paths.mkdir(parents=True, exist_ok=True)
         self._store = _JsonLineStore(self._paths / "events.jsonl", history_limit)
@@ -510,6 +793,7 @@ class FileDataStore:
             "Total dataset events emitted via file-backed datastore",
             ["stage", "status"],
         )
+        self._earnings_store: EarningsStoreProtocol = earnings_store or DummyEarningsStore()
 
     def write_ingestion(
         self,
@@ -594,8 +878,201 @@ class FileDataStore:
         self._store.append(record)
         self._event_counter.labels(stage=stage.value, status=status.value).inc()
 
+    def write_earnings_actual(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = None,
+        net_income: float | None = None,
+        operating_income: float | None = None,
+        shares_outstanding: int | None = None,
+        filing_type: str | None = None,
+        fiscal_year: int | None = None,
+        fiscal_quarter: int | None = None,
+        source: str = Source.HISTORICAL.value,
+        run_id: str | None = None,
+    ) -> DataEvent:
+        dataset_id = "ml.earnings_actuals"
+        run_id_local = run_id or f"file_earnings_actual_{time.time_ns()}"
+        ts_event_ns = sanitize_timestamp_ns(
+            int(ts_event),
+            context="file_data_store.write_earnings_actual:ts_event",
+        )
+        ts_init_ns = sanitize_timestamp_ns(
+            int(ts_init),
+            context="file_data_store.write_earnings_actual:ts_init",
+        )
+        self._earnings_store.write_actuals(
+            ticker=ticker,
+            period_end=period_end,
+            filing_date=filing_date,
+            eps_diluted=eps_diluted,
+            revenue=revenue,
+            ts_event=ts_event_ns,
+            ts_init=ts_init_ns,
+            eps_basic=eps_basic,
+            net_income=net_income,
+            operating_income=operating_income,
+            shares_outstanding=shares_outstanding,
+            filing_type=filing_type,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+        )
+
+        source_enum: Source
+        if isinstance(source, Source):
+            source_enum = source
+            source_value = source.value
+        else:
+            try:
+                source_enum = Source(str(source))
+            except Exception:
+                source_enum = Source.HISTORICAL
+            source_value = source_enum.value
+
+        event = _make_data_event(
+            event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            operation="write_earnings_actual",
+            source=source_value,
+            run_id=run_id_local,
+            ts_min=ts_event_ns,
+            ts_max=ts_event_ns,
+            record_count=1,
+            status=EventStatus.SUCCESS.value,
+            metadata={"storage": _FILE_STORAGE_LABEL},
+        )
+
+        self.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=Stage.DATA_INGESTED,
+            source=source_enum,
+            run_id=run_id_local,
+            ts_min=ts_event_ns,
+            ts_max=ts_event_ns,
+            count=1,
+            status=EventStatus.SUCCESS,
+        )
+        return event
+
+    def write_earnings_estimate(
+        self,
+        *,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = None,
+        num_analysts: int | None = None,
+        source: str = Source.HISTORICAL.value,
+        run_id: str | None = None,
+    ) -> DataEvent:
+        dataset_id = "ml.earnings_estimates"
+        run_id_local = run_id or f"file_earnings_estimate_{time.time_ns()}"
+        ts_event_ns = sanitize_timestamp_ns(
+            int(ts_event),
+            context="file_data_store.write_earnings_estimate:ts_event",
+        )
+        ts_init_ns = sanitize_timestamp_ns(
+            int(ts_init),
+            context="file_data_store.write_earnings_estimate:ts_init",
+        )
+        self._earnings_store.write_estimates(
+            ticker=ticker,
+            estimate_date=estimate_date,
+            period_end=period_end,
+            eps_consensus=eps_consensus,
+            ts_event=ts_event_ns,
+            ts_init=ts_init_ns,
+            revenue_consensus=revenue_consensus,
+            num_analysts=num_analysts,
+        )
+
+        if isinstance(source, Source):
+            source_enum = source
+            source_value = source.value
+        else:
+            try:
+                source_enum = Source(str(source))
+            except Exception:
+                source_enum = Source.HISTORICAL
+            source_value = source_enum.value
+
+        event = _make_data_event(
+            event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            operation="write_earnings_estimate",
+            source=source_value,
+            run_id=run_id_local,
+            ts_min=ts_event_ns,
+            ts_max=ts_event_ns,
+            record_count=1,
+            status=EventStatus.SUCCESS.value,
+            metadata={"storage": _FILE_STORAGE_LABEL},
+        )
+
+        self.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=Stage.DATA_INGESTED,
+            source=source_enum,
+            run_id=run_id_local,
+            ts_min=ts_event_ns,
+            ts_max=ts_event_ns,
+            count=1,
+            status=EventStatus.SUCCESS,
+        )
+        return event
+
+    def get_earnings_actuals_at_or_before(
+        self,
+        *,
+        ticker: str,
+        ts_event: int,
+        limit: int = 5,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        records = self._earnings_store.get_actuals(
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            as_of_ts=int(ts_event),
+        )
+        if limit > 0:
+            return records[:limit]
+        return records
+
+    def get_earnings_estimate_at_or_before(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        ts_event: int,
+    ) -> dict[str, Any] | None:
+        return self._earnings_store.get_estimates(
+            ticker=ticker,
+            period_end=period_end,
+            as_of_ts=int(ts_event),
+        )
+
     def flush(self) -> None:
         self._store.flush()
+        try:
+            self._earnings_store.flush()
+        except Exception:  # pragma: no cover - defensive logging path
+            _LOGGER.debug("Earnings store flush failed", exc_info=True)
 
     def write_features(
         self,

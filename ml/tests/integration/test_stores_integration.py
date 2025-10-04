@@ -163,12 +163,15 @@ class TestModelStore:
             ts_event=ts_event,
             is_live=True,
         )
-
-        assert len(model_store._buffer) == 1
-        data = model_store._buffer[0]
-        assert data.model_id == "xgboost_v1"
-        assert data.prediction == 0.75
-        assert data.confidence == 0.85
+        result = model_store.read_latest_predictions(
+            model_id="xgboost_v1",
+            instrument_id=str(default_instrument_id),
+            limit=1,
+        )
+        assert len(result) == 1
+        row = result.iloc[0]
+        assert row["prediction"] == pytest.approx(0.75)
+        assert row["confidence"] == pytest.approx(0.85)
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -331,12 +334,14 @@ class TestStrategyStore:
             execution_params={"order_type": "LIMIT"},
             ts_event=ts_event,
         )
-
-        assert len(strategy_store._buffer) == 1
-        data = strategy_store._buffer[0]
-        assert data.strategy_id == "momentum_v1"
-        assert data.signal_type == "BUY"
-        assert data.strength == 0.8
+        result = strategy_store.read_active_signals(
+            strategy_id="momentum_v1",
+            hours_back=1,
+        )
+        assert len(result) == 1
+        row = result.iloc[0]
+        assert row["signal_type"] == "BUY"
+        assert row["strength"] == pytest.approx(0.8)
 
     @pytest.mark.database
     @pytest.mark.serial

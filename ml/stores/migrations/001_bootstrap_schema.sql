@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS ml_feature_lineage (
 -- Model predictions (partitioned by ts_event)
 CREATE TABLE IF NOT EXISTS ml_model_predictions (
     prediction_id BIGSERIAL,
-    model_name VARCHAR(255) NOT NULL,
+    model_id VARCHAR(255) NOT NULL,
     instrument_id VARCHAR(100) NOT NULL,
     ts_event BIGINT NOT NULL,
     ts_init BIGINT NOT NULL,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS ml_model_predictions (
     confidence DOUBLE PRECISION,
     metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (model_name, instrument_id, ts_event)
+    PRIMARY KEY (model_id, instrument_id, ts_event)
 ) PARTITION BY RANGE (ts_event);
 
 CREATE TABLE IF NOT EXISTS ml_model_predictions_default PARTITION OF ml_model_predictions DEFAULT;
@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS ml_dataset_registry (
 );
 
 CREATE TABLE IF NOT EXISTS ml_data_events (
-    event_id BIGSERIAL PRIMARY KEY,
+    event_id BIGSERIAL,
     dataset_id VARCHAR(255) NOT NULL,
     instrument_id VARCHAR(100),
     stage VARCHAR(50) NOT NULL,
@@ -278,8 +278,12 @@ CREATE TABLE IF NOT EXISTS ml_data_events (
     status VARCHAR(20) NOT NULL,
     error TEXT,
     metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (ts_event, event_id)
+) PARTITION BY RANGE (ts_event);
+
+CREATE TABLE IF NOT EXISTS ml_data_events_default PARTITION OF ml_data_events DEFAULT;
+CREATE INDEX IF NOT EXISTS idx_ml_data_events_event_id ON ml_data_events (event_id);
 
 CREATE TABLE IF NOT EXISTS ml_data_watermarks (
     watermark_id BIGSERIAL PRIMARY KEY,

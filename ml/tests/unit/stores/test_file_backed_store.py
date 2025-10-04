@@ -7,7 +7,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from ml._imports import HAS_POLARS
 from ml.actors.base import MLSignal
+from ml.stores.file_backed import FileEarningsStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
@@ -98,6 +100,94 @@ def test_file_data_store_writes_jsonl(file_root: Path) -> None:
     assert events_path.exists()
     content = events_path.read_text(encoding="utf-8")
     assert "correlation_id" in content
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars required for file earnings store")
+def test_file_earnings_store_round_trip(file_root: Path) -> None:
+    store = FileEarningsStore(base_path=file_root)
+    ts_event = 1_700_000_000_000_000_000
+    store.write_actuals(
+        ticker="AAPL",
+        period_end="2024-09-30",
+        filing_date="2024-11-01",
+        eps_diluted=1.64,
+        revenue=94.9e9,
+        ts_event=ts_event,
+        ts_init=ts_event,
+        eps_basic=1.60,
+    )
+    store.write_estimates(
+        ticker="AAPL",
+        estimate_date="2024-09-15",
+        period_end="2024-09-30",
+        eps_consensus=1.55,
+        ts_event=ts_event - 1_000,
+        ts_init=ts_event - 1_000,
+        revenue_consensus=92.0e9,
+        num_analysts=32,
+    )
+    store.flush()
+
+    reloaded = FileEarningsStore(base_path=file_root)
+    actuals = reloaded.get_actuals("AAPL", as_of_ts=ts_event + 1)
+    assert actuals and actuals[0]["eps_diluted"] == pytest.approx(1.64)
+    assert reloaded.get_actuals("AAPL", as_of_ts=ts_event) == []
+
+    estimate = reloaded.get_estimates("AAPL", "2024-09-30", as_of_ts=ts_event)
+    assert estimate is not None
+    assert estimate["eps_consensus"] == pytest.approx(1.55)
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars required for file earnings store")
+def test_file_data_store_earnings_methods(file_root: Path) -> None:
+    earnings_root = file_root / "earnings"
+    datastore_root = file_root / "datastore"
+    earnings_store = FileEarningsStore(base_path=earnings_root)
+    store = FileDataStore(base_path=datastore_root, earnings_store=earnings_store)
+
+    ts_event = 1_800_000_000_000_000_000
+    event_actual = store.write_earnings_actual(
+        ticker="MSFT",
+        period_end="2024-12-31",
+        filing_date="2025-02-01",
+        eps_diluted=2.75,
+        revenue=120.4e9,
+        ts_event=ts_event,
+        ts_init=ts_event,
+    )
+    assert event_actual.dataset_id == "ml.earnings_actuals"
+
+    event_estimate = store.write_earnings_estimate(
+        ticker="MSFT",
+        estimate_date="2024-12-15",
+        period_end="2024-12-31",
+        eps_consensus=2.60,
+        ts_event=ts_event - 5_000,
+        ts_init=ts_event - 5_000,
+    )
+    assert event_estimate.dataset_id == "ml.earnings_estimates"
+
+    store.flush()
+
+    reloaded = FileDataStore(
+        base_path=datastore_root,
+        earnings_store=FileEarningsStore(base_path=earnings_root),
+    )
+    actuals = reloaded.get_earnings_actuals_at_or_before(
+        ticker="MSFT",
+        ts_event=ts_event + 10,
+        limit=5,
+    )
+    assert len(actuals) == 1
+    assert actuals[0]["revenue"] == pytest.approx(120.4e9)
+
+    estimate = reloaded.get_earnings_estimate_at_or_before(
+        ticker="MSFT",
+        period_end="2024-12-31",
+        ts_event=ts_event,
+    )
+    assert estimate is not None
+    assert estimate["eps_consensus"] == pytest.approx(2.60)
 
 
 def test_portfolio_allocation_integration(tmp_path: Path) -> None:

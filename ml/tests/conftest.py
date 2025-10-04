@@ -17,6 +17,7 @@ import os
 import subprocess
 import tempfile
 import time
+import warnings
 from collections.abc import Generator
 from dataclasses import dataclass
 import errno
@@ -35,6 +36,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlalchemy.pool import StaticPool
+
+
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
 
 
 # Load environment variables from .env file if it exists

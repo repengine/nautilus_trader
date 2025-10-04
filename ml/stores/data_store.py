@@ -15,12 +15,15 @@ while adding contract validation, event emission, and watermark tracking.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, cast
 
+from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
 from ml.common.event_emitter import emit_dataset_event_and_watermark
@@ -49,11 +52,15 @@ from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
+from ml.stores.earnings_store import DummyEarningsStore
+from ml.stores.earnings_store import EarningsStore
 from ml.stores.feature_store import FeatureStore
+from ml.stores.file_backed import FileEarningsStore
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.mixins import DataRegistryMixin
 from ml.stores.model_store import ModelStore
+from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import PredictionRecord
 from ml.stores.protocols import SignalRecord
 from ml.stores.strategy_store import StrategyStore
@@ -101,6 +108,10 @@ else:  # pragma: no cover - pandas optional in some environments
 
 
 logger = logging.getLogger(__name__)
+
+# Dataset identifiers for earnings data registered via DataRegistry
+EARNINGS_ACTUALS_DATASET_ID: Final = "ml.earnings_actuals"
+EARNINGS_ESTIMATES_DATASET_ID: Final = "ml.earnings_estimates"
 
 # ========================================================================
 # Prometheus Metrics
@@ -330,6 +341,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
+        earnings_store: EarningsStoreProtocol | None = None,
+        data_processor: DataProcessor | None = None,
         publisher: MessagePublisherProtocol | None = None,
         enable_publishing: bool = False,
         fail_on_validation_error: bool = True,
@@ -432,6 +445,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.feature_store = feature_store or FeatureStore(connection_string)
         self.model_store = model_store or ModelStore(connection_string)
         self.strategy_store = strategy_store or StrategyStore(connection_string)
+        self._earnings_store: EarningsStoreProtocol = (
+            earnings_store if earnings_store is not None else self._create_earnings_store(connection_string)
+        )
 
         # Propagate circuit breaker to created stores if provided
         if self._circuit_breaker is not None:
@@ -451,7 +467,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.publisher: MessagePublisherProtocol | None = publisher
 
         # Initialize data processor for validation
-        self.data_processor = DataProcessor(connection_string)
+        self.data_processor = data_processor or DataProcessor(connection_string)
 
         # Cache for manifests and contracts
         self._manifest_cache: dict[str, DatasetManifest] = {}
@@ -464,6 +480,55 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             batch_size,
             allow_schema_migration,
         )
+
+    def _create_earnings_store(self, connection_string: str) -> EarningsStoreProtocol:
+        """
+        Initialize earnings store with progressive fallback.
+        """
+        try:
+            store = EarningsStore(connection_string)
+            logger.info("Initialized EarningsStore via DataStore facade")
+            return store
+        except Exception as exc:
+            logger.warning("EarningsStore initialization failed; attempting fallback: %s", exc)
+            file_store = self._try_file_earnings_store()
+            if file_store is not None:
+                return file_store
+            logger.warning("File-backed earnings fallback unavailable; using DummyEarningsStore")
+            self._record_fallback_metric(level="dummy")
+            return DummyEarningsStore()
+
+    def _try_file_earnings_store(self) -> EarningsStoreProtocol | None:
+        """Attempt to initialize the file-backed earnings store fallback."""
+        if not HAS_POLARS:
+            logger.debug("Skipping file earnings fallback because polars is not available")
+            return None
+        file_root_str = os.getenv("ML_FILE_STORE_PATH")
+        file_root = Path(file_root_str) if file_root_str else Path.home() / ".nautilus" / "ml" / "file_store"
+        earnings_path = file_root / "earnings"
+        try:
+            store = FileEarningsStore(base_path=earnings_path)
+        except Exception as file_exc:  # pragma: no cover - IO/path specific failures
+            logger.debug("FileEarningsStore initialization failed: %s", file_exc, exc_info=True)
+            return None
+        logger.info("Initialized FileEarningsStore fallback at %s", earnings_path)
+        self._record_fallback_metric(level="file")
+        return store
+
+    @staticmethod
+    def _record_fallback_metric(*, level: str) -> None:
+        """Increment the fallback activation counter when available."""
+        try:  # pragma: no cover - metrics optional
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            _MM.default().inc(
+                "ml_fallback_activations_total",
+                "Fallback activations",
+                labels={"component": "data_store", "level": level},
+                labelnames=("component", "level"),
+            )
+        except Exception:
+            logger.debug("Failed to record fallback activation metric", exc_info=True)
 
     # ---------------------------------------------------------------------
     # Typed, minimal read facades (cold-path only; for actors/services)
@@ -589,6 +654,55 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_event=int(row[1]),
             signal_type=str(row[2]),
             strength=float(row[3]) if row[3] is not None else 0.0,
+        )
+
+    def get_earnings_actuals_at_or_before(
+        self,
+        *,
+        ticker: str,
+        ts_event: int,
+        limit: int = 5,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Return earnings actuals visible at the specified timestamp.
+
+        Records are filtered point-in-time and truncated to ``limit`` entries.
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        if limit <= 0:
+            return []
+
+        as_of_ts = _sanitize_ts(int(ts_event), context="data_store.get_earnings_actuals_at_or_before:ts_event")
+        records = self._earnings_store.get_actuals(
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            as_of_ts=as_of_ts,
+        )
+        if len(records) <= limit:
+            return list(records)
+        return list(records[:limit])
+
+    def get_earnings_estimate_at_or_before(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        ts_event: int,
+    ) -> dict[str, Any] | None:
+        """
+        Return the latest consensus estimate for the specified period at ``ts_event``.
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        as_of_ts = _sanitize_ts(int(ts_event), context="data_store.get_earnings_estimate_at_or_before:ts_event")
+        return self._earnings_store.get_estimates(
+            ticker=ticker,
+            period_end=period_end,
+            as_of_ts=as_of_ts,
         )
 
     # ---------------------------------------------------------------------
@@ -1891,6 +2005,207 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         )
         return event
 
+    def write_earnings_actual(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = None,
+        net_income: float | None = None,
+        operating_income: float | None = None,
+        shares_outstanding: int | None = None,
+        filing_type: str | None = None,
+        fiscal_year: int | None = None,
+        fiscal_quarter: int | None = None,
+        source: str = Source.HISTORICAL.value,
+        run_id: str | None = None,
+    ) -> DataEvent:
+        """
+        Persist an earnings actual record through the facade with contract validation.
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        dataset_id = EARNINGS_ACTUALS_DATASET_ID
+        run_id_local = run_id or f"earnings_actual_{time.time_ns()}"
+        ts_event_s = _sanitize_ts(int(ts_event), context="data_store.write_earnings_actual:ts_event")
+        ts_init_s = _sanitize_ts(int(ts_init), context="data_store.write_earnings_actual:ts_init")
+
+        self._ensure_dataset_registered(
+            dataset_id=dataset_id,
+            dataset_type=DatasetType.EARNINGS_ACTUALS,
+            instrument_id=ticker,
+        )
+
+        record: dict[str, Any] = {
+            "ticker": ticker,
+            "period_end": period_end,
+            "filing_date": filing_date,
+            "ts_event": ts_event_s,
+            "ts_init": ts_init_s,
+            "eps_basic": eps_basic,
+            "eps_diluted": eps_diluted,
+            "revenue": revenue,
+            "net_income": net_income,
+            "operating_income": operating_income,
+            "shares_outstanding": shares_outstanding,
+            "filing_type": filing_type,
+            "fiscal_year": fiscal_year,
+            "fiscal_quarter": fiscal_quarter,
+        }
+
+        contract = self._get_contract(dataset_id)
+        use_strict = contract.enforcement_mode == "strict"
+        quality_report = self.validate_batch(dataset_id, [record], strict_mode=use_strict)
+        self._enforce_quality_report(
+            dataset_id=dataset_id,
+            contract=contract,
+            quality_report=quality_report,
+        )
+
+        try:
+            self._earnings_store.write_actuals(
+                ticker=ticker,
+                period_end=period_end,
+                filing_date=filing_date,
+                eps_diluted=eps_diluted,
+                revenue=revenue,
+                ts_event=ts_event_s,
+                ts_init=ts_init_s,
+                eps_basic=eps_basic,
+                net_income=net_income,
+                operating_income=operating_income,
+                shares_outstanding=shares_outstanding,
+                filing_type=filing_type,
+                fiscal_year=fiscal_year,
+                fiscal_quarter=fiscal_quarter,
+            )
+        except Exception as exc:  # pragma: no cover - database failure path
+            logger.exception("Earnings actual write failed for %s", ticker)
+            raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
+
+        event = DataEvent(
+            event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            operation="write_earnings_actual",
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            record_count=1,
+            status=EventStatus.SUCCESS.value,
+            metadata={"quality_score": quality_report.quality_score},
+        )
+
+        self._emit_success_event_and_update(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=Stage.DATA_INGESTED.value,
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            count=1,
+        )
+
+        return event
+
+    def write_earnings_estimate(
+        self,
+        *,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = None,
+        num_analysts: int | None = None,
+        source: str = Source.HISTORICAL.value,
+        run_id: str | None = None,
+    ) -> DataEvent:
+        """
+        Persist an earnings estimate record through the facade with contract validation.
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        dataset_id = EARNINGS_ESTIMATES_DATASET_ID
+        run_id_local = run_id or f"earnings_estimate_{time.time_ns()}"
+        ts_event_s = _sanitize_ts(int(ts_event), context="data_store.write_earnings_estimate:ts_event")
+        ts_init_s = _sanitize_ts(int(ts_init), context="data_store.write_earnings_estimate:ts_init")
+
+        self._ensure_dataset_registered(
+            dataset_id=dataset_id,
+            dataset_type=DatasetType.EARNINGS_ESTIMATES,
+            instrument_id=ticker,
+        )
+
+        record: dict[str, Any] = {
+            "ticker": ticker,
+            "estimate_date": estimate_date,
+            "period_end": period_end,
+            "ts_event": ts_event_s,
+            "ts_init": ts_init_s,
+            "eps_consensus": eps_consensus,
+            "revenue_consensus": revenue_consensus,
+            "num_analysts": num_analysts,
+        }
+        contract = self._get_contract(dataset_id)
+        use_strict = contract.enforcement_mode == "strict"
+        quality_report = self.validate_batch(dataset_id, [record], strict_mode=use_strict)
+        self._enforce_quality_report(
+            dataset_id=dataset_id,
+            contract=contract,
+            quality_report=quality_report,
+        )
+
+        try:
+            self._earnings_store.write_estimates(
+                ticker=ticker,
+                estimate_date=estimate_date,
+                period_end=period_end,
+                eps_consensus=eps_consensus,
+                ts_event=ts_event_s,
+                ts_init=ts_init_s,
+                revenue_consensus=revenue_consensus,
+                num_analysts=num_analysts,
+            )
+        except Exception as exc:  # pragma: no cover - database failure path
+            logger.exception("Earnings estimate write failed for %s", ticker)
+            raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
+
+        event = DataEvent(
+            event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            operation="write_earnings_estimate",
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            record_count=1,
+            status=EventStatus.SUCCESS.value,
+            metadata={"quality_score": quality_report.quality_score},
+        )
+
+        self._emit_success_event_and_update(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=Stage.DATA_INGESTED.value,
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            count=1,
+        )
+
+        return event
+
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------
@@ -2988,6 +3303,60 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             parts.append(f"... and {len(violations) - 3} more")
 
         return "; ".join(parts)
+
+    def _enforce_quality_report(
+        self,
+        *,
+        dataset_id: str,
+        contract: DataContract,
+        quality_report: QualityReport,
+    ) -> None:
+        """
+        Apply contract enforcement logic for point-in-time writes.
+        """
+        if quality_report.quality_score >= 1.0:
+            return
+
+        violations_str = self._format_violations(quality_report.violations)
+        critical = [v for v in quality_report.violations if v.severity == QualityFlag.FAIL]
+
+        if critical and contract.enforcement_mode != "monitor_only":
+            if HAS_PROMETHEUS:
+                write_rejection_counter.labels(
+                    dataset_id=dataset_id,
+                    reason="validation_failed",
+                ).inc()
+            raise ValueError(
+                f"Data validation failed for {dataset_id} (fail-closed). "
+                f"Quality score: {quality_report.quality_score:.2f}. "
+                f"Critical violations: {len(critical)}. "
+                f"Details: {violations_str}",
+            )
+
+        if self.fail_on_validation_error and contract.enforcement_mode == "strict":
+            if HAS_PROMETHEUS:
+                write_rejection_counter.labels(
+                    dataset_id=dataset_id,
+                    reason="strict_mode_violation",
+                ).inc()
+            raise ValueError(
+                f"Data validation failed for {dataset_id} (strict mode). "
+                f"Quality score: {quality_report.quality_score:.2f}. "
+                f"Violations: {violations_str}",
+            )
+
+        if contract.enforcement_mode == "lenient":
+            logger.warning(
+                "Data validation warnings for %s (lenient mode): %s",
+                dataset_id,
+                violations_str,
+            )
+        else:  # monitor_only or other advisory modes
+            logger.info(
+                "Data validation issues for %s (monitor-only): %s",
+                dataset_id,
+                violations_str,
+            )
 
     def _data_frame_to_feature_data(self, data_frame: DataFrameLike, instrument_id: str) -> list[FeatureData]:
         """

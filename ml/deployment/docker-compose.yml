@@ -27,6 +27,26 @@ services:
     networks:
       - nautilus-ml
 
+  # Dedicated Postgres instance for playground research artifacts
+  postgres_playground:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: nautilus_playground
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${PLAYGROUND_POSTGRES_HOST_PORT:-5435}:5432"
+    volumes:
+      - postgres_playground_data:/var/lib/postgresql/data
+      - ../stores/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nautilus-ml
+
   # Redis for message bus (optional but recommended)
   redis:
     image: redis:7-alpine
@@ -272,6 +292,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres_playground_data:
   prometheus_data:
   grafana_data:
 

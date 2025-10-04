@@ -286,7 +286,7 @@ class TestInstrumentMetadataStoreIntegration:
 
         return os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/test_nautilus",
+            "postgresql://postgres:postgres@localhost:5434/test_nautilus",
         )
 
     @pytest.fixture

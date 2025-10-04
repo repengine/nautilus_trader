@@ -423,6 +423,13 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
             _pl.mean_horizontal(*fx_vol_components).alias("fx_volatility_composite"),
         )
 
+    drop_candidates = [col for col in composites.columns if col.endswith("_vol")]
+    if drop_candidates:
+        keep = set(get_composite_feature_names())
+        drop_cols = [col for col in drop_candidates if col not in keep]
+        if drop_cols:
+            composites = composites.drop(drop_cols)
+
     return composites
 
 
@@ -479,3 +486,39 @@ def get_composite_feature_names() -> list[str]:
         "fx_volatility_composite",
         "fx_stress",
     ]
+
+
+def get_composite_series_requirements() -> tuple[str, ...]:
+    """
+    Return base macro series required to compute composite features.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Series identifiers that should be present for composite calculations.
+    """
+    return (
+        "BAMLC0A0CM",
+        "BAMLH0A0HYM2",
+        "TEDRATE",
+        "VIXCLS",
+        "T10Y2Y",
+        "DGS10",
+        "DGS2",
+        "DGS5",
+        "DGS30",
+        "DFII10",
+        "FEDFUNDS",
+        "WALCL",
+        "TOTBKCR",
+        "PAYEMS",
+        "INDPRO",
+        "CFNAI",
+        "CPIAUCSL",
+        "PCEPI",
+        "PPIACO",
+        "DTWEXBGS",
+        "DEXUSAL",
+        "DEXUSEU",
+        "DEXJPUS",
+    )

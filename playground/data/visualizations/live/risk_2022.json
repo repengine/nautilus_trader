@@ -1,0 +1,226 @@
+{
+  "ideal_point": {
+    "factor_credit": -0.3585063008249263,
+    "factor_duration": 0.0,
+    "factor_liquidity": 0.00930916679115946
+  },
+  "metadata": {
+    "coverage": {
+      "calendar_name": "XNYS",
+      "composite_coverage": {},
+      "factor_coverage": {
+        "factor_credit": 0.9996023856858847,
+        "factor_duration": 0.9996023856858847,
+        "factor_liquidity": 0.9996023856858847
+      },
+      "factor_expected_days": 2516,
+      "sector_coverage": {
+        "XLB": 0.9996023856858847,
+        "XLC": 0.9984095427435388,
+        "XLE": 0.9996023856858847,
+        "XLF": 0.9996023856858847,
+        "XLI": 0.9996023856858847,
+        "XLK": 0.9996023856858847,
+        "XLU": 0.9996023856858847,
+        "XLV": 0.9996023856858847,
+        "XLY": 0.9996023856858847
+      },
+      "sector_expected_days": 2516
+    },
+    "coverage_alerts": {
+      "composite": {},
+      "factor": {},
+      "sector": {}
+    },
+    "diagnostics": {
+      "cov_eigenvalues": [
+        0.01236727250815008,
+        9.523812491514528e-06,
+        0.0
+      ]
+    },
+    "eigenvalue_trends": {
+      "2010s": {
+        "eig_1": 0.040341494666196145,
+        "eig_2": 0.00023519479178714048,
+        "eig_3": 8.242934038217034e-07
+      },
+      "2020s": {
+        "eig_1": 0.01669149790942954,
+        "eig_2": 5.20255246438406e-06,
+        "eig_3": 0.0
+      }
+    },
+    "notes": "",
+    "sharpe_scores": {
+      "XLB": -0.02490305797664012,
+      "XLC": -0.0918668768326201,
+      "XLE": 0.1002576499289301,
+      "XLF": -0.02121973279825304,
+      "XLI": -0.009676967914150231,
+      "XLK": -0.05223385559984469,
+      "XLU": 0.010950921913682835,
+      "XLV": -0.001023700910217335,
+      "XLY": -0.07226469953654968
+    },
+    "status": "success",
+    "weights": {
+      "XLB": 0.004835944127325931,
+      "XLC": 0.004835944127325931,
+      "XLE": 0.5140327365604604,
+      "XLF": 0.004835944127325931,
+      "XLI": 0.029090173777819778,
+      "XLK": 0.30354193952528485,
+      "XLU": 0.1291554294998054,
+      "XLV": 0.004835944127325931,
+      "XLY": 0.004835944127325931
+    }
+  },
+  "sectors": [
+    {
+      "coordinates": {
+        "factor_credit": -0.39009250157235426,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.0050827280481189965
+      },
+      "deltas": {
+        "factor_credit": -0.03158620074742796,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.004226438743040463
+      },
+      "distance": 0.03186770876773999,
+      "mahalanobis_distance": 1.5782958594263192,
+      "recommended_weight": 0.004835944127325931,
+      "sector": "XLF"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.3844911823365597,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.008792806659032192
+      },
+      "deltas": {
+        "factor_credit": -0.025984881511633418,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.0005163601321272679
+      },
+      "distance": 0.025990011445932045,
+      "mahalanobis_distance": 0.39465304719761823,
+      "recommended_weight": 0.5140327365604604,
+      "sector": "XLE"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.4184648874651847,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.01317862517518717
+      },
+      "deltas": {
+        "factor_credit": -0.05995858664025838,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.00386945838402771
+      },
+      "distance": 0.06008331565487289,
+      "mahalanobis_distance": 1.0542067960011186,
+      "recommended_weight": 0.30354193952528485,
+      "sector": "XLK"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.37729850239375773,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.0066740421779021486
+      },
+      "deltas": {
+        "factor_credit": -0.018792201568831435,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.0026351246132573112
+      },
+      "distance": 0.018976056532667294,
+      "mahalanobis_distance": 0.9774684136249393,
+      "recommended_weight": 0.004835944127325931,
+      "sector": "XLB"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.16164201579544993,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.002442185947476049
+      },
+      "deltas": {
+        "factor_credit": 0.19686428502947637,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.006866980843683411
+      },
+      "distance": 0.1969840149506412,
+      "mahalanobis_distance": 2.075413657412576,
+      "recommended_weight": 0.004835944127325931,
+      "sector": "XLV"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.1279960361511382,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.003880066781364443
+      },
+      "deltas": {
+        "factor_credit": 0.2305102646737881,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.005429100009795016
+      },
+      "distance": 0.23057419033121682,
+      "mahalanobis_distance": 2.115599407245305,
+      "recommended_weight": 0.1291554294998054,
+      "sector": "XLU"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.30698069163433206,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.006115057512208964
+      },
+      "deltas": {
+        "factor_credit": 0.051525609190594235,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.003194109278950496
+      },
+      "distance": 0.05162451681660301,
+      "mahalanobis_distance": 0.8697041244767648,
+      "recommended_weight": 0.029090173777819778,
+      "sector": "XLI"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.36912918613969814,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.0007981735448950446
+      },
+      "deltas": {
+        "factor_credit": -0.010622885314771846,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.008510993246264415
+      },
+      "distance": 0.013611858743344123,
+      "mahalanobis_distance": 2.820671489023795,
+      "recommended_weight": 0.004835944127325931,
+      "sector": "XLC"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.43512869046592256,
+        "factor_duration": 0.0,
+        "factor_liquidity": 0.007768042085059435
+      },
+      "deltas": {
+        "factor_credit": -0.07662238964099627,
+        "factor_duration": 0.0,
+        "factor_liquidity": -0.0015411247061000244
+      },
+      "distance": 0.07663788658135351,
+      "mahalanobis_distance": 1.1685651750120927,
+      "recommended_weight": 0.004835944127325931,
+      "sector": "XLY"
+    }
+  ],
+  "year": 2022
+}

@@ -8,6 +8,7 @@ import pytest
 
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import build_pipeline_spec_from_feature_config
+from ml.features.macro_composites import get_composite_feature_names
 
 
 class TestFeatureConfigMacroIntegration:
@@ -40,6 +41,7 @@ class TestFeatureConfigMacroIntegration:
         macro_transform = next(t for t in spec.transforms if t.name == "macro")
         assert macro_transform.params["series_ids"] == ["PAYEMS", "UNRATE"]
         assert macro_transform.params["include_revisions"] is False
+        assert macro_transform.params["min_coverage"] is None
 
     def test_enable_macro_with_revisions(self) -> None:
         """Test enabling macro features with revisions."""
@@ -56,6 +58,58 @@ class TestFeatureConfigMacroIntegration:
         assert macro_transform.params["series_ids"] == ["CPIAUCSL", "PCEPI"]
         assert macro_transform.params["include_revisions"] is True
         assert macro_transform.params["revision_mode"] == "core"
+        assert macro_transform.params["min_coverage"] is None
+
+    def test_macro_min_coverage_propagates(self) -> None:
+        """Macro min coverage config should propagate to pipeline spec."""
+        cfg = FeatureConfig(
+            include_macro=True,
+            macro_series_ids=["PAYEMS", "UNRATE"],
+            macro_min_coverage=0.87,
+        )
+
+        spec = build_pipeline_spec_from_feature_config(cfg)
+        macro_transform = next(t for t in spec.transforms if t.name == "macro")
+        assert macro_transform.params["min_coverage"] == pytest.approx(0.87)
+
+    def test_enable_macro_composites(self) -> None:
+        """Test enabling macro composites when macro features are active."""
+        cfg = FeatureConfig(
+            include_macro=True,
+            macro_series_ids=["DGS10", "DGS2", "BAMLH0A0HYM2"],
+            include_macro_composites=True,
+        )
+
+        spec = build_pipeline_spec_from_feature_config(cfg)
+        transform_names = [t.name for t in spec.transforms]
+
+        assert transform_names.count("macro") == 1
+        assert transform_names.count("macro_composites") == 1
+
+        macro_index = transform_names.index("macro")
+        composites_index = transform_names.index("macro_composites")
+        assert composites_index > macro_index
+
+        feature_names = cfg.get_feature_names()
+        expected_names = set(get_composite_feature_names())
+        assert expected_names <= set(feature_names)
+
+    def test_macro_composites_without_macro_raises(self) -> None:
+        """Enabling composites without macro features should fail fast."""
+        with pytest.raises(ValueError):
+            FeatureConfig(
+                include_macro=False,
+                include_macro_composites=True,
+            )
+
+    def test_macro_composites_without_series_ids_raises(self) -> None:
+        """Enabling composites without series IDs should fail."""
+        with pytest.raises(ValueError):
+            FeatureConfig(
+                include_macro=True,
+                macro_series_ids=[],
+                include_macro_composites=True,
+            )
 
     def test_enable_calendar_features(self) -> None:
         """Test enabling calendar features."""

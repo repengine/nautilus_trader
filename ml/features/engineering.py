@@ -220,6 +220,16 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         Whether to include microstructure features.
     include_trade_flow : bool, default False
         Whether to include trade flow features.
+    include_macro : bool, default False
+        Whether to include ALFRED/FRED macro features.
+    macro_series_ids : list[str], optional
+        FRED series identifiers to include when ``include_macro`` is enabled.
+    include_macro_revisions : bool, default False
+        Whether to add revision-aware macro features.
+    macro_revision_mode : {"minimal", "core", "full"}, default "core"
+        Revision feature mode controlling which derived columns are emitted.
+    include_macro_composites : bool, default False
+        Whether to append factorized macro composite signals (requires ``include_macro``).
 
     """
 
@@ -251,6 +261,8 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     macro_series_ids: list[str] = msgspec.field(default_factory=list)
     include_macro_revisions: bool = False
     macro_revision_mode: str = "core"  # "minimal", "core", "full"
+    include_macro_composites: bool = False
+    macro_min_coverage: float | None = None
 
     # Calendar features (known-future for TFT)
     include_calendar: bool = False
@@ -305,6 +317,21 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
 
         if not (2 <= self.macd_signal <= 50):
             msg = f"macd_signal must be between 2 and 50, got {self.macd_signal}"
+            raise ValueError(msg)
+
+        if self.include_macro_composites and not self.include_macro:
+            raise ValueError("include_macro_composites requires include_macro to be True")
+
+        if self.include_macro_composites and not self.macro_series_ids:
+            raise ValueError(
+                "include_macro_composites requires macro_series_ids to be configured",
+            )
+
+        if self.macro_min_coverage is not None and not 0.0 < float(self.macro_min_coverage) <= 1.0:
+            msg = (
+                "macro_min_coverage must be within (0, 1], received "
+                f"{self.macro_min_coverage}"
+            )
             raise ValueError(msg)
 
         # Note: Do not mutate fields in frozen msgspec.Struct. Compatibility
@@ -3142,8 +3169,15 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
             "series_ids": getattr(cfg, "macro_series_ids", []),
             "include_revisions": getattr(cfg, "include_macro_revisions", False),
             "revision_mode": getattr(cfg, "macro_revision_mode", "core"),
+            "min_coverage": getattr(cfg, "macro_min_coverage", None),
         }
         transforms.append(TransformSpec(name="macro", params=macro_params))
+
+        if getattr(cfg, "include_macro_composites", False):
+            transforms.append(TransformSpec(name="macro_composites", params={}))
+    elif getattr(cfg, "include_macro_composites", False):
+        msg = "include_macro_composites requires include_macro to be True"
+        raise ValueError(msg)
 
     # Calendar features (known-future for TFT)
     if getattr(cfg, "include_calendar", False):

@@ -951,12 +951,14 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
         # Resolve instrument and account
         instrument = self.cache.instrument(self._config.instrument_id)
         if instrument is None:
-            self.log.error("Instrument %s not found in cache", self._config.instrument_id)
+            self.log.error(
+                f"Instrument {self._config.instrument_id} not found in cache",
+            )
             return None
 
         account = self.cache.account_for_venue(instrument.venue)
         if account is None:
-            self.log.error("No account for venue %s", instrument.venue)
+            self.log.error(f"No account for venue {instrument.venue}")
             return None
 
         market_price = self._resolve_market_price(self._config.instrument_id)
@@ -1043,7 +1045,10 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                 ask_price = float(quote_tick.ask_price.as_double())
                 current_price = (bid_price + ask_price) / 2.0
             else:
-                self.log.error("No market price available for %s", self._config.instrument_id)
+                message = (
+                    f"No market price available for {self._config.instrument_id}"
+                )
+                self.log.error(message)
                 return None
 
         val = float(approved_value_qty.as_double())
@@ -1348,10 +1353,9 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             ask_price = float(quote_tick.ask_price.as_double())
             return (bid_price + ask_price) / 2.0
 
-        self.log.error(
-            "No market price available for instrument %s",
-            instrument_id,
-        )
+        instrument_label = getattr(instrument_id, "value", str(instrument_id))
+        message = f"No market price available for instrument {instrument_label}"
+        self.log.error(message)
         return None
 
     def _apply_portfolio_allocation(

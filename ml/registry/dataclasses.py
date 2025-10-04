@@ -45,6 +45,10 @@ class DatasetType(Enum):
         Model predictions
     SIGNALS : str
         Strategy signals
+    EARNINGS_ACTUALS : str
+        Reported corporate earnings fundamentals
+    EARNINGS_ESTIMATES : str
+        Analyst consensus earnings estimates
 
     """
 
@@ -56,6 +60,8 @@ class DatasetType(Enum):
     FEATURES = "features"
     PREDICTIONS = "predictions"
     SIGNALS = "signals"
+    EARNINGS_ACTUALS = "earnings_actuals"
+    EARNINGS_ESTIMATES = "earnings_estimates"
 
 
 class StorageKind(Enum):

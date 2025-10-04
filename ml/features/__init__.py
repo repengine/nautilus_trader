@@ -160,6 +160,10 @@ This module follows all Universal ML Architecture Patterns:
 __all__ = [
     "CorrelationState",
     "EWMABetaState",
+    "EarningsCalendarTransformSpec",
+    "EarningsGrowthTransformSpec",
+    "EarningsMomentumTransformSpec",
+    "EarningsSurpriseTransformSpec",
     "FeatureConfig",
     "FeatureEngineer",
     "FeatureParityError",
@@ -287,6 +291,22 @@ def __getattr__(name: str) -> object:
         from ml.features.cross_asset import EWMABetaState
 
         return EWMABetaState
+    elif name == "EarningsCalendarTransformSpec":
+        from ml.features.earnings import EarningsCalendarTransformSpec
+
+        return EarningsCalendarTransformSpec
+    elif name == "EarningsGrowthTransformSpec":
+        from ml.features.earnings import EarningsGrowthTransformSpec
+
+        return EarningsGrowthTransformSpec
+    elif name == "EarningsMomentumTransformSpec":
+        from ml.features.earnings import EarningsMomentumTransformSpec
+
+        return EarningsMomentumTransformSpec
+    elif name == "EarningsSurpriseTransformSpec":
+        from ml.features.earnings import EarningsSurpriseTransformSpec
+
+        return EarningsSurpriseTransformSpec
     elif name == "ZScoreSpreadState":
         from ml.features.cross_asset import ZScoreSpreadState
 

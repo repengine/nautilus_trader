@@ -131,6 +131,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--include_l2", action="store_true")
     parser.add_argument("--include_events", action="store_true")
     parser.add_argument("--include_calendar", action="store_true")
+    parser.add_argument("--include-earnings", "--include_earnings", action="store_true")
+    parser.add_argument("--earnings-lag-days", "--earnings_lag_days", type=int, default=1)
     parser.add_argument("--student_mode", action="store_true")
     parser.add_argument("--emit_dataset_events", action="store_true")
     parser.add_argument("--fred_vintage_dir")
@@ -190,6 +192,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_l2=args.include_l2,
         include_events=args.include_events,
         include_calendar=args.include_calendar,
+        include_earnings=args.include_earnings,
+        earnings_lag_days=args.earnings_lag_days,
         chunk_days=args.chunk_days,
         start=_parse_optional_date(args.start),
         end=_parse_optional_date(args.end),

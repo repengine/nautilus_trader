@@ -13,6 +13,9 @@ from ml.data.loaders.alternative import AlternativeSource
 from ml.data.loaders.alternative import load_tier1_symbols
 from ml.data.loaders.alternative import populate_alternative_data
 from ml.data.loaders.alternative import save_alternative_data
+from ml.data.loaders.fama_french_loader import FamaFrenchDatasetSpec
+from ml.data.loaders.fama_french_loader import FamaFrenchLoader
+from ml.data.loaders.fama_french_loader import download_fama_french_dataset
 from ml.data.loaders.fred_loader import FREDConfig
 from ml.data.loaders.fred_loader import FREDDataLoader
 from ml.data.loaders.fred_loader import FREDIndicator
@@ -45,6 +48,8 @@ __all__ = [
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
+    "FamaFrenchDatasetSpec",
+    "FamaFrenchLoader",
     "OhlcvRecentBackfillConfig",
     "OhlcvRecentBackfillResult",
     "SpreadDefinition",
@@ -56,6 +61,7 @@ __all__ = [
     "calculate_correlations",
     "calculate_spreads",
     "create_synthetic_supplementary_data",
+    "download_fama_french_dataset",
     "load_tier1_symbols",
     "populate_alternative_data",
     "save_alternative_data",

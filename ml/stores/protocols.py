@@ -18,6 +18,9 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
+    from ml.stores.data_store import DataEvent
+else:  # pragma: no cover - typing fallback
+    DataEvent = Any  # type: ignore[assignment]
 
 
 # Phase 1: introduce aliases for read/write frames to retain flexibility
@@ -260,6 +263,60 @@ class DataStoreFacadeProtocol(Protocol):
         strategy_id: str | None = ...,
     ) -> SignalRecord | None: ...
 
+    def write_earnings_actual(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = ...,
+        net_income: float | None = ...,
+        operating_income: float | None = ...,
+        shares_outstanding: int | None = ...,
+        filing_type: str | None = ...,
+        fiscal_year: int | None = ...,
+        fiscal_quarter: int | None = ...,
+        source: str = ...,
+        run_id: str | None = ...,
+    ) -> DataEvent: ...
+
+    def write_earnings_estimate(
+        self,
+        *,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = ...,
+        num_analysts: int | None = ...,
+        source: str = ...,
+        run_id: str | None = ...,
+    ) -> DataEvent: ...
+
+    def get_earnings_actuals_at_or_before(
+        self,
+        *,
+        ticker: str,
+        ts_event: int,
+        limit: int = ...,
+        start_date: str | None = ...,
+        end_date: str | None = ...,
+    ) -> list[dict[str, Any]]: ...
+
+    def get_earnings_estimate_at_or_before(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        ts_event: int,
+    ) -> dict[str, Any] | None: ...
+
 
 class CircuitBreakerProtocol(Protocol):
     """
@@ -495,6 +552,161 @@ class StrategyClearDepsStrict(Protocol):
 
 
 @runtime_checkable
+class EarningsStoreProtocol(Protocol):
+    """
+    Protocol for earnings data store implementations.
+
+    Provides earnings actuals (SEC EDGAR), estimates (Yahoo Finance), and calendar
+    with point-in-time correctness for backtesting.
+    """
+
+    def write_actuals(
+        self,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = None,
+        net_income: float | None = None,
+        operating_income: float | None = None,
+        shares_outstanding: int | None = None,
+        filing_type: str | None = None,
+        fiscal_year: int | None = None,
+        fiscal_quarter: int | None = None,
+    ) -> None:
+        """
+        Write actual earnings data from SEC EDGAR.
+
+        Parameters
+        ----------
+        ticker : str
+            Stock ticker symbol (e.g., 'AAPL')
+        period_end : str
+            Quarter end date (ISO format: 'YYYY-MM-DD')
+        filing_date : str
+            10-Q/10-K filing date (ISO format: 'YYYY-MM-DD')
+        eps_diluted : float | None
+            Diluted earnings per share
+        revenue : float | None
+            Total revenue in dollars
+        ts_event : int
+            Filing date in nanoseconds
+        ts_init : int
+            Record creation timestamp in nanoseconds
+        eps_basic : float | None
+            Basic earnings per share
+        net_income : float | None
+            Net income in dollars
+        operating_income : float | None
+            Operating income in dollars
+        shares_outstanding : int | None
+            Weighted average shares outstanding
+        filing_type : str | None
+            '10-Q' or '10-K'
+        fiscal_year : int | None
+            Fiscal year
+        fiscal_quarter : int | None
+            Fiscal quarter (1-4)
+        """
+        ...
+
+    def write_estimates(
+        self,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = None,
+        num_analysts: int | None = None,
+    ) -> None:
+        """
+        Write consensus earnings estimates from Yahoo Finance.
+
+        Parameters
+        ----------
+        ticker : str
+            Stock ticker symbol
+        estimate_date : str
+            Date estimate was recorded (ISO format)
+        period_end : str
+            Quarter being estimated (ISO format)
+        eps_consensus : float | None
+            Consensus EPS estimate
+        ts_event : int
+            Estimate date in nanoseconds
+        ts_init : int
+            Record creation timestamp in nanoseconds
+        revenue_consensus : float | None
+            Consensus revenue estimate
+        num_analysts : int | None
+            Number of analysts contributing
+        """
+        ...
+
+    def get_actuals(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        as_of_ts: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get actual earnings for a ticker with point-in-time filtering.
+
+        Parameters
+        ----------
+        ticker : str
+            Stock ticker symbol
+        start_date : str | None
+            Start date filter (ISO format)
+        end_date : str | None
+            End date filter (ISO format)
+        as_of_ts : int | None
+            Point-in-time timestamp (only include filings before this time)
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of actual earnings records
+        """
+        ...
+
+    def get_estimates(
+        self,
+        ticker: str,
+        period_end: str,
+        as_of_ts: int | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Get consensus estimate for a specific period.
+
+        Parameters
+        ----------
+        ticker : str
+            Stock ticker symbol
+        period_end : str
+            Quarter being estimated (ISO format)
+        as_of_ts : int | None
+            Point-in-time timestamp (get estimate as of this time)
+
+        Returns
+        -------
+        dict[str, Any] | None
+            Estimate record or None if not found
+        """
+        ...
+
+    def flush(self) -> None:
+        """Flush any pending writes to persistent storage."""
+        ...
+
+
+@runtime_checkable
 class InstrumentMetadataStoreProtocol(Protocol):
     """
     Protocol for instrument metadata store implementations.
@@ -608,6 +820,7 @@ __all__ = [
     "CircuitBreakerProtocol",
     "CoverageProviderProtocol",
     "DataStoreFacadeProtocol",
+    "EarningsStoreProtocol",
     "FeatureStoreProtocol",
     "FeatureStoreStrictProtocol",
     "InstrumentMetadataStoreProtocol",

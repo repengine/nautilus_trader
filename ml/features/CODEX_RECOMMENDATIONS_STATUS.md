@@ -69,7 +69,7 @@ This document tracks implementation of Codex's recommendations for enhancing the
 
 **What's Missing**:
 
-1. **FeatureConfig Integration**:
+1. **FeatureConfig Integration** ✅:
    ```python
    # TODO: Add to FeatureConfig
    include_macro_composites: bool = False
@@ -86,12 +86,12 @@ This document tracks implementation of Codex's recommendations for enhancing the
 
 3. **Real-time Computation**:
    - Batch computation implemented (via `compute_macro_composites_pl`)
-   - Real-time path needs implementation in MacroFeatureTransform
+   - Real-time path implemented via `_compute_realtime_composites` with cache snapshots
 
 **Next Steps**:
-- [ ] Add `include_macro_composites` to FeatureConfig
-- [ ] Wire into pipeline builder
-- [ ] Add real-time computation to MacroFeatureTransform.compute_realtime()
+- [x] Add `include_macro_composites` to FeatureConfig
+- [x] Wire into pipeline builder
+- [x] Add real-time computation to MacroFeatureTransform.compute_realtime()
 - [ ] Create instrument metadata mapping (sector → macro factors)
 
 ---
@@ -101,7 +101,7 @@ This document tracks implementation of Codex's recommendations for enhancing the
 **Recommendation**:
 > Upgrade dataset orchestration to enforce macro coverage (validator that macro_series_ids resolved to non-empty columns) and prime MacroDataCache
 
-**Status**: ⬜ **TODO**
+**Status**: ✅ **DONE**
 
 **Required Implementation**:
 
@@ -145,10 +145,12 @@ This document tracks implementation of Codex's recommendations for enhancing the
 
 2. **Dataset Build Integration**:
    ```python
-   # In TFTDatasetBuilder
-   if self.include_macro:
-       validator = MacroCoverageValidator()
-       validator.validate_macro_coverage(df, self.macro_series_ids)
+   # In MacroFeatureTransform.compute_batch
+   validator = MacroCoverageValidator(min_coverage=self._min_coverage)
+   validator.validate_macro_coverage(
+       output,
+       self._series_ids_for_batch,
+   )
    ```
 
 3. **Cache Priming**:

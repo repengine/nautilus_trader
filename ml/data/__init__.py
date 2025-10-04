@@ -373,6 +373,8 @@ class DatasetBuildConfig:
     include_l2: bool = False
     include_events: bool = False
     include_calendar: bool = False
+    include_earnings: bool = False
+    earnings_lag_days: int = 1
     fred_vintage_dir: Path | None = None
     events_base_dir: Path | None = None
     student_mode: bool = False
@@ -1661,6 +1663,8 @@ def build_tft_dataset(
         include_l2=cfg.include_l2,
         include_events=cfg.include_events,
         include_calendar=cfg.include_calendar,
+        include_earnings=cfg.include_earnings,
+        earnings_lag_days=cfg.earnings_lag_days,
         fred_path=fred_path_str,
         vintage_base_dir=cfg.fred_vintage_dir,
         events_base_dir=cfg.events_base_dir,
@@ -1794,6 +1798,7 @@ def build_tft_dataset(
             "include_macro": cfg.include_macro,
             "include_micro": cfg.include_micro,
             "include_l2": cfg.include_l2,
+            "include_earnings": cfg.include_earnings,
             "horizon_minutes": cfg.horizon_minutes,
             "lookback_periods": cfg.lookback_periods,
         }

@@ -199,6 +199,11 @@ class ModelStore(
         Create model_predictions table if it doesn't exist.
         """
         # Define model_predictions table
+        schema_name: str | None = None
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+        if dialect_name and dialect_name != "sqlite":
+            schema_name = "public"
+
         self.model_predictions_table = Table(
             "ml_model_predictions",
             self.metadata,
@@ -214,25 +219,27 @@ class ModelStore(
             Column("created_at", BIGINT),  # Dev table; DB default used in prod
             Index("idx_ml_model_predictions_lookup", "model_id", "instrument_id", "ts_event"),
             Index("idx_ml_model_predictions_live", "is_live"),
+            schema=schema_name,
         )
 
         # Create tables
         self.metadata.create_all(self.engine)
 
         # Ensure default partition exists for partitioned deployments (idempotent)
-        try:
-            from sqlalchemy import text as _text
+        if schema_name is not None:
+            try:
+                from sqlalchemy import text as _text
 
-            with self.engine.begin() as _conn:
-                _conn.execute(
-                    _text(
-                        "CREATE TABLE IF NOT EXISTS ml_model_predictions_default "
-                        "PARTITION OF ml_model_predictions DEFAULT",
-                    ),
-                )
-        except Exception as exc:
-            # Non-fatal when running against non-partitioned dev tables
-            logger.debug("Default partition ensure skipped for model predictions: %s", exc)
+                with self.engine.begin() as _conn:
+                    _conn.execute(
+                        _text(
+                            "CREATE TABLE IF NOT EXISTS public.ml_model_predictions_default "
+                            "PARTITION OF public.ml_model_predictions DEFAULT",
+                        ),
+                    )
+            except Exception as exc:
+                # Non-fatal when running against non-partitioned dev tables
+                logger.debug("Default partition ensure skipped for model predictions: %s", exc)
 
     def write_prediction(
         self,

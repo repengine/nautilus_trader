@@ -273,6 +273,8 @@ cfg = DatasetBuildConfig(
     include_events=True,
     include_calendar=True,
     include_l2=True,
+    include_earnings=True,
+    earnings_lag_days=2,
     lookback_periods=30,
 )
 result = build_tft_dataset(cfg)
@@ -284,6 +286,7 @@ Notes:
 - Canonical market data store: use a Nautilus `ParquetDataCatalog` (e.g., `./catalog`) as the single source of truth for bars/quotes/trades. Configure ingestion to write here (either directly via `ParquetCatalogMarketDataWriter` or dual‑write alongside the SQL `DataStore`).
 - In orchestrated runs, if `--catalog_path` is provided and `--data_dir` is left at its default, the dataset builder will automatically read from `--catalog_path` to keep ingestion and training aligned.
 - Calendar/events flags add known‑future features (session, holidays; Fed/CPI/earnings proximity) safely on the cold path.
+- Earnings joins call the DataStore facade; progressive fallback (PostgreSQL → FileEarningsStore → DummyEarningsStore) is automatic when `include_earnings=True`. Set `ML_FILE_STORE_PATH` before runs that require the file stage and monitor `ml_fallback_activations_total{component="data_store"}` during drills.
 - Use `start`, `end`, and `chunk_days` in `DatasetBuildConfig` for windowed builds when scaling to 60–90 days.
 
 For orchestrated runs, use `python -m ml.cli.pipeline_orchestrator` with:

@@ -192,6 +192,66 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
         retention_days=365,
         metadata={"schema_kind": "signals"},
     ),
+    DatasetType.EARNINGS_ACTUALS: DatasetManifestSpec(
+        schema={
+            "ticker": "str",
+            "period_end": "str",
+            "filing_date": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "eps_basic": "float64",
+            "eps_diluted": "float64",
+            "revenue": "float64",
+            "net_income": "float64",
+            "operating_income": "float64",
+            "shares_outstanding": "int64",
+            "filing_type": "str",
+            "fiscal_year": "int32",
+            "fiscal_quarter": "int32",
+            "data_source": "str",
+        },
+        primary_keys=("ticker", "period_end"),
+        retention_days=3650,
+        metadata={"schema_kind": "earnings_actuals"},
+        partitioning={"by": "filing_date", "interval": "monthly"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "ticker": False,
+                "period_end": False,
+                "filing_date": False,
+                "ts_event": False,
+                "ts_init": False,
+            }
+        },
+    ),
+    DatasetType.EARNINGS_ESTIMATES: DatasetManifestSpec(
+        schema={
+            "ticker": "str",
+            "estimate_date": "str",
+            "period_end": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "eps_consensus": "float64",
+            "revenue_consensus": "float64",
+            "num_analysts": "int32",
+            "data_source": "str",
+        },
+        primary_keys=("ticker", "estimate_date", "period_end"),
+        retention_days=1825,
+        metadata={"schema_kind": "earnings_estimates"},
+        partitioning={"by": "estimate_date", "interval": "monthly"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "ticker": False,
+                "estimate_date": False,
+                "period_end": False,
+                "ts_event": False,
+                "ts_init": False,
+            }
+        },
+    ),
 }
 
 _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
@@ -232,6 +292,12 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
                 "dataset_family": "itch",
             },
         ),
+    ),
+    "ml.earnings_actuals": DatasetManifestOverrides(
+        dataset_type=DatasetType.EARNINGS_ACTUALS,
+    ),
+    "ml.earnings_estimates": DatasetManifestOverrides(
+        dataset_type=DatasetType.EARNINGS_ESTIMATES,
     ),
 }
 

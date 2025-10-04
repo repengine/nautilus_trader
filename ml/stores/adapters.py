@@ -14,10 +14,13 @@ serialization and persistence.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 from typing import Any
 
+from ml.stores.data_store import DataStore
+from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import FeatureStoreStrictProtocol
 from ml.stores.protocols import ModelStoreStrictProtocol
 from ml.stores.protocols import StrategyStoreStrictProtocol
@@ -154,7 +157,105 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
         self.write_batch(data)
 
 
+class DataStoreEarningsAdapter(EarningsStoreProtocol):
+    """Adapter exposing DataStore earnings methods via the historical protocol."""
+
+    def __init__(self, store: DataStore, *, default_limit: int = 1000) -> None:
+        self._store = store
+        self._default_limit = default_limit
+
+    def write_actuals(
+        self,
+        ticker: str,
+        period_end: str,
+        filing_date: str,
+        eps_diluted: float | None,
+        revenue: float | None,
+        ts_event: int,
+        ts_init: int,
+        eps_basic: float | None = None,
+        net_income: float | None = None,
+        operating_income: float | None = None,
+        shares_outstanding: int | None = None,
+        filing_type: str | None = None,
+        fiscal_year: int | None = None,
+        fiscal_quarter: int | None = None,
+    ) -> None:
+        self._store.write_earnings_actual(
+            ticker=ticker,
+            period_end=period_end,
+            filing_date=filing_date,
+            eps_diluted=eps_diluted,
+            revenue=revenue,
+            ts_event=ts_event,
+            ts_init=ts_init,
+            eps_basic=eps_basic,
+            net_income=net_income,
+            operating_income=operating_income,
+            shares_outstanding=shares_outstanding,
+            filing_type=filing_type,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+        )
+
+    def write_estimates(
+        self,
+        ticker: str,
+        estimate_date: str,
+        period_end: str,
+        eps_consensus: float | None,
+        ts_event: int,
+        ts_init: int,
+        revenue_consensus: float | None = None,
+        num_analysts: int | None = None,
+    ) -> None:
+        self._store.write_earnings_estimate(
+            ticker=ticker,
+            estimate_date=estimate_date,
+            period_end=period_end,
+            eps_consensus=eps_consensus,
+            ts_event=ts_event,
+            ts_init=ts_init,
+            revenue_consensus=revenue_consensus,
+            num_analysts=num_analysts,
+        )
+
+    def get_actuals(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        as_of_ts: int | None = None,
+    ) -> list[dict[str, Any]]:
+        ts_query = as_of_ts if as_of_ts is not None else int(time.time_ns())
+        return self._store.get_earnings_actuals_at_or_before(
+            ticker=ticker,
+            ts_event=ts_query,
+            limit=self._default_limit,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    def get_estimates(
+        self,
+        ticker: str,
+        period_end: str,
+        as_of_ts: int | None = None,
+    ) -> dict[str, Any] | None:
+        ts_query = as_of_ts if as_of_ts is not None else int(time.time_ns())
+        return self._store.get_earnings_estimate_at_or_before(
+            ticker=ticker,
+            period_end=period_end,
+            ts_event=ts_query,
+        )
+
+    def flush(self) -> None:
+        # DataStore is synchronous; nothing to flush for earnings-specific writes.
+        return None
+
+
 __all__ = [
+    "DataStoreEarningsAdapter",
     "FeatureStoreStrictAdapter",
     "ModelStoreStrictAdapter",
     "StrategyStoreStrictAdapter",

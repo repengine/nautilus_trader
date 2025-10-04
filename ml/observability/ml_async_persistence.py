@@ -33,7 +33,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 import time
+from concurrent.futures import Future
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Literal, TypedDict
@@ -103,8 +105,10 @@ class MLPersistenceWorker:
     component_label: str = "ml_persistence_worker"
 
     _queue: asyncio.Queue[MLPersistenceItem] = field(init=False)
-    _task: asyncio.Task[None] | None = field(default=None, init=False)
+    _task: asyncio.Task[None] | Future[None] | None = field(default=None, init=False)
     _stop: asyncio.Event = field(init=False)
+    _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False)
+    _loop_thread: threading.Thread | None = field(default=None, init=False)
     _last_flush: float = field(default=0.0, init=False)
 
     # Metrics via MetricsManager
@@ -139,6 +143,12 @@ class MLPersistenceWorker:
     _LOGGER = logging.getLogger(__name__)
 
     def __post_init__(self) -> None:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        self._loop = loop
         self._queue = asyncio.Queue(maxsize=int(self.queue_maxsize))
         self._stop = asyncio.Event()
 
@@ -148,9 +158,46 @@ class MLPersistenceWorker:
         """
         Start background worker task (idempotent).
         """
-        if self._task is None or self._task.done():
-            self._stop.clear()
-            self._task = asyncio.create_task(self._run(), name="MLPersistenceWorker")
+        if self._task is not None and not self._task_done():
+            return
+
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            self._loop = loop
+
+        assert loop is not None
+
+        self._stop.clear()
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            if not loop.is_running():
+                def _loop_runner() -> None:
+                    assert loop is not None
+                    asyncio.set_event_loop(loop)
+                    loop.run_forever()
+
+                thread = threading.Thread(
+                    target=_loop_runner,
+                    name="MLPersistenceWorkerLoop",
+                    daemon=True,
+                )
+                thread.start()
+                self._loop_thread = thread
+
+            future = asyncio.run_coroutine_threadsafe(self._run(), loop)
+            self._task = future
+        else:
+            if running_loop is not loop:
+                self._loop = running_loop
+                loop = running_loop
+            self._task = loop.create_task(self._run(), name="MLPersistenceWorker")
 
     async def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
         """
@@ -172,14 +219,33 @@ class MLPersistenceWorker:
             ):
                 await asyncio.sleep(0.01)
         self._stop.set()
-        if self._task is not None:
+        task = self._task
+        loop = self._loop
+        if task is not None:
             try:
-                await asyncio.wait_for(self._task, timeout=timeout)
+                if isinstance(task, asyncio.Task):
+                    await asyncio.wait_for(task, timeout=timeout)
+                else:
+                    if timeout is None:
+                        task.result()
+                    else:
+                        task.result(timeout=timeout)
             except Exception:
-                # Ensure task cancelled on timeout or error
-                self._task.cancel()
-                with contextlib.suppress(Exception):
-                    await self._task
+                if isinstance(task, asyncio.Task):
+                    task.cancel()
+                    with contextlib.suppress(Exception):
+                        await task
+                else:
+                    task.cancel()
+            finally:
+                self._task = None
+
+        if self._loop_thread is not None and loop is not None:
+            loop.call_soon_threadsafe(loop.stop)
+            self._loop_thread.join(timeout=timeout)
+            self._loop_thread = None
+            loop.close()
+            self._loop = None
 
     def queue_size(self) -> int:
         """
@@ -189,6 +255,14 @@ class MLPersistenceWorker:
 
         """
         return int(self._queue.qsize())
+
+    def _task_done(self) -> bool:
+        task = self._task
+        if task is None:
+            return True
+        if isinstance(task, asyncio.Task):
+            return task.done()
+        return task.done()
 
     # --------------------------- Enqueue API -----------------------------
 

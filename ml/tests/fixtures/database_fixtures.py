@@ -188,27 +188,22 @@ class TestDatabase:
         if schema_files is None:
             schema_files = self._get_default_schema_files()
 
-        # Execute schema files
-        with self.engine.connect() as conn:
-            for schema_file in schema_files:
-                if schema_file.exists():
+        if "sqlite" in self.connection_string:
+            with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                for schema_file in schema_files:
+                    if not schema_file.exists():
+                        continue
+
                     sql = schema_file.read_text()
+                    sql = self._adapt_sql_for_sqlite(sql)
 
-                    # Handle PostgreSQL-specific syntax for SQLite
-                    if "sqlite" in self.connection_string:
-                        sql = self._adapt_sql_for_sqlite(sql)
-
-                    # Execute SQL statements, respecting dollar-quoted function bodies
                     from typing import Callable, Iterable, cast as _cast
 
                     try:
-                        from ml.cli.apply_migrations import (
-                            split_statements as _split,
-                        )
+                        from ml.cli.apply_migrations import split_statements as _split
 
                         splitter: Callable[[str], Iterable[str]] = _split
                     except Exception:
-                        # Fallback simple splitter if import fails
                         def _fallback_splitter(x: str) -> list[str]:
                             return [s for s in x.split(";") if s.strip()]
 
@@ -216,31 +211,28 @@ class TestDatabase:
 
                     for statement in splitter(sql):
                         statement = statement.strip()
-                        if statement and not statement.startswith("--"):
-                            try:
-                                conn.execute(text(statement))
-                            except Exception as e:
-                                # Skip errors for unsupported features in SQLite
-                                if "sqlite" in self.connection_string and any(
-                                    keyword in str(e).lower()
-                                    for keyword in ["partition", "inherit", "tablespace"]
-                                ):
-                                    continue
-                                raise
+                        if not statement or statement.startswith("--"):
+                            continue
+                        try:
+                            conn.execute(text(statement))
+                        except Exception as exc:
+                            if any(
+                                keyword in str(exc).lower()
+                                for keyword in ("partition", "inherit", "tablespace")
+                            ):
+                                continue
+                            raise
 
-            conn.commit()
-
-            # Ensure helper function exists for PostgreSQL test expectations
-            try:
-                exists = conn.execute(
-                    text(
-                        "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')",
-                    ),
-                ).scalar()
-                if not bool(exists):
-                    conn.execute(
+                try:
+                    exists = conn.execute(
                         text(
-                            """
+                            "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')",
+                        ),
+                    ).scalar()
+                    if not bool(exists):
+                        conn.execute(
+                            text(
+                                """
 CREATE OR REPLACE FUNCTION create_monthly_partitions(
     table_name TEXT,
     start_date DATE,
@@ -267,13 +259,11 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
-                            """,
-                        ),
-                    )
-                    conn.commit()
-            except Exception:
-                # Allow tests to surface specific DB issues
-                pass
+                                """,
+                            ),
+                        )
+                except Exception:
+                    pass
 
         # Apply canonical baseline via migration runner (idempotent, best-effort)
         try:
@@ -303,7 +293,12 @@ $$ LANGUAGE plpgsql;
         """
         Get default ML schema files.
         """
-        migrations_dir = Path(__file__).parent.parent.parent.parent / "stores" / "migrations"
+        # Resolve against the ml/ package so we stay within the repository tree even
+        # when tests run from an arbitrary working directory. The previous relative
+        # walk jumped to the project root and looked for ``stores/migrations`` which
+        # does not exist (the migrations live under ``ml/stores``).
+        ml_root = Path(__file__).resolve().parents[2]
+        migrations_dir = ml_root / "stores" / "migrations"
 
         # Consolidated bootstrap schema (2025-10-01: merged 18 migrations)
         schema_files = [

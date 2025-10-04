@@ -40,6 +40,8 @@ class TFTDatasetTaskConfig:
     include_l2: bool = False
     include_events: bool = False
     include_calendar: bool = False
+    include_earnings: bool = False
+    earnings_lag_days: int = 1
     chunk_days: int = 0
     start: datetime | None = None
     end: datetime | None = None
@@ -76,6 +78,8 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         include_l2=cfg.include_l2,
         include_events=cfg.include_events,
         include_calendar=cfg.include_calendar,
+        include_earnings=cfg.include_earnings,
+        earnings_lag_days=cfg.earnings_lag_days,
         horizon_minutes=cfg.horizon_minutes,
         threshold=cfg.threshold,
         lookback_periods=cfg.lookback_periods,

@@ -1,0 +1,35 @@
+{
+  "coverage": {
+    "calendar_name": "XNYS",
+    "composite_coverage": {
+      "macro_credit": 0.81,
+      "macro_liquidity": 0.58
+    },
+    "factor_coverage": {
+      "factor_duration": 0.89,
+      "factor_liquidity": 0.78
+    },
+    "factor_expected_days": 252,
+    "sector_coverage": {
+      "XLF": 0.93,
+      "XLY": 0.74
+    },
+    "sector_expected_days": 252
+  },
+  "coverage_alerts": {
+    "composite": {
+      "macro_liquidity": 0.58
+    },
+    "factor": {
+      "factor_liquidity": 0.78
+    },
+    "sector": {
+      "XLY": 0.74
+    }
+  },
+  "metadata": {
+    "generated_by": "python -m playground.risk_model.cli --start 2020-01-01 --end 2024-12-31 --coverage-report playground/tests/validation_reports/coverage_alerts_example.json",
+    "min_factor_threshold": 0.8,
+    "min_sector_threshold": 0.8
+  }
+}

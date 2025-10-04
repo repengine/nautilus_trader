@@ -44,6 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # Runtime imports for store components and adapters referenced below
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
+from ml.stores.file_backed import FileEarningsStore
 from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
@@ -358,7 +359,12 @@ class MLIntegrationManager:
             self.feature_store = FileFeatureStore(base_path=file_root / "features")
             self.model_store = FileModelStore(base_path=file_root / "models")
             self.strategy_store = FileStrategyStore(base_path=file_root / "strategies")
-            self.data_store = FileDataStore(base_path=file_root / "datastore")
+            earnings_store = FileEarningsStore(base_path=file_root / "earnings")
+            logger.info("FileEarningsStore initialized at %s", file_root / "earnings")
+            self.data_store = FileDataStore(
+                base_path=file_root / "datastore",
+                earnings_store=earnings_store,
+            )
         elif self._json_fallback:
             from ml.stores.base import DummyStore
 

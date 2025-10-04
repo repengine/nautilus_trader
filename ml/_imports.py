@@ -242,6 +242,30 @@ except ImportError as e:
     mcal = None  # type: ignore[assignment,unused-ignore]
 
 
+# edgartools (SEC EDGAR API client for earnings data)
+try:
+    import edgartools as edgartools
+
+    HAS_EDGARTOOLS = True
+    EDGARTOOLS_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_EDGARTOOLS = False
+    EDGARTOOLS_IMPORT_ERROR = e
+    edgartools = None  # type: ignore[assignment,unused-ignore]
+
+
+# yfinance (Yahoo Finance API client for consensus estimates)
+try:
+    import yfinance as yfinance
+
+    HAS_YFINANCE = True
+    YFINANCE_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_YFINANCE = False
+    YFINANCE_IMPORT_ERROR = e
+    yfinance = None  # type: ignore[assignment,unused-ignore]
+
+
 # OpenTelemetry (distributed tracing - optional, off by default)
 try:
     from opentelemetry import context as otel_context
@@ -405,6 +429,14 @@ def check_ml_dependencies(required: list[str]) -> None:
             HAS_PANDAS_MARKET_CALENDARS,
             f"pandas_market_calendars required. Original error: {PANDAS_MARKET_CALENDARS_IMPORT_ERROR}",
         ),
+        "edgartools": (
+            HAS_EDGARTOOLS,
+            f"edgartools required. Original error: {EDGARTOOLS_IMPORT_ERROR}",
+        ),
+        "yfinance": (
+            HAS_YFINANCE,
+            f"yfinance required. Original error: {YFINANCE_IMPORT_ERROR}",
+        ),
         "opentelemetry": (
             HAS_OPENTELEMETRY,
             f"OpenTelemetry required. Original error: {OPENTELEMETRY_IMPORT_ERROR}",
@@ -428,8 +460,10 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 __all__ = [
     "DATABENTO_IMPORT_ERROR",
+    "EDGARTOOLS_IMPORT_ERROR",
     "FREDAPI_IMPORT_ERROR",
     "HAS_DATABENTO",
+    "HAS_EDGARTOOLS",
     "HAS_FREDAPI",
     "HAS_JOBLIB",
     "HAS_LIGHTGBM",
@@ -446,6 +480,7 @@ __all__ = [
     "HAS_SKLEARN",
     "HAS_TORCH",
     "HAS_XGBOOST",
+    "HAS_YFINANCE",
     "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
     "ONNX_CORE_IMPORT_ERROR",
@@ -461,11 +496,13 @@ __all__ = [
     "SKLEARN_IMPORT_ERROR",
     "TORCH_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
+    "YFINANCE_IMPORT_ERROR",
     "Counter",
     "Gauge",
     "Histogram",
     "check_ml_dependencies",
     "db",
+    "edgartools",
     "fredapi",
     "generate_latest",
     "joblib",
@@ -485,4 +522,5 @@ __all__ = [
     "sklearn",
     "torch",
     "xgb",
+    "yfinance",
 ]

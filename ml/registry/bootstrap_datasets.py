@@ -26,6 +26,8 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.stores.data_store import EARNINGS_ACTUALS_DATASET_ID
+from ml.stores.data_store import EARNINGS_ESTIMATES_DATASET_ID
 
 
 def create_standard_manifests() -> list[DatasetManifest]:
@@ -242,6 +244,106 @@ def create_standard_manifests() -> list[DatasetManifest]:
     )
     manifests.append(signals_manifest)
 
+    # EARNINGS ACTUALS dataset
+    earnings_actuals_manifest = DatasetManifest(
+        dataset_id=EARNINGS_ACTUALS_DATASET_ID,
+        dataset_type=DatasetType.EARNINGS_ACTUALS,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.earnings_actuals",
+        partitioning={"by": ["ticker"]},
+        retention_days=3650,
+        schema={
+            "ticker": "str",
+            "period_end": "date",
+            "filing_date": "date",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "eps_basic": "float64",
+            "eps_diluted": "float64",
+            "revenue": "float64",
+            "net_income": "float64",
+            "operating_income": "float64",
+            "shares_outstanding": "int64",
+            "filing_type": "str",
+            "fiscal_year": "int64",
+            "fiscal_quarter": "int64",
+            "data_source": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ticker", "period_end"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "ticker",
+                "period_end",
+                "filing_date",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": [
+                "eps_basic",
+                "eps_diluted",
+                "revenue",
+                "net_income",
+                "operating_income",
+                "shares_outstanding",
+                "filing_type",
+                "fiscal_year",
+                "fiscal_quarter",
+                "data_source",
+            ],
+        },
+        lineage=["edgar_fetcher"],
+        pipeline_signature="earnings_ingestion_v1",
+        version="1.0.0",
+    )
+    manifests.append(earnings_actuals_manifest)
+
+    # EARNINGS ESTIMATES dataset
+    earnings_estimates_manifest = DatasetManifest(
+        dataset_id=EARNINGS_ESTIMATES_DATASET_ID,
+        dataset_type=DatasetType.EARNINGS_ESTIMATES,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.earnings_estimates",
+        partitioning={"by": ["ticker"]},
+        retention_days=1825,
+        schema={
+            "ticker": "str",
+            "period_end": "date",
+            "estimate_date": "date",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "eps_consensus": "float64",
+            "revenue_consensus": "float64",
+            "num_analysts": "int64",
+            "data_source": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ticker", "period_end", "estimate_date"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "ticker",
+                "period_end",
+                "estimate_date",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": [
+                "eps_consensus",
+                "revenue_consensus",
+                "num_analysts",
+                "data_source",
+            ],
+        },
+        lineage=["yahoo_consensus"],
+        pipeline_signature="earnings_ingestion_v1",
+        version="1.0.0",
+    )
+    manifests.append(earnings_estimates_manifest)
+
     return manifests
 
 
@@ -394,6 +496,50 @@ def create_standard_contracts() -> dict[str, DataContract]:
         last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:signals.modified"),
     )
     contracts["signals"] = signals_contract
+
+    earnings_actuals_contract = DataContract(
+        contract_id="earnings_actuals_contract_v1",
+        dataset_id=EARNINGS_ACTUALS_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="monitor_only",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:earnings_actuals.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:earnings_actuals.modified",
+        ),
+    )
+    contracts[EARNINGS_ACTUALS_DATASET_ID] = earnings_actuals_contract
+
+    earnings_estimates_contract = DataContract(
+        contract_id="earnings_estimates_contract_v1",
+        dataset_id=EARNINGS_ESTIMATES_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="monitor_only",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.1,
+            "duplicate_rate": 0.02,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:earnings_estimates.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:earnings_estimates.modified",
+        ),
+    )
+    contracts[EARNINGS_ESTIMATES_DATASET_ID] = earnings_estimates_contract
 
     return contracts
 

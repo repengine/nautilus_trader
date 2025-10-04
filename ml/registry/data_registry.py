@@ -536,6 +536,10 @@ class DataRegistry(MLComponentMixin):
             if self.backend == BackendType.JSON:
                 self._manifests[manifest.dataset_id] = manifest
                 self._save_registry()
+                if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
+                    contract = self._create_contract_from_manifest(manifest)
+                    self._contracts[manifest.dataset_id] = contract
+                    self._save_registry()
             elif self.backend == BackendType.POSTGRES:
                 session = self.persistence.get_session()
                 if session is None:
@@ -605,6 +609,10 @@ class DataRegistry(MLComponentMixin):
                 if existing_manifest is not None:
                     self._manifests[existing_manifest.dataset_id] = existing_manifest
                     return existing_manifest.dataset_id
+
+                if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
+                    contract = self._create_contract_from_manifest(manifest)
+                    self._contracts[manifest.dataset_id] = contract
 
             # Log audit event
             self.persistence.log_audit(

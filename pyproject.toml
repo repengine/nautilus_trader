@@ -63,7 +63,9 @@ dependencies = [
     "asyncio (>=4.0.0,<5.0.0)",
     "aiosqlite (>=0.21.0,<0.22.0)",
     "structlog (>=25.4.0,<26.0.0)",
-    "flask (>=3.1.2,<4.0.0)"
+    "flask (>=3.1.2,<4.0.0)",
+    "yfinance (>=0.2.66,<0.3.0)",
+    "edgartools (>=4.16.1,<5.0.0)"
 ]
 
 [project.urls]
@@ -167,6 +169,8 @@ types-toml = ">=0.10.2,<1.0.0"
 pandas-stubs = ">=2.3.0,<3.0.0"
 cython = "==3.1.2"
 setuptools = ">=75"
+edgartools = "^4.16.1"
+yfinance = "^0.2.66"
 
 [tool.poetry.group.test.dependencies]
 # Pin a stable, mutually compatible set of pytest plugins

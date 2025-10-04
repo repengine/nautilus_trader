@@ -202,6 +202,11 @@ class StrategyStore(
         Create strategy_signals table if it doesn't exist.
         """
         # Define strategy_signals table
+        schema_name: str | None = None
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+        if dialect_name and dialect_name != "sqlite":
+            schema_name = "public"
+
         self.strategy_signals_table = Table(
             "ml_strategy_signals",
             self.metadata,
@@ -219,6 +224,7 @@ class StrategyStore(
             Index("idx_ml_strategy_signals_lookup", "strategy_id", "instrument_id", "ts_event"),
             Index("idx_ml_strategy_signals_type", "signal_type"),
             Index("idx_ml_strategy_signals_live", "is_live"),
+            schema=schema_name,
         )
 
         # Strategy performance tracking table
@@ -236,25 +242,27 @@ class StrategyStore(
             Column("avg_risk_score", Float),
             Column("created_at", BIGINT),
             Index("idx_ml_strategy_performance", "strategy_id", "period_start"),
+            schema=schema_name,
         )
 
         # Create tables
         self.metadata.create_all(self.engine)
 
         # Ensure default partition exists for partitioned deployments (idempotent)
-        try:
-            from sqlalchemy import text as _text
+        if schema_name is not None:
+            try:
+                from sqlalchemy import text as _text
 
-            with self.engine.begin() as _conn:
-                _conn.execute(
-                    _text(
-                        "CREATE TABLE IF NOT EXISTS ml_strategy_signals_default "
-                        "PARTITION OF ml_strategy_signals DEFAULT",
-                    ),
-                )
-        except Exception as exc:
-            # Non-fatal when running against non-partitioned dev tables
-            logger.debug("Default partition ensure skipped for strategy signals: %s", exc)
+                with self.engine.begin() as _conn:
+                    _conn.execute(
+                        _text(
+                            "CREATE TABLE IF NOT EXISTS public.ml_strategy_signals_default "
+                            "PARTITION OF public.ml_strategy_signals DEFAULT",
+                        ),
+                    )
+            except Exception as exc:
+                # Non-fatal when running against non-partitioned dev tables
+                logger.debug("Default partition ensure skipped for strategy signals: %s", exc)
 
     def write_signal(
         self,

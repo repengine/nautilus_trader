@@ -86,24 +86,87 @@
             padding: 15px;
             margin-bottom: 20px;
         }
-        
+
+        .space-xs {
+            margin-top: 6px;
+        }
+
+        .metric-row + .metric-row {
+            margin-top: 8px;
+        }
+
         .metric-row {
             display: flex;
             justify-content: space-between;
             margin-bottom: 10px;
             font-size: 12px;
         }
-        
+
         .metric-label {
             color: #64748b;
             font-weight: 600;
         }
-        
+
         .metric-value {
             color: #1a1a2e;
             font-weight: 700;
         }
-        
+
+        .badge-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 9999px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            background: rgba(15, 118, 110, 0.12);
+            color: #0f766e;
+        }
+
+        .badge.badge-warn {
+            background: rgba(234, 179, 8, 0.18);
+            color: #d97706;
+        }
+
+        .badge.badge-danger {
+            background: rgba(220, 38, 38, 0.18);
+            color: #b91c1c;
+        }
+
+        .badge.badge-muted {
+            background: rgba(148, 163, 184, 0.2);
+            color: #475569;
+        }
+
+        .alerts-box {
+            background: rgba(15, 23, 42, 0.05);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 20px;
+        }
+
+        .alerts-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .alerts-empty {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 8px;
+        }
+
         .allocations-title {
             font-size: 14px;
             font-weight: 700;
@@ -148,6 +211,21 @@
             font-size: 13px;
             font-weight: 800;
             color: #6366f1;
+        }
+
+        .allocation-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .allocation-badge {
+            font-size: 9px;
+            padding: 3px 7px;
+            border-radius: 9999px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
         }
         
         .instructions {
@@ -227,6 +305,10 @@
                 <div class="instruction-item">🔴 Right click: Move portfolio</div>
                 <div class="instruction-item">⚪ Scroll: Zoom in/out</div>
             </div>
+
+            <div class="axis-label" id="x-axis-label" style="bottom: 14px; left: 50%; transform: translateX(-50%);">Duration Risk</div>
+            <div class="axis-label" id="y-axis-label" style="top: 50%; left: 16px; transform: translateY(-50%) rotate(-90deg); transform-origin: left top;">Credit Risk</div>
+            <div class="axis-label" id="z-axis-label" style="top: 16px; right: 24px;">Liquidity</div>
             
             <div class="legend">
                 <div class="legend-title">Asset Classes</div>
@@ -264,15 +346,15 @@
             <div class="controls">
                 <div class="control-title">📍 Portfolio Position</div>
                 <div class="control-item">
-                    <span class="control-label">Duration Risk:</span>
+                    <span class="control-label" id="label-duration">Duration Risk:</span>
                     <span class="control-value" id="duration-value">50%</span>
                 </div>
                 <div class="control-item">
-                    <span class="control-label">Credit Risk:</span>
+                    <span class="control-label" id="label-credit">Credit Risk:</span>
                     <span class="control-value" id="credit-value">50%</span>
                 </div>
                 <div class="control-item">
-                    <span class="control-label">Liquidity:</span>
+                    <span class="control-label" id="label-liquidity">Liquidity:</span>
                     <span class="control-value" id="liquidity-value">50%</span>
                 </div>
             </div>
@@ -290,6 +372,53 @@
                     <span class="metric-label">Top Asset:</span>
                     <span class="metric-value" id="top-asset">-</span>
                 </div>
+                <div class="metric-row space-xs">
+                    <span class="metric-label">Mahalanobis Max:</span>
+                    <span class="metric-value" id="mahalanobis-max">-</span>
+                </div>
+            </div>
+
+            <div class="controls" id="dataset-controls">
+                <div class="control-title">📂 Dataset Controls</div>
+                <div class="control-item">
+                    <span class="control-label">Loaded Year:</span>
+                    <span class="control-value" id="dataset-year">-</span>
+                </div>
+                <div class="control-item">
+                    <span class="control-label">Source:</span>
+                    <span class="control-value" id="dataset-source">Auto</span>
+                </div>
+                <div class="control-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <label class="control-label" for="payload-input">Load JSON payload</label>
+                    <input id="payload-input" type="file" accept="application/json" style="font-size: 11px; color: #1e293b;">
+                    <small style="color: #e0e7ff; opacity: 0.85;">Default payload can be overridden via ?payload=PATH</small>
+                    <div id="payload-status" style="font-size: 11px; color: #cbd5f5; margin-top: 4px;">Loading…</div>
+                </div>
+            </div>
+
+            <div class="metrics" id="coverage-summary">
+                <div class="metric-row">
+                    <span class="metric-label">Calendar:</span>
+                    <span class="metric-value" id="coverage-calendar">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Sector Days:</span>
+                    <span class="metric-value" id="coverage-sector-days">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Factor Days:</span>
+                    <span class="metric-value" id="coverage-factor-days">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Composite Count:</span>
+                    <span class="metric-value" id="coverage-composite-count">-</span>
+                </div>
+            </div>
+
+            <div class="alerts-box">
+                <div class="alerts-title">Coverage Alerts</div>
+                <div class="badge-list" id="coverage-alert-badges"></div>
+                <div class="alerts-empty" id="coverage-alert-empty">All factors and composites meet thresholds.</div>
             </div>
             
             <div class="allocations-title">💼 Current Allocation</div>
@@ -299,363 +428,838 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // Asset definitions with 3D coordinates
-        const assets = [
-            // Safe haven / Low everything
-            { name: 'Cash', x: 0.1, y: 0.1, z: 0.1, color: 0x6b7280 },
-            { name: 'T-Bills', x: 0.2, y: 0.1, z: 0.2, color: 0x3b82f6 },
-            
-            // Low credit, varying duration and liquidity
-            { name: 'Short Treasuries', x: 0.4, y: 0.15, z: 0.3, color: 0x3b82f6 },
-            { name: 'Long Treasuries', x: 0.85, y: 0.1, z: 0.4, color: 0x3b82f6 },
-            
-            // Gold - low duration, low credit, HIGH liquidity sensitivity
-            { name: 'Gold', x: 0.25, y: 0.15, z: 0.85, color: 0x10b981 },
-            
-            // IG Credit
-            { name: 'IG Short', x: 0.45, y: 0.3, z: 0.35, color: 0x6366f1 },
-            { name: 'IG Long', x: 0.75, y: 0.35, z: 0.45, color: 0x6366f1 },
-            
-            // Commodities - low duration, medium credit, high liquidity
-            { name: 'Commodities', x: 0.3, y: 0.4, z: 0.75, color: 0x10b981 },
-            
-            // High Yield
-            { name: 'High Yield', x: 0.5, y: 0.7, z: 0.5, color: 0xf59e0b },
-            { name: 'EM Debt', x: 0.55, y: 0.8, z: 0.6, color: 0xf59e0b },
-            
-            // Equities - defensive
-            { name: 'Utilities', x: 0.5, y: 0.5, z: 0.4, color: 0xec4899 },
-            { name: 'Value Stocks', x: 0.6, y: 0.6, z: 0.5, color: 0xec4899 },
-            
-            // Equities - growth (high duration, medium credit, HIGH liquidity)
-            { name: 'Growth Stocks', x: 0.8, y: 0.5, z: 0.8, color: 0xec4899 },
-            { name: 'Tech Growth', x: 0.9, y: 0.6, z: 0.85, color: 0xec4899 },
-            
-            // Equities - cyclical/risky
-            { name: 'Cyclicals', x: 0.45, y: 0.75, z: 0.55, color: 0xec4899 },
-            { name: 'Small Caps', x: 0.7, y: 0.75, z: 0.7, color: 0xec4899 },
-            { name: 'EM Equities', x: 0.65, y: 0.85, z: 0.75, color: 0xec4899 }
-        ];
-        
-        // Scene setup
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a2e);
-        scene.fog = new THREE.Fog(0x1a1a2e, 10, 30);
-        
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(8, 6, 8);
-        camera.lookAt(5, 5, 5);
-        
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        const container = document.getElementById('canvas-container');
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
-        
-        // Lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 10, 10);
-        directionalLight.castShadow = true;
-        scene.add(directionalLight);
-        
-        const pointLight = new THREE.PointLight(0x667eea, 1, 20);
-        pointLight.position.set(5, 8, 5);
-        scene.add(pointLight);
-        
-        // Create coordinate planes
-        const gridHelper1 = new THREE.GridHelper(10, 10, 0x667eea, 0x444444);
-        gridHelper1.position.set(5, 0, 5);
-        scene.add(gridHelper1);
-        
-        const gridHelper2 = new THREE.GridHelper(10, 10, 0x764ba2, 0x333333);
-        gridHelper2.rotation.x = Math.PI / 2;
-        gridHelper2.position.set(5, 5, 0);
-        scene.add(gridHelper2);
-        
-        // Create axes
-        const axesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.3, transparent: true });
-        
-        // X axis (Duration)
-        const xGeometry = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(10, 0, 0)
-        ]);
-        const xAxis = new THREE.Line(xGeometry, new THREE.LineBasicMaterial({ color: 0xff6b6b }));
-        scene.add(xAxis);
-        
-        // Y axis (Credit)
-        const yGeometry = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 10, 0)
-        ]);
-        const yAxis = new THREE.Line(yGeometry, new THREE.LineBasicMaterial({ color: 0x4ecdc4 }));
-        scene.add(yAxis);
-        
-        // Z axis (Liquidity)
-        const zGeometry = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, 10)
-        ]);
-        const zAxis = new THREE.Line(zGeometry, new THREE.LineBasicMaterial({ color: 0xffe66d }));
-        scene.add(zAxis);
-        
-        // Portfolio sphere
-        const portfolioGeometry = new THREE.SphereGeometry(0.3, 32, 32);
-        const portfolioMaterial = new THREE.MeshPhongMaterial({ 
+    const SECTOR_COLORS = {
+        XLB: 0x38bdf8,
+        XLC: 0x6366f1,
+        XLE: 0xf59e0b,
+        XLF: 0xfbbf24,
+        XLI: 0x0ea5e9,
+        XLK: 0x8b5cf6,
+        XLU: 0x10b981,
+        XLV: 0xf472b6,
+        XLY: 0xec4899,
+    };
+    const FACTOR_LABELS = {
+        factor_duration: 'Duration Risk',
+        factor_credit: 'Credit Risk',
+        factor_liquidity: 'Liquidity Stress',
+    };
+    const DEFAULT_PAYLOAD_PATH = 'data/visualizations/risk_2024.json';
+    const SCENE_MIN = 0.8;
+    const SCENE_MAX = 9.2;
+
+    const state = {
+        payload: null,
+        normalizer: null,
+        allocations: [],
+        portfolioNormalized: { axes: { x: 0.5, y: 0.5, z: 0.5 }, byFactor: {} },
+        idealNormalized: { axes: { x: 0.5, y: 0.5, z: 0.5 }, byFactor: {} },
+        sourceLabel: 'Auto',
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+    scene.fog = new THREE.Fog(0x1a1a2e, 10, 32);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(8, 6, 8);
+    camera.lookAt(5, 5, 5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const container = document.getElementById('canvas-container');
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(10, 12, 10);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+
+    const pointLight = new THREE.PointLight(0x667eea, 1, 24);
+    pointLight.position.set(5, 8, 5);
+    scene.add(pointLight);
+
+    const gridHelper1 = new THREE.GridHelper(10, 10, 0x667eea, 0x444444);
+    gridHelper1.position.set(5, 0, 5);
+    scene.add(gridHelper1);
+
+    const gridHelper2 = new THREE.GridHelper(10, 10, 0x764ba2, 0x333333);
+    gridHelper2.rotation.x = Math.PI / 2;
+    gridHelper2.position.set(5, 5, 0);
+    scene.add(gridHelper2);
+
+    const xAxis = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0)]),
+        new THREE.LineBasicMaterial({ color: 0xff6b6b }),
+    );
+    scene.add(xAxis);
+
+    const yAxis = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 10, 0)]),
+        new THREE.LineBasicMaterial({ color: 0x4ecdc4 }),
+    );
+    scene.add(yAxis);
+
+    const zAxis = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 10)]),
+        new THREE.LineBasicMaterial({ color: 0xffe66d }),
+    );
+    scene.add(zAxis);
+
+    const portfolioSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.32, 32, 32),
+        new THREE.MeshPhongMaterial({
             color: 0xfbbf24,
             emissive: 0xf59e0b,
-            emissiveIntensity: 0.5,
-            shininess: 100
-        });
-        const portfolioSphere = new THREE.Mesh(portfolioGeometry, portfolioMaterial);
-        portfolioSphere.position.set(5, 5, 5);
-        portfolioSphere.castShadow = true;
-        scene.add(portfolioSphere);
-        
-        // Asset spheres and lines
-        const assetMeshes = [];
-        const allocationLines = [];
-        
-        assets.forEach(asset => {
-            const geometry = new THREE.SphereGeometry(0.15, 16, 16);
-            const material = new THREE.MeshPhongMaterial({ 
-                color: asset.color,
-                emissive: asset.color,
-                emissiveIntensity: 0.3
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(asset.x * 10, asset.y * 10, asset.z * 10);
-            mesh.castShadow = true;
-            scene.add(mesh);
-            
-            asset.mesh = mesh;
-            assetMeshes.push(mesh);
-            
-            // Create line
-            const lineGeometry = new THREE.BufferGeometry();
-            const lineMaterial = new THREE.LineBasicMaterial({ 
-                color: asset.color,
-                transparent: true,
-                opacity: 0.3
-            });
-            const line = new THREE.Line(lineGeometry, lineMaterial);
-            scene.add(line);
-            
-            asset.line = line;
-            allocationLines.push(line);
-        });
-        
-        // Camera controls
-        let isDragging = false;
-        let previousMousePosition = { x: 0, y: 0 };
-        let cameraRotation = { theta: Math.PI / 4, phi: Math.PI / 4 };
-        const cameraDistance = 12;
-        
-        // Portfolio dragging
-        let isDraggingPortfolio = false;
-        let dragPlane = new THREE.Plane();
-        let raycaster = new THREE.Raycaster();
-        let mouse = new THREE.Vector2();
-        
-        function updateCamera() {
-            camera.position.x = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
-            camera.position.y = 5 + cameraDistance * Math.cos(cameraRotation.phi);
-            camera.position.z = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
-            camera.lookAt(5, 5, 5);
+            emissiveIntensity: 0.45,
+            shininess: 110,
+        }),
+    );
+    portfolioSphere.position.set(5, 5, 5);
+    portfolioSphere.castShadow = true;
+    scene.add(portfolioSphere);
+
+    const idealPointMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 24, 24),
+        new THREE.MeshPhongMaterial({
+            color: 0x38bdf8,
+            emissive: 0x2563eb,
+            emissiveIntensity: 0.4,
+        }),
+    );
+    idealPointMarker.castShadow = false;
+    scene.add(idealPointMarker);
+
+    const sectorMeshes = new Map();
+    const sectorLines = new Map();
+
+    let isDragging = false;
+    let isDraggingPortfolio = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let cameraRotation = { theta: Math.PI / 4, phi: Math.PI / 4 };
+    let cameraDistance = 12;
+
+    const dragPlane = new THREE.Plane();
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    function labelForFactor(key) {
+        if (!key) {
+            return 'Axis';
         }
-        
-        function calculateAllocations() {
-            const portfolioPos = portfolioSphere.position;
-            let weights = [];
-            
-            assets.forEach(asset => {
-                const dist = portfolioPos.distanceTo(asset.mesh.position);
-                const maxDist = 14.14; // sqrt(10^2 + 10^2 + 10^2)
-                const weight = Math.max(0, 1 - (dist / maxDist));
-                const exponentialWeight = Math.pow(weight, 3);
-                weights.push({ asset, weight: exponentialWeight });
-            });
-            
-            const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
-            
-            if (totalWeight > 0) {
-                weights = weights.map(w => ({
-                    ...w,
-                    weight: w.weight / totalWeight
-                }));
+        return FACTOR_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\w/g, (char) => char.toUpperCase());
+    }
+
+    function formatPercent(value) {
+        if (!Number.isFinite(value)) {
+            return '-';
+        }
+        return `${(value * 100).toFixed(1)}%`;
+    }
+
+    function setStatus(message, isError = false) {
+        const statusEl = document.getElementById('payload-status');
+        if (!statusEl) {
+            return;
+        }
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? '#fca5a5' : '#cbd5f5';
+    }
+
+    function updateCamera() {
+        camera.position.x = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
+        camera.position.y = 5 + cameraDistance * Math.cos(cameraRotation.phi);
+        camera.position.z = 5 + cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
+        camera.lookAt(5, 5, 5);
+    }
+
+    function buildNormalizer(payload) {
+        const extents = {};
+        const order = [];
+        const includeKey = (key) => {
+            if (!key) {
+                return;
             }
-            
-            return weights.sort((a, b) => b.weight - a.weight);
-        }
-        
-        function updateDisplay() {
-            const allocations = calculateAllocations();
-            const pos = portfolioSphere.position;
-            
-            // Update position values
-            document.getElementById('duration-value').textContent = ((pos.x / 10) * 100).toFixed(0) + '%';
-            document.getElementById('credit-value').textContent = ((pos.y / 10) * 100).toFixed(0) + '%';
-            document.getElementById('liquidity-value').textContent = ((pos.z / 10) * 100).toFixed(0) + '%';
-            
-            // Determine risk profile
-            let profile = 'Balanced';
-            const dx = pos.x / 10, dy = pos.y / 10, dz = pos.z / 10;
-            
-            if (dx < 0.3 && dy < 0.3 && dz < 0.3) profile = 'Ultra Conservative';
-            else if (dx < 0.4 && dy < 0.4) profile = 'Conservative';
-            else if (dy > 0.7 || dx > 0.8) profile = 'Aggressive Growth';
-            else if (dz > 0.7 && dy < 0.5) profile = 'Liquidity Driven';
-            else if (dz > 0.7 && dx > 0.6) profile = 'Growth + Debasement';
-            
-            document.getElementById('risk-profile').textContent = profile;
-            
-            // Calculate diversification
-            const effectiveN = 1 / allocations.reduce((sum, a) => sum + a.weight * a.weight, 0);
-            let divScore = 'Low';
-            if (effectiveN > 8) divScore = 'High';
-            else if (effectiveN > 4) divScore = 'Medium';
-            document.getElementById('diversification').textContent = divScore + ` (${effectiveN.toFixed(1)} assets)`;
-            
-            // Top asset
-            if (allocations[0]) {
-                document.getElementById('top-asset').textContent = 
-                    `${allocations[0].asset.name} (${(allocations[0].weight * 100).toFixed(1)}%)`;
+            if (!Object.prototype.hasOwnProperty.call(extents, key)) {
+                extents[key] = { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY };
+                order.push(key);
             }
-            
-            // Update allocation list
-            const listEl = document.getElementById('allocations-list');
-            listEl.innerHTML = '';
-            
-            allocations.forEach(({ asset, weight }) => {
-                if (weight > 0.02) {
-                    const item = document.createElement('div');
-                    item.className = 'allocation-item';
-                    
-                    const colorHex = '#' + asset.color.toString(16).padStart(6, '0');
-                    
-                    item.innerHTML = `
-                        <div class="allocation-dot" style="background: ${colorHex};"></div>
-                        <div class="allocation-info">
-                            <div class="allocation-name">${asset.name}</div>
-                            <div class="allocation-coords">
-                                D:${(asset.x * 100).toFixed(0)}% 
-                                C:${(asset.y * 100).toFixed(0)}% 
-                                L:${(asset.z * 100).toFixed(0)}%
-                            </div>
-                        </div>
-                        <div class="allocation-weight">${(weight * 100).toFixed(1)}%</div>
-                    `;
-                    listEl.appendChild(item);
-                }
-            });
-            
-            // Update lines
-            allocations.forEach(({ asset, weight }) => {
-                const points = [portfolioSphere.position, asset.mesh.position];
-                asset.line.geometry.setFromPoints(points);
-                asset.line.material.opacity = Math.max(0.1, weight * 0.8);
-                asset.line.material.linewidth = weight * 5;
-            });
+        };
+
+        const idealPoint = payload?.ideal_point ?? {};
+        Object.keys(idealPoint).forEach(includeKey);
+        (payload?.sectors ?? []).forEach((sector) => {
+            Object.keys(sector.coordinates ?? {}).forEach(includeKey);
+        });
+
+        while (order.length < 3) {
+            includeKey(`axis_${order.length + 1}`);
         }
-        
-        // Mouse events
-        renderer.domElement.addEventListener('mousedown', (e) => {
-            if (e.button === 0) { // Left click
-                isDragging = true;
-                previousMousePosition = { x: e.offsetX, y: e.offsetY };
-            } else if (e.button === 2) { // Right click
-                isDraggingPortfolio = true;
-                e.preventDefault();
+        if (order.length > 3) {
+            order.length = 3;
+        }
+
+        const registerValue = (key, value) => {
+            if (!Number.isFinite(value)) {
+                return;
+            }
+            extents[key].min = Math.min(extents[key].min, value);
+            extents[key].max = Math.max(extents[key].max, value);
+        };
+
+        Object.entries(idealPoint).forEach(([key, value]) => registerValue(key, value));
+        (payload?.sectors ?? []).forEach((sector) => {
+            Object.entries(sector.coordinates ?? {}).forEach(([key, value]) => registerValue(key, value));
+        });
+
+        order.forEach((key) => {
+            if (!Number.isFinite(extents[key].min)) {
+                extents[key].min = -1.0;
+            }
+            if (!Number.isFinite(extents[key].max)) {
+                extents[key].max = 1.0;
+            }
+            if (Math.abs(extents[key].max - extents[key].min) < 1e-6) {
+                const adjustment = Math.abs(extents[key].max) + 1.0;
+                extents[key].max = extents[key].min + adjustment;
             }
         });
-        
-        renderer.domElement.addEventListener('mousemove', (e) => {
-            if (isDragging) {
-                const deltaX = e.offsetX - previousMousePosition.x;
-                const deltaY = e.offsetY - previousMousePosition.y;
-                
-                cameraRotation.theta += deltaX * 0.01;
-                cameraRotation.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraRotation.phi + deltaY * 0.01));
-                
-                updateCamera();
-                previousMousePosition = { x: e.offsetX, y: e.offsetY };
-            } else if (isDraggingPortfolio) {
-                mouse.x = (e.offsetX / container.clientWidth) * 2 - 1;
-                mouse.y = -(e.offsetY / container.clientHeight) * 2 + 1;
-                
-                raycaster.setFromCamera(mouse, camera);
-                
-                // Create plane perpendicular to camera
-                dragPlane.setFromNormalAndCoplanarPoint(
-                    camera.getWorldDirection(dragPlane.normal),
-                    portfolioSphere.position
+
+        return { order, extents };
+    }
+
+    function normalizeValue(normalizer, key, value) {
+        const range = normalizer.extents[key];
+        if (!range) {
+            return 0.5;
+        }
+        const width = range.max - range.min;
+        if (!Number.isFinite(value) || width <= 1e-6) {
+            return 0.5;
+        }
+        const ratio = (value - range.min) / width;
+        return clamp(ratio, 0.0, 1.0);
+    }
+
+    function normalizeCoordinates(normalizer, coordinates) {
+        const values = normalizer.order.map((key) => normalizeValue(normalizer, key, (coordinates ?? {})[key] ?? 0));
+        while (values.length < 3) {
+            values.push(0.5);
+        }
+        const axes = { x: values[0], y: values[1], z: values[2] };
+        const byFactor = {};
+        normalizer.order.forEach((key, index) => {
+            byFactor[key] = values[index] ?? 0.5;
+        });
+        return { axes, byFactor };
+    }
+
+    function toSceneFromAxes(axes) {
+        return new THREE.Vector3(
+            SCENE_MIN + axes.x * (SCENE_MAX - SCENE_MIN),
+            SCENE_MIN + axes.y * (SCENE_MAX - SCENE_MIN),
+            SCENE_MIN + axes.z * (SCENE_MAX - SCENE_MIN),
+        );
+    }
+
+    function computeAllocations(payload, normalizer) {
+        const weights = payload?.metadata?.weights ?? {};
+        const sectors = payload?.sectors ?? [];
+        return sectors.map((sector) => {
+            const normalized = normalizeCoordinates(normalizer, sector.coordinates);
+            const scenePosition = toSceneFromAxes(normalized.axes);
+            const weight = weights[sector.sector] ?? 0;
+            const color = SECTOR_COLORS[sector.sector] ?? 0x94a3b8;
+            const mahal = typeof sector.mahalanobis_distance === 'number' ? sector.mahalanobis_distance : null;
+            return {
+                name: sector.sector,
+                weight,
+                color,
+                normalized,
+                scenePosition,
+                distance: typeof sector.distance === 'number' ? sector.distance : null,
+                mahalanobis: mahal,
+                deltas: sector.deltas ?? {},
+            };
+        });
+    }
+
+    function computePortfolioNormalized(allocations) {
+        const weightSum = allocations.reduce((acc, allocation) => acc + Math.max(allocation.weight, 0), 0);
+        if (weightSum <= 0) {
+            return {
+                axes: { x: 0.5, y: 0.5, z: 0.5 },
+                byFactor: {},
+            };
+        }
+        const axes = { x: 0, y: 0, z: 0 };
+        const byFactor = {};
+        allocations.forEach((allocation) => {
+            const share = allocation.weight / weightSum;
+            axes.x += share * allocation.normalized.axes.x;
+            axes.y += share * allocation.normalized.axes.y;
+            axes.z += share * allocation.normalized.axes.z;
+            Object.entries(allocation.normalized.byFactor).forEach(([factor, value]) => {
+                byFactor[factor] = (byFactor[factor] ?? 0) + share * value;
+            });
+        });
+        return { axes, byFactor };
+    }
+
+    function updatePortfolioPosition(portfolioNormalized) {
+        const scenePosition = toSceneFromAxes(portfolioNormalized.axes);
+        portfolioSphere.position.copy(scenePosition);
+    }
+
+    function updateIdealPointMarker(idealNormalized) {
+        idealPointMarker.position.copy(toSceneFromAxes(idealNormalized.axes));
+    }
+
+    function hydrateAllocations(allocations) {
+        const existingKeys = new Set(sectorMeshes.keys());
+        allocations.forEach((allocation) => {
+            let mesh = sectorMeshes.get(allocation.name);
+            if (!mesh) {
+                mesh = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.18, 18, 18),
+                    new THREE.MeshPhongMaterial({
+                        color: allocation.color,
+                        emissive: allocation.color,
+                        emissiveIntensity: 0.32,
+                    }),
                 );
-                
-                const intersection = new THREE.Vector3();
-                raycaster.ray.intersectPlane(dragPlane, intersection);
-                
-                if (intersection) {
-                    portfolioSphere.position.copy(intersection);
-                    
-                    // Constrain to cube
-                    portfolioSphere.position.x = Math.max(0, Math.min(10, portfolioSphere.position.x));
-                    portfolioSphere.position.y = Math.max(0, Math.min(10, portfolioSphere.position.y));
-                    portfolioSphere.position.z = Math.max(0, Math.min(10, portfolioSphere.position.z));
-                    
-                    updateDisplay();
-                }
+                mesh.castShadow = true;
+                scene.add(mesh);
+                sectorMeshes.set(allocation.name, mesh);
+            }
+            mesh.position.copy(allocation.scenePosition);
+            existingKeys.delete(allocation.name);
+        });
+        existingKeys.forEach((key) => {
+            const mesh = sectorMeshes.get(key);
+            if (mesh) {
+                scene.remove(mesh);
+            }
+            sectorMeshes.delete(key);
+            const line = sectorLines.get(key);
+            if (line) {
+                scene.remove(line);
+                sectorLines.delete(key);
             }
         });
-        
-        renderer.domElement.addEventListener('mouseup', () => {
-            isDragging = false;
-            isDraggingPortfolio = false;
-        });
-        
-        renderer.domElement.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
-        
-        renderer.domElement.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const zoomSpeed = 0.5;
-            const newDistance = cameraDistance + (e.deltaY > 0 ? zoomSpeed : -zoomSpeed);
-            if (newDistance > 5 && newDistance < 25) {
-                Object.defineProperty(window, 'cameraDistance', { 
-                    value: newDistance, 
-                    writable: true 
-                });
-                updateCamera();
+    }
+
+    function updateSectorLinks(allocations) {
+        allocations.forEach((allocation) => {
+            let line = sectorLines.get(allocation.name);
+            if (!line) {
+                line = new THREE.Line(
+                    new THREE.BufferGeometry(),
+                    new THREE.LineBasicMaterial({
+                        color: allocation.color,
+                        transparent: true,
+                        opacity: 0.3,
+                    }),
+                );
+                scene.add(line);
+                sectorLines.set(allocation.name, line);
             }
+            const points = [portfolioSphere.position.clone(), allocation.scenePosition.clone()];
+            line.geometry.setFromPoints(points);
+            line.material.opacity = Math.max(0.12, allocation.weight * 1.1);
         });
-        
-        // Window resize
-        window.addEventListener('resize', () => {
-            camera.aspect = container.clientWidth / container.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(container.clientWidth, container.clientHeight);
-        });
-        
-        // Animation loop
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            // Gentle rotation of portfolio sphere
-            portfolioSphere.rotation.y += 0.01;
-            
-            // Pulse effect for portfolio
-            const scale = 1 + Math.sin(Date.now() * 0.003) * 0.1;
-            portfolioSphere.scale.set(scale, scale, scale);
-            
-            renderer.render(scene, camera);
+    }
+
+    function updateAxisLabels(normalizer) {
+        const [xFactor, yFactor, zFactor] = normalizer.order;
+        const xLabel = document.getElementById('x-axis-label');
+        const yLabel = document.getElementById('y-axis-label');
+        const zLabel = document.getElementById('z-axis-label');
+        if (xLabel) {
+            xLabel.textContent = labelForFactor(xFactor);
         }
-        
+        if (yLabel) {
+            yLabel.textContent = labelForFactor(yFactor);
+        }
+        if (zLabel) {
+            zLabel.textContent = labelForFactor(zFactor);
+        }
+
+        const labelDuration = document.getElementById('label-duration');
+        const labelCredit = document.getElementById('label-credit');
+        const labelLiquidity = document.getElementById('label-liquidity');
+        if (labelDuration) {
+            labelDuration.textContent = `${labelForFactor(xFactor)}:`;
+        }
+        if (labelCredit) {
+            labelCredit.textContent = `${labelForFactor(yFactor)}:`;
+        }
+        if (labelLiquidity) {
+            labelLiquidity.textContent = `${labelForFactor(zFactor)}:`;
+        }
+    }
+
+    function describeRiskProfile(portfolioNormalized) {
+        const dx = portfolioNormalized.axes.x;
+        const dy = portfolioNormalized.axes.y;
+        const dz = portfolioNormalized.axes.z;
+
+        if (dx < 0.3 && dy < 0.3 && dz < 0.3) {
+            return 'Ultra Conservative';
+        }
+        if (dx < 0.4 && dy < 0.4) {
+            return 'Conservative';
+        }
+        if (dy > 0.7 || dx > 0.8) {
+            return 'Aggressive Growth';
+        }
+        if (dz > 0.7 && dy < 0.5) {
+            return 'Liquidity Driven';
+        }
+        if (dz > 0.7 && dx > 0.6) {
+            return 'Growth + Debasement';
+        }
+        return 'Balanced';
+    }
+
+    function describeDiversification(allocations) {
+        const weights = allocations.map((allocation) => Math.max(allocation.weight, 0));
+        const sum = weights.reduce((acc, weight) => acc + weight, 0);
+        if (sum <= 0) {
+            return 'Unknown';
+        }
+        const effectiveN = 1 / weights.reduce((acc, weight) => {
+            const share = weight / sum;
+            return acc + share * share;
+        }, 0);
+        if (effectiveN > 8) {
+            return 'High';
+        }
+        if (effectiveN > 4) {
+            return 'Medium';
+        }
+        return 'Low';
+    }
+
+    function mahalanobisBadge(mahalanobis) {
+        if (!Number.isFinite(mahalanobis)) {
+            return {
+                className: 'badge-muted',
+                text: 'No diag',
+                title: 'Mahalanobis distance not available for this sector',
+            };
+        }
+        if (mahalanobis >= 3) {
+            return {
+                className: 'badge-danger',
+                text: `Mah ${mahalanobis.toFixed(2)}`,
+                title: 'High Mahalanobis distance – significant multivariate drift',
+            };
+        }
+        if (mahalanobis >= 2) {
+            return {
+                className: 'badge-warn',
+                text: `Mah ${mahalanobis.toFixed(2)}`,
+                title: 'Elevated Mahalanobis distance – monitor exposure deltas',
+            };
+        }
+        return {
+            className: '',
+            text: `Mah ${mahalanobis.toFixed(2)}`,
+            title: 'Mahalanobis distance within expected bounds',
+        };
+    }
+
+    function renderAllocationsList(allocations) {
+        const listEl = document.getElementById('allocations-list');
+        if (!listEl) {
+            return;
+        }
+        listEl.innerHTML = '';
+        allocations
+            .slice()
+            .sort((a, b) => b.weight - a.weight)
+            .forEach((allocation) => {
+                const colorHex = `#${allocation.color.toString(16).padStart(6, '0')}`;
+                const badge = mahalanobisBadge(allocation.mahalanobis);
+                const coordSummary = state.normalizer.order
+                    .map((factor) => {
+                        const value = allocation.normalized.byFactor[factor] ?? 0.5;
+                        const label = labelForFactor(factor);
+                        const abbreviation = label ? label.charAt(0).toUpperCase() : 'F';
+                        return `${abbreviation}:${(value * 100).toFixed(0)}%`;
+                    })
+                    .join(' ');
+                const item = document.createElement('div');
+                item.className = 'allocation-item';
+                const distanceLine = allocation.distance != null ? `Distance to ideal: ${allocation.distance.toFixed(3)}` : null;
+                item.title = [
+                    Number.isFinite(allocation.mahalanobis) ? `Mahalanobis: ${allocation.mahalanobis.toFixed(2)}` : 'Mahalanobis: n/a',
+                    distanceLine,
+                ]
+                    .filter(Boolean)
+                    .join('
+    ');
+                item.innerHTML = `
+                    <div class="allocation-dot" style="background: ${colorHex}; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);"></div>
+                    <div class="allocation-info">
+                        <div class="allocation-name">${allocation.name}</div>
+                        <div class="allocation-coords">${coordSummary}</div>
+                    </div>
+                    <div class="allocation-meta">
+                        <div class="allocation-weight">${formatPercent(allocation.weight)}</div>
+                        <div class="badge allocation-badge ${badge.className}" title="${badge.title}">${badge.text}</div>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+    }
+
+    function classForCoverageRatio(ratio) {
+        if (!Number.isFinite(ratio)) {
+            return 'badge-muted';
+        }
+        if (ratio < 0.6) {
+            return 'badge-danger';
+        }
+        if (ratio < 0.8) {
+            return 'badge-warn';
+        }
+        return '';
+    }
+
+    function renderCoverageAlerts(coverageAlerts) {
+        const container = document.getElementById('coverage-alert-badges');
+        const emptyEl = document.getElementById('coverage-alert-empty');
+        if (!container || !emptyEl) {
+            return;
+        }
+        container.innerHTML = '';
+        const categories = [
+            { key: 'sector', label: 'Sector' },
+            { key: 'factor', label: 'Factor' },
+            { key: 'composite', label: 'Composite' },
+        ];
+        let total = 0;
+        categories.forEach(({ key, label }) => {
+            const bucket = coverageAlerts?.[key] ?? {};
+            Object.entries(bucket).forEach(([name, ratio]) => {
+                total += 1;
+                const badge = document.createElement('div');
+                badge.className = `badge ${classForCoverageRatio(ratio)}`;
+                const percent = Number.isFinite(ratio) ? (ratio * 100).toFixed(1) : 'n/a';
+                badge.textContent = `${label}: ${name} ${percent}%`;
+                badge.title = `${label} coverage for ${name} is ${percent}%`;
+                container.appendChild(badge);
+            });
+        });
+        emptyEl.style.display = total === 0 ? 'block' : 'none';
+    }
+
+    function renderCoverage(coverageSummary, coverageAlerts) {
+        const calendarEl = document.getElementById('coverage-calendar');
+        const sectorDaysEl = document.getElementById('coverage-sector-days');
+        const factorDaysEl = document.getElementById('coverage-factor-days');
+        const compositeCountEl = document.getElementById('coverage-composite-count');
+
+        if (!coverageSummary) {
+            if (calendarEl) {
+                calendarEl.textContent = 'n/a';
+            }
+            if (sectorDaysEl) {
+                sectorDaysEl.textContent = 'n/a';
+            }
+            if (factorDaysEl) {
+                factorDaysEl.textContent = 'n/a';
+            }
+            if (compositeCountEl) {
+                compositeCountEl.textContent = 'n/a';
+            }
+        } else {
+            if (calendarEl) {
+                calendarEl.textContent = coverageSummary.calendar_name ?? 'n/a';
+            }
+            if (sectorDaysEl) {
+                const value = coverageSummary.sector_expected_days;
+                sectorDaysEl.textContent = value != null ? String(value) : 'n/a';
+            }
+            if (factorDaysEl) {
+                const value = coverageSummary.factor_expected_days;
+                factorDaysEl.textContent = value != null ? String(value) : 'n/a';
+            }
+            if (compositeCountEl) {
+                const composites = coverageSummary.composite_coverage ?? {};
+                compositeCountEl.textContent = Object.keys(composites).length.toString();
+            }
+        }
+
+        renderCoverageAlerts(coverageAlerts ?? {});
+    }
+
+    function updateSidebar(payload, allocations, portfolioNormalized) {
+        if (!state.normalizer) {
+            return;
+        }
+        const yearEl = document.getElementById('dataset-year');
+        if (yearEl) {
+            yearEl.textContent = payload?.year ?? 'n/a';
+        }
+        const sourceEl = document.getElementById('dataset-source');
+        if (sourceEl) {
+            sourceEl.textContent = state.sourceLabel;
+        }
+
+        const [xFactor, yFactor, zFactor] = state.normalizer.order;
+
+        const durationEl = document.getElementById('duration-value');
+        if (durationEl) {
+            const value = portfolioNormalized.byFactor[xFactor] ?? portfolioNormalized.axes.x;
+            durationEl.textContent = `${(value * 100).toFixed(0)}%`;
+        }
+        const creditEl = document.getElementById('credit-value');
+        if (creditEl) {
+            const value = portfolioNormalized.byFactor[yFactor] ?? portfolioNormalized.axes.y;
+            creditEl.textContent = `${(value * 100).toFixed(0)}%`;
+        }
+        const liquidityEl = document.getElementById('liquidity-value');
+        if (liquidityEl) {
+            const value = portfolioNormalized.byFactor[zFactor] ?? portfolioNormalized.axes.z;
+            liquidityEl.textContent = `${(value * 100).toFixed(0)}%`;
+        }
+
+        const riskProfileEl = document.getElementById('risk-profile');
+        if (riskProfileEl) {
+            riskProfileEl.textContent = describeRiskProfile(portfolioNormalized);
+        }
+
+        const diversificationEl = document.getElementById('diversification');
+        if (diversificationEl) {
+            diversificationEl.textContent = describeDiversification(allocations);
+        }
+
+        const weights = payload?.metadata?.weights ?? {};
+        const topAsset = Object.entries(weights).sort((a, b) => b[1] - a[1])[0];
+        const topAssetEl = document.getElementById('top-asset');
+        if (topAssetEl) {
+            topAssetEl.textContent = topAsset ? `${topAsset[0]} (${formatPercent(topAsset[1])})` : 'n/a';
+        }
+
+        const mahalanobisMax = allocations.reduce((acc, allocation) => {
+            if (Number.isFinite(allocation.mahalanobis)) {
+                return Math.max(acc, allocation.mahalanobis);
+            }
+            return acc;
+        }, Number.NEGATIVE_INFINITY);
+        const mahalEl = document.getElementById('mahalanobis-max');
+        if (mahalEl) {
+            mahalEl.textContent = Number.isFinite(mahalanobisMax) ? mahalanobisMax.toFixed(2) : 'n/a';
+        }
+    }
+
+    function normalizedFromScenePosition(position) {
+        if (!state.normalizer) {
+            return state.portfolioNormalized;
+        }
+        const axes = {
+            x: clamp((position.x - SCENE_MIN) / (SCENE_MAX - SCENE_MIN), 0, 1),
+            y: clamp((position.y - SCENE_MIN) / (SCENE_MAX - SCENE_MIN), 0, 1),
+            z: clamp((position.z - SCENE_MIN) / (SCENE_MAX - SCENE_MIN), 0, 1),
+        };
+        const byFactor = {};
+        state.normalizer.order.forEach((factor, index) => {
+            if (index === 0) {
+                byFactor[factor] = axes.x;
+            } else if (index === 1) {
+                byFactor[factor] = axes.y;
+            } else if (index === 2) {
+                byFactor[factor] = axes.z;
+            }
+        });
+        return { axes, byFactor };
+    }
+
+    function applyPayload(payload, sourceLabel) {
+        if (!payload) {
+            setStatus('No payload provided', true);
+            return;
+        }
+
+        state.payload = payload;
+        state.sourceLabel = sourceLabel;
+        state.normalizer = buildNormalizer(payload);
+        updateAxisLabels(state.normalizer);
+
+        state.allocations = computeAllocations(payload, state.normalizer);
+        state.idealNormalized = normalizeCoordinates(state.normalizer, payload.ideal_point ?? {});
+        state.portfolioNormalized = computePortfolioNormalized(state.allocations);
+
+        updatePortfolioPosition(state.portfolioNormalized);
+        updateIdealPointMarker(state.idealNormalized);
+        hydrateAllocations(state.allocations);
+        updateSectorLinks(state.allocations);
+        updateSidebar(payload, state.allocations, state.portfolioNormalized);
+
+        const coverageSummary = payload?.metadata?.coverage ?? null;
+        const coverageAlerts = payload?.metadata?.coverage_alerts ?? payload?.coverage_alerts ?? {};
+        renderCoverage(coverageSummary, coverageAlerts);
+        renderAllocationsList(state.allocations);
+
+        const statusLabel = payload?.year ? `Loaded payload for ${payload.year}` : 'Loaded payload';
+        setStatus(statusLabel, false);
+    }
+
+    async function loadPayloadFromPath(path) {
+        try {
+            setStatus(`Loading ${path}…`);
+            const response = await fetch(path);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            applyPayload(payload, `File (${path})`);
+        } catch (error) {
+            console.error('Failed to load payload', error);
+            setStatus(`Unable to fetch ${path}. Select a payload file to continue.`, true);
+        }
+    }
+
+    function loadPayloadFromFile(file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const payload = JSON.parse(event.target?.result ?? '{}');
+                applyPayload(payload, `Upload (${file.name})`);
+            } catch (error) {
+                console.error('Failed to parse payload', error);
+                setStatus(`Failed to parse ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`, true);
+            }
+        };
+        reader.onerror = () => {
+            setStatus(`Unable to read ${file.name}`, true);
+        };
+        reader.readAsText(file);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        portfolioSphere.rotation.y += 0.01;
+        const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.06;
+        portfolioSphere.scale.set(pulse, pulse, pulse);
+
+        if (state.allocations.length) {
+            updateSectorLinks(state.allocations);
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    renderer.domElement.addEventListener('mousedown', (event) => {
+        if (event.button === 0) {
+            isDragging = true;
+            previousMousePosition = { x: event.offsetX, y: event.offsetY };
+        } else if (event.button === 2) {
+            isDraggingPortfolio = true;
+            event.preventDefault();
+        }
+    });
+
+    renderer.domElement.addEventListener('mousemove', (event) => {
+        if (isDragging) {
+            const deltaX = event.offsetX - previousMousePosition.x;
+            const deltaY = event.offsetY - previousMousePosition.y;
+
+            cameraRotation.theta += deltaX * 0.01;
+            cameraRotation.phi = clamp(cameraRotation.phi + deltaY * 0.01, 0.1, Math.PI - 0.1);
+
+            updateCamera();
+            previousMousePosition = { x: event.offsetX, y: event.offsetY };
+        } else if (isDraggingPortfolio && state.normalizer) {
+            mouse.x = (event.offsetX / container.clientWidth) * 2 - 1;
+            mouse.y = -((event.offsetY / container.clientHeight) * 2 - 1);
+
+            raycaster.setFromCamera(mouse, camera);
+
+            dragPlane.setFromNormalAndCoplanarPoint(
+                camera.getWorldDirection(dragPlane.normal),
+                portfolioSphere.position,
+            );
+
+            const intersection = new THREE.Vector3();
+            raycaster.ray.intersectPlane(dragPlane, intersection);
+
+            if (intersection) {
+                portfolioSphere.position.copy(intersection);
+                portfolioSphere.position.x = clamp(portfolioSphere.position.x, SCENE_MIN, SCENE_MAX);
+                portfolioSphere.position.y = clamp(portfolioSphere.position.y, SCENE_MIN, SCENE_MAX);
+                portfolioSphere.position.z = clamp(portfolioSphere.position.z, SCENE_MIN, SCENE_MAX);
+
+                state.portfolioNormalized = normalizedFromScenePosition(portfolioSphere.position);
+                updateSidebar(state.payload ?? {}, state.allocations, state.portfolioNormalized);
+            }
+        }
+    });
+
+    renderer.domElement.addEventListener('mouseup', () => {
+        isDragging = false;
+        isDraggingPortfolio = false;
+    });
+
+    renderer.domElement.addEventListener('mouseleave', () => {
+        isDragging = false;
+        isDraggingPortfolio = false;
+    });
+
+    renderer.domElement.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+    });
+
+    renderer.domElement.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const zoomSpeed = 0.6;
+        const delta = event.deltaY > 0 ? zoomSpeed : -zoomSpeed;
+        cameraDistance = clamp(cameraDistance + delta, 6, 24);
         updateCamera();
-        updateDisplay();
+    });
+
+    window.addEventListener('resize', () => {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    function initialize() {
+        updateCamera();
         animate();
+
+        const params = new URLSearchParams(window.location.search);
+        const payloadParam = params.get('payload');
+        if (payloadParam) {
+            loadPayloadFromPath(payloadParam);
+        } else {
+            loadPayloadFromPath(DEFAULT_PAYLOAD_PATH);
+        }
+
+        const input = document.getElementById('payload-input');
+        if (input) {
+            input.addEventListener('change', (event) => {
+                const fileList = event.target?.files;
+                if (fileList && fileList.length > 0) {
+                    loadPayloadFromFile(fileList[0]);
+                }
+            });
+        }
+    }
+
+    initialize();
     </script>
 </body>
 </html>

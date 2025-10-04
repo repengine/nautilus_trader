@@ -32,6 +32,11 @@ make -C ../.. ml-down
 
 > Compose automatically loads the `.env` file that lives next to `docker-compose.yml`. The sample file documents the supported overrides; adjust values before `make ml-up`.
 
+The repository ships a `docker-compose.override.yml` that bridges the stack to an
+external `docker_nautilus-network` (and expects a `nautilus-database` container).
+If you are running the ML stack standalone, either create the external network or
+temporarily move/rename the override file so Compose falls back to the defaults.
+
 For the test stack, use the provided `ml/deployment/.env.test` when launching:
 
 ```bash
@@ -59,6 +64,8 @@ docker compose --env-file ml/deployment/.env.test -f ml/deployment/docker-compos
 | `TEST_REDIS_HOST_PORT` | `6381` | Host port for test Redis. | `.env.test`, `docker-compose.test.yml` |
 | `TEST_ACTOR_HOST_PORT` | `8002` | Host port for test signal actor. | `.env.test`, `docker-compose.test.yml` |
 | `TEST_PROMETHEUS_HOST_PORT` | `9091` | Host port for test Prometheus. | `.env.test`, `docker-compose.test.yml` |
+| `PROMETHEUS_HOST_PORT` | `9090` | Host port surfaced in dashboard links; edit compose to remap the container port if needed. | `docker-compose.yml` (`ml_dashboard` env) |
+| `GRAFANA_HOST_PORT` | `3000` | Host port surfaced in dashboard links; edit compose to remap the container port if needed. | `docker-compose.yml` (`ml_dashboard` env) |
 
 Set these in `.env` (one per line `KEY=value`). The Compose CLI will substitute values and the Make tasks will pick them up automatically. When orchestration requires different ports, create stack-specific `.env` files and pass them via `COMPOSE_PROJECT_NAME`/`--env-file` as needed.
 
@@ -81,10 +88,10 @@ The test stack reserves its own ports via environment overrides (`TEST_POSTGRES_
 
 | Purpose | Container Path | Default Backing | Customisation |
 | ------- | -------------- | ---------------- | ------------- |
-| Postgres data | `/var/lib/postgresql/data` | Named volume `postgres_data` | `docker-compose.override.yml` binds to `/home/nate/nautilus_data/postgres`; adjust `device` or provide your own override. |
-| Prometheus TSDB | `/prometheus` | Named volume `prometheus_data` | Override binds to `/home/nate/nautilus_data/prometheus`. |
-| Grafana data | `/var/lib/grafana` | Named volume `grafana_data` | Override binds to `/home/nate/nautilus_data/grafana`. |
-| Model artefacts | `/app/models` | Read-only bind `../models` | Ensure models checked out locally. |
+| Postgres data | `/var/lib/postgresql/data` | Named volume `postgres_data` | Add a compose override to bind-mount a host path if you need long-term persistence outside Docker. |
+| Prometheus TSDB | `/prometheus` | Named volume `prometheus_data` | Supply an override with a host bind to retain metrics beyond container lifecycle. |
+| Grafana data | `/var/lib/grafana` | Named volume `grafana_data` | Use an override to capture dashboards locally when required. |
+| Model artefacts | `/app/models` | `../models` (RO for actors, RW for pipeline) | Keep model artefacts under version control or adjust the bind target via override. |
 | Pipeline data catalog | `/app/data` | Bind `../data` (read/write) | Provide host directory for dataset outputs. |
 | Pipeline logs | `/app/logs` | Bind `../logs` (read/write) | Rotate or mount elsewhere if desired. |
 

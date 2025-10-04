@@ -13,6 +13,7 @@ case, it exits quietly.
 from __future__ import annotations
 
 import os
+import logging
 from typing import Any
 from typing import Final
 
@@ -20,6 +21,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from ml.core.db_engine import EngineManager
+
+LOGGER = logging.getLogger(__name__)
 
 _TRIGGERS_TO_DROP: Final[tuple[tuple[str, str], ...]] = (
     ("ml_feature_values", "auto_create_partition_feature_values"),
@@ -101,6 +104,23 @@ def _ensure_functions_and_partitions(engine: Engine) -> None:
     """
     Create helper functions and current-month partitions if missing.
     """
+    db_name: str | None
+    try:
+        db_name = getattr(engine.url, "database", None)
+    except Exception:  # pragma: no cover - URL may be missing attributes
+        db_name = None
+
+    if not os.getenv("ML_ALLOW_DB_FIX"):
+        # Only operate automatically on databases that clearly look like throwaway/test DBs.
+        # This prevents accidental destructive operations against production schemas.
+        db_label = (db_name or "").lower()
+        if not db_label or "test" not in db_label:
+            LOGGER.warning(
+                "Skipping database fix helper because ML_ALLOW_DB_FIX is unset and database=%s",
+                db_name or "<unknown>",
+            )
+            return
+
     with engine.begin() as conn:
         try:
             conn.execute(text("ALTER DATABASE nautilus SET search_path = public, pg_catalog"))

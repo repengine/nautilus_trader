@@ -59,6 +59,7 @@ transform = MacroFeatureTransform(
     vintage_base_dir="data/fred/vintages",
     include_revisions=True,
     revision_mode="core",  # "minimal", "core", or "full"
+    min_coverage=0.85,      # Require at least 85% coverage when assembling data
 )
 ```
 
@@ -196,6 +197,7 @@ features = feature_engineer.compute_realtime(bar)  # All features
 include_macro = true
 macro_series_ids = ["PAYEMS", "UNRATE", "CPIAUCSL"]
 fred_vintage_dir = "data/fred/vintages"
+macro_min_coverage = 0.85
 
 # Revision features
 include_macro_revisions = true
@@ -213,6 +215,7 @@ transform = create_macro_transform_from_config(
     vintage_base_dir=cfg.fred_vintage_dir,
     include_revisions=cfg.include_macro_revisions,
     revision_mode=cfg.macro_revision_mode,
+    min_coverage=cfg.macro_min_coverage,
 )
 ```
 

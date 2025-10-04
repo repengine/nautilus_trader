@@ -90,8 +90,13 @@ from ml.stores.base import StrategySignal
 # Data processing pipeline
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
+
+# Earnings store
+from ml.stores.earnings_store import DummyEarningsStore
+from ml.stores.earnings_store import EarningsStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
+from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
 from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
@@ -184,8 +189,10 @@ __all__ = [
     "DataStore",
     "DataStoreFacadeProtocol",
     "DataStoreMarketDataWriter",
+    "DummyEarningsStore",
     "DummyInstrumentMetadataStore",
     "DummyStore",
+    "EarningsStore",
     "EngineInitMixin",
     "FeatureData",
     "FeatureStore",

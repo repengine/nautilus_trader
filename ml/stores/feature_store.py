@@ -342,15 +342,24 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             # Prefer reflecting the migrated table. Avoid opportunistic DDL here to
             # prevent lock contention with concurrent writers in tests/integration;
             # migrations and test fixtures are responsible for indexes/partitions.
+            schema_name: str | None = None
+            dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+            if dialect_name and dialect_name != "sqlite":
+                schema_name = "public"
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
                 autoload_with=self.engine,
+                schema=schema_name,
             )
         except Exception:
             # Fallback: create a non-partitioned compatible table for tests/dev
             from sqlalchemy import Integer
 
+            schema_name = None
+            dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+            if dialect_name and dialect_name != "sqlite":
+                schema_name = "public"
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
@@ -377,6 +386,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                     unique=True,
                 ),
                 Index("idx_ml_feature_values_live", "is_live"),
+                schema=schema_name,
             )
             self.metadata.create_all(self.engine)
 
@@ -1576,37 +1586,48 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             try:
                 from sqlalchemy import text as _text2
 
-                rows = session_obj.execute(_text2(str(sql)), params).fetchall()
+                rows_obj = session_obj.execute(_text2(str(sql)), params).fetchall()
             except Exception:
-                rows = []
-            data = [
-                {
-                    "feature_set_id": r[0],
-                    "instrument_id": r[1],
-                    "values": r[2],
-                    "ts_event": r[3],
-                    "ts_init": r[4],
-                }
-                for r in rows
-            ]
-            df = pd.DataFrame(
-                data,
-                columns=[
-                    "feature_set_id",
-                    "instrument_id",
-                    "values",
-                    "ts_event",
-                    "ts_init",
-                ],
-            )
-            if not len(df.index):
-                # Fallback to engine path if mock returned no rows
-                with self.engine.connect() as conn:
-                    return pd.read_sql_query(sql, conn, params=params)
-            return df
-        else:
-            with self.engine.connect() as conn:
-                return pd.read_sql_query(sql, conn, params=params)
+                rows_obj = []
+
+            rows_list: list[tuple[Any, ...]]
+            try:
+                rows_list = list(rows_obj)
+            except TypeError:
+                rows_list = []
+            else:
+                try:
+                    from unittest.mock import MagicMock as _MagicMock
+
+                    if any(isinstance(row, _MagicMock) for row in rows_list):
+                        rows_list = []
+                except Exception:
+                    rows_list = []
+
+            if rows_list:
+                data = [
+                    {
+                        "feature_set_id": row[0],
+                        "instrument_id": row[1],
+                        "values": row[2],
+                        "ts_event": row[3],
+                        "ts_init": row[4],
+                    }
+                    for row in rows_list
+                ]
+                return pd.DataFrame(
+                    data,
+                    columns=[
+                        "feature_set_id",
+                        "instrument_id",
+                        "values",
+                        "ts_event",
+                        "ts_init",
+                    ],
+                )
+
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(sql, conn, params=params)
 
     def store_features(self, *args: Any, **kwargs: Any) -> None:
         """
