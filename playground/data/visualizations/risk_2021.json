@@ -1,170 +1,230 @@
 {
   "ideal_point": {
-    "factor_credit": -0.17323093895829264,
-    "factor_duration": 0.0,
-    "factor_liquidity": 0.005204295704043352
+    "factor_credit": -0.11515178467190759,
+    "factor_duration": 0.019404009515927242,
+    "factor_liquidity": -0.012406198140727362
   },
   "metadata": {
+    "coverage": {
+      "calendar_name": "XNYS",
+      "composite_coverage": {},
+      "factor_coverage": {
+        "factor_credit": 0.9997349589186324,
+        "factor_duration": 0.9997349589186324,
+        "factor_liquidity": 0.9997349589186324
+      },
+      "factor_expected_days": 3774,
+      "sector_coverage": {
+        "XLB": 0.9997349589186324,
+        "XLC": 0.4354624966869865,
+        "XLE": 0.9997349589186324,
+        "XLF": 0.9997349589186324,
+        "XLI": 0.9997349589186324,
+        "XLK": 0.9997349589186324,
+        "XLU": 0.9997349589186324,
+        "XLV": 0.9997349589186324,
+        "XLY": 0.9997349589186324
+      },
+      "sector_expected_days": 3774
+    },
+    "coverage_alerts": {
+      "composite": {},
+      "factor": {},
+      "sector": {}
+    },
+    "diagnostics": {
+      "cov_eigenvalues": [
+        0.03499363218132699,
+        0.0013616809497887226,
+        2.7455241584249595e-05
+      ],
+      "optimizer": {
+        "max_weight": null,
+        "status": "optimized",
+        "weight_caps": null
+      }
+    },
+    "eigenvalue_trends": {
+      "2010s": {
+        "eig_1": 0.01486282266018395,
+        "eig_2": 0.00035429024336475397,
+        "eig_3": 1.1747454639757754e-05
+      },
+      "2020s": {
+        "eig_1": 0.017218137586025962,
+        "eig_2": 0.00046624346387194593,
+        "eig_3": 3.398501931057791e-05
+      }
+    },
     "notes": "",
     "sharpe_scores": {
-      "XLB": 0.09500370513524599,
-      "XLC": 0.0624365635542863,
-      "XLE": 0.10027035382908284,
-      "XLF": 0.10560356461301501,
-      "XLI": 0.08185602459044625,
-      "XLK": 0.10345911678657015,
-      "XLU": 0.07318137830443969,
-      "XLV": 0.12756565256679012,
-      "XLY": 0.09144827376212256
+      "XLB": 0.0950035445928281,
+      "XLC": 0.06243666589545071,
+      "XLE": 0.10027038089106023,
+      "XLF": 0.10560360533714874,
+      "XLI": 0.08185606784267781,
+      "XLK": 0.1034592514135089,
+      "XLU": 0.07318141356554177,
+      "XLV": 0.12756558127150142,
+      "XLY": 0.09144843528752507
     },
     "status": "success",
     "weights": {
-      "XLB": 0.07486500497119933,
-      "XLC": 0.03729413099368843,
-      "XLE": 0.05979215780185828,
-      "XLF": 0.09741266615973605,
-      "XLI": 0.09887454171635968,
-      "XLK": 0.10315087663061243,
-      "XLU": 0.232774509890328,
-      "XLV": 0.23161881764266043,
-      "XLY": 0.0642172941935574
+      "XLB": 0.06149424712824873,
+      "XLC": 0.04212821924780869,
+      "XLE": 0.06462619291713059,
+      "XLF": 0.06779761669020197,
+      "XLI": 0.053676046198807136,
+      "XLK": 0.06652246784168538,
+      "XLU": 0.503517627483116,
+      "XLV": 0.08085739568242323,
+      "XLY": 0.059380186810578356
     }
   },
   "sectors": [
     {
       "coordinates": {
-        "factor_credit": -0.2353831368771317,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.003409621137442744
+        "factor_credit": -0.4456432879233398,
+        "factor_duration": 0.12458999694572741,
+        "factor_liquidity": -0.0102158909500895
       },
       "deltas": {
-        "factor_credit": -0.06215219791883905,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.0017946745666006076
+        "factor_credit": -0.3304915032514322,
+        "factor_duration": 0.10518598742980016,
+        "factor_liquidity": 0.002190307190637862
       },
-      "distance": 0.06217810356502154,
-      "recommended_weight": 0.10315087663061243,
-      "sector": "XLK"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.19074462357675037,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.0052314811374499885
-      },
-      "deltas": {
-        "factor_credit": -0.01751368461845773,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.010435776841493341
-      },
-      "distance": 0.02038711816810438,
-      "recommended_weight": 0.03729413099368843,
-      "sector": "XLC"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.21981745025937546,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.0017814910754141964
-      },
-      "deltas": {
-        "factor_credit": -0.04658651130108282,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.0034228046286291555
-      },
-      "distance": 0.046712082235024405,
-      "recommended_weight": 0.0642172941935574,
-      "sector": "XLY"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.26158690263836964,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.003979305663737396
-      },
-      "deltas": {
-        "factor_credit": -0.088355963680077,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.001224990040305956
-      },
-      "distance": 0.08836445506216815,
-      "recommended_weight": 0.09887454171635968,
-      "sector": "XLI"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.2641912865108017,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.0024573890255384563
-      },
-      "deltas": {
-        "factor_credit": -0.09096034755250906,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.0027469066785048954
-      },
-      "distance": 0.09100181494439359,
-      "recommended_weight": 0.07486500497119933,
-      "sector": "XLB"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.522681055535258,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.000339893399563595
-      },
-      "deltas": {
-        "factor_credit": -0.34945011657696534,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.004864402304479757
-      },
-      "distance": 0.3494839715715651,
-      "recommended_weight": 0.05979215780185828,
-      "sector": "XLE"
-    },
-    {
-      "coordinates": {
-        "factor_credit": 0.053280142080808085,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.008825119710923352
-      },
-      "deltas": {
-        "factor_credit": 0.22651108103910073,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.003620824006880001
-      },
-      "distance": 0.2265400189811744,
-      "recommended_weight": 0.232774509890328,
-      "sector": "XLU"
-    },
-    {
-      "coordinates": {
-        "factor_credit": -0.42477273545345884,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.004196345708966389
-      },
-      "deltas": {
-        "factor_credit": -0.25154179649516617,
-        "factor_duration": 0.0,
-        "factor_liquidity": -0.0010079499950769628
-      },
-      "distance": 0.2515438159589859,
-      "recommended_weight": 0.09741266615973605,
+      "distance": 0.34683356688556377,
+      "mahalanobis_distance": 1.9435574566342746,
+      "recommended_weight": 0.06779761669020197,
       "sector": "XLF"
     },
     {
       "coordinates": {
-        "factor_credit": -0.09433622214656154,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.008084419719496782
+        "factor_credit": -0.28090673906224495,
+        "factor_duration": 0.06567149847699282,
+        "factor_liquidity": -0.007123450179194296
       },
       "deltas": {
-        "factor_credit": 0.0788947168117311,
-        "factor_duration": 0.0,
-        "factor_liquidity": 0.0028801240154534306
+        "factor_credit": -0.16575495439033736,
+        "factor_duration": 0.04626748896106557,
+        "factor_liquidity": 0.005282747961533067
       },
-      "distance": 0.07894727009306679,
-      "recommended_weight": 0.23161881764266043,
+      "distance": 0.1721722767048465,
+      "mahalanobis_distance": 1.05431665149072,
+      "recommended_weight": 0.06149424712824873,
+      "sector": "XLB"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.5536100209428871,
+        "factor_duration": 0.17190827148765367,
+        "factor_liquidity": -0.004492221260983506
+      },
+      "deltas": {
+        "factor_credit": -0.4384582362709796,
+        "factor_duration": 0.15250426197172642,
+        "factor_liquidity": 0.007913976879743857
+      },
+      "distance": 0.4642906480895908,
+      "mahalanobis_distance": 2.5049830331884078,
+      "recommended_weight": 0.06462619291713059,
+      "sector": "XLE"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.23242819213202348,
+        "factor_duration": 0.001964411053186547,
+        "factor_liquidity": -0.010691522732966344
+      },
+      "deltas": {
+        "factor_credit": -0.11727640746011589,
+        "factor_duration": -0.017439598462740694,
+        "factor_liquidity": 0.0017146754077610182
+      },
+      "distance": 0.11857839370242258,
+      "mahalanobis_distance": 1.6210184180621983,
+      "recommended_weight": 0.059380186810578356,
+      "sector": "XLY"
+    },
+    {
+      "coordinates": {
+        "factor_credit": 0.059913052954965136,
+        "factor_duration": -0.013151193649798458,
+        "factor_liquidity": -0.016464611019943228
+      },
+      "deltas": {
+        "factor_credit": 0.17506483762687272,
+        "factor_duration": -0.0325552031657257,
+        "factor_liquidity": -0.004058412879215866
+      },
+      "distance": 0.17811235033422915,
+      "mahalanobis_distance": 1.155113123674621,
+      "recommended_weight": 0.503517627483116,
+      "sector": "XLU"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.25158039470398785,
+        "factor_duration": -0.03970216402707923,
+        "factor_liquidity": -0.007221745794600378
+      },
+      "deltas": {
+        "factor_credit": -0.13642861003208026,
+        "factor_duration": -0.05910617354300647,
+        "factor_liquidity": 0.005184452346126985
+      },
+      "distance": 0.14877225525046897,
+      "mahalanobis_distance": 2.7624737761009883,
+      "recommended_weight": 0.06652246784168538,
+      "sector": "XLK"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.09893564442776337,
+        "factor_duration": 0.007840079910679811,
+        "factor_liquidity": -0.01569022707611911
+      },
+      "deltas": {
+        "factor_credit": 0.016216140244144223,
+        "factor_duration": -0.011563929605247431,
+        "factor_liquidity": -0.0032840289353917463
+      },
+      "distance": 0.02018594853806385,
+      "mahalanobis_distance": 0.6539547437430726,
+      "recommended_weight": 0.08085739568242323,
       "sector": "XLV"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.27610670962550476,
+        "factor_duration": 0.06538345907982851,
+        "factor_liquidity": -0.009004008420729522
+      },
+      "deltas": {
+        "factor_credit": -0.16095492495359717,
+        "factor_duration": 0.045979449563901265,
+        "factor_liquidity": 0.0034021897199978408
+      },
+      "distance": 0.16742811157003562,
+      "mahalanobis_distance": 0.9243290433268243,
+      "recommended_weight": 0.053676046198807136,
+      "sector": "XLI"
+    },
+    {
+      "coordinates": {
+        "factor_credit": -0.20642411688789614,
+        "factor_duration": 0.019268576883613334,
+        "factor_liquidity": 0.00408862760996772
+      },
+      "deltas": {
+        "factor_credit": -0.09127233221598854,
+        "factor_duration": -0.0001354326323139074,
+        "factor_liquidity": 0.01649482575069508
+      },
+      "distance": 0.09275093663510611,
+      "mahalanobis_distance": 2.8025558889502595,
+      "recommended_weight": 0.04212821924780869,
+      "sector": "XLC"
     }
   ],
   "year": 2021

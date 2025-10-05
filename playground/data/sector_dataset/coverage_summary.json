@@ -1,0 +1,22 @@
+{
+  "calendar_name": "XNYS",
+  "composite_coverage": {},
+  "factor_coverage": {
+    "factor_credit": 0.9997349589186324,
+    "factor_duration": 0.9997349589186324,
+    "factor_liquidity": 0.9997349589186324
+  },
+  "factor_expected_days": 3774,
+  "sector_coverage": {
+    "XLB": 0.9997349589186324,
+    "XLC": 0.4354624966869865,
+    "XLE": 0.9997349589186324,
+    "XLF": 0.9997349589186324,
+    "XLI": 0.9997349589186324,
+    "XLK": 0.9997349589186324,
+    "XLU": 0.9997349589186324,
+    "XLV": 0.9997349589186324,
+    "XLY": 0.9997349589186324
+  },
+  "sector_expected_days": 3774
+}

@@ -1,0 +1,9 @@
+{
+  "coverage_alerts": {
+    "composite": {},
+    "factor": {},
+    "sector": {}
+  },
+  "min_factor_threshold": 0.7,
+  "min_sector_threshold": 0.4
+}

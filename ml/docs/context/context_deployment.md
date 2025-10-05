@@ -513,6 +513,12 @@ This section captures the concrete topology and ops commands used in practice.
   - Health: `pg_isready -U postgres`
   - Migrations: mounted SQL (`/docker-entrypoint-initdb.d`) + CLI helper
 
+- `postgres_playground`
+  - Internal: `postgres_playground:5432`
+  - Host port: `${PLAYGROUND_POSTGRES_HOST_PORT:-5435}` → `5432`
+  - Health: `pg_isready -U postgres`
+  - Purpose: sandbox database for playground research artifacts
+
 - `redis`
   - Internal: `redis:6379`
   - Host port: `${REDIS_HOST_PORT:-6380}` → `6379`
@@ -531,6 +537,7 @@ This section captures the concrete topology and ops commands used in practice.
   - `postgresql://postgres:postgres@postgres:5432/nautilus`
 - From host:
   - `postgresql://postgres:postgres@localhost:${POSTGRES_HOST_PORT:-5433}/nautilus`
+  - `postgresql://postgres:postgres@localhost:${PLAYGROUND_POSTGRES_HOST_PORT:-5435}/nautilus_playground`
 
 ### Makefile Shortcuts
 
@@ -633,6 +640,7 @@ LOG_LEVEL=INFO                                     # DEBUG|INFO|WARNING|ERROR
 
 # Port Management (Conflict Avoidance)
 POSTGRES_HOST_PORT=5433                           # Avoids local dev conflicts
+PLAYGROUND_POSTGRES_HOST_PORT=5435               # Dedicated playground database
 REDIS_HOST_PORT=6380                              # Avoids standard Redis
 ML_PIPELINE_HOST_PORT=8081                        # Health endpoint port
 ```

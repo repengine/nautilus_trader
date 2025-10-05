@@ -72,7 +72,18 @@ CREATE TABLE IF NOT EXISTS ml_dataset_registry (
 
     -- Constraints
     CONSTRAINT check_dataset_type CHECK (
-        dataset_type IN ('BARS', 'TRADES', 'QUOTES', 'MBP1', 'TBBO', 'FEATURES', 'PREDICTIONS', 'SIGNALS')
+        dataset_type IN (
+            'BARS',
+            'TRADES',
+            'QUOTES',
+            'MBP1',
+            'TBBO',
+            'FEATURES',
+            'PREDICTIONS',
+            'SIGNALS',
+            'EARNINGS_ACTUALS',
+            'EARNINGS_ESTIMATES'
+        )
     ),
     CONSTRAINT check_storage_kind CHECK (
         storage_kind IN ('parquet', 'postgres')
@@ -127,10 +138,17 @@ CREATE TABLE IF NOT EXISTS ml_data_events (
 
     -- Constraints
     CONSTRAINT check_stage CHECK (
-        stage IN ('INGESTED', 'CATALOG_WRITTEN', 'FEATURE_COMPUTED', 'PREDICTION_EMITTED', 'SIGNAL_EMITTED')
+        stage IN (
+            'INGESTED',
+            'CATALOG_WRITTEN',
+            'FEATURE_COMPUTED',
+            'PREDICTION_EMITTED',
+            'SIGNAL_EMITTED',
+            'MODEL_INFERRED'
+        )
     ),
     CONSTRAINT check_source CHECK (
-        source IN ('live', 'historical', 'backfill')
+        source IN ('live', 'historical', 'backfill', 'batch')
     ),
     CONSTRAINT check_status CHECK (
         status IN ('success', 'failed', 'partial')

@@ -94,8 +94,10 @@ CREATE TABLE IF NOT EXISTS ml_model_predictions (
     ts_init BIGINT NOT NULL,
     prediction DOUBLE PRECISION NOT NULL,
     confidence DOUBLE PRECISION,
-    metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    features_used JSONB,
+    inference_time_ms DOUBLE PRECISION,
+    is_live BOOLEAN DEFAULT FALSE,
+    created_at BIGINT,
     PRIMARY KEY (model_id, instrument_id, ts_event)
 ) PARTITION BY RANGE (ts_event);
 
@@ -113,9 +115,12 @@ CREATE TABLE IF NOT EXISTS ml_strategy_signals (
     ts_event BIGINT NOT NULL,
     ts_init BIGINT NOT NULL,
     signal_type VARCHAR(50) NOT NULL,
-    signal_value DOUBLE PRECISION,
-    metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    strength DOUBLE PRECISION NOT NULL,
+    model_predictions JSONB,
+    risk_metrics JSONB,
+    execution_params JSONB,
+    is_live BOOLEAN DEFAULT FALSE,
+    created_at BIGINT,
     PRIMARY KEY (strategy_id, instrument_id, ts_event)
 ) PARTITION BY RANGE (ts_event);
 
@@ -244,66 +249,111 @@ CREATE TABLE IF NOT EXISTS ml_risk_limits (
 
 CREATE TABLE IF NOT EXISTS ml_dataset_registry (
     dataset_id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
     dataset_type VARCHAR(50) NOT NULL,
-    schema_version VARCHAR(50),
-    storage_kind VARCHAR(50),
-    catalog_uri TEXT,
-    table_name VARCHAR(255),
-    instrument_ids TEXT[],
-    ts_event_start BIGINT,
-    ts_event_end BIGINT,
-    feature_names TEXT[],
-    feature_schema_hash VARCHAR(64),
-    parent_dataset_ids TEXT[],
-    tags JSONB,
-    status VARCHAR(50) DEFAULT 'registered',
+    storage_kind VARCHAR(20) NOT NULL,
+    location TEXT NOT NULL,
+    partitioning JSONB,
+    retention_days INTEGER NOT NULL,
+    schema JSONB NOT NULL,
+    schema_hash VARCHAR(64) NOT NULL,
+    constraints JSONB,
+    parents JSONB,
+    pipeline_signature VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB
+    last_modified TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB,
+    CONSTRAINT check_dataset_type CHECK (
+        dataset_type IN (
+            'BARS',
+            'TRADES',
+            'QUOTES',
+            'MBP1',
+            'TBBO',
+            'FEATURES',
+            'PREDICTIONS',
+            'SIGNALS',
+            'EARNINGS_ACTUALS',
+            'EARNINGS_ESTIMATES'
+        )
+    ),
+    CONSTRAINT check_storage_kind CHECK (storage_kind IN ('parquet', 'postgres')),
+    CONSTRAINT check_retention_positive CHECK (retention_days > 0)
 );
 
 CREATE TABLE IF NOT EXISTS ml_data_events (
     event_id BIGSERIAL,
     dataset_id VARCHAR(255) NOT NULL,
-    instrument_id VARCHAR(100),
+    instrument_id VARCHAR(100) NOT NULL,
     stage VARCHAR(50) NOT NULL,
     source VARCHAR(50) NOT NULL,
     run_id VARCHAR(255),
-    ts_min BIGINT,
-    ts_max BIGINT,
+    ts_min BIGINT NOT NULL,
+    ts_max BIGINT NOT NULL,
     ts_event BIGINT NOT NULL,
-    count BIGINT DEFAULT 0,
+    count BIGINT NOT NULL,
     seq_min BIGINT,
     seq_max BIGINT,
     status VARCHAR(20) NOT NULL,
     error TEXT,
-    metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (ts_event, event_id)
+    PRIMARY KEY (event_id, ts_event),
+    CONSTRAINT check_stage CHECK (
+        stage IN (
+            'INGESTED',
+            'CATALOG_WRITTEN',
+            'FEATURE_COMPUTED',
+            'PREDICTION_EMITTED',
+            'SIGNAL_EMITTED',
+            'MODEL_INFERRED'
+        )
+    ),
+    CONSTRAINT check_source CHECK (
+        source IN ('live', 'historical', 'backfill', 'batch')
+    ),
+    CONSTRAINT check_status CHECK (status IN ('success', 'failed', 'partial')),
+    CONSTRAINT check_time_range CHECK (ts_min <= ts_max),
+    CONSTRAINT check_seq_range CHECK (
+        seq_min IS NULL OR seq_max IS NULL OR seq_min <= seq_max
+    )
 ) PARTITION BY RANGE (ts_event);
 
 CREATE TABLE IF NOT EXISTS ml_data_events_default PARTITION OF ml_data_events DEFAULT;
-CREATE INDEX IF NOT EXISTS idx_ml_data_events_event_id ON ml_data_events (event_id);
+CREATE INDEX IF NOT EXISTS idx_ml_data_events_time ON ml_data_events USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS idx_ml_data_events_lookup ON ml_data_events (dataset_id, instrument_id, ts_event DESC);
+CREATE INDEX IF NOT EXISTS idx_ml_data_events_stage ON ml_data_events (stage, ts_event DESC);
 
 CREATE TABLE IF NOT EXISTS ml_data_watermarks (
-    watermark_id BIGSERIAL PRIMARY KEY,
     dataset_id VARCHAR(255) NOT NULL,
-    instrument_id VARCHAR(100),
+    instrument_id VARCHAR(100) NOT NULL,
     source VARCHAR(50) NOT NULL,
-    ts_max BIGINT NOT NULL,
-    count BIGINT DEFAULT 0,
-    last_seq BIGINT,
+    last_success_ns BIGINT,
+    last_attempt_ns BIGINT,
+    last_count BIGINT DEFAULT 0,
+    completeness_pct NUMERIC,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (dataset_id, instrument_id, source)
+    PRIMARY KEY (dataset_id, instrument_id, source),
+    CONSTRAINT check_source_watermark CHECK (source IN ('live', 'historical', 'backfill')),
+    CONSTRAINT check_completeness CHECK (
+        completeness_pct IS NULL OR (completeness_pct >= 0 AND completeness_pct <= 100)
+    ),
+    CONSTRAINT fk_watermark_dataset FOREIGN KEY (dataset_id)
+        REFERENCES ml_dataset_registry(dataset_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ml_data_lineage (
     lineage_id BIGSERIAL PRIMARY KEY,
-    dataset_id VARCHAR(255) NOT NULL,
+    transform_id VARCHAR(255) NOT NULL,
+    child_dataset_id VARCHAR(255) NOT NULL,
     parent_dataset_id VARCHAR(255) NOT NULL,
-    lineage_type VARCHAR(50) NOT NULL,
-    transform_metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    ts_range JSONB,
+    parameters JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_lineage_child FOREIGN KEY (child_dataset_id)
+        REFERENCES ml_dataset_registry(dataset_id) ON DELETE CASCADE,
+    CONSTRAINT fk_lineage_parent FOREIGN KEY (parent_dataset_id)
+        REFERENCES ml_dataset_registry(dataset_id) ON DELETE CASCADE
 );
 
 -- ============================================================================
@@ -330,8 +380,9 @@ CREATE INDEX IF NOT EXISTS idx_data_events_run ON ml_data_events (run_id);
 CREATE INDEX IF NOT EXISTS idx_data_events_stage ON ml_data_events (stage, dataset_id);
 CREATE INDEX IF NOT EXISTS idx_data_events_status ON ml_data_events (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_watermarks_lookup ON ml_data_watermarks (dataset_id, instrument_id, source);
-CREATE INDEX IF NOT EXISTS idx_lineage_dataset ON ml_data_lineage (dataset_id);
-CREATE INDEX IF NOT EXISTS idx_lineage_parent ON ml_data_lineage (parent_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_ml_data_lineage_child ON ml_data_lineage (child_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_ml_data_lineage_parent ON ml_data_lineage (parent_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_ml_data_lineage_transform ON ml_data_lineage (transform_id);
 
 -- ============================================================================
 -- Helper Functions for Event Emission

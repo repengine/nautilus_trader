@@ -208,7 +208,8 @@ Document any deviations (e.g., regional mutual funds) in this file as coverage e
 
 4. **Exposure & Optimization**  
    - ✅ EWMA betas for the synthetic factors now persist into `ml_cross_asset_betas` via the risk pipeline (`CrossAssetBetaPersistenceConfig`) with unit coverage.  
-   - ✅ Constrained optimizer (long-only with optional caps) emits recommended weights, surfaced through pipeline results and the CLI (`--max-weight`, `--weight-cap`, `--persist-betas`).
+   - ✅ Constrained optimizer (long-only with optional caps) emits recommended weights, surfaced through pipeline results and the CLI (`--max-weight`, `--weight-cap`, `--persist-betas`).  
+   - ✅ Playground DB (`postgres_playground`, host `${PLAYGROUND_POSTGRES_HOST_PORT:-5435}`) isolates beta persistence from production databases.
 
 5. **Visualization Backend**  
    - Provide an API endpoint streaming coordinates, target, and recommendations; incorporate live Mahalanobis diagnostics and coverage badges in the UI timeline controls.

@@ -56,6 +56,8 @@ from ml.actors.base import ProductionModelLoader
 
 # Dummy model for testing
 from ml.models.save_dummy_model import DummyModel
+from ml.models.save_dummy_model import create_dummy_models
+from ml.models.save_dummy_model import save_dummy_model
 
 # Training base classes (cold path)
 from ml.training.base import BaseMLTrainer
@@ -76,6 +78,7 @@ __all__ = [
     "BaseMLTrainer",
     "DEFAULT_ONNX_OPSET",
     "DummyModel",
+    "create_dummy_models",
     "ModelExportMixin",
     "ModelLoader",
     "ModelType",
@@ -85,6 +88,7 @@ __all__ = [
     "convert_to_onnx",
     "convert_to_torchscript",
     "detect_model_type",
+    "save_dummy_model",
     "save_model_with_metadata",
 ]
 

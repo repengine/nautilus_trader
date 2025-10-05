@@ -24,18 +24,20 @@ Canonical local configuration (auto‑loaded):
 
 ```
 # File: ml/tests/.env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus
-ML_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus
-NAUTILUS_REGISTRY_DB_URL=postgresql://postgres:postgres@localhost:5432/nautilus
+DATABASE_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test
+ML_DATABASE_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test
+NAUTILUS_REGISTRY_DB_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test
 ```
 
 Virtualenv auto‑loads `.env.local` at activation time (see `.venv/bin/activate`). Keep it aligned:
 
 ```
 # File: .env.local
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/nautilus"
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5434/nautilus_test"
 export ML_DATABASE_URL="$DATABASE_URL"
 export NAUTILUS_REGISTRY_DB_URL="$DATABASE_URL"
+export TEST_DATABASE_URL="$DATABASE_URL"
 ```
 
 Notes on ports and compose setups:
@@ -50,7 +52,7 @@ Notes on ports and compose setups:
 One‑off overrides (without editing files):
 
 ```
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus pytest ml/tests -q
+DATABASE_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test pytest ml/tests -q
 ```
 
 ## Executive Summary

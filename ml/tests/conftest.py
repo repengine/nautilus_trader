@@ -51,7 +51,7 @@ try:
 
     env_file = Path(__file__).parent / ".env"
     if env_file.exists():
-        load_dotenv(env_file)
+        load_dotenv(env_file, override=True)
 except ImportError:
     pass  # dotenv not installed, use system environment
 

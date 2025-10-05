@@ -65,7 +65,7 @@ Use this prompt verbatim (adjusting the final task checkboxes as you complete th
    - Compute factor return series from composites (daily differences, standardized).  
    - Run rolling EWMA betas for each instrument vs. synthetic factors; store results in `ml_cross_asset_betas`.  
    - Create or reuse CLI/service to update exposures daily, with unit tests verifying parity (EWMA vs. batch).  
-   - _Status_: Risk pipeline persists betas via `CrossAssetBetaPersistenceConfig`; CLI supports `--persist-betas` for on-demand writes with unit coverage.
+   - _Status_: Risk pipeline persists betas via `CrossAssetBetaPersistenceConfig`; CLI supports `--persist-betas` for on-demand writes with unit coverage. Dedicated compose service `postgres_playground` (host port `${PLAYGROUND_POSTGRES_HOST_PORT:-5435}`) keeps these artifacts siloed from market-data and core ML databases.
 
 6. **Target Point Definition**  
    - Choose an initial “ideal” risk point (e.g., from historical best-performing portfolio).  

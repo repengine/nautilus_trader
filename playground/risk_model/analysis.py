@@ -375,6 +375,244 @@ def _exposure_by_year(frame: pl.DataFrame) -> dict[int, pl.DataFrame]:
     return grouped
 
 
+def compute_annual_sector_positions(
+    exposures: pl.DataFrame,
+    *,
+    factor_columns: Sequence[str],
+    stable_positions: dict[str, dict[str, float]] | None = None,
+) -> dict[int, dict[str, dict[str, float]]]:
+    """
+    Compute sector positions for each year in the stable coordinate system.
+
+    Parameters
+    ----------
+    exposures
+        Long-form EWMA beta DataFrame from compute_factor_exposures().
+    factor_columns
+        Factor names (e.g., "factor_duration", "factor_credit").
+    stable_positions
+        Optional stable positions from compute_stable_sector_positions().
+        If None, uses mean of current year's exposures (backward compatible).
+
+    Returns
+    -------
+    dict[int, dict[str, dict[str, float]]]
+        Nested dict: year -> sector_id -> {factor: value}
+
+        Example:
+        {
+            2010: {
+                "XLK": {"factor_duration": -0.11, "factor_credit": -0.18},
+                "XLU": {"factor_duration": 0.24, "factor_credit": 0.06},
+            },
+            2020: {
+                "XLK": {"factor_duration": -0.14, "factor_credit": -0.25},
+                ...
+            }
+        }
+
+    Notes
+    -----
+    When stable_positions is provided, sector positions are computed in that
+    stable coordinate system. This ensures sectors remain in their "clouds"
+    across years rather than the coordinate system shifting.
+
+    The function partitions exposures by year (extracted from ts_event),
+    then computes mean beta for each sector-factor pair within that year.
+    """
+    # Validate inputs
+    if exposures.is_empty():
+        return {}
+
+    required_columns = {"asset_id", "benchmark_id", "ts_event", "ewma_beta"}
+    missing_columns = required_columns - set(exposures.columns)
+    if missing_columns:
+        msg = f"exposures missing required columns: {sorted(missing_columns)}"
+        raise ValueError(msg)
+
+    factor_list = list(factor_columns)
+    if not factor_list:
+        msg = "factor_columns cannot be empty"
+        raise ValueError(msg)
+
+    # Convert ts_event (nanoseconds) to year
+    exposures_with_year = exposures.with_columns(
+        pl.from_epoch(pl.col("ts_event"), time_unit="ns").dt.replace_time_zone("UTC").alias("ts_dt"),
+    ).with_columns(pl.col("ts_dt").dt.year().alias("year"))
+
+    # Partition by year and compute positions
+    annual_positions: dict[int, dict[str, dict[str, float]]] = {}
+
+    for subset in exposures_with_year.partition_by("year", maintain_order=False):
+        if subset.is_empty():
+            continue
+
+        year = int(subset["year"][0])
+
+        # Filter to valid exposures and aggregate by sector-factor
+        aggregated = (
+            subset
+            .filter(pl.col("ewma_beta").is_finite())
+            .filter(pl.col("benchmark_id").is_in(factor_list))
+            .group_by(["asset_id", "benchmark_id"])
+            .agg(pl.mean("ewma_beta").alias("ewma_beta"))
+        )
+
+        if aggregated.is_empty():
+            continue
+
+        # Pivot to wide format: asset_id x factor columns
+        pivot = aggregated.pivot(
+            index="asset_id",
+            on="benchmark_id",
+            values="ewma_beta",
+        ).drop_nulls()
+
+        if pivot.is_empty():
+            continue
+
+        # Extract positions for each sector
+        year_positions = _extract_sector_positions_from_pivot(
+            pivot,
+            factor_list,
+            stable_positions,
+        )
+        annual_positions[year] = year_positions
+
+    return annual_positions
+
+
+def _extract_sector_positions_from_pivot(
+    pivot: pl.DataFrame,
+    factor_list: Sequence[str],
+    stable_positions: dict[str, dict[str, float]] | None,
+) -> dict[str, dict[str, float]]:
+    """Extract sector positions from pivoted exposure data."""
+    year_positions: dict[str, dict[str, float]] = {}
+
+    for row in pivot.iter_rows(named=True):
+        sector_id = str(row["asset_id"])
+        sector_position: dict[str, float] = {}
+
+        for factor in factor_list:
+            if factor in row:
+                sector_position[factor] = float(row[factor])
+            elif stable_positions and sector_id in stable_positions:
+                # Use stable position as fallback for missing factors
+                sector_position[factor] = float(stable_positions[sector_id].get(factor, 0.0))
+            else:
+                # Default to zero if no data and no stable position
+                sector_position[factor] = 0.0
+
+        year_positions[sector_id] = sector_position
+
+    return year_positions
+
+
+def compute_portfolio_trajectory(
+    weights_by_year: dict[int, dict[str, float]],
+    stable_positions: dict[str, dict[str, float]],
+    *,
+    factor_columns: Sequence[str],
+) -> dict[int, RiskPoint]:
+    """
+    Map ideal portfolio to stable coordinate system for each year.
+
+    Parameters
+    ----------
+    weights_by_year
+        Portfolio weights for each year: {year: {sector: weight}}
+        Example: {2010: {"XLK": 0.30, "XLU": 0.50, ...}, ...}
+    stable_positions
+        Stable sector positions from compute_stable_sector_positions().
+    factor_columns
+        Factor names to compute coordinates for.
+
+    Returns
+    -------
+    dict[int, RiskPoint]
+        Trajectory of portfolio through stable risk space: {year: RiskPoint}
+
+    Raises
+    ------
+    ValueError
+        If weights_by_year is empty, if stable_positions is empty,
+        if factor_columns is empty, or if a sector in weights has no
+        stable position.
+
+    Notes
+    -----
+    The portfolio's position in factor space is computed as a weighted
+    sum of sector stable positions:
+
+        portfolio_coord[factor] = Σ(weight[sector] * stable_pos[sector][factor])
+
+    This ensures the portfolio's trajectory is mapped to the SAME stable
+    coordinate system as the sectors, so sectors stay in "clouds" while
+    the portfolio moves through space based on allocation changes.
+
+    Examples
+    --------
+    >>> weights = {2010: {"XLK": 0.3, "XLU": 0.7}}
+    >>> stable = {
+    ...     "XLK": {"factor_duration": -0.12, "factor_credit": -0.20},
+    ...     "XLU": {"factor_duration": 0.25, "factor_credit": 0.05},
+    ... }
+    >>> trajectory = compute_portfolio_trajectory(
+    ...     weights, stable, factor_columns=["factor_duration", "factor_credit"]
+    ... )
+    >>> trajectory[2010].coordinates
+    {"factor_duration": 0.139, "factor_credit": -0.025}  # 0.3*(-0.12) + 0.7*0.25 = 0.139
+    """
+    # Validate inputs
+    if not weights_by_year:
+        msg = "weights_by_year cannot be empty"
+        raise ValueError(msg)
+
+    if not stable_positions:
+        msg = "stable_positions cannot be empty"
+        raise ValueError(msg)
+
+    factor_list = list(factor_columns)
+    if not factor_list:
+        msg = "factor_columns cannot be empty"
+        raise ValueError(msg)
+
+    # Compute portfolio coordinates for each year
+    trajectory: dict[int, RiskPoint] = {}
+
+    for year, weights in weights_by_year.items():
+        # Initialize coordinates to zero
+        portfolio_coordinates: dict[str, float] = {factor: 0.0 for factor in factor_list}
+
+        # Compute weighted sum of sector stable positions
+        for sector_id, weight in weights.items():
+            # Skip if weight is zero or negligible
+            if abs(weight) < 1e-10:
+                continue
+
+            # Check that sector exists in stable positions
+            if sector_id not in stable_positions:
+                msg = (
+                    f"Sector {sector_id!r} in year {year} weights "
+                    f"has no stable position"
+                )
+                raise ValueError(msg)
+
+            sector_position = stable_positions[sector_id]
+
+            # Add weighted contribution for each factor
+            for factor in factor_list:
+                # Use stable position if available, default to 0.0 if missing
+                factor_value = float(sector_position.get(factor, 0.0))
+                portfolio_coordinates[factor] += weight * factor_value
+
+        # Create RiskPoint for this year
+        trajectory[year] = RiskPoint(portfolio_coordinates)
+
+    return trajectory
+
+
 def _sector_coordinates_by_year(
     frame: pl.DataFrame,
     factor_columns: Sequence[str],
@@ -537,6 +775,8 @@ __all__ = [
     "SectorDistanceReport",
     "SectorExposureSummary",
     "compute_annual_risk_profiles",
+    "compute_annual_sector_positions",
+    "compute_portfolio_trajectory",
     "compute_sector_distance_reports",
     "summarize_eigenvalue_trends",
     "summarize_sector_exposures",

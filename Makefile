@@ -66,6 +66,11 @@ install-poetry-all:  #-- Install main+dev+test (and extras) via Poetry into .ven
 	$(info $(M) Installing all groups with Poetry into .venv...)
 	$Q POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --with dev,test --all-extras
 
+.PHONY: install-poetry-ml
+install-poetry-ml:  #-- Install only the ML dependency stack via Poetry (skip nautilus group)
+	$(info $(M) Installing ML dependency stack only...)
+	$Q POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --without nautilus
+
 #== Build
 
 .PHONY: build
@@ -582,7 +587,7 @@ pytest-ml-coverage:  #-- Run ML tests with coverage (exclude perf), then guardra
 	# Coverage run (exclude performance/prototype to keep stable and fast); continue to guardrails
 	@status=0; \
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-	uv run --active --no-sync pytest -n logical --dist=loadgroup \
+	poetry run pytest -n logical --dist=loadgroup \
 		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
 		-m "not performance and not prototype and not slow" -k "not tft" -v ml/tests || status=$$?; \
 	echo "Coverage run exit status: $$status"; \
@@ -812,9 +817,9 @@ sanity:
 pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API), then serial integration (no real API)
 	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api), then serial integration (excl. real_api) ...)
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		uv run --active --no-sync pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		uv run --active --no-sync pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf

@@ -18,6 +18,7 @@ from ml.data.validation import MacroCoverageError
 from ml.data.validation import MacroCoverageValidator
 from playground.exposure.factor_exposure import FactorExposureConfig
 from playground.exposure.factor_exposure import compute_factor_exposures
+from playground.exposure.factor_exposure import compute_stable_sector_positions
 from playground.exposure.factor_exposure import prepare_factor_returns
 from playground.exposure.optimizer import default_target_point
 from playground.exposure.persistence import CrossAssetBetaPersistenceConfig
@@ -25,6 +26,8 @@ from playground.exposure.persistence import persist_cross_asset_betas
 from playground.risk_model.analysis import AnnualRiskProfile
 from playground.risk_model.analysis import SectorDistanceReport
 from playground.risk_model.analysis import compute_annual_risk_profiles
+from playground.risk_model.analysis import compute_annual_sector_positions
+from playground.risk_model.analysis import compute_portfolio_trajectory
 from playground.risk_model.analysis import compute_sector_distance_reports
 from playground.risk_model.analysis import summarize_eigenvalue_trends
 from playground.risk_model.dataset import CoverageSummary
@@ -181,6 +184,20 @@ def run_risk_pipeline(
     exposure_config = FactorExposureConfig(feature_set_id=config.feature_set_id)
     exposures = compute_factor_exposures(dataset.sector_returns, factor_returns, exposure_config)
 
+    # Compute stable sector positions (long-term centers in factor space)
+    stable_positions = compute_stable_sector_positions(
+        exposures,
+        factor_columns=config.factor_columns,
+        aggregation="median",
+    )
+
+    # Compute annual sector positions (year-by-year tracking in stable coordinates)
+    annual_positions = compute_annual_sector_positions(
+        exposures,
+        factor_columns=config.factor_columns,
+        stable_positions=stable_positions,
+    )
+
     beta_persisted_rows = persist_cross_asset_betas(
         exposures,
         config.beta_persistence,
@@ -201,6 +218,28 @@ def run_risk_pipeline(
     )
     eigenvalue_trends = summarize_eigenvalue_trends(profiles)
 
+    # Compute portfolio trajectory through stable coordinate system
+    weights_by_year = {profile.year: profile.weights for profile in profiles}
+    if weights_by_year:
+        try:
+            portfolio_trajectory = compute_portfolio_trajectory(
+                weights_by_year,
+                stable_positions,
+                factor_columns=config.factor_columns,
+            )
+        except ValueError as exc:
+            LOGGER.warning(
+                "Failed to compute portfolio trajectory",
+                reason=str(exc),
+            )
+            mm.inc(
+                "playground_portfolio_trajectory_total",
+                "Portfolio trajectory computation outcomes",
+                labels={"status": "error"},
+            )
+    else:
+        LOGGER.warning("No profiles available, skipping portfolio trajectory computation")
+
     reports = compute_sector_distance_reports(
         exposures,
         profiles,
@@ -220,6 +259,8 @@ def run_risk_pipeline(
             coverage=coverage_summary,
             eigenvalue_trends=dict(eigenvalue_trends),
             coverage_alerts=coverage_alerts,
+            stable_positions=stable_positions,
+            annual_positions=annual_positions.get(profile.year),
         )
         if vis_dir is not None:
             payload_path = vis_dir / f"risk_{profile.year}.json"
