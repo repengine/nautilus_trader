@@ -37,9 +37,9 @@ def test_earnings_store_bootstraps_tables(temporary_earnings_store: EarningsStor
     """First write succeeds because the store provisions its own tables."""
 
     store = temporary_earnings_store
-    ticker = "EARNINGS_STORE_BOOTSTRAP"
+    ticker = "EARNINGS_BOOT"
 
-    store.write_earnings_actual(
+    store.write_actuals(
         ticker=ticker,
         period_end="2024-03-31",
         filing_date="2024-04-25",
@@ -48,7 +48,7 @@ def test_earnings_store_bootstraps_tables(temporary_earnings_store: EarningsStor
         ts_event=1_712_009_600_000_000_000,
         ts_init=1_712_009_601_000_000_000,
     )
-    store.write_earnings_estimate(
+    store.write_estimates(
         ticker=ticker,
         estimate_date="2024-03-01",
         period_end="2024-03-31",

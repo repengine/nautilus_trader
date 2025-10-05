@@ -200,6 +200,22 @@ pytest-env = "~=0.8"  # enable [pytest] env section
 coverage = "~=7.5"
 hypothesis = "~=6.138"
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+pythonpath = [
+    ".",
+    "python"
+]
+norecursedirs = [
+    ".*",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "python/examples",
+    ".libraries"
+]
+
 [project.optional-dependencies]
 betfair = [
     "betfair-parser==0.14.4",

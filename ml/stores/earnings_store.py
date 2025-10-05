@@ -23,6 +23,7 @@ from sqlalchemy import Column
 from sqlalchemy import Date
 from sqlalchemy import Index
 from sqlalchemy import MetaData
+from sqlalchemy import PrimaryKeyConstraint
 from sqlalchemy import Table
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
@@ -107,6 +108,7 @@ class EarningsStore:
             Column("fiscal_year", INTEGER),
             Column("fiscal_quarter", INTEGER),
             Column("data_source", VARCHAR(20), server_default="EDGAR"),
+            PrimaryKeyConstraint("ticker", "period_end"),
             Index("idx_earnings_actuals_ts_event", "ts_event"),
             Index("idx_earnings_actuals_ticker", "ticker"),
             Index("idx_earnings_actuals_filing_date", "filing_date"),
@@ -126,6 +128,7 @@ class EarningsStore:
             Column("revenue_consensus", DOUBLE_PRECISION),
             Column("num_analysts", INTEGER),
             Column("data_source", VARCHAR(20), server_default="YAHOO"),
+            PrimaryKeyConstraint("ticker", "estimate_date", "period_end"),
             Index("idx_earnings_estimates_ts_event", "ts_event"),
             Index("idx_earnings_estimates_ticker", "ticker"),
             Index("idx_earnings_estimates_period", "period_end"),
