@@ -20,12 +20,10 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 from ml.stores.mixins import BufferedStoreMixin
@@ -47,10 +45,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
-    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -67,25 +65,6 @@ try:
     from ml.common.metrics import data_events_total as data_events_total
 except Exception:
     data_events_total = None
-
-
-# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-def create_engine(connection_string: str) -> Engine:
-    """
-    Compatibility wrapper returning a SQLAlchemy Engine.
-
-    Parameters
-    ----------
-    connection_string : str
-        Database URL.
-
-    Returns
-    -------
-    Engine
-        SQLAlchemy engine managed by EngineManager.
-
-    """
-    return EngineManager.get_engine(connection_string)
 
 
 class StrategyStore(
@@ -201,12 +180,13 @@ class StrategyStore(
         """
         Create strategy_signals table if it doesn't exist.
         """
-        # Define strategy_signals table
-        schema_name: str | None = None
-        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
-        if dialect_name and dialect_name != "sqlite":
-            schema_name = "public"
+        from ml.stores.table_factory import get_schema_name
 
+        # Use factory to get schema name
+        schema_name = get_schema_name(self.engine)
+
+        # Define strategy_signals table
+        # Note: strategy_id is a custom primary key, so we don't use factory's standard columns
         self.strategy_signals_table = Table(
             "ml_strategy_signals",
             self.metadata,

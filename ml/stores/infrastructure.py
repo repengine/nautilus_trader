@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
-from ml.core.db_engine import EngineManager
+from ml.common.db_utils import get_or_create_engine
 
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ class PartitionManager:
         retention_months: int = 24,
         logger: logging.Logger | None = None,
     ):
-        self.engine: Engine = EngineManager.get_engine(connection_string)
+        self.engine: Engine = get_or_create_engine(connection_string)
         self.tables = tables or [
             "ml_feature_values",
             "ml_model_predictions",
@@ -384,7 +384,7 @@ $$ LANGUAGE plpgsql;
 
 
 def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
-    engine = EngineManager.get_engine(connection_string)
+    engine = get_or_create_engine(connection_string)
     summary: dict[str, bool | str] = {"ok": True}
     try:
         with engine.begin() as conn:

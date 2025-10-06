@@ -44,6 +44,12 @@ from ml.common.db_connections import ConnectionCandidates
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
 from ml.common.db_connections import select_first_working_connection
+from ml.common.db_utils import get_default_pool_config
+from ml.common.db_utils import get_or_create_engine
+from ml.common.error_handlers import db_operation_handler
+from ml.common.error_handlers import registry_operation_handler
+from ml.common.error_handlers import with_db_error_handling
+from ml.common.error_handlers import with_fallback
 from ml.common.event_emitter import emit_dataset_event
 from ml.common.event_emitter import emit_dataset_event_and_watermark
 
@@ -146,6 +152,7 @@ __all__ = [
     "calculate_file_sha256",
     "clamp_price_str",
     "collect_postgres_candidates",
+    "db_operation_handler",
     "emit_cascade",
     "emit_dataset_event",
     "emit_dataset_event_and_watermark",
@@ -153,8 +160,10 @@ __all__ = [
     "generate_latest",
     "get_correlation_and_trace_context",
     "get_counter",
+    "get_default_pool_config",
     "get_gauge",
     "get_histogram",
+    "get_or_create_engine",
     "is_observability_enabled",
     "make_correlation_id",
     "map_stage_to_topic_segments",
@@ -162,6 +171,7 @@ __all__ = [
     "normalize_timestamp_ns",
     "publisher_from_config",
     "record_stage_boundary",
+    "registry_operation_handler",
     "resolve_databento_api_key",
     "safe_divide",
     "safe_divide_expr",
@@ -171,4 +181,6 @@ __all__ = [
     "to_source_enum",
     "to_source_str",
     "verify_artifact_integrity",
+    "with_db_error_handling",
+    "with_fallback",
 ]

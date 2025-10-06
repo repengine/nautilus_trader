@@ -187,8 +187,11 @@ class ModelRegistry(AbstractRegistry):
                         if target not in self._deployments:
                             self._deployments[target] = []
                         self._deployments[target].append(model_info.manifest.model_id)
-            except Exception as e:
-                logger.warning("Error loading from database: %s. Starting with empty registry.", e, exc_info=True)
+            except Exception:
+                logger.warning(
+                    "Error loading from database. Starting with empty registry.",
+                    exc_info=True,
+                )
                 self._models = {}
                 self._ab_tests = {}
                 self._deployments = {}
@@ -253,8 +256,11 @@ class ModelRegistry(AbstractRegistry):
                 json.dump(data, f, indent=2, default=str)
 
             logger.debug(f"Registry saved with {len(self._models)} models")
-        except Exception as e:
-            logger.error("Failed to save registry: %s", e, exc_info=True)
+        except Exception:
+            logger.error(
+                "Failed to save registry",
+                exc_info=True,
+            )
             raise
 
     def _flush_batch_save(self) -> None:
@@ -274,8 +280,11 @@ class ModelRegistry(AbstractRegistry):
                         exc,
                         exc_info=False,
                     )
-                except Exception as e:
-                    logger.error("Error during batch save flush: %s", e, exc_info=True)
+                except Exception:
+                    logger.error(
+                        "Error during batch save flush",
+                        exc_info=True,
+                    )
                 finally:
                     self._pending_save = False
                     self._save_timer = None
@@ -498,9 +507,12 @@ class ModelRegistry(AbstractRegistry):
                 session.add(new_model)
 
             session.commit()
-        except Exception as e:
+        except Exception:
             session.rollback()
-            logger.error("Failed to save model to database: %s", e, exc_info=True)
+            logger.error(
+                "Failed to save model to database",
+                exc_info=True,
+            )
             raise
         finally:
             session.close()
@@ -1190,11 +1202,15 @@ class ModelRegistry(AbstractRegistry):
 
                 return _cast(object, model)
 
-            except Exception as e:
+            except Exception as exc:
                 # Propagate integrity failures to satisfy security contract tests
-                if isinstance(e, ValueError):
+                if isinstance(exc, ValueError):
                     raise
-                logger.error("Failed to load model %s: %s", model_id, e, exc_info=True)
+                logger.error(
+                    "Failed to load model %s",
+                    model_id,
+                    exc_info=True,
+                )
                 return None
 
     def track_performance(

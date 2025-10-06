@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from sqlalchemy import text
 
+from ml.common.db_utils import get_or_create_engine
 from ml.common.timestamps import sanitize_timestamp_ns
-from ml.core.db_engine import EngineManager
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
@@ -29,16 +29,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
-
-
-def create_engine(connection_string: str, **kwargs: Any) -> Engine:
-    """
-    Module-level factory for tests to monkeypatch.
-
-    Delegates to EngineManager in production; tests patch this symbol.
-
-    """
-    return EngineManager.get_engine(connection_string, **kwargs)
 
 
 class QualityFlags(IntFlag):
@@ -103,8 +93,8 @@ class DataProcessor:
             Enable caching of metadata and statistics
 
         """
-        # Module-level create_engine for easy monkeypatching in tests
-        self.engine: Engine = create_engine(connection_string)
+        # Centralized engine creation
+        self.engine: Engine = get_or_create_engine(connection_string)
         self.outlier_threshold = outlier_threshold
         self.staleness_threshold_ns = staleness_threshold_seconds * 1_000_000_000
         self.enable_caching = enable_caching

@@ -17,7 +17,12 @@ All ML actors MUST use these 4 stores via BaseMLInferenceActor inheritance to en
 Pattern 1 Integration Example:
 -----------------------------
 ```python
-from ml.actors.base import BaseMLInferenceActor
+# Import stores from ml.stores, actors from ml.actors
+# (Avoids circular dependency - actors depend on stores, not vice versa)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ml.actors.base import BaseMLInferenceActor
 
 class YourCustomActor(BaseMLInferenceActor):
     def __init__(self, config: YourConfig):
@@ -175,6 +180,16 @@ featurestore = feature_store
 
 
 # =============================================================================
+# Table Factory (DRY Pattern for Table Schemas)
+# =============================================================================
+# Centralized table creation utilities
+from ml.stores.table_factory import build_instrument_id_column
+from ml.stores.table_factory import build_nautilus_timestamp_columns
+from ml.stores.table_factory import build_standard_indexes
+from ml.stores.table_factory import create_ml_table
+from ml.stores.table_factory import get_schema_name
+
+# =============================================================================
 # Public API Definition
 # =============================================================================
 
@@ -230,11 +245,16 @@ __all__ = [
     "StrategyStoreProtocol",
     "StrategyStoreStrictProtocol",
     "WriteRecords",
+    "build_instrument_id_column",
+    "build_nautilus_timestamp_columns",
+    "build_standard_indexes",
     "check_db_prereqs",
+    "create_ml_table",
     "data_store",
     "datastore",  # alias for tests using lower-cased class name
     "feature_store",
     "featurestore",  # alias for tests using lower-cased class name
+    "get_schema_name",
     "publish_batch_and_rows",
     "run_partition_maintenance",
     "sanitize_and_dedup",

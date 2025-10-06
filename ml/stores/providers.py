@@ -23,7 +23,7 @@ from sqlalchemy.sql import func as sa_func
 from sqlalchemy.sql import select as sa_select
 from sqlalchemy.sql import table as sa_table
 
-from ml.core.db_engine import EngineManager
+from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
 from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.protocols import CoverageProviderProtocol
@@ -113,7 +113,7 @@ class SqlCoverageProvider(CoverageProviderProtocol):
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="coverage.table")
         _validate_identifier(self.ts_field, label="coverage.ts_field")
-        self._engine = EngineManager.get_engine(self.connection_string)
+        self._engine = get_or_create_engine(self.connection_string)
 
     def read_bucket_coverage(
         self,
@@ -164,7 +164,7 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="writer.table")
-        self._engine = EngineManager.get_engine(self.connection_string)
+        self._engine = get_or_create_engine(self.connection_string)
         self._meta = MetaData()
         try:
             self._table = Table(self.table_name, self._meta, autoload_with=self._engine)
@@ -274,7 +274,7 @@ class SqlMarketDataReader(RawReaderProtocol):
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="reader.table")
-        self._engine = EngineManager.get_engine(self.connection_string)
+        self._engine = get_or_create_engine(self.connection_string)
         try:
             from sqlalchemy import inspect as _inspect
 

@@ -19,8 +19,6 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from nautilus_trader.model.identifiers import InstrumentId
-
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.common.metrics_bootstrap import get_counter
@@ -47,6 +45,7 @@ from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -413,8 +412,11 @@ class DataScheduler:
                 "Initialized DataRegistry with backend=%s",
                 persistence_config.backend.value,
             )
-        except Exception as e:
-            logger.warning(f"Failed to initialize DataRegistry: {e}. Events will not be tracked.")
+        except Exception:
+            logger.warning(
+                "Failed to initialize DataRegistry. Events will not be tracked.",
+                exc_info=True,
+            )
             self._data_registry = None
 
     def _initialize_feature_store(self) -> None:
@@ -459,8 +461,11 @@ class DataScheduler:
             safe_connection = db_connection.split("@")[1] if "@" in db_connection else db_connection
             logger.info(f"Initialized FeatureStore with connection to: {safe_connection}")
 
-        except Exception as e:
-            logger.error(f"Failed to initialize FeatureStore: {e}")
+        except Exception:
+            logger.error(
+                "Failed to initialize FeatureStore",
+                exc_info=True,
+            )
             self._feature_store = None
             # Don't raise - allow scheduler to work without feature store
 
@@ -487,8 +492,11 @@ class DataScheduler:
             self._metrics_server = MetricsServer(config=monitoring_config)
             self._metrics_server.start()
             logger.info(f"Started metrics server on port {port}")
-        except Exception as e:
-            logger.warning(f"Failed to start metrics server: {e}")
+        except Exception:
+            logger.warning(
+                "Failed to start metrics server",
+                exc_info=True,
+            )
             self._metrics_server = None
 
     def run_daily_update(self) -> None:
@@ -525,9 +533,12 @@ class DataScheduler:
 
             logger.info("Daily data update completed successfully")
 
-        except Exception as e:
+        except Exception:
             pipeline_status = "failure"
-            logger.error(f"Daily data update failed: {e}")
+            logger.error(
+                "Daily data update failed",
+                exc_info=True,
+            )
             raise
         finally:
             # Record overall pipeline metrics
@@ -850,9 +861,13 @@ class DataScheduler:
                                     f"Emitted {_stage.CATALOG_WRITTEN.value} event for {symbol_code}: "
                                     f"run_id={run_id}, count={len(data)}",
                                 )
-                            except Exception as e:
+                            except Exception:
                                 # Log but don't fail the pipeline if event emission fails
-                                logger.warning(f"Failed to emit data event for {symbol_code}: {e}")
+                                logger.warning(
+                                    "Failed to emit data event for %s",
+                                    symbol_code,
+                                    exc_info=True,
+                                )
                                 if data_events_total:
                                     data_events_total.labels(
                                         dataset_type=dataset_type_label,
@@ -898,9 +913,11 @@ class DataScheduler:
                                         source=_source.HISTORICAL.value,
                                         status="failed",
                                     ).inc()
-                            except Exception as e:
+                            except Exception:
                                 logger.warning(
-                                    f"Failed to emit failure event for {symbol_code}: {e}",
+                                    "Failed to emit failure event for %s",
+                                    symbol_code,
+                                    exc_info=True,
                                 )
 
                         raise
@@ -933,7 +950,12 @@ class DataScheduler:
                     return False
 
             except Exception as e:
-                logger.error(f"Error collecting data for {symbol} (attempt {attempt + 1}): {e}")
+                logger.error(
+                    "Error collecting data for %s (attempt %d)",
+                    symbol,
+                    attempt + 1,
+                    exc_info=True,
+                )
 
                 # Classify error type for metrics
                 error_type = "unknown"
@@ -1070,9 +1092,9 @@ class DataScheduler:
                     from datetime import datetime
 
                     import databento as db
-                    from nautilus_trader.model.identifiers import InstrumentId as _IID
 
                     from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBL
+                    from nautilus_trader.model.identifiers import InstrumentId as _IID
 
                     sym, venue = (
                         instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
@@ -1201,11 +1223,10 @@ class DataScheduler:
         logger.info("Starting feature computation for new data...")
 
         # Import required modules
-        from nautilus_trader.model.data import Bar
-        from nautilus_trader.model.identifiers import InstrumentId
-
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
+        from nautilus_trader.model.data import Bar
+        from nautilus_trader.model.identifiers import InstrumentId
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -1303,17 +1324,25 @@ class DataScheduler:
                         )
                         # Note: FEATURE_COMPUTED events are emitted by FeatureStore itself
                         # to avoid double-counting in metrics
-                    except Exception as e:
+                    except Exception:
                         feature_store_operations_total.labels(
                             operation="store_historical",
                             status="failure",
                         ).inc()
-                        logger.error(f"Failed to store features for {instrument_id}: {e}")
+                        logger.error(
+                            "Failed to store features for %s",
+                            instrument_id,
+                            exc_info=True,
+                        )
                         failed_instruments.append(str(instrument_id))
                         continue
 
-                except Exception as e:
-                    logger.error(f"Error processing symbol {symbol}: {e}")
+                except Exception:
+                    logger.error(
+                        "Error processing symbol %s",
+                        symbol,
+                        exc_info=True,
+                    )
                     feature_computation_errors_total.labels(
                         instrument=symbol,
                         error_type="processing_error",
@@ -1341,8 +1370,11 @@ class DataScheduler:
                     f"Average computation time: {avg_time_per_feature*1000:.2f}ms per feature row",
                 )
 
-        except Exception as e:
-            logger.error(f"Critical error in feature computation: {e}", exc_info=True)
+        except Exception:
+            logger.error(
+                "Critical error in feature computation",
+                exc_info=True,
+            )
             feature_computation_errors_total.labels(
                 instrument="all",
                 error_type="critical",
@@ -1380,9 +1412,12 @@ class DataScheduler:
             pipeline_stage_latency.labels(stage="data_cleanup").observe(cleanup_duration)
 
             logger.info("Data cleanup completed")
-        except Exception as e:
+        except Exception:
             data_retention_cleanup_total.labels(status="failure").inc()
-            logger.error(f"Data cleanup failed: {e}")
+            logger.error(
+                "Data cleanup failed",
+                exc_info=True,
+            )
             raise
 
     def schedule_updates(self, cron_expression: str | None = None) -> None:
@@ -1430,8 +1465,11 @@ class DataScheduler:
             try:
                 self._metrics_server.stop()
                 logger.info("Stopped metrics server")
-            except Exception as e:
-                logger.warning(f"Error stopping metrics server: {e}")
+            except Exception:
+                logger.warning(
+                    "Error stopping metrics server",
+                    exc_info=True,
+                )
 
         self.enabled = False
         logger.info("Scheduler stopped")

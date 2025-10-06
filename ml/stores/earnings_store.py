@@ -35,7 +35,7 @@ from sqlalchemy.schema import CreateSchema
 from sqlalchemy.sql import Select
 
 from ml.common.metrics_bootstrap import get_counter
-from ml.core.db_engine import EngineManager
+from ml.common.db_utils import get_or_create_engine
 
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class EarningsStore:
         connection_string: str,
         schema: str = "ml",
     ) -> None:
-        self._engine: Engine = EngineManager.get_engine(connection_string)
+        self._engine: Engine = get_or_create_engine(connection_string)
         self._schema = schema
         self._metadata = MetaData(schema=schema)
 

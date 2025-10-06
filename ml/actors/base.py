@@ -25,9 +25,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -47,6 +44,9 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -990,9 +990,12 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             # Verify training/inference parity requirements (hook for subclasses)
             try:
                 self._verify_parity_requirements()
-            except Exception as e:
+            except Exception:
                 # Fail fast: parity guarantees are mandatory
-                self.log.error(f"Parity verification failed: {e}")
+                self.log.error(
+                    "Parity verification failed",
+                    exc_info=True,
+                )
                 raise
 
             # Update health monitor
@@ -1022,8 +1025,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 f"health_monitoring={self._config.enable_health_monitoring}",
             )
 
-        except Exception as e:
-            self.log.error(f"Failed to start ML Actor: {e}")
+        except Exception:
+            self.log.error(
+                "Failed to start ML Actor",
+                exc_info=True,
+            )
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(False)
             raise
@@ -1112,8 +1118,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     f"ML persistence worker stopped (final queue: "
                     f"{self._persistence_worker.queue_size()})",
                 )
-            except Exception as e:
-                self.log.warning(f"Error stopping persistence worker: {e}")
+            except Exception:
+                self.log.warning(
+                    "Error stopping persistence worker",
+                    exc_info=True,
+                )
 
         # Fallback: flush stores directly for synchronous writes or after async drain
         if self._persistence_worker is None:
@@ -1291,8 +1300,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 )
                 self._publish_signal(signal)
 
-        except Exception as e:
-            self.log.error(f"Prediction failed: {e}")
+        except Exception:
+            self.log.error(
+                "Prediction failed",
+                exc_info=True,
+            )
 
             # Record failure in circuit breaker
             if self._circuit_breaker:
@@ -1473,8 +1485,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 f"size={self._model_metadata.get('size_bytes', 0)} bytes, "
                 f"type={self._model_metadata.get('type', 'unknown')}",
             )
-        except Exception as e:
-            self.log.error(f"Failed to load model: {e}")
+        except Exception:
+            self.log.error(
+                "Failed to load model",
+                exc_info=True,
+            )
             raise
 
     def _try_load_from_registry(self) -> bool:
@@ -1631,8 +1646,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
             self._last_model_check = time.time()
 
-        except Exception as e:
-            self.log.error(f"Model update check failed: {e}")
+        except Exception:
+            self.log.error(
+                "Model update check failed",
+                exc_info=True,
+            )
             # Metric tracking removed to avoid duplicate registration
 
     def _reload_model(self) -> None:
@@ -1657,8 +1675,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 f"Model hot-reload successful: {old_version} -> {self._model_version}",
             )
 
-        except Exception as e:
-            self.log.error(f"Model reload failed: {e}")
+        except Exception:
+            self.log.error(
+                "Model reload failed",
+                exc_info=True,
+            )
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(False)
             raise
@@ -2029,12 +2050,3 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
 
 logger = logging.getLogger(__name__)
-
-# Backward-compat: re-export store facades for tests which patch ml.actors.base.*
-try:  # pragma: no cover - simple import wiring
-    from ml.stores.data_store import DataStore as DataStore
-    from ml.stores.feature_store import FeatureStore as FeatureStore
-    from ml.stores.model_store import ModelStore as ModelStore
-    from ml.stores.strategy_store import StrategyStore as StrategyStore
-except Exception as exc:  # Avoid import cycles or test-only env issues
-    logger.debug("Store back-compat re-exports failed: %s", exc, exc_info=True)

@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
-from ml.core.db_engine import EngineManager
+from ml.common.db_utils import get_or_create_engine
 from ml.stores.mixins import HealthMixin
 
 
@@ -99,7 +99,7 @@ class InstrumentMetadataStore(HealthMixin):
         self.table_name = table_name
 
         # Initialize database engine via EngineManager (Pattern 1)
-        self.engine: Engine = EngineManager.get_engine(connection_string)
+        self.engine: Engine = get_or_create_engine(connection_string)
 
         # Define table schema
         self.metadata_obj = MetaData(schema=schema)

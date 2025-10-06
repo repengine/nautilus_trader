@@ -21,7 +21,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
@@ -33,10 +33,11 @@ from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.protocols import MLComponentMixin
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml.core.db_engine import EngineManager
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
@@ -67,7 +68,6 @@ from ml.stores.strategy_store import StrategyStore
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
 
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.protocols import CircuitBreakerProtocol
@@ -108,10 +108,6 @@ else:  # pragma: no cover - pandas optional in some environments
 
 
 logger = logging.getLogger(__name__)
-
-# Dataset identifiers for earnings data registered via DataRegistry
-EARNINGS_ACTUALS_DATASET_ID: Final = "ml.earnings_actuals"
-EARNINGS_ESTIMATES_DATASET_ID: Final = "ml.earnings_estimates"
 
 # ========================================================================
 # Prometheus Metrics
@@ -1169,10 +1165,13 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             validation_details["preflight_passed"] = True
             return True, None, validation_details
 
-        except Exception as e:
-            error_msg = f"Preflight check failed: {e}"
-            logger.error(error_msg)
-            return False, error_msg, {"error": str(e)}
+        except Exception:
+            error_msg = "Preflight check failed"
+            logger.error(
+                error_msg,
+                exc_info=True,
+            )
+            return False, error_msg, {}
 
     def _record_observability_stage_boundary(
         self,
@@ -1442,8 +1441,12 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                                 status=EventStatus.PARTIAL.value,
                                 metadata={"no_write": True},
                             )
-                    except Exception as e:  # best-effort; keep off hot path
-                        logger.error("Raw writer failed for %s: %s", dataset_id, e)
+                    except Exception as exc:  # best-effort; keep off hot path
+                        logger.error(
+                            "Raw writer failed for %s",
+                            dataset_id,
+                            exc_info=True,
+                        )
                         self._emit_failed_event(
                             dataset_id=dataset_id,
                             instrument_id=instrument_id,
@@ -1453,7 +1456,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             ts_min=ts_min,
                             ts_max=ts_max,
                             count=len(data_frame),
-                            error=str(e),
+                            error=str(exc),
                         )
                         return DataEvent(
                             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -1466,7 +1469,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             ts_max=ts_max,
                             record_count=len(data_frame),
                             status=EventStatus.FAILED.value,
-                            error_message=str(e),
+                            error_message=str(exc),
                         )
                 else:
                     # No raw writer configured. Use fail_on_validation_error to decide behavior:
@@ -1645,7 +1648,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             return event
 
-        except Exception as e:
+        except Exception as exc:
             # Create failure event
             event = DataEvent(
                 event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -1658,7 +1661,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 ts_max=ts_max if "ts_max" in locals() else 0,
                 record_count=0,
                 status=EventStatus.FAILED.value,
-                error_message=str(e),
+                error_message=str(exc),
             )
 
             # Emit failure event via façade
@@ -1672,11 +1675,15 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 ts_max=0,
                 count=0,
                 status=EventStatus.FAILED.value,
-                error=str(e),
+                error=str(exc),
             )
 
-            logger.error("Failed to write data to %s: %s", dataset_id, e)
-            raise RuntimeError(f"Write operation failed: {e}") from e
+            logger.error(
+                "Failed to write data to %s",
+                dataset_id,
+                exc_info=True,
+            )
+            raise RuntimeError(f"Write operation failed: {exc}") from exc
 
     @staticmethod
     def _extract_ingestion_metadata_from_dataframe(data_frame: pd.DataFrame) -> dict[str, object]:
@@ -2817,15 +2824,19 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             else:
                 logger.warning("Unknown validation rule type: %s", rule.rule_type)
                 return None
-        except Exception as e:
-            logger.error("Error applying validation rule %s: %s", rule.rule_type, e)
+        except Exception as exc:
+            logger.error(
+                "Error applying validation rule %s",
+                rule.rule_type,
+                exc_info=True,
+            )
             return ValidationViolation(
                 rule_type=rule.rule_type,
                 field_name=rule.field_name,
                 severity=QualityFlag.WARN,
                 violation_count=1,
                 sample_values=[],
-                description=f"Validation error: {e}",
+                description=f"Validation error: {exc}",
             )
 
     def _validate_types(
@@ -3717,15 +3728,3 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return nullcontext()
 
-
-# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-# This delegates to the centralized EngineManager.
-def create_engine(connection_string: str, **kwargs: Any) -> Engine:
-    """
-    Return the shared SQLAlchemy engine for the given connection string.
-
-    Delegates to EngineManager to ensure a single engine per unique URL. Tests may
-    monkeypatch this symbol or EngineManager.get_engine in this module.
-
-    """
-    return EngineManager.get_engine(connection_string, **kwargs)

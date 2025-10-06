@@ -20,14 +20,12 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
 from ml.stores.mixins import BufferedStoreMixin
@@ -49,10 +47,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
-    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -61,12 +59,6 @@ __all__ = [
     "ModelPrediction",
     "ModelStore",
 ]
-
-
-# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-def create_engine(connection_string: str, **kwargs: object) -> Engine:
-    # mypy: allow forwarding arbitrary kwargs to EngineManager
-    return EngineManager.get_engine(connection_string, **kwargs)  # type: ignore[arg-type]
 
 
 # Prometheus metrics for prediction events (centralized)
@@ -198,11 +190,11 @@ class ModelStore(
         """
         Create model_predictions table if it doesn't exist.
         """
-        # Define model_predictions table
-        schema_name: str | None = None
-        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
-        if dialect_name and dialect_name != "sqlite":
-            schema_name = "public"
+        from ml.stores.table_factory import get_schema_name
+
+        # Use factory to create model_predictions table with standard columns
+        # Note: model_id is a custom primary key, so we don't use standard instrument_id/ts_event PKs
+        schema_name = get_schema_name(self.engine)
 
         self.model_predictions_table = Table(
             "ml_model_predictions",

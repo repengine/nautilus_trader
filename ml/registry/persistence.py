@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from ml.core.db_engine import EngineManager
+from ml.common.db_utils import get_or_create_engine
 
 
 if TYPE_CHECKING:
@@ -241,7 +241,7 @@ class PersistenceManager:
         """
         if self.config.connection_string is None:
             raise ValueError("Connection string is required for PostgreSQL backend")
-        self._engine = EngineManager.get_engine(
+        self._engine = get_or_create_engine(
             self.config.connection_string,
             pool_size=self.config.pool_size,
             max_overflow=self.config.max_overflow,

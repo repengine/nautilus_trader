@@ -39,6 +39,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml.common.db_utils import get_or_create_engine
+from ml.common.error_handlers import with_fallback
 from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
@@ -47,7 +49,6 @@ from ml.config.base import MLFeatureConfig
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml.core.db_engine import EngineManager
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -61,19 +62,13 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import pandas as pd
-    from nautilus_trader.model.data import Bar
     from polars import DataFrame as PlDataFrame
 
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)
-
-
-# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-# This delegates to the centralized EngineManager.
-def create_engine(connection_string: str, **kwargs: Any) -> Engine:
-    return EngineManager.get_engine(connection_string, **kwargs)
 
 
 # Backwards-compat: expose a module-level PersistenceManager symbol for tests to monkeypatch.
@@ -182,15 +177,9 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         self.pipeline_spec = pipeline_spec
 
         # Create engine and setup tables (reflect partitioned table created by migrations)
-        self.engine: Engine = create_engine(connection_string)
+        self.engine: Engine = get_or_create_engine(connection_string)
         self.metadata = MetaData()
         self._setup_tables()
-        try:
-            status = EngineManager.get_pool_status(self.connection_string)
-            if status:
-                logger.debug("Engine pool status: %s", status)
-        except Exception as e:
-            logger.debug("Pool status unavailable: %s", e)
 
         # Feature engineer for computation (ensures parity)
         self.feature_engineer = FeatureEngineer(self.feature_config)
@@ -316,8 +305,12 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 inst = fut_to_inst[fut]
                 try:
                     results[inst] = int(fut.result())
-                except Exception as e:  # pragma: no cover - environment dependent
-                    logger.error("Parallel feature compute failed for %s: %s", inst, e)
+                except Exception:  # pragma: no cover - environment dependent
+                    logger.error(
+                        "Parallel feature compute failed for %s",
+                        inst,
+                        exc_info=True,
+                    )
                     results[inst] = 0
 
         return results
@@ -338,14 +331,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         Primary key (id, ts_event) where id is BIGSERIAL.
 
         """
+        from ml.stores.table_factory import get_schema_name
+
+        schema_name = get_schema_name(self.engine)
+
         try:
             # Prefer reflecting the migrated table. Avoid opportunistic DDL here to
             # prevent lock contention with concurrent writers in tests/integration;
             # migrations and test fixtures are responsible for indexes/partitions.
-            schema_name: str | None = None
-            dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
-            if dialect_name and dialect_name != "sqlite":
-                schema_name = "public"
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
@@ -356,10 +349,6 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             # Fallback: create a non-partitioned compatible table for tests/dev
             from sqlalchemy import Integer
 
-            schema_name = None
-            dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
-            if dialect_name and dialect_name != "sqlite":
-                schema_name = "public"
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
@@ -547,49 +536,8 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             )
             conn.execute(stmt, rows)
 
-        # Emit FEATURE_COMPUTED event for successful historical computation
-        try:
-            registry = self._get_data_registry()
-            if registry:
-                # Generate unique run ID for this computation
-                run_id = f"feature_historical_{uuid.uuid4().hex[:8]}_{int(time.time())}"
-
-                # Use canonical dataset id and include context via metrics/metadata elsewhere
-                feature_set_id = self._get_feature_set_id()
-                dataset_id = "features"
-
-                # Get the time range from timestamps
-                ts_min = int(timestamps[0]) if len(timestamps) > 0 else 0
-                ts_max = int(timestamps[-1]) if len(timestamps) > 0 else 0
-
-                # Emit via shared helper (event + watermark + metrics)
-                emit_dataset_event_and_watermark(
-                    registry,
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    stage=Stage.FEATURE_COMPUTED,
-                    source=Source.HISTORICAL,
-                    run_id=run_id,
-                    ts_min=ts_min,
-                    ts_max=ts_max,
-                    count=len(rows),
-                    status=EventStatus.SUCCESS,
-                    dataset_type="features",
-                    component=feature_set_id,
-                )
-
-                logger.debug(
-                    "Emitted FEATURE_COMPUTED event for historical computation: "
-                    "dataset=%s, instrument=%s, count=%d, ts_range=[%d, %d]",
-                    dataset_id,
-                    instrument_id,
-                    len(rows),
-                    ts_min,
-                    ts_max,
-                )
-        except Exception as e:
-            # Non-blocking: log but don't fail the feature computation
-            logger.warning("Failed to emit feature computation event: %s", e, exc_info=True)
+        # Emit FEATURE_COMPUTED event for successful historical computation (non-blocking)
+        self._emit_historical_event(instrument_id, timestamps, len(rows))
 
         return len(rows)
 
@@ -770,9 +718,12 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                             instrument_id_str,
                             int(bar.ts_event),
                         )
-                except Exception as e:
+                except Exception:
                     # Non-blocking: log but don't fail the feature computation
-                    logger.warning("Failed to emit realtime feature event: %s", e, exc_info=True)
+                    logger.warning(
+                        "Failed to emit realtime feature event",
+                        exc_info=True,
+                    )
 
         return features
 
@@ -996,6 +947,68 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         if self.pipeline_hash:
             return f"fs_{self.pipeline_hash[:12]}"
         return f"fs_{self._compute_config_hash()[:12]}"
+
+    @with_fallback(fallback_value=None, log_level="warning", operation_name="emit feature computation event")
+    def _emit_historical_event(
+        self,
+        instrument_id: str,
+        timestamps: npt.NDArray[np.int64],
+        row_count: int,
+    ) -> None:
+        """
+        Emit FEATURE_COMPUTED event for historical computation.
+
+        Non-blocking operation - failures are logged but don't affect feature computation.
+
+        Parameters
+        ----------
+        instrument_id : str
+            Instrument identifier.
+        timestamps : npt.NDArray[np.int64]
+            Array of timestamps for the computed features.
+        row_count : int
+            Number of rows computed.
+        """
+        registry = self._get_data_registry()
+        if not registry:
+            return
+
+        # Generate unique run ID for this computation
+        run_id = f"feature_historical_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+
+        # Use canonical dataset id
+        feature_set_id = self._get_feature_set_id()
+        dataset_id = "features"
+
+        # Get the time range from timestamps
+        ts_min = int(timestamps[0]) if len(timestamps) > 0 else 0
+        ts_max = int(timestamps[-1]) if len(timestamps) > 0 else 0
+
+        # Emit via shared helper (event + watermark + metrics)
+        emit_dataset_event_and_watermark(
+            registry,
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=Stage.FEATURE_COMPUTED,
+            source=Source.HISTORICAL,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=row_count,
+            status=EventStatus.SUCCESS,
+            dataset_type="features",
+            component=feature_set_id,
+        )
+
+        logger.debug(
+            "Emitted FEATURE_COMPUTED event for historical computation: "
+            "dataset=%s, instrument=%s, count=%d, ts_range=[%d, %d]",
+            dataset_id,
+            instrument_id,
+            row_count,
+            ts_min,
+            ts_max,
+        )
 
     def get_latest_at_or_before(self, instrument_id: str, ts_event: int) -> dict[str, float] | None:
         """
@@ -1294,8 +1307,11 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             sample = int(os.getenv("ML_AUDIT", "0"))
             if sample > 0 and random.randint(1, sample) == 1:
                 logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
-        except Exception as e:
-            logger.debug("Audit logging skipped due to error: %s", e)
+        except Exception:
+            logger.debug(
+                "Audit logging skipped due to error",
+                exc_info=True,
+            )
         # Final guard: normalize any incoming timestamps
         from ml.common.timestamps import sanitize_timestamp_ns
 
