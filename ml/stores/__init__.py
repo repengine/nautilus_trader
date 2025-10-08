@@ -93,8 +93,12 @@ from ml.stores.base import StrategySignal
 # Data Processing and Infrastructure
 # =============================================================================
 # Data processing pipeline
+from ml.stores.contract_enforcer import ContractEnforcer
 from ml.stores.data_processor import DataProcessor
+from ml.stores.data_reader import DataReader
 from ml.stores.data_store import DataStore
+from ml.stores.data_writer import DataWriter
+from ml.stores.schema_validator import SchemaValidator
 
 # Earnings store
 from ml.stores.earnings_store import DummyEarningsStore
@@ -168,6 +172,11 @@ from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.strategy_store import StrategyStore
 
+# Validation types (shared across store components)
+from ml.stores.validation_types import DataEvent
+from ml.stores.validation_types import QualityReport
+from ml.stores.validation_types import ValidationViolation
+
 # Market data writers and live recording
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import LiveDataRecorder
@@ -189,6 +198,7 @@ from ml.stores.table_factory import build_standard_indexes
 from ml.stores.table_factory import create_ml_table
 from ml.stores.table_factory import get_schema_name
 
+
 # =============================================================================
 # Public API Definition
 # =============================================================================
@@ -198,12 +208,16 @@ __all__ = [
     "BaseStoreProtocol",
     "BufferedStoreMixin",
     "CatalogCoverageProvider",
+    "ContractEnforcer",
     "CoverageProviderProtocol",
+    "DataEvent",
     "DataProcessor",
+    "DataReader",
     "DataRegistryMixin",
     "DataStore",
     "DataStoreFacadeProtocol",
     "DataStoreMarketDataWriter",
+    "DataWriter",
     "DummyEarningsStore",
     "DummyInstrumentMetadataStore",
     "DummyStore",
@@ -231,11 +245,13 @@ __all__ = [
     "ParquetCatalogRawWriter",
     "PartitionManager",
     "PredictionRecord",
+    "QualityReport",
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
     "ReadFrame",
     "ReadQueryMixin",
     "SQLUpsertMixin",
+    "SchemaValidator",
     "SignalRecord",
     "SqlCoverageProvider",
     "SqlMarketDataWriter",
@@ -244,6 +260,7 @@ __all__ = [
     "StrategyStore",
     "StrategyStoreProtocol",
     "StrategyStoreStrictProtocol",
+    "ValidationViolation",
     "WriteRecords",
     "build_instrument_id_column",
     "build_nautilus_timestamp_columns",
