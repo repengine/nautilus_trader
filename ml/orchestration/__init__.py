@@ -45,6 +45,17 @@ from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
 
 # Core orchestrator classes
+from ml.orchestration.binding_resolver import BindingResolver
+from ml.orchestration.binding_resolver import BindingResolverProtocol
+from ml.orchestration.config_resolver import ConfigResolver
+from ml.orchestration.config_resolver import ConfigResolverProtocol
+from ml.orchestration.dataset_builder import BuildArtifacts
+from ml.orchestration.dataset_builder import DatasetBuilder
+from ml.orchestration.dataset_builder import DatasetBuilderProtocol
+from ml.orchestration.discovery_client import DiscoveryClient
+from ml.orchestration.discovery_client import DiscoveryClientProtocol
+from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+from ml.orchestration.ingestion_coordinator import IngestionCoordinatorProtocol
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
 # Promotion helpers
@@ -61,8 +72,19 @@ from . import config_loader
 
 __all__ = [
     "AutoFillUniverseConfig",
+    "BindingResolver",
+    "BindingResolverProtocol",
+    "BuildArtifacts",
+    "ConfigResolver",
+    "ConfigResolverProtocol",
     "DatasetBuildConfig",
+    "DatasetBuilder",
+    "DatasetBuilderProtocol",
+    "DiscoveryClient",
+    "DiscoveryClientProtocol",
     "HPOConfig",
+    "IngestionCoordinator",
+    "IngestionCoordinatorProtocol",
     "IngestionStageConfig",
     "IntegrationConfig",
     "MLPipelineOrchestrator",
