@@ -71,6 +71,11 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
+from ml.registry.ab_testing_manager import ABTestingManager
+from ml.registry.canary_deployment_mgr import CanaryDeploymentManager
+from ml.registry.model_deployment_mgr import ModelDeploymentManager
+from ml.registry.model_persistence import ModelPersistence
+from ml.registry.model_quality_validator import ModelQualityValidator
 from ml.registry.model_registry import ModelRegistry
 
 # =============================================================================
@@ -112,10 +117,12 @@ from ml.registry.utils import build_student_manifest
 # =============================================================================
 
 __all__ = [
+    "ABTestingManager",
     "AbstractRegistry",
     "BackendType",
     "CanaryConfig",
     "CanaryDeployment",
+    "CanaryDeploymentManager",
     "DataContract",
     "DataRegistry",
     "DataRequirements",
@@ -130,8 +137,11 @@ __all__ = [
     "FeatureRole",
     "FeatureStage",
     "MarketRegime",
+    "ModelDeploymentManager",
     "ModelInfo",
     "ModelManifest",
+    "ModelPersistence",
+    "ModelQualityValidator",
     "ModelRegistry",
     "ModelRole",
     "ModelSummary",
