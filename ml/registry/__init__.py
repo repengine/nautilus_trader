@@ -29,6 +29,7 @@ Backends: Configurable JSON (development) or PostgreSQL (production) persistence
 # 4 MANDATORY REGISTRIES (Pattern 1 Requirement)
 # =============================================================================
 
+from ml.registry.ab_testing_manager import ABTestingManager
 from ml.registry.abstract_registry import AbstractRegistry
 from ml.registry.base import DataRequirements
 
@@ -41,6 +42,7 @@ from ml.registry.base import DummyRegistry
 from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.canary_deployment_mgr import CanaryDeploymentManager
 from ml.registry.data_registry import DataRegistry
 from ml.registry.data_registry import Watermark
 
@@ -71,8 +73,6 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
-from ml.registry.ab_testing_manager import ABTestingManager
-from ml.registry.canary_deployment_mgr import CanaryDeploymentManager
 from ml.registry.model_deployment_mgr import ModelDeploymentManager
 from ml.registry.model_persistence import ModelPersistence
 from ml.registry.model_quality_validator import ModelQualityValidator

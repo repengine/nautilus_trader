@@ -186,9 +186,7 @@ class ModelRegistry(AbstractRegistry):
         )
 
         # Load registry data
-        self._models, self._ab_tests, self._deployments = (
-            self._model_persistence.load_registry()
-        )
+        self._models, self._ab_tests, self._deployments = self._model_persistence.load_registry()
 
         # Initialize other components
         self._quality_validator = ModelQualityValidator()
@@ -287,6 +285,7 @@ class ModelRegistry(AbstractRegistry):
 
         # Calculate and set artifact SHA-256 digest for integrity verification
         from ml.config.constants import SUFFIX_ONNX
+
         if model_path.suffix == SUFFIX_ONNX:
             try:
                 artifact_digest = self._model_persistence.calculate_file_sha256(model_path)
@@ -395,6 +394,7 @@ class ModelRegistry(AbstractRegistry):
             manifest.version = f"{major}.{minor}.{int(patch) + 1}"
         else:
             from ml.config.constants import Versions
+
             manifest.version = Versions.DEFAULT_MANIFEST_VERSION
 
     def _apply_quality_gates(
@@ -652,13 +652,17 @@ class ModelRegistry(AbstractRegistry):
         return self._deployment_manager.deploy_model(model_id, target, config)
 
     def get_active_models(self) -> list[ModelInfo]:
-        """Get all currently deployed models."""
+        """
+        Get all currently deployed models.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_active_models()
         return self._deployment_manager.get_active_models()
 
     def get_all_models(self) -> list[ModelInfo]:
-        """Get all registered models."""
+        """
+        Get all registered models.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_all_models()
         return self._deployment_manager.get_all_models()
@@ -669,7 +673,9 @@ class ModelRegistry(AbstractRegistry):
         role: ModelRole | None = None,
         architecture: str | None = None,
     ) -> list[ModelInfo]:
-        """List models compatible with a given feature schema hash."""
+        """
+        List models compatible with a given feature schema hash.
+        """
         if self._use_legacy:
             return self._legacy_impl.list_compatible(schema_hash, role, architecture)
         return self._deployment_manager.list_compatible(schema_hash, role, architecture)
@@ -680,19 +686,25 @@ class ModelRegistry(AbstractRegistry):
         architecture: str,
         schema_hash: str,
     ) -> ModelInfo | None:
-        """Resolve the latest model by version matching criteria."""
+        """
+        Resolve the latest model by version matching criteria.
+        """
         if self._use_legacy:
             return self._legacy_impl.resolve_latest(role, architecture, schema_hash)
         return self._deployment_manager.resolve_latest(role, architecture, schema_hash)
 
     def get_model(self, model_id: str) -> ModelInfo | None:
-        """Get information about a specific model."""
+        """
+        Get information about a specific model.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_model(model_id)
         return self._deployment_manager.get_model(model_id)
 
     def get_models_by_role(self, role: ModelRole) -> list[ModelInfo]:
-        """Get all models with a specific role."""
+        """
+        Get all models with a specific role.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_models_by_role(role)
         return self._deployment_manager.get_models_by_role(role)
@@ -701,13 +713,17 @@ class ModelRegistry(AbstractRegistry):
         self,
         requirements: DataRequirements,
     ) -> list[ModelInfo]:
-        """Get all models with specific data requirements."""
+        """
+        Get all models with specific data requirements.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_models_by_data_requirements(requirements)
         return self._deployment_manager.get_models_by_data_requirements(requirements)
 
     def get_model_lineage(self, model_id: str) -> list[ModelInfo]:
-        """Get complete lineage of a model (parents and children)."""
+        """
+        Get complete lineage of a model (parents and children).
+        """
         if self._use_legacy:
             return self._legacy_impl.get_model_lineage(model_id)
         return self._deployment_manager.get_model_lineage(model_id)
@@ -717,13 +733,17 @@ class ModelRegistry(AbstractRegistry):
         model_id: str,
         metrics: dict[str, Any],
     ) -> None:
-        """Track model performance metrics."""
+        """
+        Track model performance metrics.
+        """
         if self._use_legacy:
             return self._legacy_impl.track_performance(model_id, metrics)
         return self._deployment_manager.track_performance(model_id, metrics)
 
     def update_metadata(self, model_id: str, metadata: dict[str, Any]) -> None:
-        """Update arbitrary metadata for a registered model."""
+        """
+        Update arbitrary metadata for a registered model.
+        """
         if self._use_legacy:
             return self._legacy_impl.update_metadata(model_id, metadata)
         return self._deployment_manager.update_metadata(model_id, metadata)
@@ -732,7 +752,9 @@ class ModelRegistry(AbstractRegistry):
         self,
         model_id: str,
     ) -> list[dict[str, Any]]:
-        """Get performance history for a model."""
+        """
+        Get performance history for a model.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_performance_history(model_id)
         return self._deployment_manager.get_performance_history(model_id)
@@ -742,13 +764,17 @@ class ModelRegistry(AbstractRegistry):
         target: str,
         to_model_id: str,
     ) -> bool:
-        """Rollback to a previous model version."""
+        """
+        Rollback to a previous model version.
+        """
         if self._use_legacy:
             return self._legacy_impl.rollback(target, to_model_id)
         return self._deployment_manager.rollback(target, to_model_id)
 
     def retire_model(self, model_id: str) -> bool:
-        """Retire a model from production."""
+        """
+        Retire a model from production.
+        """
         if self._use_legacy:
             return self._legacy_impl.retire_model(model_id)
         return self._deployment_manager.retire_model(model_id)
@@ -758,7 +784,9 @@ class ModelRegistry(AbstractRegistry):
         target: str,
         new_model_id: str,
     ) -> bool:
-        """Hot reload a deployment with a new model."""
+        """
+        Hot reload a deployment with a new model.
+        """
         if self._use_legacy:
             return self._legacy_impl.hot_reload_model(target, new_model_id)
         return self._deployment_manager.hot_reload_model(target, new_model_id)
@@ -818,7 +846,9 @@ class ModelRegistry(AbstractRegistry):
         duration_hours: int,
         target: str,
     ) -> dict[str, Any] | None:
-        """Configure A/B test between models."""
+        """
+        Configure A/B test between models.
+        """
         if self._use_legacy:
             return self._legacy_impl.configure_ab_test(
                 models,
@@ -838,7 +868,9 @@ class ModelRegistry(AbstractRegistry):
         model_ids: list[str],
         metric: str,
     ) -> dict[str, Any] | None:
-        """Compare performance between models."""
+        """
+        Compare performance between models.
+        """
         if self._use_legacy:
             return self._legacy_impl.compare_models(model_ids, metric)
         return self._ab_testing_manager.compare_models(model_ids, metric)
@@ -848,7 +880,9 @@ class ModelRegistry(AbstractRegistry):
         model_ids: list[str],
         metric: str,
     ) -> dict[str, Any] | None:
-        """Perform statistical comparison using Welch's t-test."""
+        """
+        Perform statistical comparison using Welch's t-test.
+        """
         if self._use_legacy:
             return self._legacy_impl.compare_models_statistically(model_ids, metric)
         return self._ab_testing_manager.compare_models_statistically(model_ids, metric)
@@ -861,7 +895,9 @@ class ModelRegistry(AbstractRegistry):
         duration_hours: float,
         target: str,
     ) -> str:
-        """Start an A/B test between two models."""
+        """
+        Start an A/B test between two models.
+        """
         if self._use_legacy:
             return self._legacy_impl.run_ab_test(
                 model_a_id,
@@ -884,13 +920,17 @@ class ModelRegistry(AbstractRegistry):
         model_id: str,
         metric_value: float,
     ) -> None:
-        """Track metric for A/B test."""
+        """
+        Track metric for A/B test.
+        """
         if self._use_legacy:
             return self._legacy_impl.track_ab_test_metric(test_id, model_id, metric_value)
         return self._ab_testing_manager.track_ab_test_metric(test_id, model_id, metric_value)
 
     def analyze_ab_test(self, test_id: str) -> dict[str, Any] | None:
-        """Analyze A/B test results."""
+        """
+        Analyze A/B test results.
+        """
         if self._use_legacy:
             return self._legacy_impl.analyze_ab_test(test_id)
         return self._ab_testing_manager.analyze_ab_test(test_id)
@@ -906,7 +946,9 @@ class ModelRegistry(AbstractRegistry):
         config: CanaryConfig,
         baseline_model_id: str | None = None,
     ) -> str:
-        """Start a canary deployment for a model."""
+        """
+        Start a canary deployment for a model.
+        """
         if self._use_legacy:
             return self._legacy_impl.start_canary_deployment(
                 model_id,
@@ -922,7 +964,9 @@ class ModelRegistry(AbstractRegistry):
         )
 
     def get_canary_deployment(self, deployment_id: str) -> CanaryDeployment | None:
-        """Get canary deployment by ID."""
+        """
+        Get canary deployment by ID.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_canary_deployment(deployment_id)
         return self._canary_deployment_manager.get_canary_deployment(deployment_id)
@@ -934,7 +978,9 @@ class ModelRegistry(AbstractRegistry):
         latency_ms: float | None = None,
         error_occurred: bool = False,
     ) -> None:
-        """Update metrics for a canary deployment."""
+        """
+        Update metrics for a canary deployment.
+        """
         if self._use_legacy:
             return self._legacy_impl.update_canary_metrics(
                 deployment_id,
@@ -950,19 +996,25 @@ class ModelRegistry(AbstractRegistry):
         )
 
     def evaluate_canary(self, deployment_id: str) -> tuple[bool, str]:
-        """Evaluate if canary should be promoted."""
+        """
+        Evaluate if canary should be promoted.
+        """
         if self._use_legacy:
             return self._legacy_impl.evaluate_canary(deployment_id)
         return self._canary_deployment_manager.evaluate_canary(deployment_id)
 
     def evaluate_canary_for_rollback(self, deployment_id: str) -> tuple[bool, str]:
-        """Evaluate if canary should be rolled back."""
+        """
+        Evaluate if canary should be rolled back.
+        """
         if self._use_legacy:
             return self._legacy_impl.evaluate_canary_for_rollback(deployment_id)
         return self._canary_deployment_manager.evaluate_canary_for_rollback(deployment_id)
 
     def auto_promote_canary(self, deployment_id: str) -> bool:
-        """Automatically promote a canary to full production."""
+        """
+        Automatically promote a canary to full production.
+        """
         if self._use_legacy:
             return self._legacy_impl.auto_promote_canary(deployment_id)
         return self._canary_deployment_manager.auto_promote_canary(deployment_id)
@@ -975,7 +1027,9 @@ class ModelRegistry(AbstractRegistry):
         stages: list[float],
         stage_duration_minutes: int,
     ) -> str:
-        """Start gradual rollout of a new model."""
+        """
+        Start gradual rollout of a new model.
+        """
         if self._use_legacy:
             return self._legacy_impl.start_gradual_rollout(
                 current_model_id,
@@ -993,13 +1047,17 @@ class ModelRegistry(AbstractRegistry):
         )
 
     def get_rollout_status(self, rollout_id: str) -> dict[str, Any] | None:
-        """Get rollout status."""
+        """
+        Get rollout status.
+        """
         if self._use_legacy:
             return self._legacy_impl.get_rollout_status(rollout_id)
         return self._canary_deployment_manager.get_rollout_status(rollout_id)
 
     def advance_rollout_stage(self, rollout_id: str) -> bool:
-        """Advance to next rollout stage."""
+        """
+        Advance to next rollout stage.
+        """
         if self._use_legacy:
             return self._legacy_impl.advance_rollout_stage(rollout_id)
         return self._canary_deployment_manager.advance_rollout_stage(rollout_id)
@@ -1009,7 +1067,9 @@ class ModelRegistry(AbstractRegistry):
     # =========================================================================
 
     def _health_snapshot(self) -> tuple[int, float | None]:
-        """Get health snapshot for AbstractRegistry."""
+        """
+        Get health snapshot for AbstractRegistry.
+        """
         if self._use_legacy:
             return self._legacy_impl._health_snapshot()
         try:
@@ -1029,7 +1089,9 @@ class ModelRegistry(AbstractRegistry):
     # =========================================================================
 
     def __del__(self) -> None:
-        """Ensure pending saves are flushed on cleanup."""
+        """
+        Ensure pending saves are flushed on cleanup.
+        """
         if self._use_legacy and hasattr(self, "_legacy_impl"):
             # Legacy handles its own cleanup
             return

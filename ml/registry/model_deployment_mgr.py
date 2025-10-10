@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-"""Model deployment management and lifecycle tracking."""
+"""
+Model deployment management and lifecycle tracking.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class ModelDeploymentManagerProtocol(Protocol):
-    """Protocol for model deployment operations."""
+    """
+    Protocol for model deployment operations.
+    """
 
     def deploy_model(
         self,
@@ -26,46 +30,66 @@ class ModelDeploymentManagerProtocol(Protocol):
         target: str,
         config: dict[str, Any] | None = None,
     ) -> bool:
-        """Deploy a model to a target."""
+        """
+        Deploy a model to a target.
+        """
         ...
 
     def rollback(self, target: str, to_model_id: str) -> bool:
-        """Rollback to a previous model version."""
+        """
+        Rollback to a previous model version.
+        """
         ...
 
     def retire_model(self, model_id: str) -> bool:
-        """Retire a model from production."""
+        """
+        Retire a model from production.
+        """
         ...
 
     def hot_reload_model(self, target: str, new_model_id: str) -> bool:
-        """Hot reload a deployment with a new model."""
+        """
+        Hot reload a deployment with a new model.
+        """
         ...
 
     def get_active_models(self) -> list[ModelInfo]:
-        """Get all currently deployed models."""
+        """
+        Get all currently deployed models.
+        """
         ...
 
     def get_all_models(self) -> list[ModelInfo]:
-        """Get all registered models."""
+        """
+        Get all registered models.
+        """
         ...
 
     def get_model(self, model_id: str) -> ModelInfo | None:
-        """Get information about a specific model."""
+        """
+        Get information about a specific model.
+        """
         ...
 
     def get_models_by_role(self, role: ModelRole) -> list[ModelInfo]:
-        """Get all models with a specific role."""
+        """
+        Get all models with a specific role.
+        """
         ...
 
     def get_models_by_data_requirements(
         self,
         requirements: DataRequirements,
     ) -> list[ModelInfo]:
-        """Get all models with specific data requirements."""
+        """
+        Get all models with specific data requirements.
+        """
         ...
 
     def get_model_lineage(self, model_id: str) -> list[ModelInfo]:
-        """Get complete lineage of a model (parents and children)."""
+        """
+        Get complete lineage of a model (parents and children).
+        """
         ...
 
     def track_performance(
@@ -73,18 +97,24 @@ class ModelDeploymentManagerProtocol(Protocol):
         model_id: str,
         metrics: dict[str, Any],
     ) -> None:
-        """Track model performance metrics."""
+        """
+        Track model performance metrics.
+        """
         ...
 
     def update_metadata(self, model_id: str, metadata: dict[str, Any]) -> None:
-        """Update arbitrary metadata for a registered model."""
+        """
+        Update arbitrary metadata for a registered model.
+        """
         ...
 
     def get_performance_history(
         self,
         model_id: str,
     ) -> list[dict[str, Any]]:
-        """Get performance history for a model."""
+        """
+        Get performance history for a model.
+        """
         ...
 
     def list_compatible(
@@ -93,7 +123,9 @@ class ModelDeploymentManagerProtocol(Protocol):
         role: ModelRole | None = None,
         architecture: str | None = None,
     ) -> list[ModelInfo]:
-        """List models compatible with a given feature schema hash."""
+        """
+        List models compatible with a given feature schema hash.
+        """
         ...
 
     def resolve_latest(
@@ -102,7 +134,9 @@ class ModelDeploymentManagerProtocol(Protocol):
         architecture: str,
         schema_hash: str,
     ) -> ModelInfo | None:
-        """Resolve the latest model by version matching criteria."""
+        """
+        Resolve the latest model by version matching criteria.
+        """
         ...
 
 
@@ -270,7 +304,8 @@ class ModelDeploymentManager:
         schema_hash: str,
     ) -> ModelInfo | None:
         """
-        Resolve the latest model by version matching role, architecture, and schema hash.
+        Resolve the latest model by version matching role, architecture, and schema
+        hash.
 
         Uses lexical comparison of version strings.
 
@@ -332,9 +367,7 @@ class ModelDeploymentManager:
 
         """
         return [
-            model_info
-            for model_info in self._models.values()
-            if model_info.manifest.role == role
+            model_info for model_info in self._models.values() if model_info.manifest.role == role
         ]
 
     def get_models_by_data_requirements(

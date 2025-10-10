@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-"""Canary deployment and gradual rollout management."""
+"""
+Canary deployment and gradual rollout management.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class CanaryDeploymentManagerProtocol(Protocol):
-    """Protocol for canary deployment operations."""
+    """
+    Protocol for canary deployment operations.
+    """
 
     def start_canary_deployment(
         self,
@@ -28,11 +32,15 @@ class CanaryDeploymentManagerProtocol(Protocol):
         config: CanaryConfig,
         baseline_model_id: str | None = None,
     ) -> str:
-        """Start a canary deployment for a model."""
+        """
+        Start a canary deployment for a model.
+        """
         ...
 
     def get_canary_deployment(self, deployment_id: str) -> CanaryDeployment | None:
-        """Get canary deployment by ID."""
+        """
+        Get canary deployment by ID.
+        """
         ...
 
     def update_canary_metrics(
@@ -42,19 +50,27 @@ class CanaryDeploymentManagerProtocol(Protocol):
         latency_ms: float | None = None,
         error_occurred: bool = False,
     ) -> None:
-        """Update metrics for a canary deployment."""
+        """
+        Update metrics for a canary deployment.
+        """
         ...
 
     def evaluate_canary(self, deployment_id: str) -> tuple[bool, str]:
-        """Evaluate if canary should be promoted."""
+        """
+        Evaluate if canary should be promoted.
+        """
         ...
 
     def evaluate_canary_for_rollback(self, deployment_id: str) -> tuple[bool, str]:
-        """Evaluate if canary should be rolled back."""
+        """
+        Evaluate if canary should be rolled back.
+        """
         ...
 
     def auto_promote_canary(self, deployment_id: str) -> bool:
-        """Automatically promote a canary to full production."""
+        """
+        Automatically promote a canary to full production.
+        """
         ...
 
     def start_gradual_rollout(
@@ -65,15 +81,21 @@ class CanaryDeploymentManagerProtocol(Protocol):
         stages: list[float],
         stage_duration_minutes: int,
     ) -> str:
-        """Start gradual rollout of a new model."""
+        """
+        Start gradual rollout of a new model.
+        """
         ...
 
     def get_rollout_status(self, rollout_id: str) -> dict[str, Any] | None:
-        """Get rollout status."""
+        """
+        Get rollout status.
+        """
         ...
 
     def advance_rollout_stage(self, rollout_id: str) -> bool:
-        """Advance to next rollout stage."""
+        """
+        Advance to next rollout stage.
+        """
         ...
 
 

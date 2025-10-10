@@ -49,7 +49,9 @@ except Exception:  # pragma: no cover
 
 
 class ModelPersistenceProtocol(Protocol):
-    """Protocol for model persistence operations."""
+    """
+    Protocol for model persistence operations.
+    """
 
     def load_registry(self) -> tuple[
         dict[str, ModelInfo],
@@ -84,8 +86,8 @@ class ModelPersistence:
     """
     Manages model persistence, artifact loading, and integrity verification.
 
-    Handles both JSON and PostgreSQL backends, implements model caching with
-    LRU eviction, and provides SHA-256 integrity verification for security.
+    Handles both JSON and PostgreSQL backends, implements model caching with LRU
+    eviction, and provides SHA-256 integrity verification for security.
 
     This component is extracted from ModelRegistry god class to provide focused,
     testable persistence functionality.
@@ -133,11 +135,14 @@ class ModelPersistence:
         self._lock = threading.RLock()
         self._pending_save = False
         self._save_timer: threading.Timer | None = None
-        self._pending_data: tuple[
-            dict[str, ModelInfo],
-            dict[str, dict[str, Any]],
-            dict[str, list[str]],
-        ] | None = None
+        self._pending_data: (
+            tuple[
+                dict[str, ModelInfo],
+                dict[str, dict[str, Any]],
+                dict[str, list[str]],
+            ]
+            | None
+        ) = None
 
         logger.debug(
             "Initialized ModelPersistence with backend=%s, cache_size=%d",
@@ -147,7 +152,9 @@ class ModelPersistence:
 
     @property
     def backend(self) -> BackendType:
-        """Get persistence backend type."""
+        """
+        Get persistence backend type.
+        """
         return self.persistence.config.backend
 
     def load_registry(self) -> tuple[
@@ -177,7 +184,9 @@ class ModelPersistence:
         dict[str, dict[str, Any]],
         dict[str, list[str]],
     ]:
-        """Load registry from JSON file."""
+        """
+        Load registry from JSON file.
+        """
         if self.registry_file.exists():
             data = self.persistence.load_json("registry.json")
             if data is not None:
@@ -196,7 +205,9 @@ class ModelPersistence:
         dict[str, dict[str, Any]],
         dict[str, list[str]],
     ]:
-        """Load registry from PostgreSQL."""
+        """
+        Load registry from PostgreSQL.
+        """
         session = self.persistence.get_session()
         if session is None:
             return {}, {}, {}
@@ -284,7 +295,9 @@ class ModelPersistence:
         ab_tests: dict[str, dict[str, Any]],
         deployments: dict[str, list[str]],
     ) -> None:
-        """Perform the actual save to disk."""
+        """
+        Perform the actual save to disk.
+        """
         if self.backend == BackendType.JSON:
             self._save_to_json(models, ab_tests, deployments)
         elif self.backend == BackendType.POSTGRES:
@@ -296,7 +309,9 @@ class ModelPersistence:
         ab_tests: dict[str, dict[str, Any]],
         deployments: dict[str, list[str]],
     ) -> None:
-        """Save registry to JSON file."""
+        """
+        Save registry to JSON file.
+        """
         try:
             data = {
                 "models": {
@@ -320,12 +335,16 @@ class ModelPersistence:
             raise
 
     def _save_to_postgres(self, models: dict[str, ModelInfo]) -> None:
-        """Save all models to PostgreSQL."""
+        """
+        Save all models to PostgreSQL.
+        """
         for model_info in models.values():
             self._save_model_to_db(model_info)
 
     def _flush_batch_save(self) -> None:
-        """Flush pending batch saves."""
+        """
+        Flush pending batch saves.
+        """
         with self._lock:
             if self._pending_save and self._pending_data is not None:
                 try:
@@ -345,7 +364,9 @@ class ModelPersistence:
                     self._pending_data = None
 
     def _model_info_to_dict(self, model_info: ModelInfo) -> dict[str, Any]:
-        """Convert ModelInfo to dictionary for JSON serialization."""
+        """
+        Convert ModelInfo to dictionary for JSON serialization.
+        """
         manifest_dict = {
             "model_id": model_info.manifest.model_id,
             "role": model_info.manifest.role.value,
@@ -381,7 +402,9 @@ class ModelPersistence:
         }
 
     def _dict_to_model_info(self, data: dict[str, Any]) -> ModelInfo:
-        """Convert dictionary to ModelInfo."""
+        """
+        Convert dictionary to ModelInfo.
+        """
         # Handle both old and new format
         if "manifest" in data:
             manifest_data = data["manifest"]
@@ -435,7 +458,9 @@ class ModelPersistence:
         )
 
     def _db_to_model_info(self, db_model: ModelTable) -> ModelInfo:
-        """Convert database model to ModelInfo."""
+        """
+        Convert database model to ModelInfo.
+        """
         manifest = ModelManifest(
             model_id=db_model.model_id,
             role=ModelRole(db_model.role),
@@ -471,7 +496,9 @@ class ModelPersistence:
         )
 
     def _save_model_to_db(self, model_info: ModelInfo) -> None:
-        """Save model to PostgreSQL database."""
+        """
+        Save model to PostgreSQL database.
+        """
         session = self.persistence.get_session()
         if session is None:
             return
@@ -479,9 +506,7 @@ class ModelPersistence:
         try:
             # Check if model exists
             existing = (
-                session.query(ModelTable)
-                .filter_by(model_id=model_info.manifest.model_id)
-                .first()
+                session.query(ModelTable).filter_by(model_id=model_info.manifest.model_id).first()
             )
 
             if existing:
@@ -639,7 +664,9 @@ class ModelPersistence:
                 f"The model artifact may have been tampered with and is rejected for security.",
             )
 
-        logger.debug("Artifact integrity verified for %s: %s...", file_path.name, actual_digest[:16])
+        logger.debug(
+            "Artifact integrity verified for %s: %s...", file_path.name, actual_digest[:16]
+        )
 
     def load_model(self, model_id: str, model_info: ModelInfo) -> object | None:
         """
@@ -800,7 +827,9 @@ class ModelPersistence:
                     logger.debug("Flushed pending batch saves")
 
     def __del__(self) -> None:
-        """Ensure pending saves are flushed on cleanup."""
+        """
+        Ensure pending saves are flushed on cleanup.
+        """
         try:
             self.flush()
         except Exception as exc:

@@ -21,7 +21,9 @@ from ml.registry.model_quality_validator import ModelQualityValidator
 
 @pytest.fixture
 def validator():
-    """Create ModelQualityValidator instance."""
+    """
+    Create ModelQualityValidator instance.
+    """
     return ModelQualityValidator()
 
 
@@ -178,7 +180,9 @@ def test_evaluate_gate_eq_fail(validator):
 
 
 def test_evaluate_gate_eq_float_precision(validator):
-    """Test eq comparison with floating point precision."""
+    """
+    Test eq comparison with floating point precision.
+    """
     gate = QualityGate(
         metric_name="precision",
         threshold=0.5,
@@ -196,7 +200,9 @@ def test_evaluate_gate_eq_float_precision(validator):
 
 
 def test_evaluate_gate_missing_metric(validator):
-    """Test evaluation when metric is missing."""
+    """
+    Test evaluation when metric is missing.
+    """
     gate = QualityGate(
         metric_name="missing_metric",
         threshold=0.8,
@@ -215,7 +221,9 @@ def test_evaluate_gate_missing_metric(validator):
 
 
 def test_validate_quality_gates_all_pass(validator):
-    """Test validation when all gates pass."""
+    """
+    Test validation when all gates pass.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
         QualityGate("precision", 0.75, "gte", required=True),
@@ -236,7 +244,9 @@ def test_validate_quality_gates_all_pass(validator):
 
 
 def test_validate_quality_gates_optional_fail(validator):
-    """Test validation when optional gate fails but required pass."""
+    """
+    Test validation when optional gate fails but required pass.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
         QualityGate("recall", 0.9, "gte", required=False),
@@ -255,7 +265,9 @@ def test_validate_quality_gates_optional_fail(validator):
 
 
 def test_validate_quality_gates_required_fail(validator):
-    """Test validation when required gate fails."""
+    """
+    Test validation when required gate fails.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
         QualityGate("precision", 0.9, "gte", required=True),
@@ -274,7 +286,9 @@ def test_validate_quality_gates_required_fail(validator):
 
 
 def test_validate_quality_gates_missing_metric(validator):
-    """Test validation when metric is missing."""
+    """
+    Test validation when metric is missing.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
         QualityGate("missing_metric", 0.9, "gte", required=True),
@@ -297,7 +311,9 @@ def test_validate_quality_gates_missing_metric(validator):
 
 
 def test_validate_quality_gates_result_structure(validator):
-    """Test that validation result has correct structure."""
+    """
+    Test that validation result has correct structure.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
     ]
@@ -318,7 +334,9 @@ def test_validate_quality_gates_result_structure(validator):
 
 
 def test_validate_quality_gates_empty_gates(validator):
-    """Test validation with no gates."""
+    """
+    Test validation with no gates.
+    """
     gates = []
     metrics = {"accuracy": 0.85}
 
@@ -330,7 +348,9 @@ def test_validate_quality_gates_empty_gates(validator):
 
 
 def test_validate_quality_gates_empty_metrics(validator):
-    """Test validation with no metrics."""
+    """
+    Test validation with no metrics.
+    """
     gates = [
         QualityGate("accuracy", 0.8, "gte", required=True),
     ]
@@ -344,7 +364,9 @@ def test_validate_quality_gates_empty_metrics(validator):
 
 
 def test_validate_quality_gates_all_optional_fail(validator):
-    """Test validation when all gates are optional and fail."""
+    """
+    Test validation when all gates are optional and fail.
+    """
     gates = [
         QualityGate("accuracy", 0.9, "gte", required=False),
         QualityGate("precision", 0.9, "gte", required=False),
@@ -366,7 +388,9 @@ def test_validate_quality_gates_all_optional_fail(validator):
 
 
 def test_margin_calculation_gte(validator):
-    """Test margin calculation for gte comparison."""
+    """
+    Test margin calculation for gte comparison.
+    """
     gate = QualityGate("metric", 0.8, "gte", required=True)
 
     # Passing case
@@ -379,7 +403,9 @@ def test_margin_calculation_gte(validator):
 
 
 def test_margin_calculation_lte(validator):
-    """Test margin calculation for lte comparison."""
+    """
+    Test margin calculation for lte comparison.
+    """
     gate = QualityGate("metric", 100.0, "lte", required=True)
 
     # Passing case
@@ -395,7 +421,9 @@ def test_margin_calculation_lte(validator):
 
 
 def test_validate_different_models(validator):
-    """Test validating multiple different models."""
+    """
+    Test validating multiple different models.
+    """
     gates = [QualityGate("accuracy", 0.8, "gte", required=True)]
 
     # Model 1 - passes
@@ -415,7 +443,9 @@ def test_validate_different_models(validator):
 
 
 def test_validate_complex_scenario(validator):
-    """Test validation with complex mix of gates and metrics."""
+    """
+    Test validation with complex mix of gates and metrics.
+    """
     gates = [
         QualityGate("accuracy", 0.85, "gte", required=True),
         QualityGate("precision", 0.80, "gte", required=True),
@@ -445,28 +475,36 @@ def test_validate_complex_scenario(validator):
 
 
 def test_evaluate_gate_boundary_gte(validator):
-    """Test gte at boundary (equal value)."""
+    """
+    Test gte at boundary (equal value).
+    """
     gate = QualityGate("metric", 0.8, "gte", required=True)
     result = validator.evaluate_gate(gate, 0.8)
     assert result["passed"] is True
 
 
 def test_evaluate_gate_boundary_lte(validator):
-    """Test lte at boundary (equal value)."""
+    """
+    Test lte at boundary (equal value).
+    """
     gate = QualityGate("metric", 0.8, "lte", required=True)
     result = validator.evaluate_gate(gate, 0.8)
     assert result["passed"] is True
 
 
 def test_evaluate_gate_zero_values(validator):
-    """Test with zero values."""
+    """
+    Test with zero values.
+    """
     gate = QualityGate("metric", 0.0, "gte", required=True)
     result = validator.evaluate_gate(gate, 0.0)
     assert result["passed"] is True
 
 
 def test_evaluate_gate_negative_values(validator):
-    """Test with negative values."""
+    """
+    Test with negative values.
+    """
     gate = QualityGate("metric", -1.0, "gte", required=True)
     result = validator.evaluate_gate(gate, -0.5)
     assert result["passed"] is True
@@ -476,7 +514,9 @@ def test_evaluate_gate_negative_values(validator):
 
 
 def test_validation_result_initialization():
-    """Test ValidationResult initialization."""
+    """
+    Test ValidationResult initialization.
+    """
     result = ValidationResult(model_id="test_model")
 
     assert result.model_id == "test_model"

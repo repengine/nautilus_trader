@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-"""A/B testing configuration and statistical analysis."""
+"""
+A/B testing configuration and statistical analysis.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 class ABTestingManagerProtocol(Protocol):
-    """Protocol for A/B testing operations."""
+    """
+    Protocol for A/B testing operations.
+    """
 
     def configure_ab_test(
         self,
@@ -26,7 +30,9 @@ class ABTestingManagerProtocol(Protocol):
         duration_hours: int,
         target: str,
     ) -> dict[str, Any] | None:
-        """Configure A/B test between models."""
+        """
+        Configure A/B test between models.
+        """
         ...
 
     def run_ab_test(
@@ -37,7 +43,9 @@ class ABTestingManagerProtocol(Protocol):
         duration_hours: float,
         target: str,
     ) -> str:
-        """Start an A/B test between two models."""
+        """
+        Start an A/B test between two models.
+        """
         ...
 
     def track_ab_test_metric(
@@ -46,11 +54,15 @@ class ABTestingManagerProtocol(Protocol):
         model_id: str,
         metric_value: float,
     ) -> None:
-        """Track metric for A/B test."""
+        """
+        Track metric for A/B test.
+        """
         ...
 
     def analyze_ab_test(self, test_id: str) -> dict[str, Any] | None:
-        """Analyze A/B test results."""
+        """
+        Analyze A/B test results.
+        """
         ...
 
     def compare_models(
@@ -58,7 +70,9 @@ class ABTestingManagerProtocol(Protocol):
         model_ids: list[str],
         metric: str,
     ) -> dict[str, Any] | None:
-        """Compare performance between models."""
+        """
+        Compare performance between models.
+        """
         ...
 
     def compare_models_statistically(
@@ -66,7 +80,9 @@ class ABTestingManagerProtocol(Protocol):
         model_ids: list[str],
         metric: str,
     ) -> dict[str, Any] | None:
-        """Perform statistical comparison using Welch's t-test."""
+        """
+        Perform statistical comparison using Welch's t-test.
+        """
         ...
 
 

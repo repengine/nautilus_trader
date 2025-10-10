@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 class ModelQualityValidatorProtocol(Protocol):
-    """Protocol for model quality validation operations."""
+    """
+    Protocol for model quality validation operations.
+    """
 
     def validate_quality_gates(
         self,
@@ -44,9 +46,8 @@ class ModelQualityValidator:
     """
     Validates models against quality gates.
 
-    Performs quality gate evaluation with support for multiple comparison
-    operators (gte, lte, gt, lt, eq), required vs optional gates, and detailed
-    result reporting.
+    Performs quality gate evaluation with support for multiple comparison operators
+    (gte, lte, gt, lt, eq), required vs optional gates, and detailed result reporting.
 
     This component is extracted from ModelRegistry god class to provide focused,
     testable quality validation functionality.
@@ -54,7 +55,9 @@ class ModelQualityValidator:
     """
 
     def __init__(self) -> None:
-        """Initialize quality validator."""
+        """
+        Initialize quality validator.
+        """
         logger.debug("Initialized ModelQualityValidator")
 
     def validate_quality_gates(

@@ -109,18 +109,21 @@ The ModelPersistence component handles:
 ## Validation Results
 
 ### Import Tests
+
 ```bash
 ✅ python -c "from ml.registry.model_persistence import ModelPersistence"
 ✅ python -c "from ml.registry import ModelPersistence"
 ```
 
 ### Unit Tests
+
 ```bash
 ✅ pytest ml/tests/unit/registry/test_model_persistence.py
    26 passed, 0 failed, 4 warnings
 ```
 
 ### Code Quality
+
 ```bash
 ✅ ruff check ml/registry/model_persistence.py
    All checks passed!
@@ -138,12 +141,14 @@ Supports both JSON (development) and PostgreSQL (production) through `Persistenc
 Stores pending data (`_pending_data`) to enable `flush()` to work independently without external state access.
 
 ### 4. Security-First Approach
+
 - SHA-256 integrity verification for all ONNX artifacts
 - Path traversal prevention
 - ONNX-only loading for serveable models
 - Comprehensive logging of security events
 
 ### 5. Thread-Safe Operations
+
 - RLock for all mutations
 - Atomic batch save with threading.Timer
 - Safe cleanup in __del__
@@ -182,6 +187,7 @@ Stores pending data (`_pending_data`) to enable `flush()` to work independently 
 ## Security Improvements
 
 ### SHA-256 Integrity Verification
+
 ```python
 # SECURITY: Verify before loading
 self.verify_artifact_integrity(model_path, expected_digest)
@@ -197,6 +203,7 @@ logger.error(
 ```
 
 ### Path Traversal Prevention
+
 ```python
 def _validate_model_path(self, path: Path) -> bool:
     """Prevent path traversal attacks."""
@@ -211,12 +218,14 @@ def _validate_model_path(self, path: Path) -> bool:
 ## Dependencies
 
 ### Required
+
 - `ml.registry.base` - ModelInfo, ModelManifest, enums
 - `ml.registry.persistence` - PersistenceManager, BackendType
 - `ml.config.runtime` - OnnxRuntimeConfig
 - `ml.common.security` - ONNX runtime imports (with fallback)
 
 ### Optional
+
 - `onnxruntime` - For loading ONNX models
 
 ## Future Enhancements
@@ -244,6 +253,7 @@ Writing tests that work with both JSON and PostgreSQL backends required careful 
 ## Conclusion
 
 Successfully extracted ModelPersistence component from ModelRegistry god class with:
+
 - ✅ Zero breaking changes
 - ✅ 100% test coverage
 - ✅ Zero ruff violations

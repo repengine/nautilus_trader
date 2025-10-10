@@ -1261,6 +1261,7 @@ class ModelRegistry(AbstractRegistry):
             Model ID whose metadata to update.
         metadata : dict[str, Any]
             Key/value pairs to merge into the model metadata.
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -1276,7 +1277,9 @@ class ModelRegistry(AbstractRegistry):
                 current.update({k: v for k, v in metadata.items()})
                 self._models[model_id].manifest.last_modified = time.time()
                 self._save_registry()
-                logger.debug("Updated metadata for model %s: keys=%s", model_id, list(metadata.keys()))
+                logger.debug(
+                    "Updated metadata for model %s: keys=%s", model_id, list(metadata.keys())
+                )
             except Exception as exc:
                 logger.error("Failed updating metadata for %s: %s", model_id, exc, exc_info=True)
 

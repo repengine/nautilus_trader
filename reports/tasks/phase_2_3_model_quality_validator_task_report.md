@@ -97,18 +97,21 @@ The ModelQualityValidator component handles:
 ## Validation Results
 
 ### Import Tests
+
 ```bash
 ✅ python -c "from ml.registry.model_quality_validator import ModelQualityValidator"
 ✅ python -c "from ml.registry import ModelQualityValidator"
 ```
 
 ### Unit Tests
+
 ```bash
 ✅ pytest ml/tests/unit/registry/test_model_quality_validator.py
    29 passed, 0 failed, 4 warnings
 ```
 
 ### Code Quality
+
 ```bash
 ✅ ruff check ml/registry/model_quality_validator.py
    All checks passed!
@@ -155,6 +158,7 @@ Each gate result includes threshold, actual, passed, required, comparison, and m
 ## Usage Examples
 
 ### Basic Validation
+
 ```python
 validator = ModelQualityValidator()
 
@@ -176,6 +180,7 @@ assert result.gates_failed == 0
 ```
 
 ### Optional Gates
+
 ```python
 gates = [
     QualityGate("accuracy", 0.85, "gte", required=True),
@@ -195,6 +200,7 @@ assert result.gates_failed == 1
 ```
 
 ### Detailed Results
+
 ```python
 result = validator.evaluate_gate(
     QualityGate("accuracy", 0.80, "gte", required=True),
@@ -224,6 +230,7 @@ assert result == {
 ## Margin Calculation
 
 For `gte` and `gt`:
+
 ```python
 margin = actual_value - threshold
 # Positive margin = passed by X amount
@@ -231,6 +238,7 @@ margin = actual_value - threshold
 ```
 
 For `lte` and `lt`:
+
 ```python
 margin = threshold - actual_value
 # Positive margin = passed with X headroom
@@ -240,6 +248,7 @@ margin = threshold - actual_value
 ## Error Handling
 
 ### Missing Metrics
+
 ```python
 result = validator.evaluate_gate(gate, None)
 # Returns:
@@ -269,15 +278,18 @@ The component gracefully handles unknown comparison operators by treating them a
 ## Dependencies
 
 ### Required
+
 - `ml.registry.dataclasses` - QualityGate, ValidationResult
 
 ### Optional
+
 - None (no external dependencies)
 
 ## Testing Strategy
 
 ### Comprehensive Operator Coverage
 Every comparison operator is tested with:
+
 - Passing case
 - Failing case
 - Boundary case (equal values)
@@ -285,6 +297,7 @@ Every comparison operator is tested with:
 
 ### Required vs Optional Logic
 Tests verify that:
+
 - All required gates must pass for overall pass
 - Optional gates don't affect overall pass
 - Missing required metrics cause overall fail
@@ -321,6 +334,7 @@ This keeps margin positive when passing, which is more intuitive.
 ## Conclusion
 
 Successfully extracted ModelQualityValidator component from ModelRegistry god class with:
+
 - ✅ Zero breaking changes
 - ✅ 100% test coverage (29 tests)
 - ✅ Zero ruff violations

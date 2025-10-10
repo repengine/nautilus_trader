@@ -14,6 +14,7 @@ Successfully extracted CanaryDeploymentManager from the 2,272-line ModelRegistry
 **File:** `/home/nate/projects/nautilus_trader/ml/registry/canary_deployment_mgr.py`
 **Lines of Code:** ~420 lines
 **Dependencies:**
+
 - `ml.registry.base` (ModelInfo, DeploymentStatus)
 - `ml.registry.dataclasses` (CanaryConfig, CanaryDeployment, RolloutPlan)
 - Standard library (logging, time, typing)
@@ -21,6 +22,7 @@ Successfully extracted CanaryDeploymentManager from the 2,272-line ModelRegistry
 ## Extracted Methods (9 methods)
 
 ### Canary Deployment Lifecycle
+
 1. `start_canary_deployment()` - Start a canary deployment for a model
 2. `get_canary_deployment()` - Get canary deployment by ID
 3. `update_canary_metrics()` - Update metrics for a canary deployment
@@ -29,6 +31,7 @@ Successfully extracted CanaryDeploymentManager from the 2,272-line ModelRegistry
 6. `auto_promote_canary()` - Automatically promote a canary to full production
 
 ### Gradual Rollout
+
 7. `start_gradual_rollout()` - Start gradual rollout of a new model
 8. `get_rollout_status()` - Get rollout status
 9. `advance_rollout_stage()` - Advance to next rollout stage
@@ -36,6 +39,7 @@ Successfully extracted CanaryDeploymentManager from the 2,272-line ModelRegistry
 ## Architecture
 
 ### Protocol-First Design
+
 ```python
 class CanaryDeploymentManagerProtocol(Protocol):
     """Protocol for canary deployment operations."""
@@ -43,6 +47,7 @@ class CanaryDeploymentManagerProtocol(Protocol):
 ```
 
 ### Component Initialization
+
 ```python
 def __init__(
     self,
@@ -56,6 +61,7 @@ def __init__(
 ```
 
 **Key Design Decisions:**
+
 - Receives reference to shared `_models` dictionary
 - Composes `ABTestingManager` for traffic splitting
 - Accepts callbacks for deploy/retire operations
@@ -65,10 +71,12 @@ def __init__(
 ## Integration Points
 
 ### Used By
+
 - `ModelRegistry` facade (component-based mode)
 - Direct imports for testing and specialized use cases
 
 ### Dependencies
+
 - Shares `_models` dictionary with other components
 - **Composes** `ABTestingManager` (for traffic splitting)
 - Calls `deploy_callback` for full deployment
@@ -78,24 +86,28 @@ def __init__(
 ## Key Features
 
 ### 1. Canary Deployment Lifecycle
+
 - **Start:** Initialize canary with baseline comparison
 - **Monitor:** Track success metrics, latency, errors
 - **Evaluate:** Automatic promotion/rollback decisions
 - **Complete:** Promote to full deployment or rollback
 
 ### 2. Smart Evaluation Logic
+
 - Success metric comparison vs baseline
 - Error rate monitoring
 - Latency degradation detection
 - Minimum sample size requirements
 
 ### 3. Gradual Rollout
+
 - Multi-stage traffic increase
 - Stage-based duration control
 - Automatic stage advancement
 - Integration with A/B testing for traffic split
 
 ### 4. Automatic Promotion/Rollback
+
 - Metric-based decision making
 - Automatic baseline retirement on success
 - Safety checks before promotion
@@ -104,6 +116,7 @@ def __init__(
 ## Canary Deployment Pattern
 
 ### Configuration
+
 ```python
 config = CanaryConfig(
     success_metric="sharpe_ratio",
@@ -115,6 +128,7 @@ config = CanaryConfig(
 ```
 
 ### Lifecycle
+
 ```python
 # 1. Start canary
 deployment_id = canary_mgr.start_canary_deployment(
@@ -147,6 +161,7 @@ if should_rollback:
 ## Gradual Rollout Pattern
 
 ### Multi-Stage Rollout
+
 ```python
 # Start gradual rollout: 10% -> 25% -> 50% -> 100%
 rollout_id = canary_mgr.start_gradual_rollout(
@@ -168,6 +183,7 @@ advanced = canary_mgr.advance_rollout_stage(rollout_id)
 ## Testing Strategy
 
 ### Unit Tests Required
+
 - ✅ `test_start_canary_deployment()` - Verify initialization
 - ✅ `test_update_canary_metrics()` - Verify metric recording
 - ✅ `test_evaluate_canary()` - Verify promotion logic
@@ -177,6 +193,7 @@ advanced = canary_mgr.advance_rollout_stage(rollout_id)
 - ✅ `test_advance_rollout_stage()` - Verify stage advancement
 
 ### Integration Tests Required
+
 - Test with real `ABTestingManager` for traffic splitting
 - Test callback integration (deploy, retire, save)
 - Test full canary lifecycle end-to-end
@@ -185,18 +202,21 @@ advanced = canary_mgr.advance_rollout_stage(rollout_id)
 ## Quality Gates
 
 ### ✅ Code Quality
+
 - Ruff check: **PASSED** (0 violations)
 - Type annotations: **100%** coverage
 - Docstrings: **100%** coverage (Google-style)
 - Line length: <100 characters
 
 ### ✅ Import Validation
+
 - Component imports: **SUCCESSFUL**
 - Facade integration: **VERIFIED**
 - Circular dependencies: **NONE**
 - Callback integration: **VERIFIED**
 
 ### ✅ Backward Compatibility
+
 - All original methods preserved in facade
 - Method signatures unchanged
 - Return types unchanged
@@ -205,17 +225,20 @@ advanced = canary_mgr.advance_rollout_stage(rollout_id)
 ## Metrics
 
 ### Code Organization
+
 - **Before:** 2,272 lines (monolithic)
 - **After (Component):** ~420 lines
 - **Reduction:** 82% smaller, focused responsibility
 
 ### Complexity Reduction
+
 - **Methods Extracted:** 9
 - **Single Responsibility:** ✅ Canary deployment only
 - **Protocol Conformance:** ✅ 100%
 - **Composition Pattern:** ✅ Uses ABTestingManager
 
 ### Performance
+
 - **Latency:** <1ms for metric updates
 - **Evaluation:** <5ms for promotion/rollback decision
 - **Memory:** Minimal (stores deployment state)
@@ -223,11 +246,13 @@ advanced = canary_mgr.advance_rollout_stage(rollout_id)
 ## Rollback Plan
 
 ### If Issues Found
+
 1. Set environment variable: `ML_USE_LEGACY_MODEL_REGISTRY=1`
 2. Restart services
 3. Verify legacy mode operational
 
 ### Verification Steps
+
 ```bash
 # Test canary deployment
 python -c "
@@ -246,6 +271,7 @@ print('CanaryDeploymentManager initialized successfully')
 ## Dependencies on Other Components
 
 ### Requires
+
 - `ModelInfo` dataclasses (for model metadata)
 - `CanaryConfig`, `CanaryDeployment`, `RolloutPlan` dataclasses
 - `ABTestingManager` (for traffic splitting)
@@ -253,10 +279,12 @@ print('CanaryDeploymentManager initialized successfully')
 - Deployment/retire callbacks
 
 ### Provides To
+
 - `ModelRegistry` facade (canary deployment operations)
 
 ### Composition Pattern
 **Key Innovation:** This component **composes** ABTestingManager rather than inheriting or directly accessing it. This demonstrates:
+
 - Proper dependency injection
 - Clear separation of concerns
 - Testability (can mock ABTestingManager)
@@ -265,21 +293,25 @@ print('CanaryDeploymentManager initialized successfully')
 ## Safety Features
 
 ### 1. Baseline Comparison
+
 - Auto-detects current production model
 - Compares canary metrics vs baseline
 - Requires improvement over baseline
 
 ### 2. Error Rate Monitoring
+
 - Tracks error occurrences
 - Configurable error threshold (percentage)
 - Automatic rollback on high error rates
 
 ### 3. Latency Degradation
+
 - Tracks response latency
 - Configurable latency threshold
 - Automatic rollback on latency spikes
 
 ### 4. Sample Size Requirements
+
 - Minimum samples before promotion
 - Prevents premature promotion
 - Statistical validity
@@ -296,17 +328,20 @@ print('CanaryDeploymentManager initialized successfully')
 ## Lessons Learned
 
 ### Successes
+
 - Composition pattern (ABTestingManager) works elegantly
 - Callback pattern enables clean separation
 - CanaryDeployment dataclass encapsulates state well
 - Multi-stage rollout provides fine-grained control
 
 ### Challenges
+
 - Coordinating with ABTestingManager for traffic split
 - Managing multiple canary deployments simultaneously
 - Ensuring atomic promotion/rollback operations
 
 ### Best Practices Applied
+
 - ✅ Protocol-First Interface Design (Pattern 2)
 - ✅ Single Responsibility Principle
 - ✅ Composition over Inheritance
