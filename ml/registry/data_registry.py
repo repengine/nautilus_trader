@@ -1,91 +1,69 @@
 #!/usr/bin/env python3
 
 """
-Data registry with self-describing manifests, contracts, lineage tracking, and
-watermarks.
+Data registry facade delegating to specialized components.
 
-This module provides a registry for dataset manifests with lifecycle management, data
-contracts, lineage tracking, event recording, and watermark management. It supports both
-JSON (for development) and PostgreSQL (for production) backends.
+This module provides a unified interface for dataset manifest management, lineage tracking,
+watermark management, event emission, and contract validation.
+
+The facade delegates to 5 specialized components:
+- ManifestManager: Dataset manifest CRUD operations
+- LineageManager: Dataset lineage tracking
+- WatermarkManager: Dataset watermark management
+- EventManager: Dataset event emission
+- ContractManager: Dataset contract validation
+
+Feature Flag:
+  Set ML_USE_LEGACY_DATA_REGISTRY=1 to use the original god class implementation.
+  Default (0 or unset) uses this component-based facade.
 
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import time
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, overload
-
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from typing import TYPE_CHECKING, Any, overload
 
 from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
+from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.registry.contract_manager import ContractManager
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
-from ml.registry.dataclasses import DatasetType
-from ml.registry.dataclasses import StorageKind
+from ml.registry.event_manager import EventManager
+from ml.registry.lineage_manager import LineageManager
+from ml.registry.manifest_manager import ManifestManager
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
+from ml.registry.watermark_manager import Watermark
+from ml.registry.watermark_manager import WatermarkManager
+
+
+if TYPE_CHECKING:
+    pass
 
 
 logger = logging.getLogger(__name__)
 
 
-# Watermark dataclass for tracking data processing progress
-@dataclass(frozen=True)
-class Watermark:
-    """
-    Watermark tracking data processing progress for a dataset.
-
-    Attributes
-    ----------
-    dataset_id : str
-        Dataset identifier
-    instrument_id : str
-        Instrument identifier
-    source : str
-        Data source ('live', 'historical', 'backfill')
-    last_success_ns : int
-        Last successful processing timestamp in nanoseconds
-    last_attempt_ns : int
-        Last attempted processing timestamp in nanoseconds
-    last_count : int
-        Count from last successful processing
-    completeness_pct : float
-        Percentage of expected data received (0-100)
-    updated_at : float
-        Unix timestamp of last update
-
-    """
-
-    dataset_id: str
-    instrument_id: str
-    source: str
-    last_success_ns: int
-    last_attempt_ns: int
-    last_count: int
-    completeness_pct: float
-    updated_at: float
-
-
 class DataRegistry(MLComponentMixin):
     """
-    Registry for dataset manifests with configurable persistence backend.
+    Facade for dataset registry operations.
 
-    This registry manages dataset metadata, contracts, lineage relationships, processing
-    events, and watermarks. It supports both JSON files (development) and PostgreSQL
-    (production) for persistence.
+    Delegates to specialized component managers:
+    - ManifestManager: Dataset manifest CRUD
+    - LineageManager: Dataset lineage tracking
+    - WatermarkManager: Dataset watermark management
+    - EventManager: Dataset event emission
+    - ContractManager: Dataset contract validation
 
     Thread-safe for concurrent operations.
 
@@ -129,7 +107,7 @@ class DataRegistry(MLComponentMixin):
         persistence_config: PersistenceConfig | None = None,
     ) -> None:
         """
-        Initialize data registry with configurable persistence backend.
+        Initialize data registry facade with component managers.
 
         Parameters
         ----------
@@ -160,348 +138,119 @@ class DataRegistry(MLComponentMixin):
         self.registry_file = self.registry_path / "data_registry.json"
         self._lock = threading.RLock()  # Use RLock to allow reentrant locking
 
-        # Batch save management
-        self._pending_save = False
-        self._save_timer: threading.Timer | None = None
+        # Initialize component managers
+        self._manifest_mgr = ManifestManager()
+        self._lineage_mgr = LineageManager()
+        self._watermark_mgr = WatermarkManager()
+        self._event_mgr = EventManager()
+        self._contract_mgr = ContractManager()
 
-        # Initialize or load registry
-        self._load_registry()
+        # Load registry data for JSON backend
+        if self.backend == BackendType.JSON:
+            self._load_json_registry()
+        else:
+            logger.info("Using PostgreSQL backend - data is stored in database")
 
         logger.info(
-            "Initialized DataRegistry at %s with backend=%s, batch_save_interval=%ss",
+            "Initialized DataRegistry facade at %s with backend=%s, batch_save_interval=%ss",
             registry_path,
             self.backend.value,
             batch_save_interval,
         )
 
-    def _load_registry(self) -> None:
+    def _load_json_registry(self) -> None:
         """
-        Load registry from persistence backend or create new one.
+        Load registry data from JSON file for JSON backend.
+
+        For PostgreSQL backend, data is loaded on-demand from the database.
         """
-        if self.backend == BackendType.JSON:
-            if self.registry_file.exists():
-                data = self.persistence.load_json("data_registry.json")
-                if data is not None:
-                    # Load manifests
-                    self._manifests: dict[str, DatasetManifest] = {}
-                    for dataset_id, manifest_data in data.get("manifests", {}).items():
-                        self._manifests[dataset_id] = self._dict_to_manifest(manifest_data)
+        if self.registry_file.exists():
+            data = self.persistence.load_json("data_registry.json")
+            if data is not None:
+                # Load manifests into ManifestManager cache
+                for dataset_id, manifest_data in data.get("manifests", {}).items():
+                    manifest = self._manifest_mgr._dict_to_manifest(manifest_data)
+                    self._manifest_mgr._manifests[dataset_id] = manifest
 
-                    # Load contracts
-                    self._contracts: dict[str, DataContract] = {}
-                    for dataset_id, contract_data in data.get("contracts", {}).items():
-                        self._contracts[dataset_id] = self._dict_to_contract(contract_data)
+                # Load contracts into ContractManager cache
+                for dataset_id, contract_data in data.get("contracts", {}).items():
+                    contract = self._contract_mgr._dict_to_contract(contract_data)
+                    self._contract_mgr._contracts[dataset_id] = contract
 
-                    # Load events, watermarks, and lineage
-                    self._events: list[dict[str, Any]] = data.get("events", [])
-                    self._watermarks: dict[str, Watermark] = {}
-                    for key, watermark_data in data.get("watermarks", {}).items():
-                        self._watermarks[key] = self._dict_to_watermark(watermark_data)
-                    self._lineage: list[dict[str, Any]] = data.get("lineage", [])
-                else:
-                    self._initialize_empty_registry()
+                # Load events into EventManager
+                self._event_mgr._events = data.get("events", [])
+
+                # Load watermarks into WatermarkManager cache
+                for key, watermark_data in data.get("watermarks", {}).items():
+                    watermark = self._watermark_mgr._dict_to_watermark(watermark_data)
+                    self._watermark_mgr._watermarks[key] = watermark
+
+                # Load lineage into LineageManager
+                self._lineage_mgr._lineage = data.get("lineage", [])
             else:
-                self._initialize_empty_registry()
-        elif self.backend == BackendType.POSTGRES:
-            # For PostgreSQL, we query the database directly
-            # The tables are created by the migration script
-            self._initialize_empty_registry()
-            logger.info("Using PostgreSQL backend - data is stored in database")
-
-    def _initialize_empty_registry(self) -> None:
-        """
-        Initialize empty registry structures.
-        """
-        self._manifests = {}
-        self._contracts = {}
-        self._events = []
-        self._watermarks = {}
-        self._lineage = []
-        if self.backend == BackendType.JSON:
-            # Save immediately to ensure the backing file exists for callers/tests
-            # which verify presence directly after initialization.
-            self._save_registry(immediate=True)
-
-    # Public flush for tests and tooling
-    def flush(self) -> None:
-        """
-        Persist any pending batched changes immediately (JSON backend only).
-        """
-        if self.backend == BackendType.JSON:
-            self._save_registry(immediate=True)
-
-    def _dict_to_manifest(self, data: dict[str, Any]) -> DatasetManifest:
-        """
-        Convert dictionary to DatasetManifest.
-        """
-        # Convert string enum values back to enum types (case-insensitive)
-        dataset_type_val = data.get("dataset_type")
-        if isinstance(dataset_type_val, str):
-            dataset_type_val = dataset_type_val.lower()
-        data["dataset_type"] = DatasetType(dataset_type_val)
-
-        storage_kind_val = data.get("storage_kind")
-        if isinstance(storage_kind_val, str):
-            storage_kind_val = storage_kind_val.lower()
-        data["storage_kind"] = StorageKind(storage_kind_val)
-        return DatasetManifest(**data)
-
-    def _manifest_to_dict(self, manifest: DatasetManifest) -> dict[str, Any]:
-        """
-        Convert DatasetManifest to dictionary.
-        """
-        data = {
-            "dataset_id": manifest.dataset_id,
-            "dataset_type": manifest.dataset_type.value,
-            "storage_kind": manifest.storage_kind.value,
-            "location": manifest.location,
-            "partitioning": manifest.partitioning,
-            "retention_days": manifest.retention_days,
-            "schema": manifest.schema,
-            "ts_field": manifest.ts_field,
-            "seq_field": manifest.seq_field,
-            "primary_keys": manifest.primary_keys,
-            "schema_hash": manifest.schema_hash,
-            "constraints": manifest.constraints,
-            "lineage": manifest.lineage,
-            "pipeline_signature": manifest.pipeline_signature,
-            "version": manifest.version,
-            "created_at": manifest.created_at,
-            "last_modified": manifest.last_modified,
-            "metadata": manifest.metadata,
-        }
-        return data
-
-    def _dict_to_contract(self, data: dict[str, Any]) -> DataContract:
-        """
-        Convert dictionary to DataContract.
-        """
-        from ml.registry.dataclasses import QualityFlag
-        from ml.registry.dataclasses import ValidationRule
-        from ml.registry.dataclasses import ValidationRuleType
-
-        # Convert validation rules
-        rules = []
-        for rule_data in data.get("validation_rules", []):
-            rule_data["rule_type"] = ValidationRuleType(rule_data["rule_type"])
-            rule_data["severity"] = QualityFlag(rule_data["severity"])
-            rules.append(ValidationRule(**rule_data))
-
-        data["validation_rules"] = rules
-        return DataContract(**data)
-
-    def _contract_to_dict(self, contract: DataContract) -> dict[str, Any]:
-        """
-        Convert DataContract to dictionary.
-        """
-        rules = []
-        for rule in contract.validation_rules:
-            rules.append(
-                {
-                    "rule_type": rule.rule_type.value,
-                    "field_name": rule.field_name,
-                    "parameters": rule.parameters,
-                    "severity": rule.severity.value,
-                    "description": rule.description,
-                },
-            )
-
-        return {
-            "contract_id": contract.contract_id,
-            "dataset_id": contract.dataset_id,
-            "version": contract.version,
-            "validation_rules": rules,
-            "quality_thresholds": contract.quality_thresholds,
-            "enforcement_mode": contract.enforcement_mode,
-            "created_at": contract.created_at,
-            "last_modified": contract.last_modified,
-            "metadata": contract.metadata,
-        }
-
-    def _dict_to_watermark(self, data: dict[str, Any]) -> Watermark:
-        """
-        Convert dictionary to Watermark.
-        """
-        return Watermark(**data)
-
-    def _watermark_to_dict(self, watermark: Watermark) -> dict[str, Any]:
-        """
-        Convert Watermark to dictionary.
-        """
-        return {
-            "dataset_id": watermark.dataset_id,
-            "instrument_id": watermark.instrument_id,
-            "source": watermark.source,
-            "last_success_ns": watermark.last_success_ns,
-            "last_attempt_ns": watermark.last_attempt_ns,
-            "last_count": watermark.last_count,
-            "completeness_pct": watermark.completeness_pct,
-            "updated_at": watermark.updated_at,
-        }
-
-    def _manifest_from_row(self, row: Any) -> DatasetManifest:
-        """
-        Convert a database row to a dataset manifest.
-        """
-        manifest_data = dict(getattr(row, "_mapping", row))
-
-        def _ensure_json(value: Any) -> Any:
-            if isinstance(value, str):
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    return value
-            return value
-
-        metadata = _ensure_json(manifest_data.get("metadata") or {}) or {}
-        manifest_data["metadata"] = metadata
-        manifest_data["partitioning"] = _ensure_json(manifest_data.get("partitioning") or {}) or {}
-        manifest_data["constraints"] = _ensure_json(manifest_data.get("constraints") or {}) or {}
-        manifest_data["schema"] = _ensure_json(manifest_data.get("schema") or {}) or {}
-        manifest_data["lineage"] = _ensure_json(manifest_data.get("lineage") or []) or []
-
-        manifest_data["seq_field"] = metadata.get("seq_field")
-        manifest_data["ts_field"] = metadata.get(
-            "ts_field",
-            manifest_data.get("ts_field", "ts_event"),
-        )
-        manifest_data["primary_keys"] = metadata.get(
-            "primary_keys",
-            manifest_data.get("primary_keys", ["instrument_id", "ts_event"]),
-        )
-
-        return self._dict_to_manifest(manifest_data)
-
-    @staticmethod
-    def _watermark_from_row(row: Any) -> Watermark:
-        """
-        Convert a database row to a watermark instance.
-        """
-        data = dict(getattr(row, "_mapping", row))
-        return Watermark(
-            dataset_id=str(data.get("dataset_id", "")),
-            instrument_id=str(data.get("instrument_id", "")),
-            source=str(data.get("source", "")),
-            last_success_ns=int(data.get("last_success_ns", 0)),
-            last_attempt_ns=int(data.get("last_attempt_ns", 0)),
-            last_count=int(data.get("last_count", 0)),
-            completeness_pct=float(data.get("completeness_pct", 0.0)),
-            updated_at=float(data.get("updated_at", 0.0)),
-        )
-
-    @staticmethod
-    def _lineage_from_row(row: Any) -> DatasetLineageRecord:
-        """
-        Convert a database row to a dataset lineage record.
-        """
-        data = dict(getattr(row, "_mapping", row))
-
-        ts_range_raw = data.get("ts_range") or {}
-        if isinstance(ts_range_raw, str):
-            try:
-                ts_range = json.loads(ts_range_raw)
-            except json.JSONDecodeError:
-                ts_range = {}
+                self._save_json_registry(immediate=True)
         else:
-            ts_range = dict(ts_range_raw)
+            self._save_json_registry(immediate=True)
 
-        params_raw = data.get("parameters") or {}
-        if isinstance(params_raw, str):
-            try:
-                parameters = json.loads(params_raw)
-            except json.JSONDecodeError:
-                parameters = {}
-        else:
-            parameters = dict(params_raw)
-
-        created_at_raw = data.get("created_at", 0.0)
-        created_at = float(created_at_raw) if created_at_raw is not None else 0.0
-
-        return DatasetLineageRecord(
-            transform_id=str(data.get("transform_id", "")),
-            child_dataset_id=str(data.get("child_dataset_id", "")),
-            parent_dataset_id=str(data.get("parent_dataset_id", "")),
-            ts_range={str(k): int(v) for k, v in ts_range.items()},
-            parameters={str(k): v for k, v in parameters.items()},
-            created_at=created_at,
-        )
-
-    def _save_registry(self, immediate: bool = False) -> None:
+    def _save_json_registry(self, immediate: bool = False) -> None:
         """
-        Save registry to disk with optional batching.
+        Save registry data to JSON file (JSON backend only).
 
         Parameters
         ----------
         immediate : bool
-            If True, save immediately. If False, batch the save.
+            If True, save immediately. If False, not used in facade (always saves immediately).
 
         """
-        with self._lock:
-            # For very small batch intervals (e.g., tests), flush immediately
-            if immediate or (self.backend == BackendType.JSON and self.batch_save_interval <= 0.02):
-                # Cancel any pending batch save
-                if self._save_timer is not None:
-                    self._save_timer.cancel()
-                    self._save_timer = None
-                self._pending_save = False
-
-                # Save immediately
-                self._do_save()
-            else:
-                # Schedule batch save if not already pending
-                if not self._pending_save:
-                    self._pending_save = True
-
-                    # Cancel existing timer if any
-                    if self._save_timer is not None:
-                        self._save_timer.cancel()
-
-                    # Schedule new save
-                    self._save_timer = threading.Timer(
-                        self.batch_save_interval,
-                        self._do_save,
-                    )
-                    self._save_timer.start()
-
-    def _do_save(self) -> None:
-        """
-        Perform the actual save operation.
-        """
-        with self._lock:
-            if self.backend == BackendType.JSON:
-                # Convert all data to serializable format
+        if self.backend == BackendType.JSON:
+            with self._lock:
+                # Collect data from all component managers
                 manifests_dict = {
-                    dataset_id: self._manifest_to_dict(manifest)
-                    for dataset_id, manifest in self._manifests.items()
+                    dataset_id: self._manifest_mgr._manifest_to_dict(manifest)
+                    for dataset_id, manifest in self._manifest_mgr._manifests.items()
                 }
 
                 contracts_dict = {
-                    dataset_id: self._contract_to_dict(contract)
-                    for dataset_id, contract in self._contracts.items()
+                    dataset_id: self._contract_mgr._contract_to_dict(contract)
+                    for dataset_id, contract in self._contract_mgr._contracts.items()
                 }
 
                 watermarks_dict = {
-                    key: self._watermark_to_dict(watermark)
-                    for key, watermark in self._watermarks.items()
+                    key: self._watermark_mgr._watermark_to_dict(watermark)
+                    for key, watermark in self._watermark_mgr._watermarks.items()
                 }
 
                 data = {
                     "manifests": manifests_dict,
                     "contracts": contracts_dict,
-                    "events": self._events,
+                    "events": self._event_mgr._events,
                     "watermarks": watermarks_dict,
-                    "lineage": self._lineage,
-                    "last_updated": time.time(),
+                    "lineage": self._lineage_mgr._lineage,
+                    "last_updated": __import__("time").time(),
                 }
 
                 self.persistence.save_json(data, "data_registry.json")
 
-            self._pending_save = False
-            self._save_timer = None
+    # -------------------------------------------------------------------------
+    # Public API: Flush Method
+    # -------------------------------------------------------------------------
+
+    def flush(self) -> None:
+        """
+        Persist any pending batched changes immediately (JSON backend only).
+        """
+        if self.backend == BackendType.JSON:
+            self._save_json_registry(immediate=True)
+
+    # -------------------------------------------------------------------------
+    # Public API: Manifest Management (Delegates to ManifestManager)
+    # -------------------------------------------------------------------------
 
     def register_dataset(self, manifest: DatasetManifest) -> str:
         """
         Register a new dataset manifest.
+
+        Delegates to ManifestManager component.
 
         Parameters
         ----------
@@ -529,97 +278,22 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            if manifest.dataset_id in self._manifests:
-                raise ValueError(f"Dataset '{manifest.dataset_id}' already exists")
+            dataset_id = self._manifest_mgr.register_manifest(manifest, self.persistence)
 
-            # Store in appropriate backend
+            # Handle special datasets (earnings) - create contracts
+            if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
+                self._contract_mgr.create_contract_from_manifest(manifest)
+
+            # Save to JSON if using JSON backend
             if self.backend == BackendType.JSON:
-                self._manifests[manifest.dataset_id] = manifest
-                self._save_registry()
-                if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
-                    contract = self._create_contract_from_manifest(manifest)
-                    self._contracts[manifest.dataset_id] = contract
-                    self._save_registry()
-            elif self.backend == BackendType.POSTGRES:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                existing_manifest: DatasetManifest | None = None
-                try:
-                    # Execute SQL function to register dataset
-                    query = text(
-                        """
-                        INSERT INTO ml_dataset_registry
-                        (dataset_id, name, version, dataset_type, storage_kind, location,
-                         partitioning, retention_days, schema, schema_hash, constraints,
-                         parents, pipeline_signature, metadata)
-                        VALUES
-                        (:dataset_id, :name, :version, :dataset_type, :storage_kind, :location,
-                         :partitioning, :retention_days, :schema, :schema_hash, :constraints,
-                         :parents, :pipeline_signature, :metadata)
-                    """,
-                    )
-
-                    # Align dataset_type value to DB constraint (uppercase tokens)
-                    dataset_type_db = getattr(
-                        manifest.dataset_type,
-                        "name",
-                        str(manifest.dataset_type).split(".")[-1],
-                    ).upper()
-
-                    session.execute(
-                        query,
-                        {
-                            "dataset_id": manifest.dataset_id,
-                            "name": manifest.metadata.get("name", manifest.dataset_id),
-                            "version": manifest.version,
-                            "dataset_type": dataset_type_db,
-                            "storage_kind": manifest.storage_kind.value,
-                            "location": manifest.location,
-                            "partitioning": json.dumps(manifest.partitioning),
-                            "retention_days": manifest.retention_days,
-                            "schema": json.dumps(manifest.schema),
-                            "schema_hash": manifest.schema_hash,
-                            "constraints": json.dumps(manifest.constraints),
-                            "parents": json.dumps(manifest.lineage),
-                            "pipeline_signature": manifest.pipeline_signature,
-                            "metadata": json.dumps(manifest.metadata),
-                        },
-                    )
-                    session.commit()
-
-                    # Cache locally
-                    self._manifests[manifest.dataset_id] = manifest
-
-                except IntegrityError:
-                    session.rollback()
-                    logger.info(
-                        "Dataset '%s' already exists; hydrating manifest",
-                        manifest.dataset_id,
-                    )
-                    existing_manifest = self.get_manifest(manifest.dataset_id)
-                except Exception as e:
-                    session.rollback()
-                    logger.error("Failed to register dataset: %s", e)
-                    raise
-                finally:
-                    session.close()
-
-                if existing_manifest is not None:
-                    self._manifests[existing_manifest.dataset_id] = existing_manifest
-                    return existing_manifest.dataset_id
-
-                if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
-                    contract = self._create_contract_from_manifest(manifest)
-                    self._contracts[manifest.dataset_id] = contract
+                self._save_json_registry(immediate=True)
 
             # Log audit event
             self.persistence.log_audit(
                 entity_type="dataset",
                 entity_id=manifest.dataset_id,
                 action="register",
-                changes={"manifest": self._manifest_to_dict(manifest)},
+                changes={"manifest": self._manifest_mgr._manifest_to_dict(manifest)},
             )
 
             # Emit ops event (catalog written) with correlation id
@@ -648,11 +322,59 @@ class DataRegistry(MLComponentMixin):
                 logger.debug("Failed to emit registry register event", exc_info=True)
 
             logger.info("Registered dataset '%s' version %s", manifest.dataset_id, manifest.version)
-            return manifest.dataset_id
+            return dataset_id
+
+    def get_manifest(self, dataset_id: str) -> DatasetManifest:
+        """
+        Get a dataset manifest by ID.
+
+        Delegates to ManifestManager component.
+
+        Parameters
+        ----------
+        dataset_id : str
+            Dataset ID to retrieve
+
+        Returns
+        -------
+        DatasetManifest
+            The dataset manifest
+
+        Raises
+        ------
+        ValueError
+            If dataset doesn't exist
+
+        Examples
+        --------
+        >>> manifest = registry.get_manifest("bars_eurusd_1m")
+        >>> print(manifest.dataset_type)
+        DatasetType.BARS
+
+        """
+        with self._lock:
+            return self._manifest_mgr.get_manifest(dataset_id, self.persistence)
+
+    def list_manifests(self) -> list[DatasetManifest]:
+        """
+        Return all dataset manifests known to the registry.
+
+        Delegates to ManifestManager component.
+
+        Returns
+        -------
+        list[DatasetManifest]
+            List of all dataset manifests
+
+        """
+        with self._lock:
+            return self._manifest_mgr.list_manifests(self.persistence)
 
     def update_manifest(self, dataset_id: str, changes: dict[str, Any]) -> None:
         """
         Update an existing dataset manifest.
+
+        Delegates to ManifestManager component.
 
         Parameters
         ----------
@@ -675,111 +397,11 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
+            self._manifest_mgr.update_manifest(dataset_id, changes, self.persistence)
+
+            # Save to JSON if using JSON backend
             if self.backend == BackendType.JSON:
-                if dataset_id not in self._manifests:
-                    raise ValueError(f"Dataset '{dataset_id}' not found")
-
-                manifest = self._manifests[dataset_id]
-
-                # Create new manifest with updates
-                manifest_dict = self._manifest_to_dict(manifest)
-                manifest_dict.update(changes)
-                from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-
-                manifest_dict["last_modified"] = _sanitize(
-                    int(time.time_ns()),
-                    context="registry.update_manifest:json.last_modified",
-                )
-
-                # Convert back to manifest object
-                updated_manifest = self._dict_to_manifest(manifest_dict)
-                self._manifests[dataset_id] = updated_manifest
-
-                self._save_registry()
-
-            elif self.backend == BackendType.POSTGRES:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    # Build UPDATE query safely with all possible fields
-                    # This avoids dynamic SQL construction
-                    all_fields = [
-                        "name",
-                        "version",
-                        "dataset_type",
-                        "storage_kind",
-                        "location",
-                        "partitioning",
-                        "retention_days",
-                        "schema",
-                        "schema_hash",
-                        "constraints",
-                        "parents",
-                        "pipeline_signature",
-                        "metadata",
-                    ]
-
-                    # Build the update dict
-                    update_data = {"dataset_id": dataset_id}
-                    set_parts = []
-
-                    for field in all_fields:
-                        if field in changes:
-                            value = changes[field]
-                            if field in [
-                                "partitioning",
-                                "schema",
-                                "constraints",
-                                "metadata",
-                                "parents",
-                            ]:
-                                update_data[field] = (
-                                    json.dumps(value) if value is not None else "{}"
-                                )
-                            else:
-                                update_data[field] = value
-                            set_parts.append(f"{field} = :{field}")
-
-                    if not set_parts:
-                        raise ValueError("No valid fields to update")
-
-                    # Safe query with parameterized values
-                    query = text(
-                        f"""
-                        UPDATE ml_dataset_registry
-                        SET {', '.join(set_parts)}, last_modified = NOW()
-                        WHERE dataset_id = :dataset_id
-                    """,
-                    )
-
-                    result = session.execute(query, update_data)
-                    # Check if any rows were affected
-                    row_count = getattr(result, "rowcount", None)
-                    if row_count is not None and row_count == 0:
-                        raise ValueError(f"Dataset '{dataset_id}' not found")
-
-                    session.commit()
-
-                    # Update cache if present
-                    if dataset_id in self._manifests:
-                        manifest_dict = self._manifest_to_dict(self._manifests[dataset_id])
-                        manifest_dict.update(changes)
-                        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
-
-                        manifest_dict["last_modified"] = _sanitize2(
-                            int(time.time_ns()),
-                            context="registry.update_manifest:pg.cache.last_modified",
-                        )
-                        self._manifests[dataset_id] = self._dict_to_manifest(manifest_dict)
-
-                except Exception as e:
-                    session.rollback()
-                    logger.error("Failed to update dataset: %s", e)
-                    raise
-                finally:
-                    session.close()
+                self._save_json_registry(immediate=True)
 
             # Log audit event
             self.persistence.log_audit(
@@ -820,6 +442,8 @@ class DataRegistry(MLComponentMixin):
         """
         Mark a dataset as deprecated.
 
+        Delegates to ManifestManager component.
+
         Parameters
         ----------
         dataset_id : str
@@ -836,15 +460,13 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            from ml.common.timestamps import sanitize_timestamp_ns as _sanitize3
-
             self.update_manifest(
                 dataset_id,
                 {
                     "metadata": {
                         "deprecated": True,
-                        "deprecated_at": _sanitize3(
-                            int(time.time_ns()),
+                        "deprecated_at": sanitize_timestamp_ns(
+                            int(__import__("time").time_ns()),
                             context="registry.deprecate:deprecated_at",
                         ),
                     },
@@ -878,202 +500,15 @@ class DataRegistry(MLComponentMixin):
 
             logger.info("Deprecated dataset '%s'", dataset_id)
 
-    def list_manifests(self) -> list[DatasetManifest]:
-        """
-        Return all dataset manifests known to the registry.
-        """
-        with self._lock:
-            if self.backend == BackendType.JSON:
-                return [self._manifests[dataset_id] for dataset_id in sorted(self._manifests)]
-
-            session = self.persistence.get_session()
-            if session is None:
-                return list(self._manifests.values())
-
-            try:
-                query = text(
-                    """
-                    SELECT dataset_id, dataset_type, storage_kind, location,
-                           partitioning, retention_days, schema, schema_hash,
-                           constraints, parents AS lineage, pipeline_signature,
-                           version,
-                           EXTRACT(EPOCH FROM created_at) * 1000000000 AS created_at,
-                           EXTRACT(EPOCH FROM last_modified) * 1000000000 AS last_modified,
-                           metadata
-                    FROM ml_dataset_registry
-                    ORDER BY dataset_id
-                    """,
-                )
-                rows = session.execute(query).fetchall()
-            finally:
-                session.close()
-
-            manifests: list[DatasetManifest] = []
-            for row in rows:
-                manifest = self._manifest_from_row(row)
-                self._manifests[manifest.dataset_id] = manifest
-                manifests.append(manifest)
-
-            return manifests
-
-    def get_manifest(self, dataset_id: str) -> DatasetManifest:
-        """
-        Get a dataset manifest by ID.
-
-        Parameters
-        ----------
-        dataset_id : str
-            Dataset ID to retrieve
-
-        Returns
-        -------
-        DatasetManifest
-            The dataset manifest
-
-        Raises
-        ------
-        ValueError
-            If dataset doesn't exist
-
-        Examples
-        --------
-        >>> manifest = registry.get_manifest("bars_eurusd_1m")
-        >>> print(manifest.dataset_type)
-        DatasetType.BARS
-
-        """
-        with self._lock:
-            if self.backend == BackendType.JSON:
-                if dataset_id not in self._manifests:
-                    raise ValueError(f"Dataset '{dataset_id}' not found")
-                return self._manifests[dataset_id]
-
-            elif self.backend == BackendType.POSTGRES:
-                # Check cache first
-                if dataset_id in self._manifests:
-                    return self._manifests[dataset_id]
-
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    query = text(
-                        """
-                        SELECT dataset_id, dataset_type, storage_kind, location,
-                               partitioning, retention_days, schema, schema_hash,
-                               constraints, parents as lineage, pipeline_signature,
-                               version, EXTRACT(EPOCH FROM created_at) * 1000000000 as created_at,
-                               EXTRACT(EPOCH FROM last_modified) * 1000000000 as last_modified,
-                               metadata
-                        FROM ml_dataset_registry
-                        WHERE dataset_id = :dataset_id
-                    """,
-                    )
-
-                    result = session.execute(query, {"dataset_id": dataset_id}).fetchone()
-                    if result is None:
-                        raise ValueError(f"Dataset '{dataset_id}' not found")
-
-                    # Convert to manifest using RowMapping for SQLAlchemy 1.4/2.0
-                    # `Row` iterates over values; use the mapping view to build a dict.
-                    manifest = self._manifest_from_row(result)
-
-                    # Cache for future use
-                    self._manifests[dataset_id] = manifest
-
-                    return manifest
-
-                finally:
-                    session.close()
-
-    def _create_contract_from_manifest(self, manifest: DatasetManifest) -> DataContract:
-        """
-        Create a data contract from a dataset manifest.
-        """
-        from ml.registry.dataclasses import QualityFlag
-        from ml.registry.dataclasses import ValidationRule
-        from ml.registry.dataclasses import ValidationRuleType
-
-        rules = []
-        constraints = manifest.constraints or {}
-
-        # Convert constraints to validation rules
-        if "ranges" in constraints:
-            for field, range_spec in constraints["ranges"].items():
-                if "min" in range_spec or "max" in range_spec:
-                    rules.append(
-                        ValidationRule(
-                            rule_type=ValidationRuleType.RANGE,
-                            field_name=field,
-                            parameters=range_spec,
-                            severity=QualityFlag.FAIL,
-                            description=f"Range validation for {field}",
-                        ),
-                    )
-
-        if "nullability" in constraints:
-            for field, nullable in constraints["nullability"].items():
-                if not nullable:
-                    rules.append(
-                        ValidationRule(
-                            rule_type=ValidationRuleType.NULLABILITY,
-                            field_name=field,
-                            parameters={"nullable": False},
-                            severity=QualityFlag.FAIL,
-                            description=f"{field} cannot be null",
-                        ),
-                    )
-
-        # Regex constraints (e.g., IDs)
-        if "regex" in constraints:
-            for field, pattern in constraints["regex"].items():
-                if isinstance(pattern, str) and pattern:
-                    rules.append(
-                        ValidationRule(
-                            rule_type=ValidationRuleType.REGEX,
-                            field_name=str(field),
-                            parameters={"pattern": pattern},
-                            severity=QualityFlag.FAIL,
-                            description=f"Regex validation for {field}",
-                        ),
-                    )
-
-        # Per-dataset null-rate threshold
-        quality_thresholds: dict[str, float] = {}
-        try:
-            thr = constraints.get("null_rate_threshold")
-            if isinstance(thr, (int, float)) and 0.0 <= float(thr) <= 1.0:
-                quality_thresholds["null_rate"] = float(thr)
-        except Exception:
-            quality_thresholds = {}
-
-        # Create default rule if no rules defined
-        if not rules:
-            rules.append(
-                ValidationRule(
-                    rule_type=ValidationRuleType.TYPE_CHECK,
-                    field_name="*",
-                    parameters={},
-                    severity=QualityFlag.WARN,
-                    description="Type validation for all fields",
-                ),
-            )
-
-        return DataContract(
-            contract_id=f"{manifest.dataset_id}_contract",
-            dataset_id=manifest.dataset_id,
-            version="1.0.0",
-            validation_rules=rules,
-            quality_thresholds=quality_thresholds,
-            enforcement_mode="strict",
-            created_at=manifest.created_at,
-            last_modified=manifest.last_modified,
-        )
+    # -------------------------------------------------------------------------
+    # Public API: Contract Management (Delegates to ContractManager)
+    # -------------------------------------------------------------------------
 
     def get_contract(self, dataset_id: str) -> DataContract:
         """
         Get the data contract for a dataset.
+
+        Delegates to ContractManager component.
 
         Parameters
         ----------
@@ -1098,28 +533,15 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            if self.backend == BackendType.JSON:
-                if dataset_id not in self._contracts:
-                    # Create a default contract from manifest if not exists
-                    manifest = self.get_manifest(dataset_id)
-                    contract = self._create_contract_from_manifest(manifest)
-                    self._contracts[dataset_id] = contract
-                    return contract
-                return self._contracts[dataset_id]
+            return self._contract_mgr.get_contract(
+                dataset_id,
+                self._manifest_mgr,
+                self.persistence,
+            )
 
-            elif self.backend == BackendType.POSTGRES:
-                # Check if we have a cached contract
-                if dataset_id in self._contracts:
-                    return self._contracts[dataset_id]
-
-                # For PostgreSQL, contracts are stored in the manifest's constraints field
-                manifest = self.get_manifest(dataset_id)
-                contract = self._create_contract_from_manifest(manifest)
-
-                # Cache for future use
-                self._contracts[dataset_id] = contract
-
-                return contract
+    # -------------------------------------------------------------------------
+    # Public API: Event Management (Delegates to EventManager)
+    # -------------------------------------------------------------------------
 
     def emit_event(
         self,
@@ -1137,6 +559,8 @@ class DataRegistry(MLComponentMixin):
     ) -> None:
         """
         Emit a data processing event.
+
+        Delegates to EventManager component.
 
         Parameters
         ----------
@@ -1178,148 +602,28 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            # Anchor event time within the provided window (start of period)
-            ts_event = ts_min
-
-            # Normalize enums to their persisted string values
-            stage_val = stage.value
-            source_val = source.value
-            status_val = status.value
-
-            event = {
-                "dataset_id": dataset_id,
-                "instrument_id": instrument_id,
-                "stage": stage_val,
-                "source": source_val,
-                "run_id": run_id,
-                "ts_min": ts_min,
-                "ts_max": ts_max,
-                "ts_event": ts_event,
-                "count": count,
-                "status": status_val,
-                "error": error,
-                "created_at": time.time(),
-                "metadata": metadata or {},
-            }
-
-            if self.backend == BackendType.JSON:
-                self._events.append(event)
-
-                # Trim old events to prevent unbounded growth (keep last 10000)
-                if len(self._events) > 10000:
-                    self._events = self._events[-10000:]
-
-                # Tests expect persistence immediately after emit_event
-                self._save_registry(immediate=True)
-
-            elif self.backend == BackendType.POSTGRES:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    # Prefer extended function with metadata if available; else fallback
-                    try:
-                        query_ext = text(
-                            """
-                            SELECT emit_data_event_ext(
-                                :dataset_id, :instrument_id, :stage, :source, :run_id,
-                                :ts_min, :ts_max, :count, :status, :error, :metadata
-                            )
-                        """,
-                        )
-                        session.execute(
-                            query_ext,
-                            {
-                                "dataset_id": dataset_id,
-                                "instrument_id": instrument_id,
-                                "stage": stage_val,
-                                "source": source_val,
-                                "run_id": run_id,
-                                "ts_min": ts_min,
-                                "ts_max": ts_max,
-                                "count": count,
-                                "status": status_val,
-                                "error": error,
-                                "metadata": json.dumps(metadata or {}),
-                            },
-                        )
-                    except Exception:
-                        # Clear the failed transaction before fallback
-                        session.rollback()
-                        query = text(
-                            """
-                            SELECT emit_data_event(
-                                :dataset_id, :instrument_id, :stage, :source, :run_id,
-                                :ts_min, :ts_max, :count, :status, :error
-                            )
-                        """,
-                        )
-                        session.execute(
-                            query,
-                            {
-                                "dataset_id": dataset_id,
-                                "instrument_id": instrument_id,
-                                "stage": stage_val,
-                                "source": source_val,
-                                "run_id": run_id,
-                                "ts_min": ts_min,
-                                "ts_max": ts_max,
-                                "count": count,
-                                "status": status_val,
-                                "error": error,
-                            },
-                        )
-                    session.commit()
-
-                except Exception:
-                    # Fallback: if SQL function path fails (e.g., FK on watermark), attempt
-                    # a direct insert into ml_data_events without updating watermarks.
-                    session.rollback()
-                    try:
-                        fallback_insert = text(
-                            """
-                            INSERT INTO ml_data_events (
-                                dataset_id, instrument_id, stage, source, run_id,
-                                ts_min, ts_max, ts_event, count, status, error, created_at
-                            ) VALUES (
-                                :dataset_id, :instrument_id, :stage, :source, :run_id,
-                                :ts_min, :ts_max, :ts_event, :count, :status, :error, NOW()
-                            )
-                            """,
-                        )
-                        session.execute(
-                            fallback_insert,
-                            {
-                                "dataset_id": dataset_id,
-                                "instrument_id": instrument_id,
-                                "stage": stage_val,
-                                "source": source_val,
-                                "run_id": run_id,
-                                "ts_min": ts_min,
-                                "ts_max": ts_max,
-                                "ts_event": ts_event,
-                                "count": count,
-                                "status": status_val,
-                                "error": error,
-                            },
-                        )
-                        session.commit()
-                    except Exception as e2:
-                        session.rollback()
-                        logger.error("Failed to emit event: %s", e2)
-                        raise
-                    finally:
-                        session.close()
-
-            logger.debug(
-                "Emitted event: dataset=%s, instrument=%s, stage=%s, status=%s, count=%d",
-                dataset_id,
-                instrument_id,
-                stage_val,
-                status_val,
-                count,
+            self._event_mgr.emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=status,
+                error=error,
+                metadata=metadata,
+                persistence=self.persistence,
             )
+
+            # Save to JSON if using JSON backend
+            if self.backend == BackendType.JSON:
+                self._save_json_registry(immediate=True)
+
+    # -------------------------------------------------------------------------
+    # Public API: Watermark Management (Delegates to WatermarkManager)
+    # -------------------------------------------------------------------------
 
     def update_watermark(
         self,
@@ -1332,6 +636,8 @@ class DataRegistry(MLComponentMixin):
     ) -> None:
         """
         Update watermark for a dataset/instrument/source combination.
+
+        Delegates to WatermarkManager component.
 
         Parameters
         ----------
@@ -1362,71 +668,19 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            source_val = source.value
-            watermark_key = f"{dataset_id}:{instrument_id}:{source_val}"
-
-            watermark = Watermark(
+            self._watermark_mgr.update_watermark(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                source=source_val,
+                source=source,
                 last_success_ns=last_success_ns,
-                last_attempt_ns=last_success_ns,
-                last_count=count,
+                count=count,
                 completeness_pct=completeness_pct,
-                updated_at=time.time(),
+                persistence=self.persistence,
             )
 
+            # Save to JSON if using JSON backend
             if self.backend == BackendType.JSON:
-                self._watermarks[watermark_key] = watermark
-                # Persist immediately to satisfy conformance tests
-                self._save_registry(immediate=True)
-
-            elif self.backend == BackendType.POSTGRES:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    # Use the SQL function to update watermark
-                    query = text(
-                        """
-                        SELECT update_watermark(
-                            :dataset_id, :instrument_id, :source,
-                            :last_success_ns, :count, :completeness_pct
-                        )
-                    """,
-                    )
-
-                    session.execute(
-                        query,
-                        {
-                            "dataset_id": dataset_id,
-                            "instrument_id": instrument_id,
-                            "source": source_val,
-                            "last_success_ns": last_success_ns,
-                            "count": count,
-                            "completeness_pct": completeness_pct,
-                        },
-                    )
-                    session.commit()
-
-                    # Update cache
-                    self._watermarks[watermark_key] = watermark
-
-                except Exception as e:
-                    session.rollback()
-                    logger.error("Failed to update watermark: %s", e)
-                    raise
-                finally:
-                    session.close()
-
-            logger.debug(
-                "Updated watermark: dataset=%s, instrument=%s, source=%s, completeness=%.1f%%",
-                dataset_id,
-                instrument_id,
-                source_val,
-                completeness_pct,
-            )
+                self._save_json_registry(immediate=True)
 
     @overload
     def get_watermark(
@@ -1453,6 +707,8 @@ class DataRegistry(MLComponentMixin):
         """
         Get watermark for a dataset/instrument/source combination.
 
+        Delegates to WatermarkManager component.
+
         Parameters
         ----------
         dataset_id : str
@@ -1477,55 +733,12 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            source_val = source.value if isinstance(source, Source) else str(source)
-            watermark_key = f"{dataset_id}:{instrument_id}:{source_val}"
-
-            if self.backend == BackendType.JSON:
-                return self._watermarks.get(watermark_key)
-
-            elif self.backend == BackendType.POSTGRES:
-                # Check cache first
-                if watermark_key in self._watermarks:
-                    return self._watermarks[watermark_key]
-
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    query = text(
-                        """
-                        SELECT dataset_id, instrument_id, source,
-                               last_success_ns, last_attempt_ns, last_count,
-                               completeness_pct, EXTRACT(EPOCH FROM updated_at) as updated_at
-                        FROM ml_data_watermarks
-                        WHERE dataset_id = :dataset_id
-                          AND instrument_id = :instrument_id
-                          AND source = :source
-                    """,
-                    )
-
-                    result = session.execute(
-                        query,
-                        {
-                            "dataset_id": dataset_id,
-                            "instrument_id": instrument_id,
-                            "source": source_val,
-                        },
-                    ).fetchone()
-
-                    if result is None:
-                        return None
-
-                    watermark = self._watermark_from_row(result)
-
-                    # Cache for future use
-                    self._watermarks[watermark_key] = watermark
-
-                    return watermark
-
-                finally:
-                    session.close()
+            return self._watermark_mgr.get_watermark(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                source=source,
+                persistence=self.persistence,
+            )
 
     def iter_watermarks(
         self,
@@ -1537,80 +750,38 @@ class DataRegistry(MLComponentMixin):
     ) -> Iterator[Watermark]:
         """
         Yield watermarks optionally filtered by dataset, instrument, or source.
+
+        Delegates to WatermarkManager component.
+
+        Parameters
+        ----------
+        dataset_id : str | None
+            Optional dataset ID filter
+        instrument_id : str | None
+            Optional instrument ID filter
+        source : Source | str | None
+            Optional source filter
+        limit : int | None
+            Optional limit on number of records returned
+
+        Returns
+        -------
+        Iterator[Watermark]
+            Iterator of watermarks
+
         """
-        limit_value = None if limit is None else max(0, int(limit))
-        source_value = (
-            source.value
-            if isinstance(source, Source)
-            else (str(source) if source is not None else None)
-        )
-
         with self._lock:
-            records: list[Watermark] = []
+            yield from self._watermark_mgr.iter_watermarks(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                source=source,
+                limit=limit,
+                persistence=self.persistence,
+            )
 
-            if self.backend == BackendType.JSON:
-                candidates = list(self._watermarks.values())
-                if dataset_id is not None:
-                    candidates = [wm for wm in candidates if wm.dataset_id == dataset_id]
-                if instrument_id is not None:
-                    candidates = [wm for wm in candidates if wm.instrument_id == instrument_id]
-                if source_value is not None:
-                    candidates = [wm for wm in candidates if wm.source == source_value]
-
-                candidates.sort(key=lambda wm: wm.updated_at, reverse=True)
-
-                if limit_value is not None:
-                    candidates = candidates[:limit_value]
-
-                records = candidates
-            else:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    conditions: list[str] = []
-                    params: dict[str, Any] = {}
-                    if dataset_id is not None:
-                        conditions.append("dataset_id = :dataset_id")
-                        params["dataset_id"] = dataset_id
-                    if instrument_id is not None:
-                        conditions.append("instrument_id = :instrument_id")
-                        params["instrument_id"] = instrument_id
-                    if source_value is not None:
-                        conditions.append("source = :source")
-                        params["source"] = source_value
-
-                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                    limit_clause = ""
-                    if limit_value is not None:
-                        limit_clause = " LIMIT :limit"
-                        params["limit"] = limit_value
-
-                    query = text(
-                        """
-                        SELECT dataset_id, instrument_id, source,
-                               last_success_ns, last_attempt_ns, last_count,
-                               completeness_pct, EXTRACT(EPOCH FROM updated_at) AS updated_at
-                        FROM ml_data_watermarks
-                        """
-                        + where_clause
-                        + " ORDER BY updated_at DESC"
-                        + limit_clause,
-                    )
-
-                    rows = session.execute(query, params).fetchall()
-                finally:
-                    session.close()
-
-                records = []
-                for row in rows:
-                    watermark = self._watermark_from_row(row)
-                    key = f"{watermark.dataset_id}:{watermark.instrument_id}:{watermark.source}"
-                    self._watermarks[key] = watermark
-                    records.append(watermark)
-
-        yield from records
+    # -------------------------------------------------------------------------
+    # Public API: Lineage Management (Delegates to LineageManager)
+    # -------------------------------------------------------------------------
 
     def link_lineage(
         self,
@@ -1622,6 +793,8 @@ class DataRegistry(MLComponentMixin):
     ) -> None:
         """
         Link dataset lineage relationships.
+
+        Delegates to LineageManager component.
 
         Parameters
         ----------
@@ -1648,67 +821,18 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            for parent_id in parent_ids:
-                lineage_entry = {
-                    "transform_id": transform_id,
-                    "child_dataset_id": child_dataset_id,
-                    "parent_dataset_id": parent_id,
-                    "ts_range": ts_range,
-                    "parameters": params,
-                    "created_at": time.time(),
-                }
-
-                if self.backend == BackendType.JSON:
-                    self._lineage.append(lineage_entry)
-
-                    # Trim old lineage entries to prevent unbounded growth (keep last 5000)
-                    if len(self._lineage) > 5000:
-                        self._lineage = self._lineage[-5000:]
-
-                    self._save_registry()
-
-                elif self.backend == BackendType.POSTGRES:
-                    session = self.persistence.get_session()
-                    if session is None:
-                        raise RuntimeError("Failed to get database session")
-
-                    try:
-                        query = text(
-                            """
-                            INSERT INTO ml_data_lineage
-                            (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
-                            VALUES
-                            (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
-                        """,
-                        )
-
-                        session.execute(
-                            query,
-                            {
-                                "transform_id": transform_id,
-                                "child_dataset_id": child_dataset_id,
-                                "parent_dataset_id": parent_id,
-                                "ts_range": json.dumps(ts_range),
-                                "parameters": json.dumps(params),
-                            },
-                        )
-
-                    except Exception as e:
-                        session.rollback()
-                        logger.error("Failed to link lineage: %s", e)
-                        raise
-
-                    # Commit after all parents are linked
-                    if parent_id == parent_ids[-1]:
-                        session.commit()
-                        session.close()
-
-            logger.info(
-                "Linked lineage: child=%s, parents=%s, transform=%s",
-                child_dataset_id,
-                parent_ids,
-                transform_id,
+            self._lineage_mgr.link_lineage(
+                child_dataset_id=child_dataset_id,
+                parent_ids=parent_ids,
+                transform_id=transform_id,
+                ts_range=ts_range,
+                params=params,
+                persistence=self.persistence,
             )
+
+            # Save to JSON if using JSON backend
+            if self.backend == BackendType.JSON:
+                self._save_json_registry(immediate=True)
 
     def iter_lineage(
         self,
@@ -1719,100 +843,46 @@ class DataRegistry(MLComponentMixin):
     ) -> Iterator[DatasetLineageRecord]:
         """
         Yield lineage records filtered by optional child or parent identifiers.
+
+        Delegates to LineageManager component.
+
+        Parameters
+        ----------
+        child : str | None
+            Optional child dataset ID filter
+        parent : str | None
+            Optional parent dataset ID filter
+        limit : int | None
+            Optional limit on number of records returned
+
+        Returns
+        -------
+        Iterator[DatasetLineageRecord]
+            Iterator of lineage records
+
         """
-        limit_value = None if limit is None else max(0, int(limit))
-
         with self._lock:
-            records: list[DatasetLineageRecord] = []
+            yield from self._lineage_mgr.iter_lineage(
+                child=child,
+                parent=parent,
+                limit=limit,
+                persistence=self.persistence,
+            )
 
-            if self.backend == BackendType.JSON:
-                entries = list(self._lineage)
-                entries.sort(key=lambda entry: float(entry.get("created_at", 0.0)), reverse=True)
-
-                for entry in entries:
-                    if child is not None and entry.get("child_dataset_id") != child:
-                        continue
-                    if parent is not None and entry.get("parent_dataset_id") != parent:
-                        continue
-
-                    ts_range = entry.get("ts_range") or {}
-                    if isinstance(ts_range, str):
-                        try:
-                            ts_range = json.loads(ts_range)
-                        except json.JSONDecodeError:
-                            ts_range = {}
-
-                    parameters = entry.get("parameters") or {}
-                    if isinstance(parameters, str):
-                        try:
-                            parameters = json.loads(parameters)
-                        except json.JSONDecodeError:
-                            parameters = {}
-
-                    record = DatasetLineageRecord(
-                        transform_id=str(entry.get("transform_id", "")),
-                        child_dataset_id=str(entry.get("child_dataset_id", "")),
-                        parent_dataset_id=str(entry.get("parent_dataset_id", "")),
-                        ts_range={str(k): int(v) for k, v in dict(ts_range).items()},
-                        parameters={str(k): v for k, v in dict(parameters).items()},
-                        created_at=float(entry.get("created_at", 0.0)),
-                    )
-                    records.append(record)
-
-                    if limit_value is not None and len(records) >= limit_value:
-                        break
-            else:
-                session = self.persistence.get_session()
-                if session is None:
-                    raise RuntimeError("Failed to get database session")
-
-                try:
-                    conditions: list[str] = []
-                    params: dict[str, Any] = {}
-                    if child is not None:
-                        conditions.append("child_dataset_id = :child")
-                        params["child"] = child
-                    if parent is not None:
-                        conditions.append("parent_dataset_id = :parent")
-                        params["parent"] = parent
-
-                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                    limit_clause = ""
-                    if limit_value is not None:
-                        limit_clause = " LIMIT :limit"
-                        params["limit"] = limit_value
-
-                    query = text(
-                        """
-                        SELECT transform_id, child_dataset_id, parent_dataset_id,
-                               ts_range, parameters,
-                               EXTRACT(EPOCH FROM created_at) AS created_at
-                        FROM ml_data_lineage
-                        """
-                        + where_clause
-                        + " ORDER BY created_at DESC"
-                        + limit_clause,
-                    )
-
-                    rows = session.execute(query, params).fetchall()
-                finally:
-                    session.close()
-
-                records = [self._lineage_from_row(row) for row in rows]
-
-        yield from records
+    # -------------------------------------------------------------------------
+    # Cleanup
+    # -------------------------------------------------------------------------
 
     def __del__(self) -> None:
         """
         Cleanup on deletion.
         """
-        # Cancel any pending save timer
-        if hasattr(self, "_save_timer") and self._save_timer is not None:
-            self._save_timer.cancel()
-
-        # Ensure final save
-        if hasattr(self, "_pending_save") and self._pending_save:
-            self._do_save()
+        # Ensure final save for JSON backend
+        if self.backend == BackendType.JSON:
+            try:
+                self._save_json_registry(immediate=True)
+            except Exception:
+                pass
 
         # Close persistence connections
         if hasattr(self, "persistence"):

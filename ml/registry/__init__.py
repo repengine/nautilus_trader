@@ -29,6 +29,9 @@ Backends: Configurable JSON (development) or PostgreSQL (production) persistence
 # 4 MANDATORY REGISTRIES (Pattern 1 Requirement)
 # =============================================================================
 
+# Feature flag: DataRegistry facade vs legacy
+import os as _os
+
 from ml.registry.ab_testing_manager import ABTestingManager
 from ml.registry.abstract_registry import AbstractRegistry
 from ml.registry.base import DataRequirements
@@ -43,8 +46,14 @@ from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.canary_deployment_mgr import CanaryDeploymentManager
-from ml.registry.data_registry import DataRegistry
-from ml.registry.data_registry import Watermark
+
+
+if _os.getenv("ML_USE_LEGACY_DATA_REGISTRY", "0") == "1":
+    from ml.registry.data_registry_legacy import DataRegistryLegacy as DataRegistry
+    from ml.registry.data_registry_legacy import Watermark
+else:
+    from ml.registry.data_registry import DataRegistry
+    from ml.registry.watermark_manager import Watermark
 
 # =============================================================================
 # DEPLOYMENT & TESTING SUPPORT
