@@ -70,10 +70,11 @@ PostgreSQL → DummyStore (no persistence, warnings logged)
 See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
 
+import os as _os
+
 # =============================================================================
 # Pattern 1: The 4 Mandatory Stores
 # =============================================================================
-
 # Core store implementations (Pattern 1 requirement)
 # =============================================================================
 # Base Classes and Data Structures
@@ -98,12 +99,22 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.data_reader import DataReader
 from ml.stores.data_store import DataStore
 from ml.stores.data_writer import DataWriter
-from ml.stores.schema_validator import SchemaValidator
 
 # Earnings store
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
-from ml.stores.feature_store import FeatureStore
+
+
+# =============================================================================
+# Feature Flag: FeatureStore Implementation Selection
+# =============================================================================
+# Use ML_USE_LEGACY_FEATURE_STORE=1 to use the original god class implementation.
+# Default (0 or unset) uses the component-based facade.
+if _os.getenv("ML_USE_LEGACY_FEATURE_STORE", "0") == "1":
+    from ml.stores.feature_store_legacy import FeatureStoreLegacy as FeatureStore
+else:
+    from ml.stores.feature_store import FeatureStore
+
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
 from ml.stores.file_backed import FileFeatureStore
@@ -170,7 +181,15 @@ from ml.stores.protocols import WriteRecords
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
+from ml.stores.schema_validator import SchemaValidator
 from ml.stores.strategy_store import StrategyStore
+
+# Table factory utilities
+from ml.stores.table_factory import build_instrument_id_column
+from ml.stores.table_factory import build_nautilus_timestamp_columns
+from ml.stores.table_factory import build_standard_indexes
+from ml.stores.table_factory import create_ml_table
+from ml.stores.table_factory import get_schema_name
 
 # Validation types (shared across store components)
 from ml.stores.validation_types import DataEvent
@@ -186,17 +205,6 @@ from ml.stores.writers import ParquetCatalogMarketDataWriter
 # Lower-case aliases to match some test patch paths that derive module names
 datastore = data_store
 featurestore = feature_store
-
-
-# =============================================================================
-# Table Factory (DRY Pattern for Table Schemas)
-# =============================================================================
-# Centralized table creation utilities
-from ml.stores.table_factory import build_instrument_id_column
-from ml.stores.table_factory import build_nautilus_timestamp_columns
-from ml.stores.table_factory import build_standard_indexes
-from ml.stores.table_factory import create_ml_table
-from ml.stores.table_factory import get_schema_name
 
 
 # =============================================================================
