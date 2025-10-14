@@ -232,9 +232,12 @@ def track_pipeline_stage(stage: str) -> Generator[None, None, None]:
         pipeline_stage_latency.labels(stage=stage).observe(duration)
 
 
-class DataScheduler:
+class DataSchedulerLegacy:
     """
-    Scheduler for automated daily data collection and processing.
+    LEGACY: Scheduler for automated daily data collection and processing.
+
+    This is the original god class implementation preserved for backward compatibility
+    and comparison testing. Use DataScheduler facade (scheduler.py) instead.
 
     This class coordinates:
     1. Daily collection from Databento API
@@ -1076,7 +1079,7 @@ class DataScheduler:
             raw_writer = ParquetCatalogRawWriter(self.catalog)
 
             class _DomainLoader(DomainWindowLoaderProtocol):
-                def __init__(self, key: str, parent: DataScheduler) -> None:
+                def __init__(self, key: str, parent: DataSchedulerLegacy) -> None:
                     self._key = key
                     self._parent = parent
 
@@ -1527,7 +1530,7 @@ def main() -> None:
     )
 
     # Create scheduler
-    scheduler = DataScheduler(
+    scheduler = DataSchedulerLegacy(
         catalog=catalog,
         config=config,
     )

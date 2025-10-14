@@ -146,6 +146,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os as _os
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -171,6 +172,19 @@ from ml.data.catalog_utils import trades_to_dataframe
 
 # High-level orchestrators and builders
 from ml.data.collector import DataCollector
+
+# =============================================================================
+# Feature Flag: DataScheduler Implementation Selection
+# =============================================================================
+# Use ML_USE_LEGACY_DATA_SCHEDULER=1 to use the original god class implementation.
+# Default (0 or unset) uses the component-based facade.
+if TYPE_CHECKING:
+    from ml.data.scheduler import DataScheduler as DataScheduler
+else:
+    if _os.getenv("ML_USE_LEGACY_DATA_SCHEDULER", "0") == "1":
+        from ml.data.scheduler_legacy import DataSchedulerLegacy as DataScheduler
+    else:
+        from ml.data.scheduler import DataScheduler
 
 # Fixtures and testing utilities
 from ml.data.fixtures import FixtureManifest
@@ -242,6 +256,7 @@ __all__ = [
     "CostViolationError",
     "DataCollector",
     "DataProvider",
+    "DataScheduler",
     "DatabentoIngestionService",
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
