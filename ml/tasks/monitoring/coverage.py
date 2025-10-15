@@ -1271,10 +1271,10 @@ def apply_backfill(
                 # Typed retry/backoff: classify known errors
                 error_msg = str(api_error)
                 if "rate limit" in error_msg.lower():
-                    logger.warning("Rate limit hit, backing off...")
+                    logger.warning("Rate limit hit, backing off...", exc_info=True)
                     raise _TransientError(error_msg)
                 if "not found" in error_msg.lower():
-                    logger.error(f"Symbol not found: {symbol_code}")
+                    logger.error(f"Symbol not found: {symbol_code}", exc_info=True)
                     raise _TerminalError(error_msg)
                 # Treat unknown API errors as transient by default
                 raise _TransientError(error_msg)
@@ -1342,10 +1342,10 @@ def apply_backfill(
             )
             successful_instruments.append(instrument_id)
         except _TerminalError as e:
-            logger.error(f"  ✗ Terminal error for {instrument_id}: {e}")
+            logger.error(f"  ✗ Terminal error for {instrument_id}: {e}", exc_info=True)
             failed_instruments.append(instrument_id)
         except Exception as e:  # Last attempt failed after retries
-            logger.error(f"  ✗ Failed after {max_retries} attempts: {e}")
+            logger.error(f"  ✗ Failed after {max_retries} attempts: {e}", exc_info=True)
             failed_instruments.append(instrument_id)
 
     # Calculate execution summary

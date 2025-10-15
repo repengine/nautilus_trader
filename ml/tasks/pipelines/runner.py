@@ -143,7 +143,7 @@ class MLPipelineRunner:
             logger.info("Initializing FeatureEngineer")
             return FeatureEngineer(config=feature_config)
         except ImportError as exc:
-            logger.warning("FeatureEngineer unavailable: %s", exc)
+            logger.warning("FeatureEngineer unavailable: %s", exc, exc_info=True)
             return None
 
     def _run_health_checks(self) -> None:
@@ -153,7 +153,7 @@ class MLPipelineRunner:
                 instruments = self.catalog.instruments()
                 logger.info("Catalog accessible (instruments=%s)", len(instruments))
             except Exception as exc:  # pragma: no cover - best effort
-                logger.warning("Catalog health check warning: %s", exc)
+                logger.warning("Catalog health check warning: %s", exc, exc_info=True)
         if self.config.get("enable_features", True):
             try:
                 import psycopg2
@@ -168,7 +168,7 @@ class MLPipelineRunner:
             except ImportError:
                 logger.warning("psycopg2 not installed; skipping database check")
             except Exception as exc:
-                logger.warning("Database connection check failed: %s", exc)
+                logger.warning("Database connection check failed: %s", exc, exc_info=True)
         logger.info("Health checks completed")
 
     def run_backfill(self, start_date: datetime, end_date: datetime) -> None:
@@ -189,7 +189,7 @@ class MLPipelineRunner:
                 self.scheduler.run_daily_update()
                 days_processed += 1
             except Exception as exc:
-                logger.error("Failed to process %s: %s", current_date.date(), exc)
+                logger.error("Failed to process %s: %s", current_date.date(), exc, exc_info=True)
                 if self.config.get("stop_on_error", False):
                     raise
             current_date += timedelta(days=1)

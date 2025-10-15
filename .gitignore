@@ -5,6 +5,13 @@
 *.obj
 *.lib
 *.xml
+*.html
+*.json
+task*.md
+tasks/*.md
+htmlcov/
+
+!ml/dashboard/templates/*.html
 
 # Git
 *.diff
@@ -15,6 +22,7 @@
 log/
 logs/
 lightning_logs/
+reports/
 
 # ML artifacts and datasets
 data/tier1/
@@ -162,3 +170,34 @@ OLD/
 semantic_code_search_mcp_server/
 
 .hypothesis/
+ml/dashboard/services/PLAN_actor_management.md
+ml/dashboard/services/PLAN_api_explorer.md
+ml/dashboard/services/PLAN_feature_engineering.md
+ml/dashboard/services/PLAN_metrics_monitoring.md
+ml/dashboard/services/PLAN_pipeline_orchestration.md
+ml/dashboard/services/PLAN_strategy_builder.md
+ml/dashboard/services/PLAN_terminal_settings.md
+ml/dashboard/services/PLAN_trading_controls.md
+PHASE_3_2_COMMIT_VALIDATION_SUMMARY.md
+PHASE_3_2_VALIDATION_EXECUTIVE_SUMMARY.txt
+VALIDATION_REPORT_PHASE_3_2.md
+E2E_TESTING_STRATEGY.md
+AGENT_TASK_FRAMEWORK.md
+check_circular_simple.py
+check_circular_deps.py
+ml/dashboard/services/PLAN_actor_management.md
+ml/dashboard/services/PLAN_api_explorer.md
+ml/dashboard/services/PLAN_feature_engineering.md
+ml/dashboard/services/PLAN_metrics_monitoring.md
+ml/dashboard/services/PLAN_pipeline_orchestration.md
+ml/dashboard/services/PLAN_strategy_builder.md
+ml/dashboard/services/PLAN_terminal_settings.md
+ml/dashboard/services/PLAN_trading_controls.md
+ml/dashboard/services/PLAN_actor_management.md
+ml/dashboard/services/PLAN_api_explorer.md
+ml/dashboard/services/PLAN_feature_engineering.md
+ml/dashboard/services/PLAN_metrics_monitoring.md
+ml/dashboard/services/PLAN_pipeline_orchestration.md
+ml/dashboard/services/PLAN_strategy_builder.md
+ml/dashboard/services/PLAN_terminal_settings.md
+ml/dashboard/services/PLAN_trading_controls.md

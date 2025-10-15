@@ -106,5 +106,3 @@ def test_ingest_archive_writes_frames(tmp_path: Path) -> None:
         assert "source_dataset" in frame_written.columns
         assert frame_written["source_dataset"].dropna().unique().tolist() == ["EQUS.MINI"]
         assert frame_written["instrument_id"].dropna().unique().tolist() == [call["instrument_id"]]
-
-

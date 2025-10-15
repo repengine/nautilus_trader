@@ -35,4 +35,3 @@ def test_health_and_metrics_endpoints() -> None:
     m = client2.get("/metrics")
     assert m.status_code == 200
     assert isinstance(m.data, (bytes, bytearray))
-

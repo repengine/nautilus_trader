@@ -55,13 +55,13 @@ from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileEarningsStore
-from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.mixins import DataRegistryMixin
 from ml.stores.model_store import ModelStore
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import PredictionRecord
 from ml.stores.protocols import SignalRecord
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 from ml.stores.strategy_store import StrategyStore
 from ml.stores.validation_types import DataEvent
 from ml.stores.validation_types import QualityReport
@@ -3606,4 +3606,3 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         from contextlib import nullcontext
 
         return nullcontext()
-

@@ -21,6 +21,15 @@ from unittest.mock import patch
 
 import pytest
 
+from ml._imports import HAS_NAUTILUS_CORE
+from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+
+if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
+    pytest.skip(
+        f"Nautilus Trader core extensions unavailable: {NAUTILUS_CORE_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
+
 from ml.deployment.entrypoint_actor import MLSignalActorNode
 from ml.deployment.entrypoint_pipeline import PipelineRunner
 from ml.deployment.entrypoint_strategy import MLStrategyNode

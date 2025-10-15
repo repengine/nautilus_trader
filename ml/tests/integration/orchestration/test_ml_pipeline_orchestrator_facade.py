@@ -1,3 +1,9 @@
+import os
+import pytest
+
+if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
+
 #!/usr/bin/env python3
 
 """

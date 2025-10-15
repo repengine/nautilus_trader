@@ -62,9 +62,9 @@ __all__ = [
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing import only
-    from ml.stores.data_store import DataEvent
-else:
-    DataEvent = Any  # type: ignore[misc,assignment]
+    from ml.stores.validation_types import DataEvent
+else:  # pragma: no cover - runtime import
+    from ml.stores.validation_types import DataEvent  # type: ignore[no-redef]
 
 pl = cast(Any, pl)
 _PL = pl
@@ -72,9 +72,7 @@ _PL = pl
 
 def _make_data_event(**kwargs: Any) -> DataEvent:
     """Create a `DataEvent` instance without causing import cycles."""
-    from ml.stores.data_store import DataEvent as _DataEvent  # Local import to avoid cyclic dependency
-
-    return _DataEvent(**kwargs)
+    return DataEvent(**kwargs)
 
 
 def _ensure_polars() -> None:

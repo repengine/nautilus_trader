@@ -47,4 +47,3 @@ def test_performance_monitor_statistics() -> None:
     # Percentiles API aligns with numpy for all series
     perc = pm.get_latency_percentiles()
     assert set(perc.keys()) == {"feature_computation", "inference", "total"}
-

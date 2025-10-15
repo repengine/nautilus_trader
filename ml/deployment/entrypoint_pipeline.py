@@ -378,9 +378,10 @@ def main() -> None:
     Run main entry point.
     """
     # Start health check server in background
+    health_host = os.environ.get("HEALTH_CHECK_HOST", "127.0.0.1")
     health_thread = threading.Thread(
         target=lambda: app.run(
-            host="0.0.0.0",  # noqa: S104 - container health endpoint
+            host=health_host,
             port=int(os.environ.get("HEALTH_CHECK_PORT", "8080")),
             debug=False,
         ),

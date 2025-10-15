@@ -76,4 +76,3 @@ def test_regime_detection_count_based_warmup_and_monotonicity(monkeypatch: pytes
     actor._update_prediction_history(prediction=0.0, confidence=0.0, bar=_bar(bt, 1.2000, ts=5))
     new_avg = float(np.mean(actor._volatility_window[: int(actor._window_count)]))
     assert new_avg >= prev_avg
-

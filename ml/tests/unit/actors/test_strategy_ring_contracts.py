@@ -133,4 +133,3 @@ def test_momentum_fallback_to_history_when_ring_missing() -> None:
     assert sig is not None
     # Check that prediction is adjusted using momentum rule (prediction * (1 + momentum))
     assert pytest.approx(sig.prediction, rel=1e-6) == history[-1] * (1.0 + hist_mom)
-

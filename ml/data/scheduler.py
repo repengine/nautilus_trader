@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -43,9 +44,9 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -391,7 +392,7 @@ class DataScheduler:
                     backend=BackendType.POSTGRES,
                     connection_string=db_connection,
                 )
-                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+                registry_path = Path(tempfile.gettempdir()) / "ml_registry"  # Path for JSON fallback
             else:
                 # Use JSON backend for development (standardized location)
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"
@@ -1070,10 +1071,12 @@ class DataScheduler:
         registry = self._data_registry
         ingestor = DatabentoIngestor(client=DatabentoAPIClient(api_key=api_key))
 
-        raw_writer: ParquetCatalogRawWriter | None = None
+        raw_writer: RawIngestionWriterProtocol | None = None
         domain_loader: DomainWindowLoaderProtocol | None = None
         if getattr(self, "_dual_write", False):
-            raw_writer = ParquetCatalogRawWriter(self.catalog)
+            from ml.stores.io_raw import ParquetCatalogRawWriter as _ParquetCatalogRawWriter
+
+            raw_writer = _ParquetCatalogRawWriter(self.catalog)
 
             class _DomainLoader(DomainWindowLoaderProtocol):
                 def __init__(self, key: str, parent: DataScheduler) -> None:

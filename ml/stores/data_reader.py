@@ -11,7 +11,7 @@ monolithic DataStore class for better maintainability and testability.
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import PredictionRecord
@@ -259,7 +259,8 @@ class DataReader:
         -----
         Cold-path only. Performance target: <5ms P99.
         """
-        return self.feature_store.get_latest_at_or_before(instrument_id, int(ts_event))
+        result = self.feature_store.get_latest_at_or_before(instrument_id, int(ts_event))
+        return cast(dict[str, float] | None, result)
 
     def get_latest_prediction_at_or_before(
         self,

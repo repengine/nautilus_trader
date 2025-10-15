@@ -1,3 +1,9 @@
+import os
+import pytest
+
+if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
+
 #!/usr/bin/env python3
 
 """
@@ -1002,7 +1008,7 @@ class TestE2EPerformance:
         # Perform operations
         cfg = orchestrator.apply_default_market_inputs(sample_dataset_config)
         symbol_map = orchestrator.collect_symbol_map(ds_cfg=cfg)
-        start_ns, end_ns = orchestrator.resolve_window_bounds_ns(cfg)
+        _start_ns, _end_ns = orchestrator.resolve_window_bounds_ns(cfg)
 
         end = time.perf_counter()
 

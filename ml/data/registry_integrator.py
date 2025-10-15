@@ -9,6 +9,7 @@ tracking and event emission.
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -128,7 +129,7 @@ class RegistryIntegrator:
                     backend=BackendType.POSTGRES,
                     connection_string=connection,
                 )
-                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+                registry_path = Path(tempfile.gettempdir()) / "ml_registry"  # Path for JSON fallback
             else:
                 # Use JSON backend for development (standardized location)
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"

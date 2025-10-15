@@ -27,6 +27,9 @@ Notes
 
 from __future__ import annotations
 
+# Core orchestrator classes
+from ml.orchestration.binding_resolver import BindingResolver
+from ml.orchestration.binding_resolver import BindingResolverProtocol
 from ml.orchestration.config_loader import IngestionStageConfig
 from ml.orchestration.config_loader import OrchestratorRunConfig
 from ml.orchestration.config_loader import Stage
@@ -34,6 +37,8 @@ from ml.orchestration.config_loader import TrainingStageConfig
 from ml.orchestration.config_loader import load_orchestrator_config
 from ml.orchestration.config_loader import load_orchestrator_run_config
 from ml.orchestration.config_loader import to_pipeline_args
+from ml.orchestration.config_resolver import ConfigResolver
+from ml.orchestration.config_resolver import ConfigResolverProtocol
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
@@ -43,12 +48,6 @@ from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import PromotionsConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
-
-# Core orchestrator classes
-from ml.orchestration.binding_resolver import BindingResolver
-from ml.orchestration.binding_resolver import BindingResolverProtocol
-from ml.orchestration.config_resolver import ConfigResolver
-from ml.orchestration.config_resolver import ConfigResolverProtocol
 from ml.orchestration.dataset_builder import BuildArtifacts
 from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.orchestration.dataset_builder import DatasetBuilderProtocol

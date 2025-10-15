@@ -57,7 +57,7 @@ def validate_schema(engine: Engine) -> list[str]:
             SELECT COUNT(*) FROM pg_indexes
             WHERE schemaname = 'ml'
             AND tablename = 'instrument_metadata'
-            AND indexdef LIKE '%brin%';
+            AND indexdef LIKE '%BRIN%';
         """))
         brin_count = result.scalar()
         if brin_count < 2:

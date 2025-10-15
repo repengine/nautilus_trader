@@ -24,6 +24,8 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
+from ml._imports import HAS_NAUTILUS_CORE
+from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
 from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import AdaptiveSignal
@@ -35,6 +37,13 @@ from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
 from ml.tests.fixtures.model_factory import TestModelFactory
 from ml.tests.builders import MLConfigBuilder
+
+if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
+    pytest.skip(
+        f"Nautilus Trader core extensions unavailable: {NAUTILUS_CORE_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
+
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock

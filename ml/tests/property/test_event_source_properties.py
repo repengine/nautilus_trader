@@ -56,4 +56,3 @@ def test_earnings_events_within_range_and_instruments(
     for ev in events:
         assert start <= ev.timestamp <= end
         assert ev.instrument_id in instruments
-

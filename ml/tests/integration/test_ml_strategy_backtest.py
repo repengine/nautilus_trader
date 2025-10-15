@@ -21,8 +21,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ml._imports import HAS_NAUTILUS_CORE
 from ml._imports import HAS_ONNX
 from ml._imports import HAS_XGBOOST
+from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+
+if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
+    pytest.skip(
+        f"Nautilus Trader core extensions unavailable: {NAUTILUS_CORE_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
 from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig

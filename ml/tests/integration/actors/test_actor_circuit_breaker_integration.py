@@ -147,4 +147,3 @@ def test_actor_bus_scheme_prefix_integration(
     topic, payload = calls[-1]
     assert topic.startswith("events.ml.qa.SIGNAL_EMITTED."), topic
     assert payload.get("stage") == "SIGNAL_EMITTED"
-

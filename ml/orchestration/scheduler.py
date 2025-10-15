@@ -16,6 +16,7 @@ Non-goals: DAG engines, bus consumers, hot-path changes.
 """
 
 import logging
+import tempfile
 from collections.abc import Callable
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -216,12 +217,16 @@ def run_forever(
         out_dir = None
         if hasattr(cfg, "dataset") and hasattr(cfg.dataset, "out_dir"):
             out_dir = Path(str(cfg.dataset.out_dir))
-        default_lock = (out_dir / ".orch.lock") if out_dir else Path("/tmp/ml_orch.lock")
+        default_lock = (
+            out_dir / ".orch.lock"
+            if out_dir
+            else Path(tempfile.gettempdir()) / "ml_orch.lock"
+        )
     except Exception as exc:
         import logging as _logging
 
         _logging.getLogger(__name__).debug("Deriving default lock path failed: %s", exc)
-        default_lock = Path("/tmp/ml_orch.lock")
+        default_lock = Path(tempfile.gettempdir()) / "ml_orch.lock"
 
     lock_path = Path(os.getenv("ORCH_LOCK_PATH", str(default_lock)))
 

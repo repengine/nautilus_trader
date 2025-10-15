@@ -522,7 +522,7 @@ class TestE2ESchemaValidation:
         ]
 
         # Preflight check should pass
-        success, error, details = store.preflight_check(
+        success, _error, _details = store.preflight_check(
             dataset_id="test_dataset",
             data=data,
             strict=False,
@@ -530,8 +530,8 @@ class TestE2ESchemaValidation:
 
         # Verify passed
         assert success is True
-        assert error is None or error == ""
-        assert details is not None
+        assert _error is None or _error == ""
+        assert _details is not None
 
     def test_e2e_empty_data_handled_gracefully(
         self,
@@ -555,7 +555,7 @@ class TestE2ESchemaValidation:
         data: list[dict[str, Any]] = []
 
         # Preflight check with empty data
-        success, error, details = store.preflight_check(
+        success, _error, _details = store.preflight_check(
             dataset_id="test_dataset",
             data=data,
             strict=False,
@@ -563,7 +563,7 @@ class TestE2ESchemaValidation:
 
         # Should handle gracefully
         assert isinstance(success, bool)
-        assert details is not None
+        assert _details is not None
 
 
 class TestE2EHealthAndConfiguration:

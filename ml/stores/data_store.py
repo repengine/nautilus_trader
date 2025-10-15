@@ -20,13 +20,20 @@ import logging
 import os
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.protocols import MLComponentMixin
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID as _EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID as _EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.events import Source
+
+# Re-export for test compatibility (tests patch EngineManager)
 from ml.ml_types import DataFrameLike
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 from ml.registry.utils import get_default_registry_path
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
@@ -34,18 +41,19 @@ from ml.stores.base import StrategySignal
 from ml.stores.contract_enforcer import ContractEnforcer
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_reader import DataReader
+from ml.stores.data_writer import DataEvent as WriterDataEvent
 from ml.stores.data_writer import DataWriter
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileEarningsStore
-from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.mixins import DataRegistryMixin
 from ml.stores.model_store import ModelStore
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import PredictionRecord
 from ml.stores.protocols import SignalRecord
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 from ml.stores.schema_validator import SchemaValidator
 from ml.stores.strategy_store import StrategyStore
 from ml.stores.validation_types import DataEvent
@@ -84,10 +92,38 @@ else:
     _DataRegistryBase = DataRegistryMixin  # type: ignore[assignment]
 
 
+def _should_use_component_impl() -> bool:
+    """
+    Determine whether to enable the component-based DataStore facade.
+
+    Precedence (highest to lowest):
+    1. ML_USE_COMPONENT_DATA_STORE=1 explicitly opts in.
+    2. ML_USE_COMPONENT_DATA_STORE=0 explicitly opts out.
+    3. Historical flag ML_USE_LEGACY_DATA_STORE keeps working:
+       - "1" => legacy implementation
+       - "0" => component implementation
+       - unset => legacy (default)
+    """
+    component_flag = os.getenv("ML_USE_COMPONENT_DATA_STORE")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
+
+    legacy_flag = os.getenv("ML_USE_LEGACY_DATA_STORE")
+    if legacy_flag is not None:
+        return legacy_flag.strip() == "0"
+
+    return False
+
+
+USE_COMPONENT_DATA_STORE = _should_use_component_impl()
+USE_LEGACY_DATA_STORE = not USE_COMPONENT_DATA_STORE
+
+
 logger = logging.getLogger(__name__)
 
-# Feature flag to control legacy vs new implementation
-USE_LEGACY_DATA_STORE = os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
+
+EARNINGS_ACTUALS_DATASET_ID = _EARNINGS_ACTUALS_DATASET_ID
+EARNINGS_ESTIMATES_DATASET_ID = _EARNINGS_ESTIMATES_DATASET_ID
 
 
 class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
@@ -98,10 +134,12 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     DataWriter, ContractEnforcer) while maintaining 100% backward compatibility
     with the original DataStore API.
 
-    Feature Flag Control:
-    ---------------------
-    - ML_USE_LEGACY_DATA_STORE=1: Use original monolithic implementation
-    - ML_USE_LEGACY_DATA_STORE=0: Use new component-based implementation (default)
+    Feature Flag Control (defaults to legacy for stability):
+    -------------------------------------------------------
+    - ML_USE_COMPONENT_DATA_STORE=1: Opt into component-based implementation
+    - ML_USE_COMPONENT_DATA_STORE=0: Force legacy implementation
+    - ML_USE_LEGACY_DATA_STORE=1: Legacy implementation (backward compatible flag)
+    - ML_USE_LEGACY_DATA_STORE=0: Component implementation
 
     Component Architecture:
     ----------------------
@@ -164,6 +202,12 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     >>> store = DataStore(connection_string="postgresql://...")
     """
 
+    feature_store: FeatureStore
+    model_store: ModelStore
+    strategy_store: StrategyStore
+    earnings_store: EarningsStoreProtocol
+    registry: RegistryProtocol
+
     def __init__(
         self,
         connection_string: str,
@@ -191,9 +235,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         Parameters match original DataStore constructor for complete compatibility.
         """
-        if USE_LEGACY_DATA_STORE:
+        if not _should_use_component_impl():
             # Use legacy monolithic implementation
-            logger.info("Using legacy DataStore implementation (ML_USE_LEGACY_DATA_STORE=1)")
+            logger.info("Using legacy DataStore implementation (component facade opt-in disabled)")
             from ml.stores.data_store_legacy import DataStore as DataStoreLegacy
 
             # Create legacy instance and delegate all calls to it
@@ -214,20 +258,21 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 raw_writer=raw_writer,
                 raw_reader=raw_reader,
                 circuit_breaker=circuit_breaker,
-                topic_scheme=topic_scheme,
-                topic_prefix=topic_prefix,
             )
             self._use_legacy = True
             # Expose stores for compatibility
             self.feature_store = self._legacy_impl.feature_store
             self.model_store = self._legacy_impl.model_store
             self.strategy_store = self._legacy_impl.strategy_store
-            self.earnings_store = self._legacy_impl.earnings_store
+            legacy_earnings = cast(EarningsStoreProtocol | None, getattr(self._legacy_impl, "earnings_store", None))
+            if legacy_earnings is None:
+                legacy_earnings = DummyEarningsStore()
+            self.earnings_store = legacy_earnings
             self.registry = self._legacy_impl.registry
             return
 
         # Use new component-based implementation
-        logger.info("Using component-based DataStore implementation (ML_USE_LEGACY_DATA_STORE=0)")
+        logger.info("Using component-based DataStore implementation (opt-in)")
         self._use_legacy = False
 
         # Initialize base mixins
@@ -253,22 +298,27 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         # Initialize or use provided registry
         if registry is None:
-            from ml.registry.data_registry import DataRegistry
-
             registry_path = get_default_registry_path()
+            persistence_config = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=registry_path,
+            )
             self.registry = DataRegistry(
-                connection_string=connection_string,
-                registry_dir=Path(registry_path),
+                registry_path=registry_path,
+                persistence_config=persistence_config,
             )
         else:
             self.registry = registry
 
         # Initialize bus publishing
-        self._init_bus_publishing(
+        bus_mixin = cast(BusPublisherMixin, self)
+        bus_mixin._init_bus_publishing(
             enable_publishing=enable_publishing,
             publisher=publisher,
             publish_mode="batch",
         )
+        self._topic_scheme = topic_scheme or getattr(self, "_topic_scheme", "domain_op")
+        self._topic_prefix = topic_prefix or getattr(self, "_topic_prefix", "events.ml")
 
         # Initialize specialized components
         self._schema_validator = SchemaValidator()
@@ -329,7 +379,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             from ml.config.paths import get_data_catalog_path
 
             catalog_path = get_data_catalog_path()
-            return FileEarningsStore(catalog_path=catalog_path)
+            return FileEarningsStore(base_path=Path(catalog_path))
         except Exception:
             logger.debug("File earnings store creation failed", exc_info=True)
             return None
@@ -455,20 +505,22 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write ingestion data with validation and event emission."""
         if self._use_legacy:
-            return self._legacy_impl.write_ingestion(
+            legacy_event = self._legacy_impl.write_ingestion(
                 dataset_id=dataset_id,
                 records=records,
                 source=source,
                 run_id=run_id,
                 instrument_id=instrument_id,
             )
-        return self._data_writer.write_ingestion(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_ingestion(
             dataset_id=dataset_id,
             records=records,
             source=source,
             run_id=run_id,
             instrument_id=instrument_id,
         )
+        return self._to_data_event(writer_event)
 
     def write_features(
         self,
@@ -479,18 +531,20 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write features with validation and event emission."""
         if self._use_legacy:
-            return self._legacy_impl.write_features(
+            legacy_event = self._legacy_impl.write_features(
                 instrument_id=instrument_id,
                 features=features,
                 source=source,
                 run_id=run_id,
             )
-        return self._data_writer.write_features(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_features(
             instrument_id=instrument_id,
             features=features,
             source=source,
             run_id=run_id,
         )
+        return self._to_data_event(writer_event)
 
     def write_predictions(
         self,
@@ -500,16 +554,18 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write predictions with validation and event emission."""
         if self._use_legacy:
-            return self._legacy_impl.write_predictions(
+            legacy_event = self._legacy_impl.write_predictions(
                 predictions=predictions,
                 source=source,
                 run_id=run_id,
             )
-        return self._data_writer.write_predictions(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_predictions(
             predictions=predictions,
             source=source,
             run_id=run_id,
         )
+        return self._to_data_event(writer_event)
 
     def write_signals(
         self,
@@ -519,16 +575,18 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write signals with validation and event emission."""
         if self._use_legacy:
-            return self._legacy_impl.write_signals(
+            legacy_event = self._legacy_impl.write_signals(
                 signals=signals,
                 source=source,
                 run_id=run_id,
             )
-        return self._data_writer.write_signals(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_signals(
             signals=signals,
             source=source,
             run_id=run_id,
         )
+        return self._to_data_event(writer_event)
 
     def write_earnings_actual(
         self,
@@ -552,7 +610,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write earnings actual with validation."""
         if self._use_legacy:
-            return self._legacy_impl.write_earnings_actual(
+            legacy_event = self._legacy_impl.write_earnings_actual(
                 ticker=ticker,
                 period_end=period_end,
                 filing_date=filing_date,
@@ -570,7 +628,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 source=source,
                 run_id=run_id,
             )
-        return self._data_writer.write_earnings_actual(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_earnings_actual(
             ticker=ticker,
             period_end=period_end,
             filing_date=filing_date,
@@ -588,6 +647,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             source=source,
             run_id=run_id,
         )
+        return self._to_data_event(writer_event)
 
     def write_earnings_estimate(
         self,
@@ -605,7 +665,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     ) -> DataEvent:
         """Write earnings estimate with validation."""
         if self._use_legacy:
-            return self._legacy_impl.write_earnings_estimate(
+            legacy_event = self._legacy_impl.write_earnings_estimate(
                 ticker=ticker,
                 estimate_date=estimate_date,
                 period_end=period_end,
@@ -617,7 +677,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 source=source,
                 run_id=run_id,
             )
-        return self._data_writer.write_earnings_estimate(
+            return self._to_data_event(legacy_event)
+        writer_event = self._data_writer.write_earnings_estimate(
             ticker=ticker,
             estimate_date=estimate_date,
             period_end=period_end,
@@ -629,6 +690,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             source=source,
             run_id=run_id,
         )
+        return self._to_data_event(writer_event)
 
     # =========================================================================
     # Contract & Validation (delegate to ContractEnforcer + SchemaValidator)
@@ -690,9 +752,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 publisher=publisher,
                 publish_mode=publish_mode,
             )
-        # Use BusPublisherMixin method
+        bus_self = cast(BusPublisherMixin, self)
         BusPublisherMixin._init_bus_publishing(
-            self,
+            bus_self,
             enable_publishing=enable_publishing,
             publisher=publisher,
             publish_mode=publish_mode,
@@ -740,6 +802,27 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         if self.batch_size <= 0:
             errors.append("batch_size must be positive")
         return errors
+
+    @staticmethod
+    def _to_data_event(event: WriterDataEvent | DataEvent) -> DataEvent:
+        """Normalize legacy/writer events to validation `DataEvent`."""
+        if isinstance(event, DataEvent):
+            return event
+        metadata = dict(getattr(event, "metadata", {}) or {})
+        return DataEvent(
+            event_id=str(event.event_id),
+            dataset_id=str(event.dataset_id),
+            instrument_id=str(event.instrument_id),
+            operation=str(event.operation),
+            source=str(event.source),
+            run_id=str(event.run_id),
+            ts_min=int(event.ts_min),
+            ts_max=int(event.ts_max),
+            record_count=int(event.record_count),
+            status=str(event.status),
+            error_message=getattr(event, "error_message", None),
+            metadata=metadata,
+        )
 
     # =========================================================================
     # Additional Public Methods (for backward compatibility)

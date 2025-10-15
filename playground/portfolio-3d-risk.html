@@ -6,25 +6,25 @@
     <title>3D Portfolio Risk Space</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             overflow: hidden;
             color: white;
         }
-        
+
         #container {
             display: flex;
             width: 100vw;
             height: 100vh;
         }
-        
+
         #canvas-container {
             flex: 1;
             position: relative;
         }
-        
+
         #info-panel {
             width: 320px;
             background: rgba(255, 255, 255, 0.95);
@@ -33,21 +33,21 @@
             overflow-y: auto;
             box-shadow: -5px 0 20px rgba(0,0,0,0.3);
         }
-        
+
         h1 {
             font-size: 24px;
             color: #1a1a2e;
             margin-bottom: 8px;
             font-weight: 800;
         }
-        
+
         .subtitle {
             font-size: 12px;
             color: #64748b;
             margin-bottom: 20px;
             line-height: 1.5;
         }
-        
+
         .controls {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
@@ -55,14 +55,14 @@
             margin-bottom: 20px;
             color: white;
         }
-        
+
         .control-title {
             font-size: 13px;
             font-weight: 700;
             margin-bottom: 10px;
             opacity: 0.9;
         }
-        
+
         .control-item {
             display: flex;
             justify-content: space-between;
@@ -70,16 +70,16 @@
             margin-bottom: 8px;
             font-size: 11px;
         }
-        
+
         .control-label {
             opacity: 0.8;
         }
-        
+
         .control-value {
             font-weight: 700;
             font-size: 13px;
         }
-        
+
         .metrics {
             background: #f8fafc;
             border-radius: 12px;
@@ -173,7 +173,7 @@
             color: #1a1a2e;
             margin-bottom: 12px;
         }
-        
+
         .allocation-item {
             display: flex;
             align-items: center;
@@ -182,7 +182,7 @@
             padding: 10px;
             margin-bottom: 8px;
         }
-        
+
         .allocation-dot {
             width: 10px;
             height: 10px;
@@ -190,23 +190,23 @@
             margin-right: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        
+
         .allocation-info {
             flex: 1;
         }
-        
+
         .allocation-name {
             font-size: 11px;
             font-weight: 700;
             color: #1a1a2e;
         }
-        
+
         .allocation-coords {
             font-size: 9px;
             color: #94a3b8;
             margin-top: 2px;
         }
-        
+
         .allocation-weight {
             font-size: 13px;
             font-weight: 800;
@@ -227,7 +227,7 @@
             font-weight: 700;
             letter-spacing: 0.02em;
         }
-        
+
         .instructions {
             position: absolute;
             top: 20px;
@@ -241,18 +241,18 @@
             max-width: 300px;
             z-index: 10;
         }
-        
+
         .instruction-title {
             font-weight: 700;
             margin-bottom: 8px;
             color: #fbbf24;
         }
-        
+
         .instruction-item {
             margin-bottom: 5px;
             color: #e5e7eb;
         }
-        
+
         .axis-label {
             position: absolute;
             font-size: 12px;
@@ -262,7 +262,7 @@
             pointer-events: none;
             z-index: 5;
         }
-        
+
         .legend {
             background: rgba(0,0,0,0.8);
             backdrop-filter: blur(10px);
@@ -273,21 +273,21 @@
             left: 20px;
             z-index: 10;
         }
-        
+
         .legend-title {
             font-size: 11px;
             font-weight: 700;
             margin-bottom: 10px;
             color: #fbbf24;
         }
-        
+
         .legend-item {
             display: flex;
             align-items: center;
             margin-bottom: 6px;
             font-size: 10px;
         }
-        
+
         .legend-color {
             width: 12px;
             height: 12px;
@@ -309,7 +309,7 @@
             <div class="axis-label" id="x-axis-label" style="bottom: 14px; left: 50%; transform: translateX(-50%);">Duration Risk</div>
             <div class="axis-label" id="y-axis-label" style="top: 50%; left: 16px; transform: translateY(-50%) rotate(-90deg); transform-origin: left top;">Credit Risk</div>
             <div class="axis-label" id="z-axis-label" style="top: 16px; right: 24px;">Liquidity</div>
-            
+
             <div class="legend">
                 <div class="legend-title">Asset Classes</div>
                 <div class="legend-item">
@@ -338,11 +338,11 @@
                 </div>
             </div>
         </div>
-        
+
         <div id="info-panel">
             <h1>Portfolio Navigator</h1>
             <p class="subtitle">Navigate through 3D risk space to find optimal asset allocation based on macro conditions</p>
-            
+
             <div class="controls">
                 <div class="control-title">📍 Portfolio Position</div>
                 <div class="control-item">
@@ -358,7 +358,7 @@
                     <span class="control-value" id="liquidity-value">50%</span>
                 </div>
             </div>
-            
+
             <div class="metrics">
                 <div class="metric-row">
                     <span class="metric-label">Risk Profile:</span>
@@ -420,12 +420,12 @@
                 <div class="badge-list" id="coverage-alert-badges"></div>
                 <div class="alerts-empty" id="coverage-alert-empty">All factors and composites meet thresholds.</div>
             </div>
-            
+
             <div class="allocations-title">💼 Current Allocation</div>
             <div id="allocations-list"></div>
         </div>
     </div>
-    
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
     const SECTOR_COLORS = {

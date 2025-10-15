@@ -16,4 +16,3 @@ if TYPE_CHECKING:
         f: FeatureStore, m: ModelStore, s: StrategyStore
     ) -> tuple[FeatureStoreStrictProtocol, ModelStoreStrictProtocol, StrategyStoreStrictProtocol]:
         return (f, m, s)
-

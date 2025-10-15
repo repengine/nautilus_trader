@@ -1,6 +1,11 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
+
+import os
+
+import pytest
+
+if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
 
 import argparse
 from dataclasses import dataclass

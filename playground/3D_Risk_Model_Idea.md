@@ -8,7 +8,7 @@
 ## Factor Proxy Data (X, Y, Z Axes)
 
 ### 📊 **X-Axis: Duration Risk**
-**Data Needed:** Rate sensitivity measures  
+**Data Needed:** Rate sensitivity measures
 **Sources:** FRED API (Free, requires API key)
 
 | Metric | FRED Series | History | Update Freq |
@@ -27,8 +27,8 @@ ten_year = fred.get_series('DGS10')
 term_spread = fred.get_series('T10Y2Y')
 ```
 
-### 📊 **Y-Axis: Credit Risk**  
-**Data Needed:** Default probability & spread measures  
+### 📊 **Y-Axis: Credit Risk**
+**Data Needed:** Default probability & spread measures
 **Sources:** FRED API (Free)
 
 | Metric | FRED Series | History | Update Freq |
@@ -49,7 +49,7 @@ credit_factor = hy_spread - ig_spread  # HY-IG spread
 ```
 
 ### 📊 **Z-Axis: Liquidity Risk**
-**Data Needed:** Monetary conditions & real rates  
+**Data Needed:** Monetary conditions & real rates
 **Sources:** FRED API (Free)
 
 | Metric | FRED Series | History | Update Freq |
@@ -87,7 +87,7 @@ liquidity_factor = (
 ## Asset Return Data
 
 ### 📈 **Source: Yahoo Finance via yfinance**
-**Status:** Free, Python library, 20+ years history for most assets  
+**Status:** Free, Python library, 20+ years history for most assets
 **Caveats:** Unofficial API, can be flaky, personal use only
 
 | Asset Class | Ticker Examples | History |
@@ -142,22 +142,22 @@ def build_duration_factor(start_date='2010-01-01'):
     ten_year = fred.get_series('DGS10', start_date)
     two_year = fred.get_series('DGS2', start_date)
     term_spread = fred.get_series('T10Y2Y', start_date)
-    
+
     # Normalize to 0-100 scale
     duration_factor = pd.DataFrame({
         'yield_10y': ten_year,
         'term_spread': term_spread
     })
-    
+
     # Changes matter more than levels
     duration_factor['yield_change'] = duration_factor['yield_10y'].diff(20)  # 20-day change
-    
+
     # Combine (higher yields = more duration risk)
     duration_index = (
         0.6 * duration_factor['yield_10y'].rank(pct=True) * 100 +
         0.4 * duration_factor['term_spread'].rank(pct=True) * 100
     )
-    
+
     return duration_index.fillna(method='ffill')
 
 # ==== CREDIT FACTOR ====
@@ -166,20 +166,20 @@ def build_credit_factor(start_date='2010-01-01'):
     hy_spread = fred.get_series('BAMLH0A0HYM2', start_date)
     ig_spread = fred.get_series('BAMLC0A0CM', start_date)
     vix = fred.get_series('VIXCLS', start_date)
-    
+
     credit_factor = pd.DataFrame({
         'hy_spread': hy_spread,
         'ig_spread': ig_spread,
         'vix': vix
     }).fillna(method='ffill')
-    
+
     # Higher spreads & VIX = more credit risk
     credit_index = (
         0.5 * credit_factor['hy_spread'].rank(pct=True) * 100 +
         0.3 * credit_factor['ig_spread'].rank(pct=True) * 100 +
         0.2 * credit_factor['vix'].rank(pct=True) * 100
     )
-    
+
     return credit_index
 
 # ==== LIQUIDITY FACTOR ====
@@ -188,16 +188,16 @@ def build_liquidity_factor(start_date='2010-01-01'):
     real_rate = fred.get_series('DFII10', start_date)
     fed_bs = fred.get_series('WALCL', start_date)
     nfci = fred.get_series('NFCI', start_date)
-    
+
     liquidity_factor = pd.DataFrame({
         'real_rate': real_rate,
         'fed_bs': fed_bs,
         'nfci': nfci
     }).fillna(method='ffill')
-    
+
     # Calculate Fed balance sheet YoY growth
     liquidity_factor['fed_bs_growth'] = liquidity_factor['fed_bs'].pct_change(252) * 100
-    
+
     # Lower real rates + higher Fed growth + lower NFCI = MORE liquidity
     # So we invert these to create a "high = loose" scale
     liquidity_index = (
@@ -205,7 +205,7 @@ def build_liquidity_factor(start_date='2010-01-01'):
         0.3 * liquidity_factor['fed_bs_growth'].rank(pct=True) * 100 +
         0.3 * (100 - liquidity_factor['nfci'].rank(pct=True) * 100)
     )
-    
+
     return liquidity_index
 
 # ==== COMBINE INTO UNIFIED FACTOR DATASET ====
@@ -213,13 +213,13 @@ def build_factor_dataset(start_date='2010-01-01'):
     duration = build_duration_factor(start_date)
     credit = build_credit_factor(start_date)
     liquidity = build_liquidity_factor(start_date)
-    
+
     factors = pd.DataFrame({
         'duration_factor': duration,
         'credit_factor': credit,
         'liquidity_factor': liquidity
     }).dropna()
-    
+
     return factors
 ```
 
@@ -232,44 +232,44 @@ import pandas as pd
 def calculate_asset_coordinates(asset_returns, factor_data, window_days=504):
     """
     Rolling factor regression to get asset coordinates in 3D space.
-    
+
     Parameters:
     - asset_returns: DataFrame of daily asset returns
     - factor_data: DataFrame with duration_factor, credit_factor, liquidity_factor
     - window_days: Rolling window (504 days = ~2 years)
-    
+
     Returns:
     - DataFrame with (x, y, z) coordinates for each asset
     """
-    
+
     # Align dates
     common_dates = asset_returns.index.intersection(factor_data.index)
     asset_returns = asset_returns.loc[common_dates]
     factor_data = factor_data.loc[common_dates]
-    
+
     # Calculate factor returns (daily changes)
     factor_returns = factor_data.diff()
-    
+
     coordinates = {}
-    
+
     for asset in asset_returns.columns:
         # Rolling regression
         X = factor_returns.dropna()
         y = asset_returns[asset].loc[X.index]
-        
+
         # Take last window_days for current position
         X_recent = X.tail(window_days)
         y_recent = y.tail(window_days)
-        
+
         # Run regression: Returns = α + β_dur*ΔDuration + β_cred*ΔCredit + β_liq*ΔLiquidity
         model = LinearRegression()
         model.fit(X_recent, y_recent)
-        
+
         # Betas ARE the coordinates
         duration_beta = model.coef_[0]
         credit_beta = model.coef_[1]
         liquidity_beta = model.coef_[2]
-        
+
         # Normalize to 0-100% scale
         coordinates[asset] = {
             'x': duration_beta,
@@ -277,13 +277,13 @@ def calculate_asset_coordinates(asset_returns, factor_data, window_days=504):
             'z': liquidity_beta,
             'r_squared': model.score(X_recent, y_recent)
         }
-    
+
     coords_df = pd.DataFrame(coordinates).T
-    
+
     # Normalize to 0-100 scale
     for col in ['x', 'y', 'z']:
         coords_df[col] = (coords_df[col].rank(pct=True) * 100).clip(0, 100)
-    
+
     return coords_df
 
 # Usage
@@ -327,7 +327,7 @@ print(asset_positions)
 | Storage | Local CSV/HDF5 | Cloud DB ($10-50/mo) | **Start local** |
 | Compute | Local Python | AWS/GCP | **Start local** |
 
-**Total Cost for MVP: $0**  
+**Total Cost for MVP: $0**
 **Total Cost for Production: $100-300/mo**
 
 ---

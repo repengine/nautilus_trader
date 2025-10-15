@@ -272,12 +272,16 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     # These mirror older boolean switches used in tests such as
     # enable_returns/enable_momentum/enable_volatility/enable_technical and
     # ma_periods. They are optional and default to None to avoid affecting
-    # normal configurations.
+    # normal configurations. The enable_* aliases allow older fixtures to pass
+    # enable_rsi / enable_bollinger / enable_vwap without raising errors.
     enable_returns: bool | None = None
     enable_momentum: bool | None = None
     enable_volatility: bool | None = None
     enable_technical: bool | None = None
     ma_periods: list[int] | None = None
+    enable_rsi: bool | None = None
+    enable_bollinger: bool | None = None
+    enable_vwap: bool | None = None
 
     data_requirements: DataRequirements = DataRequirements.L1_ONLY
 

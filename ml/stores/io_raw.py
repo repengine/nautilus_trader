@@ -16,43 +16,15 @@ Existing modules re-export these symbols with deprecation warnings.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, cast
 
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.catalog_utils import quotes_to_dataframe
 from ml.data.catalog_utils import trades_to_dataframe
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
-
-
-@runtime_checkable
-class RawIngestionWriterProtocol(Protocol):
-    """
-    Protocol for writing raw datasets (bars/quotes/trades/mbp1/tbbo).
-    """
-
-    def write(
-        self,
-        *,
-        dataset_type: DatasetType,
-        data: DataFrameLike | list[dict[str, object]],
-    ) -> int: ...
-
-
-@runtime_checkable
-class RawReaderProtocol(Protocol):
-    """
-    Protocol for reading raw datasets over a time range.
-    """
-
-    def read_range(
-        self,
-        *,
-        dataset_type: DatasetType,
-        instrument_id: str,
-        start_ns: int,
-        end_ns: int,
-    ) -> DataFrameLike: ...
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 
 
 class ParquetCatalogRawReader(RawReaderProtocol):

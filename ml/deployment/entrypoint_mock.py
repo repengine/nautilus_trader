@@ -7,6 +7,7 @@ for testing outside market hours.
 """
 
 import asyncio
+import logging
 import os
 import sys
 import threading
@@ -15,6 +16,9 @@ import time
 # Import the regular entrypoint components
 from ml.deployment.entrypoint_actor import MLSignalActorNode
 from ml.deployment.mock_databento import MockDatabentoClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class MockMLSignalActorNode(MLSignalActorNode):
@@ -125,7 +129,7 @@ class MockMLSignalActorNode(MLSignalActorNode):
             try:
                 await self.mock_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Mock data task cancelled", exc_info=True)
 
         await super().shutdown()
 
@@ -146,8 +150,9 @@ class MockMLSignalActorNode(MLSignalActorNode):
                     actors = self.node.trader.actors()
                     if actors:
                         actor = actors[0]
-            except Exception:
+            except Exception as exc:  # pragma: no cover - defensive
                 actor = None
+                logger.debug("Failed to resolve actor for mock injection", exc_info=True, extra={"error": repr(exc)})
             if actor is None:
                 print("No actor available for mock injection; skipping.")
                 return
@@ -179,8 +184,12 @@ class MockMLSignalActorNode(MLSignalActorNode):
                                         ts_event=int(bar.ts_event),
                                         is_live=True,
                                     )
-                        except Exception:
-                            pass
+                        except Exception as signal_exc:  # pragma: no cover - debug aid
+                            logger.debug(
+                                "Mock signal persistence failed",
+                                exc_info=True,
+                                extra={"error": repr(signal_exc)},
+                            )
                         count += 1
                         if count % 50 == 0:
                             print(f"📊 Mock(thread): {count} bars generated")
@@ -201,19 +210,31 @@ class MockMLSignalActorNode(MLSignalActorNode):
                         try:
                             if sstore is not None:
                                 sstore.flush()
-                        except Exception:
-                            pass
+                        except Exception as store_exc:  # pragma: no cover - debug aid
+                            logger.debug(
+                                "Strategy store flush failed in mock mode",
+                                exc_info=True,
+                                extra={"error": repr(store_exc)},
+                            )
                         try:
                             if mstore is not None:
                                 mstore.flush()
-                        except Exception:
-                            pass
+                        except Exception as model_exc:  # pragma: no cover - debug aid
+                            logger.debug(
+                                "Model store flush failed in mock mode",
+                                exc_info=True,
+                                extra={"error": repr(model_exc)},
+                            )
                         time.sleep(0.5)
 
                 self._flush_thread = threading.Thread(target=_flush_loop, daemon=True)
                 self._flush_thread.start()
-            except Exception:
-                pass
+            except Exception as thread_exc:  # pragma: no cover - debug aid
+                logger.debug(
+                    "Failed to start mock flush thread",
+                    exc_info=True,
+                    extra={"error": repr(thread_exc)},
+                )
 
         # Start injection and run node
         try:
@@ -254,15 +275,24 @@ def main() -> None:
         if os.getenv("USE_MOCK_DATA", "false").lower() == "true" and actor_node.node and actor_node.node.trader:
             try:
                 actors = actor_node.node.trader.actors()
-            except Exception:
+            except Exception as exc:  # pragma: no cover - defensive
                 actors = []
+                logger.debug(
+                    "Failed to enumerate actors for mock setup",
+                    exc_info=True,
+                    extra={"error": repr(exc)},
+                )
             if actors:
                 act = actors[0]
                 # Prevent on_start from attempting live subscriptions
                 try:
                     setattr(act, "subscribe_bars", lambda *args, **kwargs: None)
-                except Exception:
-                    pass
+                except Exception as sub_exc:  # pragma: no cover - defensive
+                    logger.debug(
+                        "Failed to override subscribe_bars for mock actor",
+                        exc_info=True,
+                        extra={"error": repr(sub_exc)},
+                    )
                 # Make stores flush on every write in test mode
                 try:
                     sstore = getattr(act, "_strategy_store", None)
@@ -272,33 +302,57 @@ def main() -> None:
                         try:
                             setattr(sstore, "batch_size", 1)
                             setattr(sstore, "flush_interval_ms", 10)
-                        except Exception:
-                            pass
+                        except Exception as store_cfg_exc:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Failed to configure strategy store batch settings",
+                                exc_info=True,
+                                extra={"error": repr(store_cfg_exc)},
+                            )
                         try:
                             raw = getattr(sstore, "_store", None)
                             if raw is not None:
                                 setattr(raw, "batch_size", 1)
                                 setattr(raw, "flush_interval_ms", 10)
-                        except Exception:
-                            pass
+                        except Exception as raw_store_exc:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Failed to configure underlying strategy store",
+                                exc_info=True,
+                                extra={"error": repr(raw_store_exc)},
+                            )
                     if mstore is not None:
                         try:
                             setattr(mstore, "batch_size", 1)
                             setattr(mstore, "flush_interval_ms", 10)
-                        except Exception:
-                            pass
+                        except Exception as model_store_exc:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Failed to configure model store batch settings",
+                                exc_info=True,
+                                extra={"error": repr(model_store_exc)},
+                            )
                         try:
                             rawm = getattr(mstore, "_store", None)
                             if rawm is not None:
                                 setattr(rawm, "batch_size", 1)
                                 setattr(rawm, "flush_interval_ms", 10)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-    except Exception:
+                        except Exception as raw_model_exc:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Failed to configure underlying model store",
+                                exc_info=True,
+                                extra={"error": repr(raw_model_exc)},
+                            )
+                except Exception as config_exc:  # pragma: no cover - defensive
+                    logger.debug(
+                        "Failed to configure mock flush settings",
+                        exc_info=True,
+                        extra={"error": repr(config_exc)},
+                    )
+    except Exception as mock_setup_exc:  # pragma: no cover - defensive
         # Non-fatal test-mode prep failure
-        pass
+        logger.debug(
+            "Mock mode preparation failed",
+            exc_info=True,
+            extra={"error": repr(mock_setup_exc)},
+        )
 
     # Start lightweight HTTP endpoints
     try:

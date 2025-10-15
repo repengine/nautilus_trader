@@ -399,9 +399,10 @@ def main() -> None:
         port = int(os.getenv("METRICS_PORT", "8001"))
     except ValueError:
         port = 8001
+    host = os.getenv("METRICS_HOST", "127.0.0.1")
     app = build_app(lambda: strategy_node._healthy)
     http_thread = threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=port, debug=False),  # noqa: S104
+        target=lambda: app.run(host=host, port=port, debug=False),
         daemon=True,
     )
     http_thread.start()

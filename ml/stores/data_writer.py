@@ -411,7 +411,7 @@ class DataWriter:
                 logger.warning("Preflight warning for %s: %s", dataset_id, warning)
 
         # Convert to DataFrame if needed
-        data_frame = self._to_dataframe(records)
+        data_frame: DataFrameLike = self._to_dataframe(records)
 
         # Extract metadata from DataFrame
         extra_metadata: dict[str, object] = {}
@@ -419,11 +419,13 @@ class DataWriter:
             data_frame_for_meta: Any = None
             if isinstance(data_frame, pd.DataFrame):
                 data_frame_for_meta = data_frame
-            elif hasattr(data_frame, "to_pandas") and callable(getattr(data_frame, "to_pandas")):
-                try:
-                    data_frame_for_meta = data_frame.to_pandas()
-                except Exception:
-                    data_frame_for_meta = None
+            else:
+                to_pandas = getattr(data_frame, "to_pandas", None)
+                if callable(to_pandas):
+                    try:
+                        data_frame_for_meta = to_pandas()
+                    except Exception:
+                        data_frame_for_meta = None
 
             if data_frame_for_meta is not None:
                 extra_metadata = self._extract_ingestion_metadata_from_dataframe(data_frame_for_meta)
@@ -967,7 +969,12 @@ class DataWriter:
 
         contract = self.contract_enforcer.get_contract(dataset_id)
         use_strict = contract.enforcement_mode == "strict"
-        quality_report = self.contract_enforcer.validate_batch(dataset_id, [record], strict_mode=use_strict)
+        record_frame: DataFrameLike = self._to_dataframe([record])
+        quality_report = self.contract_enforcer.validate_batch(
+            dataset_id,
+            record_frame,
+            strict_mode=use_strict,
+        )
         self.schema_validator.enforce_quality_report(
             dataset_id=dataset_id,
             contract=contract,
@@ -1095,7 +1102,12 @@ class DataWriter:
 
         contract = self.contract_enforcer.get_contract(dataset_id)
         use_strict = contract.enforcement_mode == "strict"
-        quality_report = self.contract_enforcer.validate_batch(dataset_id, [record], strict_mode=use_strict)
+        record_frame: DataFrameLike = self._to_dataframe([record])
+        quality_report = self.contract_enforcer.validate_batch(
+            dataset_id,
+            record_frame,
+            strict_mode=use_strict,
+        )
         self.schema_validator.enforce_quality_report(
             dataset_id=dataset_id,
             contract=contract,
@@ -1193,12 +1205,11 @@ class DataWriter:
             Completeness percentage (default: 100.0)
         """
         try:
-            # Import locally to avoid circular dependencies
-            from ml.common.event_utils import build_bus_payload
-            from ml.common.event_utils import build_topic_for_stage
-            from ml.common.event_utils import emit_dataset_event_and_watermark
-            from ml.common.event_utils import make_correlation_id
-            from ml.common.event_utils import to_source_str
+            from ml.common.correlation import make_correlation_id
+            from ml.common.event_emitter import emit_dataset_event_and_watermark
+            from ml.common.events_util import build_bus_payload
+            from ml.common.events_util import to_source_str
+            from ml.common.message_topics import build_topic_for_stage
 
             # Build correlation id for observability
             correlation_id = make_correlation_id(
@@ -1361,7 +1372,7 @@ class DataWriter:
     def _to_dataframe(
         self,
         data: DataFrameLike | list[dict[str, Any]],
-    ) -> DataFrameLike | list[dict[str, Any]]:
+    ) -> DataFrameLike:
         """
         Convert various data formats to DataFrame-like or pass-through list.
 
@@ -1378,21 +1389,14 @@ class DataWriter:
         from ml._imports import HAS_POLARS
         from ml._imports import pl
 
-        if not HAS_POLARS:
-            if isinstance(data, list):
-                return data
-            return data
-
-        # If already a DataFrame, return as is
-        if hasattr(data, "columns"):
-            return data
-
-        # Convert list of dicts to DataFrame
-        if isinstance(data, list) and data and isinstance(data[0], dict):
+        if isinstance(data, list):
             if HAS_POLARS and pl is not None:
                 return cast(DataFrameLike, pl.DataFrame(data))
-            return data
+            if pd is not None:
+                return cast(DataFrameLike, pd.DataFrame(data))
+            raise RuntimeError("No DataFrame backend available to materialize list input")
 
+        # Already DataFrame-like (pandas or polars)
         return data
 
     @staticmethod
@@ -1452,38 +1456,56 @@ class DataWriter:
         if hasattr(data_frame_any, "iter_rows"):
             # Polars DataFrame
             for row in data_frame_any.iter_rows(named=True):
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in feature row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 features.append(
                     FeatureData(
                         feature_set_id=row.get("feature_set_id", "default"),
                         instrument_id=instrument_id,
                         values=row.get("values", {}),
-                        ts_event=int(row["ts_event"]),
-                        ts_init=int(row.get("ts_init", row["ts_event"])),
+                        ts_event=ts_event,
+                        ts_init=ts_init,
                     ),
                 )
         elif hasattr(data_frame_any, "iterrows"):
             # pandas DataFrame
             for _, row in data_frame_any.iterrows():
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in feature row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 features.append(
                     FeatureData(
                         feature_set_id=row.get("feature_set_id", "default"),
                         instrument_id=instrument_id,
                         values=row.get("values", {}),
-                        ts_event=int(row["ts_event"]),
-                        ts_init=int(row.get("ts_init", row["ts_event"])),
+                        ts_event=ts_event,
+                        ts_init=ts_init,
                     ),
                 )
         else:
             # Fallback for list of dicts
             for row in data_frame_any:
                 if isinstance(row, dict):
+                    ts_event_raw = row.get("ts_event")
+                    if ts_event_raw is None:
+                        raise ValueError("Missing ts_event in feature row")
+                    ts_event = int(ts_event_raw)
+                    ts_init_raw = row.get("ts_init", ts_event_raw)
+                    ts_init = int(ts_init_raw)
                     features.append(
                         FeatureData(
                             feature_set_id=row.get("feature_set_id", "default"),
                             instrument_id=instrument_id,
                             values=row.get("values", {}),
-                            ts_event=int(row["ts_event"]),
-                            ts_init=int(row.get("ts_init", row["ts_event"])),
+                            ts_event=ts_event,
+                            ts_init=ts_init,
                         ),
                     )
 
@@ -1491,7 +1513,7 @@ class DataWriter:
 
     def _data_frame_to_predictions(
         self,
-        data_frame: DataFrameLike | list[dict[str, Any]],
+        data_frame: DataFrameLike,
     ) -> list[ModelPrediction]:
         """
         Convert DataFrame to list of ModelPrediction.
@@ -1513,49 +1535,51 @@ class DataWriter:
         if hasattr(data_frame_any, "iter_rows"):
             # Polars DataFrame
             for row in data_frame_any.iter_rows(named=True):
+                features_used = cast(dict[str, float], row.get("features_used", row.get("features", {})) or {})
+                inference_time_ms = float(row.get("inference_time_ms", 0.0))
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in prediction row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 predictions.append(
                     ModelPrediction(
                         model_id=row["model_id"],
                         instrument_id=row["instrument_id"],
                         prediction=float(row.get("prediction", row.get("value", 0.0))),
                         confidence=float(row.get("confidence", 0.0)),
-                        features=row.get("features", {}),
-                        metadata=row.get("metadata", {}),
-                        _ts_event=int(row["ts_event"]),
-                        _ts_init=int(row.get("ts_init", row["ts_event"])),
+                        features_used=features_used,
+                        inference_time_ms=inference_time_ms,
+                        _ts_event=ts_event,
+                        _ts_init=ts_init,
+                        is_live=bool(row.get("is_live", False)),
                     ),
                 )
         elif hasattr(data_frame_any, "iterrows"):
             # pandas DataFrame
             for _, row in data_frame_any.iterrows():
+                features_used = cast(dict[str, float], row.get("features_used", row.get("features", {})) or {})
+                inference_time_ms = float(row.get("inference_time_ms", 0.0))
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in prediction row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 predictions.append(
                     ModelPrediction(
                         model_id=row["model_id"],
                         instrument_id=row["instrument_id"],
                         prediction=float(row.get("prediction", row.get("value", 0.0))),
                         confidence=float(row.get("confidence", 0.0)),
-                        features=row.get("features", {}),
-                        metadata=row.get("metadata", {}),
-                        _ts_event=int(row["ts_event"]),
-                        _ts_init=int(row.get("ts_init", row["ts_event"])),
+                        features_used=features_used,
+                        inference_time_ms=inference_time_ms,
+                        _ts_event=ts_event,
+                        _ts_init=ts_init,
+                        is_live=bool(row.get("is_live", False)),
                     ),
                 )
-        else:
-            # Fallback for list of dicts
-            for row in data_frame_any:
-                if isinstance(row, dict):
-                    predictions.append(
-                        ModelPrediction(
-                            model_id=row["model_id"],
-                            instrument_id=row["instrument_id"],
-                            prediction=float(row.get("prediction", row.get("value", 0.0))),
-                            confidence=float(row.get("confidence", 0.0)),
-                            features=row.get("features", {}),
-                            metadata=row.get("metadata", {}),
-                            _ts_event=int(row["ts_event"]),
-                            _ts_init=int(row.get("ts_init", row["ts_event"])),
-                        ),
-                    )
 
         return predictions
 
@@ -1583,6 +1607,12 @@ class DataWriter:
         if hasattr(data_frame_any, "iter_rows"):
             # Polars DataFrame
             for row in data_frame_any.iter_rows(named=True):
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in signal row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 signals.append(
                     StrategySignal(
                         strategy_id=row["strategy_id"],
@@ -1592,13 +1622,19 @@ class DataWriter:
                         model_predictions=row.get("model_predictions", {}),
                         risk_metrics=row.get("risk_metrics", {}),
                         execution_params=row.get("execution_params", {}),
-                        _ts_event=int(row["ts_event"]),
-                        _ts_init=int(row.get("ts_init", row["ts_event"])),
+                        _ts_event=ts_event,
+                        _ts_init=ts_init,
                     ),
                 )
         elif hasattr(data_frame_any, "iterrows"):
             # pandas DataFrame
             for _, row in data_frame_any.iterrows():
+                ts_event_raw = row.get("ts_event")
+                if ts_event_raw is None:
+                    raise ValueError("Missing ts_event in signal row")
+                ts_event = int(ts_event_raw)
+                ts_init_raw = row.get("ts_init", ts_event_raw)
+                ts_init = int(ts_init_raw)
                 signals.append(
                     StrategySignal(
                         strategy_id=row["strategy_id"],
@@ -1608,14 +1644,20 @@ class DataWriter:
                         model_predictions=row.get("model_predictions", {}),
                         risk_metrics=row.get("risk_metrics", {}),
                         execution_params=row.get("execution_params", {}),
-                        _ts_event=int(row["ts_event"]),
-                        _ts_init=int(row.get("ts_init", row["ts_event"])),
+                        _ts_event=ts_event,
+                        _ts_init=ts_init,
                     ),
                 )
         else:
             # Fallback for list of dicts
             for row in data_frame_any:
                 if isinstance(row, dict):
+                    ts_event_raw = row.get("ts_event")
+                    if ts_event_raw is None:
+                        raise ValueError("Missing ts_event in signal row")
+                    ts_event = int(ts_event_raw)
+                    ts_init_raw = row.get("ts_init") or ts_event_raw
+                    ts_init = int(ts_init_raw)
                     signals.append(
                         StrategySignal(
                             strategy_id=row["strategy_id"],
@@ -1625,8 +1667,8 @@ class DataWriter:
                             model_predictions=row.get("model_predictions", {}),
                             risk_metrics=row.get("risk_metrics", {}),
                             execution_params=row.get("execution_params", {}),
-                            _ts_event=int(row["ts_event"]),
-                            _ts_init=int(row.get("ts_init") or row["ts_event"]),
+                            _ts_event=ts_event,
+                            _ts_init=ts_init,
                         ),
                     )
 

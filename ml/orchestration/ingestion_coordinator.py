@@ -20,7 +20,7 @@ import time
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -39,10 +39,10 @@ from ml.orchestration.config_types import PreIngestionOptions
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
-from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import DAY_NS
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.tasks.ingest import PopulateL2TaskConfig
 from ml.tasks.ingest import populate_l2_efficient
 
@@ -314,11 +314,17 @@ class IngestionCoordinator:
         """Create ingestion orchestrator instance."""
         if self.ingestor is None:
             raise RuntimeError("Ingestor is not configured for ingestion coordinator")
+        if self.coverage is None:
+            raise RuntimeError("Coverage provider is required for ingestion orchestration")
+        if self.writer is None:
+            raise RuntimeError("Market data writer is required for ingestion orchestration")
+        if self.registry is None:
+            raise RuntimeError("Data registry is required for ingestion orchestration")
         return IngestionOrchestrator(
             coverage=self.coverage,
             writer=self.writer,
             registry=self.registry,
-            ingestor=cast(DatabentoIngestor, self.ingestor),
+            ingestor=self.ingestor,
             raw_writer=self.raw_writer,
             domain_loader=self.domain_loader,
             service=self.service,
@@ -1111,10 +1117,9 @@ class IngestionCoordinator:
             Storage kind
 
         """
-        if self.registry is None:
+        registry = self.registry
+        if registry is None:
             return
-
-        registry = cast(RegistryProtocol, self.registry)
         try:
             registry.get_manifest(dataset_id)
             return

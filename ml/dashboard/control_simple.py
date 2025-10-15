@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -32,7 +33,7 @@ from typing import Any, TypeVar
 from ml.core.integration import MLIntegrationManager
 
 
-_STATE_PATH = Path("/tmp/dashboard_control_state.json")
+_STATE_PATH = Path(tempfile.gettempdir()) / "dashboard_control_state.json"
 
 _PYTEST_ENV_FLAG = "PYTEST_CURRENT_TEST"
 _DEFAULT_INTEGRATION_TIMEOUT = 10.0

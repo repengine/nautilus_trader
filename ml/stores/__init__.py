@@ -69,8 +69,33 @@ PostgreSQL → DummyStore (no persistence, warnings logged)
 
 See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
+# ruff: noqa: E402
 
 import os as _os
+from typing import TYPE_CHECKING, Any, cast
+
+
+def _should_use_component_feature_store() -> bool:
+    """
+    Determine whether to enable the component-based FeatureStore facade.
+
+    Precedence (highest to lowest):
+    1. ML_USE_COMPONENT_FEATURE_STORE=1 explicitly opts in.
+    2. ML_USE_COMPONENT_FEATURE_STORE=0 explicitly opts out.
+    3. Historical flag ML_USE_LEGACY_FEATURE_STORE continues to work:
+       - "1" => legacy implementation
+       - "0" => component implementation
+       - unset => legacy (default)
+    """
+    component_flag = _os.getenv("ML_USE_COMPONENT_FEATURE_STORE")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
+
+    legacy_flag = _os.getenv("ML_USE_LEGACY_FEATURE_STORE")
+    if legacy_flag is not None:
+        return legacy_flag.strip() == "0"
+
+    return False
 
 # =============================================================================
 # Pattern 1: The 4 Mandatory Stores
@@ -108,12 +133,17 @@ from ml.stores.earnings_store import EarningsStore
 # =============================================================================
 # Feature Flag: FeatureStore Implementation Selection
 # =============================================================================
-# Use ML_USE_LEGACY_FEATURE_STORE=1 to use the original god class implementation.
-# Default (0 or unset) uses the component-based facade.
-if _os.getenv("ML_USE_LEGACY_FEATURE_STORE", "0") == "1":
-    from ml.stores.feature_store_legacy import FeatureStoreLegacy as FeatureStore
+# Legacy implementation remains the default; opt into the component facade via
+# ML_USE_COMPONENT_FEATURE_STORE=1 (or ML_USE_LEGACY_FEATURE_STORE=0).
+if TYPE_CHECKING:
+    from ml.stores.feature_store import FeatureStore as FeatureStore
 else:
-    from ml.stores.feature_store import FeatureStore
+    if not _should_use_component_feature_store():
+        from ml.stores.feature_store_legacy import FeatureStoreLegacy as _FeatureStoreImpl
+    else:
+        from ml.stores.feature_store import FeatureStore as _FeatureStoreImpl
+
+    FeatureStore = cast(type[Any], _FeatureStoreImpl)
 
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
@@ -131,10 +161,6 @@ from ml.stores.instrument_metadata_store import DummyInstrumentMetadataStore
 from ml.stores.instrument_metadata_store import InstrumentMetadataStore
 from ml.stores.io_raw import ParquetCatalogRawReader
 from ml.stores.io_raw import ParquetCatalogRawWriter
-
-# Raw I/O protocols and implementations
-from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.stores.io_raw import RawReaderProtocol
 
 # =============================================================================
 # Mixins and Utilities (Internal - Advanced Use Only)
@@ -181,6 +207,10 @@ from ml.stores.protocols import WriteRecords
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
+
+# Raw I/O protocols and implementations
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 from ml.stores.schema_validator import SchemaValidator
 from ml.stores.strategy_store import StrategyStore
 

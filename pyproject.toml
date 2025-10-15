@@ -36,13 +36,13 @@ dependencies = [
     "pyarrow>=20.0.0",
     "pytz>=2025.1.0",
     "tqdm>=4.67.1,<5.0.0",
-    "uvloop>=0.21.0,<1.0.0; sys_platform != \"win32\"",
+    "uvloop>=0.21.0,<1.0.0; sys_platform != \"win32\" and sys_platform != \"cygwin\" and platform_python_implementation != \"PyPy\"",
     "skl2onnx (>=1.19.1,<2.0.0)",
     "onnxmltools (>=1.14.0,<2.0.0)",
     "polars (>=1.32.2,<2.0.0)",
     "lightgbm (>=4.6.0,<5.0.0)",
     "starlette (>=0.47.2,<0.48.0)",
-    "uvicorn[standard] (>=0.35.0,<0.36.0)",
+    "uvicorn[standard] (>=0.36.0,<0.38.0)",
     "prometheus-client (>=0.22.1,<0.23.0)",
     "mlflow (>=3.2.0,<4.0.0)",
     "openai (>=1.99.6,<2.0.0)",
@@ -115,6 +115,8 @@ pandas = ">=2.2.3,<3.0.0"
 pyarrow = ">=20.0.0"
 pytz = ">=2025.1.0"
 tqdm = ">=4.67.1,<5.0.0"
+mcp = {version = ">=1.16.0,<2.0.0", extras = ["cli"]}
+uvicorn = {version = ">=0.36.0,<0.38.0", extras = ["standard"]}
 
 [tool.poetry.group.nautilus]
 optional = false
@@ -128,12 +130,10 @@ msgspec = ">=0.19.0,<1.0.0"
 openai = ">=1.99.6,<2.0.0"
 portion = ">=2.6.1"
 python-dotenv = ">=1.0.0,<2.0.0"
-"mcp[cli]" = ">=1.12.4,<2.0.0"
 sqlalchemy = ">=2.0.43,<3.0.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
 starlette = ">=0.47.2,<0.48.0"
-"uvicorn[standard]" = ">=0.35.0,<0.36.0"
-uvloop = {version = ">=0.21.0,<1.0.0", markers = "sys_platform != 'win32'"}
+uvloop = {version = ">=0.21.0,<1.0.0", markers = "sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'"}
 
 [tool.poetry.group.ml]
 optional = false

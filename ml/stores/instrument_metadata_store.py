@@ -131,7 +131,7 @@ class InstrumentMetadataStore(HealthMixin):
             Index(
                 f"idx_{self.table_name}_ts_event",
                 "ts_event",
-                postgresql_using="brin",
+                postgresql_using="BRIN",
             ),
             Index(
                 f"idx_{self.table_name}_instrument_ts",

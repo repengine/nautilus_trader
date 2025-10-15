@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from dataclasses import field
@@ -178,7 +179,7 @@ class FREDConfig:
     """
 
     api_key: str | None = None
-    cache_dir: Path = field(default_factory=lambda: Path("/tmp/fred_cache"))
+    cache_dir: Path = field(default_factory=lambda: Path(tempfile.gettempdir()) / "fred_cache")
     cache_ttl_hours: int = 24
     rate_limit_calls: int = 120  # FRED limit is 120 calls/minute
     backfill_years: int = 10

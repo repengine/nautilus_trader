@@ -193,29 +193,29 @@ The CLI now accepts multiple `--sector-proxy` overrides; the default candidate l
 
 Document any deviations (e.g., regional mutual funds) in this file as coverage experiments evolve. Upcoming work should integrate automated selection heuristics that prefer the deepest proxy meeting the coverage threshold.
 
-1. **FeatureConfig Flag for Composites**  
-   - Add `include_macro_composites` to `FeatureConfig`, update `build_pipeline_spec_from_feature_config`, and extend realtime parity coverage.  
+1. **FeatureConfig Flag for Composites**
+   - Add `include_macro_composites` to `FeatureConfig`, update `build_pipeline_spec_from_feature_config`, and extend realtime parity coverage.
    - Expand macro parity tests to cover composite factors end-to-end.
 
-2. **Coverage Validation**  
-   - Implement `MacroCoverageValidator` as outlined in `ml/features/CODEX_RECOMMENDATIONS_STATUS.md` to ensure all requested macro series stay populated.  
+2. **Coverage Validation**
+   - Implement `MacroCoverageValidator` as outlined in `ml/features/CODEX_RECOMMENDATIONS_STATUS.md` to ensure all requested macro series stay populated.
    - Prime `MacroDataCache`, log gaps, and document the validator flow.
    - _Status_: MacroFeatureTransform now enforces coverage during batch assembly and logs cache availability for realtime paths.
 
-3. **External Data Ingestion**  
-   - Ship `ml/data/loaders/fama_french_loader.py` (daily/monthly support) with schema-normalized outputs and caching strategy.  
+3. **External Data Ingestion**
+   - Ship `ml/data/loaders/fama_french_loader.py` (daily/monthly support) with schema-normalized outputs and caching strategy.
    - Prototype ETF/asset return ingestion via yfinance, then graduate to an orchestrated pipeline with quality metrics.
 
-4. **Exposure & Optimization**  
-   - ✅ EWMA betas for the synthetic factors now persist into `ml_cross_asset_betas` via the risk pipeline (`CrossAssetBetaPersistenceConfig`) with unit coverage.  
-   - ✅ Constrained optimizer (long-only with optional caps) emits recommended weights, surfaced through pipeline results and the CLI (`--max-weight`, `--weight-cap`, `--persist-betas`).  
+4. **Exposure & Optimization**
+   - ✅ EWMA betas for the synthetic factors now persist into `ml_cross_asset_betas` via the risk pipeline (`CrossAssetBetaPersistenceConfig`) with unit coverage.
+   - ✅ Constrained optimizer (long-only with optional caps) emits recommended weights, surfaced through pipeline results and the CLI (`--max-weight`, `--weight-cap`, `--persist-betas`).
    - ✅ Playground DB (`postgres_playground`, host `${PLAYGROUND_POSTGRES_HOST_PORT:-5435}`) isolates beta persistence from production databases.
 
-5. **Visualization Backend**  
+5. **Visualization Backend**
    - Provide an API endpoint streaming coordinates, target, and recommendations; incorporate live Mahalanobis diagnostics and coverage badges in the UI timeline controls.
 
-6. **Documentation & Validation**  
-   - Refresh context docs with composite coverage flows; publish validation artefacts (coverage, factor drift, optimizer health) alongside release notes.  
+6. **Documentation & Validation**
+   - Refresh context docs with composite coverage flows; publish validation artefacts (coverage, factor drift, optimizer health) alongside release notes.
    - Keep unit/property tests current for validators, loaders, optimizers, and visualization payload contracts.
    - Produce validation reports for factor coverage and exposure accuracy.
 
@@ -223,18 +223,18 @@ Document any deviations (e.g., regional mutual funds) in this file as coverage e
 
 ## References & Useful Links
 
-- FRED API documentation: https://fred.stlouisfed.org/docs/api/fred/  
-- fredapi Python wrapper: https://github.com/mortada/fredapi  
-- Fama/French Data Library: https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html  
-- RiskMetrics (1996) EWMA methodology: technical background for `alpha=0.94`  
+- FRED API documentation: https://fred.stlouisfed.org/docs/api/fred/
+- fredapi Python wrapper: https://github.com/mortada/fredapi
+- Fama/French Data Library: https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+- RiskMetrics (1996) EWMA methodology: technical background for `alpha=0.94`
 - Macro feature documentation in repo: `ml/features/README_MACRO_FEATURES.md`
 
 ---
 
 ## Next Steps
 
-1. Enable macro composites via FeatureConfig and ensure both batch and realtime paths emit the new features.  
-2. Stage Fama/French + enhanced macro series into our catalog, ensuring ALFRED coverage is monitored.  
-3. Build the exposure computation pipeline (betas, storage schema, APIs).  
-4. Prototype the optimization layer that maps desired factor coordinates to portfolio weights.  
+1. Enable macro composites via FeatureConfig and ensure both batch and realtime paths emit the new features.
+2. Stage Fama/French + enhanced macro series into our catalog, ensuring ALFRED coverage is monitored.
+3. Build the exposure computation pipeline (betas, storage schema, APIs).
+4. Prototype the optimization layer that maps desired factor coordinates to portfolio weights.
 5. Connect the playground visualization to live data and iterate on UX for monitoring and recommendations.

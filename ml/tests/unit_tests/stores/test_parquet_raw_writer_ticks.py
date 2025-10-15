@@ -56,4 +56,3 @@ def test_parquet_raw_writer_converts_trades_to_domain() -> None:
     from nautilus_trader.model.data import TradeTick as _TradeTick
 
     assert isinstance(catalog.items[0], _TradeTick)
-

@@ -19,4 +19,3 @@ def test_non_onnx_rejected(bad: str) -> None:
     with pytest.raises(ValueError) as ei:
         assert_allowed_model_path(bad)
     assert "Only ONNX" in str(ei.value)
-

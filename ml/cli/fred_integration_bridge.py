@@ -7,6 +7,7 @@ ML pipeline's FRED loader and DataStore system.
 
 """
 import os
+import stat
 import uuid as _uuid
 import warnings
 from datetime import datetime
@@ -251,7 +252,7 @@ echo "$(date): FRED data update complete"
         f.write(schedule_script)
 
     # Make executable
-    os.chmod(script_path, 0o755)
+    os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
     print(f"📝 Created update script: {script_path}")
     print("   To schedule automatic updates:")

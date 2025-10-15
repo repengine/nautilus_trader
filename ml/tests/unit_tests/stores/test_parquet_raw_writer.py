@@ -49,4 +49,3 @@ def test_parquet_raw_writer_converts_rows_to_bars() -> None:
     assert isinstance(written, list)
     assert isinstance(written[0], _Bar)
     assert isinstance(written[1], _Bar)
-

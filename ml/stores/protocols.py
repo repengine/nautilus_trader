@@ -18,9 +18,9 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.data_store import DataEvent
-else:  # pragma: no cover - typing fallback
-    DataEvent = Any  # type: ignore[assignment]
+    from ml.stores.validation_types import DataEvent
+else:  # pragma: no cover - runtime import for structural typing
+    from ml.stores.validation_types import DataEvent  # type: ignore[no-redef]
 
 
 # Phase 1: introduce aliases for read/write frames to retain flexibility

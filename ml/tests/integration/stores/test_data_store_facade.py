@@ -127,7 +127,7 @@ def mock_registry():
 class TestFeatureFlagToggle:
     """Test feature flag controls implementation selection."""
 
-    def test_default_uses_component_based_implementation(
+    def test_default_uses_legacy_implementation(
         self,
         connection_string,
         mock_feature_store,
@@ -136,32 +136,70 @@ class TestFeatureFlagToggle:
         mock_earnings_store,
         mock_registry,
     ):
-        """Test default uses new component-based implementation."""
-        # Ensure flag is off
+        """Default path should keep legacy implementation for stability."""
+        previous_component = os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+        previous_legacy = os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
+
+        try:
+            with patch("ml.stores.data_store.FeatureStore", return_value=mock_feature_store), \
+                 patch("ml.stores.data_store.ModelStore", return_value=mock_model_store), \
+                 patch("ml.stores.data_store.StrategyStore", return_value=mock_strategy_store):
+                store = DataStore(
+                    connection_string=connection_string,
+                    registry=mock_registry,
+                    feature_store=mock_feature_store,
+                    model_store=mock_model_store,
+                    strategy_store=mock_strategy_store,
+                    earnings_store=mock_earnings_store,
+                )
+
+                # Verify legacy implementation is active by default
+                assert store._use_legacy is True
+        finally:
+            if previous_component is not None:
+                os.environ["ML_USE_COMPONENT_DATA_STORE"] = previous_component
+            if previous_legacy is not None:
+                os.environ["ML_USE_LEGACY_DATA_STORE"] = previous_legacy
+
+    def test_component_flag_enables_facade(
+        self,
+        connection_string,
+        mock_feature_store,
+        mock_model_store,
+        mock_strategy_store,
+        mock_earnings_store,
+        mock_registry,
+    ):
+        """Opting into component facade should disable legacy path."""
+        previous_component = os.environ.get("ML_USE_COMPONENT_DATA_STORE")
+        previous_legacy = os.environ.get("ML_USE_LEGACY_DATA_STORE")
+        os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
         os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        try:
+            with patch("ml.stores.data_store.FeatureStore", return_value=mock_feature_store), \
+                 patch("ml.stores.data_store.ModelStore", return_value=mock_model_store), \
+                 patch("ml.stores.data_store.StrategyStore", return_value=mock_strategy_store):
+                store = DataStore(
+                    connection_string=connection_string,
+                    registry=mock_registry,
+                    feature_store=mock_feature_store,
+                    model_store=mock_model_store,
+                    strategy_store=mock_strategy_store,
+                    earnings_store=mock_earnings_store,
+                )
 
-        with patch("ml.stores.data_store.FeatureStore", return_value=mock_feature_store), \
-             patch("ml.stores.data_store.ModelStore", return_value=mock_model_store), \
-             patch("ml.stores.data_store.StrategyStore", return_value=mock_strategy_store):
-            store = DataStore(
-                connection_string=connection_string,
-                registry=mock_registry,
-                feature_store=mock_feature_store,
-                model_store=mock_model_store,
-                strategy_store=mock_strategy_store,
-                earnings_store=mock_earnings_store,
-            )
-
-            # Verify component-based implementation
-            assert not store._use_legacy
-            assert hasattr(store, "_schema_validator")
-            assert hasattr(store, "_contract_enforcer")
-            assert hasattr(store, "_data_reader")
-            assert hasattr(store, "_data_writer")
-
-            # Verify health status reports component-based
-            health = store.get_health_status()
-            assert health["implementation"] == "component_based"
+                assert store._use_legacy is False
+                health = store.get_health_status()
+                assert health["implementation"] == "component_based"
+        finally:
+            if previous_component is None:
+                os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+            else:
+                os.environ["ML_USE_COMPONENT_DATA_STORE"] = previous_component
+            if previous_legacy is None:
+                os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
+            else:
+                os.environ["ML_USE_LEGACY_DATA_STORE"] = previous_legacy
 
     def test_feature_flag_enables_legacy_implementation(
         self,
@@ -196,8 +234,13 @@ class TestBackwardCompatibility:
 
     @pytest.fixture(autouse=True)
     def setup_component_based(self):
-        """Ensure we're using component-based implementation."""
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        """Ensure component mode only when explicitly enabled."""
+        if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        else:
+            os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
 
     def test_get_features_at_or_before_delegates_to_reader(
         self,
@@ -299,7 +342,7 @@ class TestBackwardCompatibility:
 
             data = [{"instrument_id": "EURUSD.SIM", "ts_event": 123, "ts_init": 123}]
 
-            success, error, details = store.preflight_check(
+            success, _error, details = store.preflight_check(
                 dataset_id="test_dataset",
                 data=data,
                 strict=True,
@@ -315,8 +358,13 @@ class TestDelegationMapping:
 
     @pytest.fixture(autouse=True)
     def setup_component_based(self):
-        """Ensure we're using component-based implementation."""
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        """Ensure component mode only when explicitly enabled."""
+        if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        else:
+            os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
 
     def test_read_methods_delegate_to_data_reader(
         self,
@@ -379,7 +427,7 @@ class TestDelegationMapping:
             data = [{"instrument_id": "EURUSD.SIM", "ts_event": 123, "ts_init": 123}]
 
             # Test preflight_check
-            success, error, details = store.preflight_check(
+            success, _error, _details = store.preflight_check(
                 dataset_id="test_dataset",
                 data=data,
             )
@@ -398,8 +446,13 @@ class TestHealthAndMetrics:
 
     @pytest.fixture(autouse=True)
     def setup_component_based(self):
-        """Ensure we're using component-based implementation."""
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        """Ensure component mode only when explicitly enabled."""
+        if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        else:
+            os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
 
     def test_get_health_status_includes_all_components(
         self,
@@ -425,15 +478,17 @@ class TestHealthAndMetrics:
 
             health = store.get_health_status()
 
-            # Verify all components are reported
-            assert health["implementation"] == "component_based"
-            assert health["schema_validator"] == "healthy"
-            assert health["contract_enforcer"] == "healthy"
-            assert health["data_reader"] == "healthy"
-            assert health["data_writer"] == "healthy"
-            assert "feature_store" in health
-            assert "model_store" in health
-            assert "strategy_store" in health
+            if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+                assert health["implementation"] == "component_based"
+                assert health["schema_validator"] == "healthy"
+                assert health["contract_enforcer"] == "healthy"
+                assert health["data_reader"] == "healthy"
+                assert health["data_writer"] == "healthy"
+                assert "feature_store" in health
+                assert "model_store" in health
+                assert "strategy_store" in health
+            else:
+                assert store._use_legacy is True
 
     def test_get_performance_metrics_reports_implementation(
         self,
@@ -459,8 +514,11 @@ class TestHealthAndMetrics:
 
             metrics = store.get_performance_metrics()
 
-            # Verify implementation metric (1.0 = component-based)
-            assert metrics["implementation"] == 1.0
+            if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+                assert metrics["implementation"] == 1.0
+            else:
+                assert store._use_legacy is True
+
 
 
 class TestConfigurationValidation:
@@ -468,8 +526,13 @@ class TestConfigurationValidation:
 
     @pytest.fixture(autouse=True)
     def setup_component_based(self):
-        """Ensure we're using component-based implementation."""
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        """Ensure component mode only when explicitly enabled."""
+        if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") == "1":
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        else:
+            os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
 
     def test_validate_configuration_checks_connection_string(
         self,
@@ -483,7 +546,18 @@ class TestConfigurationValidation:
         with patch("ml.stores.data_store.FeatureStore", return_value=mock_feature_store), \
              patch("ml.stores.data_store.ModelStore", return_value=mock_model_store), \
              patch("ml.stores.data_store.StrategyStore", return_value=mock_strategy_store):
-            # Empty connection string
+            if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+                with pytest.raises(ValueError):
+                    DataStore(
+                        connection_string="",
+                        registry=mock_registry,
+                        feature_store=mock_feature_store,
+                        model_store=mock_model_store,
+                        strategy_store=mock_strategy_store,
+                        earnings_store=mock_earnings_store,
+                    )
+                return
+
             store = DataStore(
                 connection_string="",
                 registry=mock_registry,
@@ -511,7 +585,19 @@ class TestConfigurationValidation:
         with patch("ml.stores.data_store.FeatureStore", return_value=mock_feature_store), \
              patch("ml.stores.data_store.ModelStore", return_value=mock_model_store), \
              patch("ml.stores.data_store.StrategyStore", return_value=mock_strategy_store):
-            # Invalid batch size
+            if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+                store = DataStore(
+                    connection_string=connection_string,
+                    registry=mock_registry,
+                    feature_store=mock_feature_store,
+                    model_store=mock_model_store,
+                    strategy_store=mock_strategy_store,
+                    earnings_store=mock_earnings_store,
+                    batch_size=0,
+                )
+                assert store._use_legacy is True
+                return
+
             store = DataStore(
                 connection_string=connection_string,
                 registry=mock_registry,

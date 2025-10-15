@@ -544,12 +544,18 @@ init-db:  #-- Initialize PostgreSQL database schema
 #== Test DB (PostgreSQL) helpers
 
 .PHONY: docker-up-test
-docker-up-test:  #-- Start PostgreSQL for tests (defaults match StrategyStore)
-	$(info $(M) Starting PostgreSQL for tests...)
+docker-up-test:  #-- Start PostgreSQL services for tests (dev on 5432, test stack on 5434)
+	$(info $(M) Starting primary PostgreSQL service (5432) for compatibility tests...)
 	POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=nautilus \
 		docker compose -f .docker/docker-compose.yml up -d postgres
-	$(info $(M) Waiting for PostgreSQL to be ready...)
+	$(info $(M) Waiting for primary PostgreSQL to be ready...)
 	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
+		uv run --active --no-sync python tools/wait_for_postgres.py
+	$(info $(M) Starting dedicated ML test PostgreSQL service (5434) ...)
+	TEST_POSTGRES_HOST_PORT=5434 \
+		docker compose -f ml/deployment/docker-compose.test.yml up -d postgres-test
+	$(info $(M) Waiting for ML test PostgreSQL to be ready...)
+	DATABASE_URL=postgresql://postgres:postgres@localhost:5434/nautilus_test \
 		uv run --active --no-sync python tools/wait_for_postgres.py
 
 .PHONY: check-db
@@ -559,7 +565,8 @@ check-db:  #-- Check DATABASE_URL is reachable (waits up to DB_WAIT_TIMEOUT)
 
 .PHONY: docker-down-test
 docker-down-test:  #-- Stop PostgreSQL test container and remove volumes
-	$(info $(M) Stopping PostgreSQL test container...)
+	$(info $(M) Stopping PostgreSQL test containers...)
+	docker compose -f ml/deployment/docker-compose.test.yml down -v
 	docker compose -f .docker/docker-compose.yml down -v
 
 .PHONY: pytest-ml-db

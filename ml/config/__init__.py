@@ -58,6 +58,10 @@ from ml.config.constants import SystemConstants
 from ml.config.constants import TechnicalIndicatorPeriods
 from ml.config.constants import TimeConstants
 
+# Dataset ID constants
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
+
 # Event and message constants
 from ml.config.events import EventStatus
 from ml.config.events import Source as EventSource
@@ -187,6 +191,8 @@ def get_config_defaults() -> dict[str, object]:
 # =============================================================================
 
 __all__ = [
+    "EARNINGS_ACTUALS_DATASET_ID",
+    "EARNINGS_ESTIMATES_DATASET_ID",
     "AdvancedTrainingConfig",
     "BaseGPUConfig",
     "CanaryDeploymentConfig",

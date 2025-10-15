@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -394,7 +395,7 @@ class DataSchedulerLegacy:
                     backend=BackendType.POSTGRES,
                     connection_string=db_connection,
                 )
-                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+                registry_path = Path(tempfile.gettempdir()) / "ml_registry"  # Path for JSON fallback
             else:
                 # Use JSON backend for development (standardized location)
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"

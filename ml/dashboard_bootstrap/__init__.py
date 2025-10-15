@@ -20,4 +20,3 @@ from .welcome import DashboardBootstrapError
 from .welcome import HealthCheck
 from .welcome import HealthStatus
 from .welcome import build_welcome_summary
-

@@ -31,13 +31,17 @@ from sqlalchemy import text as _satext
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml.common.db_utils import get_or_create_engine
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_manager import MetricsManager
 from ml.config.events import EventStatus
 from ml.config.events import Stage
-from ml.common.db_utils import get_or_create_engine
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    pass
 from ml.registry.utils import get_default_registry_path
 
 
@@ -248,12 +252,19 @@ class EngineInitMixin:
         self.engine = get_or_create_engine(self.connection_string)
         self.metadata = MetaData()
         self._setup_tables()  # type: ignore[attr-defined]
+        engine_manager_cls: Any | None
         try:
-            status: dict[str, Any] | None = EngineManager.get_pool_status(self.connection_string)
-            if status:
-                logger.debug("Engine pool status: %s", status)
-        except Exception as exc:
-            logger.debug("Pool status unavailable: %s", exc)
+            from ml.core.db_engine import EngineManager as engine_manager_cls
+        except Exception:
+            engine_manager_cls = None
+
+        if engine_manager_cls is not None:
+            try:
+                status: dict[str, Any] | None = engine_manager_cls.get_pool_status(self.connection_string)
+                if status:
+                    logger.debug("Engine pool status: %s", status)
+            except Exception as exc:
+                logger.debug("Pool status unavailable: %s", exc)
 
 
 # =============================================================================

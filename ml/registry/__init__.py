@@ -31,6 +31,7 @@ Backends: Configurable JSON (development) or PostgreSQL (production) persistence
 
 # Feature flag: DataRegistry facade vs legacy
 import os as _os
+from typing import TYPE_CHECKING
 
 from ml.registry.ab_testing_manager import ABTestingManager
 from ml.registry.abstract_registry import AbstractRegistry
@@ -46,14 +47,6 @@ from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.canary_deployment_mgr import CanaryDeploymentManager
-
-
-if _os.getenv("ML_USE_LEGACY_DATA_REGISTRY", "0") == "1":
-    from ml.registry.data_registry_legacy import DataRegistryLegacy as DataRegistry
-    from ml.registry.data_registry_legacy import Watermark
-else:
-    from ml.registry.data_registry import DataRegistry
-    from ml.registry.watermark_manager import Watermark
 
 # =============================================================================
 # DEPLOYMENT & TESTING SUPPORT
@@ -119,6 +112,20 @@ from ml.registry.utils import assert_features_compatible
 # =============================================================================
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
+
+
+USE_LEGACY_DATA_REGISTRY = _os.getenv("ML_USE_LEGACY_DATA_REGISTRY", "0") == "1"
+
+if TYPE_CHECKING:  # pragma: no cover - type-only imports
+    from ml.registry.data_registry import DataRegistry
+    from ml.registry.watermark_manager import Watermark
+else:  # pragma: no cover - runtime-only
+    if USE_LEGACY_DATA_REGISTRY:
+        from ml.registry.data_registry_legacy import DataRegistryLegacy as DataRegistry
+        from ml.registry.data_registry_legacy import Watermark  # type: ignore[assignment]
+    else:
+        from ml.registry.data_registry import DataRegistry
+        from ml.registry.watermark_manager import Watermark
 
 
 # =============================================================================

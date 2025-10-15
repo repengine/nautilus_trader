@@ -62,10 +62,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import pandas as pd
+    from nautilus_trader.model.data import Bar
     from polars import DataFrame as PlDataFrame
 
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)

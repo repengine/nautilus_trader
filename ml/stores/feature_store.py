@@ -39,6 +39,8 @@ from ml.common.db_utils import get_or_create_engine
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.base import MLFeatureConfig
+
+# Re-export for test compatibility (tests patch EngineManager)
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -52,9 +54,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import pandas as pd
+    from nautilus_trader.model.data import Bar
 
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)

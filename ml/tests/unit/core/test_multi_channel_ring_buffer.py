@@ -90,4 +90,3 @@ def test_chronological_property(seq: list[list[float]]) -> None:
     np.testing.assert_allclose(rb.get_channel_chronological(0), ref0)
     np.testing.assert_allclose(rb.get_channel_chronological(1), ref1)
     np.testing.assert_allclose(rb.get_channel_chronological(2), ref2)
-

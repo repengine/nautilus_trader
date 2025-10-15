@@ -1217,6 +1217,7 @@ class MLSignalActor(BaseMLInferenceActor):
                     "ml_actor.feature_registry_load_failed "
                     f"registry_path={config.registry_path} "
                     f"feature_set_id={config.feature_set_id} error={exc!r}",
+                    exc_info=True,
                 )
             if manifest is not None:
                 expected = list(manifest.feature_names)
@@ -1549,6 +1550,7 @@ class MLSignalActor(BaseMLInferenceActor):
             # Silent fallback to built-ins; keep hot path clean — telemetry debug
             self.log.debug(
                 f"ml_actor.decision_policy_load_failed error={exc!r}",
+                exc_info=True,
             )
 
         # 2) Built-in strategy mapping (backwards compatibility)
@@ -1738,7 +1740,11 @@ class MLSignalActor(BaseMLInferenceActor):
         # Load model (ensure onnxruntime is available)
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])  # ensure clear error if missing
-        assert ort is not None
+        if ort is None:
+            raise RuntimeError(
+                "onnxruntime is required to load optimized ONNX models; "
+                "ensure ml._imports.ort resolved correctly.",
+            )
         model = ort.InferenceSession(
             self._config.model_path,
             sess_options=session_options,
@@ -1856,7 +1862,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 return features
         except Exception as exc:
             # Fall back to local feature engineer on any store failure
-            self.log.debug(f"FeatureStore compute_realtime failed; falling back: {exc}")
+            self.log.debug(
+                f"FeatureStore compute_realtime failed; falling back: {exc}",
+                exc_info=True,
+            )
 
         # Ensure indicator manager is initialized (may not have been if on_start hasn't run yet)
         if self._indicator_manager is None:
@@ -2052,9 +2061,13 @@ class MLSignalActor(BaseMLInferenceActor):
                     ts_event=bar.ts_event,
                     is_live=True,
                 )
-            except Exception:
-                # Non-fatal; continue to signal generation
-                pass
+            except Exception as exc:
+                # Non-fatal; continue to signal generation (best-effort persistence)
+                self.log.debug(
+                    "Prediction persistence skipped due to error: %s",
+                    exc,
+                    exc_info=True,
+                )
 
             # Try to generate signal
             self._try_generate_signal(bar, prediction, confidence, features)
@@ -2077,16 +2090,11 @@ class MLSignalActor(BaseMLInferenceActor):
                         self._run_parity_smoke_check()
                 except Exception as exc:
                     # Never impact hot path — debug only
-                    try:
-                        self.log.debug(f"Ring metadata attach failed: {exc}")
-                    except Exception as log_exc:
-                        import logging as _logging
-
-                        _logging.getLogger(__name__).debug(
-                            "Logging ring metadata attach failure also failed: %s",
-                            log_exc,
-                            exc_info=True,
-                        )
+                    self.log.debug(
+                        "Ring metadata attach failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
         except Exception as e:
             self._handle_prediction_error(e)
 

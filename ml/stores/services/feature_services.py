@@ -91,4 +91,3 @@ class FeatureClearService:
                 )
 
             conn.execute(delete_stmt)
-

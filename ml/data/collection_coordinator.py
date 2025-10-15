@@ -718,8 +718,12 @@ class CollectionCoordinator:
                             source=_source.HISTORICAL.value,
                             status="success",
                         ).inc()
-                    except Exception:
-                        pass  # Metrics are optional
+                    except Exception as metric_exc:  # pragma: no cover - metrics optional
+                        self._logger.debug(
+                            "Catalog success metric emission failed",
+                            exc_info=True,
+                            extra={"error": repr(metric_exc)},
+                        )
 
                     self._logger.debug(
                         f"Emitted {_stage.CATALOG_WRITTEN.value} event for {symbol_code}: "
@@ -744,8 +748,12 @@ class CollectionCoordinator:
                             source=_source.HISTORICAL.value,
                             status="failed",
                         ).inc()
-                    except Exception:
-                        pass  # Metrics are optional
+                    except Exception as metric_exc:  # pragma: no cover - metrics optional
+                        self._logger.debug(
+                            "Catalog failure metric emission failed",
+                            exc_info=True,
+                            extra={"error": repr(metric_exc)},
+                        )
 
             return True
 
@@ -787,8 +795,12 @@ class CollectionCoordinator:
                             source=_source.HISTORICAL.value,
                             status="failed",
                         ).inc()
-                    except Exception:
-                        pass  # Metrics are optional
+                    except Exception as metric_exc:  # pragma: no cover - metrics optional
+                        self._logger.debug(
+                            "Catalog failure metric emission failed",
+                            exc_info=True,
+                            extra={"error": repr(metric_exc)},
+                        )
                 except Exception:
                     self._logger.warning(
                         "Failed to emit failure event for %s",

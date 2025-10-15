@@ -419,8 +419,12 @@ class UniversePopulator:
             if ds_end_raw:
                 ds_end = pd.to_datetime(ds_end_raw, utc=True)
                 end_ts = min(end_ts, ds_end)
-        except Exception:
-            pass
+        except Exception as metadata_exc:  # pragma: no cover - defensive
+            logger.debug(
+                "Failed to clamp window to provider range",
+                exc_info=True,
+                extra={"dataset": dataset, "error": repr(metadata_exc)},
+            )
 
         if end_ts <= start_ts:
             end_ts = start_ts + pd.Timedelta(seconds=1)
@@ -564,7 +568,7 @@ class UniversePopulator:
                     logger.info(f"✓ Completed {level} for {symbol}")
 
                 except Exception as e:
-                    logger.error(f"✗ Failed {level} for {symbol}: {e}")
+                    logger.error(f"✗ Failed {level} for {symbol}: {e}", exc_info=True)
                     self.tracker.mark_failed(level, symbol, str(e))
                     failed += 1
 
@@ -620,7 +624,12 @@ class UniversePopulator:
             rng = self.service.metadata_client.get_dataset_range(dataset)
             ds_start = _ensure_utc(pd.to_datetime(rng.get("start", start)))
             ds_end = _ensure_utc(pd.to_datetime(rng.get("end", end)))
-        except Exception:
+        except Exception as range_exc:  # pragma: no cover - defensive
+            logger.debug(
+                "Failed to query dataset range for gap merge",
+                exc_info=True,
+                extra={"dataset": dataset, "error": repr(range_exc)},
+            )
             ds_start = _ensure_utc(pd.to_datetime(start))
             ds_end = _ensure_utc(pd.to_datetime(end))
 
@@ -652,8 +661,12 @@ class UniversePopulator:
                 )
                 if not df_left.empty:
                     parts.append(df_left)
-            except Exception:
-                pass
+            except Exception as left_exc:  # pragma: no cover - best-effort
+                logger.debug(
+                    "Failed to backfill left gap",
+                    exc_info=True,
+                    extra={"symbol": symbol, "error": repr(left_exc)},
+                )
 
         # Fetch missing right segment
         if existing_max is None or existing_max < target_end:
@@ -671,8 +684,12 @@ class UniversePopulator:
                 )
                 if not df_right.empty:
                     parts.append(df_right)
-            except Exception:
-                pass
+            except Exception as right_exc:  # pragma: no cover - best-effort
+                logger.debug(
+                    "Failed to backfill right gap",
+                    exc_info=True,
+                    extra={"symbol": symbol, "error": repr(right_exc)},
+                )
 
         if parts:
             df_new = pd.concat(parts, ignore_index=True)

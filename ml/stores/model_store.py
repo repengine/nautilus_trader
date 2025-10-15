@@ -47,10 +47,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
+    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)

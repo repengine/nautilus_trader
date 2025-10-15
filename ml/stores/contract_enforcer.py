@@ -15,6 +15,7 @@ import time
 from typing import Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
+from ml._imports import pd
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -236,7 +237,7 @@ class ContractEnforcer:
             validation_details["manifest_schema_hash"] = manifest.schema_hash
 
             # Convert to DataFrame if needed
-            data_frame = self._to_dataframe(data)
+            data_frame: DataFrameLike = self._to_dataframe(data)
             data_frame_any = cast(Any, data_frame)
 
             # Check 1: Required columns present
@@ -651,7 +652,7 @@ class ContractEnforcer:
     def _to_dataframe(
         self,
         data: DataFrameLike | list[dict[str, Any]],
-    ) -> DataFrameLike | list[dict[str, Any]]:
+    ) -> DataFrameLike:
         """
         Convert various data formats to DataFrame-like or pass-through list.
 
@@ -669,24 +670,16 @@ class ContractEnforcer:
         from ml._imports import HAS_POLARS
         from ml._imports import pl
 
-        if not HAS_POLARS:
-            # If Polars not available, work with raw data
-            if isinstance(data, list):
-                return data
-            return data
-
-        # If already a DataFrame, return as is
-        if hasattr(data, "columns"):
-            return data
-
-        # Convert list of dicts to DataFrame
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            # Cast to DataFrameLike for strict typing compliance
+        if isinstance(data, list):
             if HAS_POLARS and pl is not None:
                 return cast(DataFrameLike, pl.DataFrame(data))
-            return data
+            if pd is not None:
+                return cast(DataFrameLike, pd.DataFrame(data))
+            raise RuntimeError("No DataFrame backend available to materialize list input")
 
-        # Return as is for other formats
+        if not hasattr(data, "columns"):
+            raise TypeError("Unsupported data type for dataframe conversion")
+
         return data
 
     def _types_compatible(self, actual: str, expected: str) -> bool:

@@ -206,6 +206,18 @@ except ImportError as e:
     fredapi = None  # type: ignore[assignment,unused-ignore]
 
 
+# Nautilus core (Cython/Rust extensions)
+try:  # pragma: no cover - optional native extension
+    from nautilus_trader.backtest.engine import BacktestEngine as _BacktestEngine
+
+    HAS_NAUTILUS_CORE = True
+    NAUTILUS_CORE_IMPORT_ERROR: Exception | None = None
+    del _BacktestEngine
+except Exception as exc:  # pragma: no cover - optional native extension missing
+    HAS_NAUTILUS_CORE = False
+    NAUTILUS_CORE_IMPORT_ERROR = exc
+
+
 # Databento (data collection)
 # To keep tests and sandboxed runs stable (no sockets/network), only attempt to
 # import Databento when explicitly enabled via environment or when an API key is
@@ -468,6 +480,7 @@ __all__ = [
     "HAS_JOBLIB",
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
+    "HAS_NAUTILUS_CORE",
     "HAS_ONNX",
     "HAS_ONNX_CORE",
     "HAS_ONNX_EXPORT",
@@ -483,6 +496,7 @@ __all__ = [
     "HAS_YFINANCE",
     "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
+    "NAUTILUS_CORE_IMPORT_ERROR",
     "ONNX_CORE_IMPORT_ERROR",
     "ONNX_EXPORT_IMPORT_ERROR",
     "ONNX_IMPORT_ERROR",

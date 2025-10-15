@@ -327,11 +327,12 @@ class ConfigResolver:
             for symbol in symbols
         )
 
-        return replace(
+        updated_cfg: DatasetBuildConfig = replace(
             cfg,
             market_inputs=inputs,
             market_dataset_id=cfg.market_dataset_id,
         )
+        return updated_cfg
 
     def collect_symbol_map(
         self,
@@ -538,11 +539,12 @@ class ConfigResolver:
 
         if resolved_inputs:
             instrument_ids = self.collect_instrument_ids(bindings, base_cfg.instrument_ids)
-            base_cfg = replace(
+            updated_cfg: DatasetBuildConfig = replace(
                 base_cfg,
                 market_inputs=resolved_inputs,
                 instrument_ids=instrument_ids,
             )
+            base_cfg = updated_cfg
 
         logger.info(
             "Dataset config prepared",

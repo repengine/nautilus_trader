@@ -237,6 +237,18 @@ class ModelRegistry(AbstractRegistry):
             immediate=immediate,
         )
 
+    # --------------------------------------------------------------------- #
+    # Backwards-compatible helper methods
+    # --------------------------------------------------------------------- #
+
+    def _calculate_file_sha256(self, file_path: Path) -> str:
+        """
+        Preserve legacy helper for tests and tooling that call the protected API.
+        """
+        if self._use_legacy:
+            return self._legacy_impl._calculate_file_sha256(file_path)
+        return self._model_persistence.calculate_file_sha256(file_path)
+
     # =========================================================================
     # Registration and Core Model Methods
     # =========================================================================

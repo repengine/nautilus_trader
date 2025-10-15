@@ -25,4 +25,3 @@ def assert_allowed_model_path(path: str) -> None:
 
 
 __all__ = ["assert_allowed_model_path"]
-

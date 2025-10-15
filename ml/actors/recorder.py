@@ -68,7 +68,8 @@ class RecorderActor(NautilusActor):
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 loop.create_task(self._recorder.flush_all())
-        except Exception:
+        except Exception as exc:
             # Silent best-effort; recorder will also flush when stopped via its API
-            pass
-
+            logger = getattr(self, "log", None)
+            if logger is not None:
+                logger.debug("Recorder flush on stop skipped due to error: %s", exc, exc_info=True)

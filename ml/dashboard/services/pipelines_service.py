@@ -511,7 +511,7 @@ class PipelineIntegrationService(BaseIntegrationService):
             auto_fill_cls = self._import_auto_fill_config()
             auto_fill_cfg = run_config.auto_fill or auto_fill_cls()
             return _run_ingestion_stage(
-                orch=orchestrator,
+                orch=cast(Any, orchestrator),
                 ds_cfg=run_config.dataset,
                 auto_fill_cfg=auto_fill_cfg,
                 ingestion_cfg=ingestion_cfg,

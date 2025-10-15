@@ -31,10 +31,11 @@ from ml.config.events import Stage
 
 
 if TYPE_CHECKING:
+    from nautilus_trader.model.data import Bar
+
     from ml.features.engineering import FeatureEngineer
     from ml.features.engineering import IndicatorManager
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)

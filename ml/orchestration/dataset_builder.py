@@ -18,7 +18,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 from ml.data import DatasetMetadata
 from ml.data import DatasetMetadataExpectations
@@ -262,7 +262,7 @@ class DatasetBuilder:
 
             result = api_build(
                 api_cfg,
-                data_store=cast("DataStoreFacadeProtocol | None", self.data_store),
+                data_store=self.data_store,
             )
 
             if not result.feature_names:
@@ -799,7 +799,7 @@ class DatasetBuilder:
         registry_obj = self.data_registry
         if registry_obj is None or not cfg.dataset_id:
             return
-        registry = cast(RegistryProtocol, registry_obj)
+        registry = registry_obj
 
         try:
             manifest = registry.get_manifest(cfg.dataset_id)

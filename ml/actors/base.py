@@ -25,6 +25,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -44,9 +47,6 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -62,6 +62,8 @@ if TYPE_CHECKING:
         def publish_data(self, *args: object, **kwargs: object) -> None: ...
     class NautilusData:  # typing stub
         pass
+
+    from ml.common.logging_utils import KeywordLogger
 
 else:
     from nautilus_trader.common.actor import Actor as NautilusActor
@@ -754,6 +756,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
 
     # Store attributes are initialized in _init_stores_and_registries
+    log: KeywordLogger
     _feature_store: FeatureStoreStrictProtocol  # Strict adapters wrap underlying stores
     _model_store: ModelStoreStrictProtocol
     _strategy_store: StrategyStoreStrictProtocol
@@ -783,6 +786,15 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
         # Initialize with standard ActorConfig
         super().__init__(actor_config)
+
+        # Wrap logger to support structured keyword arguments
+        from ml.common.logging_utils import ensure_keyword_logger
+
+        _wrapped_logger = ensure_keyword_logger(self.log)
+        try:
+            self.log = _wrapped_logger
+        except AttributeError:
+            self._keyword_logger = _wrapped_logger
 
         # Store the complete ML configuration
         self._config = config
@@ -895,8 +907,14 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                         else:
                             # Fallback: set on adapter (harmless if not consumed)
                             setattr(adapter, "_circuit_breaker", cb)
-                    except Exception:
-                        continue
+                    except Exception as adapter_exc:
+                        adapter_name = type(adapter).__name__
+                        self.log.debug(
+                            "Circuit breaker propagation failed for adapter %s",
+                            adapter_name,
+                            exc_info=True,
+                            extra={"error": repr(adapter_exc)},
+                        )
                 # Data store may also support breaker if underlying implementation honors it
                 try:
                     raw_ds = getattr(self._data_store, "_store", None)
@@ -904,11 +922,15 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                         setattr(raw_ds, "_circuit_breaker", cb)
                     else:
                         setattr(self._data_store, "_circuit_breaker", cb)
-                except Exception:
-                    pass
+                except Exception as data_exc:
+                    self.log.debug(
+                        "Circuit breaker propagation failed for data store",
+                        exc_info=True,
+                        extra={"error": repr(data_exc)},
+                    )
         except Exception:
             # Never impact actor initialization
-            self.log.debug("Store circuit breaker propagation failed", exc_info=True)
+            self.log.debug("Store circuit breaker propagation failed")
 
     @property
     def feature_store(self) -> FeatureStoreStrictProtocol:
@@ -1476,7 +1498,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     maybe_warm_up_model(self._model, True, input_dim)
             except Exception as exc:
                 # Warm-up is a best-effort optimization; never fail startup
-                self.log.debug("Model warm-up skipped due to error: %s", exc, exc_info=True)
+                self.log.debug("Model warm-up skipped due to error: %s", exc)
 
             self.log.info(
                 f"Loaded model with metadata: "

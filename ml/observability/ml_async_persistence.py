@@ -170,7 +170,10 @@ class MLPersistenceWorker:
                 asyncio.set_event_loop(loop)
             self._loop = loop
 
-        assert loop is not None
+        if loop is None:  # pragma: no cover - defensive safeguard
+            raise RuntimeError("MLAsyncPersistence loop initialization failed")
+        loop_for_worker = loop
+        loop = loop_for_worker
 
         self._stop.clear()
 
@@ -179,9 +182,8 @@ class MLPersistenceWorker:
         except RuntimeError:
             if not loop.is_running():
                 def _loop_runner() -> None:
-                    assert loop is not None
-                    asyncio.set_event_loop(loop)
-                    loop.run_forever()
+                    asyncio.set_event_loop(loop_for_worker)
+                    loop_for_worker.run_forever()
 
                 thread = threading.Thread(
                     target=_loop_runner,

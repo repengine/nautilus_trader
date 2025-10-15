@@ -8,4 +8,3 @@ def test_universes_nonempty_and_types() -> None:
     assert all(isinstance(x, str) and x for x in TIER1_CORE)
     assert isinstance(SUPPLEMENTARY_ETFS, dict)
     assert set(SUPPLEMENTARY_ETFS.keys()) >= {"sectors", "bonds", "commodities"}
-

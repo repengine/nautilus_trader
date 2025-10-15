@@ -89,7 +89,6 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.io_raw import ParquetCatalogRawWriter
-from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
@@ -97,6 +96,7 @@ from ml.stores.providers import DAY_NS
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import FanoutMarketDataWriter
 from ml.stores.writers import ParquetCatalogMarketDataWriter

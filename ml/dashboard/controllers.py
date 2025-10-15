@@ -117,4 +117,3 @@ __all__ = [
     "NoopServiceController",
     "ServiceControllerProtocol",
 ]
-

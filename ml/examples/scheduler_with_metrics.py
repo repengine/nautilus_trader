@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+_REQUEST_TIMEOUT = float(os.getenv("ML_METRICS_REQUEST_TIMEOUT", "5.0"))
+
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler
@@ -37,7 +39,7 @@ def check_metrics_endpoint(port: int = 8000) -> None:
     """
     try:
         # Fetch metrics from endpoint
-        response = requests.get(f"http://localhost:{port}/metrics")
+        response = requests.get(f"http://localhost:{port}/metrics", timeout=_REQUEST_TIMEOUT)
         if response.status_code == 200:
             metrics_text = response.text
 
@@ -52,12 +54,15 @@ def check_metrics_endpoint(port: int = 8000) -> None:
                         print(line)
 
             print("\n=== Health Check ===")
-            health_response = requests.get(f"http://localhost:{port}/health")
+            health_response = requests.get(
+                f"http://localhost:{port}/health",
+                timeout=_REQUEST_TIMEOUT,
+            )
             if health_response.status_code == 200:
                 print(f"Health: {health_response.json()}")
         else:
             print(f"Failed to fetch metrics: HTTP {response.status_code}")
-    except requests.exceptions.ConnectionError:
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         print(f"Could not connect to metrics server on port {port}")
     except Exception as e:
         print(f"Error checking metrics: {e}")

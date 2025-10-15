@@ -25,9 +25,9 @@ from sqlalchemy.sql import table as sa_table
 
 from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
-from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 

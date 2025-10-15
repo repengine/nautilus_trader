@@ -625,7 +625,7 @@ class TestE2ELegacyComponentParity:
         # Component mode should have more rows (no lookback filtering)
         # Legacy mode: 100 - 30 (lookback) = 70 rows
         # Component mode: 100 rows (no filtering)
-        print(f"✅ Row count difference is expected: Legacy filters lookback, Component preserves all")
+        print("✅ Row count difference is expected: Legacy filters lookback, Component preserves all")
 
         legacy_cols = set(df_legacy.columns)
         component_cols = set(df_component.columns)

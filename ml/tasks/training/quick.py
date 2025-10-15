@@ -186,9 +186,9 @@ def train_tft_quick(config: QuickTFTTrainConfig) -> QuickTFTTrainResult:
         else:
             LOGGER.warning("Teacher returned no logits; skipping sample predictions")
     except ImportError as exc:
-        LOGGER.warning("TFT teacher module not available: %s", exc)
+        LOGGER.warning("TFT teacher module not available: %s", exc, exc_info=True)
     except Exception as exc:
-        LOGGER.error("TFT training failed", exc_info=exc)
+        LOGGER.error("TFT training failed", exc_info=True)
         raise RuntimeError("TFT training failed") from exc
 
     return QuickTFTTrainResult(

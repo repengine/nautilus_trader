@@ -513,9 +513,16 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
     if not trace_context or not isinstance(trace_context, dict):
         return
 
+    if _propagate is None or _context is None:  # pragma: no cover - defensive
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "Trace context propagation unavailable; skipping link",
+        )
+        return
+
     try:
         # Extract and activate trace context
-        assert _propagate is not None and _context is not None
         ctx = _propagate.extract(trace_context)
         _context.attach(ctx)
     except Exception as exc:

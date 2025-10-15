@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from ml.config.constants import SUFFIX_ONNX
+from ml.config.constants import Versions
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
@@ -407,54 +408,54 @@ class ModelPersistence:
         """
         # Handle both old and new format
         if "manifest" in data:
-            manifest_data = data["manifest"]
+            manifest_data = cast(dict[str, Any], data["manifest"])
             manifest = ModelManifest(
-                model_id=manifest_data["model_id"],
+                model_id=cast(str, manifest_data["model_id"]),
                 role=ModelRole(manifest_data["role"]),
                 data_requirements=DataRequirements(manifest_data["data_requirements"]),
-                architecture=manifest_data["architecture"],
-                feature_schema=manifest_data["feature_schema"],
-                feature_schema_hash=manifest_data["feature_schema_hash"],
-                parent_id=manifest_data.get("parent_id"),
-                children_ids=manifest_data.get("children_ids", []),
-                training_config=manifest_data.get("training_config", {}),
-                performance_metrics=manifest_data.get("performance_metrics", {}),
-                deployment_constraints=manifest_data.get("deployment_constraints", {}),
-                version=manifest_data["version"],
-                created_at=manifest_data["created_at"],
-                last_modified=manifest_data["last_modified"],
-                serveable=manifest_data.get("serveable", True),
-                artifact_format=manifest_data.get("artifact_format", "onnx"),
-                feature_set_id=manifest_data.get("feature_set_id"),
-                pipeline_signature=manifest_data.get("pipeline_signature"),
-                pipeline_version=manifest_data.get("pipeline_version"),
-                decision_policy=manifest_data.get("decision_policy"),
-                decision_config=manifest_data.get("decision_config", {}),
-                artifact_sha256_digest=manifest_data.get("artifact_sha256_digest"),
+                architecture=str(manifest_data["architecture"]),
+                feature_schema=cast(dict[str, str], manifest_data.get("feature_schema", {})) or {},
+                feature_schema_hash=cast(str, manifest_data["feature_schema_hash"]),
+                parent_id=cast(str | None, manifest_data.get("parent_id")),
+                children_ids=cast(list[str], manifest_data.get("children_ids", [])) or [],
+                training_config=cast(dict[str, Any], manifest_data.get("training_config", {})) or {},
+                performance_metrics=cast(dict[str, float], manifest_data.get("performance_metrics", {})) or {},
+                deployment_constraints=cast(dict[str, Any], manifest_data.get("deployment_constraints", {})) or {},
+                version=cast(str, manifest_data["version"]),
+                created_at=float(manifest_data["created_at"]),
+                last_modified=float(manifest_data["last_modified"]),
+                serveable=bool(manifest_data.get("serveable", True)),
+                artifact_format=str(manifest_data.get("artifact_format", "onnx")),
+                feature_set_id=cast(str | None, manifest_data.get("feature_set_id")),
+                pipeline_signature=cast(str | None, manifest_data.get("pipeline_signature")),
+                pipeline_version=cast(str | None, manifest_data.get("pipeline_version")),
+                decision_policy=cast(str | None, manifest_data.get("decision_policy")),
+                decision_config=cast(dict[str, Any], manifest_data.get("decision_config", {})) or {},
+                artifact_sha256_digest=cast(str | None, manifest_data.get("artifact_sha256_digest")),
             )
         else:
             # Legacy format - use defaults
-            from ml.config.constants import Versions
-
             manifest = ModelManifest(
-                model_id=data["model_id"],
+                model_id=str(data["model_id"]),
                 role=ModelRole.INFERENCE,
                 data_requirements=DataRequirements.L1_ONLY,
-                architecture="unknown",
-                feature_schema={},
-                feature_schema_hash="",
-                version=data.get("version", Versions.DEFAULT_MANIFEST_VERSION),
-                created_at=data.get("created_at", time.time()),
-                last_modified=data.get("last_modified", time.time()),
+                architecture=str(data.get("architecture", "unknown")),
+                feature_schema=cast(dict[str, str], data.get("feature_schema", {})) or {},
+                feature_schema_hash=str(data.get("feature_schema_hash", "")),
+                version=str(data.get("version", Versions.DEFAULT_MANIFEST_VERSION)),
+                created_at=float(data.get("created_at", time.time())),
+                last_modified=float(data.get("last_modified", time.time())),
             )
+
+        status_value = data.get("deployment_status", DeploymentStatus.INACTIVE.value)
 
         return ModelInfo(
             manifest=manifest,
-            model_path=Path(data["model_path"]),
-            deployment_status=DeploymentStatus(data["deployment_status"]),
-            deployed_to=data.get("deployed_to", []),
-            performance_history=data.get("performance_history", []),
-            metadata=data.get("metadata", {}),
+            model_path=Path(str(data.get("model_path", ""))),
+            deployment_status=DeploymentStatus(str(status_value)),
+            deployed_to=cast(list[str], data.get("deployed_to", [])) or [],
+            performance_history=cast(list[dict[str, Any]], data.get("performance_history", [])) or [],
+            metadata=cast(dict[str, Any], data.get("metadata", {})) or {},
         )
 
     def _db_to_model_info(self, db_model: ModelTable) -> ModelInfo:
@@ -462,24 +463,24 @@ class ModelPersistence:
         Convert database model to ModelInfo.
         """
         manifest = ModelManifest(
-            model_id=db_model.model_id,
+            model_id=cast(str, db_model.model_id),
             role=ModelRole(db_model.role),
             data_requirements=DataRequirements(db_model.data_requirements),
-            architecture=db_model.architecture,
+            architecture=str(db_model.architecture or "unknown"),
             feature_schema=cast(dict[str, str], db_model.feature_schema) or {},
-            feature_schema_hash=db_model.feature_schema_hash,
+            feature_schema_hash=str(db_model.feature_schema_hash or ""),
             parent_id=db_model.parent_id,
             children_ids=cast(list[str], db_model.children_ids) or [],
             training_config=cast(dict[str, Any], db_model.training_config) or {},
             performance_metrics=cast(dict[str, float], db_model.performance_metrics) or {},
             deployment_constraints=cast(dict[str, Any], db_model.deployment_constraints) or {},
-            version=db_model.version,
+            version=str(db_model.version or Versions.DEFAULT_MANIFEST_VERSION),
             created_at=db_model.created_at.timestamp() if db_model.created_at else time.time(),
             last_modified=(
                 db_model.last_modified.timestamp() if db_model.last_modified else time.time()
             ),
             serveable=db_model.serveable == "true" if db_model.serveable else True,
-            artifact_format=db_model.artifact_format if db_model.artifact_format else "onnx",
+            artifact_format=str(db_model.artifact_format or "onnx"),
             feature_set_id=db_model.feature_set_id,
             pipeline_signature=db_model.pipeline_signature,
             pipeline_version=db_model.pipeline_version,
@@ -488,7 +489,7 @@ class ModelPersistence:
 
         return ModelInfo(
             manifest=manifest,
-            model_path=Path(db_model.model_path),
+            model_path=Path(str(db_model.model_path)),
             deployment_status=DeploymentStatus(db_model.deployment_status),
             deployed_to=cast(list[str], db_model.deployed_to) or [],
             performance_history=cast(list[dict[str, Any]], db_model.performance_history) or [],
@@ -514,19 +515,19 @@ class ModelPersistence:
                 existing.role = model_info.manifest.role.value
                 existing.data_requirements = model_info.manifest.data_requirements.value
                 existing.architecture = model_info.manifest.architecture
-                existing.feature_schema = model_info.manifest.feature_schema
+                existing.feature_schema = cast(Any, model_info.manifest.feature_schema)
                 existing.feature_schema_hash = model_info.manifest.feature_schema_hash
                 existing.parent_id = model_info.manifest.parent_id
-                existing.children_ids = model_info.manifest.children_ids
-                existing.training_config = model_info.manifest.training_config
-                existing.performance_metrics = model_info.manifest.performance_metrics
-                existing.deployment_constraints = model_info.manifest.deployment_constraints
-                existing.deployment_status = model_info.deployment_status.value
-                existing.deployed_to = model_info.deployed_to
+                existing.children_ids = cast(Any, model_info.manifest.children_ids)
+                existing.training_config = cast(Any, model_info.manifest.training_config)
+                existing.performance_metrics = cast(Any, model_info.manifest.performance_metrics)
+                existing.deployment_constraints = cast(Any, model_info.manifest.deployment_constraints)
+                existing.deployment_status = cast(Any, model_info.deployment_status.value)
+                existing.deployed_to = cast(Any, model_info.deployed_to)
                 existing.version = model_info.manifest.version
-                existing.extra_metadata = model_info.metadata
+                existing.extra_metadata = cast(Any, model_info.metadata)
                 existing.model_path = str(model_info.model_path)
-                existing.performance_history = model_info.performance_history
+                existing.performance_history = cast(Any, model_info.performance_history)
                 existing.serveable = "true" if model_info.manifest.serveable else "false"
                 existing.artifact_format = model_info.manifest.artifact_format
                 existing.feature_set_id = model_info.manifest.feature_set_id
@@ -540,19 +541,19 @@ class ModelPersistence:
                     role=model_info.manifest.role.value,
                     data_requirements=model_info.manifest.data_requirements.value,
                     architecture=model_info.manifest.architecture,
-                    feature_schema=model_info.manifest.feature_schema,
+                    feature_schema=cast(Any, model_info.manifest.feature_schema),
                     feature_schema_hash=model_info.manifest.feature_schema_hash,
                     parent_id=model_info.manifest.parent_id,
-                    children_ids=model_info.manifest.children_ids,
-                    training_config=model_info.manifest.training_config,
-                    performance_metrics=model_info.manifest.performance_metrics,
-                    deployment_constraints=model_info.manifest.deployment_constraints,
-                    deployment_status=model_info.deployment_status.value,
-                    deployed_to=model_info.deployed_to,
+                    children_ids=cast(Any, model_info.manifest.children_ids),
+                    training_config=cast(Any, model_info.manifest.training_config),
+                    performance_metrics=cast(Any, model_info.manifest.performance_metrics),
+                    deployment_constraints=cast(Any, model_info.manifest.deployment_constraints),
+                    deployment_status=cast(Any, model_info.deployment_status.value),
+                    deployed_to=cast(Any, model_info.deployed_to),
                     version=model_info.manifest.version,
-                    extra_metadata=model_info.metadata,
+                    extra_metadata=cast(Any, model_info.metadata),
                     model_path=str(model_info.model_path),
-                    performance_history=model_info.performance_history,
+                    performance_history=cast(Any, model_info.performance_history),
                     serveable="true" if model_info.manifest.serveable else "false",
                     artifact_format=model_info.manifest.artifact_format,
                     feature_set_id=model_info.manifest.feature_set_id,
@@ -720,7 +721,14 @@ class ModelPersistence:
 
                     session_options, providers = to_session_options(self._onnx_rt)
 
-                    model = ort.InferenceSession(
+                    if ort is not None:
+                        session_factory = ort.InferenceSession
+                    else:  # pragma: no cover - defensive runtime import
+                        import onnxruntime as _ort
+
+                        session_factory = _ort.InferenceSession
+
+                    model = session_factory(
                         str(model_path),
                         sess_options=session_options,
                         providers=providers,

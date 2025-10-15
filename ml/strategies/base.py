@@ -37,7 +37,6 @@ from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
 
 if TYPE_CHECKING:
-
     from ml.stores.protocols import StrategyStoreProtocol
     from ml.common.message_bus import MessagePublisherProtocol
     from ml.strategies.protocols import OrderExecutorProtocol
@@ -46,6 +45,7 @@ if TYPE_CHECKING:
     from ml.strategies.protocols import PositionSizerProtocol
     from ml.strategies.protocols import RiskManagerProtocol
     from ml.strategies.services import StrategyDecisionPublisher
+    from ml.common.logging_utils import KeywordLogger
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import DataType
@@ -162,6 +162,8 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
 
     """
 
+    log: KeywordLogger
+
     def __init__(self, config: MLStrategyConfig, stores: object | None = None) -> None:
         """
         Initialize the ML strategy with dependency injection support.
@@ -190,6 +192,13 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
 
         """
         super().__init__(config)
+        from ml.common.logging_utils import ensure_keyword_logger
+
+        _wrapped_logger = ensure_keyword_logger(self.log)
+        try:
+            self.log = _wrapped_logger
+        except AttributeError:
+            self._keyword_logger = _wrapped_logger
         self._config = config
         self._stores = stores
 
@@ -755,6 +764,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                 except Exception as breaker_exc:
                     self.log.debug(
                         f"ml_strategy.breaker_record_success_failed strategy={self.id} error={breaker_exc!r}",
+                        exc_info=True,
                     )
 
                 # Update metrics
@@ -777,6 +787,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             except Exception as breaker_exc:
                 self.log.debug(
                     f"ml_strategy.breaker_record_failure_failed strategy={self.id} error={breaker_exc!r}",
+                    exc_info=True,
                 )
             try:
                 from ml.config.events import EventStatus as _ES
@@ -799,11 +810,13 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     "ml_strategy.partial_publish_failed "
                     f"strategy={self.id} instrument={signal.instrument_id} "
                     f"decision_type={decision_type} error={pub_exc!r}",
+                    exc_info=True,
                 )
             self.log.error(
                 "ml_strategy.strategy_store_write_failed "
                 f"strategy={self.id} instrument={signal.instrument_id} "
                 f"decision_type={decision_type} error={exc!r}",
+                exc_info=True,
             )
 
     def on_stop(self) -> None:
@@ -817,6 +830,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             except Exception as exc:
                 self.log.error(
                     f"ml_strategy.strategy_store_flush_failed strategy={self.id} error={exc!r}",
+                    exc_info=True,
                 )
 
         win_rate = self._winning_trades / max(self._trades_executed, 1) * 100
@@ -1240,12 +1254,14 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     except Exception as perf_exc:
                         self.log.debug(
                             f"ml_strategy.performance_record_order_failed strategy_id={self.id} error={perf_exc}",
+                            exc_info=True,
                         )
                     return order.client_order_id
             except Exception as exc:
                 # Log and continue to fallback
                 self.log.error(
                     f"ml_strategy.smart_order_creation_failed strategy_id={self.id} order_side={side.name} error={exc}",
+                    exc_info=True,
                 )
 
         # Fallback to existing market order helper (outside try to avoid masking errors)

@@ -8,6 +8,7 @@ existing collected market data.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -56,6 +57,152 @@ pd = PD
 
 
 logger = logging.getLogger(__name__)
+
+
+class _DatasetSerializer:
+    """
+    Minimal dataset serializer used by tests and CLI helpers.
+    """
+
+    _METADATA_SUFFIX = ".meta.json"
+
+    def save_dataset(
+        self,
+        *,
+        df: Any,
+        path: _Path | str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        dest = _Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(df, pl.DataFrame):
+            df.write_parquet(dest)
+        else:
+            import pandas as _pd
+
+            if isinstance(df, _pd.DataFrame):
+                df.to_parquet(dest)
+            else:
+                raise TypeError(f"Unsupported frame type for serialization: {type(df)}")
+
+        if metadata:
+            meta_path = dest.with_suffix(dest.suffix + self._METADATA_SUFFIX)
+            meta_path.write_text(json.dumps(metadata, indent=2, sort_keys=True))
+
+    def load_dataset(
+        self,
+        *,
+        path: _Path | str,
+        use_polars: bool = True,
+    ) -> tuple[Any, dict[str, Any]]:
+        src = _Path(path)
+        if use_polars and pl is not None:
+            df = pl.read_parquet(src)
+        else:
+            import pandas as _pd
+
+            df = _pd.read_parquet(src)
+
+        meta_path = src.with_suffix(src.suffix + self._METADATA_SUFFIX)
+        metadata: dict[str, Any] = {}
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text())
+        return df, metadata
+
+
+class _ValidationSplitter:
+    """
+    Backwards-compatible dataset splitting helper.
+    """
+
+    def split_dataset(
+        self,
+        *,
+        df: Any,
+        train_ratio: float,
+        val_ratio: float,
+        test_ratio: float,
+    ) -> tuple[Any, Any, Any]:
+        if not np.isclose(train_ratio + val_ratio + test_ratio, 1.0):
+            raise ValueError("train/val/test ratios must sum to 1.0")
+
+        total = len(df)
+        if total == 0:
+            raise ValueError("Cannot split empty dataset")
+
+        train_end = int(total * train_ratio)
+        val_end = train_end + int(total * val_ratio)
+
+        # Ensure at least one row per split when possible
+        train_end = max(1, min(train_end, total - 2))
+        val_end = max(train_end + 1, min(val_end, total - 1))
+
+        train = self._slice(df, 0, train_end)
+        val = self._slice(df, train_end, val_end)
+        test = self._slice(df, val_end, total)
+        return train, val, test
+
+    def validate_splits(self, train: Any, val: Any, test: Any) -> None:
+        """
+        Basic temporal validation using timestamp ordering when available.
+        """
+        column = "timestamp"
+        try:
+            train_max = self._max_timestamp(train, column)
+            val_min = self._min_timestamp(val, column)
+            val_max = self._max_timestamp(val, column)
+            test_min = self._min_timestamp(test, column)
+        except Exception:
+            return  # Missing timestamp information; skip validation
+
+        if train_max is None or val_min is None or val_max is None or test_min is None:
+            return
+
+        if not (train_max <= val_min <= val_max <= test_min):
+            raise ValueError("Validation split ordering violated (overlapping timestamps)")
+
+    @staticmethod
+    def _slice(df: Any, start: int, end: int) -> Any:
+        length = max(0, end - start)
+        if hasattr(df, "slice"):
+            return df.slice(start, length)
+        if hasattr(df, "iloc"):
+            return df.iloc[start:end]
+        raise TypeError(f"Unsupported frame type for splitting: {type(df)}")
+
+    @staticmethod
+    def _min_timestamp(df: Any, column: str) -> int | None:
+        if hasattr(df, "select"):
+            result = df.select(pl.col(column).min())
+            return None if result.is_empty() else int(result[0, 0])
+        if hasattr(df, "__getitem__"):
+            series = df[column]
+            if hasattr(series, "min"):
+                value = series.min()
+                return None if value is None else int(value)
+        return None
+
+    @staticmethod
+    def _max_timestamp(df: Any, column: str) -> int | None:
+        if hasattr(df, "select"):
+            result = df.select(pl.col(column).max())
+            return None if result.is_empty() else int(result[0, 0])
+        if hasattr(df, "__getitem__"):
+            series = df[column]
+            if hasattr(series, "max"):
+                value = series.max()
+                return None if value is None else int(value)
+        return None
+
+
+class _TradingDayCalendar:
+    """
+    Backwards-compatible trading day calendar placeholder.
+    """
+
+    def is_trading_day(self, timestamp_ns: int) -> bool:  # pragma: no cover - simple stub
+        return True
 
 
 class TFTDatasetBuilder:
@@ -200,6 +347,11 @@ class TFTDatasetBuilder:
             self._binding_index.setdefault(binding.symbol.upper(), binding)
             base_symbol = binding.symbol.split(".")[0]
             self._binding_index.setdefault(base_symbol.upper(), binding)
+
+        # Backwards-compatible helper components (used by tests & CLI)
+        self._dataset_serializer = _DatasetSerializer()
+        self._validation_splitter = _ValidationSplitter()
+        self._trading_day_calendar = _TradingDayCalendar()
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -1363,10 +1515,7 @@ class TFTDatasetBuilder:
                             if e_ts is not None:
                                 processed = processed[processed["timestamp"] < e_ts]
                         except Exception:  # pragma: no cover - defensive
-                            logger.debug(
-                                "Pandas timestamp filtering failed",
-                                exc_info=True,
-                            )  # type: ignore[misc]
+                            logger.debug("Pandas timestamp filtering failed", exc_info=True)
                     if processed is not None:
                         all_data_pd.append(processed)
 

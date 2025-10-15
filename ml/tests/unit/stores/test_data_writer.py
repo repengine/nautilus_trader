@@ -221,7 +221,7 @@ def test_write_features_success(
         ),
     ]
 
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark"):
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
         event = data_writer.write_features(
             instrument_id="EURUSD.SIM",
             features=features,
@@ -306,14 +306,14 @@ def test_write_predictions_success(
             instrument_id="EURUSD.SIM",
             prediction=0.85,
             confidence=0.92,
-            features={"rsi": 65.5},
-            metadata={},
+            features_used={"rsi": 65.5},
+            inference_time_ms=1.2,
             _ts_event=ts_event,
             _ts_init=ts_event,
         ),
     ]
 
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark"):
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
         event = data_writer.write_predictions(
             predictions=predictions,
             source="inference",
@@ -366,7 +366,7 @@ def test_write_signals_success(
         ),
     ]
 
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark"):
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
         event = data_writer.write_signals(
             signals=signals,
             source="strategy",
@@ -406,7 +406,7 @@ def test_write_earnings_actual_success(
     """Test write_earnings_actual successfully writes earnings."""
     ts_event = time.time_ns()
 
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark"):
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
         event = data_writer.write_earnings_actual(
             ticker="AAPL",
             period_end="2024-03-31",
@@ -436,7 +436,7 @@ def test_write_earnings_estimate_success(
     """Test write_earnings_estimate successfully writes estimates."""
     ts_event = time.time_ns()
 
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark"):
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
         event = data_writer.write_earnings_estimate(
             ticker="AAPL",
             estimate_date="2024-03-15",
@@ -538,7 +538,7 @@ def test_emit_success_event_calls_registry(
     data_writer: DataWriter,
 ) -> None:
     """Test _emit_success_event_and_update calls registry correctly."""
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark") as mock_emit:
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark") as mock_emit:
         data_writer._emit_success_event_and_update(
             dataset_id="test_dataset",
             instrument_id="EURUSD.SIM",
@@ -559,7 +559,7 @@ def test_emit_success_event_handles_failure_gracefully(
     data_writer: DataWriter,
 ) -> None:
     """Test _emit_success_event_and_update handles failures gracefully."""
-    with patch("ml.stores.data_writer.emit_dataset_event_and_watermark") as mock_emit:
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark") as mock_emit:
         mock_emit.side_effect = RuntimeError("Registry error")
 
         # Should not raise - best effort
@@ -665,26 +665,30 @@ def test_data_frame_to_feature_data(data_writer: DataWriter) -> None:
 
 def test_data_frame_to_predictions(data_writer: DataWriter) -> None:
     """Test _data_frame_to_predictions converts correctly."""
-    ts_event = time.time_ns()
-    data = [
-        {
-            "model_id": "test_model",
-            "instrument_id": "EURUSD.SIM",
-            "ts_event": ts_event,
-            "ts_init": ts_event,
-            "prediction": 0.85,
-            "confidence": 0.92,
-            "features": {},
-            "metadata": {},
-        },
-    ]
+    from ml._imports import pl
 
-    result = data_writer._data_frame_to_predictions(data)
+    ts_event = time.time_ns()
+    frame = pl.DataFrame(
+        {
+            "model_id": ["test_model"],
+            "instrument_id": ["EURUSD.SIM"],
+            "ts_event": [ts_event],
+            "ts_init": [ts_event],
+            "prediction": [0.85],
+            "confidence": [0.92],
+            "features_used": [{"rsi": 65.5}],
+            "inference_time_ms": [1.2],
+        }
+    )
+
+    result = data_writer._data_frame_to_predictions(frame)
 
     assert len(result) == 1
     assert result[0].model_id == "test_model"
     assert result[0].instrument_id == "EURUSD.SIM"
     assert result[0].prediction == 0.85
+    assert result[0].features_used == {"rsi": 65.5}
+    assert result[0].inference_time_ms == 1.2
 
 
 def test_data_frame_to_signals(data_writer: DataWriter) -> None:

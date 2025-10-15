@@ -23,6 +23,7 @@ from ml.common.metrics_bootstrap import get_histogram
 if TYPE_CHECKING:
     from ml.config.market_data import MarketDatasetInput
     from ml.data.ingest.market_bindings import ResolvedMarketBinding
+    from ml.data.ingest.service import DatabentoIngestionService
     from ml.orchestration.config_types import DatasetBuildConfig
     from ml.orchestration.discovery_client import DiscoveryClient
     from ml.stores.protocols import CoverageProviderProtocol
@@ -152,7 +153,7 @@ class BindingResolver:
     def __init__(
         self,
         coverage_provider: CoverageProviderProtocol | None = None,
-        ingestion_service: object | None = None,
+        ingestion_service: DatabentoIngestionService | None = None,
         discovery_client: DiscoveryClient | None = None,
     ) -> None:
         """
@@ -169,7 +170,7 @@ class BindingResolver:
 
         """
         self.coverage = coverage_provider
-        self.service = ingestion_service
+        self.service: DatabentoIngestionService | None = ingestion_service
         self.discovery_client = discovery_client
         self._initialize_metrics()
 
@@ -184,6 +185,16 @@ class BindingResolver:
             "ml_binding_selection_seconds",
             "Time to select binding",
         )
+
+    @staticmethod
+    def _flatten_instrument_ids(symbol_map: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+        """Collect unique instrument IDs from symbol map."""
+        instrument_ids: set[str] = set()
+        for entries in symbol_map.values():
+            for instrument_id in entries:
+                if instrument_id:
+                    instrument_ids.add(instrument_id)
+        return tuple(sorted(instrument_ids))
 
     def resolve_market_inputs(
         self,
@@ -220,12 +231,21 @@ class BindingResolver:
 
         """
         from ml.config.market_data import MarketDatasetInput
+        from ml.config.market_data import load_market_feed_descriptors
         from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
 
         # If market inputs provided, resolve bindings directly
         if cfg.market_inputs:
+            descriptors = load_market_feed_descriptors().as_mapping()
+            flattened_ids = self._flatten_instrument_ids(symbol_map)
             try:
-                bindings = resolve_market_dataset_bindings(cfg.market_inputs)
+                bindings = resolve_market_dataset_bindings(
+                    symbols=tuple(symbol_map.keys()),
+                    instrument_ids=flattened_ids,
+                    market_dataset_id=cfg.market_dataset_id,
+                    market_inputs=cfg.market_inputs,
+                    descriptors=descriptors,
+                )
             except Exception:  # pragma: no cover - defensive guard
                 logger.warning("Binding resolution failed", exc_info=True)
                 bindings = ()
@@ -257,8 +277,16 @@ class BindingResolver:
 
         if discovered_inputs:
             resolved_inputs.extend(discovered_inputs)
+            descriptors = load_market_feed_descriptors().as_mapping()
+            flattened_ids = self._flatten_instrument_ids(symbol_map)
             try:
-                bindings = resolve_market_dataset_bindings(discovered_inputs)
+                bindings = resolve_market_dataset_bindings(
+                    symbols=tuple(symbol_map.keys()),
+                    instrument_ids=flattened_ids,
+                    market_dataset_id=cfg.market_dataset_id,
+                    market_inputs=discovered_inputs,
+                    descriptors=descriptors,
+                )
                 resolved_bindings.extend(bindings)
             except Exception:  # pragma: no cover - defensive guard
                 logger.warning("Binding resolution from discovery failed", exc_info=True)

@@ -14,7 +14,7 @@ import argparse
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DataContract
@@ -606,10 +606,11 @@ def bootstrap_datasets(
 
         # Register contract if available
         if manifest.dataset_id in contracts and backend == BackendType.JSON:
-            # Store contract in JSON registry and persist
+            # Store contract in JSON registry and persist (JSON-only internals)
             contract = contracts[manifest.dataset_id]
-            registry._contracts[manifest.dataset_id] = contract
-            registry._save_registry(immediate=True)
+            json_registry = cast(Any, registry)
+            json_registry._contracts[manifest.dataset_id] = contract
+            json_registry._save_registry(immediate=True)
             print(f"    → Added contract (mode: {contract.enforcement_mode})")
 
     print(f"\n✅ Bootstrap complete! Registered {len(manifests)} datasets.")

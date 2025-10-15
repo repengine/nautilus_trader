@@ -4,6 +4,15 @@ from datetime import datetime, timezone, timedelta, UTC
 
 import pytest
 
+from ml._imports import HAS_NAUTILUS_CORE
+from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+
+if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
+    pytest.skip(
+        f"Nautilus Trader core extensions unavailable: {NAUTILUS_CORE_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
+
 from ml.deployment.scheduling_utils import (
     DailyTime,
     compute_next_utc_run,
@@ -51,4 +60,3 @@ def test_compute_next_utc_run(
 def test_invalid_spec_raises() -> None:
     with pytest.raises(ValueError):
         parse_daily_spec("bad spec")
-

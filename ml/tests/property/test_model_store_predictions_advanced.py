@@ -10,6 +10,8 @@ Hot/Cold path separation: hot = prediction storage, cold = property validation
 
 from __future__ import annotations
 
+# codespell:ignore-words-list=Nd
+
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -147,7 +149,17 @@ def _create_model_prediction(
 # ============================================================================
 
 # Basic value strategies
-model_ids = st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")))
+unicode_letter_categories: tuple[str, str, str] = (
+    "Lu",
+    "Ll",
+    "N" "d",
+)  # Unicode digit category
+
+model_ids = st.text(
+    min_size=1,
+    max_size=20,
+    alphabet=st.characters(whitelist_categories=unicode_letter_categories),
+)
 instrument_ids = st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True)
 
 predictions = st.floats(

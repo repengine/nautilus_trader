@@ -34,8 +34,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateSchema
 from sqlalchemy.sql import Select
 
-from ml.common.metrics_bootstrap import get_counter
 from ml.common.db_utils import get_or_create_engine
+from ml.common.metrics_bootstrap import get_counter
 
 
 if TYPE_CHECKING:
