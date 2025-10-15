@@ -1950,8 +1950,8 @@ class DashboardService:
                 status_label = "not_found"
                 return {"status": "not_found", "error": "job_not_found"}
             payload = self._serialize_pipeline_progress(progress)
-            status_label = "success"
-            return {"status": "success", "progress": payload}
+            status_label = EventStatus.SUCCESS.value
+            return {"status": EventStatus.SUCCESS.value, "progress": payload}
         except Exception:
             logger.debug("pipeline progress retrieval failed", exc_info=True)
             status_label = "error"

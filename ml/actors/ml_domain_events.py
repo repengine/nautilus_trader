@@ -21,6 +21,7 @@ import queue
 import threading
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from ml.common.message_bus import MessagePublisherProtocol
@@ -34,7 +35,8 @@ class _QueuedEvent(NamedTuple):
     payload: dict[str, Any]
 
 
-class TopicThrottleConfig(NamedTuple):
+@dataclass(frozen=True)
+class TopicThrottleConfig:
     """
     Configuration for per-topic rate limiting.
     """

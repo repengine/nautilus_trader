@@ -503,8 +503,12 @@ class TFTDatasetBuilder:
                     iso_val = iso_callable()
                     if isinstance(iso_val, str):
                         return iso_val
-                except Exception:
-                    pass
+                except Exception:  # pragma: no cover - defensive
+                    logger.debug(
+                        "Failed to convert value to ISO representation",
+                        extra={"value_type": type(value).__name__},
+                        exc_info=True,
+                    )
             return str(value)
 
         eps_series = np.array([
@@ -585,8 +589,12 @@ class TFTDatasetBuilder:
             try:
                 if earnings_joined.schema[col].is_numeric():
                     fills.append(pl.col(col).fill_null(0))
-            except Exception:
-                pass
+            except Exception:  # pragma: no cover - defensive
+                logger.debug(
+                    "Earnings feature schema inspection failed",
+                    extra={"column": col, "ticker": base_ticker},
+                    exc_info=True,
+                )
             availability.append(pl.col(col).is_not_null())
 
         if fills:
@@ -913,8 +921,12 @@ class TFTDatasetBuilder:
                         try:
                             if direct_df.schema[c].is_numeric():
                                 fills.append(pl.col(c).fill_null(0))
-                        except Exception:
-                            pass
+                        except Exception:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Macro feature schema inspection failed",
+                                extra={"column": c},
+                                exc_info=True,
+                            )
                         exprs.append(pl.col(c).is_not_null())
                     if fills:
                         # Narrow type for polars operations
@@ -961,8 +973,11 @@ class TFTDatasetBuilder:
                         direct_df["is_macro_available"] = (
                             direct_df[macro_cols].notna().any(axis=1).astype("int32")
                         )
-                except Exception:
-                    pass
+                except Exception:  # pragma: no cover - defensive
+                    logger.debug(
+                        "Macro pandas join post-processing failed",
+                        exc_info=True,
+                    )
 
         logger.info(
             f"Successfully computed {len(direct_df) if hasattr(direct_df, '__len__') else 'N/A'} rows using {source}",
@@ -1179,7 +1194,11 @@ class TFTDatasetBuilder:
                                                 part = part.with_columns(
                                                     pl.col("timestamp").dt.replace_time_zone("UTC"),
                                                 )
-                                            except Exception:
+                                            except Exception:  # pragma: no cover - defensive
+                                                logger.debug(
+                                                    "Polars timezone replacement failed",
+                                                    exc_info=True,
+                                                )
                                                 try:
                                                     part = part.with_columns(
                                                         pl.col("timestamp").dt.convert_time_zone(
@@ -1187,6 +1206,10 @@ class TFTDatasetBuilder:
                                                         ),
                                                     )
                                                 except Exception:
+                                                    logger.debug(
+                                                        "Polars timezone conversion failed",
+                                                        exc_info=True,
+                                                    )
                                                     try:
                                                         part = part.with_columns(
                                                             pl.col("timestamp").cast(
@@ -1194,7 +1217,10 @@ class TFTDatasetBuilder:
                                                             ),
                                                         )
                                                     except Exception:
-                                                        pass
+                                                        logger.debug(
+                                                            "Polars timestamp cast failed",
+                                                            exc_info=True,
+                                                        )
                                     frames.append(part)
                         # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
                         l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
@@ -1216,12 +1242,20 @@ class TFTDatasetBuilder:
                                         part = part.with_columns(
                                             pl.col("timestamp").dt.replace_time_zone("UTC"),
                                         )
-                                    except Exception:
+                                    except Exception:  # pragma: no cover - defensive
+                                        logger.debug(
+                                            "Polars timezone replacement failed",
+                                            exc_info=True,
+                                        )
                                         try:
                                             part = part.with_columns(
                                                 pl.col("timestamp").dt.convert_time_zone("UTC"),
                                             )
                                         except Exception:
+                                            logger.debug(
+                                                "Polars timezone conversion failed",
+                                                exc_info=True,
+                                            )
                                             try:
                                                 part = part.with_columns(
                                                     pl.col("timestamp").cast(
@@ -1229,7 +1263,10 @@ class TFTDatasetBuilder:
                                                     ),
                                                 )
                                             except Exception:
-                                                pass
+                                                logger.debug(
+                                                    "Polars timestamp cast failed",
+                                                    exc_info=True,
+                                                )
                                 frames.append(part)
                         if frames:
                             # Concatenate standardized frames
@@ -1325,8 +1362,11 @@ class TFTDatasetBuilder:
                                 processed = processed[processed["timestamp"] >= s_ts]
                             if e_ts is not None:
                                 processed = processed[processed["timestamp"] < e_ts]
-                        except Exception:
-                            pass
+                        except Exception:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Pandas timestamp filtering failed",
+                                exc_info=True,
+                            )  # type: ignore[misc]
                     if processed is not None:
                         all_data_pd.append(processed)
 
@@ -1512,8 +1552,12 @@ class TFTDatasetBuilder:
                             try:
                                 if dataset.schema[c].is_numeric():
                                     fills.append(pl.col(c).fill_null(0))
-                            except Exception:
-                                pass
+                            except Exception:  # pragma: no cover - defensive
+                                logger.debug(
+                                    "Microstructure schema inspection failed",
+                                    extra={"column": c},
+                                    exc_info=True,
+                                )
                         if fills:
                             dataset = dataset.with_columns(fills)
             except Exception as exc:
@@ -1546,8 +1590,12 @@ class TFTDatasetBuilder:
                                     try:
                                         if dataset.schema[c].is_numeric():
                                             fills.append(pl.col(c).fill_null(0))
-                                    except Exception:
-                                        pass
+                                    except Exception as exc:  # pragma: no cover - defensive
+                                        logger.debug(
+                                            "Microstructure cache schema inspection failed",
+                                            extra={"column": c},
+                                            exc_info=True,
+                                        )
                                 if fills:
                                     dataset = dataset.with_columns(fills)
                 except Exception as exc2:  # pragma: no cover
@@ -1583,8 +1631,12 @@ class TFTDatasetBuilder:
                                 try:
                                     if dataset.schema[c].is_numeric():
                                         fills.append(pl.col(c).fill_null(0))
-                                except Exception:
-                                    pass
+                                except Exception:  # pragma: no cover - defensive
+                                    logger.debug(
+                                        "L2 schema inspection failed",
+                                        extra={"column": c},
+                                        exc_info=True,
+                                    )
                                 expr = pl.col(c).is_not_null()
                                 has_any = expr if has_any is None else (has_any | expr)
                             if has_any is not None:
@@ -1642,8 +1694,11 @@ class TFTDatasetBuilder:
                                             .alias("session_rel_spread"),
                                         ],
                                     ).drop(["_day", "_med_spread"], strict=False)
-                        except Exception:
-                            pass
+                        except Exception:  # pragma: no cover - defensive
+                            logger.debug(
+                                "L2 derived feature computation failed",
+                                exc_info=True,
+                            )
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"L2 cache join failed for {symbol}: {exc}")
 
@@ -1672,8 +1727,12 @@ class TFTDatasetBuilder:
                             try:
                                 if dataset.schema[col].is_numeric():
                                     earnings_fills.append(pl.col(col).fill_null(0))
-                            except Exception:
-                                pass
+                            except Exception:  # pragma: no cover - defensive
+                                logger.debug(
+                                    "Earnings feature schema inspection failed",
+                                    extra={"column": col},
+                                    exc_info=True,
+                                )
                             earnings_availability.append(pl.col(col).is_not_null())
                         if earnings_fills:
                             dataset = dataset.with_columns(earnings_fills)

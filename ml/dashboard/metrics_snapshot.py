@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND
+from ml.config.events import EventStatus
 
 
 def _matches_labels(sample: Any, labels: Mapping[str, str] | None) -> bool:
@@ -141,7 +142,7 @@ def build_dashboard_snapshot(
         labels={
             "route": "/api/observability/grafana/provision",
             "method": "POST",
-            "status": "success",
+            "status": EventStatus.SUCCESS.value,
         },
     )
     total_requests = success_total + _counter_total(
