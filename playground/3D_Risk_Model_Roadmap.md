@@ -1,9 +1,16 @@
 # 3D Factor Risk Model: Development Roadmap
 
 ## Document Status
-- **Version:** 1.0
-- **Last Updated:** 2025-10-05
-- **Status:** Phase 1 Complete → Phase 2 Ready to Start
+- **Version:** 1.2
+- **Last Updated:** 2025-10-17
+- **Status:** Phase 2 Complete → Phase 3 (Backtest validation) in steady iteration; Phase 4 (Strategy integration) not started
+
+## Playground Snapshot (2025-10-16)
+
+- Backtest runner exercises stable/rolling betas, turnover smoothing, regime-aware liquidity scaling.  
+- Walk-forward harness (10 folds, 5y/1y) and liquidity experiments regenerate nightly; turnover smoothing currently default candidate (Sharpe ≈0.94, TC savings ≈$2.6k).  
+- New microbench (`pytest -q playground/tests/performance/test_turnover_smoothing.py -m performance`) keeps `FactorTiltStrategy.compute_weights` under 5 ms.  
+- Outstanding for live module: execution limits, monitoring hooks, Nautilus Trader actor wiring, and codifying parameter decisions in `playground/3D_Risk_Model_Idea.md`.
 
 ---
 
@@ -200,13 +207,24 @@ Test if our factors actually drive sector returns:
 **Duration:** 3-4 weeks
 **Objective:** Prove the model generates risk-adjusted returns competitive with benchmarks
 
+**Status Update (2025-10-17):**
+- Backtesting engine, benchmark suite, and attribution pipeline are stable with regression-tested coverage.
+- Walk-forward harness (5y/1y, stride 1y) and liquidity mitigation experiments regenerate nightly via `make export-phase3-walk-forward`; turnover smoothing is the leading configuration (Sharpe ≈0.94, TC savings ≈$2.6k).
+- Turnover smoothing compute-weight microbench keeps hot-path work under 5 ms (`pytest -q playground/tests/performance/test_turnover_smoothing.py -m performance`).
+- Central defaults now live in `ml.config.playground.ThreeDRiskBacktestDefaults`; the backtest runner, sensitivity harness, and Phase 3 CLI consume the shared config and surface missing-baseline diagnostics in tests.
+- Walk-forward summaries now emit `metadata.json` capturing the defaults/liquidity config used, and the mitigation suite includes a "Turnover Stress Test" scenario to probe higher transaction-cost risk.
+- Accepted parameter values have been codified in `playground/docs/nautilus_strategy_spec.md`, tying the Nautilus integration plan directly to the shared defaults.
+- Monitoring helpers now validate walk-forward metadata and log alerts when defaults drift, and the visuals export surfaces the metadata summary path for dashboards.
+- Added `check_walk_forward_metadata` CLI to enable cron/Grafana health checks with non-zero exit on drift.
+- Remaining Phase 3 focus areas: keep nightly monitoring/reporting aligned with the new metadata outputs and extend deeper validation: long-horizon walk-forward permutations, Monte Carlo stress sweeps, parameter response heatmaps, extra diagnostic metrics, alternate datasets, and automated nightly dashboards/alerts.
+
 ### 3.1 Backtest Infrastructure
 
 #### Tasks
 
 **3.1.1 Build Backtesting Engine**
 
-- [ ] Implement backtesting framework with:
+- [x] Implement backtesting framework with:
   - Rolling window optimization (monthly rebalance)
   - Transaction cost modeling (default: 10 bps per trade)
   - Slippage assumptions
@@ -240,7 +258,8 @@ class FactorBacktester:
 **Deliverables:**
 - `playground/backtest/engine.py`
 - `playground/backtest/strategies.py`
-- `tests/test_backtest_engine.py`
+- `playground/tests/backtest/test_engine.py`
+- `playground/tests/backtest/test_runner.py`
 
 ---
 
@@ -248,16 +267,16 @@ class FactorBacktester:
 
 Build comparison strategies:
 
-- [ ] **60/40 Portfolio**
+- [x] **60/40 Portfolio**
   - 60% SPY, 40% AGG
   - Monthly rebalance
-- [ ] **Risk Parity**
+- [x] **Risk Parity**
   - Equal risk contribution across asset classes
   - Volatility targeting
-- [ ] **Minimum Variance**
+- [x] **Minimum Variance**
   - Optimize for lowest portfolio variance
   - Use same sector universe
-- [ ] **Equal Weight**
+- [x] **Equal Weight**
   - 1/N across all sectors
   - Monthly rebalance
 
@@ -268,7 +287,8 @@ Build comparison strategies:
 
 **Deliverables:**
 - `playground/backtest/benchmarks.py`
-- `tests/test_benchmarks.py`
+- `playground/tests/backtest/test_benchmarks.py`
+- `playground/tests/backtest/test_runner.py`
 
 ---
 
@@ -278,13 +298,13 @@ Build comparison strategies:
 
 **3.2.1 Train/Test Split Design**
 
-- [ ] Define training and testing periods:
+- [x] Define training and testing periods:
   - **Training:** 2010-01-01 to 2018-12-31 (8 years)
   - **Testing:** 2019-01-01 to 2024-12-31 (6 years)
-- [ ] Alternative: Walk-forward analysis
+- [x] Alternative: Walk-forward analysis
   - Train on year 1-5, test year 6
   - Roll forward 1 year, repeat
-- [ ] Document prevention of look-ahead bias
+- [x] Document prevention of look-ahead bias
 
 **Acceptance Criteria:**
 - Clear temporal separation (no future data leakage)
@@ -292,13 +312,15 @@ Build comparison strategies:
 - Beta estimates use rolling windows within sample period
 
 **Deliverables:**
-- `docs/backtesting_methodology.md`
+- `playground/docs/backtesting_methodology.md`
+- `playground/backtest/splits.py`
+- `playground/reports/backtesting/walk_forward/aggregate_metrics.csv`
 
 ---
 
 **3.2.2 Run Full Backtest Suite**
 
-- [ ] Run backtests for all strategies:
+- [x] Run backtests for all strategies:
   - 3D Factor Model (stable betas)
   - 3D Factor Model (rolling betas)
   - 60/40 benchmark
@@ -306,7 +328,7 @@ Build comparison strategies:
   - Minimum variance
   - Equal weight
 
-- [ ] Calculate performance metrics:
+- [x] Calculate performance metrics:
   - **Return Metrics:**
     - Annualized return
     - Cumulative return
@@ -322,9 +344,9 @@ Build comparison strategies:
     - Calmar ratio (return / max drawdown)
     - Information ratio (vs benchmark)
   - **Trade Metrics:**
-    - Turnover rate
-    - Transaction costs (% of returns)
-    - Number of rebalances
+  - Turnover rate
+  - Transaction costs (% of returns)
+  - Number of rebalances
 
 **Acceptance Criteria:**
 - All metrics calculated for train and test periods separately
@@ -333,9 +355,12 @@ Build comparison strategies:
 - Results consistent across multiple random seeds
 
 **Deliverables:**
-- `reports/backtest_results_2010_2024.pdf`
-- `reports/performance_comparison_table.csv`
+- `playground/reports/backtesting/backtest_results_2010_2024.md`
+- `playground/reports/backtesting/performance_comparison_table.csv`
+- `playground/reports/backtesting/train_vs_test_metrics.csv`
+- `playground/reports/backtesting/notes/phase3_summary.md`
 - `playground/backtest/performance_metrics.py`
+- `playground/scripts/export_phase3_visuals.py`
 
 ---
 
@@ -355,9 +380,9 @@ regimes = {
 }
 ```
 
-- [ ] Calculate Sharpe ratio for each regime
-- [ ] Identify regimes where model fails
-- [ ] Analyze why (factor breakdown, correlation shifts)
+- [x] Calculate Sharpe ratio for each regime
+- [x] Identify regimes where model fails
+- [x] Analyze why (factor breakdown, correlation shifts)
 
 **Acceptance Criteria:**
 - Performance reported for all 7 regimes
@@ -365,8 +390,10 @@ regimes = {
 - Clear documentation of failure modes
 
 **Deliverables:**
-- `reports/regime_analysis.pdf`
-- `playground/backtest/regime_testing.py`
+- `playground/reports/backtesting/regime_summary.csv`
+- `playground/reports/backtesting/regime_comparison.csv`
+- `playground/docs/backtest_attribution_visuals.md`
+- `playground/backtest/regime_analysis.py`
 
 ---
 
@@ -378,11 +405,11 @@ regimes = {
 
 Decompose portfolio returns into factor contributions:
 
-- [ ] For each month, calculate:
+- [x] For each month, calculate:
   ```python
   R_portfolio = α + β_dur * R_dur + β_cred * R_cred + β_liq * R_liq + ε
   ```
-- [ ] Report:
+- [x] Report:
   - Alpha (skill-based returns)
   - Factor contribution to returns
   - Residual (unexplained returns)
@@ -393,8 +420,10 @@ Decompose portfolio returns into factor contributions:
 - Clear visualization of factor contributions over time
 
 **Deliverables:**
-- `reports/factor_attribution.pdf`
-- `playground/backtest/attribution.py`
+- `playground/reports/backtesting/attribution/*.csv`
+- `playground/reports/backtesting/visuals/attribution_waterfall.png`
+- `playground/scripts/export_phase3_visuals.py`
+- `playground/backtest/runner.py`
 
 ---
 
@@ -431,11 +460,11 @@ Test sensitivity to key parameters:
 
 Test extreme scenarios:
 
-- [ ] 1987 Black Monday (if data available)
-- [ ] 2008 Financial Crisis
-- [ ] 2020 COVID crash
-- [ ] 2022 Bonds+Stocks crash
-- [ ] Synthetic shocks (factor returns +/- 3 std dev)
+- [x] 1987 Black Monday (if data available)
+- [x] 2008 Financial Crisis
+- [x] 2020 COVID crash
+- [x] 2022 Bonds+Stocks crash
+- [x] Synthetic shocks (factor returns +/- 3 std dev)
 
 **Acceptance Criteria:**
 - Maximum drawdown documented for each stress scenario
@@ -1095,3 +1124,9 @@ grafana-api = "^1.0"
 | 1.0     | 2025-10-05 | Claude | Initial roadmap based on Phase 1 completion |
 
 **Next Review Date:** After Phase 2 completion (estimated 2025-10-26)
+- [x] Extend walk-forward validation to multiple horizon permutations (vary training years, testing years, stride length) and nested cross-validation runs (multi-horizon artefacts exported via `run_multi_horizon_walk_forward_analysis` with nested summaries).
+- [x] Execute Monte Carlo and bootstrapped stress suites (randomized regime orderings, macro shock overlays) with automated reporting.
+- [ ] Generate parameter response heatmaps covering turnover smoothing, transaction costs, liquidity multipliers, and beta window lengths.
+- [ ] Track additional diagnostics (tail risk metrics, turnover distributions, alternative benchmarks) and include them in nightly exports.
+- [ ] Validate robustness on proxy datasets (international sectors, factor ETFs) and vintage simulations to measure adaptation speed after regime breaks.
+- [ ] Automate metadata-driven dashboards/alerts summarising the above analyses for nightly monitoring.

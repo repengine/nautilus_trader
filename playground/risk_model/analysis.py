@@ -312,7 +312,10 @@ def summarize_eigenvalue_trends(
     aggregates: dict[str, dict[str, list[float]]] = {}
     for profile in profiles:
         diagnostics = profile.diagnostics or {}
-        eigenvalues = diagnostics.get("cov_eigenvalues")
+        eigenvalues_raw = diagnostics.get("cov_eigenvalues")
+        if not eigenvalues_raw or not isinstance(eigenvalues_raw, Sequence):
+            continue
+        eigenvalues = tuple(float(value) for value in eigenvalues_raw)
         if not eigenvalues:
             continue
         bucket_start = (profile.year // bucket_size) * bucket_size
@@ -583,7 +586,7 @@ def compute_portfolio_trajectory(
 
     for year, weights in weights_by_year.items():
         # Initialize coordinates to zero
-        portfolio_coordinates: dict[str, float] = {factor: 0.0 for factor in factor_list}
+        portfolio_coordinates: dict[str, float] = dict.fromkeys(factor_list, 0.0)
 
         # Compute weighted sum of sector stable positions
         for sector_id, weight in weights.items():

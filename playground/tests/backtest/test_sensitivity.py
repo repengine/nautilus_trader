@@ -27,11 +27,10 @@ import numpy as np
 import polars as pl
 import pytest
 
+from ml.config.playground import ThreeDRiskBacktestDefaults
 from playground.backtest.sensitivity import COMPREHENSIVE_GRID
 from playground.backtest.sensitivity import STANDARD_GRIDS
-from playground.backtest.sensitivity import GridSearchResult
 from playground.backtest.sensitivity import ParameterConfig
-from playground.backtest.sensitivity import SensitivityResult
 from playground.backtest.sensitivity import analyze_parameter_stability
 from playground.backtest.sensitivity import compare_strategies_sensitivity
 from playground.backtest.sensitivity import generate_sensitivity_report
@@ -166,6 +165,29 @@ def test_optimal_value_identification(mock_dataset_path: Path, test_split: Train
     assert result.optimal_rank == 0
 
 
+def test_parameter_sensitivity_custom_risk_free(mock_dataset_path: Path, test_split: TrainTestSplit) -> None:
+    """Custom risk-free rates should change computed Sharpe ratios."""
+    defaults = ThreeDRiskBacktestDefaults()
+    baseline = run_parameter_sensitivity(
+        strategy_name="equal_weight",
+        parameter_name="transaction_cost_bps",
+        parameter_values=[5.0, 10.0],
+        dataset_path=mock_dataset_path,
+        split=test_split,
+    )
+    custom_rate = defaults.risk_free_rate + 0.01
+    adjusted = run_parameter_sensitivity(
+        strategy_name="equal_weight",
+        parameter_name="transaction_cost_bps",
+        parameter_values=[5.0, 10.0],
+        dataset_path=mock_dataset_path,
+        split=test_split,
+        risk_free_rate=custom_rate,
+    )
+
+    assert not np.allclose(baseline.sharpe_ratios, adjusted.sharpe_ratios)
+
+
 # ===== Grid Search Tests (3 tests) =====
 
 
@@ -197,6 +219,32 @@ def test_small_grid_search(mock_dataset_path: Path, test_split: TrainTestSplit) 
     # Should have sensitivity summary for each parameter
     assert "transaction_cost_bps" in result.sensitivity_summary
     assert "rebalance_frequency" in result.sensitivity_summary
+
+
+def test_grid_search_custom_risk_free(mock_dataset_path: Path, test_split: TrainTestSplit) -> None:
+    """Custom risk-free rates should affect grid-search Sharpe scores."""
+    defaults = ThreeDRiskBacktestDefaults()
+    grid = {
+        "transaction_cost_bps": [5.0, 10.0],
+        "rebalance_frequency": ["weekly", "monthly"],
+    }
+
+    baseline = run_grid_search(
+        strategy_name="equal_weight",
+        parameter_grid=grid,
+        dataset_path=mock_dataset_path,
+        split=test_split,
+        risk_free_rate=defaults.risk_free_rate,
+    )
+    adjusted = run_grid_search(
+        strategy_name="equal_weight",
+        parameter_grid=grid,
+        dataset_path=mock_dataset_path,
+        split=test_split,
+        risk_free_rate=defaults.risk_free_rate + 0.01,
+    )
+
+    assert not np.isclose(baseline.best_sharpe, adjusted.best_sharpe)
 
 
 def test_grid_search_three_parameters(mock_dataset_path: Path, test_split: TrainTestSplit) -> None:

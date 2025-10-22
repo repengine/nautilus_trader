@@ -26,9 +26,12 @@ import pytest
 
 from playground.backtest.regime_analysis import define_market_regimes
 from playground.backtest.splits import TrainTestSplit
+from playground.backtest.splits import WalkForwardConfig
 from playground.backtest.splits import build_phase3_regime_splits
 from playground.backtest.splits import build_regime_aligned_split
 from playground.backtest.splits import define_train_test_split
+from playground.backtest.splits import generate_walk_forward_splits
+from playground.backtest.splits import iter_walk_forward_splits
 from playground.backtest.splits import validate_no_lookahead
 from playground.backtest.splits import validate_splits_disjoint
 from playground.backtest.splits import validate_sufficient_training_data
@@ -328,6 +331,47 @@ def test_walk_forward_splits_adds_timezone():
         assert split.train_end.tzinfo is not None
         assert split.test_start.tzinfo is not None
         assert split.test_end.tzinfo is not None
+
+
+def test_walk_forward_config_matches_function():
+    """WalkForwardConfig should mirror walk_forward_splits output."""
+    config = WalkForwardConfig(
+        start_date=datetime(2010, 1, 1),
+        end_date=datetime(2015, 12, 31),
+        train_years=3,
+        test_years=1,
+    )
+    from_config = config.to_splits()
+    direct = walk_forward_splits(
+        start_date=datetime(2010, 1, 1, tzinfo=UTC),
+        end_date=datetime(2015, 12, 31, tzinfo=UTC),
+        train_years=3,
+        test_years=1,
+    )
+    assert from_config == direct
+
+
+def test_iter_walk_forward_splits_matches_materialised():
+    """iter_walk_forward_splits should yield identical splits to to_splits."""
+    config = WalkForwardConfig(
+        start_date=datetime(2012, 1, 1, tzinfo=UTC),
+        end_date=datetime(2016, 12, 31, tzinfo=UTC),
+        train_years=2,
+        test_years=1,
+        step_years=1,
+    )
+    assert list(iter_walk_forward_splits(config)) == config.to_splits()
+
+
+def test_generate_walk_forward_splits_helper():
+    """generate_walk_forward_splits helper should delegate to config."""
+    config = WalkForwardConfig(
+        start_date=datetime(2011, 1, 1, tzinfo=UTC),
+        end_date=datetime(2014, 12, 31, tzinfo=UTC),
+        train_years=2,
+        test_years=1,
+    )
+    assert generate_walk_forward_splits(config) == config.to_splits()
 
 
 # ===== Validation Function Tests =====

@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from importlib import import_module
+from types import ModuleType
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
@@ -15,14 +17,14 @@ if TYPE_CHECKING:  # pragma: no cover - type checking only
     import cvxpy  # noqa: F401
 
 
-_CP_MODULE: Any | None = None
+_CP_MODULE: ModuleType | None = None
 
 
-def _require_cvxpy() -> Any:
+def _require_cvxpy() -> ModuleType:
     global _CP_MODULE
     if _CP_MODULE is None:
         try:
-            import cvxpy as module  # type: ignore[import-not-found]
+            module = import_module("cvxpy")
         except Exception as exc:  # pragma: no cover - dependency guard
             raise RuntimeError("cvxpy is required for constrained optimisation") from exc
         _CP_MODULE = module

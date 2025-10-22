@@ -11,6 +11,7 @@ import structlog
 from sqlalchemy import MetaData
 from sqlalchemy import Table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql.dml import Insert as PGInsert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.exc import SQLAlchemyError
@@ -205,8 +206,8 @@ def _bulk_upsert(
 
     with engine.begin() as conn:
         if use_upsert:
-            stmt = pg_insert(table)
-            stmt = stmt.on_conflict_do_update(
+            base_stmt: PGInsert = pg_insert(table)
+            upsert_stmt: PGInsert = base_stmt.on_conflict_do_update(
                 index_elements=[
                     table.c.feature_set_id,
                     table.c.asset_id,
@@ -214,23 +215,23 @@ def _bulk_upsert(
                     table.c.ts_event,
                 ],
                 set_={
-                    "ts_init": stmt.excluded.ts_init,
-                    "ewma_beta": stmt.excluded.ewma_beta,
-                    "ewma_cov": stmt.excluded.ewma_cov,
-                    "ewma_var_market": stmt.excluded.ewma_var_market,
-                    "n_observations": stmt.excluded.n_observations,
-                    "alpha": stmt.excluded.alpha,
-                    "source": stmt.excluded.source,
+                    "ts_init": base_stmt.excluded.ts_init,
+                    "ewma_beta": base_stmt.excluded.ewma_beta,
+                    "ewma_cov": base_stmt.excluded.ewma_cov,
+                    "ewma_var_market": base_stmt.excluded.ewma_var_market,
+                    "n_observations": base_stmt.excluded.n_observations,
+                    "alpha": base_stmt.excluded.alpha,
+                    "source": base_stmt.excluded.source,
                 },
             )
             for chunk in _chunk(rows, chunk_size):
-                conn.execute(stmt, chunk)
+                conn.execute(upsert_stmt, chunk)
                 persisted += len(chunk)
         else:
-            stmt = table.insert()
+            insert_stmt = table.insert()
             for chunk in _chunk(rows, chunk_size):
                 try:
-                    conn.execute(stmt, chunk)
+                    conn.execute(insert_stmt, chunk)
                     persisted += len(chunk)
                 except SQLAlchemyError:
                     LOGGER.warning("Failed to insert beta chunk", chunk_size=len(chunk))

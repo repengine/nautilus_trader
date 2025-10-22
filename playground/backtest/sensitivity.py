@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,7 @@ import numpy as np
 import polars as pl
 import structlog
 
+from ml.config.playground import ThreeDRiskBacktestDefaults
 from playground.backtest.engine import BacktestConfig
 from playground.backtest.engine import FactorBacktester
 from playground.backtest.performance_metrics import calculate_performance_metrics
@@ -55,6 +57,8 @@ LOGGER = structlog.get_logger(__name__)
 
 
 # ===== Constants =====
+
+PLAYGROUND_DEFAULTS = ThreeDRiskBacktestDefaults()
 
 # Standard parameter grids for common parameters
 STANDARD_GRIDS = {
@@ -255,6 +259,8 @@ def run_parameter_sensitivity(
     dataset_path: Path,
     base_config: dict[str, Any] | None = None,
     split: TrainTestSplit | None = None,
+    *,
+    risk_free_rate: float | None = None,
 ) -> SensitivityResult:
     """
     Test sensitivity to a single parameter.
@@ -275,6 +281,9 @@ def run_parameter_sensitivity(
         Base configuration (other parameters held constant)
     split : TrainTestSplit | None
         Train/test split (defaults to standard 2010-2018/2019-2024)
+    risk_free_rate : float | None, default None
+        Annual risk-free rate used when computing Sharpe/Sortino metrics. Defaults to
+        ``ThreeDRiskBacktestDefaults().risk_free_rate``.
 
     Returns
     -------
@@ -325,6 +334,10 @@ def run_parameter_sensitivity(
     if base_config is None:
         base_config = {}
 
+    resolved_risk_free_rate = (
+        risk_free_rate if risk_free_rate is not None else PLAYGROUND_DEFAULTS.risk_free_rate
+    )
+
     # Run backtests for each parameter value
     sharpe_ratios: list[float] = []
     calmar_ratios: list[float] = []
@@ -351,7 +364,7 @@ def run_parameter_sensitivity(
         )
 
         # Calculate metrics
-        metrics = calculate_performance_metrics(result, risk_free_rate=0.02)
+        metrics = calculate_performance_metrics(result, risk_free_rate=resolved_risk_free_rate)
 
         sharpe_ratios.append(metrics.sharpe_ratio)
         calmar_ratios.append(metrics.calmar_ratio)
@@ -370,7 +383,7 @@ def run_parameter_sensitivity(
     # Sensitivity threshold (Sharpe range > 0.10 indicates sensitivity)
     is_sensitive = sharpe_range > 0.10
 
-    result = SensitivityResult(
+    sensitivity_result = SensitivityResult(
         parameter_name=parameter_name,
         parameter_values=parameter_values,
         sharpe_ratios=sharpe_ratios,
@@ -393,7 +406,7 @@ def run_parameter_sensitivity(
         is_sensitive=is_sensitive,
     )
 
-    return result
+    return sensitivity_result
 
 
 def run_grid_search(
@@ -402,6 +415,8 @@ def run_grid_search(
     dataset_path: Path,
     split: TrainTestSplit | None = None,
     optimization_metric: str = "sharpe_ratio",
+    *,
+    risk_free_rate: float | None = None,
 ) -> GridSearchResult:
     """
     Perform exhaustive grid search across multiple parameters.
@@ -425,6 +440,9 @@ def run_grid_search(
     optimization_metric : str, default "sharpe_ratio"
         Metric to optimize
         Options: "sharpe_ratio", "calmar_ratio", "annualized_return"
+    risk_free_rate : float | None, default None
+        Annual risk-free rate used for metric calculations. Defaults to
+        ``ThreeDRiskBacktestDefaults().risk_free_rate``.
 
     Returns
     -------
@@ -483,6 +501,10 @@ def run_grid_search(
     # Generate all parameter combinations
     combinations = _generate_parameter_combinations(parameter_grid)
 
+    resolved_risk_free_rate = (
+        risk_free_rate if risk_free_rate is not None else PLAYGROUND_DEFAULTS.risk_free_rate
+    )
+
     # Run backtests for all combinations
     results_rows: list[dict[str, Any]] = []
 
@@ -502,7 +524,7 @@ def run_grid_search(
         )
 
         # Calculate metrics
-        metrics = calculate_performance_metrics(result, risk_free_rate=0.02)
+        metrics = calculate_performance_metrics(result, risk_free_rate=resolved_risk_free_rate)
 
         # Build row with parameters and metrics
         row = param_config.copy()
@@ -900,10 +922,10 @@ def _compute_marginal_sensitivity(
         maxdd_mean = subset["max_drawdown"].mean()
         ret_mean = subset["annualized_return"].mean()
 
-        sharpe_ratios.append(float(sharpe_mean) if sharpe_mean is not None else 0.0)
-        calmar_ratios.append(float(calmar_mean) if calmar_mean is not None else 0.0)
-        max_drawdowns.append(float(maxdd_mean) if maxdd_mean is not None else 0.0)
-        annualized_returns.append(float(ret_mean) if ret_mean is not None else 0.0)
+        sharpe_ratios.append(float(sharpe_mean) if isinstance(sharpe_mean, Real) else 0.0)
+        calmar_ratios.append(float(calmar_mean) if isinstance(calmar_mean, Real) else 0.0)
+        max_drawdowns.append(float(maxdd_mean) if isinstance(maxdd_mean, Real) else 0.0)
+        annualized_returns.append(float(ret_mean) if isinstance(ret_mean, Real) else 0.0)
 
     # Find optimal
     optimal_idx = int(np.argmax(sharpe_ratios))

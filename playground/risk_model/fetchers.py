@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import pandas as pd
 import polars as pl
@@ -146,7 +146,7 @@ class _SingleSeriesBuilder(_SeriesBuilder):
         series = pd.Series(raw)
         series.index = pd.to_datetime(series.index).tz_localize(UTC)
         aligned = series.reindex(index).ffill()
-        return aligned
+        return cast(pd.Series[Any], aligned)
 
 
 @dataclass(frozen=True)

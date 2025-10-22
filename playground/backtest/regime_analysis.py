@@ -64,6 +64,8 @@ import numpy as np
 import polars as pl
 import structlog
 
+from ml.config.playground import ThreeDRiskBacktestDefaults
+
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -78,6 +80,7 @@ LOGGER = structlog.get_logger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
 MIN_OBSERVATIONS_FOR_REGIME = 20  # Minimum trading days for meaningful metrics
+BACKTEST_DEFAULTS = ThreeDRiskBacktestDefaults()
 
 
 # ===== Type Definitions =====
@@ -620,7 +623,7 @@ def define_market_regimes() -> list[MarketRegime]:
 def analyze_strategy_across_regimes(
     backtest_result: BacktestResult,
     regimes: list[MarketRegime] | None = None,
-    risk_free_rate: float = 0.02,
+    risk_free_rate: float | None = None,
 ) -> RegimeAnalysisResult:
     """
     Analyze strategy performance across market regimes.
@@ -635,8 +638,9 @@ def analyze_strategy_across_regimes(
         Full backtest result (must span all regime periods)
     regimes : list[MarketRegime] | None
         Market regimes to analyze (defaults to standard 7 regimes)
-    risk_free_rate : float, default 0.02
-        Annual risk-free rate for Sharpe calculation (2% default)
+    risk_free_rate : float | None, default None
+        Annual risk-free rate for Sharpe calculation. Defaults to
+        ``ThreeDRiskBacktestDefaults().risk_free_rate`` when omitted.
 
     Returns
     -------
@@ -683,11 +687,15 @@ def analyze_strategy_across_regimes(
     # Calculate performance for each regime
     regime_performances: dict[str, RegimePerformance] = {}
 
+    resolved_risk_free_rate = (
+        risk_free_rate if risk_free_rate is not None else BACKTEST_DEFAULTS.risk_free_rate
+    )
+
     for regime in regimes:
         perf = _calculate_regime_performance(
             backtest_result=backtest_result,
             regime=regime,
-            risk_free_rate=risk_free_rate,
+            risk_free_rate=resolved_risk_free_rate,
         )
         regime_performances[regime.name] = perf
 
@@ -709,6 +717,7 @@ def analyze_strategy_across_regimes(
         strategy=backtest_result.strategy_name,
         success_rate=f"{result.success_rate:.1%}",
         num_failures=len(result.failure_analysis()),
+        risk_free_rate=resolved_risk_free_rate,
     )
 
     return result
@@ -717,6 +726,7 @@ def analyze_strategy_across_regimes(
 def compare_strategies_across_regimes(
     strategy_results: dict[str, BacktestResult],
     regimes: list[MarketRegime] | None = None,
+    risk_free_rate: float | None = None,
 ) -> pl.DataFrame:
     """
     Compare multiple strategies across all market regimes.
@@ -731,6 +741,9 @@ def compare_strategies_across_regimes(
         Mapping of strategy_name -> backtest result
     regimes : list[MarketRegime] | None
         Market regimes (defaults to standard 7 regimes)
+    risk_free_rate : float | None, default None
+        Annual risk-free rate supplied to ``analyze_strategy_across_regimes``.
+        Uses ``ThreeDRiskBacktestDefaults().risk_free_rate`` when omitted.
 
     Returns
     -------
@@ -786,7 +799,11 @@ def compare_strategies_across_regimes(
     rows = []
 
     for strategy_name, result in strategy_results.items():
-        analysis = analyze_strategy_across_regimes(result, regimes)
+        analysis = analyze_strategy_across_regimes(
+            result,
+            regimes,
+            risk_free_rate=risk_free_rate,
+        )
 
         for regime_name, perf in analysis.regime_performances.items():
             row = {
@@ -853,8 +870,9 @@ def regime_performance_matrix(
 
     matrix = pl.DataFrame(rows).pivot(
         index="regime_name",
-        columns="strategy",
+        on="strategy",
         values=metric,
+        aggregate_function="first",
     )
     return matrix.sort("regime_name")
 
@@ -1399,8 +1417,8 @@ __all__ = [
     "RegimePerformance",
     "analyze_strategy_across_regimes",
     "compare_strategies_across_regimes",
-    "regime_performance_matrix",
     "define_market_regimes",
     "generate_regime_report",
     "identify_failure_modes",
+    "regime_performance_matrix",
 ]

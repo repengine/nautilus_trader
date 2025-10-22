@@ -332,6 +332,31 @@ print(asset_positions)
 
 ---
 
+## Parameter Defaults (Validation Harness)
+
+The Phase 3 backtest harness now standardises a handful of knobs. These live in
+`ml.config.playground.ThreeDRiskBacktestDefaults` and are imported by the runner,
+the sensitivity/grid-search helpers, and Phase 3 CLI/reporting scripts so every
+entrypoint shares the same baseline assumptions.
+
+- **Risk-free rate:** 2.0% annual when computing Sharpe/Sortino (override optional via helper arguments).
+- **Turnover smoothing:** Stable betas `0.30`, rolling betas `0.40` (configurable overrides still supported).
+- **Liquidity scaling:** Severe drag threshold `-2.0%`, moderate `-1.0%`, with regime multipliers `0.85/0.92` and liquidity multipliers `0.55/0.70`; clamp floor `0.40`.
+- **Fallback liquidity attribution:** Use `Rate Hiking Cycle = -2.04%` when CSV exports are unavailable (keeps mitigation decisions deterministic).
+- **Benchmark set:** Equal Weight, 60/40, and Risk Parity appear in dedicated benchmark tables for sanity checks.
+- **Split validation:** Training windows require ~5 trading years (~1,250 days); tests require ≥1 trading year (~250 days) and must stay within dataset coverage.
+
+Documenting these defaults keeps the research plan aligned with the code path and
+makes it clear which levers should be revisited as diagnostics evolve. Unit tests
+now exercise baseline-missing reporting and custom risk-free overrides so the shared
+config stays honest.
+
+For the Nautilus Trader integration, the approved parameter slate is tracked in
+`playground/docs/nautilus_strategy_spec.md` and must be updated alongside the
+defaults dataclass when values change.
+
+---
+
 ## Critical Next Steps
 
 ### **Phase 1: Proof of Concept (2 weeks)**

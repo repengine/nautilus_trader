@@ -13,6 +13,7 @@ All tests use mock datasets to enable fast, deterministic testing.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -21,11 +22,26 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from ml.config.playground import MonteCarloShockOverlayDefaults
+from ml.config.playground import MonteCarloStressDefaults
+from ml.config.playground import NestedWalkForwardDefaults
+from ml.config.playground import ThreeDRiskBacktestDefaults
+from ml.config.playground import WalkForwardPermutationDefaults
+from playground.backtest.engine import BacktestConfig
+from playground.backtest.engine import BacktestResult
+from playground.backtest.liquidity_controls import LiquidityScalingConfig
+from playground.backtest.performance_metrics import PerformanceMetrics
 from playground.backtest.runner import BacktestSuite
+from playground.backtest.runner import LiquidityMitigationScenario
+from playground.backtest.runner import WalkForwardBacktestResult
+from playground.backtest.runner import get_liquidity_mitigation_scenarios
 from playground.backtest.runner import run_full_backtest_suite
+from playground.backtest.runner import run_liquidity_mitigation_experiments
+from playground.backtest.runner import run_monte_carlo_stress_suite
+from playground.backtest.runner import run_multi_horizon_walk_forward_analysis
+from playground.backtest.runner import run_walk_forward_backtest_suite
 from playground.backtest.splits import TrainTestSplit
-from playground.risk_model.dataset import CoverageSummary
-from playground.risk_model.dataset import SectorDataset
+from playground.backtest.splits import WalkForwardConfig
 
 
 # ===== Fixtures =====
@@ -75,57 +91,10 @@ def mock_dataset_path(tmp_path: Path) -> Path:
 def mock_split() -> TrainTestSplit:
     """Create a simple train/test split for testing."""
     return TrainTestSplit(
-        train_start=datetime(2022, 1, 1, tzinfo=UTC),
+        train_start=datetime(2018, 1, 1, tzinfo=UTC),
         train_end=datetime(2022, 12, 31, tzinfo=UTC),
         test_start=datetime(2023, 1, 1, tzinfo=UTC),
         test_end=datetime(2023, 12, 31, tzinfo=UTC),
-    )
-
-
-@pytest.fixture
-def mock_sector_dataset() -> SectorDataset:
-    """Create a mock SectorDataset for testing."""
-    start_date = datetime(2023, 1, 1, tzinfo=UTC)
-    num_days = 252
-
-    # Sector returns
-    sector_data = []
-    for day in range(num_days):
-        date = start_date + timedelta(days=day)
-        for sector in ["SPY", "AGG", "XLK"]:
-            sector_data.append({
-                "timestamp": date,
-                "symbol": sector,
-                "return": 0.0005 if sector == "SPY" else 0.0003,
-            })
-
-    sector_returns = pl.DataFrame(sector_data)
-
-    # Factor returns (mock)
-    factor_dates = [start_date + timedelta(days=i) for i in range(num_days)]
-    factor_returns = pl.DataFrame({
-        "timestamp": factor_dates,
-        "factor_duration": [0.0] * num_days,
-        "factor_credit": [0.0] * num_days,
-        "factor_liquidity": [0.0] * num_days,
-    })
-
-    coverage = CoverageSummary(
-        calendar_name="XNYS",
-        sector_expected_days=num_days,
-        factor_expected_days=num_days,
-        sector_coverage={"SPY": 1.0, "AGG": 1.0, "XLK": 1.0},
-        factor_coverage={
-            "factor_duration": 1.0,
-            "factor_credit": 1.0,
-            "factor_liquidity": 1.0,
-        },
-    )
-
-    return SectorDataset(
-        sector_returns=sector_returns,
-        factor_returns=factor_returns,
-        coverage=coverage,
     )
 
 
@@ -161,7 +130,7 @@ def test_run_full_backtest_suite_basic(
     assert output_dir.exists()
     assert (output_dir / "performance_comparison_table.csv").exists()
     assert (output_dir / "train_vs_test_metrics.csv").exists()
-    report_file = output_dir / "backtest_results_2022_2023.md"
+    report_file = output_dir / f"backtest_results_{mock_split.train_start.year}_{mock_split.test_end.year}.md"
     assert report_file.exists()
 
     # Train/test/full results should be tracked
@@ -171,6 +140,37 @@ def test_run_full_backtest_suite_basic(
 
     train_vs_test = suite.train_vs_test_table()
     assert not train_vs_test.is_empty()
+
+
+def test_backtest_suite_benchmark_summary_matches_baselines(
+    mock_dataset_path: Path,
+    mock_split: TrainTestSplit,
+    tmp_path: Path,
+) -> None:
+    """Benchmark summary should include canonical baseline strategies."""
+    suite = run_full_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path / "benchmarks",
+        split=mock_split,
+    )
+
+    summary = suite.benchmark_summary()
+    assert not summary.is_empty()
+    assert summary.height == len(suite.baseline_strategies)
+    assert summary.get_column("strategy").to_list() == list(suite.baseline_strategies)
+    expected_columns = {
+        "strategy",
+        "sharpe_ratio",
+        "annualized_return",
+        "annualized_volatility",
+        "max_drawdown",
+        "cumulative_return",
+        "status",
+    }
+    assert expected_columns.issubset(set(summary.columns))
+    statuses = set(summary.get_column("status").to_list())
+    assert "available" in statuses
+    assert statuses.issubset({"available", "missing"})
 
 
 def test_run_full_backtest_suite_default_split(
@@ -202,6 +202,48 @@ def test_run_full_backtest_suite_default_split(
     assert report_file.exists()
 
 
+def test_run_monte_carlo_stress_suite_generates_paths(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Monte Carlo stress suite should produce summary artefacts and paths."""
+    overlay = MonteCarloShockOverlayDefaults(
+        name="test_shock",
+        probability=1.0,
+        magnitude=-0.01,
+        duration_days=3,
+        decay=0.5,
+        max_applications=1,
+        regime_bias=None,
+    )
+    stress_config = MonteCarloStressDefaults(
+        num_paths=5,
+        random_seed=42,
+        risk_free_rate=0.0,
+        overlays=(overlay,),
+    )
+
+    result = run_monte_carlo_stress_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        config=stress_config,
+    )
+
+    assert result.paths
+    assert len(result.paths) == stress_config.num_paths
+    summary = result.summary_frame()
+    assert not summary.is_empty()
+    strategy_names = summary.get_column("strategy").to_list()
+    assert stress_config.target_strategy in strategy_names
+
+    artefact_root = tmp_path / "stress" / "monte_carlo"
+    assert (artefact_root / "summary.csv").exists()
+    assert (artefact_root / "paths.csv").exists()
+    assert (artefact_root / "config.json").exists()
+    path_overlays = [path.overlay_events for path in result.paths]
+    assert any(events for events in path_overlays)
+
+
 def test_run_full_backtest_suite_config_overrides(
     mock_dataset_path: Path,
     mock_split: TrainTestSplit,
@@ -227,6 +269,53 @@ def test_run_full_backtest_suite_config_overrides(
     assert suite.config.initial_capital == 5_000_000.0
     assert suite.config.transaction_cost_bps == 5.0
     assert suite.config.rebalance_frequency == "monthly"
+
+
+def test_run_full_backtest_suite_requires_min_training_history(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Training window shorter than defaults should raise a validation error."""
+    short_split = TrainTestSplit(
+        train_start=datetime(2022, 1, 1, tzinfo=UTC),
+        train_end=datetime(2022, 12, 31, tzinfo=UTC),
+        test_start=datetime(2023, 1, 1, tzinfo=UTC),
+        test_end=datetime(2023, 12, 31, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValueError, match="Training window"):
+        run_full_backtest_suite(
+            dataset_path=mock_dataset_path,
+            output_dir=tmp_path / "invalid_training",
+            split=short_split,
+        )
+
+
+def test_run_full_backtest_suite_rejects_split_outside_dataset(tmp_path: Path) -> None:
+    """Splits outside dataset coverage should fail validation."""
+    start_date = datetime(2020, 1, 1, tzinfo=UTC)
+    end_date = datetime(2024, 12, 31, tzinfo=UTC)
+    step = timedelta(days=7)
+    records = []
+    current = start_date
+    while current <= end_date:
+        for symbol in ("SPY", "AGG"):
+            records.append({
+                "timestamp": current,
+                "symbol": symbol,
+                "return": 0.0004,
+            })
+        current += step
+
+    dataset_path = tmp_path / "limited_sector_returns.parquet"
+    pl.DataFrame(records).write_parquet(dataset_path)
+
+    with pytest.raises(ValueError, match="dataset coverage"):
+        run_full_backtest_suite(
+            dataset_path=dataset_path,
+            output_dir=tmp_path / "coverage_failure",
+            split=None,
+        )
 
 
 def test_run_full_backtest_suite_nonexistent_dataset_raises_error(
@@ -338,8 +427,6 @@ def test_backtest_suite_report_format_dataframe() -> None:
         test_end=end_date,
     )
 
-    from playground.backtest.engine import BacktestConfig
-
     config = BacktestConfig(
         start_date=start_date,
         end_date=end_date,
@@ -366,6 +453,89 @@ def test_backtest_suite_report_format_dataframe() -> None:
     assert "| --- | --- | --- |" in markdown
     assert "| Test1 | 1.500 | 10.50 |" in markdown
     assert "| Test2 | 1.200 | 8.30 |" in markdown
+
+
+def test_benchmark_summary_marks_missing_baselines(tmp_path: Path) -> None:
+    """Benchmark summary rows mark missing baseline strategies and note in report."""
+    train_start = datetime(2010, 1, 1, tzinfo=UTC)
+    train_end = datetime(2014, 12, 31, tzinfo=UTC)
+    test_start = datetime(2015, 1, 1, tzinfo=UTC)
+    test_end = datetime(2015, 12, 31, tzinfo=UTC)
+    split = TrainTestSplit(
+        train_start=train_start,
+        train_end=train_end,
+        test_start=test_start,
+        test_end=test_end,
+    )
+    config = BacktestConfig(start_date=train_start, end_date=test_end)
+
+    metrics = PerformanceMetrics(
+        annualized_return=0.12,
+        cumulative_return=0.20,
+        monthly_return_mean=0.015,
+        monthly_return_std=0.02,
+        annualized_volatility=0.18,
+        maximum_drawdown=-0.12,
+        var_95=-0.03,
+        var_99=-0.05,
+        cvar_95=-0.04,
+        cvar_99=-0.06,
+        sharpe_ratio=0.75,
+        sortino_ratio=0.90,
+        calmar_ratio=0.50,
+        information_ratio=None,
+        turnover_rate=0.30,
+        transaction_costs_total=1_500.0,
+        transaction_costs_pct=0.02,
+        num_rebalances=12,
+        start_date=train_start,
+        end_date=test_end,
+        total_days=365,
+    )
+
+    positions = pl.DataFrame({
+        "timestamp": [test_start],
+        "symbol": ["SPY"],
+        "weight": [1.0],
+    })
+    equal_weight_result = BacktestResult(
+        strategy_name="Equal Weight",
+        start_date=train_start,
+        end_date=test_end,
+        dates=[train_start, test_end],
+        portfolio_values=[100.0, 120.0],
+        returns=[0.015],
+        positions=positions,
+        total_return=0.20,
+        annualized_return=0.12,
+        annualized_volatility=0.18,
+        sharpe_ratio=0.75,
+        max_drawdown=-0.12,
+        calmar_ratio=0.50,
+        total_transaction_costs=1_500.0,
+        turnover_rate=0.30,
+        num_rebalances=12,
+    )
+
+    suite = BacktestSuite(
+        strategies={"Equal Weight": equal_weight_result},
+        metrics={"Equal Weight": metrics},
+        split=split,
+        config=config,
+    )
+
+    summary = suite.benchmark_summary()
+    assert summary.height == len(suite.baseline_strategies)
+    missing = summary.filter(pl.col("status") == "missing")
+    assert set(missing.get_column("strategy").to_list()) == {"60/40 Portfolio", "Risk Parity"}
+
+    report_path = tmp_path / "benchmarks.md"
+    suite.to_markdown_report(report_path)
+    content = report_path.read_text()
+    assert (
+        "Metrics unavailable for baseline strategies: 60/40 Portfolio, Risk Parity"
+        in content
+    )
 
 
 # ===== Strategy Coverage Tests =====
@@ -460,9 +630,9 @@ def test_backtest_suite_handles_csv_dataset(
     """Test that CSV datasets are supported."""
     output_dir = tmp_path / "results"
 
-    # Create CSV dataset with enough data for VaR/CVaR (100+ observations)
-    start_date = datetime(2023, 1, 1, tzinfo=UTC)
-    num_days = 120  # More than 100 for VaR/CVaR requirement
+    # Create CSV dataset with enough data for validation and VaR/CVaR (100+ observations)
+    start_date = datetime(2018, 1, 1, tzinfo=UTC)
+    num_days = 2_200  # ~6 years of observations to cover train/test windows
 
     data = []
     for day in range(num_days):
@@ -527,4 +697,308 @@ def test_backtest_suite_reproducibility(
         assert abs(metrics_1.maximum_drawdown - metrics_2.maximum_drawdown) < 1e-10
 
 
-# ===== Total: 13 Tests =====
+def test_run_walk_forward_backtest_suite(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Verify walk-forward orchestration produces fold outputs and summaries."""
+    config = WalkForwardConfig(
+        start_date=datetime(2018, 1, 1, tzinfo=UTC),
+        end_date=datetime(2023, 12, 31, tzinfo=UTC),
+        train_years=2,
+        test_years=1,
+        step_years=1,
+    )
+
+    result = run_walk_forward_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        walk_forward_config=config,
+    )
+
+    assert isinstance(result, WalkForwardBacktestResult)
+    expected_splits = config.to_splits()
+    assert len(result.suites) == len(expected_splits) > 0
+
+    # Aggregated metrics should include Sharpe ratios
+    aggregate = result.aggregate_metrics()
+    assert not aggregate.is_empty()
+    assert "sharpe_ratio" in aggregate.columns
+
+    summary_dir = tmp_path / "walk_forward"
+    assert (summary_dir / "aggregate_metrics.csv").exists()
+    assert (summary_dir / "strategy_summary.csv").exists()
+
+    # Fold artefacts should have been produced
+    first_fold_dir = summary_dir / "fold_01"
+    report_name = (
+        f"backtest_results_{expected_splits[0].train_start.year}_"
+        f"{expected_splits[0].test_end.year}.md"
+    )
+    assert (first_fold_dir / "performance_comparison_table.csv").exists()
+    assert (first_fold_dir / report_name).exists()
+
+
+def test_run_walk_forward_backtest_suite_accepts_overrides(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Ensure walk-forward suite threads liquidity config and turnover overrides."""
+    config = WalkForwardConfig(
+        start_date=datetime(2018, 1, 1, tzinfo=UTC),
+        end_date=datetime(2021, 12, 31, tzinfo=UTC),
+        train_years=1,
+        test_years=1,
+        step_years=1,
+    )
+    custom_liquidity = LiquidityScalingConfig(
+        severe_threshold=-10.0,
+        moderate_threshold=-5.0,
+        severe_regime_multiplier=0.2,
+        moderate_regime_multiplier=0.3,
+        severe_liquidity_multiplier=0.2,
+        moderate_liquidity_multiplier=0.3,
+        neutral_liquidity_multiplier=0.95,
+        floor=0.9,
+    )
+    overrides = {
+        "3d_factor_rolling": 0.15,
+        "3d_factor_stable": 0.05,
+    }
+
+    result = run_walk_forward_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        walk_forward_config=config,
+        liquidity_config=custom_liquidity,
+        turnover_overrides=overrides,
+    )
+
+    assert result.suites, "Expected at least one backtest suite"
+    first_suite = result.suites[0]
+    assert first_suite.turnover_overrides["3d_factor_rolling"] == pytest.approx(0.15)
+    assert first_suite.turnover_overrides["3d_factor_stable"] == pytest.approx(0.05)
+    assert first_suite.regime_factor_multipliers
+    for factor_map in first_suite.regime_factor_multipliers.values():
+        assert factor_map["factor_liquidity"] >= 0.9 - 1e-9
+
+
+def test_liquidity_mitigation_experiments_with_walk_forward(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Verify walk-forward summaries are captured for mitigation scenarios."""
+    scenario = LiquidityMitigationScenario(
+        name="Turnover Walk Test",
+        rolling_turnover_smoothing=0.45,
+        stable_turnover_smoothing=0.30,
+        liquidity_config=LiquidityScalingConfig(),
+    )
+    wf_config = WalkForwardConfig(
+        start_date=datetime(2014, 1, 1, tzinfo=UTC),
+        end_date=datetime(2020, 12, 31, tzinfo=UTC),
+        train_years=3,
+        test_years=1,
+        step_years=1,
+    )
+
+    results = run_liquidity_mitigation_experiments(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        scenarios=[scenario],
+        run_walk_forward=True,
+        walk_forward_config=wf_config,
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.walk_forward_sharpe_mean is not None
+    assert result.walk_forward_output_directory is not None
+    assert result.walk_forward_output_directory.exists()
+
+
+def test_get_liquidity_mitigation_scenarios_filters_known_names() -> None:
+    """Ensure scenario resolver returns filtered lists and rejects unknown names."""
+    all_scenarios = get_liquidity_mitigation_scenarios()
+    expected_names = {
+        "Baseline Controls",
+        "Turnover Smoothing 0.55/0.40",
+        "Tighter Liquidity Regime Scaling",
+        "Turnover Stress Test",
+        "Stress: 2008 Liquidity Shock",
+        "Stress: 2020 Volatility Spike",
+        "Stress: 2022 Rates + Stocks",
+        "Stress: 1987 Black Monday",
+        "Stress: Synthetic Liquidity Shock",
+    }
+    retrieved_names = {scenario.name for scenario in all_scenarios}
+    assert expected_names.issubset(retrieved_names)
+
+    subset = get_liquidity_mitigation_scenarios([all_scenarios[0].name])
+    assert len(subset) == 1
+    assert subset[0].name == all_scenarios[0].name
+
+    with pytest.raises(ValueError):
+        get_liquidity_mitigation_scenarios(["unknown-scenario"])
+
+
+def test_run_liquidity_mitigation_experiments_single_scenario(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Ensure liquidity mitigation experiments run and capture summary output."""
+    output_dir = tmp_path / "experiments"
+    scenario = LiquidityMitigationScenario(
+        name="Unit Test Scenario",
+        rolling_turnover_smoothing=0.25,
+        stable_turnover_smoothing=0.15,
+        liquidity_config=LiquidityScalingConfig(),
+    )
+
+    results = run_liquidity_mitigation_experiments(
+        dataset_path=mock_dataset_path,
+        output_dir=output_dir,
+        scenarios=[scenario],
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.scenario_name == "Unit Test Scenario"
+    assert result.rolling_sharpe_delta == pytest.approx(0.0)
+    assert (output_dir / "liquidity_mitigation_results.csv").exists()
+    scenario_dir = output_dir / "unit_test_scenario"
+    assert (scenario_dir / "performance_comparison_table.csv").exists()
+
+
+def test_walk_forward_metadata_includes_defaults(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Walk-forward summaries should persist metadata with default parameters."""
+    output_dir = tmp_path / "wf_outputs"
+    config = WalkForwardConfig(
+        start_date=datetime(2015, 1, 1, tzinfo=UTC),
+        end_date=datetime(2019, 12, 31, tzinfo=UTC),
+        train_years=3,
+        test_years=1,
+        step_years=1,
+    )
+
+    run_walk_forward_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=output_dir,
+        walk_forward_config=config,
+    )
+
+    metadata_path = output_dir / "walk_forward" / "metadata.json"
+    assert metadata_path.exists()
+    metadata = json.loads(metadata_path.read_text())
+    defaults = ThreeDRiskBacktestDefaults()
+
+    assert metadata["risk_free_rate"] == pytest.approx(defaults.risk_free_rate)
+    assert metadata["turnover_smoothing"]["stable"] == pytest.approx(defaults.stable_turnover_smoothing)
+    assert metadata["turnover_smoothing"]["rolling"] == pytest.approx(defaults.rolling_turnover_smoothing)
+    assert metadata["liquidity_config"]["severe_threshold"] == pytest.approx(
+        defaults.liquidity_scaling.severe_threshold,
+    )
+    assert metadata["split_count"] == len(config.to_splits())
+    assert metadata["summaries_directory"].endswith("walk_forward")
+    wf_config = metadata["walk_forward_config"]
+    assert wf_config["train_years"] == config.train_years
+    assert wf_config["test_years"] == config.test_years
+    assert wf_config["step_years"] == config.step_years
+    assert len(metadata["splits"]) == len(config.to_splits())
+
+
+def test_three_d_risk_backtest_defaults_build_liquidity_config() -> None:
+    """Defaults should hydrate LiquidityScalingConfig with matching parameters."""
+    defaults = ThreeDRiskBacktestDefaults()
+    config = defaults.build_liquidity_config()
+
+    assert config.severe_threshold == pytest.approx(defaults.liquidity_scaling.severe_threshold)
+    assert config.moderate_threshold == pytest.approx(defaults.liquidity_scaling.moderate_threshold)
+    assert config.severe_regime_multiplier == pytest.approx(defaults.liquidity_scaling.severe_regime_multiplier)
+    assert config.moderate_regime_multiplier == pytest.approx(defaults.liquidity_scaling.moderate_regime_multiplier)
+    assert config.severe_liquidity_multiplier == pytest.approx(defaults.liquidity_scaling.severe_liquidity_multiplier)
+    assert config.moderate_liquidity_multiplier == pytest.approx(defaults.liquidity_scaling.moderate_liquidity_multiplier)
+    assert config.neutral_liquidity_multiplier == pytest.approx(defaults.liquidity_scaling.neutral_liquidity_multiplier)
+    assert config.floor == pytest.approx(defaults.liquidity_scaling.floor)
+
+
+def test_three_d_risk_backtest_defaults_walk_forward_permutations() -> None:
+    """Defaults should expose walk-forward permutations with canonical primary ordering."""
+    defaults = ThreeDRiskBacktestDefaults()
+    permutations = defaults.walk_forward_permutations
+
+    assert permutations, "Expected at least one walk-forward permutation"
+    assert defaults.primary_walk_forward_permutation == permutations[0]
+    for permutation in permutations:
+        assert permutation.name
+        assert permutation.train_years > 0
+        assert permutation.test_years > 0
+        if permutation.nested is not None:
+            assert permutation.nested.min_folds > 0
+
+
+def test_run_multi_horizon_walk_forward_analysis_produces_permutation_outputs(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Multi-horizon validation should emit artefacts for each permutation."""
+    permutations = (
+        WalkForwardPermutationDefaults(
+            name="Test Baseline 4y/1y",
+            description="Baseline permutation for unit test runtime",
+            train_years=4,
+            test_years=1,
+            step_years=1,
+            nested=NestedWalkForwardDefaults(train_years=2, test_years=1, step_years=1, min_folds=1),
+        ),
+        WalkForwardPermutationDefaults(
+            name="Test Secondary 3y/1y",
+            description="Secondary permutation for unit test",
+            train_years=3,
+            test_years=1,
+            step_years=2,
+            nested=None,
+        ),
+    )
+    output_dir = tmp_path / "multi_horizon"
+
+    result = run_multi_horizon_walk_forward_analysis(
+        dataset_path=mock_dataset_path,
+        output_dir=output_dir,
+        start_date=datetime(2014, 1, 1, tzinfo=UTC),
+        end_date=datetime(2020, 12, 31, tzinfo=UTC),
+        permutations=permutations,
+        include_primary_root=True,
+    )
+
+    primary_slug = permutations[0].slug
+    secondary_slug = permutations[1].slug
+    assert primary_slug in result.runs
+    assert secondary_slug in result.runs
+
+    base_dir = output_dir / "walk_forward"
+    assert (base_dir / "aggregate_metrics.csv").exists()
+
+    alias_dir = base_dir / "permutations" / primary_slug
+    assert (alias_dir / "README.txt").exists()
+    assert (alias_dir / "permutation_metadata.json").exists()
+
+    secondary_dir = base_dir / "permutations" / secondary_slug
+    assert (secondary_dir / "aggregate_metrics.csv").exists()
+    assert result.runs[primary_slug].nested_results, "Expected nested results for primary permutation"
+    summary_df = result.summary_table()
+    assert not summary_df.is_empty()
+    nested_df = result.nested_summary()
+    # Nested validation should produce metrics for the baseline permutation even with fallback dataset.
+    assert primary_slug in nested_df.get_column("permutation_slug").to_list()
+
+
+def test_three_d_risk_backtest_defaults_fallbacks_are_immutable() -> None:
+    """Fallback mapping should be immutable to preserve config integrity."""
+    defaults = ThreeDRiskBacktestDefaults()
+
+    with pytest.raises(TypeError):
+        defaults.liquidity_contribution_fallbacks["New Regime"] = -0.01

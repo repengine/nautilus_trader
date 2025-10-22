@@ -46,13 +46,17 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 from collections.abc import Callable
+from collections.abc import Mapping
 from collections.abc import Sequence
+from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from types import MethodType
 from typing import TYPE_CHECKING, Any, TextIO, cast
@@ -61,6 +65,12 @@ import numpy as np
 import polars as pl
 import structlog
 
+from ml.common.metrics_bootstrap import get_histogram
+from ml.config.playground import MonteCarloShockOverlayDefaults
+from ml.config.playground import MonteCarloStressDefaults
+from ml.config.playground import NestedWalkForwardDefaults
+from ml.config.playground import ThreeDRiskBacktestDefaults
+from ml.config.playground import WalkForwardPermutationDefaults
 from playground.backtest.benchmarks import MinimumVarianceStrategy
 from playground.backtest.benchmarks import RiskParityStrategy
 from playground.backtest.benchmarks import SixtyFortyStrategy
@@ -76,7 +86,11 @@ from playground.backtest.regime_analysis import analyze_strategy_across_regimes
 from playground.backtest.regime_analysis import compare_strategies_across_regimes
 from playground.backtest.regime_analysis import define_market_regimes
 from playground.backtest.splits import TrainTestSplit
+from playground.backtest.splits import WalkForwardConfig
 from playground.backtest.splits import define_train_test_split
+from playground.backtest.splits import validate_no_lookahead
+from playground.backtest.splits import validate_sufficient_training_data
+from playground.scripts.export_phase3_visuals import export_phase3_visuals
 
 
 if TYPE_CHECKING:
@@ -90,9 +104,20 @@ LOGGER = structlog.get_logger(__name__)
 
 LIQUIDITY_ATTRIBUTION_DIR = Path("playground/reports/backtesting/attribution/regime")
 LIQUIDITY_STRATEGY_SLUG = "3d_factor_rolling_betas"
-LIQUIDITY_FALLBACK_CONTRIBUTIONS: dict[str, float] = {
-    "Rate Hiking Cycle": -0.0204,
-}
+BACKTEST_DEFAULTS = ThreeDRiskBacktestDefaults()
+TRADING_DAY_RATIO = 252 / 365.25
+MONTE_CARLO_SHARPE_HIST = get_histogram(
+    "phase3_monte_carlo_sharpe",
+    "Sharpe ratio distribution from Phase 3 Monte Carlo stress sweeps",
+    labelnames=("strategy",),
+    buckets=(-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0),
+)
+MONTE_CARLO_DRAWDOWN_HIST = get_histogram(
+    "phase3_monte_carlo_drawdown",
+    "Max drawdown distribution from Phase 3 Monte Carlo stress sweeps",
+    labelnames=("strategy",),
+    buckets=(-0.8, -0.6, -0.4, -0.3, -0.2, -0.1, -0.05, 0.0),
+)
 
 
 # ===== Backtest Suite Dataclass =====
@@ -126,6 +151,10 @@ class BacktestSuite:
         Full-period backtest results (train + test)
     regime_results : dict[str, RegimeAnalysisResult]
         Regime analysis results by strategy
+    turnover_overrides : dict[str, float]
+        Turnover smoothing overrides applied per strategy key (e.g., "3d_factor_rolling")
+    baseline_strategies : tuple[str, ...]
+        Strategies highlighted in benchmark summaries (default Equal Weight, 60/40, Risk Parity)
 
     Methods
     -------
@@ -133,6 +162,8 @@ class BacktestSuite:
         Generate comparison table of all strategies
     to_markdown_report(output_path: Path) -> None
         Generate markdown report with results
+    benchmark_summary() -> pl.DataFrame
+        Generate condensed comparison for canonical benchmark strategies
 
     Examples
     --------
@@ -156,6 +187,8 @@ class BacktestSuite:
     regime_scaling_map: dict[str, float] = field(default_factory=dict)
     regime_factor_multipliers: dict[str, dict[str, float]] = field(default_factory=dict)
     liquidity_contributions: dict[str, float] = field(default_factory=dict)
+    turnover_overrides: dict[str, float] = field(default_factory=dict)
+    baseline_strategies: tuple[str, ...] = BACKTEST_DEFAULTS.baseline_strategies
 
     def compare_strategies(self) -> pl.DataFrame:
         """
@@ -203,6 +236,71 @@ class BacktestSuite:
         df = df.sort("sharpe_ratio", descending=True)
 
         return df
+
+    def benchmark_summary(self) -> pl.DataFrame:
+        """
+        Generate a compact summary for canonical benchmark strategies.
+
+        Returns
+        -------
+        pl.DataFrame
+            Table containing Sharpe, return, volatility, drawdown metrics, and an
+            availability status for strategies listed in ``baseline_strategies``.
+
+        Examples
+        --------
+        >>> suite = run_full_backtest_suite(dataset_path, output_dir)
+        >>> suite.benchmark_summary()
+        shape: (3, 6)
+        ┌──────────────┬────────────┬─────────────┬────────────┬─────────────┬───────────────┐
+        │ strategy     ┆ sharpe_ra… ┆ annualized… ┆ annualize… ┆ max_drawdo… ┆ cumulative_r… │
+        │ ---          ┆ ---        ┆ ---         ┆ ---        ┆ ---         ┆ ---           │
+        │ str          ┆ f64        ┆ f64         ┆ f64        ┆ f64         ┆ f64           │
+        ╞══════════════╪════════════╪═════════════╪════════════╪═════════════╪═══════════════╡
+        │ Equal Weight ┆ 0.55       ┆ 9.87        ┆ 14.11      ┆ -19.23      ┆ 98.10        │
+        └──────────────┴────────────┴─────────────┴────────────┴─────────────┴───────────────┘
+        """
+        rows: list[dict[str, float | str]] = []
+        seen: set[str] = set()
+
+        for strategy in self.baseline_strategies:
+            if strategy in seen:
+                continue
+            metrics = self.metrics.get(strategy)
+            if metrics is None:
+                rows.append({
+                    "strategy": strategy,
+                    "sharpe_ratio": float("nan"),
+                    "annualized_return": float("nan"),
+                    "annualized_volatility": float("nan"),
+                    "max_drawdown": float("nan"),
+                    "cumulative_return": float("nan"),
+                    "status": "missing",
+                })
+            else:
+                rows.append({
+                    "strategy": strategy,
+                    "sharpe_ratio": metrics.sharpe_ratio,
+                    "annualized_return": metrics.annualized_return * 100,
+                    "annualized_volatility": metrics.annualized_volatility * 100,
+                    "max_drawdown": metrics.maximum_drawdown * 100,
+                    "cumulative_return": metrics.cumulative_return * 100,
+                    "status": "available",
+                })
+            seen.add(strategy)
+
+        if not rows:
+            return pl.DataFrame(schema={
+                "strategy": pl.Utf8,
+                "sharpe_ratio": pl.Float64,
+                "annualized_return": pl.Float64,
+                "annualized_volatility": pl.Float64,
+                "max_drawdown": pl.Float64,
+                "cumulative_return": pl.Float64,
+                "status": pl.Utf8,
+            })
+
+        return pl.DataFrame(rows)
 
     def train_vs_test_table(self) -> pl.DataFrame:
         """
@@ -356,177 +454,207 @@ class BacktestSuite:
             f.write(f"- **Testing Period:** {self.split.test_start.date()} to {self.split.test_end.date()}\n")
             f.write(f"- **Initial Capital:** ${self.config.initial_capital:,.0f}\n")
             f.write(f"- **Rebalance Frequency:** {self.config.rebalance_frequency}\n")
-        f.write(f"- **Transaction Cost:** {self.config.transaction_cost_bps} bps\n")
-        f.write(f"- **Random Seed:** {self.config.random_seed}\n\n")
+            f.write(f"- **Transaction Cost:** {self.config.transaction_cost_bps} bps\n")
+            f.write(f"- **Random Seed:** {self.config.random_seed}\n\n")
 
-        if self.liquidity_contributions:
-            f.write("### Liquidity Controls Snapshot\n\n")
-            sorted_contributions = sorted(
-                self.liquidity_contributions.items(),
-                key=lambda item: item[1],
-            )
-            highlight_count = min(3, len(sorted_contributions))
-            for regime_name, contribution in sorted_contributions[:highlight_count]:
-                regime_multiplier = self.regime_scaling_map.get(regime_name, 1.0)
-                factor_overrides = self.regime_factor_multipliers.get(regime_name, {})
-                liquidity_multiplier = factor_overrides.get("factor_liquidity", 1.0)
-                f.write(
-                    f"- {regime_name}: contribution {contribution:.2%}, "
-                    f"regime multiplier {regime_multiplier:.2f}, "
-                    f"liquidity multiplier {liquidity_multiplier:.2f}\n"
-                )
-            f.write("\n")
-
-        # Executive Summary
-        f.write("## Executive Summary\n\n")
-        comparison_df = self.compare_strategies()
-        f.write(self._format_dataframe_as_markdown(comparison_df))
-        f.write("\n\n")
-        top_row = comparison_df.sort("sharpe_ratio", descending=True).to_dicts()[0]
-        f.write(
-            f"*Top Sharpe (test period):* {top_row['strategy']} "
-            f"({top_row['sharpe_ratio']:.3f} Sharpe, "
-            f"{top_row['annualized_return']:.2f}% annualized return).\n\n"
-        )
-        # Detailed Metrics
-        f.write("## Detailed Performance Metrics\n\n")
-        for strategy_name in sorted(self.strategies.keys()):
-            f.write(f"### {strategy_name}\n\n")
-
-            train_metrics = self.train_metrics.get(strategy_name)
-            test_metrics = self.metrics.get(strategy_name)
-            full_metrics = self.overall_metrics.get(strategy_name)
-            if train_metrics is not None:
-                f.write("#### Train Period\n\n")
-                self._write_metrics_block(f, train_metrics)
-                f.write("\n")
-
-            if test_metrics is not None:
-                f.write("#### Test Period\n\n")
-                self._write_metrics_block(f, test_metrics)
-                f.write("\n")
-
-            if full_metrics is not None:
-                f.write("#### Full Period\n\n")
-                self._write_metrics_block(f, full_metrics)
-                f.write("\n")
-
-            f.write("---\n\n")
-
-        train_test_df = self.train_vs_test_table()
-        if not train_test_df.is_empty():
-            f.write("## Train vs Test Comparison\n\n")
-            f.write(self._format_dataframe_as_markdown(train_test_df))
-            f.write("\n\n")
-
-        regime_df = self.regime_summary()
-        if not regime_df.is_empty():
-            f.write("## Regime Analysis Summary\n\n")
-            f.write(self._format_dataframe_as_markdown(regime_df))
-            f.write("\n\n")
-
-        if self.regime_results:
-            f.write("## Regime Observations\n\n")
-            for strategy_name, analysis in sorted(self.regime_results.items()):
-                failed = [
-                    regime_name
-                    for regime_name, performance in analysis.regime_performances.items()
-                    if not performance.is_successful
-                ]
-                if failed:
-                    failed_list = ", ".join(failed)
-                    f.write(f"- {strategy_name}: underperformance in {failed_list} regimes.\n")
-                else:
-                    f.write(f"- {strategy_name}: met targets in all regimes.\n")
-            f.write("\n")
-
-            factor_rows = comparison_df.filter(pl.col("strategy").str.contains("3D Factor"))
-            if not factor_rows.is_empty():
-                f.write("## Additional Insights\n\n")
-                mean_cost_series = factor_rows["transaction_costs"]
-                mean_cost_value = mean_cost_series.mean()
-                mean_cost = float(cast(float, mean_cost_value)) if mean_cost_value is not None else 0.0
-                f.write(
-                    "- 3D Factor strategies incur average transaction costs "
-                    f"of ${mean_cost:,.0f}; monitor turnover budgeting despite recent reductions.\n"
-                )
-                if self.regime_results:
-                    hiking_failures = [
-                        name for name, analysis in self.regime_results.items()
-                        if "Rate Hiking Cycle" in [
-                            regime_name
-                            for regime_name, perf in analysis.regime_performances.items()
-                            if not perf.is_successful
-                        ]
-                    ]
-                    if hiking_failures:
-                        joined = ", ".join(hiking_failures)
-                        f.write(
-                            f"- Rate Hiking Cycle remains a weak spot for {joined}; "
-                            "consider regime-aware factor scaling in future iterations.\n"
-                        )
-                f.write("\n")
+            benchmark_df = self.benchmark_summary()
+            if not benchmark_df.is_empty():
+                f.write("## Benchmark Snapshot\n\n")
+                missing_baselines = benchmark_df.filter(pl.col("status") == "missing")
+                if not missing_baselines.is_empty():
+                    missing_names = ", ".join(missing_baselines.get_column("strategy").to_list())
+                    f.write(
+                        f"> Note: Metrics unavailable for baseline strategies: {missing_names}.\n\n"
+                    )
+                f.write(self._format_dataframe_as_markdown(benchmark_df))
+                f.write("\n\n")
 
             if self.liquidity_contributions:
-                f.write("## Liquidity Regime Controls\n\n")
-                for regime_name in sorted(self.liquidity_contributions):
-                    contribution = self.liquidity_contributions[regime_name]
+                f.write("### Liquidity Controls Snapshot\n\n")
+                sorted_contributions = sorted(
+                    self.liquidity_contributions.items(),
+                    key=lambda item: item[1],
+                )
+                highlight_count = min(3, len(sorted_contributions))
+                for regime_name, contribution in sorted_contributions[:highlight_count]:
                     regime_multiplier = self.regime_scaling_map.get(regime_name, 1.0)
                     factor_overrides = self.regime_factor_multipliers.get(regime_name, {})
                     liquidity_multiplier = factor_overrides.get("factor_liquidity", 1.0)
-                    override_items = [
-                        f"{factor} {multiplier:.2f}"
-                        for factor, multiplier in sorted(factor_overrides.items())
-                    ]
-                    if "factor_liquidity" not in factor_overrides:
-                        override_items.append("factor_liquidity 1.00")
-                    parts = [
-                        f"liquidity contribution {contribution:.2%}",
-                        f"regime multiplier {regime_multiplier:.2f}",
-                        ", ".join(override_items),
-                    ]
-                    f.write(f"- {regime_name}: " + ", ".join(parts) + "\n")
+                    f.write(
+                        f"- {regime_name}: contribution {contribution:.2%}, "
+                        f"regime multiplier {regime_multiplier:.2f}, "
+                        f"liquidity multiplier {liquidity_multiplier:.2f}\n"
+                    )
                 f.write("\n")
 
-            if self.attribution:
-                f.write("## Factor Attribution (Test Period)\n\n")
-                for strategy_name in sorted(self.attribution):
-                    attribution = self.attribution[strategy_name]
-                    f.write(f"### {attribution.strategy_name}\n\n")
-                    f.write(f"- Alpha (daily): {attribution.alpha:.6f}\n")
-                    f.write(f"- Alpha (annualized): {attribution.alpha_annualized:.2%}\n")
-                    f.write(f"- R²: {attribution.r_squared:.3f}\n")
-                    if attribution.betas:
-                        f.write("- Betas:\n")
-                        for factor, beta in attribution.betas.items():
-                            f.write(f"  - {factor}: {beta:.4f}\n")
-                    if attribution.factor_contributions:
-                        f.write("- Annualized Factor Contributions:\n")
-                        for factor, contribution in attribution.factor_contributions.items():
-                            f.write(f"  - {factor}: {contribution:.2%}\n")
-                    export_name = re.sub(r"[^a-z0-9]+", "_", attribution.strategy_name.lower()).strip("_") + "_attribution.csv"
-                    f.write(f"- CSV Export: attribution/{export_name}\n")
-                    regime_attrs = self.regime_attribution.get(strategy_name, [])
-                    if regime_attrs:
-                        f.write("- Regime Highlights:\n")
-                        for regime_attr in sorted(regime_attrs, key=lambda item: item.regime_name or ""):
-                            top_factor = None
-                            if regime_attr.factor_contributions:
-                                top_factor = max(
-                                    regime_attr.factor_contributions.items(),
-                                    key=lambda pair: abs(pair[1]),
-                                )
-                            highlight = (
-                                f"alpha {regime_attr.alpha_annualized:.2%}"
-                            )
-                            if top_factor is not None:
-                                highlight += f", top factor {top_factor[0]} {top_factor[1]:.2%}"
-                            f.write(
-                                f"  - {regime_attr.regime_name or 'N/A'}: {highlight}\n"
-                            )
-                        regime_export = re.sub(r"[^a-z0-9]+", "_", attribution.strategy_name.lower()).strip("_") + "_regime_attribution.csv"
-                        f.write(f"- Regime CSV Export: attribution/regime/{regime_export}\n")
+            # Executive Summary
+            f.write("## Executive Summary\n\n")
+            comparison_df = self.compare_strategies()
+            f.write(self._format_dataframe_as_markdown(comparison_df))
+            f.write("\n\n")
+            top_row = comparison_df.sort("sharpe_ratio", descending=True).to_dicts()[0]
+            f.write(
+                f"*Top Sharpe (test period):* {top_row['strategy']} "
+                f"({top_row['sharpe_ratio']:.3f} Sharpe, "
+                f"{top_row['annualized_return']:.2f}% annualized return).\n\n"
+            )
+            # Detailed Metrics
+            f.write("## Detailed Performance Metrics\n\n")
+            for strategy_name in sorted(self.strategies.keys()):
+                f.write(f"### {strategy_name}\n\n")
+
+                train_metrics = self.train_metrics.get(strategy_name)
+                test_metrics = self.metrics.get(strategy_name)
+                full_metrics = self.overall_metrics.get(strategy_name)
+                if train_metrics is not None:
+                    f.write("#### Train Period\n\n")
+                    self._write_metrics_block(f, train_metrics)
                     f.write("\n")
+
+                if test_metrics is not None:
+                    f.write("#### Test Period\n\n")
+                    self._write_metrics_block(f, test_metrics)
+                    f.write("\n")
+
+                if full_metrics is not None:
+                    f.write("#### Full Period\n\n")
+                    self._write_metrics_block(f, full_metrics)
+                    f.write("\n")
+
+                f.write("---\n\n")
+
+            train_test_df = self.train_vs_test_table()
+            if not train_test_df.is_empty():
+                f.write("## Train vs Test Comparison\n\n")
+                f.write(self._format_dataframe_as_markdown(train_test_df))
+                f.write("\n\n")
+
+            regime_df = self.regime_summary()
+            if not regime_df.is_empty():
+                f.write("## Regime Analysis Summary\n\n")
+                f.write(self._format_dataframe_as_markdown(regime_df))
+                f.write("\n\n")
+
+            if self.regime_results:
+                f.write("## Regime Observations\n\n")
+                for strategy_name, analysis in sorted(self.regime_results.items()):
+                    failed = [
+                        regime_name
+                        for regime_name, performance in analysis.regime_performances.items()
+                        if not performance.is_successful
+                    ]
+                    if failed:
+                        failed_list = ", ".join(failed)
+                        f.write(f"- {strategy_name}: underperformance in {failed_list} regimes.\n")
+                    else:
+                        f.write(f"- {strategy_name}: met targets in all regimes.\n")
+                f.write("\n")
+
+                factor_rows = comparison_df.filter(pl.col("strategy").str.contains("3D Factor"))
+                if not factor_rows.is_empty():
+                    f.write("## Additional Insights\n\n")
+                    mean_cost_series = factor_rows["transaction_costs"]
+                    mean_cost_value = mean_cost_series.mean()
+                    mean_cost = float(cast(float, mean_cost_value)) if mean_cost_value is not None else 0.0
+                    f.write(
+                        "- 3D Factor strategies incur average transaction costs "
+                        f"of ${mean_cost:,.0f}; monitor turnover budgeting despite recent reductions.\n"
+                    )
+                    if self.regime_results:
+                        hiking_failures = [
+                            name for name, analysis in self.regime_results.items()
+                            if "Rate Hiking Cycle" in [
+                                regime_name
+                                for regime_name, perf in analysis.regime_performances.items()
+                                if not perf.is_successful
+                            ]
+                        ]
+                        if hiking_failures:
+                            joined = ", ".join(hiking_failures)
+                            f.write(
+                                f"- Rate Hiking Cycle remains a weak spot for {joined}; "
+                                "consider regime-aware factor scaling in future iterations.\n"
+                            )
+                    f.write("\n")
+
+                visuals_dir = output_path.parent / "visuals"
+                visual_entries = [
+                    ("Rolling vs Benchmark Sharpe", "rolling_vs_benchmark_sharpe.png"),
+                    ("Regime Factor Contributions", "regime_contributions.png"),
+                    ("Liquidity Stress Panel", "liquidity_stress_panel.png"),
+                    ("Sharpe vs Transaction Costs", "sharpe_vs_tc.png"),
+                    ("Attribution Waterfall", "attribution_waterfall.png"),
+                ]
+                available_visuals = [
+                    (title, filename)
+                    for title, filename in visual_entries
+                    if (visuals_dir / filename).exists()
+                ]
+                if available_visuals:
+                    f.write("## Visual Highlights\n\n")
+                    for title, filename in available_visuals:
+                        f.write(f"![{title}](visuals/{filename})\n\n")
+
+                if self.liquidity_contributions:
+                    f.write("## Liquidity Regime Controls\n\n")
+                    for regime_name in sorted(self.liquidity_contributions):
+                        contribution = self.liquidity_contributions[regime_name]
+                        regime_multiplier = self.regime_scaling_map.get(regime_name, 1.0)
+                        factor_overrides = self.regime_factor_multipliers.get(regime_name, {})
+                        liquidity_multiplier = factor_overrides.get("factor_liquidity", 1.0)
+                        override_items = [
+                            f"{factor} {multiplier:.2f}"
+                            for factor, multiplier in sorted(factor_overrides.items())
+                        ]
+                        if "factor_liquidity" not in factor_overrides:
+                            override_items.append("factor_liquidity 1.00")
+                        parts = [
+                            f"liquidity contribution {contribution:.2%}",
+                            f"regime multiplier {regime_multiplier:.2f}",
+                            ", ".join(override_items),
+                        ]
+                        f.write(f"- {regime_name}: " + ", ".join(parts) + "\n")
+                    f.write("\n")
+
+                if self.attribution:
+                    f.write("## Factor Attribution (Test Period)\n\n")
+                    for strategy_name in sorted(self.attribution):
+                        attribution = self.attribution[strategy_name]
+                        f.write(f"### {attribution.strategy_name}\n\n")
+                        f.write(f"- Alpha (daily): {attribution.alpha:.6f}\n")
+                        f.write(f"- Alpha (annualized): {attribution.alpha_annualized:.2%}\n")
+                        f.write(f"- R²: {attribution.r_squared:.3f}\n")
+                        if attribution.betas:
+                            f.write("- Betas:\n")
+                            for factor, beta in attribution.betas.items():
+                                f.write(f"  - {factor}: {beta:.4f}\n")
+                        if attribution.factor_contributions:
+                            f.write("- Annualized Factor Contributions:\n")
+                            for factor, contribution in attribution.factor_contributions.items():
+                                f.write(f"  - {factor}: {contribution:.2%}\n")
+                        export_name = re.sub(r"[^a-z0-9]+", "_", attribution.strategy_name.lower()).strip("_") + "_attribution.csv"
+                        f.write(f"- CSV Export: attribution/{export_name}\n")
+                        regime_attrs = self.regime_attribution.get(strategy_name, [])
+                        if regime_attrs:
+                            f.write("- Regime Highlights:\n")
+                            for regime_attr in sorted(regime_attrs, key=lambda item: item.regime_name or ""):
+                                top_factor = None
+                                if regime_attr.factor_contributions:
+                                    top_factor = max(
+                                        regime_attr.factor_contributions.items(),
+                                        key=lambda pair: abs(pair[1]),
+                                    )
+                                highlight = (
+                                    f"alpha {regime_attr.alpha_annualized:.2%}"
+                                )
+                                if top_factor is not None:
+                                    highlight += f", top factor {top_factor[0]} {top_factor[1]:.2%}"
+                                f.write(
+                                    f"  - {regime_attr.regime_name or 'N/A'}: {highlight}\n"
+                                )
+                            regime_export = re.sub(r"[^a-z0-9]+", "_", attribution.strategy_name.lower()).strip("_") + "_regime_attribution.csv"
+                            f.write(f"- Regime CSV Export: attribution/regime/{regime_export}\n")
+                        f.write("\n")
 
             # Footer
             f.write("## Notes\n\n")
@@ -617,6 +745,786 @@ class BacktestSuite:
         file_obj.write(f"- Average Monthly Turnover: {metrics.turnover_rate:.2%}\n")
         file_obj.write(f"- Total Transaction Costs: ${metrics.transaction_costs_total:,.2f}\n")
         file_obj.write(f"- Transaction Costs (% of Returns): {metrics.transaction_costs_pct:.2%}\n")
+
+
+@dataclass(slots=True)
+class WalkForwardBacktestResult:
+    """Encapsulate walk-forward suites and aggregated diagnostics."""
+
+    splits: list[TrainTestSplit]
+    suites: list[BacktestSuite]
+    _aggregate_cache: pl.DataFrame | None = field(default=None, init=False, repr=False)
+    _summary_cache: pl.DataFrame | None = field(default=None, init=False, repr=False)
+
+    def aggregate_metrics(self) -> pl.DataFrame:
+        """
+        Stack per-fold strategy metrics (test period) into a single frame.
+        """
+        if self._aggregate_cache is None:
+            frames: list[pl.DataFrame] = []
+            for index, (suite, split) in enumerate(zip(self.suites, self.splits), start=1):
+                comparison = suite.compare_strategies()
+                if comparison.is_empty():
+                    continue
+                comparison = comparison.with_columns(
+                    pl.lit(index).alias("fold"),
+                    pl.lit(split.test_start.date().isoformat()).alias("test_start"),
+                    pl.lit(split.test_end.date().isoformat()).alias("test_end"),
+                )
+                comparison = comparison.join(
+                    pl.DataFrame({
+                        "strategy": list(suite.baseline_strategies),
+                        "baseline": [True] * len(suite.baseline_strategies),
+                    }),
+                    on="strategy",
+                    how="left",
+                ).with_columns(
+                    pl.col("baseline").fill_null(False),
+                )
+                frames.append(comparison)
+            self._aggregate_cache = (
+                pl.concat(frames, how="vertical_relaxed") if frames else pl.DataFrame()
+            )
+        return self._aggregate_cache.clone()
+
+    def summarize_metrics(self) -> pl.DataFrame:
+        """
+        Compute strategy-level summary statistics across walk-forward folds.
+        """
+        if self._summary_cache is None:
+            aggregated = self.aggregate_metrics()
+            if aggregated.is_empty():
+                self._summary_cache = pl.DataFrame()
+            else:
+                self._summary_cache = aggregated.group_by("strategy").agg(
+                    [
+                        pl.col("fold").count().alias("num_folds"),
+                        pl.col("sharpe_ratio").mean().alias("sharpe_ratio_mean"),
+                        pl.col("sharpe_ratio").std().alias("sharpe_ratio_std"),
+                        pl.col("sharpe_ratio").min().alias("sharpe_ratio_min"),
+                        pl.col("sharpe_ratio").max().alias("sharpe_ratio_max"),
+                        pl.col("annualized_return").mean().alias("annualized_return_mean"),
+                        pl.col("annualized_volatility").mean().alias("annualized_volatility_mean"),
+                    ]
+                ).sort("strategy")
+        return self._summary_cache.clone()
+
+    def write_summaries(
+        self,
+        directory: Path,
+        *,
+        metadata: Mapping[str, object] | None = None,
+    ) -> None:
+        """
+        Persist aggregated fold metrics and summary tables to CSV.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        aggregate = self.aggregate_metrics()
+        if not aggregate.is_empty():
+            aggregate.write_csv(directory / "aggregate_metrics.csv")
+        summary = self.summarize_metrics()
+        if not summary.is_empty():
+            summary.write_csv(directory / "strategy_summary.csv")
+        if metadata is not None:
+            metadata_path = directory / "metadata.json"
+            metadata_json = json.dumps(metadata, indent=2, sort_keys=True)
+            metadata_path.write_text(metadata_json, encoding="utf-8")
+
+
+@dataclass(slots=True)
+class NestedCrossValidationResult:
+    """
+    Encapsulate a nested walk-forward sweep executed within an outer fold.
+
+    Attributes
+    ----------
+    spec : NestedWalkForwardDefaults
+        Nested configuration metadata.
+    outer_fold_index : int
+        Index (1-based) of the outer fold associated with this nested sweep.
+    outer_split : TrainTestSplit
+        Outer fold split describing the training/testing periods.
+    config : WalkForwardConfig
+        Materialised configuration used to generate nested splits.
+    result : WalkForwardBacktestResult
+        Aggregated nested walk-forward results.
+    output_directory : Path
+        Directory containing persisted artefacts for this nested sweep.
+    """
+
+    spec: NestedWalkForwardDefaults
+    outer_fold_index: int
+    outer_split: TrainTestSplit
+    config: WalkForwardConfig
+    result: WalkForwardBacktestResult
+    output_directory: Path
+
+    def summarize_metrics(self) -> pl.DataFrame:
+        """
+        Return nested summary metrics with outer fold annotations.
+        """
+        summary = self.result.summarize_metrics()
+        if summary.is_empty():
+            return summary
+        return summary.with_columns(
+            pl.lit(self.outer_fold_index).alias("outer_fold"),
+            pl.lit(self.config.train_years).alias("inner_train_years"),
+            pl.lit(self.config.test_years).alias("inner_test_years"),
+            pl.lit(self.config.step_years).alias("inner_step_years"),
+            pl.lit(self.outer_split.train_start.date().isoformat()).alias("outer_train_start"),
+            pl.lit(self.outer_split.train_end.date().isoformat()).alias("outer_train_end"),
+        )
+
+    def aggregate_metrics(self) -> pl.DataFrame:
+        """
+        Return concatenated per-fold metrics annotated with outer fold index.
+        """
+        aggregate = self.result.aggregate_metrics()
+        if aggregate.is_empty():
+            return aggregate
+        return aggregate.with_columns(
+            pl.lit(self.outer_fold_index).alias("outer_fold"),
+            pl.lit(self.config.train_years).alias("inner_train_years"),
+            pl.lit(self.config.test_years).alias("inner_test_years"),
+            pl.lit(self.config.step_years).alias("inner_step_years"),
+        )
+
+
+@dataclass(slots=True)
+class WalkForwardPermutationRun:
+    """
+    Container for a single walk-forward permutation execution.
+
+    Attributes
+    ----------
+    spec : WalkForwardPermutationDefaults
+        Permutation metadata.
+    config : WalkForwardConfig
+        Outer walk-forward configuration used for the run.
+    outer_result : WalkForwardBacktestResult
+        Aggregated outer walk-forward results.
+    summary_directory : Path
+        Directory containing outer walk-forward artefacts.
+    nested_results : list[NestedCrossValidationResult]
+        Optional nested sweeps executed within each outer fold.
+    """
+
+    spec: WalkForwardPermutationDefaults
+    config: WalkForwardConfig
+    outer_result: WalkForwardBacktestResult
+    summary_directory: Path
+    nested_results: list[NestedCrossValidationResult] = field(default_factory=list)
+
+    def outer_summary(self) -> pl.DataFrame:
+        """
+        Return strategy-level summary metrics for the outer sweep.
+        """
+        summary = self.outer_result.summarize_metrics()
+        if summary.is_empty():
+            return summary
+        return summary.with_columns(
+            pl.lit(self.spec.slug).alias("permutation_slug"),
+            pl.lit(self.spec.name).alias("permutation_name"),
+            pl.lit(self.spec.train_years).alias("train_years"),
+            pl.lit(self.spec.test_years).alias("test_years"),
+            pl.lit(self.spec.step_years).alias("step_years"),
+        )
+
+    def nested_summary(self) -> pl.DataFrame:
+        """
+        Return concatenated nested summaries across outer folds.
+        """
+        frames: list[pl.DataFrame] = []
+        for nested in self.nested_results:
+            summary = nested.summarize_metrics()
+            if summary.is_empty():
+                continue
+            summary = summary.with_columns(
+                pl.lit(self.spec.slug).alias("permutation_slug"),
+                pl.lit(self.spec.name).alias("permutation_name"),
+            )
+            frames.append(summary)
+        if not frames:
+            return pl.DataFrame()
+        return pl.concat(frames, how="vertical_relaxed")
+
+    def nested_rollup(self) -> pl.DataFrame:
+        """
+        Aggregate nested summaries by strategy and outer fold.
+        """
+        summary = self.nested_summary()
+        if summary.is_empty():
+            return summary
+        return summary.group_by(
+            [
+                "permutation_slug",
+                "permutation_name",
+                "strategy",
+                "outer_fold",
+            ]
+        ).agg(
+            [
+                pl.col("sharpe_ratio").mean().alias("sharpe_ratio_mean"),
+                pl.col("sharpe_ratio").std().alias("sharpe_ratio_std"),
+                pl.col("annualized_return").mean().alias("annualized_return_mean"),
+                pl.col("annualized_volatility").mean().alias("annualized_volatility_mean"),
+            ]
+        ).sort(["permutation_slug", "strategy", "outer_fold"])
+
+
+@dataclass(slots=True)
+class MultiHorizonWalkForwardResult:
+    """
+    Summary of all executed walk-forward permutations.
+
+    Attributes
+    ----------
+    base_directory : Path
+        Base output directory supplied to the runner.
+    runs : dict[str, WalkForwardPermutationRun]
+        Mapping of permutation slug to run artefacts/results.
+    """
+
+    base_directory: Path
+    runs: dict[str, WalkForwardPermutationRun]
+
+    def summary_table(self) -> pl.DataFrame:
+        """
+        Return concatenated outer summaries across permutations.
+        """
+        frames: list[pl.DataFrame] = []
+        for run in self.runs.values():
+            summary = run.outer_summary()
+            if summary.is_empty():
+                continue
+            frames.append(summary)
+        if not frames:
+            return pl.DataFrame()
+        return pl.concat(frames, how="vertical_relaxed").sort(
+            ["permutation_slug", "strategy"]
+        )
+
+    def nested_summary(self) -> pl.DataFrame:
+        """
+        Concatenate nested summaries across all permutations.
+        """
+        frames: list[pl.DataFrame] = []
+        for run in self.runs.values():
+            summary = run.nested_summary()
+            if summary.is_empty():
+                continue
+            frames.append(summary)
+        if not frames:
+            return pl.DataFrame()
+        return pl.concat(frames, how="vertical_relaxed").sort(
+            ["permutation_slug", "outer_fold", "strategy"]
+        )
+
+    def nested_rollup(self) -> pl.DataFrame:
+        """
+        Aggregate nested summaries across permutations.
+        """
+        frames: list[pl.DataFrame] = []
+        for run in self.runs.values():
+            summary = run.nested_rollup()
+            if summary.is_empty():
+                continue
+            frames.append(summary)
+        if not frames:
+            return pl.DataFrame()
+        return pl.concat(frames, how="vertical_relaxed").sort(
+            ["permutation_slug", "outer_fold", "strategy"]
+        )
+
+    def write_summary(self) -> None:
+        """
+        Persist aggregated permutation summaries to CSV artefacts.
+        """
+        base = self.base_directory / "walk_forward"
+        base.mkdir(parents=True, exist_ok=True)
+        outer_summary = self.summary_table()
+        if not outer_summary.is_empty():
+            outer_summary.write_csv(base / "permutation_summary.csv")
+        nested_summary = self.nested_summary()
+        if not nested_summary.is_empty():
+            nested_summary.write_csv(base / "nested_summary.csv")
+        nested_rollup = self.nested_rollup()
+        if not nested_rollup.is_empty():
+            nested_rollup.write_csv(base / "nested_rollup.csv")
+
+
+# ===== Monte Carlo Stress Testing =====
+
+
+@dataclass(slots=True)
+class MonteCarloStressPathResult:
+    """
+    Result of a single Monte Carlo stress simulation path.
+
+    Attributes
+    ----------
+    simulation_id : int
+        Sequential identifier for the simulation path (1-based).
+    sharpe_ratio : float
+        Annualised Sharpe ratio for the stressed return path.
+    annualized_return : float
+        Annualised total return for the path.
+    annualized_volatility : float
+        Annualised volatility derived from daily returns.
+    max_drawdown : float
+        Worst peak-to-trough drawdown observed during the path.
+    var_alpha : float
+        Value-at-Risk at the configured confidence level.
+    cvar_alpha : float
+        Conditional Value-at-Risk (Expected Shortfall) at the confidence level.
+    terminal_value : float
+        Terminal wealth assuming an initial value of 1.0.
+    positive_terminal : bool
+        Indicator that terminal value exceeded the starting value.
+    regime_sequence : tuple[str, ...]
+        Sequence of regime names used to construct the synthetic path.
+    overlay_events : tuple[str, ...]
+        Overlays applied during the simulation (one entry per activation).
+    path_length : int
+        Number of return observations in the synthetic path.
+    """
+
+    simulation_id: int
+    sharpe_ratio: float
+    annualized_return: float
+    annualized_volatility: float
+    max_drawdown: float
+    var_alpha: float
+    cvar_alpha: float
+    terminal_value: float
+    positive_terminal: bool
+    regime_sequence: tuple[str, ...]
+    overlay_events: tuple[str, ...]
+    path_length: int
+
+    def regime_signature(self) -> str:
+        """
+        Return a hyphenated signature of the regime sequence.
+        """
+        return "-".join(self.regime_sequence)
+
+    def as_dict(self) -> dict[str, object]:
+        """
+        Convert the path result into a serialisable dictionary.
+        """
+        return {
+            "simulation_id": self.simulation_id,
+            "sharpe_ratio": self.sharpe_ratio,
+            "annualized_return": self.annualized_return,
+            "annualized_volatility": self.annualized_volatility,
+            "max_drawdown": self.max_drawdown,
+            "var_alpha": self.var_alpha,
+            "cvar_alpha": self.cvar_alpha,
+            "terminal_value": self.terminal_value,
+            "positive_terminal": self.positive_terminal,
+            "regime_sequence": list(self.regime_sequence),
+            "overlay_events": list(self.overlay_events),
+            "path_length": self.path_length,
+            "regime_signature": self.regime_signature(),
+        }
+
+
+@dataclass(slots=True)
+class MonteCarloStressSuiteResult:
+    """
+    Aggregated results from the Monte Carlo stress sweep.
+
+    Attributes
+    ----------
+    base_directory : Path
+        Output directory provided to the runner.
+    stress_config : MonteCarloStressDefaults
+        Configuration used to drive the stress sweep.
+    target_strategy : str
+        Name of the stressed strategy.
+    baseline_metrics : PerformanceMetrics
+        Baseline metrics for the unstressed strategy.
+    paths : tuple[MonteCarloStressPathResult, ...]
+        Collection of per-path results.
+    """
+
+    base_directory: Path
+    stress_config: MonteCarloStressDefaults
+    target_strategy: str
+    baseline_metrics: PerformanceMetrics
+    paths: tuple[MonteCarloStressPathResult, ...]
+
+    def to_frame(self) -> pl.DataFrame:
+        """
+        Convert path results into a Polars DataFrame.
+        """
+        if not self.paths:
+            return pl.DataFrame()
+        return pl.DataFrame([path.as_dict() for path in self.paths])
+
+    def summary_frame(self) -> pl.DataFrame:
+        """
+        Compute distributional summary statistics across simulations.
+        """
+        frame = self.to_frame()
+        if frame.is_empty():
+            return frame
+        quantiles = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
+        summary_columns = [
+            pl.lit(self.target_strategy).alias("strategy"),
+            pl.lit(self.stress_config.num_paths).alias("num_paths"),
+            pl.col("sharpe_ratio").mean().alias("sharpe_mean"),
+            pl.col("sharpe_ratio").std().alias("sharpe_std"),
+            pl.col("annualized_return").mean().alias("return_mean"),
+            pl.col("annualized_volatility").mean().alias("volatility_mean"),
+            pl.col("max_drawdown").mean().alias("max_drawdown_mean"),
+            pl.col("positive_terminal").mean().alias("positive_terminal_rate"),
+            pl.col("terminal_value").mean().alias("terminal_value_mean"),
+        ]
+        for q in quantiles:
+            label = f"sharpe_p{int(q * 100):02d}"
+            summary_columns.append(pl.col("sharpe_ratio").quantile(q).alias(label))
+        return frame.select(summary_columns)
+
+    def write_summary(self) -> None:
+        """
+        Persist stress sweep artefacts to disk.
+        """
+        directory = self.base_directory / "stress" / "monte_carlo"
+        directory.mkdir(parents=True, exist_ok=True)
+        paths_frame = self.to_frame()
+        if not paths_frame.is_empty():
+            sanitized = paths_frame.with_columns(
+                [
+                    pl.col("regime_sequence")
+                    .list.join("|")
+                    .cast(pl.Utf8)
+                    .alias("regime_sequence"),
+                    pl.col("overlay_events")
+                    .list.join("|")
+                    .cast(pl.Utf8)
+                    .alias("overlay_events"),
+                ],
+            )
+            sanitized.write_csv(directory / "paths.csv")
+        summary = self.summary_frame()
+        if not summary.is_empty():
+            summary.write_csv(directory / "summary.csv")
+        baseline_payload = asdict(self.baseline_metrics)
+        for field_name in ("start_date", "end_date"):
+            value = baseline_payload.get(field_name)
+            if isinstance(value, datetime):
+                baseline_payload[field_name] = value.isoformat()
+        config_payload = {
+            "stress_config": self.stress_config.to_dict(),
+            "target_strategy": self.target_strategy,
+            "baseline_metrics": baseline_payload,
+        }
+        (directory / "config.json").write_text(
+            json.dumps(config_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+
+def run_monte_carlo_stress_suite(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    config: MonteCarloStressDefaults | None = None,
+    split: TrainTestSplit | None = None,
+    config_overrides: Mapping[str, Any] | None = None,
+) -> MonteCarloStressSuiteResult:
+    """
+    Execute Monte Carlo stress sweeps by randomising regime blocks and applying overlays.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Location of the sector dataset (directory or standalone Parquet file).
+    output_dir : Path
+        Directory for stress artefacts. Baseline outputs are written under a ``baseline`` subdirectory.
+    config : MonteCarloStressDefaults | None
+        Optional stress configuration overriding ``ThreeDRiskBacktestDefaults.monte_carlo_stress``.
+    split : TrainTestSplit | None
+        Optional explicit train/test split. Defaults to ``define_train_test_split()``.
+    config_overrides : Mapping[str, Any] | None
+        Backtest configuration overrides applied when generating the baseline suite.
+
+    Returns
+    -------
+    MonteCarloStressSuiteResult
+        Aggregated Monte Carlo stress sweep results.
+    """
+    defaults = BACKTEST_DEFAULTS
+    stress_config = config or defaults.monte_carlo_stress
+    target_strategy = stress_config.target_strategy
+
+    dataset = _load_sector_dataset(dataset_path)
+    resolved_split = split or define_train_test_split()
+    _validate_split_against_dataset(dataset, resolved_split, defaults)
+
+    baseline_dir = output_dir / "stress" / "monte_carlo" / "baseline"
+    suite = _execute_backtest_suite(
+        dataset=dataset,
+        output_dir=baseline_dir,
+        split=resolved_split,
+        config_overrides=dict(config_overrides or {}),
+        liquidity_config=defaults.build_liquidity_config(),
+        turnover_overrides={
+            "3d_factor_stable": defaults.stable_turnover_smoothing,
+            "3d_factor_rolling": defaults.rolling_turnover_smoothing,
+        },
+    )
+
+    baseline_metrics = suite.metrics.get(target_strategy)
+    baseline_result = suite.full_results.get(target_strategy)
+    if baseline_metrics is None or baseline_result is None:
+        msg = f"Target strategy '{target_strategy}' not found in baseline suite"
+        raise ValueError(msg)
+
+    regimes = define_market_regimes()
+    returns_frame = _build_regime_return_frame(baseline_result, regimes)
+    regime_blocks = _prepare_regime_blocks(returns_frame)
+    if not regime_blocks:
+        msg = "No regime blocks available for Monte Carlo stress sweep"
+        raise ValueError(msg)
+
+    LOGGER.info(
+        "Executing Monte Carlo stress sweep",
+        strategy=target_strategy,
+        num_paths=stress_config.num_paths,
+        overlays=[overlay.name for overlay in stress_config.overlays],
+    )
+
+    rng = np.random.default_rng(stress_config.random_seed)
+    available_regimes = list(regime_blocks.keys())
+    results: list[MonteCarloStressPathResult] = []
+
+    for index in range(1, stress_config.num_paths + 1):
+        if stress_config.sample_with_replacement:
+            sampled_indices = rng.integers(0, len(available_regimes), size=len(available_regimes))
+            regime_sequence = tuple(available_regimes[i] for i in sampled_indices)
+        else:
+            shuffled = available_regimes.copy()
+            rng.shuffle(shuffled)
+            regime_sequence = tuple(shuffled)
+
+        block_lengths: list[int] = []
+        path_returns: list[np.ndarray] = []
+        for regime_name in regime_sequence:
+            block = regime_blocks[regime_name]
+            block_lengths.append(block.size)
+            path_returns.append(block)
+
+        if not path_returns:
+            continue
+
+        concatenated = np.concatenate(path_returns).astype(np.float64, copy=True)
+        overlay_events = _apply_monte_carlo_overlays(
+            rng=rng,
+            returns=concatenated,
+            regime_sequence=regime_sequence,
+            block_lengths=tuple(block_lengths),
+            overlays=stress_config.overlays,
+        )
+
+        path_result = _compute_monte_carlo_metrics(
+            simulation_id=index,
+            returns=concatenated,
+            stress_config=stress_config,
+            regime_sequence=regime_sequence,
+            overlay_events=tuple(overlay_events),
+        )
+        results.append(path_result)
+        MONTE_CARLO_SHARPE_HIST.labels(strategy=target_strategy).observe(path_result.sharpe_ratio)
+        MONTE_CARLO_DRAWDOWN_HIST.labels(strategy=target_strategy).observe(path_result.max_drawdown)
+
+    suite_result = MonteCarloStressSuiteResult(
+        base_directory=output_dir,
+        stress_config=stress_config,
+        target_strategy=target_strategy,
+        baseline_metrics=baseline_metrics,
+        paths=tuple(results),
+    )
+    suite_result.write_summary()
+
+    LOGGER.info(
+        "Monte Carlo stress sweep completed",
+        strategy=target_strategy,
+        num_paths=len(results),
+        positive_terminal=sum(1 for path in results if path.positive_terminal),
+    )
+    return suite_result
+
+
+# ===== Liquidity Mitigation Experiments =====
+
+
+@dataclass(slots=True)
+class LiquidityMitigationScenario:
+    """
+    Configuration for a liquidity mitigation experiment.
+
+    Attributes
+    ----------
+    name : str
+        Human-readable scenario name used in output directories.
+    rolling_turnover_smoothing : float
+        Turnover smoothing applied to the rolling beta strategy.
+    stable_turnover_smoothing : float
+        Turnover smoothing applied to the stable beta strategy.
+    liquidity_config : LiquidityScalingConfig
+        Liquidity scaling configuration to apply when deriving regime controls.
+    notes : str | None
+        Optional descriptive notes for reporting.
+    """
+
+    name: str
+    rolling_turnover_smoothing: float
+    stable_turnover_smoothing: float
+    liquidity_config: LiquidityScalingConfig
+    notes: str | None = None
+
+    def __post_init__(self) -> None:
+        for attr_name, value in (
+            ("rolling_turnover_smoothing", self.rolling_turnover_smoothing),
+            ("stable_turnover_smoothing", self.stable_turnover_smoothing),
+        ):
+            if not (0.0 <= value < 1.0):
+                msg = f"{attr_name} must be in [0, 1)"
+                raise ValueError(msg)
+
+
+@dataclass(slots=True)
+class LiquidityMitigationResult:
+    """
+    Summary of a liquidity mitigation experiment run.
+
+    Attributes
+    ----------
+    scenario_name : str
+        Scenario identifier.
+    notes : str | None
+        Optional scenario notes carried through from the configuration.
+    rolling_turnover_smoothing : float
+        Applied turnover smoothing for rolling betas.
+    stable_turnover_smoothing : float
+        Applied turnover smoothing for stable betas.
+    severe_threshold : float
+        Severe attribution threshold used for liquidity scaling.
+    moderate_threshold : float
+        Moderate attribution threshold used for liquidity scaling.
+    severe_regime_multiplier : float
+        Regime multiplier applied under severe drag.
+    moderate_regime_multiplier : float
+        Regime multiplier applied under moderate drag.
+    severe_liquidity_multiplier : float
+        Liquidity factor multiplier under severe drag.
+    moderate_liquidity_multiplier : float
+        Liquidity factor multiplier under moderate drag.
+    rolling_sharpe : float
+        Test-period Sharpe ratio for the rolling beta strategy.
+    rolling_sharpe_delta : float
+        Sharpe ratio delta versus the baseline scenario.
+    rolling_turnover : float
+        Average turnover for the rolling beta strategy.
+    rolling_transaction_costs : float
+        Transaction costs for the rolling beta strategy (dollars).
+    rolling_transaction_costs_delta : float
+        Transaction cost delta versus the baseline scenario.
+    rolling_rate_hiking_liquidity : float | None
+        Liquidity contribution within the Rate Hiking regime (annualised).
+    rolling_rate_hiking_liquidity_delta : float | None
+        Liquidity contribution delta versus the baseline scenario.
+    stable_sharpe : float
+        Test-period Sharpe ratio for the stable beta strategy.
+    stable_sharpe_delta : float
+        Sharpe ratio delta versus the baseline scenario.
+    stable_turnover : float
+        Average turnover for the stable beta strategy.
+    stable_transaction_costs : float
+        Transaction costs for the stable beta strategy (dollars).
+    stable_transaction_costs_delta : float
+        Transaction cost delta versus the baseline scenario.
+    output_directory : Path
+        Directory containing detailed artefacts for the scenario.
+    walk_forward_sharpe_mean : float | None
+        Mean Sharpe ratio across walk-forward folds (rolling betas).
+    walk_forward_sharpe_std : float | None
+        Standard deviation of walk-forward Sharpe ratios (rolling betas).
+    walk_forward_sharpe_min : float | None
+        Minimum walk-forward Sharpe ratio observed.
+    walk_forward_sharpe_max : float | None
+        Maximum walk-forward Sharpe ratio observed.
+    walk_forward_output_directory : Path | None
+        Directory containing walk-forward artefacts when generated.
+    """
+
+    scenario_name: str
+    notes: str | None
+    rolling_turnover_smoothing: float
+    stable_turnover_smoothing: float
+    severe_threshold: float
+    moderate_threshold: float
+    severe_regime_multiplier: float
+    moderate_regime_multiplier: float
+    severe_liquidity_multiplier: float
+    moderate_liquidity_multiplier: float
+    rolling_sharpe: float
+    rolling_sharpe_delta: float
+    rolling_turnover: float
+    rolling_transaction_costs: float
+    rolling_transaction_costs_delta: float
+    rolling_rate_hiking_liquidity: float | None
+    rolling_rate_hiking_liquidity_delta: float | None
+    stable_sharpe: float
+    stable_sharpe_delta: float
+    stable_turnover: float
+    stable_transaction_costs: float
+    stable_transaction_costs_delta: float
+    output_directory: Path
+    walk_forward_sharpe_mean: float | None = None
+    walk_forward_sharpe_std: float | None = None
+    walk_forward_sharpe_min: float | None = None
+    walk_forward_sharpe_max: float | None = None
+    walk_forward_output_directory: Path | None = None
+
+    def as_dict(self) -> dict[str, float | str | None]:
+        """Convert the result into a serialisable dictionary."""
+        return {
+            "scenario_name": self.scenario_name,
+            "notes": self.notes,
+            "rolling_turnover_smoothing": self.rolling_turnover_smoothing,
+            "stable_turnover_smoothing": self.stable_turnover_smoothing,
+            "severe_threshold": self.severe_threshold,
+            "moderate_threshold": self.moderate_threshold,
+            "severe_regime_multiplier": self.severe_regime_multiplier,
+            "moderate_regime_multiplier": self.moderate_regime_multiplier,
+            "severe_liquidity_multiplier": self.severe_liquidity_multiplier,
+            "moderate_liquidity_multiplier": self.moderate_liquidity_multiplier,
+            "rolling_sharpe": self.rolling_sharpe,
+            "rolling_sharpe_delta": self.rolling_sharpe_delta,
+            "rolling_turnover": self.rolling_turnover,
+            "rolling_transaction_costs": self.rolling_transaction_costs,
+            "rolling_transaction_costs_delta": self.rolling_transaction_costs_delta,
+            "rolling_rate_hiking_liquidity": self.rolling_rate_hiking_liquidity,
+            "rolling_rate_hiking_liquidity_delta": self.rolling_rate_hiking_liquidity_delta,
+            "stable_sharpe": self.stable_sharpe,
+            "stable_sharpe_delta": self.stable_sharpe_delta,
+            "stable_turnover": self.stable_turnover,
+            "stable_transaction_costs": self.stable_transaction_costs,
+            "stable_transaction_costs_delta": self.stable_transaction_costs_delta,
+            "output_directory": str(self.output_directory),
+            "walk_forward_sharpe_mean": self.walk_forward_sharpe_mean,
+            "walk_forward_sharpe_std": self.walk_forward_sharpe_std,
+            "walk_forward_sharpe_min": self.walk_forward_sharpe_min,
+            "walk_forward_sharpe_max": self.walk_forward_sharpe_max,
+            "walk_forward_output_directory": (
+                str(self.walk_forward_output_directory)
+                if self.walk_forward_output_directory is not None
+                else None
+            ),
+        }
 
 
 # ===== Main Orchestrator Function =====
@@ -727,26 +1635,744 @@ def run_full_backtest_suite(
         test_period=f"{split.test_start.date()} to {split.test_end.date()}",
     )
 
+    _validate_split_against_dataset(dataset, split, BACKTEST_DEFAULTS)
 
-    # === Create Backtest Config ===
+    return _execute_backtest_suite(
+        dataset=dataset,
+        output_dir=output_dir,
+        split=split,
+        config_overrides=config_overrides,
+    )
+
+
+def run_walk_forward_backtest_suite(
+    dataset_path: Path,
+    output_dir: Path,
+    splits: Sequence[TrainTestSplit] | None = None,
+    *,
+    walk_forward_config: WalkForwardConfig | None = None,
+    config_overrides: dict[str, Any] | None = None,
+    liquidity_config: LiquidityScalingConfig | None = None,
+    turnover_overrides: Mapping[str, float] | None = None,
+    summary_directory: Path | None = None,
+) -> WalkForwardBacktestResult:
+    """
+    Execute walk-forward backtesting across sequential train/test windows.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to the sector dataset directory or Parquet file.
+    output_dir : Path
+        Base directory where fold artefacts will be written.
+    splits : Sequence[TrainTestSplit] | None
+        Optional precomputed splits. If omitted, generated from ``walk_forward_config``.
+    walk_forward_config : WalkForwardConfig | None
+        Configuration describing walk-forward windows. Ignored when ``splits`` provided.
+    config_overrides : dict[str, Any] | None
+        Optional overrides for ``BacktestConfig`` parameters.
+    liquidity_config : LiquidityScalingConfig | None
+        Liquidity scaling configuration applied to each fold (defaults to ``LiquidityScalingConfig()``).
+    turnover_overrides : Mapping[str, float] | None
+        Optional turnover smoothing overrides keyed by strategy slug (e.g., ``{"3d_factor_rolling": 0.4}``).
+    summary_directory : Path | None
+        Optional directory (absolute or relative to ``output_dir``) where walk-forward
+        summaries should be written. Defaults to ``output_dir / "walk_forward"``.
+
+    Returns
+    -------
+    WalkForwardBacktestResult
+        Object containing per-fold suites and aggregated summaries.
+    """
+    if not dataset_path.exists():
+        msg = f"Dataset path does not exist: {dataset_path}"
+        raise FileNotFoundError(msg)
+
+    dataset = _load_sector_dataset(dataset_path)
+
+    if splits is not None:
+        resolved_splits = [split for split in splits]
+    else:
+        if walk_forward_config is None:
+            bounds = dataset.sector_returns.select(
+                pl.col("timestamp").min().alias("min_ts"),
+                pl.col("timestamp").max().alias("max_ts"),
+            ).row(0)
+            data_start = bounds[0]
+            data_end = bounds[1]
+
+            def _ensure_utc(value: datetime) -> datetime:
+                return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+            default_primary = define_train_test_split()
+            walk_forward_config = WalkForwardConfig(
+                start_date=_ensure_utc(max(_ensure_utc(data_start), default_primary.train_start)),
+                end_date=_ensure_utc(min(_ensure_utc(data_end), default_primary.test_end)),
+                train_years=5,
+                test_years=1,
+                step_years=1,
+            )
+        resolved_splits = walk_forward_config.to_splits()
+
+    if not resolved_splits:
+        raise ValueError("Walk-forward configuration produced no splits")
+
+    if summary_directory is None:
+        summary_dir = output_dir / "walk_forward"
+    elif summary_directory.is_absolute():
+        summary_dir = summary_directory
+    else:
+        summary_dir = output_dir / summary_directory
+    defaults = BACKTEST_DEFAULTS
+    suites: list[BacktestSuite] = []
+
+    for index, split in enumerate(resolved_splits, start=1):
+        _validate_split_against_dataset(
+            dataset,
+            split,
+            defaults,
+            min_training_days=1,
+            min_testing_days=1,
+        )
+        LOGGER.info(
+            "Running walk-forward fold",
+            fold=index,
+            train_period=f"{split.train_start.date()}→{split.train_end.date()}",
+            test_period=f"{split.test_start.date()}→{split.test_end.date()}",
+        )
+        fold_dir = summary_dir / f"fold_{index:02d}"
+        suite = _execute_backtest_suite(
+            dataset=dataset,
+            output_dir=fold_dir,
+            split=split,
+            config_overrides=config_overrides,
+            liquidity_config=liquidity_config,
+            turnover_overrides=turnover_overrides,
+        )
+        suites.append(suite)
+
+    result = WalkForwardBacktestResult(splits=resolved_splits, suites=suites)
+    liquidity_reference = liquidity_config or defaults.build_liquidity_config()
+    turnover_metadata = {
+        "stable": float(
+            (turnover_overrides or {}).get("3d_factor_stable", defaults.stable_turnover_smoothing)
+        ),
+        "rolling": float(
+            (turnover_overrides or {}).get("3d_factor_rolling", defaults.rolling_turnover_smoothing)
+        ),
+    }
+    liquidity_metadata = {
+        "severe_threshold": liquidity_reference.severe_threshold,
+        "moderate_threshold": liquidity_reference.moderate_threshold,
+        "severe_regime_multiplier": liquidity_reference.severe_regime_multiplier,
+        "moderate_regime_multiplier": liquidity_reference.moderate_regime_multiplier,
+        "severe_liquidity_multiplier": liquidity_reference.severe_liquidity_multiplier,
+        "moderate_liquidity_multiplier": liquidity_reference.moderate_liquidity_multiplier,
+        "neutral_liquidity_multiplier": liquidity_reference.neutral_liquidity_multiplier,
+        "floor": liquidity_reference.floor,
+    }
+    metadata = {
+        "risk_free_rate": defaults.risk_free_rate,
+        "baseline_strategies": list(defaults.baseline_strategies),
+        "turnover_smoothing": turnover_metadata,
+        "liquidity_config": liquidity_metadata,
+        "summaries_directory": str(summary_dir),
+        "split_count": len(resolved_splits),
+    }
+    if turnover_overrides is not None:
+        metadata["turnover_overrides"] = dict(turnover_overrides)
+    if walk_forward_config is not None:
+        metadata["walk_forward_config"] = {
+            "train_years": walk_forward_config.train_years,
+            "test_years": walk_forward_config.test_years,
+            "step_years": walk_forward_config.step_years,
+            "start_date": walk_forward_config.start_date.date().isoformat(),
+            "end_date": walk_forward_config.end_date.date().isoformat(),
+        }
+    metadata["splits"] = [
+        {
+            "train_start": split.train_start.date().isoformat(),
+            "train_end": split.train_end.date().isoformat(),
+            "test_start": split.test_start.date().isoformat(),
+            "test_end": split.test_end.date().isoformat(),
+        }
+        for split in resolved_splits
+    ]
+    result.write_summaries(summary_dir, metadata=metadata)
+
+    LOGGER.info(
+        "Walk-forward backtest suite completed",
+        num_folds=len(resolved_splits),
+        output_dir=str(summary_dir),
+    )
+
+    return result
+
+
+def run_walk_forward_permutation(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    permutation: WalkForwardPermutationDefaults,
+    start_date: datetime,
+    end_date: datetime,
+    config_overrides: dict[str, Any] | None = None,
+    liquidity_config: LiquidityScalingConfig | None = None,
+    turnover_overrides: Mapping[str, float] | None = None,
+    summary_directory: Path | None = None,
+) -> WalkForwardPermutationRun:
+    """
+    Execute a single walk-forward permutation with optional nested sweeps.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to the sector dataset directory or Parquet file.
+    output_dir : Path
+        Base directory where artefacts will be written.
+    permutation : WalkForwardPermutationDefaults
+        Permutation metadata describing the outer walk-forward sweep.
+    start_date : datetime
+        Earliest observation included in the outer sweep.
+    end_date : datetime
+        Latest observation included in the outer sweep.
+    config_overrides : dict[str, Any] | None
+        Optional overrides for ``BacktestConfig`` parameters.
+    liquidity_config : LiquidityScalingConfig | None
+        Liquidity scaling configuration applied to each fold.
+    turnover_overrides : Mapping[str, float] | None
+        Optional turnover smoothing overrides keyed by strategy slug.
+    summary_directory : Path | None
+        Directory (absolute or relative to ``output_dir``) for outer sweep artefacts.
+
+    Returns
+    -------
+    WalkForwardPermutationRun
+        Container with outer and nested results plus output directory metadata.
+    """
+    LOGGER.info(
+        "Running walk-forward permutation",
+        permutation=permutation.slug,
+        train_years=permutation.train_years,
+        test_years=permutation.test_years,
+        step_years=permutation.step_years,
+    )
+    config = permutation.to_config(start_date=start_date, end_date=end_date)
+    default_summary = Path("walk_forward") / "permutations" / permutation.slug
+    summary_path = summary_directory or default_summary
+    outer_result = run_walk_forward_backtest_suite(
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+        walk_forward_config=config,
+        config_overrides=config_overrides,
+        liquidity_config=liquidity_config,
+        turnover_overrides=turnover_overrides,
+        summary_directory=summary_path,
+    )
+    summary_output = summary_path if summary_path.is_absolute() else output_dir / summary_path
+    nested_results: list[NestedCrossValidationResult] = []
+
+    if permutation.nested is not None:
+        nested_spec = permutation.nested
+        for index, outer_split in enumerate(outer_result.splits, start=1):
+            try:
+                nested_config = WalkForwardConfig(
+                    start_date=outer_split.train_start,
+                    end_date=outer_split.train_end,
+                    train_years=nested_spec.train_years,
+                    test_years=nested_spec.test_years,
+                    step_years=nested_spec.step_years,
+                )
+            except ValueError as error:
+                LOGGER.warning(
+                    "Skipping nested walk-forward (invalid configuration)",
+                    permutation=permutation.slug,
+                    outer_fold=index,
+                    error=str(error),
+                )
+                continue
+            try:
+                nested_splits = nested_config.to_splits()
+            except ValueError as error:
+                LOGGER.warning(
+                    "Skipping nested walk-forward (unable to materialise splits)",
+                    permutation=permutation.slug,
+                    outer_fold=index,
+                    error=str(error),
+                )
+                continue
+            if len(nested_splits) < nested_spec.min_folds:
+                LOGGER.warning(
+                    "Skipping nested walk-forward (insufficient folds)",
+                    permutation=permutation.slug,
+                    outer_fold=index,
+                    generated_folds=len(nested_splits),
+                    required_folds=nested_spec.min_folds,
+                )
+                continue
+            nested_summary = summary_path / "nested" / f"outer_fold_{index:02d}"
+            nested_result = run_walk_forward_backtest_suite(
+                dataset_path=dataset_path,
+                output_dir=output_dir,
+                splits=nested_splits,
+                config_overrides=config_overrides,
+                liquidity_config=liquidity_config,
+                turnover_overrides=turnover_overrides,
+                summary_directory=nested_summary,
+            )
+            nested_output = (
+                nested_summary
+                if nested_summary.is_absolute()
+                else output_dir / nested_summary
+            )
+            nested_results.append(
+                NestedCrossValidationResult(
+                    spec=nested_spec,
+                    outer_fold_index=index,
+                    outer_split=outer_split,
+                    config=nested_config,
+                    result=nested_result,
+                    output_directory=nested_output,
+                )
+            )
+
+    metadata_path = summary_output / "permutation_metadata.json"
+    metadata_payload = permutation.to_dict()
+    metadata_payload.update(
+        {
+            "outer_folds": len(outer_result.splits),
+            "nested_runs": len(nested_results),
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    LOGGER.info(
+        "Completed walk-forward permutation",
+        permutation=permutation.slug,
+        outer_folds=len(outer_result.splits),
+        nested_runs=len(nested_results),
+        output=str(summary_output),
+    )
+
+    return WalkForwardPermutationRun(
+        spec=permutation,
+        config=config,
+        outer_result=outer_result,
+        summary_directory=summary_output,
+        nested_results=nested_results,
+    )
+
+
+def run_multi_horizon_walk_forward_analysis(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    start_date: datetime,
+    end_date: datetime,
+    permutations: Sequence[WalkForwardPermutationDefaults] | None = None,
+    config_overrides: dict[str, Any] | None = None,
+    liquidity_config: LiquidityScalingConfig | None = None,
+    turnover_overrides: Mapping[str, float] | None = None,
+    include_primary_root: bool = True,
+) -> MultiHorizonWalkForwardResult:
+    """
+    Execute multi-horizon walk-forward analysis across configured permutations.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to the sector dataset directory or Parquet file.
+    output_dir : Path
+        Base directory where artefacts will be written.
+    start_date : datetime
+        Earliest observation considered across permutations.
+    end_date : datetime
+        Latest observation considered across permutations.
+    permutations : Sequence[WalkForwardPermutationDefaults] | None
+        Optional permutations to execute. Defaults to ``ThreeDRiskBacktestDefaults.walk_forward_permutations``.
+    config_overrides : dict[str, Any] | None
+        Optional overrides for ``BacktestConfig`` parameters.
+    liquidity_config : LiquidityScalingConfig | None
+        Liquidity scaling configuration applied to each fold.
+    turnover_overrides : Mapping[str, float] | None
+        Optional turnover smoothing overrides keyed by strategy slug.
+    include_primary_root : bool
+        When ``True``, the first permutation mirrors artefacts into ``walk_forward`` for
+        backwards compatibility with existing reports.
+
+    Returns
+    -------
+    MultiHorizonWalkForwardResult
+        Aggregated results for all executed permutations.
+    """
+    defaults = BACKTEST_DEFAULTS
+    resolved_permutations = tuple(permutations or defaults.walk_forward_permutations)
+    if not resolved_permutations:
+        raise ValueError("No walk-forward permutations provided")
+
+    runs: dict[str, WalkForwardPermutationRun] = {}
+    for index, permutation in enumerate(resolved_permutations):
+        if include_primary_root and index == 0:
+            summary_dir = Path("walk_forward")
+        else:
+            summary_dir = Path("walk_forward") / "permutations" / permutation.slug
+        run = run_walk_forward_permutation(
+            dataset_path=dataset_path,
+            output_dir=output_dir,
+            permutation=permutation,
+            start_date=start_date,
+            end_date=end_date,
+            config_overrides=config_overrides,
+            liquidity_config=liquidity_config,
+            turnover_overrides=turnover_overrides,
+            summary_directory=summary_dir,
+        )
+        runs[permutation.slug] = run
+
+        if include_primary_root and index == 0:
+            permutations_root = output_dir / Path("walk_forward") / "permutations"
+            alias_dir = permutations_root / permutation.slug
+            alias_dir.mkdir(parents=True, exist_ok=True)
+            readme_path = alias_dir / "README.txt"
+            readme_path.write_text(
+                (
+                    "Outputs for this permutation are stored in the parent "
+                    "walk_forward directory to preserve legacy artefact paths.\n"
+                    "See ../../aggregate_metrics.csv and associated fold files."
+                ),
+                encoding="utf-8",
+            )
+            metadata_source = run.summary_directory / "permutation_metadata.json"
+            metadata_target = alias_dir / "permutation_metadata.json"
+            if metadata_source.exists():
+                metadata_target.write_text(metadata_source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    return MultiHorizonWalkForwardResult(base_directory=output_dir, runs=runs)
+
+
+# ===== Helper Functions =====
+
+
+def _build_regime_return_frame(
+    result: BacktestResult,
+    regimes: Sequence[MarketRegime],
+) -> pl.DataFrame:
+    """
+    Construct a regime-labelled return frame from a backtest result.
+
+    Parameters
+    ----------
+    result : BacktestResult
+        Baseline backtest result for the target strategy.
+    regimes : Sequence[MarketRegime]
+        Regime definitions used to label returns.
+
+    Returns
+    -------
+    pl.DataFrame
+        DataFrame containing ``timestamp``, ``return``, and ``regime`` columns.
+    """
+    dates = list(result.dates)
+    returns = np.asarray(result.returns, dtype=np.float64)
+    if len(dates) == returns.size + 1:
+        # BacktestResult stores an initial valuation timestamp with no associated return.
+        dates = dates[1:]
+    if returns.size != len(dates):
+        msg = (
+            "Backtest result returns and dates are misaligned "
+            f"(returns={returns.size}, dates={len(dates)})"
+        )
+        raise ValueError(msg)
+
+    sorted_regimes = sorted(regimes, key=lambda regime: regime.start)
+    labels: list[str | None] = []
+    regime_index = 0
+    for date in dates:
+        while regime_index < len(sorted_regimes) and date > sorted_regimes[regime_index].end:
+            regime_index += 1
+        if regime_index < len(sorted_regimes):
+            candidate = sorted_regimes[regime_index]
+            if candidate.start <= date <= candidate.end:
+                labels.append(candidate.name)
+                continue
+        labels.append(None)
+
+    frame = pl.DataFrame({
+        "timestamp": dates,
+        "return": returns,
+        "regime": labels,
+    }).sort("timestamp")
+    return frame.filter(pl.col("regime").is_not_null())
+
+
+def _prepare_regime_blocks(frame: pl.DataFrame) -> dict[str, np.ndarray]:
+    """
+    Transform a regime-labelled frame into numpy blocks per regime.
+    """
+    if frame.is_empty():
+        return {}
+    blocks: dict[str, np.ndarray] = {}
+    grouped = frame.group_by("regime", maintain_order=True).agg(
+        pl.col("return").alias("returns"),
+    )
+    for row in grouped.iter_rows(named=True):
+        regime_name = cast(str, row["regime"])
+        returns = np.asarray(row["returns"], dtype=np.float64)
+        if returns.size == 0:
+            continue
+        blocks[regime_name] = returns
+    return blocks
+
+
+def _apply_monte_carlo_overlays(
+    rng: np.random.Generator,
+    returns: np.ndarray,
+    *,
+    regime_sequence: tuple[str, ...],
+    block_lengths: tuple[int, ...],
+    overlays: Sequence[MonteCarloShockOverlayDefaults],
+) -> list[str]:
+    """
+    Apply macro shock overlays in-place to the synthetic return path.
+    """
+    if returns.size == 0:
+        return []
+    offsets: list[int] = []
+    cursor = 0
+    for length in block_lengths:
+        offsets.append(cursor)
+        cursor += length
+    total_length = returns.size
+    applied: list[str] = []
+    for overlay in overlays:
+        attempts = 0
+        while attempts < overlay.max_applications:
+            attempts += 1
+            if rng.random() > overlay.probability:
+                break
+            candidate_ranges: list[tuple[int, int]] = []
+            if overlay.regime_bias is not None:
+                bias = set(overlay.regime_bias)
+                for index, regime_name in enumerate(regime_sequence):
+                    if regime_name not in bias:
+                        continue
+                    start = offsets[index]
+                    end = start + block_lengths[index]
+                    if start < end:
+                        candidate_ranges.append((start, end))
+            else:
+                candidate_ranges.append((0, total_length))
+
+            if not candidate_ranges:
+                break
+            start_bound, end_bound = candidate_ranges[rng.integers(0, len(candidate_ranges))]
+            if start_bound >= end_bound:
+                break
+            start_idx = int(rng.integers(start_bound, end_bound))
+            for day_offset in range(overlay.duration_days):
+                target_idx = start_idx + day_offset
+                if target_idx >= total_length:
+                    break
+                decay_multiplier = overlay.decay ** day_offset
+                returns[target_idx] = returns[target_idx] + (overlay.magnitude * decay_multiplier)
+            applied.append(overlay.name)
+    return applied
+
+
+def _compute_monte_carlo_metrics(
+    *,
+    simulation_id: int,
+    returns: np.ndarray,
+    stress_config: MonteCarloStressDefaults,
+    regime_sequence: tuple[str, ...],
+    overlay_events: tuple[str, ...],
+) -> MonteCarloStressPathResult:
+    """
+    Compute summary metrics for a synthetic Monte Carlo path.
+    """
+    if returns.size == 0:
+        msg = "Synthetic Monte Carlo path is empty"
+        raise ValueError(msg)
+
+    clipped = np.clip(returns, -0.99, None)
+    cumulative = np.cumprod(1.0 + clipped, dtype=np.float64)
+    terminal_value = float(cumulative[-1])
+    peaks = np.maximum.accumulate(cumulative)
+    drawdowns = cumulative / peaks - 1.0
+    max_drawdown = float(drawdowns.min()) if drawdowns.size > 0 else 0.0
+
+    rf_daily = (1.0 + stress_config.risk_free_rate) ** (1.0 / 252.0) - 1.0
+    excess_returns = clipped - rf_daily
+    mean_daily = float(np.mean(clipped))
+    if clipped.size > 1:
+        daily_vol = float(np.std(clipped, ddof=1))
+    else:
+        daily_vol = 0.0
+    annualized_return = float((1.0 + mean_daily) ** 252 - 1.0)
+    annualized_volatility = float(daily_vol * math.sqrt(252.0))
+    sharpe = 0.0
+    if daily_vol > 0.0:
+        sharpe = float(np.mean(excess_returns) / daily_vol * math.sqrt(252.0))
+
+    tail_quantile = float(np.quantile(clipped, 1.0 - stress_config.cvar_alpha))
+    tail_mask = clipped <= tail_quantile + 1e-12
+    if np.any(tail_mask):
+        cvar = float(np.mean(clipped[tail_mask]))
+    else:
+        cvar = tail_quantile
+
+    return MonteCarloStressPathResult(
+        simulation_id=simulation_id,
+        sharpe_ratio=sharpe,
+        annualized_return=annualized_return,
+        annualized_volatility=annualized_volatility,
+        max_drawdown=max_drawdown,
+        var_alpha=tail_quantile,
+        cvar_alpha=cvar,
+        terminal_value=terminal_value,
+        positive_terminal=terminal_value >= 1.0,
+        regime_sequence=regime_sequence,
+        overlay_events=overlay_events,
+        path_length=int(clipped.size),
+    )
+
+
+def _validate_split_against_dataset(
+    dataset: SectorDataset,
+    split: TrainTestSplit,
+    defaults: ThreeDRiskBacktestDefaults,
+    *,
+    min_training_days: int | None = None,
+    min_testing_days: int | None = None,
+) -> None:
+    """
+    Ensure the supplied split is compatible with the dataset window.
+
+    Parameters
+    ----------
+    dataset : SectorDataset
+        Loaded dataset containing aligned sector and factor returns.
+    split : TrainTestSplit
+        Train/test split to validate.
+    defaults : ThreeDRiskBacktestDefaults
+        Configuration thresholds governing validation rules.
+
+    Raises
+    ------
+    ValueError
+        If validation fails (e.g., insufficient history or coverage).
+    """
+    split.validate_no_overlap()
+    if not validate_no_lookahead(split):
+        msg = "Train/test split violates no-lookahead constraint (test starts before train ends)"
+        raise ValueError(msg)
+    training_days_required = min_training_days if min_training_days is not None else defaults.min_training_days
+    if not validate_sufficient_training_data(split, min_trading_days=training_days_required):
+        msg = (
+            "Training window shorter than required: "
+            f"{training_days_required} trading days minimum"
+        )
+        raise ValueError(msg)
+
+    testing_days_required = min_testing_days if min_testing_days is not None else defaults.min_testing_days
+    estimated_test_days = int(split.test_days * TRADING_DAY_RATIO)
+    if estimated_test_days < testing_days_required:
+        msg = (
+            "Testing window shorter than required: "
+            f"{testing_days_required} trading days minimum"
+        )
+        raise ValueError(msg)
+
+    sector_timestamps = dataset.sector_returns.get_column("timestamp")
+    if sector_timestamps.is_empty():
+        raise ValueError("Sector returns dataset is empty")
+
+    dataset_start_raw = sector_timestamps.min()
+    dataset_end_raw = sector_timestamps.max()
+    if dataset_start_raw is None or dataset_end_raw is None:
+        raise ValueError("Unable to resolve dataset coverage window")
+
+    if not isinstance(dataset_start_raw, datetime):
+        msg = f"Expected datetime timestamp for dataset start, received {type(dataset_start_raw)!r}"
+        raise TypeError(msg)
+    if not isinstance(dataset_end_raw, datetime):
+        msg = f"Expected datetime timestamp for dataset end, received {type(dataset_end_raw)!r}"
+        raise TypeError(msg)
+
+    dataset_start = dataset_start_raw
+    dataset_end = dataset_end_raw
+
+    tolerance = timedelta(days=defaults.coverage_tolerance_days)
+    coverage_start = dataset_start - tolerance
+    coverage_end = dataset_end + tolerance
+
+    if split.train_start < coverage_start:
+        msg = (
+            "Training window begins before dataset coverage even after "
+            f"{defaults.coverage_tolerance_days}-day tolerance "
+            f"({dataset_start.isoformat()} → {dataset_end.isoformat()})"
+        )
+        raise ValueError(msg)
+
+    if split.test_end > coverage_end:
+        msg = (
+            "Testing window extends beyond dataset coverage even after "
+            f"{defaults.coverage_tolerance_days}-day tolerance "
+            f"({dataset_start.isoformat()} → {dataset_end.isoformat()})"
+        )
+        raise ValueError(msg)
+
+
+def _execute_backtest_suite(
+    dataset: SectorDataset,
+    output_dir: Path,
+    split: TrainTestSplit,
+    config_overrides: dict[str, Any] | None,
+    *,
+    liquidity_config: LiquidityScalingConfig | None = None,
+    turnover_overrides: Mapping[str, float] | None = None,
+) -> BacktestSuite:
+    """
+    Execute the backtest suite using a preloaded dataset and split.
+
+    Parameters
+    ----------
+    dataset : SectorDataset
+        Preloaded dataset containing sector and factor returns.
+    output_dir : Path
+        Directory where artefacts should be written.
+    split : TrainTestSplit
+        Train/test split configuration.
+    config_overrides : dict[str, Any] | None
+        Optional overrides for backtest configuration.
+    liquidity_config : LiquidityScalingConfig | None
+        Optional liquidity scaling configuration. Defaults to ``ThreeDRiskBacktestDefaults.build_liquidity_config()``.
+    turnover_overrides : Mapping[str, float] | None
+        Optional turnover smoothing overrides keyed by strategy slug
+        (``3d_factor_stable`` or ``3d_factor_rolling``).
+    """
+    defaults = BACKTEST_DEFAULTS
     train_config = _create_backtest_config(split, config_overrides, period="train")
     test_config = _create_backtest_config(split, config_overrides, period="test")
     full_config = _create_backtest_config(split, config_overrides, period="full")
+
     regimes = define_market_regimes()
     regime_resolver = _build_regime_resolver(regimes)
-    liquidity_config = LiquidityScalingConfig()
+    resolved_liquidity_config = liquidity_config or defaults.build_liquidity_config()
     rolling_liquidity = load_liquidity_contributions_from_csv(
         LIQUIDITY_ATTRIBUTION_DIR,
         LIQUIDITY_STRATEGY_SLUG,
     )
     if not rolling_liquidity:
-        rolling_liquidity = LIQUIDITY_FALLBACK_CONTRIBUTIONS
+        rolling_liquidity = dict(defaults.liquidity_contribution_fallbacks)
     regime_scaling_map, liquidity_controls = build_regime_scaling_maps(
         rolling_liquidity,
-        config=liquidity_config,
+        config=resolved_liquidity_config,
     )
+    turnover_map: dict[str, float] = dict(turnover_overrides) if turnover_overrides is not None else {}
+    stable_turnover = float(turnover_map.get("3d_factor_stable", defaults.stable_turnover_smoothing))
+    rolling_turnover = float(turnover_map.get("3d_factor_rolling", defaults.rolling_turnover_smoothing))
 
-    # === Run Backtests Across Periods ===
     strategies_to_run: list[tuple[str, str, dict[str, Any]]] = [
         ("Equal Weight", "equal_weight", {}),
         ("60/40 Portfolio", "sixty_forty", {}),
@@ -756,20 +2382,20 @@ def run_full_backtest_suite(
             "max_weight": 0.30,
             "min_observations": 180,
             "blend_to_equal": 0.20,
-            "turnover_smoothing": 0.30,
+            "turnover_smoothing": stable_turnover,
         }),
         ("3D Factor (Rolling Betas)", "3d_factor_rolling", {
             "rolling_window": 252,
             "max_weight": 0.30,
             "min_observations": 180,
             "blend_to_equal": 0.20,
-            "turnover_smoothing": 0.40,
+            "turnover_smoothing": rolling_turnover,
             "dynamic_factor_scaling": True,
             "regime_scaling": True,
             "regime_resolver": regime_resolver,
             "regime_scaling_map": regime_scaling_map,
             "regime_factor_multipliers": liquidity_controls,
-            "regime_scaling_floor": liquidity_config.floor,
+            "regime_scaling_floor": resolved_liquidity_config.floor,
         }),
     ]
 
@@ -807,8 +2433,7 @@ def run_full_backtest_suite(
             else:
                 full_results[strategy_display_name] = result
 
-    # === Compute Metrics ===
-    risk_free_rate = 0.02
+    risk_free_rate = defaults.risk_free_rate
     train_metrics: dict[str, PerformanceMetrics] = {}
     test_metrics: dict[str, PerformanceMetrics] = {}
     overall_metrics: dict[str, PerformanceMetrics] = {}
@@ -840,6 +2465,8 @@ def run_full_backtest_suite(
 
     regime_results: dict[str, RegimeAnalysisResult] = {}
     for strategy_name, result in full_results.items():
+        if not regimes:
+            continue
         if result.start_date > regimes[0].start or result.end_date < regimes[-1].end:
             LOGGER.info("Skipping regime analysis due to insufficient coverage", strategy=strategy_name)
             continue
@@ -876,7 +2503,6 @@ def run_full_backtest_suite(
     except Exception:
         LOGGER.exception("Factor attribution calculation failed")
 
-    # === Assemble Suite and Persist Outputs ===
     output_dir.mkdir(parents=True, exist_ok=True)
 
     suite = BacktestSuite(
@@ -894,6 +2520,8 @@ def run_full_backtest_suite(
         regime_scaling_map=regime_scaling_map,
         regime_factor_multipliers=liquidity_controls,
         liquidity_contributions=rolling_liquidity,
+        turnover_overrides=turnover_map,
+        baseline_strategies=defaults.baseline_strategies,
     )
 
     comparison_df = suite.compare_strategies()
@@ -997,6 +2625,15 @@ def run_full_backtest_suite(
         overall_df.write_csv(overall_path)
         LOGGER.info("Full-period metrics saved", path=str(overall_path))
 
+    try:
+        export_phase3_visuals(
+            data_dir=output_dir,
+            output_dir=output_dir / "visuals",
+            config=liquidity_config,
+        )
+    except Exception:
+        LOGGER.exception("Failed to export Phase 3 visuals", output_dir=str(output_dir))
+
     report_filename = f"backtest_results_{split.train_start.year}_{split.test_end.year}.md"
     report_path = output_dir / report_filename
     suite.to_markdown_report(report_path)
@@ -1010,14 +2647,409 @@ def run_full_backtest_suite(
     return suite
 
 
-# ===== Helper Functions =====
+def _slugify_scenario_name(name: str) -> str:
+    """Convert a scenario name into a filesystem-friendly slug."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", name.strip()).strip("_").lower()
+    return slug or "scenario"
 
+
+def _extract_rate_hiking_liquidity(
+    regime_attribution: dict[str, list[FactorAttribution]],
+    strategy_name: str,
+) -> float | None:
+    """Return the liquidity contribution for the Rate Hiking regime."""
+    for attribution in regime_attribution.get(strategy_name, []):
+        if attribution.regime_name == "Rate Hiking Cycle":
+            return attribution.factor_contributions.get("factor_liquidity")
+    return None
+
+
+def get_default_liquidity_mitigation_scenarios() -> list[LiquidityMitigationScenario]:
+    """Return the default set of liquidity mitigation scenarios."""
+    defaults = BACKTEST_DEFAULTS
+    return [
+        LiquidityMitigationScenario(
+            name="Baseline Controls",
+            rolling_turnover_smoothing=defaults.rolling_turnover_smoothing,
+            stable_turnover_smoothing=defaults.stable_turnover_smoothing,
+            liquidity_config=defaults.build_liquidity_config(),
+            notes="Legacy configuration retained for comparison only.",
+        ),
+        LiquidityMitigationScenario(
+            name="Turnover Smoothing 0.55/0.40",
+            rolling_turnover_smoothing=0.55,
+            stable_turnover_smoothing=0.40,
+            liquidity_config=LiquidityScalingConfig(),
+            notes="Higher smoothing to reduce turnover-induced drag.",
+        ),
+        LiquidityMitigationScenario(
+            name="Tighter Liquidity Regime Scaling",
+            rolling_turnover_smoothing=0.45,
+            stable_turnover_smoothing=0.35,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=-0.015,
+                moderate_threshold=-0.0075,
+                severe_regime_multiplier=0.80,
+                moderate_regime_multiplier=0.90,
+                severe_liquidity_multiplier=0.50,
+                moderate_liquidity_multiplier=0.65,
+                neutral_liquidity_multiplier=1.0,
+                floor=0.40,
+            ),
+            notes="Stricter thresholds to clamp liquidity drag in Rate Hiking cycles.",
+        ),
+        LiquidityMitigationScenario(
+            name="Turnover Stress Test",
+            rolling_turnover_smoothing=max(defaults.rolling_turnover_smoothing - 0.15, 0.10),
+            stable_turnover_smoothing=max(defaults.stable_turnover_smoothing - 0.10, 0.05),
+            liquidity_config=defaults.build_liquidity_config(),
+            notes="Lower smoothing to stress transaction cost impact while retaining default liquidity config.",
+        ),
+        LiquidityMitigationScenario(
+            name="Stress: 2008 Liquidity Shock",
+            rolling_turnover_smoothing=0.50,
+            stable_turnover_smoothing=0.35,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=-0.030,
+                moderate_threshold=-0.015,
+                severe_regime_multiplier=0.70,
+                moderate_regime_multiplier=0.85,
+                severe_liquidity_multiplier=0.45,
+                moderate_liquidity_multiplier=0.60,
+                neutral_liquidity_multiplier=0.95,
+                floor=0.35,
+            ),
+            notes="Mimics 2008-style liquidity drag with tighter multipliers and higher turnover damping.",
+        ),
+        LiquidityMitigationScenario(
+            name="Stress: 2020 Volatility Spike",
+            rolling_turnover_smoothing=0.65,
+            stable_turnover_smoothing=0.45,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=-0.020,
+                moderate_threshold=-0.010,
+                severe_regime_multiplier=0.80,
+                moderate_regime_multiplier=0.92,
+                severe_liquidity_multiplier=0.50,
+                moderate_liquidity_multiplier=0.70,
+                neutral_liquidity_multiplier=0.95,
+                floor=0.40,
+            ),
+            notes="Uses elevated smoothing to reflect 2020 volatility with rapid regime swings.",
+        ),
+        LiquidityMitigationScenario(
+            name="Stress: 2022 Rates + Stocks",
+            rolling_turnover_smoothing=0.55,
+            stable_turnover_smoothing=0.40,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=-0.025,
+                moderate_threshold=-0.012,
+                severe_regime_multiplier=0.78,
+                moderate_regime_multiplier=0.90,
+                severe_liquidity_multiplier=0.52,
+                moderate_liquidity_multiplier=0.68,
+                neutral_liquidity_multiplier=0.97,
+                floor=0.38,
+            ),
+            notes="Captures cross-asset drawdowns observed during 2022 rate hikes.",
+        ),
+        LiquidityMitigationScenario(
+            name="Stress: 1987 Black Monday",
+            rolling_turnover_smoothing=0.75,
+            stable_turnover_smoothing=0.50,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=-0.035,
+                moderate_threshold=-0.018,
+                severe_regime_multiplier=0.65,
+                moderate_regime_multiplier=0.80,
+                severe_liquidity_multiplier=0.40,
+                moderate_liquidity_multiplier=0.58,
+                neutral_liquidity_multiplier=0.90,
+                floor=0.30,
+            ),
+            notes="Approximates 1987-style crash conditions with aggressive turnover damping and liquidity scaling.",
+        ),
+        LiquidityMitigationScenario(
+            name="Stress: Synthetic Liquidity Shock",
+            rolling_turnover_smoothing=defaults.rolling_turnover_smoothing,
+            stable_turnover_smoothing=defaults.stable_turnover_smoothing,
+            liquidity_config=LiquidityScalingConfig(
+                severe_threshold=defaults.liquidity_scaling.severe_threshold * 1.5,
+                moderate_threshold=defaults.liquidity_scaling.moderate_threshold * 1.5,
+                severe_regime_multiplier=defaults.liquidity_scaling.severe_regime_multiplier * 0.9,
+                moderate_regime_multiplier=defaults.liquidity_scaling.moderate_regime_multiplier * 0.95,
+                severe_liquidity_multiplier=defaults.liquidity_scaling.severe_liquidity_multiplier * 0.85,
+                moderate_liquidity_multiplier=defaults.liquidity_scaling.moderate_liquidity_multiplier * 0.9,
+                neutral_liquidity_multiplier=max(defaults.liquidity_scaling.neutral_liquidity_multiplier * 0.95, 0.85),
+                floor=max(defaults.liquidity_scaling.floor * 0.9, 0.30),
+            ),
+            notes="Synthetic shock approximating +/-3 sigma liquidity moves; retains turnover defaults.",
+        ),
+    ]
+
+
+def get_liquidity_mitigation_scenarios(
+    names: Sequence[str] | None = None,
+) -> list[LiquidityMitigationScenario]:
+    """Return the default scenarios optionally filtered by name."""
+    scenarios = get_default_liquidity_mitigation_scenarios()
+    if names is None:
+        return scenarios
+
+    lookup = {scenario.name: scenario for scenario in scenarios}
+    resolved: list[LiquidityMitigationScenario] = []
+    missing: list[str] = []
+    for name in names:
+        scenario = lookup.get(name)
+        if scenario is None:
+            missing.append(name)
+        else:
+            resolved.append(scenario)
+
+    if missing:
+        missing_str = ", ".join(sorted(missing))
+        available = ", ".join(sorted(lookup.keys()))
+        msg = f"Unknown liquidity scenarios: {missing_str}. Available: {available}"
+        raise ValueError(msg)
+
+    if not resolved:
+        msg = "No liquidity mitigation scenarios resolved from provided names"
+        raise ValueError(msg)
+
+    return resolved
+
+
+def run_liquidity_mitigation_experiments(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    split: TrainTestSplit | None = None,
+    config_overrides: dict[str, Any] | None = None,
+    scenarios: Sequence[LiquidityMitigationScenario] | None = None,
+    run_walk_forward: bool = False,
+    walk_forward_config: WalkForwardConfig | None = None,
+) -> list[LiquidityMitigationResult]:
+    """
+    Execute liquidity mitigation experiments across multiple scenarios.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to the dataset directory or sector returns file.
+    output_dir : Path
+        Directory where experiment artefacts and summary CSV are written.
+    split : TrainTestSplit | None
+        Optional custom train/test split. Defaults to ``define_train_test_split()``.
+    config_overrides : dict[str, Any] | None
+        Optional overrides for ``BacktestConfig``.
+    scenarios : Sequence[LiquidityMitigationScenario] | None
+        Scenarios to evaluate. Defaults to a curated set targeting turnover
+        smoothing and regime scaling adjustments.
+    run_walk_forward : bool, default False
+        When True, run a walk-forward suite per scenario and capture summary metrics.
+    walk_forward_config : WalkForwardConfig | None
+        Custom walk-forward configuration to use when ``run_walk_forward`` is True.
+
+    Returns
+    -------
+    list[LiquidityMitigationResult]
+        Summary results for each evaluated scenario.
+    """
+    resolved_scenarios = list(scenarios) if scenarios is not None else get_default_liquidity_mitigation_scenarios()
+    if not resolved_scenarios:
+        return []
+
+    dataset = _load_sector_dataset(dataset_path)
+    resolved_split = split or define_train_test_split()
+    _validate_split_against_dataset(dataset, resolved_split, BACKTEST_DEFAULTS)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_results: list[dict[str, object]] = []
+
+    for scenario in resolved_scenarios:
+        scenario_slug = _slugify_scenario_name(scenario.name)
+        scenario_dir = output_dir / scenario_slug
+        turnover_overrides = {
+            "3d_factor_rolling": scenario.rolling_turnover_smoothing,
+            "3d_factor_stable": scenario.stable_turnover_smoothing,
+        }
+        suite = _execute_backtest_suite(
+            dataset=dataset,
+            output_dir=scenario_dir,
+            split=resolved_split,
+            config_overrides=config_overrides,
+            liquidity_config=scenario.liquidity_config,
+            turnover_overrides=turnover_overrides,
+        )
+
+        rolling_metrics = suite.metrics.get("3D Factor (Rolling Betas)")
+        stable_metrics = suite.metrics.get("3D Factor (Stable Betas)")
+        if rolling_metrics is None or stable_metrics is None:
+            msg = f"Missing factor strategy metrics for scenario '{scenario.name}'"
+            raise RuntimeError(msg)
+
+        rate_hiking_liquidity = _extract_rate_hiking_liquidity(
+            suite.regime_attribution,
+            "3D Factor (Rolling Betas)",
+        )
+
+        walk_forward_stats: dict[str, float | None] | None = None
+        walk_forward_output_dir: Path | None = None
+
+        if run_walk_forward:
+            walk_forward_root = scenario_dir / "walk_forward"
+            walk_forward_result = run_walk_forward_backtest_suite(
+                dataset_path=dataset_path,
+                output_dir=walk_forward_root,
+                walk_forward_config=walk_forward_config,
+                config_overrides=config_overrides,
+                liquidity_config=scenario.liquidity_config,
+                turnover_overrides=turnover_overrides,
+            )
+            summary_frame = walk_forward_result.summarize_metrics()
+            rolling_summary = summary_frame.filter(pl.col("strategy") == "3D Factor (Rolling Betas)")
+            if not rolling_summary.is_empty():
+                row = rolling_summary.row(0, named=True)
+
+                def _extract_metric(column: str) -> float | None:
+                    raw_value = row.get(column)
+                    if raw_value is None:
+                        return None
+                    try:
+                        numeric = float(raw_value)
+                    except (TypeError, ValueError):
+                        return None
+                    if math.isnan(numeric):
+                        return None
+                    return numeric
+
+                walk_forward_stats = {
+                    "mean": _extract_metric("sharpe_ratio_mean"),
+                    "std": _extract_metric("sharpe_ratio_std"),
+                    "min": _extract_metric("sharpe_ratio_min"),
+                    "max": _extract_metric("sharpe_ratio_max"),
+                }
+                if all(value is None for value in walk_forward_stats.values()):
+                    walk_forward_stats = None
+            walk_forward_output_dir = walk_forward_root / "walk_forward"
+
+        raw_results.append({
+            "scenario": scenario,
+            "rolling_metrics": rolling_metrics,
+            "stable_metrics": stable_metrics,
+            "rate_hiking_liquidity": rate_hiking_liquidity,
+            "output_dir": scenario_dir,
+            "walk_forward_stats": walk_forward_stats,
+            "walk_forward_output_dir": walk_forward_output_dir,
+        })
+
+    baseline = raw_results[0]
+    baseline_rolling = cast(PerformanceMetrics, baseline["rolling_metrics"])
+    baseline_stable = cast(PerformanceMetrics, baseline["stable_metrics"])
+    baseline_rate_liquidity = cast(float | None, baseline.get("rate_hiking_liquidity"))
+
+    results: list[LiquidityMitigationResult] = []
+
+    for entry in raw_results:
+        scenario = cast(LiquidityMitigationScenario, entry["scenario"])
+        rolling_metrics = cast(PerformanceMetrics, entry["rolling_metrics"])
+        stable_metrics = cast(PerformanceMetrics, entry["stable_metrics"])
+        rate_hiking_liquidity = cast(float | None, entry["rate_hiking_liquidity"])
+        scenario_dir = cast(Path, entry["output_dir"])
+        walk_forward_stats_entry = cast(dict[str, float | None] | None, entry.get("walk_forward_stats"))
+        walk_forward_output_dir_entry = cast(Path | None, entry.get("walk_forward_output_dir"))
+
+        rolling_sharpe_delta = rolling_metrics.sharpe_ratio - baseline_rolling.sharpe_ratio
+        rolling_transaction_costs_delta = (
+            rolling_metrics.transaction_costs_total - baseline_rolling.transaction_costs_total
+        )
+        rolling_rate_liquidity_value: float | None = None
+        rolling_liquidity_delta: float | None = None
+        if rate_hiking_liquidity is not None and baseline_rate_liquidity is not None:
+            rolling_rate_liquidity_value = float(rate_hiking_liquidity)
+            rolling_liquidity_delta = rolling_rate_liquidity_value - float(baseline_rate_liquidity)
+        elif rate_hiking_liquidity is not None:
+            rolling_rate_liquidity_value = float(rate_hiking_liquidity)
+
+        stable_sharpe_delta = stable_metrics.sharpe_ratio - baseline_stable.sharpe_ratio
+        stable_transaction_costs_delta = (
+            stable_metrics.transaction_costs_total - baseline_stable.transaction_costs_total
+        )
+
+        walk_forward_mean: float | None = None
+        walk_forward_std: float | None = None
+        walk_forward_min: float | None = None
+        walk_forward_max: float | None = None
+        if walk_forward_stats_entry is not None:
+            walk_forward_mean = walk_forward_stats_entry.get("mean")
+            walk_forward_std = walk_forward_stats_entry.get("std")
+            walk_forward_min = walk_forward_stats_entry.get("min")
+            walk_forward_max = walk_forward_stats_entry.get("max")
+
+        result = LiquidityMitigationResult(
+            scenario_name=scenario.name,
+            notes=scenario.notes,
+            rolling_turnover_smoothing=scenario.rolling_turnover_smoothing,
+            stable_turnover_smoothing=scenario.stable_turnover_smoothing,
+            severe_threshold=scenario.liquidity_config.severe_threshold,
+            moderate_threshold=scenario.liquidity_config.moderate_threshold,
+            severe_regime_multiplier=scenario.liquidity_config.severe_regime_multiplier,
+            moderate_regime_multiplier=scenario.liquidity_config.moderate_regime_multiplier,
+            severe_liquidity_multiplier=scenario.liquidity_config.severe_liquidity_multiplier,
+            moderate_liquidity_multiplier=scenario.liquidity_config.moderate_liquidity_multiplier,
+            rolling_sharpe=rolling_metrics.sharpe_ratio,
+            rolling_sharpe_delta=rolling_sharpe_delta,
+            rolling_turnover=rolling_metrics.turnover_rate,
+            rolling_transaction_costs=rolling_metrics.transaction_costs_total,
+            rolling_transaction_costs_delta=rolling_transaction_costs_delta,
+            rolling_rate_hiking_liquidity=rolling_rate_liquidity_value,
+            rolling_rate_hiking_liquidity_delta=rolling_liquidity_delta,
+            stable_sharpe=stable_metrics.sharpe_ratio,
+            stable_sharpe_delta=stable_sharpe_delta,
+            stable_turnover=stable_metrics.turnover_rate,
+            stable_transaction_costs=stable_metrics.transaction_costs_total,
+            stable_transaction_costs_delta=stable_transaction_costs_delta,
+            output_directory=scenario_dir,
+            walk_forward_sharpe_mean=walk_forward_mean,
+            walk_forward_sharpe_std=walk_forward_std,
+            walk_forward_sharpe_min=walk_forward_min,
+            walk_forward_sharpe_max=walk_forward_max,
+            walk_forward_output_directory=walk_forward_output_dir_entry,
+        )
+        results.append(result)
+
+    summary_frame = pl.DataFrame([result.as_dict() for result in results])
+    summary_path = output_dir / "liquidity_mitigation_results.csv"
+    summary_frame.write_csv(summary_path)
+    LOGGER.info("Liquidity mitigation experiment summary saved", path=str(summary_path))
+
+    return results
 
 
 def _load_sector_dataset(dataset_path: Path) -> SectorDataset:
     """Load sector returns, factor returns, and coverage metadata."""
-    from playground.risk_model.dataset import CoverageSummary
-    from playground.risk_model.dataset import SectorDataset
+    try:
+        from playground.risk_model.dataset import CoverageSummary
+        from playground.risk_model.dataset import SectorDataset
+    except (ImportError, IndentationError):
+        LOGGER.warning(
+            "Falling back to simplified SectorDataset due to import error",
+            exc_info=True,
+        )
+
+        @dataclass(slots=True, frozen=True)
+        class CoverageSummary:  # type: ignore[no-redef]
+            calendar_name: str
+            sector_expected_days: int
+            factor_expected_days: int
+            sector_coverage: Mapping[str, float]
+            factor_coverage: Mapping[str, float]
+
+        @dataclass(slots=True, frozen=True)
+        class SectorDataset:  # type: ignore[no-redef]
+            sector_returns: pl.DataFrame
+            factor_returns: pl.DataFrame
+            coverage: CoverageSummary
 
     def _read_frame(path: Path) -> pl.DataFrame:
         if path.suffix == ".parquet":
@@ -1372,7 +3404,14 @@ def _run_benchmark_strategy(
     benchmark_strategy = strategy_class(**strategy_params)
 
     # Patch backtester to use custom strategy
-    original_compute_weights = backtester._compute_target_weights
+    ComputeWeightsMethod = Callable[
+        [str, datetime, SectorDataset, list[str], dict[str, object]],
+        dict[str, float],
+    ]
+    original_compute_weights = cast(
+        ComputeWeightsMethod,
+        backtester._compute_target_weights,
+    )
 
     def custom_compute_weights(
         self: FactorBacktester,
@@ -1386,7 +3425,11 @@ def _run_benchmark_strategy(
         weights: dict[str, float] = benchmark_strategy.compute_weights(date, dataset)
         return weights
 
-    backtester._compute_target_weights = MethodType(custom_compute_weights, backtester)  # type: ignore[method-assign]
+    patched_compute_weights = cast(
+        ComputeWeightsMethod,
+        MethodType(custom_compute_weights, backtester),
+    )
+    setattr(backtester, "_compute_target_weights", patched_compute_weights)
 
     try:
         result = backtester.run_backtest(
@@ -1399,7 +3442,7 @@ def _run_benchmark_strategy(
         return result
     finally:
         # Restore original method
-        backtester._compute_target_weights = original_compute_weights  # type: ignore[method-assign]
+        setattr(backtester, "_compute_target_weights", original_compute_weights)
 
 
 def _build_regime_resolver(
@@ -1410,7 +3453,7 @@ def _build_regime_resolver(
         comparison_date = date.astimezone(UTC) if date.tzinfo is not None else date.replace(tzinfo=UTC)
         for regime in regimes:
             if regime.start <= comparison_date <= regime.end:
-                return regime.name
+                return str(regime.name)
         return None
 
     return resolver
@@ -1420,8 +3463,17 @@ def _build_regime_resolver(
 
 __all__ = [
     "BacktestSuite",
+    "LiquidityMitigationResult",
+    "LiquidityMitigationScenario",
+    "WalkForwardBacktestResult",
+    "get_default_liquidity_mitigation_scenarios",
+    "get_liquidity_mitigation_scenarios",
     "run_full_backtest_suite",
+    "run_liquidity_mitigation_experiments",
+    "run_walk_forward_backtest_suite",
 ]
+
+
 @dataclass(slots=True)
 class FactorAttribution:
     """Summary of factor attribution for a strategy."""

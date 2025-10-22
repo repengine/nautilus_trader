@@ -59,6 +59,8 @@ Validation:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -69,7 +71,6 @@ import structlog
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from playground.backtest.regime_analysis import MarketRegime
 
 
@@ -384,6 +385,69 @@ def define_train_test_split(
 # ===== Walk-Forward Analysis =====
 
 
+@dataclass(slots=True, frozen=True)
+class WalkForwardConfig:
+    """
+    Configuration for generating walk-forward train/test splits.
+
+    Attributes
+    ----------
+    start_date : datetime
+        Earliest observation included in the first training window.
+    end_date : datetime
+        Latest observation permitted in the final testing window.
+    train_years : int
+        Length of each training window in calendar years.
+    test_years : int
+        Length of each testing window in calendar years.
+    step_years : int
+        Number of years to shift forward between folds.
+    """
+
+    start_date: datetime
+    end_date: datetime
+    train_years: int = 5
+    test_years: int = 1
+    step_years: int = 1
+
+    def __post_init__(self) -> None:
+        """Validate configuration on initialization."""
+        start = self.start_date
+        end = self.end_date
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        if end <= start:
+            msg = "end_date must be after start_date for walk-forward configuration"
+            raise ValueError(msg)
+        if self.train_years <= 0:
+            msg = f"train_years must be positive, got {self.train_years}"
+            raise ValueError(msg)
+        if self.test_years <= 0:
+            msg = f"test_years must be positive, got {self.test_years}"
+            raise ValueError(msg)
+        if self.step_years <= 0:
+            msg = f"step_years must be positive, got {self.step_years}"
+            raise ValueError(msg)
+        object.__setattr__(self, "start_date", start)
+        object.__setattr__(self, "end_date", end)
+
+    def to_splits(self) -> list[TrainTestSplit]:
+        """Materialize all walk-forward splits for this configuration."""
+        return walk_forward_splits(
+            start_date=self.start_date,
+            end_date=self.end_date,
+            train_years=self.train_years,
+            test_years=self.test_years,
+            step_years=self.step_years,
+        )
+
+    def iter_splits(self) -> Iterator[TrainTestSplit]:
+        """Yield splits lazily without materialising the entire collection."""
+        yield from self.to_splits()
+
+
 def walk_forward_splits(
     start_date: datetime,
     end_date: datetime,
@@ -556,6 +620,40 @@ def walk_forward_splits(
     return splits
 
 
+def generate_walk_forward_splits(config: WalkForwardConfig) -> list[TrainTestSplit]:
+    """
+    Convenience wrapper around :meth:`WalkForwardConfig.to_splits`.
+
+    Parameters
+    ----------
+    config : WalkForwardConfig
+        Configuration describing the rolling windows.
+
+    Returns
+    -------
+    list[TrainTestSplit]
+        Materialised splits.
+    """
+    return config.to_splits()
+
+
+def iter_walk_forward_splits(config: WalkForwardConfig) -> Iterator[TrainTestSplit]:
+    """
+    Lazily iterate over walk-forward splits.
+
+    Parameters
+    ----------
+    config : WalkForwardConfig
+        Configuration describing the rolling windows.
+
+    Yields
+    ------
+    TrainTestSplit
+        Train/test split for each fold.
+    """
+    yield from config.iter_splits()
+
+
 # ===== Validation Functions =====
 
 
@@ -713,7 +811,7 @@ def validate_sufficient_training_data(
 
 
 def build_regime_aligned_split(
-    regime: "MarketRegime",
+    regime: MarketRegime,
     *,
     train_years: int = 5,
     buffer_days: int = 1,
@@ -813,9 +911,12 @@ def build_phase3_regime_splits(
 
 __all__ = [
     "TrainTestSplit",
-    "define_train_test_split",
+    "WalkForwardConfig",
     "build_phase3_regime_splits",
     "build_regime_aligned_split",
+    "define_train_test_split",
+    "generate_walk_forward_splits",
+    "iter_walk_forward_splits",
     "validate_no_lookahead",
     "validate_splits_disjoint",
     "validate_sufficient_training_data",

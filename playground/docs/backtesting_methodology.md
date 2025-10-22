@@ -1,9 +1,9 @@
 # Backtesting Methodology for 3D Factor Risk Model
 
-**Version:** 1.0
-**Date:** October 8, 2025
+**Version:** 1.1
+**Date:** October 15, 2025
 **Phase:** 3.2.1 - Train/Test Split Design
-**Status:** Implementation Complete
+**Status:** Implementation Complete (walk-forward orchestration delivered)
 
 ---
 
@@ -624,7 +624,7 @@ Fold 10: Train [2019-2023] → Test [2024]
 
 **Python Implementation:**
 ```python
-splits = walk_forward_splits(
+config = WalkForwardConfig(
     start_date=datetime(2010, 1, 1, tzinfo=UTC),
     end_date=datetime(2024, 12, 31, tzinfo=UTC),
     train_years=5,
@@ -632,32 +632,33 @@ splits = walk_forward_splits(
     step_years=1,
 )
 
-results = []
-for i, split in enumerate(splits, 1):
-    print(f"Fold {i}: Train {split.train_start.year}-{split.train_end.year}, "
-          f"Test {split.test_start.year}")
+walk_forward = run_walk_forward_backtest_suite(
+    dataset_path=Path("playground/data/sector_dataset"),
+    output_dir=Path("playground/reports/backtesting"),
+    walk_forward_config=config,
+)
 
-    # Estimate factor parameters on THIS FOLD'S training data
-    factor_params = estimate_factor_parameters(
-        data=dataset.sector_returns.filter(
-            (pl.col("timestamp") >= split.train_start) &
-            (pl.col("timestamp") <= split.train_end)
-        )
-    )
+# Aggregate results across all folds (test-period metrics)
+aggregate = walk_forward.aggregate_metrics()
+summary = walk_forward.summarize_metrics()
 
-    # Run backtest on THIS FOLD'S testing data
-    result = backtester.run_backtest(
-        dataset=dataset,
-        split=split,
-        factor_params=factor_params,
-    )
+print(summary)
+# ┌──────────────┬───────────┬──────────────┬─────────────────────┬─────────────────────┐
+# │ strategy     ┆ num_folds ┆ sharpe_ratio ┆ annualized_return   ┆ annualized_volatility │
+# │ ---          ┆ ---       ┆ ---          ┆ ---                 ┆ ---                 │
+# │ str          ┆ i64       ┆ f64          ┆ f64                 ┆ f64                 │
+# ╞══════════════╪═══════════╪══════════════╪═════════════════════╪═════════════════════╡
+# │ Equal Weight ┆ 10        ┆ 0.71 ± 0.05  ┆ 0.153               ┆ 0.203               │
+# │ ...          ┆ ...       ┆ ...          ┆ ...                 ┆ ...                 │
+# └──────────────┴───────────┴──────────────┴─────────────────────┴─────────────────────┘
 
-    results.append(result)
+# Persist CSV summaries (done automatically by run_walk_forward_backtest_suite)
+walk_forward.write_summaries(Path("playground/reports/backtesting/walk_forward"))
 
-# Aggregate results across all folds
-mean_sharpe = np.mean([r.sharpe_ratio for r in results])
-std_sharpe = np.std([r.sharpe_ratio for r in results])
-print(f"Walk-Forward Sharpe: {mean_sharpe:.3f} ± {std_sharpe:.3f}")
+# Per-fold artefacts stored at:
+# playground/reports/backtesting/walk_forward/fold_01/
+# playground/reports/backtesting/walk_forward/fold_02/
+# ...
 ```
 
 ### 5.3 Advantages
@@ -994,6 +995,22 @@ class BacktestConfig:
     min_beta_observations: int = 200
 ```
 
+All Phase 3 scripts pull their baseline knobs from
+`ml.config.playground.ThreeDRiskBacktestDefaults`. The defaults object exposes
+risk-free rates, turnover smoothing overrides, liquidity scaling thresholds, and
+split-validation tolerances; the backtest runner, sensitivity utilities, and CLI
+entrypoints import it directly so changes propagate through every workflow.
+
+Walk-forward exports write a companion `metadata.json`, and the Phase 3 visuals
+script renders a `walk_forward_metadata.txt` summary so nightly reports surface
+the exact defaults each run used.
+Monitoring helpers in `playground/backtest/monitoring.py` load the metadata file
+and emit structlog warnings when the recorded configuration drifts from
+`ThreeDRiskBacktestDefaults`, enabling dashboards/alerting layers to hook into
+logged anomalies without bespoke parsing.
+For scheduled checks, invoke `poetry run python -m playground.scripts.check_walk_forward_metadata`
+to perform the validation and return a non-zero exit code when drift is detected.
+
 ### 7.3 Execution Workflow
 
 **Standard Backtest Execution:**
@@ -1225,6 +1242,23 @@ def test_full_backtest_no_lookahead():
     assert all(d >= split.test_start for d in result.dates)
     assert all(d <= split.test_end for d in result.dates)
 ```
+
+### 8.3 Monte Carlo Stress Testing
+
+Phase 3 validation now includes a Monte Carlo stress harness that randomises regime
+sequences and applies configurable macro overlays. The runner persists both the
+per-path distribution and aggregated summary statistics under
+``playground/reports/backtesting/stress/monte_carlo``. Invoke the sweep via:
+
+```bash
+poetry run python -m playground.scripts.run_phase3_walk_forward --monte-carlo-stress
+```
+
+Core diagnostics recorded for each simulation path encompass Sharpe ratio
+distributions, drawdown extremes, terminal value, and overlay activations. Tunable
+shock parameters remain centralised under
+``ThreeDRiskBacktestDefaults().monte_carlo_stress`` to preserve config-driven
+behaviour.
 
 ### 8.3 Manual Validation Checklist
 
