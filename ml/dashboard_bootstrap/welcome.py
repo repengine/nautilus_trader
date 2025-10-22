@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import logging
 import textwrap
 import time
 from collections.abc import Iterable
@@ -12,6 +12,9 @@ from typing import Literal
 
 import requests
 from requests import Response
+
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 
 
 ServiceKind = Literal["service", "dependency", "dashboard"]
@@ -28,6 +31,11 @@ DEFAULT_SERVICES: tuple[str, ...] = (
     "grafana",
     "ml_dashboard",
 )
+
+
+logger = logging.getLogger(__name__)
+
+COMMAND_RUNNER = run_command
 
 
 @dataclass(slots=True, frozen=True)
@@ -69,22 +77,39 @@ def start_services(
     compose_file: str = DEFAULT_COMPOSE_FILE,
     services: Sequence[str] = DEFAULT_SERVICES,
     detach: bool = True,
+    timeout: float | None = None,
 ) -> None:
     """Invoke docker compose to start the dashboard stack."""
+    invalid_services = [svc for svc in services if not svc or svc.strip() != svc or " " in svc]
+    if invalid_services:
+        raise DashboardBootstrapError(f"Invalid service names: {invalid_services}")
     command = ["docker", "compose", "-f", compose_file, "up"]
     if detach:
         command.append("-d")
     command.extend(services)
 
     try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:  # pragma: no cover - environment dependent
+        COMMAND_RUNNER(
+            command,
+            timeout=timeout,
+            log=logger,
+        )
+    except SubprocessExecutionError as exc:
+        if exc.returncode == -1:
+            raise DashboardBootstrapError(
+                "docker compose not found; ensure Docker is installed and available",
+            ) from exc
+        stderr_text = exc.stderr
+        if isinstance(stderr_text, bytes):
+            stderr_text = stderr_text.decode("utf-8", errors="ignore")
+        logger.warning(
+            "docker compose failed returncode=%s command=%s",
+            exc.returncode,
+            command,
+            exc_info=True,
+        )
         raise DashboardBootstrapError(
-            "docker compose not found; ensure Docker is installed and available",
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        raise DashboardBootstrapError(
-            f"docker compose failed with exit code {exc.returncode}: {exc.stderr.decode().strip()}",
+            f"docker compose failed with exit code {exc.returncode}: {str(stderr_text).strip()}",
         ) from exc
 
 

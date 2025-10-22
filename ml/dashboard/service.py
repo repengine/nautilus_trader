@@ -18,6 +18,7 @@ import time
 from collections.abc import Callable
 from collections.abc import Coroutine
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
@@ -30,6 +31,7 @@ from urllib.parse import urljoin
 import requests
 from sqlalchemy.engine import Engine
 
+from ml import _imports as ml_imports
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.message_bus import publisher_from_config
@@ -40,6 +42,9 @@ from ml.common.retry_utils import retry_with_backoff
 from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
 from ml.config.events import Stage
+from ml.consumers.streaming_training import FileBackedStreamingTrainingStateStore
+from ml.consumers.streaming_training import ObservabilitySink
+from ml.consumers.streaming_training import StreamingTrainingConsumer
 from ml.core.db_engine import EngineManager
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.controllers import ComposeServiceController
@@ -61,6 +66,7 @@ from ml.dashboard.services import PipelineProgress
 from ml.dashboard.services import PipelineTriggerRequest
 from ml.dashboard.store_health import StoreHealthSummary
 from ml.dashboard.store_health import summarize_all_stores
+from ml.observability.service import ObservabilityService
 from ml.registry import BackendType
 from ml.registry import DataRegistry
 from ml.registry import DatasetLineageRecord
@@ -81,6 +87,35 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _ObservabilityAdapter:
+    service: ObservabilityService
+
+    def add_metric(
+        self,
+        *,
+        metric_name: str,
+        metric_type: str,
+        value: float,
+        timestamp: int,
+        labels: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
+    ) -> None:
+        normalized: dict[str, Any]
+        if labels is None:
+            normalized = {}
+        elif isinstance(labels, Mapping):
+            normalized = {str(key): val for key, val in labels.items()}
+        else:
+            normalized = {str(key): val for key, val in labels}
+        self.service.add_metric(
+            metric_name=metric_name,
+            metric_type=metric_type,
+            value=value,
+            timestamp=timestamp,
+            labels=normalized,
+        )
 
 
 _REQS_TOTAL = get_counter(
@@ -359,6 +394,13 @@ class DashboardService:
     _pipeline_integration_manager: MLIntegrationManager | None = field(
         default=None, init=False, repr=False
     )
+    _streaming_monitor: StreamingTrainingConsumer | None = field(
+        default=None, init=False, repr=False
+    )
+    _observability_sink: ObservabilitySink | None = field(default=None, init=False, repr=False)
+    _streaming_state_store: FileBackedStreamingTrainingStateStore | None = field(
+        default=None, init=False, repr=False
+    )
 
     @classmethod
     def from_config(cls, config: DashboardConfig) -> DashboardService:
@@ -408,6 +450,9 @@ class DashboardService:
         self._last_orchestrator: MLPipelineOrchestrator | None = None
         self._pipeline_service = None
         self._pipeline_integration_manager = None
+        self._streaming_monitor = None
+        self._observability_sink = None
+        self._streaming_state_store = None
 
     # -----------------
     # Health & metadata
@@ -588,6 +633,248 @@ class DashboardService:
         self._get_pipeline_service()
         return self._pipeline_integration_manager
 
+    def _get_observability_sink(self) -> ObservabilitySink | None:
+        if self._observability_sink is not None:
+            return self._observability_sink
+        try:
+            adapter = _ObservabilityAdapter(ObservabilityService())
+        except Exception:
+            logger.debug("observability service init failed", exc_info=True)
+            self._observability_sink = None
+            return None
+        self._observability_sink = adapter
+        return self._observability_sink
+
+    def _ensure_streaming_monitor(self) -> StreamingTrainingConsumer | None:
+        if self._streaming_monitor is not None:
+            return self._streaming_monitor
+        try:
+            store = FileBackedStreamingTrainingStateStore(self.config.streaming_state_path)
+        except Exception:
+            logger.debug(
+                "streaming training state store initialization failed",
+                extra={"path": str(self.config.streaming_state_path)},
+                exc_info=True,
+            )
+            self._streaming_state_store = None
+            self._streaming_monitor = None
+            return None
+        self._streaming_state_store = store
+        self._streaming_monitor = StreamingTrainingConsumer(
+            state_store=store,
+            observability=self._get_observability_sink(),
+        )
+        return self._streaming_monitor
+
+    def _process_streaming_event(self, topic: str, payload: dict[str, Any]) -> None:
+        monitor = self._ensure_streaming_monitor()
+        if monitor is None:
+            return
+        try:
+            monitor.handle(topic, payload)
+        except Exception:
+            logger.debug(
+                "streaming training monitor failed to process event",
+                extra={"topic": topic, "payload_type": payload.get("payload_type")},
+                exc_info=True,
+            )
+
+    def get_streaming_training_state(self) -> dict[str, Any]:
+        """
+        Return the current streaming training monitor state.
+        """
+        monitor = self._ensure_streaming_monitor()
+        store = self._streaming_state_store
+        if store is None or monitor is None:
+            return {
+                "enabled": False,
+                "path": str(self.config.streaming_state_path),
+                "outstanding_plan_ids": [],
+                "plans": {},
+                "results": {},
+                "heartbeats": {},
+                "datasets": {},
+            }
+        snapshot = store.snapshot()
+        plans = snapshot.get("plans", {})
+        results = snapshot.get("results", {})
+        heartbeats = snapshot.get("heartbeats", {})
+
+        def _maybe_parse_iso(value: object) -> datetime | None:
+            if not isinstance(value, str):
+                return None
+            text = value.strip()
+            if not text:
+                return None
+            normalized = text.replace("Z", "+00:00") if text.endswith("Z") else text
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError:
+                return None
+
+        datasets_map: dict[str, list[str]] = {}
+        if isinstance(plans, Mapping):
+            for plan_id, plan_payload in plans.items():
+                if not isinstance(plan_payload, Mapping):
+                    continue
+                dataset_id = str(plan_payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                datasets_map.setdefault(dataset_id, []).append(str(plan_id))
+        dataset_ids: set[str] = set(datasets_map.keys())
+        if isinstance(results, Mapping):
+            for result_payload in results.values():
+                if not isinstance(result_payload, Mapping):
+                    continue
+                dataset_id = str(result_payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                dataset_ids.add(dataset_id)
+        if isinstance(heartbeats, Mapping):
+            for heartbeat_payload in heartbeats.values():
+                if not isinstance(heartbeat_payload, Mapping):
+                    continue
+                dataset_id = str(heartbeat_payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                dataset_ids.add(dataset_id)
+
+        outstanding_plan_ids = tuple(store.outstanding_plan_ids())
+        outstanding_lookup = set(outstanding_plan_ids)
+        dataset_details: dict[str, dict[str, Any]] = {}
+
+        def _latest_plan(dataset_id: str, plan_ids: Sequence[str]) -> dict[str, Any] | None:
+            latest_entry: dict[str, Any] | None = None
+            latest_timestamp: datetime | None = None
+            if not isinstance(plans, Mapping):
+                return None
+            for plan_id in plan_ids:
+                payload = plans.get(plan_id)
+                if not isinstance(payload, Mapping):
+                    continue
+                payload_dataset = str(payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                if payload_dataset != dataset_id:
+                    continue
+                created_at_str = str(payload.get("created_at", "")).strip()
+                created_at = _maybe_parse_iso(created_at_str)
+                if latest_timestamp is None or (
+                    created_at is not None and (latest_timestamp is None or created_at > latest_timestamp)
+                ):
+                    latest_timestamp = created_at
+                    latest_entry = {
+                        "plan_id": plan_id,
+                        "status": payload.get("status"),
+                        "created_at": created_at_str,
+                    }
+            return latest_entry
+
+        def _latest_result(dataset_id: str) -> dict[str, Any] | None:
+            latest_entry: dict[str, Any] | None = None
+            latest_timestamp: datetime | None = None
+            if not isinstance(results, Mapping):
+                return None
+            for payload in results.values():
+                if not isinstance(payload, Mapping):
+                    continue
+                payload_dataset = str(payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                if payload_dataset != dataset_id:
+                    continue
+                completed_at_str = str(payload.get("completed_at", "")).strip()
+                completed_at = _maybe_parse_iso(completed_at_str)
+                if latest_timestamp is None or (
+                    completed_at is not None and (latest_timestamp is None or completed_at > latest_timestamp)
+                ):
+                    latest_timestamp = completed_at
+                    telemetry_payload = payload.get("telemetry", {})
+                    if isinstance(telemetry_payload, Mapping):
+                        telemetry_dict = dict(telemetry_payload)
+                    else:
+                        telemetry_dict = {}
+                    resources_payload: dict[str, Any] = {}
+                    if telemetry_dict:
+                        resources_raw = telemetry_dict.get("resources", {})
+                        if isinstance(resources_raw, Mapping):
+                            resources_payload = {str(key): value for key, value in resources_raw.items()}
+                    metrics_payload = payload.get("metrics", {})
+                    metrics_dict = dict(metrics_payload) if isinstance(metrics_payload, Mapping) else {}
+                    artifacts_payload = payload.get("artifact_paths", {})
+                    artifacts_dict = dict(artifacts_payload) if isinstance(artifacts_payload, Mapping) else {}
+                    latest_entry = {
+                        "plan_id": str(payload.get("plan_id", "")),
+                        "status": payload.get("status"),
+                        "completed_at": completed_at_str,
+                        "model_id": payload.get("model_id"),
+                        "metrics": metrics_dict,
+                        "artifact_paths": artifacts_dict,
+                        "telemetry": telemetry_dict,
+                        "resources": resources_payload,
+                    }
+            return latest_entry
+
+        def _workers_for_dataset(dataset_id: str) -> tuple[list[dict[str, Any]], int]:
+            worker_entries: list[dict[str, Any]] = []
+            worker_ids: set[str] = set()
+            if not isinstance(heartbeats, Mapping):
+                return worker_entries, 0
+            for payload in heartbeats.values():
+                if not isinstance(payload, Mapping):
+                    continue
+                payload_dataset = str(payload.get("dataset_id", "UNKNOWN")).strip() or "UNKNOWN"
+                if payload_dataset != dataset_id:
+                    continue
+                worker_id = str(payload.get("worker_id", "")).strip()
+                worker_ids.add(worker_id)
+                worker_entries.append(
+                    {
+                        "worker_id": worker_id,
+                        "plan_id": str(payload.get("plan_id", "")),
+                        "progress_pct": float(payload.get("progress_pct", 0.0) or 0.0),
+                        "rss_mb": float(payload.get("rss_mb", 0.0) or 0.0),
+                        "timestamp": str(payload.get("timestamp", "")),
+                    },
+                )
+            worker_entries.sort(key=lambda entry: entry["timestamp"], reverse=True)
+            return worker_entries, len({wid for wid in worker_ids if wid})
+
+        for dataset_id in dataset_ids:
+            plan_ids = datasets_map.get(dataset_id, [])
+            outstanding_for_dataset = [
+                plan_id for plan_id in plan_ids if plan_id in outstanding_lookup
+            ]
+            latest_plan = _latest_plan(dataset_id, plan_ids)
+            latest_result = _latest_result(dataset_id)
+            workers, worker_count = _workers_for_dataset(dataset_id)
+            dataset_details[dataset_id] = {
+                "plan_ids": list(plan_ids),
+                "plan_count": len(plan_ids),
+                "outstanding_plan_ids": outstanding_for_dataset,
+                "outstanding_count": len(outstanding_for_dataset),
+                "latest_plan": latest_plan,
+                "latest_result": latest_result,
+                "worker_count": worker_count,
+                "workers": workers,
+            }
+
+        datasets_simple = {
+            dataset_id: sorted(plan_ids) for dataset_id, plan_ids in datasets_map.items()
+        }
+        for dataset_id in dataset_ids:
+            datasets_simple.setdefault(dataset_id, [])
+
+        summary = {
+            "dataset_count": len(dataset_details),
+            "total_outstanding": len(outstanding_plan_ids),
+            "total_workers": sum(detail["worker_count"] for detail in dataset_details.values()),
+            "datasets_with_backlog": sum(
+                1 for detail in dataset_details.values() if detail["outstanding_count"] > 0
+            ),
+        }
+        return {
+            "enabled": True,
+            "path": str(self.config.streaming_state_path),
+            "outstanding_plan_ids": list(outstanding_plan_ids),
+            "plans": plans,
+            "results": results,
+            "heartbeats": heartbeats,
+            "datasets": datasets_simple,
+            "dataset_details": dataset_details,
+            "summary": summary,
+        }
+
     @staticmethod
     def _serialize_job_state(job_state: PipelineJobState) -> dict[str, Any]:
         return {
@@ -681,10 +968,11 @@ class DashboardService:
         cfg = MessageBusConfig.from_env()
         if not cfg.enabled or cfg.backend != "redis":
             raise RuntimeError("events_disabled")
+        redis_module = ml_imports.redis
+        if not ml_imports.HAS_REDIS or redis_module is None:
+            raise RuntimeError("events_disabled")
         try:
-            import redis
-
-            client: Any = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+            client: Any = redis_module.Redis.from_url(cfg.redis_url, decode_responses=True)
             rows: list[tuple[str, dict[str, str]]] = client.xrevrange(
                 cfg.redis_stream,
                 count=max(1, int(limit)),
@@ -702,6 +990,14 @@ class DashboardService:
                 payload = json.loads(payload_raw)
             except Exception:
                 payload = {"raw": payload_raw}
+            try:
+                self._process_streaming_event(topic, payload)
+            except Exception:
+                logger.debug(
+                    "dashboard failed to process streaming bus event",
+                    extra={"topic": topic},
+                    exc_info=True,
+                )
             events.append({"id": entry_id, "topic": topic, "payload": payload})
         return events
 
@@ -1297,7 +1593,15 @@ class DashboardService:
                 },
             )
         except Exception:
-            pass
+            logger.debug(
+                "Feature promotion event publish failed",
+                extra={
+                    "feature_set_id": feature_set_id,
+                    "action": "promote",
+                    "stage": new_stage,
+                },
+                exc_info=True,
+            )
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id, "stage": new_stage}
@@ -1333,7 +1637,14 @@ class DashboardService:
                 },
             )
         except Exception:
-            pass
+            logger.debug(
+                "Feature deprecation event publish failed",
+                extra={
+                    "feature_set_id": feature_set_id,
+                    "action": "deprecate",
+                },
+                exc_info=True,
+            )
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id}

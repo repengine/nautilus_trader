@@ -534,6 +534,92 @@
         transition: width 0.3s ease;
       }
 
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+
+      .summary-item {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .summary-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .summary-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .table-container {
+        overflow-x: auto;
+      }
+
+      .streaming-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .streaming-table th,
+      .streaming-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .streaming-table tbody tr:hover {
+        background: var(--bg-tertiary);
+      }
+
+      .streaming-row-warning {
+        background: rgba(255, 193, 7, 0.12);
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
+
+      .text-subtle {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+
+      .summary-value.ok {
+        color: var(--text-primary);
+      }
+
+      .summary-value.warning {
+        color: var(--warning);
+      }
+
+      .summary-value.critical {
+        color: var(--danger);
+      }
+
+      .streaming-row-critical {
+        background: rgba(220, 53, 69, 0.12);
+      }
+
       /* Notifications */
       .notification {
         position: fixed;
@@ -694,6 +780,55 @@
           </div>
           <div class="card-body" id="featuresContainer">
             <div class="skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Streaming Training Card -->
+        <div class="card" id="streamingCard">
+          <div class="card-header">
+            <h3 class="card-title">
+              <span>🛰️</span> Streaming Training
+            </h3>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="store-badge" id="streamingStatusBadge">Disabled</span>
+              <button class="btn btn-icon" onclick="refreshStreamingState()" title="Refresh">
+                🔄
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="summary-value" id="streamingDatasets">0</div>
+                <div class="summary-label">datasets</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="streamingBacklog">0</div>
+                <div class="summary-label">outstanding plans</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="streamingWorkers">0</div>
+                <div class="summary-label">active workers</div>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="streaming-table">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Outstanding</th>
+                    <th>Workers</th>
+                    <th>Latest Plan</th>
+                    <th>Latest Result</th>
+                  </tr>
+                </thead>
+                <tbody id="streamingDatasetTableBody">
+                  <tr>
+                    <td colspan="5" class="text-subtle">Streaming state not yet available.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -936,10 +1071,16 @@
             </div>
           </div>
         </div>
-      </div>
     </div>
+  </div>
 
-    <script>
+  <script>
+      const STREAMING_THRESHOLDS = {
+        backlogWarning: 4,
+        backlogCritical: 8,
+        workerExpected: 1
+      };
+
       // Theme Management
       function initTheme() {
         const savedTheme = localStorage.getItem('theme') || 'light';
@@ -1307,6 +1448,190 @@
         `).join('');
       }
 
+      function formatRelativeTimestamp(value) {
+        if (!value) {
+          return '—';
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return value;
+        }
+        const diffMs = Date.now() - parsed.getTime();
+        if (diffMs < 0) {
+          return parsed.toLocaleTimeString();
+        }
+        const seconds = Math.floor(diffMs / 1000);
+        if (seconds < 1) {
+          return 'just now';
+        }
+        if (seconds < 60) {
+          return `${seconds}s ago`;
+        }
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) {
+          return `${minutes}m ago`;
+        }
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) {
+          return `${hours}h ago`;
+        }
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+      }
+
+      function renderWorkerDetails(workers) {
+        if (!Array.isArray(workers) || workers.length === 0) {
+          return '<span class="text-subtle">None</span>';
+        }
+        return workers
+          .map(worker => {
+            const workerId = worker.worker_id || '—';
+            const progress = Number.isFinite(worker.progress_pct)
+              ? Math.round(worker.progress_pct)
+              : 0;
+            return `<div class="text-subtle">${workerId} · ${progress}%</div>`;
+          })
+          .join('');
+      }
+
+      function updateSummaryValue(element, value, status) {
+        if (!element) {
+          return;
+        }
+        element.textContent = String(value);
+        element.classList.remove('ok', 'warning', 'critical');
+        const statusClass = status === 'critical' ? 'critical' : status === 'warning' ? 'warning' : 'ok';
+        element.classList.add(statusClass);
+      }
+
+      async function refreshStreamingState() {
+        const tableBody = document.getElementById('streamingDatasetTableBody');
+        const badge = document.getElementById('streamingStatusBadge');
+        const datasetsValue = document.getElementById('streamingDatasets');
+        const backlogValue = document.getElementById('streamingBacklog');
+        const workersValue = document.getElementById('streamingWorkers');
+
+        if (!tableBody || !badge || !datasetsValue || !backlogValue || !workersValue) {
+          return;
+        }
+
+        const state = await fetchAPI('/api/training/streaming/state');
+
+        if (!state || state.enabled !== true) {
+          badge.textContent = 'Disabled';
+          badge.style.background = 'var(--danger-bg)';
+          badge.style.color = 'var(--danger)';
+          updateSummaryValue(datasetsValue, 0, 'ok');
+          updateSummaryValue(backlogValue, 0, 'ok');
+          updateSummaryValue(workersValue, 0, 'critical');
+          tableBody.innerHTML = '<tr><td colspan="5" class="text-subtle">Streaming persistence disabled or no snapshot available.</td></tr>';
+          return;
+        }
+
+        badge.textContent = 'Active';
+        badge.style.background = 'var(--success-bg)';
+        badge.style.color = 'var(--success)';
+
+        const summary = state.summary || {};
+        const datasetDetails = state.dataset_details || {};
+        const datasetEntries = Object.entries(datasetDetails).sort((a, b) => a[0].localeCompare(b[0]));
+
+        const datasetCount = summary.dataset_count ?? datasetEntries.length;
+        const totalBacklog = summary.total_outstanding ?? 0;
+        const totalWorkers = summary.total_workers ?? 0;
+        const expectedWorkers = summary.expected_workers ?? STREAMING_THRESHOLDS.workerExpected;
+
+        const backlogStatus = totalBacklog >= STREAMING_THRESHOLDS.backlogCritical
+          ? 'critical'
+          : totalBacklog >= STREAMING_THRESHOLDS.backlogWarning
+            ? 'warning'
+            : 'ok';
+        const workerStatus = totalWorkers <= 0
+          ? 'critical'
+          : totalWorkers < expectedWorkers
+            ? 'warning'
+            : 'ok';
+
+        updateSummaryValue(datasetsValue, datasetCount, 'ok');
+        updateSummaryValue(backlogValue, totalBacklog, backlogStatus);
+        updateSummaryValue(workersValue, totalWorkers, workerStatus);
+
+        if (backlogStatus === 'critical') {
+          badge.textContent = 'Backlog Critical';
+          badge.style.background = 'var(--danger-bg)';
+          badge.style.color = 'var(--danger)';
+        } else if (backlogStatus === 'warning') {
+          badge.textContent = 'Backlog Warning';
+          badge.style.background = 'var(--warning-bg)';
+          badge.style.color = 'var(--warning)';
+        }
+
+        if (datasetEntries.length === 0) {
+          tableBody.innerHTML = '<tr><td colspan="5" class="text-subtle">No streaming datasets observed yet.</td></tr>';
+          return;
+        }
+
+        tableBody.innerHTML = datasetEntries.map(([datasetId, detail]) => {
+          const outstanding = Number(detail.outstanding_count ?? 0);
+          const workerCount = Number(detail.worker_count ?? 0);
+          const latestPlan = detail.latest_plan || null;
+          const latestResult = detail.latest_result || null;
+          const planIds = Array.isArray(detail.plan_ids) ? detail.plan_ids : [];
+          const outstandingIds = Array.isArray(detail.outstanding_plan_ids) ? detail.outstanding_plan_ids : [];
+          const planSummary = outstandingIds.length > 0
+            ? `Outstanding: ${outstandingIds.slice(0, 3).join(', ')}`
+            : (planIds.length > 0 ? `Plans: ${planIds.slice(0, 3).join(', ')}` : 'No plans yet');
+          const rowClassName = outstanding >= STREAMING_THRESHOLDS.backlogCritical
+            ? 'streaming-row-critical'
+            : outstanding > 0
+              ? 'streaming-row-warning'
+              : '';
+          const rowClass = rowClassName ? ` class="${rowClassName}"` : '';
+
+          const latestPlanContent = latestPlan
+            ? `<div><span class="status-pill">${latestPlan.status || 'unknown'}</span></div>
+               <div class="text-subtle" title="${latestPlan.created_at || ''}">
+                 ${formatRelativeTimestamp(latestPlan.created_at)}
+               </div>`
+            : '<span class="text-subtle">—</span>';
+
+          const latestResultContent = latestResult
+            ? `<div><span class="status-pill">${latestResult.status || 'unknown'}</span></div>
+               <div class="text-subtle" title="${latestResult.completed_at || ''}">
+                 ${formatRelativeTimestamp(latestResult.completed_at)}
+               </div>`
+            : '<span class="text-subtle">—</span>';
+
+          let outstandingColor = 'var(--text-secondary)';
+          let outstandingBg = 'var(--bg-tertiary)';
+          if (outstanding >= STREAMING_THRESHOLDS.backlogCritical) {
+            outstandingColor = 'var(--danger)';
+            outstandingBg = 'var(--danger-bg)';
+          } else if (outstanding > 0) {
+            outstandingColor = 'var(--warning)';
+            outstandingBg = 'var(--warning-bg)';
+          }
+          const outstandingPill = `<span class="status-pill" style="background: ${outstandingBg}; color: ${outstandingColor};">${outstanding}</span>`;
+
+          const workersContent = workerCount > 0
+            ? `<div><span class="status-pill">${workerCount} active</span></div>${renderWorkerDetails(detail.workers)}`
+            : '<span class="text-subtle">None</span>';
+
+          return `
+            <tr${rowClass}>
+              <td>
+                <strong>${datasetId}</strong>
+                <div class="text-subtle">${planSummary}</div>
+              </td>
+              <td>${outstandingPill}</td>
+              <td>${workersContent}</td>
+              <td>${latestPlanContent}</td>
+              <td>${latestResultContent}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
       // Pipeline Tab Management
       function switchPipelineTab(tabName) {
         // Hide all tabs
@@ -1466,12 +1791,14 @@
         refreshModels();
         refreshFeatures();
         refreshEvents();
+        refreshStreamingState();
 
         // Set up intervals
         setInterval(refreshServices, 15000);
         setInterval(refreshMetrics, 10000);
         setInterval(refreshStores, 30000);
         setInterval(refreshEvents, 5000);
+        setInterval(refreshStreamingState, 7000);
       }
 
       // Initialize

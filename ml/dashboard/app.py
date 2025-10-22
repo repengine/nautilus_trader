@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from flask import Flask
 from flask import jsonify
@@ -110,11 +110,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
         res = svc.trigger_pipeline(pipeline_type, config_dict)
         status_token = str(res.get("status", "ERROR")).upper()
-        if status_token == "QUEUED" and res.get("success"):
+        if status_token == PIPELINE_STATUS_QUEUED and res.get("success"):
             status_code = 202
-        elif status_token == "UNAVAILABLE":
+        elif status_token == PIPELINE_STATUS_UNAVAILABLE:
             status_code = 503
-        elif status_token == "INVALID":
+        elif status_token == PIPELINE_STATUS_INVALID:
             status_code = 400
         elif res.get("success"):
             status_code = 202
@@ -148,6 +148,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         status = res.get("status", "error")
         code = _status_to_http(status)
         return jsonify(res), code
+
+    @app.get("/api/training/streaming/state")
+    def streaming_training_state() -> tuple[Any, int]:
+        data = svc.get_streaming_training_state()
+        return jsonify(data), 200
 
     @app.post("/api/orchestrator/<task>")
     def orchestrator_task(task: str) -> tuple[Any, int]:
@@ -373,7 +378,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
             pipeline_type,
             config_dict,
             job_id=str(pipeline_result.get("job_id")) if pipeline_result.get("job_id") else None,
-            status=str(pipeline_result.get("status", "QUEUED")).lower(),
+            status=str(pipeline_result.get("status", PIPELINE_STATUS_QUEUED)).lower(),
         )
 
         response_payload = {
@@ -383,11 +388,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         }
 
         status_token = str(pipeline_result.get("status", "ERROR")).upper()
-        if status_token == "QUEUED" and pipeline_result.get("success"):
+        if status_token == PIPELINE_STATUS_QUEUED and pipeline_result.get("success"):
             status_code = 202
-        elif status_token == "UNAVAILABLE":
+        elif status_token == PIPELINE_STATUS_UNAVAILABLE:
             status_code = 503
-        elif status_token == "INVALID":
+        elif status_token == PIPELINE_STATUS_INVALID:
             status_code = 400
         elif pipeline_result.get("success"):
             status_code = 202
@@ -975,11 +980,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
         res = svc.build_dataset_pipeline(config=payload)
         status = res.get("status", "ERROR").upper()
-        if status == "QUEUED" and res.get("success"):
+        if status == PIPELINE_STATUS_QUEUED and res.get("success"):
             code = 202
-        elif status == "UNAVAILABLE":
+        elif status == PIPELINE_STATUS_UNAVAILABLE:
             code = 503
-        elif status == "INVALID":
+        elif status == PIPELINE_STATUS_INVALID:
             code = 400
         elif res.get("success"):
             code = 202
@@ -995,11 +1000,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
         res = svc.train_model_pipeline(config=payload)
         status = res.get("status", "ERROR").upper()
-        if status == "QUEUED" and res.get("success"):
+        if status == PIPELINE_STATUS_QUEUED and res.get("success"):
             code = 202
-        elif status == "UNAVAILABLE":
+        elif status == PIPELINE_STATUS_UNAVAILABLE:
             code = 503
-        elif status == "INVALID":
+        elif status == PIPELINE_STATUS_INVALID:
             code = 400
         elif res.get("success"):
             code = 202
@@ -1015,11 +1020,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
         res = svc.run_hpo_pipeline(config=payload)
         status = res.get("status", "ERROR").upper()
-        if status == "QUEUED" and res.get("success"):
+        if status == PIPELINE_STATUS_QUEUED and res.get("success"):
             code = 202
-        elif status == "UNAVAILABLE":
+        elif status == PIPELINE_STATUS_UNAVAILABLE:
             code = 503
-        elif status == "INVALID":
+        elif status == PIPELINE_STATUS_INVALID:
             code = 400
         elif res.get("success"):
             code = 202
@@ -1498,3 +1503,6 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
 
 __all__ = ["create_app"]
+PIPELINE_STATUS_QUEUED: Final[str] = "QUEUED"  # nosec: B105 - pipeline status labels, not credentials
+PIPELINE_STATUS_UNAVAILABLE: Final[str] = "UNAVAILABLE"  # nosec: B105 - pipeline status labels, not credentials
+PIPELINE_STATUS_INVALID: Final[str] = "INVALID"  # nosec: B105 - pipeline status labels, not credentials

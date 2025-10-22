@@ -85,6 +85,7 @@ class DashboardConfig:
     prometheus_url: str = "http://localhost:9090"
     prometheus_query_timeout_seconds: float = 2.5
 
+    streaming_state_path: Path = Path("./ml_out/streaming_training_state.json")
     db_connection: str | None = None
     store_health_cache_ttl_seconds: float = 30.0
     store_health_cache_max_entries: int = 8
@@ -176,6 +177,12 @@ class DashboardConfig:
         if not prometheus_url:
             prometheus_url = f"http://localhost:{_int('PROMETHEUS_HOST_PORT', 9090)}"
 
+        streaming_state_raw = _string("ML_DASHBOARD_STREAMING_STATE_PATH", None)
+        if streaming_state_raw and streaming_state_raw.strip():
+            streaming_state_path = Path(streaming_state_raw).expanduser()
+        else:
+            streaming_state_path = Path("./ml_out/streaming_training_state.json")
+
         def _parse_tokens() -> tuple[DashboardToken, ...]:
             import json
 
@@ -259,6 +266,7 @@ class DashboardConfig:
             grafana_provision_on_start=_truthy("ML_DASHBOARD_GRAFANA_PROVISION_ON_START", False),
             prometheus_url=prometheus_url,
             prometheus_query_timeout_seconds=_float("ML_DASHBOARD_PROM_TIMEOUT", 2.5),
+            streaming_state_path=streaming_state_path,
             db_connection=db_conn,
             store_health_cache_ttl_seconds=_float("ML_DASHBOARD_STORE_CACHE_TTL", 30.0),
             store_health_cache_max_entries=_int("ML_DASHBOARD_STORE_CACHE_MAX", 8),
