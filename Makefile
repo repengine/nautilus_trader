@@ -490,6 +490,18 @@ cargo-ci-benches:  #-- Run Rust benches for the crates included in the CI perfor
 	  cargo bench -p $$crate --profile bench --benches --no-fail-fast; \
 	done
 
+#== Playground utilities
+
+.PHONY: export-phase3-visuals
+export-phase3-visuals:  #-- Regenerate Phase 3 backtest visuals
+	$(info $(M) Regenerating Phase 3 visual exports...)
+	$Q uv run --active --no-sync python playground/scripts/export_phase3_visuals.py
+
+.PHONY: export-phase3-walk-forward
+export-phase3-walk-forward:  #-- Regenerate Phase 3 walk-forward artefacts
+	$(info $(M) Regenerating Phase 3 walk-forward suite...)
+	$Q uv run --active --no-sync python playground/scripts/run_phase3_walk_forward.py --liquidity-experiments $(if $(SCENARIOS),--scenarios "$(SCENARIOS)",)
+
 #== Docker
 
 .PHONY: docker-build
@@ -826,7 +838,9 @@ pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real A
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
 		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api" -k "not streaming_persistence_worker_cli and not streaming_persistence_integration" -q -n 1 || exit $$?
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		poetry run pytest -c ml/pytest.ini ml/tests/integration/cli/test_streaming_persistence_worker_cli.py ml/tests/integration/consumers/test_streaming_persistence_integration.py -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf

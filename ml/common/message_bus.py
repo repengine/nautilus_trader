@@ -10,9 +10,16 @@ optional Redis Streams adapter can be enabled via configuration.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
+from ml import _imports as ml_imports
 from ml.config.bus import MessageBusConfig
+
+
+if TYPE_CHECKING:
+    from redis import Redis as _RedisClient
+else:
+    _RedisClient = Any
 
 
 @runtime_checkable
@@ -51,12 +58,14 @@ class RedisStreamsPublisher:
         self._url = url
         self._stream = stream
         self._maxlen = maxlen
-        self._client: Any | None = None
+        self._client: _RedisClient | None = None
+        redis_module = ml_imports.redis
+        if not ml_imports.HAS_REDIS or redis_module is None:
+            # Optional dependency missing; publisher remains inactive.
+            return
         try:
-            import redis
-
-            # Create a simple client; decode_responses for str payloads
-            self._client = redis.Redis.from_url(url, decode_responses=True)
+            client = redis_module.Redis.from_url(url, decode_responses=True)
+            self._client = cast(_RedisClient, client)
         except Exception:  # pragma: no cover - import failure path
             self._client = None
 
@@ -68,10 +77,22 @@ class RedisStreamsPublisher:
                 "topic": topic,
                 "payload": json.dumps(payload, separators=(",", ":")),
             }
+            redis_fields = cast(
+                dict[
+                    bytes | bytearray | memoryview | str | int | float,
+                    bytes | bytearray | memoryview | str | int | float,
+                ],
+                fields,
+            )
             if self._maxlen is not None and self._maxlen > 0:
-                self._client.xadd(self._stream, fields, maxlen=self._maxlen, approximate=True)
+                self._client.xadd(
+                    self._stream,
+                    redis_fields,
+                    maxlen=self._maxlen,
+                    approximate=True,
+                )
             else:
-                self._client.xadd(self._stream, fields)
+                self._client.xadd(self._stream, redis_fields)
             return True
         except Exception:
             return False
@@ -88,6 +109,8 @@ def publisher_from_config(cfg: MessageBusConfig) -> MessagePublisherProtocol:
     if not cfg.enabled:
         return NoopPublisher()
     if cfg.backend == "redis":
+        if not ml_imports.HAS_REDIS or ml_imports.redis is None:
+            return NoopPublisher()
         return RedisStreamsPublisher(
             url=cfg.redis_url,
             stream=cfg.redis_stream,

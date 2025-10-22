@@ -11,9 +11,12 @@ Subsequent calls with the same name return the existing collector.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from typing import Any
 
+
+_DEFAULT_REGISTRY: Any | None = None
 
 try:  # Centralized backend import via importlib (avoid direct import for validators)
     import importlib as _importlib
@@ -22,6 +25,7 @@ try:  # Centralized backend import via importlib (avoid direct import for valida
     _PC_Counter = getattr(_prom, "Counter")
     _PC_Gauge = getattr(_prom, "Gauge")
     _PC_Histogram = getattr(_prom, "Histogram")
+    _DEFAULT_REGISTRY = getattr(_prom, "REGISTRY", None)
 
     HAS_METRICS_BACKEND = True
     _CounterCls: type[Any] = _PC_Counter
@@ -62,6 +66,23 @@ except Exception:  # pragma: no cover - prometheus optional
 _METRICS: dict[str, Any] = {}
 
 
+def _existing_collector(name: str) -> Any | None:
+    """
+    Return an existing collector from the default registry, if available.
+
+    Re-importing modules during tests resets this module-level cache but the
+    global Prometheus registry retains previously registered collectors. This
+    helper reuses existing collectors to avoid duplicate registration errors.
+    """
+    if not HAS_METRICS_BACKEND or _DEFAULT_REGISTRY is None:
+        return None
+    names_to_collectors = getattr(_DEFAULT_REGISTRY, "_names_to_collectors", None)
+    if not isinstance(names_to_collectors, dict):
+        return None
+    collector = names_to_collectors.get(name)
+    return collector
+
+
 def _labels_tuple(
     labelnames: Iterable[str] | None,
     labels: Iterable[str] | None,
@@ -86,7 +107,9 @@ def get_counter(
     metric = _METRICS.get(k)
     if metric is None:
         names = list((labels or labelnames) or ())
-        metric = _CounterCls(name, description, names)
+        metric = _existing_collector(name)
+        if metric is None or not hasattr(metric, "inc"):
+            metric = _CounterCls(name, description, names)
         _METRICS[k] = metric
     return metric
 
@@ -103,15 +126,17 @@ def get_histogram(
     metric = _METRICS.get(k)
     if metric is None:
         names = list((labels or labelnames) or ())
-        if buckets is None:
-            metric = _HistogramCls(name, description, names)
-        else:
-            metric = _HistogramCls(
-                name,
-                description,
-                names,
-                buckets=tuple(buckets),
-            )
+        metric = _existing_collector(name)
+        if metric is None or not hasattr(metric, "observe"):
+            if buckets is None:
+                metric = _HistogramCls(name, description, names)
+            else:
+                metric = _HistogramCls(
+                    name,
+                    description,
+                    names,
+                    buckets=tuple(buckets),
+                )
         _METRICS[k] = metric
     return metric
 
@@ -127,9 +152,42 @@ def get_gauge(
     metric = _METRICS.get(k)
     if metric is None:
         names = list((labels or labelnames) or ())
-        metric = _GaugeCls(name, description, names)
+        metric = _existing_collector(name)
+        if metric is None or not hasattr(metric, "set"):
+            metric = _GaugeCls(name, description, names)
         _METRICS[k] = metric
     return metric
 
 
-__all__ = ["HAS_METRICS_BACKEND", "get_counter", "get_gauge", "get_histogram"]
+
+
+_DEFAULT_METRICS_IMPORTED = False
+
+
+def _truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def ensure_default_metrics_registered() -> None:
+    """Ensure core ML metric collectors are registered on import."""
+    global _DEFAULT_METRICS_IMPORTED
+    if _DEFAULT_METRICS_IMPORTED:
+        return
+    if _truthy(os.getenv("ML_DISABLE_CORE_METRICS")):
+        _DEFAULT_METRICS_IMPORTED = True
+        return
+    if not HAS_METRICS_BACKEND:
+        _DEFAULT_METRICS_IMPORTED = True
+        return
+    try:
+        _importlib.import_module("ml.common.metrics")
+    except Exception:
+        return
+    _DEFAULT_METRICS_IMPORTED = True
+
+
+ensure_default_metrics_registered()
+
+__all__ = ["HAS_METRICS_BACKEND", "ensure_default_metrics_registered", "get_counter", "get_gauge", "get_histogram"]

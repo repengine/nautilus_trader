@@ -44,6 +44,19 @@ jobs:
             -m 'not prototype and not database and not integration' \
             --cov=ml --cov-report=term-missing --cov-fail-under=90
 
+      - name: Phase 3 visuals smoke test
+        run: |
+          uv run --active --no-sync python - <<'PY'
+from pathlib import Path
+from playground.scripts.export_phase3_visuals import export_phase3_visuals
+
+export_phase3_visuals(
+    data_dir=Path("playground/reports/backtesting"),
+    output_dir=Path("playground/reports/backtesting/_ci_visuals"),
+)
+PY
+          rm -rf playground/reports/backtesting/_ci_visuals
+
   pre-commit:
     runs-on: ubuntu-22.04 # (glibc 2.35) wider runtime range than 24.04/glibc 2.39
     steps:

@@ -27,10 +27,13 @@ except Exception:
 pl: ModuleType | None = None
 pd: ModuleType | None = None
 ort: ModuleType | None = None
+redis: ModuleType | None = None
 HAS_PANDAS = False
+HAS_REDIS = False
 
 
 PROMETHEUS_IMPORT_ERROR: Exception | None = None
+REDIS_IMPORT_ERROR: Exception | None = None
 
 
 # Type checking imports (always available, no runtime cost)
@@ -44,6 +47,7 @@ if TYPE_CHECKING:
     import pandas as _pd  # noqa: F401
     import pandas_market_calendars as mcal
     import polars as _pl  # noqa: F401
+    import redis as _redis  # noqa: F401
     import skl2onnx
     import sklearn
     import torch
@@ -147,6 +151,18 @@ except ImportError as e:
     JOBLIB_IMPORT_ERROR = e
     joblib = None  # type: ignore[assignment,unused-ignore]
 
+# Redis (message bus optional)
+try:
+    import redis as _redis_runtime
+
+    redis = _redis_runtime
+    HAS_REDIS = True
+    REDIS_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_REDIS = False
+    REDIS_IMPORT_ERROR = e
+    redis = None  # type: ignore[assignment,unused-ignore]
+
 
 # MLflow (DEPRECATED - use ModelRegistry instead)
 # Removed direct imports to prevent telemetry activation
@@ -192,6 +208,19 @@ except ImportError as e:
     HAS_PANDAS = False
     PANDAS_IMPORT_ERROR = e
     pd = None  # type: ignore[assignment,unused-ignore]
+
+# Pandera (dataframe validation, optional)
+try:  # pragma: no cover - optional dependency
+    import pandera as _pandera_runtime
+    from pandera.typing import DataFrame as _PanderaDataFrame  # noqa: F401
+    from pandera.typing import Series as _PanderaSeries  # noqa: F401
+
+    HAS_PANDERA = True
+    PANDERA_IMPORT_ERROR: Exception | None = None
+except ImportError as e:  # pragma: no cover - optional dependency missing
+    HAS_PANDERA = False
+    PANDERA_IMPORT_ERROR = e
+    _pandera_runtime = None  # type: ignore[assignment,unused-ignore]
 
 
 # FRED API (fredapi) optional dependency
@@ -433,6 +462,10 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"ONNX export tools (onnxmltools, skl2onnx) required. Original error: {ONNX_EXPORT_IMPORT_ERROR}",
         ),
         "pandas": (HAS_PANDAS, f"Pandas required. Original error: {PANDAS_IMPORT_ERROR}"),
+        "pandera": (
+            HAS_PANDERA,
+            f"Pandera required. Original error: {PANDERA_IMPORT_ERROR}",
+        ),
         "databento": (
             HAS_DATABENTO,
             f"Databento required. Original error: {DATABENTO_IMPORT_ERROR}",
@@ -452,6 +485,10 @@ def check_ml_dependencies(required: list[str]) -> None:
         "opentelemetry": (
             HAS_OPENTELEMETRY,
             f"OpenTelemetry required. Original error: {OPENTELEMETRY_IMPORT_ERROR}",
+        ),
+        "redis": (
+            HAS_REDIS,
+            f"Redis required. Original error: {REDIS_IMPORT_ERROR}",
         ),
     }
 
@@ -488,8 +525,10 @@ __all__ = [
     "HAS_OPTUNA",
     "HAS_PANDAS",
     "HAS_PANDAS_MARKET_CALENDARS",
+    "HAS_PANDERA",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
+    "HAS_REDIS",
     "HAS_SKLEARN",
     "HAS_TORCH",
     "HAS_XGBOOST",
@@ -504,8 +543,10 @@ __all__ = [
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
     "PANDAS_MARKET_CALENDARS_IMPORT_ERROR",
+    "PANDERA_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
+    "REDIS_IMPORT_ERROR",
     "REGISTRY",
     "SKLEARN_IMPORT_ERROR",
     "TORCH_IMPORT_ERROR",
@@ -532,6 +573,7 @@ __all__ = [
     "otel_trace",
     "pd",
     "pl",
+    "redis",
     "skl2onnx",
     "sklearn",
     "torch",

@@ -43,3 +43,47 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nautilus
           NAUTILUS_REGISTRY_DB_URL: postgresql://postgres:postgres@localhost:5432/nautilus
         run: make pytest-ml-db FAST=1
+
+  walk-forward-refresh:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: pip install uv
+      - name: Install dependencies (no package build)
+        run: make install-just-deps
+      - name: Regenerate walk-forward outputs
+        run: uv run --active --no-sync python playground/scripts/run_phase3_walk_forward.py --liquidity-experiments
+      - name: Verify liquidity mitigation summary
+        run: |
+          SUMMARY=playground/reports/backtesting/experiments/liquidity_mitigation/liquidity_mitigation_results.csv
+          WALK_FORWARD=playground/reports/backtesting/experiments/liquidity_mitigation/turnover_smoothing_0_55_0_40/walk_forward/walk_forward/strategy_summary.csv
+          if [ ! -f "$SUMMARY" ] || [ ! -f "$WALK_FORWARD" ]; then
+            echo "Required walk-forward artifacts missing" >&2
+            exit 1
+          fi
+          python - <<'PY'
+from pathlib import Path
+import polars as pl
+
+summary_path = Path("playground/reports/backtesting/experiments/liquidity_mitigation/liquidity_mitigation_results.csv")
+walk_forward_path = Path("playground/reports/backtesting/experiments/liquidity_mitigation/turnover_smoothing_0_55_0_40/walk_forward/walk_forward/strategy_summary.csv")
+
+summary = pl.read_csv(summary_path)
+turnover_row = summary.filter(pl.col("scenario_name") == "Turnover Smoothing 0.55/0.40")
+if turnover_row.is_empty():
+    raise SystemExit("Turnover smoothing scenario missing from summary")
+
+wc_mean = float(turnover_row.get_column("walk_forward_sharpe_mean")[0])
+if abs(wc_mean) < 1e-8:
+    raise SystemExit("Walk-forward Sharpe mean is zero; check inputs")
+
+turnover_summary = pl.read_csv(walk_forward_path)
+if turnover_summary.is_empty():
+    raise SystemExit("Walk-forward strategy summary empty")
+
+print("Turnover smoothing walk-forward mean Sharpe:", wc_mean)
+PY
