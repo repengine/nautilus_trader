@@ -65,6 +65,8 @@ from ml.stores.infrastructure import PartitionManager
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.model_store import ModelStore
 from ml.stores.providers import SqlMarketDataReader
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.raw_protocols import RawReaderProtocol
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -623,14 +625,11 @@ class MLIntegrationManager:
         except Exception:
             logger.debug("Parquet catalog adapters not attached", exc_info=True)
 
-        self.data_store = cast(
-            DataStore,
-            create_data_store(
-                registry=self.data_registry,
-                connection_string=self.db_connection,
-                raw_reader=raw_reader,
-                raw_writer=raw_writer,
-            ),
+        self.data_store = create_data_store(
+            registry=self.data_registry,
+            connection_string=self.db_connection,
+            raw_reader=raw_reader,
+            raw_writer=raw_writer,
         )
         # Ensure FeatureStore/ModelStore publish into the same DataRegistry instance
         try:
@@ -2061,7 +2060,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
         feature_store=fs,
         model_store=ms,
         strategy_store=ss,
-        data_store=cast(DataStore, dstore),
+        data_store=dstore,
         feature_registry=freg,
         model_registry=mreg,
         strategy_registry=sreg,
@@ -2081,21 +2080,59 @@ init_actor_stores_and_registries = init_ml_stores_and_registries
 # ----------------------------------------------------------------------------
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ml.stores.protocols import DataStoreFacadeProtocol
+    pass
 
 
-def create_data_store(**kwargs: object) -> DataStoreFacadeProtocol:
+def create_data_store(
+    *,
+    registry: DataRegistry,
+    connection_string: str,
+    raw_reader: RawReaderProtocol | None = None,
+    raw_writer: RawIngestionWriterProtocol | None = None,
+) -> DataStore:
     """
-    Create a DataStore instance and return it as a narrow facade protocol.
+    Create a DataStore instance with proper type safety.
 
-    Uses dynamic import to avoid mypy resolving the concrete class hierarchy, which can
-    appear abstract under strict type-checking due to Protocol bases used for mixins
-    under TYPE_CHECKING.
+    This factory function initializes a DataStore with automatic integration
+    of all registry and data reader/writer components. It returns the instance
+    with full type information for IDE autocomplete and mypy verification.
 
+    Parameters
+    ----------
+    registry : DataRegistry
+        The data registry for dataset manifest and lineage tracking
+    connection_string : str
+        PostgreSQL connection string for raw market data queries
+    raw_reader : RawReaderProtocol | None, optional
+        Reader for raw market data (e.g., SQL or Parquet catalog)
+    raw_writer : RawIngestionWriterProtocol | None, optional
+        Writer for market data (used for backfill and sync operations)
+
+    Returns
+    -------
+    DataStore
+        Initialized data store with full type information
+
+    Example
+    -------
+    >>> from ml.core.integration import create_data_store
+    >>> from ml.registry import DataRegistry
+    >>> from ml.stores.io_raw import ParquetCatalogRawReader
+    >>>
+    >>> registry = DataRegistry(...)
+    >>> reader = ParquetCatalogRawReader(...)
+    >>> store = create_data_store(
+    ...     registry=registry,
+    ...     connection_string="postgresql://...",
+    ...     raw_reader=reader,
+    ... )
+    >>> store.read_range(...)  # Proper IDE autocomplete!
     """
-    import importlib
-    from typing import Any as _Any
-    from typing import cast as _cast
+    from ml.stores.data_store import DataStore
 
-    DataStore = getattr(importlib.import_module("ml.stores.data_store"), "DataStore")
-    return _cast("DataStoreFacadeProtocol", DataStore(**_cast(dict[str, _Any], kwargs)))
+    return DataStore(
+        connection_string=connection_string,
+        registry=registry,
+        raw_reader=raw_reader,
+        raw_writer=raw_writer,
+    )

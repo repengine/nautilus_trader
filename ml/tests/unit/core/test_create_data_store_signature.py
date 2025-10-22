@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 class TestCreateDataStoreSignature:
     """Test suite verifying create_data_store has explicit typed parameters."""
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_no_kwargs_in_signature(self) -> None:
         """
         Verify function does not use **kwargs: object type erasure pattern.
@@ -58,7 +57,6 @@ class TestCreateDataStoreSignature:
                 f"found parameter '{param_name}' with VAR_KEYWORD kind"
             )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_has_required_parameters(self) -> None:
         """
         Verify function has all required explicit parameters.
@@ -88,7 +86,6 @@ class TestCreateDataStoreSignature:
                 f"found parameters: {param_names}"
             )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_uses_keyword_only_arguments(self) -> None:
         """
         Verify function uses keyword-only arguments (has * separator).
@@ -117,7 +114,6 @@ class TestCreateDataStoreSignature:
             f"found {len(keyword_only_params)} keyword-only parameters"
         )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_registry_param_type_not_object(self) -> None:
         """
         Verify registry parameter is not generic object type.
@@ -152,7 +148,6 @@ class TestCreateDataStoreSignature:
             f"Expected registry-related type (e.g., DataRegistry), got {type_name}"
         )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_connection_string_param_is_str(self) -> None:
         """
         Verify connection_string parameter has str type.
@@ -182,7 +177,6 @@ class TestCreateDataStoreSignature:
             f"connection_string should be str type, got {conn_str_type}"
         )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_raw_reader_param_is_optional_protocol(self) -> None:
         """
         Verify raw_reader parameter is optional protocol type.
@@ -222,7 +216,6 @@ class TestCreateDataStoreSignature:
             f"raw_reader should be protocol type (RawReaderProtocol), got {type_str}"
         )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_raw_writer_param_is_optional_protocol(self) -> None:
         """
         Verify raw_writer parameter is optional protocol type.
@@ -262,7 +255,6 @@ class TestCreateDataStoreSignature:
             f"raw_writer should be protocol type (RawIngestionWriterProtocol), got {type_str}"
         )
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_return_type_not_object(self) -> None:
         """
         Verify return type is concrete DataStore (not object or string literal).
@@ -300,7 +292,6 @@ class TestCreateDataStoreSignature:
 class TestCreateDataStoreRuntime:
     """Test suite verifying create_data_store runtime behavior with typed parameters."""
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_call_with_all_parameters(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         Verify function accepts all typed parameters and executes.
@@ -359,7 +350,6 @@ class TestCreateDataStoreRuntime:
             # Restore original __init__
             monkeypatch.setattr(DataStore, "__init__", original_init)
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_call_with_minimal_parameters(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         Verify function works with only required parameters (defaults for optional).
@@ -414,7 +404,6 @@ class TestCreateDataStoreRuntime:
 class TestCreateDataStoreImportStyle:
     """Test suite verifying create_data_store uses direct import (not dynamic)."""
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_no_dynamic_import(self) -> None:
         """
         Verify function uses direct import (not importlib + getattr).
@@ -462,7 +451,6 @@ class TestCreateDataStoreImportStyle:
 class TestCreateDataStoreCompatibility:
     """Test suite verifying backward compatibility with existing call sites."""
 
-    @pytest.mark.skip(reason="Phase 1: awaiting implementation")
     def test_existing_call_sites_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         Verify existing call patterns (lines 628-633, 2058) still work.
