@@ -33,12 +33,32 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 
 - **[architecture/dashboard_control_plane.md](architecture/dashboard_control_plane.md)** - Dashboard control-plane API, deployment, and usage
 - **[ops/dashboard_runbook.md](ops/dashboard_runbook.md)** - Operational runbook for the dashboard service (auth, Grafana, store health)
+- **[ops/streaming_scaling_experiments.md](ops/streaming_scaling_experiments.md)** - Rolling telemetry and backlog experiments for the streaming stack
 
 ### 🧰 CLI Tooling
 
 - **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
   - Includes Databento guardrails (enabled on venv activate) and standardized dataset `EQUS.MINI` for US equities standard plan
   - Offline ingestion helper: `python -m ml.cli.ingest_dbn_archive --db-url postgresql://… data/batch/EQUS-*.zip`
+
+### 🔄 Streaming Training Guardrails
+
+- Streaming loaders can now cap work per run to avoid OOMs:
+  - `TFTStreamingConfig` accepts `max_shards`, `max_total_rows`, and `max_total_sequences`.
+  - Counters (`ml_tft_streaming_skipped_*`) record how much work was deferred.
+- `tft_cli.py` supports `--streaming` for parquet training; pair with
+  `--max_streaming_{shards,rows,sequences}` to keep resource usage bounded.
+- Typical smoke drill: pick the top instrument, set `--limit_groups 1`, and dial `--max_streaming_*` to keep RSS within budget before scaling out.
+
+#### Streaming Runbook
+
+1. Run `poetry run python -m ml.training.teacher.tft_cli --help` and review the streaming flag guidance. Start with `--streaming_shard_budget 100000` and `--max_streaming_shards 2` for single-instrument trials.
+2. Collect a quick metadata profile via `--streaming --limit_groups 1 --streaming_shard_budget 100000`. Confirm the log outputs the `total_shards` and `total_rows` before launching extended runs.
+3. Increase `--max_streaming_rows` toward 500000 and `--max_streaming_sequences` toward 300000 when expanding to two instruments. Keep `--limit_groups` aligned with the shard budget to avoid skipping all work.
+4. After each run, inspect the generated `streaming_summary.json` artifact in the output directory. The file reports selected versus skipped shards, rows, and sequences for both training and validation loaders.
+5. When the summary shows non-zero skipped counts, either relax the caps or schedule a subsequent run to process the deferred shards.
+6. Deploy the streaming persistence worker when bus persistence is enabled: `poetry run python -m ml.cli.streaming_persistence_worker --state-path ./ml_out/streaming_training_state.json`. The worker reads Redis Streams using `StreamingPersistenceConfig.from_env` overrides (`ML_STREAM_PERSIST_*`) and keeps dashboard snapshots fresh for `/api/training/streaming/state`. Terminate with `Ctrl+C`—the CLI installs signal handlers and stops gracefully.
+7. Summarise the latest manifests with `poetry run python -m ml.scripts.summarize_streaming_manifests --manifest-dir ml_out/tft_streaming_artifacts/full_tft_95 --limit 10` and append the output to `ml/docs/ops/streaming_scaling_experiments.md`.
 
 **Pipeline Orchestrator Quick Commands**
 

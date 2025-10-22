@@ -254,7 +254,10 @@ class FileFeatureStore(FeatureStoreProtocol):
         ts_event: int | None = None,
         ts_init: int | None = None,
         data: Any | None = None,
+        *,
+        publish_bus: bool = True,
     ) -> None:
+        _ = publish_bus  # File-backed store does not publish to an event bus.
         feature_set = feature_set_id or "default"
         instrument = instrument_id or "UNKNOWN"
         payload = FeatureData(

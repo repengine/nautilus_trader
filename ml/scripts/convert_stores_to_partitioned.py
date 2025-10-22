@@ -33,6 +33,10 @@ import datetime as dt
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import func
+from sqlalchemy import select
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -180,34 +184,25 @@ FOR VALUES FROM ({start}) TO ({end})
 
 
 def _copy_rows(engine: Engine, src: str, dst: str) -> int:
-    # Build intersection column list in destination order; skip created_at to avoid type mismatches
+    metadata = MetaData()
     with engine.connect() as conn:
-        src_cols = [
-            r[0]
-            for r in conn.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name=:t ORDER BY ordinal_position",
-                ),
-                {"t": src},
-            )
-        ]
-        dst_cols = [
-            r[0]
-            for r in conn.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name=:t ORDER BY ordinal_position",
-                ),
-                {"t": dst},
-            )
-        ]
-    cols = [c for c in dst_cols if c in src_cols and c != "created_at"]
-    col_list = ", ".join(cols)
+        src_table = Table(src, metadata, autoload_with=conn)
+        dst_table = Table(dst, metadata, autoload_with=conn)
+
+        src_column_names = {col.name for col in src_table.columns}
+        dst_ordered = [col.name for col in dst_table.columns]
+
+    columns = [name for name in dst_ordered if name in src_column_names and name != "created_at"]
+    if not columns:
+        return 0
+
+    select_stmt = select(*[src_table.c[name] for name in columns])
+    insert_stmt = dst_table.insert().from_select(columns, select_stmt)
+
     with engine.begin() as conn:
-        res = conn.execute(text(f"INSERT INTO {dst} ({col_list}) SELECT {col_list} FROM {src}"))
-        try:
-            return int(res.rowcount or 0)
-        except Exception:
-            return 0
+        res = conn.execute(insert_stmt)
+        rowcount = getattr(res, "rowcount", 0)
+        return int(rowcount or 0)
 
 
 def convert_one(engine: Engine, spec: TableSpec, months_ahead: int, dry_run: bool = False) -> None:
@@ -228,9 +223,11 @@ def convert_one(engine: Engine, spec: TableSpec, months_ahead: int, dry_run: boo
         conn.execute(text(spec.create_parent_sql.format(name=newp)))
 
     # Create partitions covering existing data + ahead
+    metadata = MetaData()
+    source_table = Table(spec.name, metadata, autoload_with=engine)
+
     with engine.connect() as conn:
-        r = conn.execute(text(f"SELECT MIN(ts_event), MAX(ts_event) FROM {spec.name}"))
-        row = r.fetchone()
+        row = conn.execute(select(func.min(source_table.c.ts_event), func.max(source_table.c.ts_event))).fetchone()
         min_ns, max_ns = (row[0], row[1]) if row else (None, None)
 
     today = dt.date.today()

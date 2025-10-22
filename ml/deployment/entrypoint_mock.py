@@ -90,7 +90,9 @@ class MockMLSignalActorNode(MLSignalActorNode):
                     actor = None
 
                 client = self.mock_client
-                assert client is not None
+                if client is None:
+                    logger.debug("Mock client unexpectedly unavailable; skipping injection")
+                    return
 
                 async def inject_mock_bars() -> None:
                     """Inject mock bars into the actor."""
@@ -164,7 +166,9 @@ class MockMLSignalActorNode(MLSignalActorNode):
                 count = 0
                 while not self._inject_stop.is_set():
                     try:
-                        assert client is not None
+                        if client is None:
+                            logger.debug("Mock client unset during injection loop; stopping thread")
+                            break
                         bar = client.generator.generate_bar()
                         if hasattr(actor, "on_bar"):
                             actor.on_bar(bar)

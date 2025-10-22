@@ -10,6 +10,9 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any, cast
 
+import ml.orchestration.ingestion_coordinator as _ingestion_coord_module
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+
 
 def _use_component_impl() -> bool:
     """
@@ -238,7 +241,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid
 else:
     MLPipelineOrchestrator = _ActiveOrchestrator
 
+# Ensure orchestration tests can monkeypatch the orchestrator via this module alias.
+setattr(_ingestion_coord_module, "IngestionOrchestrator", IngestionOrchestrator)
+
 __all__ = [
+    "IngestionOrchestrator",
     "MLPipelineOrchestrator",
     "_apply_default_market_inputs",
     "_build_auto_fill_config_from_args",

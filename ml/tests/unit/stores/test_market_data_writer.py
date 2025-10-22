@@ -20,7 +20,6 @@ from ml.registry.dataclasses import (
     ValidationRule,
     ValidationRuleType,
 )
-from ml.stores.data_store import DataStore
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
 
@@ -132,10 +131,11 @@ def test_market_data_writer_uses_datastore_and_emits_success(
     mock_feature_store: Any,
     mock_model_store: Any,
     mock_strategy_store: Any,
+    datastore_class: type[Any],
 ) -> None:
     # Setup DataStore with stub registry and mock stores, plus a fake raw writer
     reg = _StubRegistry(_manifest("bars_ds"), _contract("bars_ds"))
-    ds = cast(Any, DataStore)(
+    ds = cast(Any, datastore_class)(
         connection_string="sqlite:///:memory:",
         registry=reg,
         feature_store=mock_feature_store,

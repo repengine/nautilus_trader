@@ -6,7 +6,7 @@ This directory packages the Docker Compose configurations for running the Nautil
 
 | Stack | Compose Files | Purpose |
 | ----- | ------------- | ------- |
-| **Production stack (`ml`)** | `docker-compose.yml` (+ optional `docker-compose.override.yml`) | Persistent Postgres, Redis, actors, strategy, pipeline, observability, dashboard. |
+| **Production stack (`ml`)** | `docker-compose.yml` (+ optional `docker-compose.override.yml`) | Persistent Postgres, Redis, streaming training runner + persistence worker, actors, strategy, pipeline, observability, dashboard. |
 | **Test stack (`ml-test`)** | `docker-compose.test.yml` | Ephemeral stack with mock data, alternate ports, and separate volumes for CI/local verification. |
 
 Compose assigns the project name from the first file (`name: ml` / `name: ml-test`). Make-based helpers (`make ml-up`, `make ml-down`) wrap the production stack.
@@ -43,6 +43,30 @@ For the test stack, use the provided `ml/deployment/.env.test` when launching:
 docker compose --env-file ml/deployment/.env.test -f ml/deployment/docker-compose.test.yml up -d
 ```
 
+Once the stack is up, confirm the streaming persistence worker is healthy—the container keeps the Redis stream snapshots in sync for the dashboard state API. Tail its logs with:
+
+```bash
+docker compose logs -f streaming_persistence_worker
+```
+
+The `streaming_training_runner` container attaches the dataset planner and Lightning worker to the Redis bus so cohorts run without manual CLI invocations. It respects the `ML_STREAMING_*` settings from `.env` to choose the dataset slice, training limits, epoch budget, accelerator, and promotion threshold. Artifacts are copied into the registry (`/root/.nautilus/ml/models` by default) and per-run manifests are written under `ML_STREAMING_OUTPUT_DIR`. Set `ML_STREAMING_MAX_PLANS=0` for continuous operation; use `1` for a single cohort. When GPUs are unavailable either override `ML_STREAMING_ACCELERATOR=cpu` or merge the CPU override (`docker compose -f ml/deployment/docker-compose.yml -f ml/deployment/docker-compose.cpu.yml up`) to drop GPU reservations entirely.
+
+Monitor the runner with:
+
+```bash
+docker compose logs -f streaming_training_runner
+```
+
+To review recent cohorts, run:
+
+```bash
+poetry run python -m ml.scripts.summarize_streaming_manifests \
+    --manifest-dir ml_out/tft_streaming_artifacts/full_tft_95 \
+    --limit 10
+```
+
+Paste the Markdown summary into `ml/docs/ops/streaming_scaling_experiments.md` to keep the runbook current.
+
 ## Environment Variables
 
 | Variable | Default | Description | Defined In |
@@ -59,6 +83,24 @@ docker compose --env-file ml/deployment/.env.test -f ml/deployment/docker-compos
 | `ML_STRATEGY_HOST_PORT` | `8001` | Host port for `ml_strategy`. | `.env.example`, compose `ml_strategy.ports` |
 | `ML_PIPELINE_HOST_PORT` | `8081` | Host port for pipeline service health API (container 8080). | `.env.example`, compose `ml_pipeline.ports` |
 | `ML_DASHBOARD_HOST_PORT` | `8010` | Host port for dashboard UI (container 8010). | `.env.example`, compose `ml_dashboard.ports` |
+| `ML_BUS_REDIS_STREAM` | `ml-events` | Redis Streams channel consumed by streaming persistence worker and dashboard. | `.env.example`, `streaming_persistence_worker` env |
+| `ML_STREAM_PERSIST_*` | see defaults | Worker polling overrides (`ENABLE`, `BATCH_SIZE`, `BLOCK_MS`, `POLL_INTERVAL_SECONDS`). | `.env.example`, `streaming_persistence_worker` env |
+| `ML_STREAMING_DATASET_DIR` | `ml_out/full_tft_95` | Dataset directory mounted in the runner container. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_OUTPUT_DIR` | `ml_out/tft_streaming_artifacts/full_tft_95` | Directory for logits, telemetry, and manifests. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_STATE_PATH` | `ml_out/streaming_training_state.json` | Local snapshot path consumed by the dashboard. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_MAX_TOTAL_ROWS` | `120000` | Planner and worker row cap (<=0 disables). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_MAX_TOTAL_SEQUENCES` | `90000` | Planner and worker sequence cap (<=0 disables). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_MAX_SHARDS` | `32` | Planner and worker shard cap (<=0 disables). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_MAX_EPOCHS` | `2` | Maximum training epochs per cohort. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_PLAN_INTERVAL_SECONDS` | `900` | Delay between cohorts (0 runs once). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_PROMOTION_THRESHOLD` | `0.55` | Metric gate used to flag promotable runs. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_PROMOTION_COMMAND` | `true` | Optional command executed when a cohort clears promotion gates (placeholders: `{logits}`, `{manifest}`, `{model_id}`, `{plan_id}`, `{dataset_id}`); default `true` is a no-op. | `.env`, `.env.example`, `streaming_training_runner` env/command |
+| `ML_STREAMING_ACCELERATOR` | `auto` | Lightning accelerator (`cpu`, `gpu`, or `auto`). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_DEVICES` | `1` | Number of accelerator devices to use. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_MAX_PLANS` | `0` | Number of cohorts to run (0 = infinite loop). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_GPU_MONITOR_INTERVAL` | `30` | GPU sampling interval in seconds (<=0 disables). | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_BUS_RETRY_ATTEMPTS` | `3` | Number of attempts made when publishing events to the message bus. | `.env`, `.env.example`, `streaming_training_runner` command |
+| `ML_STREAMING_BUS_RETRY_DELAY_SECONDS` | `0.5` | Delay between message-bus publish retries in seconds. | `.env`, `.env.example`, `streaming_training_runner` command |
 | `ML_DB_CONNECTION` | *(optional)* | Host-facing Postgres URI used by local tooling/scripts. | `.env.example`, consumed by `MLIntegrationManager` |
 | `TEST_POSTGRES_HOST_PORT` | `5434` | Host port for test Postgres (`ml-test` stack). | `.env.test`, `docker-compose.test.yml` |
 | `TEST_REDIS_HOST_PORT` | `6381` | Host port for test Redis. | `.env.test`, `docker-compose.test.yml` |

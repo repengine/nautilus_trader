@@ -62,6 +62,8 @@ class DatasetBuildConfig:
     include_l2: bool = False
     include_events: bool = False
     include_calendar: bool = False
+    include_earnings: bool = False
+    earnings_lag_days: int = 1
     fred_vintage_dir: str | None = None
     events_dir: str | None = None
     student_mode: bool = False
@@ -85,6 +87,7 @@ class DatasetBuildConfig:
     include_macro_revisions: bool = False
     macro_revision_mode: str = "core"
     macro_revision_windows: tuple[int, ...] | None = None
+    convert_vintage_to_age: bool = False
 
 
 @dataclass(slots=True, frozen=True)

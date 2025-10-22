@@ -29,6 +29,7 @@ from ml.features.earnings import (
     compute_earnings_surprise_batch,
     compute_earnings_surprise_incremental,
 )
+from ml.features.validation import validate_known_future_effective_times
 
 
 class TestEarningsSurpriseParity:
@@ -354,3 +355,27 @@ class TestEdgeCasesParity:
         # All surprises should be zero
         np.testing.assert_array_equal(result_batch["eps_surprise_q0"], np.zeros(3))
         np.testing.assert_array_equal(result_batch["eps_surprise_pct_q0"], np.zeros(3))
+
+
+def test_validate_known_future_effective_times_allows_earnings_lag() -> None:
+    base = datetime(2024, 1, 1)
+    filings = [base + timedelta(days=idx) for idx in range(3)]
+    effective = [ts + timedelta(days=2) for ts in filings]
+    evaluation = [ts + timedelta(days=3) for ts in filings]
+    validate_known_future_effective_times(
+        evaluation_series=evaluation,
+        effective_series=effective,
+        context="earnings_lag",
+    )
+
+
+def test_validate_known_future_effective_times_raises_for_earnings_leakage() -> None:
+    filings = [datetime(2024, 1, 1), datetime(2024, 1, 2)]
+    effective = [ts + timedelta(days=2) for ts in filings]
+    evaluation = [ts + timedelta(days=1) for ts in filings]
+    with pytest.raises(ValueError, match="earnings_lag"):
+        validate_known_future_effective_times(
+            evaluation_series=evaluation,
+            effective_series=effective,
+            context="earnings_lag",
+        )

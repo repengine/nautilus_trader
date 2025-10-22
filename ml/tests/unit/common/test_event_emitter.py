@@ -12,7 +12,7 @@ from ml.common.event_emitter import (
 
 from ml.config.events import EventStatus, Source, Stage
 from ml.registry.protocols import RegistryProtocol
-from pytest import MonkeyPatch
+from pytest import LogCaptureFixture, MonkeyPatch
 
 
 class _DummyRegistry:
@@ -100,6 +100,19 @@ class _LegacyRegistry(_DummyRegistry):
         )
 
 
+class _CounterStub:
+    def __init__(self) -> None:
+        self.labels_called: dict[str, str] | None = None
+        self.inc_called: bool = False
+
+    def labels(self, **labels: str) -> _CounterStub:
+        self.labels_called = labels
+        return self
+
+    def inc(self) -> None:
+        self.inc_called = True
+
+
 def _install_tracing_stub(monkeypatch: MonkeyPatch) -> None:
     """
     Install a minimal tracing module that injects a deterministic trace-context.
@@ -156,6 +169,93 @@ def test_emit_dataset_event_legacy_registry_without_metadata_kwarg() -> None:
     assert reg.last_emit is not None
     # legacy emit should still record and not include metadata
     assert "metadata" not in reg.last_emit
+
+
+def test_emit_dataset_event_and_watermark_logs_metadata_fallback(
+    caplog: LogCaptureFixture,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    caplog.set_level("WARNING", logger="ml.common.event_emitter")
+    counter_stub = _CounterStub()
+    monkeypatch.setattr(
+        "ml.common.event_emitter._METADATA_FALLBACK_COUNTER",
+        counter_stub,
+        raising=True,
+    )
+    reg = _LegacyRegistry()
+
+    emit_dataset_event_and_watermark(
+        cast(RegistryProtocol, reg),
+        dataset_id="features",
+        instrument_id="EUR/USD",
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        run_id="rid-metadata",
+        ts_min=1,
+        ts_max=2,
+        count=3,
+        status=EventStatus.SUCCESS,
+        dataset_type="features",
+        component="writer",
+    )
+
+    assert reg.last_emit is not None
+    assert reg.last_emit.get("metadata") is None
+    assert any(
+        "Registry rejected dataset event metadata" in record.message
+        for record in caplog.records
+    )
+    assert counter_stub.labels_called == {
+        "dataset_type": "features",
+        "component": "writer",
+        "stage": Stage.FEATURE_COMPUTED.value,
+        "source": Source.LIVE.value,
+    }
+    assert counter_stub.inc_called
+
+
+def test_emit_dataset_event_logs_metadata_fallback(
+    caplog: LogCaptureFixture,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    caplog.set_level("WARNING", logger="ml.common.event_emitter")
+    counter_stub = _CounterStub()
+    monkeypatch.setattr(
+        "ml.common.event_emitter._METADATA_FALLBACK_COUNTER",
+        counter_stub,
+        raising=True,
+    )
+    reg = _LegacyRegistry()
+
+    emit_dataset_event(
+        cast(RegistryProtocol, reg),
+        dataset_id="predictions",
+        instrument_id="EUR/USD",
+        stage=Stage.MODEL_INFERRED,
+        source=Source.BATCH,
+        run_id="rid3",
+        ts_min=5,
+        ts_max=6,
+        count=1,
+        status=EventStatus.SUCCESS,
+        error=None,
+        dataset_type="predictions",
+        component="writer",
+    )
+
+    assert reg.last_emit is not None
+    assert "metadata" not in reg.last_emit
+    assert any(
+        "Registry rejected dataset event metadata" in record.message
+        for record in caplog.records
+    )
+    assert counter_stub.labels_called == {
+        "dataset_type": "predictions",
+        "component": "writer",
+        "stage": Stage.MODEL_INFERRED.value,
+        "source": Source.BATCH.value,
+    }
+    assert counter_stub.inc_called
 
 
 def test__ensure_correlation_id_preserves_existing_and_injects_trace_context(

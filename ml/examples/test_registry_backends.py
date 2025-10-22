@@ -58,8 +58,12 @@ def test_persistence_layer() -> bool:
         print("✓ Saved JSON data")
 
         loaded_data = manager.load_json("test.json")
-        assert loaded_data is not None
-        assert loaded_data["test"] == "data"
+        if loaded_data is None:
+            raise RuntimeError("Failed to load JSON data via PersistenceManager")
+        if not isinstance(loaded_data, dict):
+            raise TypeError(f"Loaded JSON data has unexpected type: {type(loaded_data)!r}")
+        if loaded_data.get("test") != "data":
+            raise RuntimeError("Loaded JSON data missing expected 'test' key")
         print(f"✓ Loaded JSON data: {loaded_data['test']}")
 
         # Test audit logging
@@ -73,7 +77,8 @@ def test_persistence_layer() -> bool:
 
         # Check audit log file exists
         audit_file = Path(tmpdir) / "audit_log.jsonl"
-        assert audit_file.exists()
+        if not audit_file.exists():
+            raise FileNotFoundError("Audit log file was not created")
         print("✓ Audit log file created")
 
     print("\n✅ All persistence layer tests PASSED!")
@@ -93,20 +98,24 @@ def test_sqlalchemy_models() -> bool:
         from ml.registry.persistence import ModelTable
         from ml.registry.persistence import StrategyTable
 
+        def _require_attribute(obj: object, attribute: str) -> None:
+            if not hasattr(obj, attribute):
+                raise AttributeError(f"{obj} missing required attribute '{attribute}'")
+
         # Check tables have correct attributes
-        assert hasattr(ModelTable, "model_id")
-        assert hasattr(ModelTable, "extra_metadata")  # Changed from metadata
+        _require_attribute(ModelTable, "model_id")
+        _require_attribute(ModelTable, "extra_metadata")  # Changed from metadata
         print("✓ ModelTable defined with correct attributes")
 
-        assert hasattr(FeatureTable, "feature_set_id")
-        assert hasattr(FeatureTable, "extra_metadata")  # Changed from metadata
+        _require_attribute(FeatureTable, "feature_set_id")
+        _require_attribute(FeatureTable, "extra_metadata")  # Changed from metadata
         print("✓ FeatureTable defined with correct attributes")
 
-        assert hasattr(StrategyTable, "strategy_id")
-        assert hasattr(StrategyTable, "extra_metadata")  # Changed from metadata
+        _require_attribute(StrategyTable, "strategy_id")
+        _require_attribute(StrategyTable, "extra_metadata")  # Changed from metadata
         print("✓ StrategyTable defined with correct attributes")
 
-        assert hasattr(AuditLogTable, "entity_type")
+        _require_attribute(AuditLogTable, "entity_type")
         print("✓ AuditLogTable defined with correct attributes")
 
         print("\n✅ All SQLAlchemy model tests PASSED!")

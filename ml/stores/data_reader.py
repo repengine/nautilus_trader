@@ -479,3 +479,118 @@ class DataReader:
             period_end=period_end,
             as_of_ts=as_of_ts,
         )
+
+    # ------------------------------------------------------------------
+    # Range reads (component DataStore facade)
+    # ------------------------------------------------------------------
+
+    def read_feature_range(
+        self,
+        *,
+        start_ns: int,
+        end_ns: int,
+        instrument_id: str | None = None,
+    ) -> object:
+        """
+        Read feature values within the given time range.
+
+        Delegates to the FeatureStore query service when available. Falls back to the
+        legacy ``get_training_data`` API for compatibility. Returns an empty list when
+        neither path is available to preserve non-fatal behaviour in tests.
+        """
+        query_service = getattr(self.feature_store, "_query_service", None)
+        if query_service is not None:
+            read_fn = getattr(query_service, "read_range", None)
+            if callable(read_fn):
+                try:
+                    return read_fn(
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                        instrument_id=instrument_id,
+                    )
+                except Exception:
+                    logger.debug(
+                        "FeatureStore query_service.read_range failed; falling back to legacy API",
+                        exc_info=True,
+                    )
+
+        legacy_fn = getattr(self.feature_store, "get_training_data", None)
+        if callable(legacy_fn) and instrument_id is not None:
+            from datetime import datetime
+
+            start_dt = datetime.fromtimestamp(start_ns / 1_000_000_000)
+            end_dt = datetime.fromtimestamp(end_ns / 1_000_000_000)
+            try:
+                return legacy_fn(
+                    instrument_id=instrument_id,
+                    start=start_dt,
+                    end=end_dt,
+                )
+            except Exception:
+                logger.debug("FeatureStore.get_training_data fallback failed", exc_info=True)
+
+        return []
+
+    def read_predictions_range(
+        self,
+        *,
+        model_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> object:
+        """
+        Read model predictions for the specified range.
+
+        Uses the ModelStore query service when available to avoid the legacy facade.
+        """
+        query_service = getattr(self.model_store, "_query_service", None)
+        if query_service is not None:
+            read_fn = getattr(query_service, "read_predictions", None)
+            if callable(read_fn):
+                try:
+                    return read_fn(
+                        model_id=model_id,
+                        instrument_id=instrument_id,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                    )
+                except Exception:
+                    logger.debug(
+                        "ModelStore query_service.read_predictions failed; returning empty result",
+                        exc_info=True,
+                    )
+                    return []
+
+        return []
+
+    def read_signals_range(
+        self,
+        *,
+        strategy_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> object:
+        """
+        Read strategy signals for the specified range using the query service.
+        """
+        query_service = getattr(self.strategy_store, "_query_service", None)
+        if query_service is not None:
+            read_fn = getattr(query_service, "read_signals", None)
+            if callable(read_fn):
+                try:
+                    return read_fn(
+                        strategy_id=strategy_id,
+                        instrument_id=instrument_id,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                    )
+                except Exception:
+                    logger.debug(
+                        "StrategyStore query_service.read_signals failed; returning empty result",
+                        exc_info=True,
+                    )
+                    return []
+
+        return []

@@ -1,0 +1,8 @@
+version: "3.9"
+
+services:
+  streaming_training_runner:
+    environment:
+      ML_STREAMING_ACCELERATOR: "${ML_STREAMING_ACCELERATOR:-cpu}"
+      ML_STREAMING_DEVICES: "${ML_STREAMING_DEVICES:-1}"
+    deploy: {}

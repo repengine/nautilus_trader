@@ -326,18 +326,26 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         # Propagate circuit breaker to created stores if provided
         if self._circuit_breaker is not None:
-            try:
-                setattr(self.feature_store, "_circuit_breaker", self._circuit_breaker)
-            except Exception:
-                pass
-            try:
-                setattr(self.model_store, "_circuit_breaker", self._circuit_breaker)
-            except Exception:
-                pass
-            try:
-                setattr(self.strategy_store, "_circuit_breaker", self._circuit_breaker)
-            except Exception:
-                pass
+            circuit_breaker_name = type(self._circuit_breaker).__name__
+            for store_name, store in (
+                ("feature_store", self.feature_store),
+                ("model_store", self.model_store),
+                ("strategy_store", self.strategy_store),
+            ):
+                if store is None:
+                    continue
+                try:
+                    setattr(store, "_circuit_breaker", self._circuit_breaker)
+                except Exception:
+                    logger.debug(
+                        "Failed to propagate circuit breaker to %s",
+                        store_name,
+                        extra={
+                            "store": store_name,
+                            "circuit_breaker": circuit_breaker_name,
+                        },
+                        exc_info=True,
+                    )
         # Optional message bus publisher (no-op by default if None)
         self.publisher: MessagePublisherProtocol | None = publisher
 

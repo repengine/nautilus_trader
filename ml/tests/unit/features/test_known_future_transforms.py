@@ -21,6 +21,7 @@ from ml.features.pipeline import _EventScheduleTransform
 from ml.features.pipeline import _MacroIndicatorsTransform
 from ml.features.pipeline import _StaticCovariatesTransform
 from ml.registry.base import DataRequirements
+from ml.features.validation import validate_known_future_effective_times
 
 
 @pytest.mark.property
@@ -529,6 +530,28 @@ class TestStaticCovariatesTransform:
 
         # All features should be unique
         assert len(features) == len(set(features))
+
+
+def test_validate_known_future_effective_times_allows_lag_compliant_sequences() -> None:
+    evaluation_ns = [10, 20, 30, 40]
+    effective_ns = [5, 15, 30, 40]
+    # Should not raise
+    validate_known_future_effective_times(
+        evaluation_series=evaluation_ns,
+        effective_series=effective_ns,
+        context="unit_test_macro",
+    )
+
+
+def test_validate_known_future_effective_times_raises_on_leakage() -> None:
+    evaluation_ns = [10, 20, 30]
+    effective_ns = [12, 18, 24]
+    with pytest.raises(ValueError, match="unit_test_macro"):
+        validate_known_future_effective_times(
+            evaluation_series=evaluation_ns,
+            effective_series=effective_ns,
+            context="unit_test_macro",
+        )
 
 
 if __name__ == "__main__":

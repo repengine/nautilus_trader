@@ -16,6 +16,7 @@ Usage
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Literal, cast
 
@@ -39,7 +40,15 @@ def to_source_enum(x: Source | str) -> Source:
     if isinstance(x, Source):
         return x
     # Normalize to lower before enum construction
-    return Source(str(x).lower())
+    value = str(x).lower()
+    try:
+        return Source(value)
+    except ValueError:
+        logging.getLogger(__name__).debug(
+            "Unknown source provided, falling back to live",
+            extra={"provided_source": value},
+        )
+        return Source.LIVE
 
 
 def to_source_str(x: Source | str) -> SourceStr:
@@ -107,9 +116,9 @@ def build_bus_payload(
         Bus payload with optional trace context
 
     """
-    stage_val = stage.value if isinstance(stage, Stage) else str(stage)
+    stage_val = normalize_stage_value(stage)
     source_val = to_source_str(source)
-    status_val = status.value if isinstance(status, EventStatus) else str(status)
+    status_val = to_status_str(status)
 
     # Start with base metadata
     final_metadata = dict(metadata or {})
@@ -148,4 +157,90 @@ def build_bus_payload(
     return payload
 
 
-__all__ = ["SourceStr", "build_bus_payload", "to_source_enum", "to_source_str"]
+def to_stage_enum(stage: Stage | str) -> Stage:
+    """
+    Convert legacy string representations to a ``Stage`` enum.
+
+    Accepts values like ``Stage.FEATURE_COMPUTED``, ``STAGE.FEATURE_COMPUTED``,
+    or raw enum instances. Raises ``ValueError`` for unknown names.
+    """
+    if isinstance(stage, Stage):
+        return stage
+    stage_str = str(stage)
+    if stage_str.startswith("Stage."):
+        stage_str = stage_str.split(".", 1)[1]
+    if stage_str.startswith("STAGE."):
+        stage_str = stage_str.split(".", 1)[1]
+    try:
+        return Stage(stage_str)
+    except ValueError:
+        alias = stage_str.strip().upper()
+        alias_map = {
+            "FEATURE": Stage.FEATURE_COMPUTED,
+            "FEATURES": Stage.FEATURE_COMPUTED,
+            "FEATURE_COMPUTED": Stage.FEATURE_COMPUTED,
+            "PREDICTION": Stage.PREDICTION_EMITTED,
+            "PREDICTIONS": Stage.PREDICTION_EMITTED,
+            "PREDICTIONS_EMITTED": Stage.PREDICTION_EMITTED,
+            "SIGNAL": Stage.SIGNAL_EMITTED,
+            "SIGNALS": Stage.SIGNAL_EMITTED,
+            "DATA": Stage.DATA_INGESTED,
+            "DATA_INGESTED": Stage.DATA_INGESTED,
+            "CATALOG": Stage.CATALOG_WRITTEN,
+            "CATALOG_WRITTEN": Stage.CATALOG_WRITTEN,
+        }
+        try:
+            return alias_map[alias]
+        except KeyError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Unknown stage identifier '{stage_str}'") from exc
+
+
+def normalize_stage_value(stage: Stage | str) -> str:
+    """
+    Return the canonical ``Stage`` value string for event payloads.
+    """
+    return to_stage_enum(stage).value
+
+
+def to_status_enum(status: EventStatus | str) -> EventStatus:
+    """
+    Convert legacy string representations to an ``EventStatus`` enum.
+    """
+    if isinstance(status, EventStatus):
+        return status
+    status_str = str(status)
+    if status_str.startswith("EventStatus."):
+        status_str = status_str.split(".", 1)[1]
+    try:
+        return EventStatus(status_str)
+    except ValueError:
+        alias = status_str.strip().upper()
+        alias_map = {
+            "SUCCESS": EventStatus.SUCCESS,
+            "FAILED": EventStatus.FAILED,
+            "PARTIAL": EventStatus.PARTIAL,
+            "DEFERRED": EventStatus.DEFERRED,
+        }
+        try:
+            return alias_map[alias]
+        except KeyError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Unknown status identifier '{status_str}'") from exc
+
+
+def to_status_str(status: EventStatus | str) -> str:
+    """
+    Return the canonical status string used for persistence.
+    """
+    return to_status_enum(status).value
+
+
+__all__ = [
+    "SourceStr",
+    "build_bus_payload",
+    "normalize_stage_value",
+    "to_source_enum",
+    "to_source_str",
+    "to_stage_enum",
+    "to_status_enum",
+    "to_status_str",
+]

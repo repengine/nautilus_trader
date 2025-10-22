@@ -10,5 +10,6 @@
   "threshold": 0.001,
   "lookback_periods": 30,
   "workers": 1,
-  "use_subprocess": true
+  "use_subprocess": true,
+  "convert_vintage_to_age": true
 }

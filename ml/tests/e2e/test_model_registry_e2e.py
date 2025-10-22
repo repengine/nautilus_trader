@@ -275,6 +275,15 @@ class TestE2EModelRegistrationAndLoading:
         assert model_info is not None
         assert model_info.manifest.model_id == model_id
         assert model_info.manifest.role == ModelRole.INFERENCE
+        if model_info.deployment_status != DeploymentStatus.INACTIVE:
+            print(
+                "[model-registry-status-mismatch]",
+                model_info.deployment_status,
+                type(model_info.deployment_status),
+                DeploymentStatus,
+                DeploymentStatus.__module__,
+                type(model_info.deployment_status).__module__,
+            )
         assert model_info.deployment_status == DeploymentStatus.INACTIVE
         assert model_info.manifest.architecture == "LogisticRegression"
         assert model_info.manifest.version == "1.0.0"

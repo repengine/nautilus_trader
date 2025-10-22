@@ -38,8 +38,14 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if not HAS_PANDAS:
-        check_ml_dependencies(["pandas"])  # pragma: no cover
-    assert pd is not None
+        check_ml_dependencies(["pandas"])  # pragma: no cover - raises if missing
+    pandas_module = pd
+    if pandas_module is None:
+        # If HAS_PANDAS was False we already raised above; guard for defensive coding
+        check_ml_dependencies(["pandas"])  # pragma: no cover - raises if missing
+        pandas_module = pd
+    if pandas_module is None:
+        raise RuntimeError("Pandas dependency 'pandas' is required for feature materialization")
 
     freg = FeatureRegistry(Path(args.feature_registry_dir))
     finfo = freg.get_feature_set(args.feature_set_id)
@@ -48,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = finfo.manifest
     feature_names = list(manifest.feature_names)
 
-    df = pd.read_csv(args.input_csv)
+    df = pandas_module.read_csv(args.input_csv)
 
     if args.from_ohlcv:
         # Best-effort compute via FeatureEngineer

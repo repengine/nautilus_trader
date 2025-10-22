@@ -13,6 +13,7 @@ focused, testable dataset building functionality.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from collections.abc import Sequence
@@ -29,6 +30,9 @@ from ml.data import validate_dataset_metadata_expectations
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
 from ml.orchestration.config_types import DatasetBuildConfig
+from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
+from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
+from ml.preprocessing.vintage_age import write_metadata
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.protocols import DataStoreFacadeProtocol
 
@@ -123,7 +127,8 @@ class DatasetBuilderProtocol(Protocol):
             (validation_passed, dataset_metadata)
 
         """
-        ...
+        del dataset_path, expectations, validation_config
+        raise NotImplementedError
 
 
 # ========================================================================
@@ -294,8 +299,16 @@ class DatasetBuilder:
                 if manifest_id:
                     payload["manifest_id"] = manifest_id
                 meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Unable to persist feature registration metadata",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": cfg.dataset_id,
+                        "out_dir": str(cfg.out_dir),
+                        "reason": str(exc),
+                    },
+                )
 
             dataset_metadata = getattr(result, "metadata", None)
             if dataset_metadata is not None:
@@ -314,6 +327,10 @@ class DatasetBuilder:
                     )
                 except Exception:  # pragma: no cover - defensive logging
                     logger.debug("Failed to log dataset metadata", exc_info=True)
+
+            converted_path = self._maybe_convert_vintage_dataset(cfg, result.dataset_parquet)
+            if converted_path != result.dataset_parquet:
+                result = dataclasses.replace(result, dataset_parquet=converted_path)
 
             self._record_build_artifacts(
                 cfg=cfg,
@@ -379,6 +396,26 @@ class DatasetBuilder:
                 expectations,
                 context="dataset_builder.validate",
             )
+            if validation_config.expected_vintage_policy is not None:
+                if metadata.vintage_policy != validation_config.expected_vintage_policy:
+                    raise ValueError(
+                        f"Expected vintage policy {validation_config.expected_vintage_policy.value} "
+                        f"but dataset uses {metadata.vintage_policy.value}",
+                    )
+            if validation_config.require_macro_series:
+                required_series = tuple(str(series) for series in validation_config.require_macro_series)
+                min_observations = validation_config.macro_min_vintage_observations or 1
+                missing_macro = [
+                    series
+                    for series in required_series
+                    if metadata.macro_observation_counts.get(series, 0) < min_observations
+                ]
+                if missing_macro:
+                    raise ValueError(
+                        "Missing macro series observations: "
+                        f"{', '.join(sorted(missing_macro))} "
+                        f"(threshold={min_observations})",
+                    )
             return True, metadata
         except Exception as exc:
             logger.error("Dataset validation failed: %s", exc, exc_info=True)
@@ -499,8 +536,13 @@ class DatasetBuilder:
             reg_dir = cfg.feature_registry_dir or str(Path.home() / ".nautilus" / "ml" / "features")
             args += ["--feature_registry_dir", reg_dir]
 
+        if cfg.convert_vintage_to_age:
+            args += ["--convert-vintage-age"]
+
         rc = self.build_main(args)
         if rc == 0:
+            dataset_path = Path(cfg.out_dir) / "dataset.parquet"
+            self._maybe_convert_vintage_dataset(cfg, dataset_path)
             self._capture_cli_build_artifacts(cfg)
         return rc
 
@@ -615,8 +657,12 @@ class DatasetBuilder:
         flags = {
             "include_macro": cfg.include_macro,
             "macro_lag_days": cfg.macro_lag_days,
+            "include_calendar": cfg.include_calendar,
             "include_events": cfg.include_events,
+            "include_earnings": cfg.include_earnings,
+            "include_micro": cfg.include_micro,
             "include_l2": cfg.include_l2,
+            "include_macro_revisions": cfg.include_macro_revisions,
             "student_mode": cfg.student_mode,
             "fred_vintages": bool(cfg.fred_vintage_dir),
             "events_dir": bool(cfg.events_dir),
@@ -674,6 +720,78 @@ class DatasetBuilder:
             feature_names=names_tuple,
             dataset_metadata=dataset_metadata,
         )
+
+    def _maybe_convert_vintage_dataset(
+        self,
+        cfg: DatasetBuildConfig,
+        dataset_parquet: Path,
+    ) -> Path:
+        if not getattr(cfg, "convert_vintage_to_age", False):
+            return dataset_parquet
+
+        destination = dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+        metadata_path = dataset_parquet.parent / "dataset_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(metadata_path)
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        column_info = metadata.get("column_info", {})
+        vintage_columns = tuple(
+            str(name)
+            for name in column_info.get("vintage_timestamp_columns", [])
+            if isinstance(name, str)
+        )
+
+        if destination.exists():
+            if not vintage_columns:
+                return destination
+            age_columns = tuple(
+                name.replace("__value_vintage_ts", "__vintage_age_minutes")
+                for name in vintage_columns
+            )
+            updated_metadata = update_metadata_with_vintage_age(
+                metadata,
+                vintage_columns=vintage_columns,
+                age_columns=age_columns,
+            )
+            write_metadata(metadata_path, updated_metadata)
+            logger.info(
+                "Dataset vintage timestamps already converted; metadata refreshed",
+                extra={
+                    "dataset_id": cfg.dataset_id,
+                    "destination": str(destination),
+                },
+            )
+            return destination
+
+        try:
+            conversion = convert_vintage_timestamps_to_age(dataset_parquet, destination)
+        except Exception:  # pragma: no cover - defensive
+            logger.error(
+                "Vintage age conversion failed",
+                exc_info=True,
+                extra={
+                    "dataset_id": cfg.dataset_id,
+                    "dataset_parquet": str(dataset_parquet),
+                },
+            )
+            raise
+
+        updated_metadata = update_metadata_with_vintage_age(
+            metadata,
+            vintage_columns=conversion.vintage_columns,
+            age_columns=conversion.age_columns,
+        )
+        write_metadata(metadata_path, updated_metadata)
+        logger.info(
+            "Dataset vintage timestamps converted to age features",
+            extra={
+                "dataset_id": cfg.dataset_id,
+                "destination": str(destination),
+                "age_columns": list(conversion.age_columns),
+            },
+        )
+        return destination
 
     def _guard_dataset_metadata(
         self,
@@ -873,7 +991,9 @@ class DatasetBuilder:
             Feature names
 
         """
-        dataset_path = out_dir / "dataset.parquet"
+        dataset_path = out_dir / "dataset_with_vintage_age.parquet"
+        if not dataset_path.exists():
+            dataset_path = out_dir / "dataset.parquet"
         if not dataset_path.exists():
             logger.debug("Dataset parquet missing after CLI build: %s", dataset_path)
             return ()
@@ -902,8 +1022,12 @@ class DatasetBuilder:
 
         try:
             check_ml_dependencies(["polars"])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Optional dependency check failed",
+                exc_info=True,
+                extra={"dependency": "polars", "reason": str(exc)},
+            )
         return ()
 
     def _capture_cli_build_artifacts(self, cfg: DatasetBuildConfig) -> None:

@@ -9,12 +9,40 @@ This script checks the health of all services in the Docker deployment.
 from __future__ import annotations
 
 import json
+import logging
 import os
-import subprocess
+import shutil
 import sys
 from collections.abc import Callable
 
 import requests
+
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
+
+
+logger = logging.getLogger(__name__)
+
+
+def _compose_base() -> list[str]:
+    """
+    Resolve the docker-compose command invocation.
+    """
+    override = os.environ.get("DOCKER_COMPOSE_BIN")
+    if override:
+        return [override]
+    docker_compose = shutil.which("docker-compose")
+    if docker_compose:
+        return [docker_compose]
+    docker = shutil.which("docker")
+    if docker:
+        return [docker, "compose"]
+    raise FileNotFoundError("docker-compose binary not found in PATH")
+
+
+def _compose_command(*args: str) -> list[str]:
+    base = _compose_base()
+    return [*base, *args]
 
 
 def check_service_health(service_name: str, check_func: Callable[[], bool]) -> tuple[bool, str]:
@@ -33,24 +61,26 @@ def check_postgres() -> bool:
     Check PostgreSQL health.
     """
     # Prefer docker-compose for exec to maximize compatibility with tests and older setups
-    result = subprocess.run(
-        ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    try:
+        command = _compose_command("exec", "-T", "postgres", "pg_isready", "-U", "postgres")
+        result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+        return result.returncode == 0
+    except (FileNotFoundError, SubprocessExecutionError) as exc:
+        logger.debug("postgres_health_check_failed: %s", exc, exc_info=True)
+        return False
 
 
 def check_redis() -> bool:
     """
     Check Redis health.
     """
-    result = subprocess.run(
-        ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
-        capture_output=True,
-        text=True,
-    )
-    return "PONG" in result.stdout
+    try:
+        command = _compose_command("exec", "-T", "redis", "redis-cli", "ping")
+        result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+        return "PONG" in (result.stdout or "")
+    except (FileNotFoundError, SubprocessExecutionError) as exc:
+        logger.debug("redis_health_check_failed: %s", exc, exc_info=True)
+        return False
 
 
 def check_ml_pipeline() -> bool:
@@ -98,12 +128,15 @@ def check_docker_compose() -> bool:
     """
     # Reserved for future: COMPOSE_FILE forwarding if needed
 
-    result = subprocess.run(
-        ["docker-compose", "ps", "--format", "json"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        command = _compose_command("ps", "--format", "json")
+        result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+    except (FileNotFoundError, SubprocessExecutionError) as exc:
+        logger.debug("docker_compose_ps_failed: %s", exc, exc_info=True)
+        return False
+
     if result.returncode != 0:
+        logger.debug("docker_compose_ps_nonzero returncode=%s", result.returncode)
         return False
 
     stdout = result.stdout.strip()

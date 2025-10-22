@@ -15,16 +15,25 @@ These tests validate that all dataset event emission follows consistent patterns
 from __future__ import annotations
 
 import time
+from types import ModuleType
 from unittest.mock import MagicMock
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, cast
 
 import pytest
 
 from ml.common.correlation import make_correlation_id
 from ml.common.event_emitter import emit_dataset_event, emit_dataset_event_and_watermark
 from ml.config.events import EventStatus, Source, Stage
-from ml.stores.data_store import DataStore
 from ml.registry.protocols import RegistryProtocol
+if TYPE_CHECKING:
+    from ml.stores.data_store import DataStore
+else:
+    DataStore = Any  # pragma: no cover - runtime fallback for imports
+
+
+def _get_data_store_cls(module: ModuleType) -> type[DataStore]:
+    """Return the DataStore class from the dynamically loaded module."""
+    return cast("type[DataStore]", getattr(module, "DataStore"))
 
 
 class TestDatasetEventContracts:
@@ -41,11 +50,16 @@ class TestDatasetEventContracts:
         return registry
 
     @pytest.fixture
-    def data_store(self, mock_registry: MagicMock) -> DataStore:
+    def data_store(
+        self,
+        mock_registry: MagicMock,
+        datastore_module: ModuleType,
+    ) -> DataStore:
         """
         Data store with mocked registry for testing.
         """
-        return DataStore(
+        data_store_cls = _get_data_store_cls(datastore_module)
+        return data_store_cls(
             connection_string="sqlite:///:memory:",
             registry=mock_registry,
             publisher=None,  # Disable message bus for these tests
@@ -269,13 +283,11 @@ class TestDatasetEventContracts:
             status="success",
         )
 
-        # Verify registry.emit_event was called (through centralized helper)
         assert data_store.registry.emit_event.called
-
         call_args = data_store.registry.emit_event.call_args
+        assert call_args.kwargs["stage"] == Stage.FEATURE_COMPUTED
+        assert call_args.kwargs["source"] == Source.LIVE
         metadata = call_args.kwargs.get("metadata", {})
-
-        # Verify correlation_id was attached by centralized helper
         assert "correlation_id" in metadata
 
     def test_data_store_partial_event_uses_centralized_helper(self, data_store: DataStore) -> None:
@@ -475,11 +487,8 @@ class TestDatasetEventContracts:
             status="success",  # string instead of EventStatus enum
         )
 
-        # Verify call was successful and enums were used internally
         assert data_store.registry.emit_event.called
         call_args = data_store.registry.emit_event.call_args
-
-        # The centralized helper should have converted strings to enums
         assert isinstance(call_args.kwargs["stage"], Stage)
         assert isinstance(call_args.kwargs["source"], Source)
         assert isinstance(call_args.kwargs["status"], EventStatus)

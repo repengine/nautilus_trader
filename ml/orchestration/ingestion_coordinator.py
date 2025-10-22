@@ -20,7 +20,7 @@ import time
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -38,6 +38,9 @@ from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import PreIngestionOptions
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+
+
+__all__ = ["IngestionCoordinator", "IngestionOrchestrator"]
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
@@ -49,6 +52,7 @@ from ml.tasks.ingest import populate_l2_efficient
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from ml.config.scheduler_config import SchedulerConfig
+    from ml.data.ingest.orchestrator import IngestionOrchestrator
     from ml.orchestration.discovery_client import DiscoveryClient
 
 
@@ -320,7 +324,17 @@ class IngestionCoordinator:
             raise RuntimeError("Market data writer is required for ingestion orchestration")
         if self.registry is None:
             raise RuntimeError("Data registry is required for ingestion orchestration")
-        return IngestionOrchestrator(
+        try:
+            from ml.orchestration import pipeline_orchestrator as _pipeline
+
+            orchestrator_cls = cast(
+                type[IngestionOrchestrator],
+                getattr(_pipeline, "IngestionOrchestrator"),
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            orchestrator_cls = IngestionOrchestrator
+
+        return orchestrator_cls(
             coverage=self.coverage,
             writer=self.writer,
             registry=self.registry,
@@ -1123,8 +1137,12 @@ class IngestionCoordinator:
         try:
             registry.get_manifest(dataset_id)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Dataset manifest lookup failed during ingestion coordinator registration",
+                exc_info=True,
+                extra={"dataset_id": dataset_id, "reason": str(exc)},
+            )
 
         # Determine storage_kind based on write_mode if not provided
         if storage_kind is None:

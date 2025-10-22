@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from typing import cast as _cast
 
 from ml._imports import HAS_POLARS
@@ -26,9 +27,16 @@ MICRO_COLUMNS = [
 ]
 
 
-def _ensure_polars() -> None:
+def _ensure_polars() -> Any:
     if not HAS_POLARS:
-        check_ml_dependencies(["polars"])  # pragma: no cover
+        check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+    module = pl
+    if module is None:
+        check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+        module = pl
+    if module is None:
+        raise RuntimeError("Polars dependency 'polars' is required for microstructure aggregation")
+    return module
 
 
 def aggregate_microstructure_minute_pl(
@@ -41,9 +49,7 @@ def aggregate_microstructure_minute_pl(
     bid_sz_col: str = "bid_sz_00",
     ask_sz_col: str = "ask_sz_00",
 ) -> PolarsDF:
-    _ensure_polars()
-    _pl = pl
-    assert _pl is not None
+    _pl = _ensure_polars()
     if quotes is None and trades is None:
         return _cast(PolarsDF, _pl.DataFrame({"timestamp": []}))
 
@@ -114,9 +120,7 @@ class MicrostructureAggregator:
     base_dir: Path
 
     def _load_l1_quotes(self, symbol: str) -> PolarsDF | None:
-        _ensure_polars()
-        _pl = pl
-        assert _pl is not None
+        _pl = _ensure_polars()
         l1_dir = self.base_dir / symbol / "l1"
         if not l1_dir.exists():
             return None
@@ -135,9 +139,7 @@ class MicrostructureAggregator:
             return None
 
     def _load_l1_trades(self, symbol: str) -> PolarsDF | None:
-        _ensure_polars()
-        _pl = pl
-        assert _pl is not None
+        _pl = _ensure_polars()
         l1_dir = self.base_dir / symbol / "l1"
         if not l1_dir.exists():
             return None
@@ -152,9 +154,7 @@ class MicrostructureAggregator:
             return None
 
     def compute_for_symbol(self, symbol: str) -> PolarsDF:
-        _ensure_polars()
-        _pl = pl
-        assert _pl is not None
+        _pl = _ensure_polars()
         q = self._load_l1_quotes(symbol)
         t = self._load_l1_trades(symbol)
         if q is None and t is None:

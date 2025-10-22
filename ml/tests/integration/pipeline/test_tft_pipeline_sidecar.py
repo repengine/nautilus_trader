@@ -32,7 +32,15 @@ def _stub_build_main(argv: list[str] | None = None) -> int:
         "feature_set_id": "feature_set_123",
         "feature_registry_dir": str((out_dir / "features").resolve()),
         "feature_names": ["f1"],
-        "flags": {"include_macro": False, "include_micro": False, "include_l2": False},
+        "flags": {
+            "include_macro": False,
+            "include_micro": False,
+            "include_l2": False,
+            "include_calendar": False,
+            "include_events": False,
+            "include_earnings": False,
+            "include_macro_revisions": False,
+        },
     }
     (out_dir / "features").mkdir(parents=True, exist_ok=True)
     with open(out_dir / "feature_set.json", "w", encoding="utf-8") as f:

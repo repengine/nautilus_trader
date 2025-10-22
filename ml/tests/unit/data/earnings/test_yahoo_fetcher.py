@@ -13,6 +13,8 @@ Tests cover:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -23,6 +25,16 @@ import pytest
 from ml._imports import HAS_YFINANCE
 from ml.data.earnings.yahoo_fetcher import EarningsConsensus
 from ml.data.earnings.yahoo_fetcher import YahooFetcher
+from ml.data.earnings.yahoo_fetcher import set_yfinance_override
+
+
+@contextmanager
+def _yfinance_override(mock: Mock) -> Iterator[None]:
+    set_yfinance_override(mock)
+    try:
+        yield
+    finally:
+        set_yfinance_override(None)
 
 
 @pytest.mark.skipif(not HAS_YFINANCE, reason="yfinance not installed")
@@ -61,15 +73,16 @@ class TestYahooFetcher:
 
         mock_yfinance.Ticker.return_value = mock_ticker
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("AAPL")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("AAPL")
 
-        assert consensus is not None
-        assert consensus.ticker == "AAPL"
-        assert consensus.next_earnings_date == datetime(2025, 1, 30, 16, 0)
-        assert consensus.eps_estimate == 2.10
-        assert consensus.num_analysts == 42
+            assert consensus is not None
+            assert consensus.ticker == "AAPL"
+            assert consensus.next_earnings_date == datetime(2025, 1, 30, 16, 0)
+            assert consensus.eps_estimate == 2.10
+            assert consensus.num_analysts == 42
 
     @patch("ml.data.earnings.yahoo_fetcher.yfinance")
     def test_fetch_consensus_invalid_ticker(self, mock_yfinance: Mock) -> None:
@@ -77,11 +90,12 @@ class TestYahooFetcher:
         # Mock ticker not found
         mock_yfinance.Ticker.side_effect = Exception("Ticker not found")
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("INVALID_TICKER_XYZ")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("INVALID_TICKER_XYZ")
 
-        assert consensus is None  # Should return None, not raise
+            assert consensus is None  # Should return None, not raise
 
     @patch("ml.data.earnings.yahoo_fetcher.yfinance")
     def test_fetch_consensus_no_estimates(self, mock_yfinance: Mock) -> None:
@@ -94,16 +108,17 @@ class TestYahooFetcher:
 
         mock_yfinance.Ticker.return_value = mock_ticker
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("SMALLCAP")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("SMALLCAP")
 
-        # Should still return consensus object with None values
-        assert consensus is not None
-        assert consensus.ticker == "SMALLCAP"
-        assert consensus.next_earnings_date is None
-        assert consensus.eps_estimate is None
-        assert consensus.num_analysts == 0
+            # Should still return consensus object with None values
+            assert consensus is not None
+            assert consensus.ticker == "SMALLCAP"
+            assert consensus.next_earnings_date is None
+            assert consensus.eps_estimate is None
+            assert consensus.num_analysts == 0
 
     @patch("ml.data.earnings.yahoo_fetcher.yfinance")
     def test_fetch_consensus_calendar_fallback(self, mock_yfinance: Mock) -> None:
@@ -119,12 +134,13 @@ class TestYahooFetcher:
 
         mock_yfinance.Ticker.return_value = mock_ticker
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("AAPL")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("AAPL")
 
-        assert consensus is not None
-        assert consensus.next_earnings_date == datetime(2025, 1, 30)
+            assert consensus is not None
+            assert consensus.next_earnings_date == datetime(2025, 1, 30)
 
     @patch("ml.data.earnings.yahoo_fetcher.yfinance")
     def test_fetch_consensus_info_fallback(self, mock_yfinance: Mock) -> None:
@@ -141,12 +157,13 @@ class TestYahooFetcher:
 
         mock_yfinance.Ticker.return_value = mock_ticker
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("AAPL")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("AAPL")
 
-        assert consensus is not None
-        assert consensus.eps_estimate == 2.15
+            assert consensus is not None
+            assert consensus.eps_estimate == 2.15
 
     def test_earnings_consensus_dataclass(self) -> None:
         """Test EarningsConsensus dataclass creation."""
@@ -200,11 +217,12 @@ class TestYahooFetcher:
 
         mock_yfinance.Ticker.return_value = mock_ticker
 
-        # Test
-        fetcher = YahooFetcher(rate_limit_delay=0.0)
-        consensus = fetcher.fetch_consensus("AAPL")
+        with _yfinance_override(mock_yfinance):
+            # Test
+            fetcher = YahooFetcher(rate_limit_delay=0.0)
+            consensus = fetcher.fetch_consensus("AAPL")
 
-        # Should handle NaN gracefully
-        assert consensus is not None
-        # eps_estimate should be None when NaN
-        assert consensus.eps_estimate is None or consensus.eps_estimate == 2.05
+            # Should handle NaN gracefully
+            assert consensus is not None
+            # eps_estimate should be None when NaN
+            assert consensus.eps_estimate is None or consensus.eps_estimate == 2.05

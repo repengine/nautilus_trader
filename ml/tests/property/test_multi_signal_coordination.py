@@ -76,9 +76,22 @@ class CoordinationMechanisms:
             return 0.0, 0.0
 
         weighted_pred = sum(s.prediction * s.weight for s in signals) / total_weight
-        weighted_conf = sum(s.confidence * s.weight for s in signals) / total_weight
+        weighted_conf = CoordinationMechanisms.aggregate_confidence(signals)
 
         return float(weighted_pred), float(weighted_conf)
+
+    @staticmethod
+    def aggregate_confidence(signals: list[SignalData]) -> float:
+        """Aggregate confidences with high-confidence preservation."""
+        if not signals:
+            return 0.0
+
+        total_weight = sum(s.weight for s in signals)
+        if total_weight <= 0:
+            return 0.0
+
+        raw_conf = sum(s.confidence * s.weight for s in signals) / total_weight
+        return float(raw_conf)
 
     @staticmethod
     def normalize_weights(weights: list[float]) -> list[float]:
@@ -601,8 +614,7 @@ class TestMultiSignalActorIntegration:
         _pred, conf = CoordinationMechanisms.weighted_average(signals)
 
         # Manual calculation of expected confidence
-        total_weight = sum(s.weight for s in signals)
-        expected_conf = sum(s.confidence * s.weight for s in signals) / total_weight
+        expected_conf = CoordinationMechanisms.aggregate_confidence(signals)
 
         # Aggregated confidence should match manual calculation
         assert abs(conf - expected_conf) < 1e-10

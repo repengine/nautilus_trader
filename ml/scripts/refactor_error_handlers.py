@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 from pathlib import Path
 from typing import NamedTuple
+
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 
 
 class RefactoringPattern(NamedTuple):
@@ -46,10 +48,16 @@ PATTERNS = [
 ]
 
 
+def _to_text(stream: str | bytes | None) -> str:
+    if isinstance(stream, bytes):
+        return stream.decode("utf-8", errors="ignore")
+    return stream or ""
+
+
 def find_files_with_error_patterns(ml_dir: Path) -> list[tuple[Path, int]]:
     """Find all Python files with 'except Exception as e:' patterns."""
     try:
-        result = subprocess.run(
+        result = run_command(
             ["grep", "-r", "except Exception as e:", str(ml_dir), "--include=*.py", "-c"],
             capture_output=True,
             text=True,
@@ -57,7 +65,8 @@ def find_files_with_error_patterns(ml_dir: Path) -> list[tuple[Path, int]]:
         )
 
         files_with_counts = []
-        for line in result.stdout.strip().split("\n"):
+        stdout_text = _to_text(result.stdout)
+        for line in stdout_text.strip().split("\n"):
             if ":" in line:
                 file_path, count_str = line.rsplit(":", 1)
                 try:
@@ -70,8 +79,8 @@ def find_files_with_error_patterns(ml_dir: Path) -> list[tuple[Path, int]]:
         files_with_counts.sort(key=lambda x: x[1], reverse=True)
         return files_with_counts
 
-    except Exception as e:
-        print(f"Error finding files: {e}")
+    except SubprocessExecutionError as exc:
+        print(f"Error finding files: {exc}")
         return []
 
 

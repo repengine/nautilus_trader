@@ -295,16 +295,12 @@ class TestValidateBatch:
         assert report.quality_score == 1.0
         assert len(report.violations) == 0
 
-    @patch("ml.stores.schema_validator.HAS_PROMETHEUS", True)
-    @patch("ml.stores.schema_validator.quality_score_histogram")
-    @patch("ml.stores.schema_validator.validation_duration_histogram")
     def test_validate_batch_records_metrics(
         self,
-        mock_duration_histogram: MagicMock,
-        mock_quality_histogram: MagicMock,
         validator: SchemaValidator,
         sample_dataframe: pd.DataFrame,
         basic_manifest: DatasetManifest,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Validate batch records Prometheus metrics."""
         contract = DataContract(
@@ -327,10 +323,31 @@ class TestValidateBatch:
             metadata={},
         )
 
+        monkeypatch.setattr("ml.stores.schema_validator.HAS_PROMETHEUS", True)
+
+        mock_quality_histogram = MagicMock()
+        mock_duration_histogram = MagicMock()
         mock_quality_labels = MagicMock()
         mock_duration_labels = MagicMock()
         mock_quality_histogram.labels.return_value = mock_quality_labels
         mock_duration_histogram.labels.return_value = mock_duration_labels
+
+        monkeypatch.setattr(
+            "ml.stores.schema_validator.quality_score_histogram",
+            mock_quality_histogram,
+        )
+        monkeypatch.setattr(
+            "ml.stores.schema_validator.validation_duration_histogram",
+            mock_duration_histogram,
+        )
+        monkeypatch.setattr(
+            "ml.common.metrics.quality_score_histogram",
+            mock_quality_histogram,
+        )
+        monkeypatch.setattr(
+            "ml.common.metrics.validation_duration_histogram",
+            mock_duration_histogram,
+        )
 
         validator.validate_batch(
             sample_dataframe,

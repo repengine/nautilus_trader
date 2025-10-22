@@ -1778,7 +1778,10 @@ class MLSignalActor(BaseMLInferenceActor):
             try:
                 self._predict(dummy_features)
             except Exception as e:
-                self.log.debug(f"Warm-up iteration {i} failed: {e}")
+                self.log.debug(
+                    f"Warm-up iteration {i} failed: {e}",
+                    exc_info=True,
+                )
             warm_up_times.append((time.perf_counter_ns() - start) / 1_000_000)
 
         if warm_up_times:
@@ -1834,8 +1837,12 @@ class MLSignalActor(BaseMLInferenceActor):
                     self._opt_config.reservoir_sample_size,
                 )
                 self.log.info("Initialized lock-free buffers for optimized performance")
-            except ImportError:
-                self.log.warning("Lock-free buffers not available, using standard buffers")
+            except ImportError as exc:
+                self.log.warning(
+                    "Lock-free buffers not available, using standard buffers: %s",
+                    exc,
+                    exc_info=True,
+                )
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
@@ -1909,7 +1916,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 ).observe(feature_time / 1000.0)
             except Exception as exc:
                 # Swallow metrics failures but keep visibility for debugging
-                self.log.debug(f"Feature time metric observe failed: {exc}")
+                self.log.debug(
+                    f"Feature time metric observe failed: {exc}",
+                    exc_info=True,
+                )
 
         return features
 
@@ -2005,7 +2015,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.error(f"Unsupported model type: {type(self._model)}")
                 return 0.0, 0.0
         except Exception as e:
-            self.log.error(f"Prediction failed: {e}")
+            self.log.error(
+                f"Prediction failed: {e}",
+                exc_info=True,
+            )
             # Re-raise to let base class handle circuit breaker and health monitoring
             raise
 
@@ -2115,16 +2128,11 @@ class MLSignalActor(BaseMLInferenceActor):
                 _swap()
         except Exception as exc:
             # Never impact hot path — debug only
-            try:
-                self.log.debug(f"Strategy swap apply failed: {exc!r}")
-            except Exception as log_exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
-                    "Logging strategy swap failure also failed: %s",
-                    log_exc,
-                    exc_info=True,
-                )
+            self.log.debug(
+                "Strategy swap apply failed: %s",
+                exc,
+                exc_info=True,
+            )
         # Check signal separation
         if (
             self._bars_processed - self._last_signal_bar
@@ -2159,7 +2167,10 @@ class MLSignalActor(BaseMLInferenceActor):
         except Exception as exc:
             # Never impact hot path — debug only
             try:
-                self.log.debug(f"Attach ring metadata failed: {exc!r}")
+                self.log.debug(
+                    f"Attach ring metadata failed: {exc!r}",
+                    exc_info=True,
+                )
             except Exception as log_exc:
                 import logging as _logging
 
@@ -2308,7 +2319,7 @@ class MLSignalActor(BaseMLInferenceActor):
             self._model_mtime = current_mtime
 
         except Exception as e:
-            self.log.error(f"Failed to hot reload model: {e}")
+            self.log.error(f"Failed to hot reload model: {e}", exc_info=True)
 
     def _handle_prediction_error(self, error: Exception) -> None:
         """

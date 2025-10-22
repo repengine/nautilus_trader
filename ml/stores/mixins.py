@@ -24,7 +24,7 @@ import logging
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import MetaData
 from sqlalchemy import text as _satext
@@ -32,6 +32,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
 from ml.common.db_utils import get_or_create_engine
+from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_manager import MetricsManager
 from ml.config.events import EventStatus
@@ -98,8 +99,8 @@ def sanitize_and_dedup(
 def publish_batch_and_rows(
     *,
     enable_publishing: bool,
-    publisher: Any | None,
-    publish_mode: str,
+    publisher: MessagePublisherProtocol | None,
+    publish_mode: Literal["batch", "row", "both"],
     topic_scheme: str,
     topic_prefix: str,
     stage: Stage,
@@ -745,25 +746,46 @@ class SQLUpsertMixin:
         try:
             with engine.begin() as conn:
                 conn.execute(stmt, values)
-        except Exception:
+        except Exception as cb_exc:
             # Record breaker failure then propagate
             try:
                 if _cb is not None:
                     _cb.record_failure()
-            except Exception:
-                pass
+            except Exception as record_exc:
+                logger.debug(
+                    "sql_upsert_mixin.circuit_breaker_record_failure_failed error=%s",
+                    record_exc,
+                    exc_info=True,
+                    extra={"error": repr(record_exc)},
+                )
+            logger.debug(
+                "sql_upsert_mixin.upsert_failed dataset_id=%s",
+                getattr(self, "_dataset_id", "unknown"),
+                exc_info=True,
+                extra={"error": repr(cb_exc)},
+            )
             raise
         else:
             try:
                 if _cb is not None:
                     _cb.record_success()
-            except Exception:
-                pass
+            except Exception as record_exc:
+                logger.debug(
+                    "sql_upsert_mixin.circuit_breaker_record_success_failed error=%s",
+                    record_exc,
+                    exc_info=True,
+                    extra={"error": repr(record_exc)},
+                )
 
+        publisher_obj = cast(MessagePublisherProtocol | None, getattr(self, "publisher", None))
+        publish_mode_obj = cast(
+            Literal["batch", "row", "both"],
+            getattr(self, "_publish_mode", "batch"),
+        )
         publish_batch_and_rows(
             enable_publishing=bool(getattr(self, "_enable_publishing", False) and publish_bus),
-            publisher=getattr(self, "publisher", None),
-            publish_mode=getattr(self, "_publish_mode", "batch"),
+            publisher=publisher_obj,
+            publish_mode=publish_mode_obj,
             topic_scheme=getattr(self, "_topic_scheme", "domain_op"),
             topic_prefix=getattr(self, "_topic_prefix", "events.ml"),
             stage=stage,

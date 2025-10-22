@@ -100,6 +100,7 @@ else:
 
 __all__ = [
     "RunningStats",
+    "StreamingLimitSummary",
     "TFTShardIndex",
     "TFTStreamingConfig",
     "TFTStreamingDataModule",
@@ -107,8 +108,10 @@ __all__ = [
     "TFTStreamingMetadata",
     "TFTStreamingPreprocessor",
     "TFTStreamingSummary",
+    "apply_streaming_limits",
     "build_streaming_dataloader",
     "collect_streaming_metadata",
+    "count_sequences",
     "filter_metadata_by_instruments",
     "instrument_row_counts",
     "is_within_shard_budget",
@@ -168,6 +171,18 @@ _RSS_GAUGE = get_gauge(
     "ml_tft_streaming_rss_mb",
     "Observed RSS (MB) during TFT streaming metadata scans and iteration.",
     labelnames=("stage",),
+)
+_SKIPPED_SHARDS_COUNTER = get_counter(
+    "ml_tft_streaming_skipped_shards_total",
+    "Number of shards skipped because of streaming limits.",
+)
+_SKIPPED_ROWS_COUNTER = get_counter(
+    "ml_tft_streaming_skipped_rows_total",
+    "Number of rows skipped because of streaming limits.",
+)
+_SKIPPED_SEQUENCES_COUNTER = get_counter(
+    "ml_tft_streaming_skipped_sequences_total",
+    "Estimated number of sequences skipped due to streaming limits.",
 )
 
 logger = logging.getLogger(__name__)
@@ -593,6 +608,160 @@ class TFTStreamingConfig:
     shuffle_shards: bool = False
     seed: int | None = None
     num_workers: int = 0
+    max_total_rows: int | None = None
+    max_total_sequences: int | None = None
+    max_shards: int | None = None
+    include_macro: bool = False
+    include_calendar: bool = False
+    include_events: bool = False
+    include_earnings: bool = False
+    include_micro: bool = False
+    include_l2: bool = False
+    include_macro_revisions: bool = False
+    macro_lag_days: int = 1
+    earnings_lag_days: int = 1
+    events_notice_minutes: int = 0
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("macro_lag_days", self.macro_lag_days),
+            ("earnings_lag_days", self.earnings_lag_days),
+            ("events_notice_minutes", self.events_notice_minutes),
+        ):
+            if int(value) < 0:
+                msg = f"{name} must be non-negative (received {value})"
+                raise ValueError(msg)
+
+
+@dataclass(slots=True, frozen=True)
+class StreamingLimitSummary:
+    """Counts describing how much work was skipped when enforcing streaming limits."""
+
+    skipped_shards: int = 0
+    skipped_rows: int = 0
+    skipped_sequences: int = 0
+
+
+def _estimate_sequences_for_shard(
+    shard: TFTShardIndex,
+    encoder_length: int,
+    decoder_length: int,
+) -> int:
+    """Return the number of encoder/decoder sequences available within a shard."""
+    available = shard.row_count - encoder_length - decoder_length + 1
+    return available if available > 0 else 0
+
+
+def count_sequences(
+    metadata: TFTStreamingMetadata,
+    config: TFTStreamingConfig,
+) -> int:
+    """Return the number of encoder/decoder sequences available across metadata shards."""
+    encoder_length = config.max_encoder_length
+    decoder_length = config.max_prediction_length
+    total = 0
+    for shard in metadata.shard_indices:
+        total += _estimate_sequences_for_shard(shard, encoder_length, decoder_length)
+    return total
+
+
+def apply_streaming_limits(
+    metadata: TFTStreamingMetadata,
+    config: TFTStreamingConfig,
+) -> tuple[TFTStreamingMetadata, StreamingLimitSummary]:
+    """Return metadata trimmed to respect global limits on shard/row/sequence counts."""
+    return _limit_metadata_for_streaming(metadata, config)
+
+
+def _limit_metadata_for_streaming(
+    metadata: TFTStreamingMetadata,
+    config: TFTStreamingConfig,
+) -> tuple[TFTStreamingMetadata, StreamingLimitSummary]:
+    """Return metadata trimmed to respect global limits on shard/row/sequence counts."""
+    limits_active = any(
+        value is not None
+        for value in (config.max_total_rows, config.max_total_sequences, config.max_shards)
+    )
+    if not limits_active:
+        return metadata, StreamingLimitSummary()
+
+    max_rows = config.max_total_rows
+    max_sequences = config.max_total_sequences
+    max_shards = config.max_shards
+    encoder_len = config.max_encoder_length
+    decoder_len = config.max_prediction_length
+
+    selected: list[TFTShardIndex] = []
+    rows_accum = 0
+    sequences_accum = 0
+    shards_accum = 0
+    skipped_rows = 0
+    skipped_sequences = 0
+    skipped_shards = 0
+
+    for shard in metadata.shard_indices:
+        shard_sequences = _estimate_sequences_for_shard(shard, encoder_len, decoder_len)
+        projected_shards = shards_accum + 1
+        projected_rows = rows_accum + shard.row_count
+        projected_sequences = sequences_accum + shard_sequences
+
+        limit_exceeded = (
+            (max_shards is not None and projected_shards > max_shards)
+            or (max_rows is not None and projected_rows > max_rows)
+            or (max_sequences is not None and projected_sequences > max_sequences)
+        )
+        if limit_exceeded:
+            skipped_shards += 1
+            skipped_rows += shard.row_count
+            skipped_sequences += shard_sequences
+            continue
+
+        if shard_sequences <= 0:
+            # Keep metadata consistent but this shard yields no sequences anyway.
+            skipped_shards += 1
+            skipped_rows += shard.row_count
+            continue
+
+        selected.append(shard)
+        shards_accum = projected_shards
+        rows_accum = projected_rows
+        sequences_accum = projected_sequences
+
+    if not selected:
+        summary = StreamingLimitSummary(
+            skipped_shards=skipped_shards,
+            skipped_rows=skipped_rows,
+            skipped_sequences=skipped_sequences,
+        )
+        empty_counts: dict[str, int] = {}
+        return (
+            TFTStreamingMetadata(
+                shard_indices=(),
+                numeric_stats=metadata.numeric_stats,
+                categorical_vocab=metadata.categorical_vocab,
+                instrument_row_counts=empty_counts,
+            ),
+            summary,
+        )
+
+    instrument_counts: dict[str, int] = {}
+    for shard in selected:
+        instrument_counts[shard.instrument_id] = (
+            instrument_counts.get(shard.instrument_id, 0) + shard.row_count
+        )
+
+    limited_metadata = TFTStreamingMetadata(
+        shard_indices=tuple(selected),
+        numeric_stats=metadata.numeric_stats,
+        categorical_vocab=metadata.categorical_vocab,
+        instrument_row_counts=instrument_counts,
+    )
+    summary = StreamingLimitSummary(
+        skipped_shards=skipped_shards,
+        skipped_rows=skipped_rows,
+        skipped_sequences=skipped_sequences,
+    )
+    return limited_metadata, summary
 
 
 class TFTStreamingDataset(StreamIterableDatasetBase):
@@ -1022,12 +1191,42 @@ def build_streaming_dataloader(
     parquet_path: Path,
     metadata: TFTStreamingMetadata,
     config: TFTStreamingConfig,
+    *,
+    metadata_is_limited: bool = False,
+    limit_summary: StreamingLimitSummary | None = None,
 ) -> StreamDataLoader:
     """Return a DataLoader that replays parquet shards lazily."""
     if torch is None:
         check_ml_dependencies(["torch"])
         raise ImportError("PyTorch is required to build streaming dataloaders")
-    dataset = TFTStreamingDataset(parquet_path, metadata, config)
+    if metadata_is_limited:
+        limited_metadata = metadata
+        summary = limit_summary or StreamingLimitSummary()
+    else:
+        limited_metadata, summary = apply_streaming_limits(metadata, config)
+    if summary.skipped_shards > 0:
+        _SKIPPED_SHARDS_COUNTER.inc(summary.skipped_shards)
+        if summary.skipped_rows > 0:
+            _SKIPPED_ROWS_COUNTER.inc(summary.skipped_rows)
+        if summary.skipped_sequences > 0:
+            _SKIPPED_SEQUENCES_COUNTER.inc(summary.skipped_sequences)
+        logger.warning(
+            "tft streaming metadata limited",
+            extra={
+                "skipped_shards": summary.skipped_shards,
+                "skipped_rows": summary.skipped_rows,
+                "skipped_sequences": summary.skipped_sequences,
+                "max_shards": config.max_shards,
+                "max_rows": config.max_total_rows,
+                "max_sequences": config.max_total_sequences,
+            },
+        )
+    if not limited_metadata.shard_indices:
+        raise RuntimeError(
+            "Streaming limits filtered out all shards. Relax constraints or adjust dataset window.",
+        )
+
+    dataset = TFTStreamingDataset(parquet_path, limited_metadata, config)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=None,

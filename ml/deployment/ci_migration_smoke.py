@@ -1,22 +1,27 @@
 from __future__ import annotations
 
-import subprocess
+import logging
 import time
 from pathlib import Path
 
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
+
+
+logger = logging.getLogger(__name__)
 
 COMPOSE_FILE = Path("ml/deployment/docker-compose.yml")
 
 
-def _compose(*args: str) -> None:
+def _compose(*args: str, timeout: float | None = None) -> None:
     cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
-    subprocess.run(cmd, check=True)
+    run_command(cmd, timeout=timeout, log=logger)
 
 
 def wait_for_postgres(timeout: int = 30) -> None:
     start = time.time()
     while time.time() - start < timeout:
-        res = subprocess.run(
+        result = run_command(
             [
                 "docker",
                 "compose",
@@ -31,8 +36,11 @@ def wait_for_postgres(timeout: int = 30) -> None:
             ],
             capture_output=True,
             text=True,
+            check=False,
+            timeout=10,
+            log=logger,
         )
-        if res.returncode == 0:
+        if result.returncode == 0:
             return
         time.sleep(1)
     raise RuntimeError("PostgreSQL did not become ready in time")
@@ -64,12 +72,15 @@ def check_views() -> None:
         "-c",
         sql,
     ]
-    subprocess.run(cmd, check=True)
+    try:
+        run_command(cmd, timeout=30, log=logger)
+    except SubprocessExecutionError as exc:
+        raise RuntimeError(f"View validation failed: {exc}") from exc
 
 
 def main() -> None:
     # Start postgres only
-    _compose("up", "-d", "postgres")
+    _compose("up", "-d", "postgres", timeout=30)
     wait_for_postgres()
 
     # Apply migrations

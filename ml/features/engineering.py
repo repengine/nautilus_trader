@@ -9,6 +9,7 @@ Feature parity is critical for ML model performance in production.
 
 from __future__ import annotations
 
+import logging
 import types
 from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 
@@ -19,6 +20,7 @@ import numpy.typing as npt
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_SKLEARN
+from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml._imports import pl
 from ml.config.base import MLFeatureConfig
@@ -715,13 +717,28 @@ class IndicatorManager:
                         # Nautilus RSI returns values in [0, 1] range, not [0, 100]
                         # Normalize to [-1, 1] for ML: (RSI - 0.5) * 2
                         raw_rsi = indicator.value
-                        # Runtime assertion: RSI must be in [0, 1]
-                        assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
-                        values[name] = (raw_rsi - 0.5) * 2.0
-                        # Runtime assertion: Normalized RSI must be in [-1, 1]
-                        assert (
-                            -1 <= values[name] <= 1
-                        ), f"Normalized RSI out of bounds: {values[name]}"
+                        if not 0.0 <= raw_rsi <= 1.0:
+                            logger.warning(
+                                "RSI value out of expected [0, 1] range; clamping for normalization",
+                                extra={
+                                    "indicator": "rsi",
+                                    "raw_value": float(raw_rsi),
+                                    "component": "IndicatorManager.get_current_values",
+                                },
+                            )
+                            raw_rsi = max(0.0, min(1.0, float(raw_rsi)))
+                        normalized_rsi = (raw_rsi - 0.5) * 2.0
+                        if not -1.0 <= normalized_rsi <= 1.0:
+                            logger.warning(
+                                "Normalized RSI value out of expected [-1, 1] range; clamping result",
+                                extra={
+                                    "indicator": "rsi",
+                                    "normalized_value": float(normalized_rsi),
+                                    "component": "IndicatorManager.get_current_values",
+                                },
+                            )
+                            normalized_rsi = max(-1.0, min(1.0, float(normalized_rsi)))
+                        values[name] = normalized_rsi
                     else:
                         values[name] = indicator.value
             else:
@@ -1115,12 +1132,21 @@ class FeatureEngineer:
         for col in features_df.columns:
             if col in ("timestamp", "entity_id", "symbol"):
                 continue
+            metrics: dict[str, float] | None = None
             try:
                 metrics = self._calculate_column_metrics(features_df[col], total_rows)
+            except Exception as exc:
+                logger.debug(
+                    "Skipping feature quality metrics due to incompatible column",
+                    extra={
+                        "feature_column": col,
+                        "component": "FeatureEngineer",
+                        "error_type": exc.__class__.__name__,
+                    },
+                    exc_info=True,
+                )
+            else:
                 quality_metrics[col] = metrics
-            except Exception:
-                # Skip non-numeric or problematic columns gracefully
-                continue
 
         return quality_metrics
 
@@ -1146,9 +1172,17 @@ class FeatureEngineer:
                 and hasattr(features_df, "__class__")
                 and "pandas" in str(type(features_df))
             ):
-                _pl = pl
-                assert _pl is not None
-                return cast(PolarsDF, _pl.from_pandas(cast(PandasDF, features_df)))
+                polars_module = pl
+                if polars_module is None:
+                    check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+                    polars_module = pl
+                if polars_module is None:
+                    logger.debug(
+                        "Polars dependency unavailable; skipping pandas → polars conversion",
+                        extra={"converter": "FeatureEngineer._convert_to_polars"},
+                    )
+                    return None
+                return cast(PolarsDF, polars_module.from_pandas(cast(PandasDF, features_df)))
         except Exception:
             return None
         return None
@@ -1251,16 +1285,25 @@ class FeatureEngineer:
         Create empty DataFrame with correct columns.
         """
         if POLARS_AVAILABLE:
-            _pl = pl
-            assert _pl is not None
-            return cast(DataFrameLike, _pl.DataFrame({name: [] for name in feature_names}))
+            polars_module = pl
+            if polars_module is None:
+                check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+                polars_module = pl
+            if polars_module is None:
+                raise RuntimeError(
+                    "Polars dependency 'polars' is required to create an empty features DataFrame",
+                )
+            return cast(DataFrameLike, polars_module.DataFrame({name: [] for name in feature_names}))
         else:
-            if pd is None:
-                from ml._imports import check_ml_dependencies
-
+            pandas_module = pd
+            if pandas_module is None:
                 check_ml_dependencies(["pandas"])
-            assert pd is not None
-            return cast(DataFrameLike, pd.DataFrame(columns=feature_names))
+                pandas_module = pd
+            if pandas_module is None:
+                raise RuntimeError(
+                    "Pandas dependency 'pandas' is required to create an empty features DataFrame",
+                )
+            return cast(DataFrameLike, pandas_module.DataFrame(columns=feature_names))
 
     @staticmethod
     def _ensure_float_array(array: npt.NDArray[Any]) -> npt.NDArray[np.float64]:
@@ -1276,12 +1319,15 @@ class FeatureEngineer:
         """
         Create pandas DataFrame from feature rows.
         """
-        if pd is None:
-            from ml._imports import check_ml_dependencies
-
+        pandas_module = pd
+        if pandas_module is None:
             check_ml_dependencies(["pandas"])
-        assert pd is not None
-        features_df = pd.DataFrame(feature_rows)
+            pandas_module = pd
+        if pandas_module is None:
+            raise RuntimeError(
+                "Pandas dependency 'pandas' is required to materialize feature rows",
+            )
+        features_df = pandas_module.DataFrame(feature_rows)
         # Add timestamp if available
         if "timestamp" in df.columns:
             features_df["timestamp"] = df["timestamp"]
@@ -1301,8 +1347,7 @@ class FeatureEngineer:
             features_df = features_df[feature_names]
         except Exception:
             # If column selection fails, create a new DataFrame with the correct columns
-            assert pd is not None
-            new_df = pd.DataFrame(index=features_df.index)
+            new_df = pandas_module.DataFrame(index=features_df.index)
             for col in feature_names:
                 if col in features_df.columns:
                     new_df[col] = features_df[col]
@@ -1334,9 +1379,15 @@ class FeatureEngineer:
         features_df: DataFrameLike
         if POLARS_AVAILABLE and hasattr(df, "__module__") and "polars" in df.__module__:
             # Input is a Polars DataFrame
-            _pl = pl
-            assert _pl is not None
-            features_df = cast(DataFrameLike, _pl.DataFrame(feature_rows))
+            polars_module = pl
+            if polars_module is None:
+                check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+                polars_module = pl
+            if polars_module is None:
+                raise RuntimeError(
+                    "Polars dependency 'polars' is required to create feature DataFrames from rows",
+                )
+            features_df = cast(DataFrameLike, polars_module.DataFrame(feature_rows))
             # Add timestamp if available and not already present
             if "timestamp" in df.columns and "timestamp" not in features_df.columns:
                 features_df = cast(
@@ -1354,7 +1405,7 @@ class FeatureEngineer:
                 DataFrameLike,
                 cast(Any, features_df).with_columns(
                     [
-                        _pl.col(name).cast(_pl.Float32)
+                        polars_module.col(name).cast(polars_module.Float32)
                         for name in feature_names
                         if name in cast(Any, features_df).columns
                     ],
@@ -1417,9 +1468,15 @@ class FeatureEngineer:
         if POLARS_AVAILABLE:
             # Convert column names to list to avoid pandas Index issues
             column_names = list(features_df.columns)
-            _pl = pl
-            assert _pl is not None
-            fs_df = _pl.DataFrame(features_scaled_array, schema=column_names)
+            polars_module = pl
+            if polars_module is None:
+                check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+                polars_module = pl
+            if polars_module is None:
+                raise RuntimeError(
+                    "Polars dependency 'polars' is required to materialize scaled feature data",
+                )
+            fs_df = polars_module.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
                 # Polars expects Expr/Series; use alias for stable column name
@@ -1431,13 +1488,24 @@ class FeatureEngineer:
                 )
             features_scaled = cast(DataFrameLike, fs_df)
         else:
-            assert pd is not None
-            features_scaled = pd.DataFrame(features_scaled_array, columns=features_df.columns)
+            pandas_module = pd
+            if pandas_module is None:
+                check_ml_dependencies(["pandas"])
+                pandas_module = pd
+            if pandas_module is None:
+                raise RuntimeError(
+                    "Pandas dependency 'pandas' is required to materialize scaled feature data",
+                )
+            features_scaled = pandas_module.DataFrame(
+                features_scaled_array,
+                columns=features_df.columns,
+            )
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
                 features_scaled["timestamp"] = df["timestamp"]
 
-        assert self.scaler is not None
+        if self.scaler is None:
+            raise RuntimeError("Scaler must be initialized before returning scaled features")
         # Expose scaled matrix for legacy tests expecting a global `X` name
         try:  # pragma: no cover - test-only convenience
             import builtins as _b
@@ -1845,12 +1913,27 @@ class FeatureEngineer:
         Calculate technical indicator features.
         """
         # RSI features
-        rsi_normalized = indicator_values.get("rsi", 0.0)  # Already in [-1, 1] range
-        # Runtime assertion: Normalized RSI must be in [-1, 1]
-        assert -1 <= rsi_normalized <= 1, f"RSI normalized out of bounds: {rsi_normalized}"
+        rsi_normalized = float(indicator_values.get("rsi", 0.0))  # Already in [-1, 1] range
+        if not -1.0 <= rsi_normalized <= 1.0:
+            logger.warning(
+                "Normalized RSI value out of bounds; clamping to [-1, 1]",
+                extra={
+                    "normalized_value": rsi_normalized,
+                    "component": "FeatureEngineer._calculate_technical_indicator_features",
+                },
+            )
+            rsi_normalized = max(-1.0, min(1.0, rsi_normalized))
         # Convert back to [0, 100] for threshold checks
         rsi_raw = (rsi_normalized / 2.0 + 0.5) * 100.0
-        assert 0 <= rsi_raw <= 100, f"RSI raw out of bounds: {rsi_raw}"
+        if not 0.0 <= rsi_raw <= 100.0:
+            logger.warning(
+                "RSI raw value out of bounds; clamping to [0, 100]",
+                extra={
+                    "raw_value": rsi_raw,
+                    "component": "FeatureEngineer._calculate_technical_indicator_features",
+                },
+            )
+            rsi_raw = max(0.0, min(100.0, rsi_raw))
         self.feature_buffer[feature_idx] = rsi_normalized
         self.feature_buffer[feature_idx + 1] = 1.0 if rsi_raw > 70 else 0.0
         self.feature_buffer[feature_idx + 2] = 1.0 if rsi_raw < 30 else 0.0
@@ -2009,8 +2092,11 @@ class FeatureEngineer:
             }
             indicator_manager = ind_mgr
 
-        assert current_bar is not None  # for type checker
-        assert indicator_manager is not None  # for type checker
+        if current_bar is None or indicator_manager is None:
+            raise RuntimeError(
+                "Indicator state is required before computing online features; "
+                "ensure the feature engineer has been warmed up with historical bars",
+            )
 
         # Determine instrument from current_bar or use generic
         instrument = str(current_bar.get("instrument_id", "unknown"))
@@ -3027,8 +3113,12 @@ class FeatureEngineer:
         if local_pd is None:
             from ml._imports import pd as _pd
 
+            check_ml_dependencies(["pandas"])
             local_pd = _pd
-        assert local_pd is not None
+        if local_pd is None:
+            raise RuntimeError(
+                "Pandas dependency 'pandas' is required for FeatureEngineer.compute_features",
+            )
 
         df = local_pd.DataFrame(rows)
         features_df, _ = self.calculate_features(df, mode="batch", fit_scaler=False)
@@ -3203,3 +3293,4 @@ class _dummy_context_manager:
 
     def __exit__(self, *args: object) -> None:
         pass
+logger = logging.getLogger(__name__)

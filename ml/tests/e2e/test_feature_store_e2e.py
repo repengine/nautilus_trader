@@ -235,6 +235,20 @@ def test_05_config_hashing(feature_store: FeatureStore) -> None:
     hash1 = feature_store._compute_config_hash()
     assert len(hash1) == 16  # SHA256 truncated to 16 chars
 
+    try:
+        import msgspec as _msgspec
+    except Exception:  # pragma: no cover - msgspec is required but guard defensively
+        _msgspec = None
+
+    if _msgspec is not None:
+        config_snapshot = _msgspec.to_builtins(feature_store.feature_config)
+    else:
+        config_snapshot = getattr(feature_store.feature_config, "__dict__", {})
+    print(
+        "[feature-store-config-hash] hash1="
+        f"{hash1} class={feature_store.__class__.__name__} config={config_snapshot}",
+    )
+
     # Hash should be stable
     hash2 = feature_store._compute_config_hash()
     assert hash1 == hash2
@@ -247,6 +261,14 @@ def test_05_config_hashing(feature_store: FeatureStore) -> None:
         feature_config=FeatureConfig(enable_rsi=False),  # Different config
     )
     hash3 = store2._compute_config_hash()
+    if _msgspec is not None:
+        config_snapshot_2 = _msgspec.to_builtins(store2.feature_config)
+    else:
+        config_snapshot_2 = getattr(store2.feature_config, "__dict__", {})
+    print(
+        "[feature-store-config-hash] hash2="
+        f"{hash3} class={store2.__class__.__name__} config={config_snapshot_2}",
+    )
     assert hash3 != hash1
 
 

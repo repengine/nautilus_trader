@@ -575,7 +575,9 @@ class FREDDataLoader:
         try:
             cache_path = self._get_cache_path(series_id)
             _pl = pl
-            assert _pl is not None
+            if _pl is None:
+                msg = "Polars runtime not available when loading cache"
+                raise RuntimeError(msg)
             df = _pl.read_parquet(cache_path)
 
             cache_hit_counter.labels(series=series_id).inc()
@@ -700,7 +702,9 @@ class FREDDataLoader:
 
         # Convert to Polars DataFrame
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            msg = "Polars runtime not available when converting fetched series"
+            raise RuntimeError(msg)
         df = _pl.DataFrame(
             {
                 "timestamp": series_data.index,
@@ -797,7 +801,9 @@ class FREDDataLoader:
 
         """
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            msg = "Polars runtime not available when combining indicators"
+            raise RuntimeError(msg)
         if not data:
             from typing import cast as _cast
 
@@ -982,7 +988,9 @@ class FREDDataLoader:
 
         # Store each indicator as a separate feature
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            msg = "Polars runtime not available when storing indicator features"
+            raise RuntimeError(msg)
         for column in combined_df.columns:
             if column in ["timestamp", "timestamp_ns"]:
                 continue
@@ -1074,7 +1082,9 @@ class FREDDataLoader:
 
         """
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            msg = "Polars runtime not available when exporting ML parquet"
+            raise RuntimeError(msg)
 
         target = out_path or Path("data/fred/fred_indicators_ml_format.parquet")
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -10,6 +10,9 @@ model performance in production - even small discrepancies can cause model failu
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
+from datetime import UTC
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -20,6 +23,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
+from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
@@ -64,6 +68,76 @@ class FeatureParityError(Exception):
         self.max_difference = max_difference
         self.tolerance = tolerance
         self.failing_features = failing_features
+
+
+def _to_nanoseconds(value: object) -> int | None:
+    """
+    Convert supported timestamp-like values to integer nanoseconds.
+
+    Args:
+        value: Object representing a timestamp (datetime/np.int/float/None).
+
+    Returns:
+        Integer nanoseconds since epoch or ``None`` when conversion fails.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, float):
+        if np.isnan(value):
+            return None
+        return int(value)
+    if isinstance(value, datetime):
+        dt_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return int(dt_value.timestamp() * 1_000_000_000)
+    value_attr = getattr(value, "value", None)
+    if isinstance(value_attr, (int, np.integer)):
+        return int(value_attr)
+    return None
+
+
+def validate_known_future_effective_times(
+    *,
+    evaluation_series: Sequence[object],
+    effective_series: Sequence[object],
+    context: str,
+) -> None:
+    """
+    Ensure known-future features honour their publication lags.
+
+    Args:
+        evaluation_series: Sequence of timestamps representing when a feature is read
+            (typically market timestamps).
+        effective_series: Sequence of timestamps indicating when the feature became
+            available after applying publication lag logic.
+        context: Human-readable label used in any raised error message.
+
+    Raises:
+        ValueError: If any evaluation timestamp precedes the corresponding effective
+            timestamp.
+
+    Notes:
+        - ``None`` or NaN values are ignored.
+        - The two sequences must be of equal length.
+    """
+    if len(evaluation_series) != len(effective_series):
+        msg = (
+            f"{context} evaluation and effective sequences must share length "
+            f"(got {len(evaluation_series)} vs {len(effective_series)})"
+        )
+        raise ValueError(msg)
+
+    for index, (evaluation, effective) in enumerate(zip(evaluation_series, effective_series)):
+        eval_ns = _to_nanoseconds(evaluation)
+        eff_ns = _to_nanoseconds(effective)
+        if eval_ns is None or eff_ns is None:
+            continue
+        if eval_ns < eff_ns:
+            raise ValueError(
+                f"{context} feature effective timestamp {eff_ns} occurs after evaluation "
+                f"timestamp {eval_ns} at row {index}",
+            )
 
 
 class FeatureParityValidator:
@@ -601,12 +675,19 @@ class FeatureParityValidator:
 
         # Create DataFrame (Polars or Pandas based on availability)
         if POLARS_AVAILABLE:
-            _pl = pl
-            assert _pl is not None
+            polars_module = pl
+            if polars_module is None:
+                check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+                polars_module = pl
+            if polars_module is None:
+                raise RuntimeError(
+                    "Polars dependency 'polars' is required to generate validation price data",
+                )
             data = {
-                "timestamp": _pl.datetime_range(
-                    start=_pl.datetime(2024, 1, 1),
-                    end=_pl.datetime(2024, 1, 1) + _pl.duration(days=n_samples - 1),
+                "timestamp": polars_module.datetime_range(
+                    start=polars_module.datetime(2024, 1, 1),
+                    end=polars_module.datetime(2024, 1, 1)
+                    + polars_module.duration(days=n_samples - 1),
                     interval="1d",
                     eager=True,
                 ),
@@ -616,16 +697,19 @@ class FeatureParityValidator:
                 "close": closes,
                 "volume": volumes,
             }
-            return _pl.DataFrame(data)
+            return polars_module.DataFrame(data)
         else:
-            from ml._imports import check_ml_dependencies
-            from ml._imports import pd
+            from ml._imports import pd as pandas_module
 
-            if pd is None:
+            if pandas_module is None:
                 check_ml_dependencies(["pandas"])
-            assert pd is not None
+                from ml._imports import pd as pandas_module  # re-import after dependency check
+            if pandas_module is None:
+                raise RuntimeError(
+                    "Pandas dependency 'pandas' is required to generate validation price data",
+                )
             data = {
-                "timestamp": pd.date_range(
+                "timestamp": pandas_module.date_range(
                     start="2024-01-01",
                     periods=n_samples,
                     freq="D",
@@ -636,7 +720,7 @@ class FeatureParityValidator:
                 "close": closes,
                 "volume": volumes,
             }
-            return pd.DataFrame(data)
+            return pandas_module.DataFrame(data)
 
 
 def validate_feature_parity(

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time as _time
 from contextlib import contextmanager
+from types import MethodType
 from typing import Any, Iterator
 
 import numpy as np
@@ -127,6 +128,15 @@ def test_actor_bus_scheme_prefix_integration(
         )
 
         actor = MLSignalActor(base_signal_config)
+        # Bypass Nautilus actor registration requirements for publish_data.
+        def _noop_publish_data(self: MLSignalActor, data_type: Any, data: Any) -> None:
+            return None
+
+        monkeypatch.setattr(
+            actor,
+            "publish_data",
+            MethodType(_noop_publish_data, actor),
+        )
         # Publish one signal
         sig = MLSignal(
             instrument_id=base_signal_config.instrument_id,

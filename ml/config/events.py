@@ -19,11 +19,15 @@ class Stage(str, Enum):
 
     """
 
+    DATASET_PLANNED = "DATASET_PLANNED"
     DATA_INGESTED = "INGESTED"
     CATALOG_WRITTEN = "CATALOG_WRITTEN"
     FEATURE_COMPUTED = "FEATURE_COMPUTED"
     # Back-compat alias used by some tests (equivalent to PREDICTION_EMITTED)
     MODEL_INFERRED = "MODEL_INFERRED"
+    MODEL_TRAINING_STARTED = "MODEL_TRAINING_STARTED"
+    MODEL_TRAINING_COMPLETED = "MODEL_TRAINING_COMPLETED"
+    WORKER_HEARTBEAT = "WORKER_HEARTBEAT"
     PREDICTION_EMITTED = "PREDICTION_EMITTED"
     SIGNAL_EMITTED = "SIGNAL_EMITTED"
 
@@ -52,6 +56,7 @@ class EventStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     PARTIAL = "partial"
+    DEFERRED = "deferred"
 
 
 __all__ = ["EventStatus", "Source", "Stage"]

@@ -15,8 +15,12 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import text
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import func
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.registry.dataclasses import DatasetManifest
@@ -161,6 +165,23 @@ class ManifestManager:
     def __init__(self) -> None:
         """Initialize manifest manager with empty cache."""
         self._manifests: dict[str, DatasetManifest] = {}
+        self._registry_table_cache: dict[int, Table] = {}
+
+    def _get_registry_table(self, session: Session) -> Table:
+        """
+        Lazily reflect the dataset registry table for the current session bind.
+        """
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for manifest queries")
+
+        cache_key = id(bind)
+        table = self._registry_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table("ml_dataset_registry", metadata, autoload_with=bind)
+            self._registry_table_cache[cache_key] = table
+        return table
 
     def register_manifest(
         self,
@@ -210,46 +231,36 @@ class ManifestManager:
 
             existing_manifest: DatasetManifest | None = None
             try:
-                # Execute SQL to register dataset
-                query = text(
-                    """
-                    INSERT INTO ml_dataset_registry
-                    (dataset_id, name, version, dataset_type, storage_kind, location,
-                     partitioning, retention_days, schema, schema_hash, constraints,
-                     parents, pipeline_signature, metadata)
-                    VALUES
-                    (:dataset_id, :name, :version, :dataset_type, :storage_kind, :location,
-                     :partitioning, :retention_days, :schema, :schema_hash, :constraints,
-                     :parents, :pipeline_signature, :metadata)
-                """,
-                )
+                table = self._get_registry_table(session)
 
-                # Align dataset_type value to DB constraint (uppercase tokens)
-                dataset_type_db = getattr(
-                    manifest.dataset_type,
-                    "name",
-                    str(manifest.dataset_type).split(".")[-1],
+                dataset_type_db = (
+                    manifest.dataset_type.name
+                    if isinstance(manifest.dataset_type, DatasetType)
+                    else str(manifest.dataset_type).split(".")[-1]
                 ).upper()
 
-                session.execute(
-                    query,
-                    {
-                        "dataset_id": manifest.dataset_id,
-                        "name": manifest.metadata.get("name", manifest.dataset_id),
-                        "version": manifest.version,
-                        "dataset_type": dataset_type_db,
-                        "storage_kind": manifest.storage_kind.value,
-                        "location": manifest.location,
-                        "partitioning": json.dumps(manifest.partitioning),
-                        "retention_days": manifest.retention_days,
-                        "schema": json.dumps(manifest.schema),
-                        "schema_hash": manifest.schema_hash,
-                        "constraints": json.dumps(manifest.constraints),
-                        "parents": json.dumps(manifest.lineage),
-                        "pipeline_signature": manifest.pipeline_signature,
-                        "metadata": json.dumps(manifest.metadata),
-                    },
-                )
+                insert_values: dict[str, Any] = {
+                    "dataset_id": manifest.dataset_id,
+                    "name": manifest.metadata.get("name", manifest.dataset_id),
+                    "version": manifest.version,
+                    "dataset_type": dataset_type_db,
+                    "storage_kind": (
+                        manifest.storage_kind.value
+                        if isinstance(manifest.storage_kind, StorageKind)
+                        else str(manifest.storage_kind).lower()
+                    ),
+                    "location": manifest.location,
+                    "partitioning": manifest.partitioning or {},
+                    "retention_days": manifest.retention_days,
+                    "schema": manifest.schema,
+                    "schema_hash": manifest.schema_hash,
+                    "constraints": manifest.constraints or {},
+                    "parents": manifest.lineage or [],
+                    "pipeline_signature": manifest.pipeline_signature,
+                    "metadata": manifest.metadata,
+                }
+
+                session.execute(table.insert().values(**insert_values))
                 session.commit()
 
                 # Cache locally
@@ -323,20 +334,30 @@ class ManifestManager:
                 raise RuntimeError("Failed to get database session")
 
             try:
-                query = text(
-                    """
-                    SELECT dataset_id, dataset_type, storage_kind, location,
-                           partitioning, retention_days, schema, schema_hash,
-                           constraints, parents as lineage, pipeline_signature,
-                           version, EXTRACT(EPOCH FROM created_at) * 1000000000 as created_at,
-                           EXTRACT(EPOCH FROM last_modified) * 1000000000 as last_modified,
-                           metadata
-                    FROM ml_dataset_registry
-                    WHERE dataset_id = :dataset_id
-                """,
+                table = self._get_registry_table(session)
+                stmt = (
+                    select(
+                        table.c.dataset_id,
+                        table.c.dataset_type,
+                        table.c.storage_kind,
+                        table.c.location,
+                        table.c.partitioning,
+                        table.c.retention_days,
+                        table.c.schema,
+                        table.c.schema_hash,
+                        table.c.constraints,
+                        table.c.parents.label("lineage"),
+                        table.c.pipeline_signature,
+                        table.c.version,
+                        (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
+                        (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
+                        table.c.metadata,
+                    )
+                    .where(table.c.dataset_id == dataset_id)
+                    .limit(1)
                 )
 
-                result = session.execute(query, {"dataset_id": dataset_id}).fetchone()
+                result = session.execute(stmt).fetchone()
                 if result is None:
                     raise ValueError(f"Dataset '{dataset_id}' not found")
 
@@ -409,8 +430,17 @@ class ManifestManager:
                 raise RuntimeError("Failed to get database session")
 
             try:
-                # Build UPDATE query safely with all possible fields
-                all_fields = [
+                table = self._get_registry_table(session)
+
+                column_aliases = {"lineage": "parents"}
+                json_defaults: dict[str, Any] = {
+                    "partitioning": {},
+                    "schema": {},
+                    "constraints": {},
+                    "metadata": {},
+                    "parents": [],
+                }
+                allowed_fields = {
                     "name",
                     "version",
                     "dataset_type",
@@ -424,42 +454,56 @@ class ManifestManager:
                     "parents",
                     "pipeline_signature",
                     "metadata",
-                ]
+                }
 
-                # Build the update dict
-                update_data = {"dataset_id": dataset_id}
-                set_parts = []
+                db_updates: dict[str, Any] = {}
+                cache_updates: dict[str, Any] = {}
 
-                for field in all_fields:
-                    if field in changes:
-                        value = changes[field]
-                        if field in [
-                            "partitioning",
-                            "schema",
-                            "constraints",
-                            "metadata",
-                            "parents",
-                        ]:
-                            update_data[field] = (
-                                json.dumps(value) if value is not None else "{}"
-                            )
+                for field, raw_value in changes.items():
+                    column = column_aliases.get(field, field)
+                    if column not in allowed_fields:
+                        continue
+
+                    value = raw_value
+                    cache_key = "lineage" if column == "parents" else field
+
+                    if column == "dataset_type":
+                        if isinstance(value, DatasetType):
+                            db_value = value.name.upper()
+                            cache_value = value.value
                         else:
-                            update_data[field] = value
-                        set_parts.append(f"{field} = :{field}")
+                            db_value = str(value).split(".")[-1].upper()
+                            cache_value = str(value).lower()
+                    elif column == "storage_kind":
+                        if isinstance(value, StorageKind):
+                            db_value = value.value
+                            cache_value = value.value
+                        else:
+                            db_value = str(value).lower()
+                            cache_value = db_value
+                    elif column in json_defaults:
+                        if value is None:
+                            db_value = json_defaults[column]
+                        else:
+                            db_value = value
+                        cache_value = db_value
+                    else:
+                        db_value = value
+                        cache_value = value
 
-                if not set_parts:
+                    db_updates[column] = db_value
+                    cache_updates[cache_key] = cache_value
+
+                if not db_updates:
                     raise ValueError("No valid fields to update")
 
-                # Safe query with parameterized values
-                query = text(
-                    f"""
-                    UPDATE ml_dataset_registry
-                    SET {', '.join(set_parts)}, last_modified = NOW()
-                    WHERE dataset_id = :dataset_id
-                """,
+                update_stmt = (
+                    table.update()
+                    .where(table.c.dataset_id == dataset_id)
+                    .values(**db_updates, last_modified=func.now())
                 )
 
-                result = session.execute(query, update_data)
+                result = session.execute(update_stmt)
                 # Check if any rows were affected
                 row_count = getattr(result, "rowcount", None)
                 if row_count is not None and row_count == 0:
@@ -470,7 +514,7 @@ class ManifestManager:
                 # Update cache if present
                 if dataset_id in self._manifests:
                     manifest_dict = self._manifest_to_dict(self._manifests[dataset_id])
-                    manifest_dict.update(changes)
+                    manifest_dict.update(cache_updates)
                     manifest_dict["last_modified"] = sanitize_timestamp_ns(
                         int(time.time_ns()),
                         context="manifest_manager.update_manifest:pg.cache.last_modified",
@@ -518,20 +562,28 @@ class ManifestManager:
             return list(self._manifests.values())
 
         try:
-            query = text(
-                """
-                SELECT dataset_id, dataset_type, storage_kind, location,
-                       partitioning, retention_days, schema, schema_hash,
-                       constraints, parents AS lineage, pipeline_signature,
-                       version,
-                       EXTRACT(EPOCH FROM created_at) * 1000000000 AS created_at,
-                       EXTRACT(EPOCH FROM last_modified) * 1000000000 AS last_modified,
-                       metadata
-                FROM ml_dataset_registry
-                ORDER BY dataset_id
-                """,
+            table = self._get_registry_table(session)
+            stmt = (
+                select(
+                    table.c.dataset_id,
+                    table.c.dataset_type,
+                    table.c.storage_kind,
+                    table.c.location,
+                    table.c.partitioning,
+                    table.c.retention_days,
+                    table.c.schema,
+                    table.c.schema_hash,
+                    table.c.constraints,
+                    table.c.parents.label("lineage"),
+                    table.c.pipeline_signature,
+                    table.c.version,
+                    (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
+                    (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
+                    table.c.metadata,
+                )
+                .order_by(table.c.dataset_id)
             )
-            rows = session.execute(query).fetchall()
+            rows = session.execute(stmt).all()
         finally:
             session.close()
 

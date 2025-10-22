@@ -133,12 +133,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--include_calendar", action="store_true")
     parser.add_argument("--include-earnings", "--include_earnings", action="store_true")
     parser.add_argument("--earnings-lag-days", "--earnings_lag_days", type=int, default=1)
+    parser.add_argument(
+        "--micro-base-dir",
+        default=os.environ.get("ML_STREAMING_MICRO_BASE_DIR"),
+        help="Override directory for microstructure parquet cache (default data_dir or env).",
+    )
+    parser.add_argument(
+        "--l2-base-dir",
+        default=os.environ.get("ML_STREAMING_L2_BASE_DIR"),
+        help="Override directory for L2 cache (default data_dir or env).",
+    )
     parser.add_argument("--student_mode", action="store_true")
     parser.add_argument("--emit_dataset_events", action="store_true")
     parser.add_argument("--fred_vintage_dir")
     parser.add_argument("--events_dir")
     parser.add_argument("--register_features", action="store_true")
     parser.add_argument("--feature_registry_dir")
+    parser.add_argument(
+        "--convert-vintage-age",
+        action="store_true",
+        help="Convert *_value_vintage_ts columns into *_vintage_age_minutes after build.",
+    )
     parser.add_argument(
         "--feature_role",
         choices=["teacher", "student", "inference_support"],
@@ -194,6 +209,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_calendar=args.include_calendar,
         include_earnings=args.include_earnings,
         earnings_lag_days=args.earnings_lag_days,
+        micro_base_dir=Path(args.micro_base_dir) if args.micro_base_dir else None,
+        l2_base_dir=Path(args.l2_base_dir) if args.l2_base_dir else None,
         chunk_days=args.chunk_days,
         start=_parse_optional_date(args.start),
         end=_parse_optional_date(args.end),
@@ -208,6 +225,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         market_inputs=_parse_market_inputs(args.market_inputs_json),
         vintage_policy=vintage_policy,
         vintage_as_of=_parse_optional_date(args.vintage_as_of),
+        convert_vintage_to_age=args.convert_vintage_age,
     )
 
     LOGGER.info("Building TFT dataset %s", cfg)

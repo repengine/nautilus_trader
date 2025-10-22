@@ -2,189 +2,123 @@
 
 ## Executive Summary
 
-The `ml/data/` module provides a comprehensive data pipeline infrastructure for machine learning workflows within Nautilus Trader. The system integrates with Nautilus native components while providing ML-specific capabilities for data collection, processing, and feature engineering.
+The `ml/data/` module provides comprehensive data pipeline infrastructure for machine learning workflows within Nautilus Trader. This cold-path module handles data collection, ingestion, processing, and dataset preparation. The system integrates with Nautilus native components while providing ML-specific capabilities for feature engineering and training data creation.
 
-Operational notes:
-
-- Timestamps: All pipeline timestamps are UNIX nanoseconds. Store write paths perform defensive normalization from seconds/ms/us to ns and log a warning if triggered. See `context_stores.md` → "Timestamp Policy & Normalization".
-- DB readiness: Apply canonical migrations and run a DB preflight before running ingestion/backfills to ensure required functions and partitions exist. See `context_deployment.md`.
+**Module Size**: 14M, 60+ Python files across 5 subdirectories
+**Core Purpose**: Cold-path data utilities serving ML actors (not ML actors themselves)
+**Implementation Status**: Production-ready with comprehensive ingestion, caching, and dataset building
 
 **Key Components:**
 
-- **Data Collection**: Enhanced `DataCollector` for Databento API integration with intelligent multi-tier collection strategy and storage management
-- **Data Utilities**: Helper functions working directly with `ParquetDataCatalog` for seamless Nautilus integration
-- **Scheduling**: Production-ready automated data collection and processing via `DataScheduler` with comprehensive DataRegistry integration
-- **TFT Dataset Building**: Training data preparation with dual-source architecture (FeatureStore priority, direct computation fallback)
-- **Provider Architecture**: Extensible SOLID-principle data provider system for static and time-series features
-- **Alternative Data Loaders**: FRED economic indicators loader with caching, rate limiting, and DataStore integration
-- **Feature Caching**: L2 and microstructure per-minute feature caches for efficient training dataset building
-- **Build Infrastructure**: Pipeline orchestration with `build_runner.py` for parallel dataset construction
-- **Observability Integration**: Comprehensive event tracking, correlation IDs, and 15+ Prometheus metrics
-- **Message Bus Support**: Event publication to external systems via configurable publisher protocols
+- **Data Ingestion** (`ingest/`): Robust historical and streaming data collection with Databento integration, resume/retry, policy enforcement, and dual-write support
+- **Data Loaders** (`loaders/`): FRED economic indicators, ALFRED vintage data, Fama-French factors, recent OHLCV backfills, alternative data
+- **TFT Dataset Builder**: Fast training dataset preparation with dual-source architecture (FeatureStore priority, direct computation fallback), macro/micro/L2/events integration
+- **Provider Architecture** (`providers/`): Protocol-based SOLID design for metadata, calendar, and event data
+- **Data Sources** (`sources/`): Mock and production implementations for testing and deployment
+- **Feature Caching**: L2 and microstructure per-minute aggregation caches for efficient training
+- **Data Scheduler**: Automated daily collection and processing with comprehensive observability
+- **Fixtures**: Deterministic test data generation with schema validation
 
-**Implementation Status**: 100% complete, production-ready with comprehensive metrics, monitoring, and operational resilience
+**Timestamp Policy**: All pipeline timestamps are UNIX nanoseconds. Store write paths perform defensive normalization from seconds/ms/us to ns and log a warning if triggered.
 
-## Quick Imports (Public API)
+**DB Readiness**: Apply canonical migrations and run DB preflight before ingestion/backfills to ensure required functions and partitions exist.
 
-For common workflows, import directly from `ml.data` to avoid hunting files:
+---
 
-```
+## Quick Reference
+
+### Public API (`ml.data.__init__.py`)
+
+```python
+# High-level orchestrators
 from ml.data import (
-    DataCollector, DataScheduler, IngestionOrchestrator, TFTDatasetBuilder,
-    InstrumentMetadataProvider, MarketCalendarProvider, EventScheduleProvider,
-    MockCalendarSource, SimpleCalendarSource, PandasCalendarSource,
-    DatabentoMetadataSource, NautilusMetadataSource,
-    L2MinuteCache, MicroMinuteCache,
-    bars_to_dataframe, quotes_to_dataframe, trades_to_dataframe,
+    DataCollector,           # Rich market data collection
+    DataScheduler,           # Automated daily scheduling
+    TFTDatasetBuilder,       # Fast TFT dataset building
+)
+
+# Data conversion utilities
+from ml.data import (
+    bars_to_dataframe,       # Convert catalog bars to Polars DataFrame
+    quotes_to_dataframe,     # Convert quotes to DataFrame
+    trades_to_dataframe,     # Convert trades to DataFrame
+)
+
+# Performance & caching
+from ml.data import (
+    L2MinuteCache,           # L2 order book per-minute cache
+    MicroMinuteCache,        # Microstructure per-minute cache
+)
+
+# Data providers (protocol-based)
+from ml.data import (
+    InstrumentMetadataProvider,
+    MarketCalendarProvider,
+    EventScheduleProvider,
+)
+
+# Data sources (testing & mocking)
+from ml.data import (
+    MockCalendarSource,
+    SimpleCalendarSource,
+    PandasCalendarSource,
+    MockEventSource,
+    DatabentoMetadataSource,
+    NautilusMetadataSource,
+)
+
+# Data loaders
+from ml.data import (
+    FREDDataLoader,          # FRED economic data
+    FREDConfig,
+    FREDIndicator,
+    ALFREDDataLoader,        # ALFRED vintage data
+    ALFREDConfig,
+)
+
+# Fixtures & testing
+from ml.data import (
+    FixtureManifest,
+    make_mbp10_fixture,
+    make_tbbo_fixture,
+    make_trades_fixture,
+)
+
+# Ingestion utilities
+from ml.data import (
+    DatabentoIngestionService,
+    IngestionOrchestrator,
+    IngestionRequest,
+    BackoffPolicy,
+    IngestState,
+    RateLimiter,
+)
+
+# Dataset building
+from ml.data import (
+    build_tft_dataset,
+    DatasetBuildConfig,
+    BuildResult,
+    DatasetMetadata,
+    validate_dataset,
 )
 ```
 
-This curated surface keeps the module easy to navigate.
+### Environment Variables
 
-## Recent Data Progress (Sept 2025)
+**Data APIs:**
+- `DATABENTO_API_KEY` — Databento client (optional for local dev; required for real API tests)
+- `FRED_API_KEY` — FRED economic data loader (required to fetch real data)
 
-This section documents the latest backfills, gap fills, macro refresh, and dataset builds performed to stabilize training and improve micro/L2 signal quality.
+**Database (tests and registry helpers):**
+- `DATABASE_URL` — primary Postgres URL
+- `ML_DATABASE_URL` — alias used by tools (mirrors `DATABASE_URL`)
+- `NAUTILUS_REGISTRY_DB_URL` — alias for registry helpers
 
-- L0 minute bars (Tier‑1)
-  - Safe, targeted recent backfill added via `ml/scripts/backfill_ohlcv_recent.py`.
-  - Writes to `data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet`.
-  - `TFTDatasetBuilder` now recognizes this `l0` path as a fallback source alongside `ohlcv‑1m_{historical,recent}.parquet`.
+**Feature Flags:**
+- `ML_USE_LEGACY_DATA_SCHEDULER=1` — Use original god class implementation instead of component-based facade
 
-- L2 (depth) gap fill (Tier‑1)
-  - Enhanced `ml/scripts/populate_l2_efficient.py` to be resource‑safe:
-    - Streaming merges using PyArrow row‑groups (no full‑file in RAM).
-    - Resume/progress file at `data/tier1/.l2_progress.json` (per‑day completion).
-    - Sharding flags: `--max-symbols`, `--symbol-offset`, `--shuffle`.
-    - Throttling: `--rate-limit` and `--sleep-between-symbols`.
-    - Signal‑safe flush on SIGINT/SIGTERM.
-  - Outputs final files `data/tier1/<SYMBOL>/l2/<SYMBOL>_mbp-10.parquet`.
-  - Operational caps that avoided kills on shared hosts:
-    - `POLARS_MAX_THREADS=1 PYARROW_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`.
-
-- FRED macro refresh (90d)
-  - Refreshed via `FREDDataLoader` and saved both wide and ML‑format:
-    - `data/fred/fred_indicators_updated.parquet` (wide)
-    - `data/fred/fred_indicators_ml_format.parquet` (long; for `join_fred_asof`).
-  - Publication lag handled via `join_fred_asof(..., lag_days=N)`.
-
-- Dataset builds
-  - 60d dataset rebuilt for Tier‑1 with macro+micro+L2.
-    - Per‑symbol: `/tmp/tft_universe_60d/<SYMBOL>/dataset.(parquet|csv)`
-    - Feature sets registered in `~/.nautilus/ml/features`.
-  - 90d dataset merged for Tier‑1 (macro+micro+L2), ready for HPO:
-    - Merged: `/tmp/tft_universe_90d/merged/dataset.(parquet|csv)`.
-
-### Runbook snippets
-
-- L0 backfill (recent minutes):
-  - `python -m ml.scripts.backfill_ohlcv_recent --tier 1 --days 14`
-
-- L2 gap fill (resume‑safe shards):
-  - Environment caps: `export POLARS_MAX_THREADS=1 PYARROW_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`
-  - Shards of 5 symbols (example):
-    - `for off in 0 5 10 15 20; do python ml/scripts/populate_l2_efficient.py --tier 1 --days 14 --check-gaps --max-symbols 5 --symbol-offset $off --rate-limit 10 --sleep-between-symbols 1; done`
-
-- Orchestrator auto-fill (pre-build coverage sweep):
-  - `python -m ml.cli.pipeline_orchestrator --auto_fill_universe --symbols SPY.NYSE,QQQ.NASDAQ --include_l2`
-  - Backfills bars/TBBO/trades using `IngestionOrchestrator.backfill_gaps` with coverage policy targets (7y L0, 1y L1, 30d L2/3)
-  - Depth ingestion reuses `populate_l2_efficient`; pass `--auto_fill_l2_days` to override the default 30-day window and `--auto_fill_allow_dataset_l2_ingest` if the dataset stage should still invoke the legacy L2 path
-
-- FRED refresh (90d):
-  - Set `FRED_API_KEY` then refresh via `FREDDataLoader` or `ml/scripts/fred_integration_bridge.py`.
-  - Vintage snapshots land via `ALFREDDataLoader`, which persists per-series releases under `data/fred/vintages/<series>/<yyyymmdd>.parquet` and a normalized `release_calendar.parquet` used for strict point-in-time joins.
-  - Each dataset build emits `dataset_metadata.json` describing the vintage policy (`real_time` vs `final`), an optional `vintage_cutoff`, canonical `ts_event_start/end`, and the overall/train/validation/test windows so downstream promotion gates can verify point-in-time integrity before deploying a model.
-  - Macro feature joins now persist raw revision-aware columns: `<series>`, `<series>__value_real_time`, `<series>__value_final`, and `<series>__value_vintage_ts`. Feature engineering derives revision deltas and composites from these base signals.
-
-- Builds:
-  - 60d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_60d.json`
-  - 90d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_90d.json`
-
-## Per‑Minute Feature Caches (Cold Path)
-
-Caches avoid recomputing expensive aggregates and live strictly off the hot path.
-
-- Layout
-  - L2: `data/features/l2_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`
-  - Micro: `data/features/micro_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`
-- Usage
-  - L2 cache
-
-    ```python
-    from pathlib import Path
-    from datetime import datetime, timezone
-    from ml.data import L2MinuteCache
-
-    cache = L2MinuteCache(Path("data/features/l2_minute"))
-    start = datetime(2025, 8, 11, tzinfo=timezone.utc)
-    end = datetime(2025, 8, 18, tzinfo=timezone.utc)
-    df = cache.get_range("SPY", start, end, raw_base_dir=Path("data/tier1"))
-    ```
-
-  - Micro cache (mirrors L2)
-
-    ```python
-    from ml.data import MicroMinuteCache
-    cache = MicroMinuteCache(Path("data/features/micro_minute"))
-    df = cache.get_range("SPY", start, end, raw_base_dir=Path("data/tier1"))
-    ```
-
-- Semantics
-  - Timestamp filter is half‑open `[start, end)`; results are sorted and cast to `Datetime[ns, UTC]`.
-  - Missing partitions compute on demand and persist before returning.
-
-## Sources vs Providers (Layering)
-
-- Sources (`ml/data/sources/*`): access/raw domain models and real connectors
-  - Examples: `PandasCalendarSource`, `DatabentoMetadataSource`, `MockEventSource`
-- Providers (`ml/data/providers/*`): ML‑ready features derived from sources
-  - Examples: `MarketCalendarProvider`, `InstrumentMetadataProvider`, `EventScheduleProvider`
-- Pattern: providers depend on sources; dataset builders and schedulers depend on providers.
-
-## Canonical Defaults (Metadata)
-
-To avoid drift, default instrument metadata is defined once and reused:
-
-- Function: `ml.data.sources.metadata.default_metadata(symbol) -> dict[str, Any]`
-- Used by: Databento and Nautilus metadata sources and the provider’s empty‑frame builder.
-
-## Environment Variables (Data + Scheduling)
-
-These enable external APIs and DB access for schedulers/registry:
-
-- Data APIs
-  - `DATABENTO_API_KEY` — Databento client (optional for local dev; required for real API tests)
-  - `FRED_API_KEY` — FRED economic data loader (required to fetch real data)
-- Database (tests and registry helpers)
-  - `DATABASE_URL` — primary Postgres URL
-  - `ML_DATABASE_URL` — alias used by tools (mirrors `DATABASE_URL`)
-  - `NAUTILUS_REGISTRY_DB_URL` — alias for registry helpers
-
-## Unified Ingestion (Dual-Write)
-
-To guarantee that the dataset builder can always read from a ParquetDataCatalog while
-preserving SQL coverage and watermarks, the ingestion control path supports dual-write:
-
-- Backfill (CLI):
-  - `python -m ml.cli.ingest_backfill ... --also-write-catalog --catalog-path $CATALOG_PATH`
-  - Writes SQL (`market_data`) and domain objects to `ParquetDataCatalog`.
-
-- Daily (Scheduler):
-  - `DataScheduler(..., use_orchestrator=True, dual_write=True).run_daily_update()`
-  - Uses `IngestionOrchestrator` under the hood for consistent behavior.
-
-IntegrationManager can pass `ALSO_WRITE_CATALOG=1` to its boot-time backfill command so
-containers start with a populated catalog.
-
-## Macro (FRED) ML-Format Parquet
-
-Dataset builder performs an as-of join against an ML-format parquet file with columns
-`timestamp`, `series_id`, `value`.
-
-- Export via loader: `FREDDataLoader.export_ml_parquet(out_path="data/fred/fred_indicators_ml_format.parquet")`
-- Or use CLI: `python -m ml.cli.fred_export_ml_parquet --out data/fred/fred_indicators_ml_format.parquet`
-
-Then enable macro in the builder (`include_macro=True`) or pass an explicit path in
-`join_fred_asof(..., fred_path=...)`.
+---
 
 ## Architecture Overview
 
@@ -192,279 +126,257 @@ The data pipeline follows a layered architecture with clear separation of concer
 
 ```
 Raw Data Layer
-├── DataCollector: Multi-tier collection strategy
+├── Data Ingestion (ingest/)
+│   ├── DatabentoIngestionService: Policy-enforced historical ingestion
+│   ├── IngestionOrchestrator: Gap detection + backfill coordination
+│   ├── DatabentoIngestor: Resume/retry with DST-aware window planning
+│   └── Subscription Management: Dataset/schema allowlists, lookback limits
 ├── ParquetDataCatalog: Nautilus native storage
 └── Databento Integration: Real-time market data
 
 Processing Layer
-├── DataScheduler: Automated orchestration
-├── FeatureEngineer: On-demand computation
-├── Feature Caches: L2/Micro pre-computed features
-└── TFTDatasetBuilder: Training data preparation
+├── TFTDatasetBuilder: Training data preparation (2,729 lines)
+│   ├── Dual-source: FeatureStore priority → direct computation fallback
+│   ├── Market bindings: Multi-feed resolution with lineage tracking
+│   ├── Macro integration: FRED/ALFRED with vintage policies
+│   ├── Micro/L2 integration: Cached feature aggregation
+│   └── Events integration: Corporate actions, earnings, calendars
+├── DataScheduler: Automated orchestration (1,542 lines)
+│   ├── Component-based facade (default) or legacy god class
+│   ├── Registry integration: Event emission, watermark updates
+│   └── Comprehensive metrics: 15+ Prometheus metrics
+├── Feature Caches: L2/Micro per-minute pre-computed features
+└── Data Loaders: FRED, ALFRED, Fama-French, recent OHLCV
 
 Integration Layer
-├── DataStore: Unified persistence facade
-├── DataRegistry: Event emission and tracking
+├── DataStore: Unified persistence facade with validation
+├── DataRegistry: Event emission and lineage tracking
 ├── FeatureStore: Training/inference parity
-└── FRED Loader: Economic indicators
+└── Provider Architecture: Protocol-based metadata/calendar/events
 
-Provider Layer
-├── Base Providers: SOLID architecture
-├── Calendar Sources: Market schedule data
-├── Metadata Sources: Instrument information
-└── Event Sources: Corporate actions/earnings
+Provider Layer (Protocol-First Design)
+├── Base Providers: SOLID architecture with caching
+├── Calendar Sources: Market schedule data (mock/pandas/simple)
+├── Metadata Sources: Instrument information (mock/databento/nautilus)
+└── Event Sources: Corporate actions/earnings (mock/file)
 ```
+
+---
+
+## Directory Structure
+
+```
+ml/data/
+├── __init__.py                    # Public API (1,944 lines) with lazy imports
+├── catalog_utils.py               # Nautilus catalog conversion utilities
+├── collector.py                   # DataCollector (828 lines) - multi-tier collection
+├── scheduler.py                   # DataScheduler facade (1,542 lines)
+├── scheduler_legacy.py            # Legacy god class implementation (1,551 lines)
+├── tft_dataset_builder.py         # TFT builder (2,729 lines) - dual-source architecture
+├── tft_dataset_builder_legacy.py  # Legacy TFT implementation (2,208 lines)
+├── registry_integrator.py         # Registry integration for schedulers
+├── fred_join.py                   # FRED as-of join utilities (616 lines)
+├── macro_revisions.py             # Macro revision analysis (369 lines)
+├── vintage.py                     # Vintage policy and datetime utilities
+├── validation.py                  # Dataset validation logic
+├── l2_cache.py                    # L2 per-minute cache
+├── micro_cache.py                 # Microstructure per-minute cache
+├── cache_common.py                # Shared caching utilities
+├── feature_manifest_export.py     # Feature registry export
+├── dataset_manifest_defaults.py   # Dataset metadata helpers (451 lines)
+├── feature_computation_manager.py # Feature computation coordinator (348 lines)
+├── trading_day_calculator.py      # Trading day utilities
+├── collection_coordinator.py      # Collection orchestration (817 lines)
+├── data_retention_manager.py      # Data retention logic
+├── initialization_manager.py      # Startup initialization
+│
+├── ingest/                        # Data ingestion subsystem
+│   ├── __init__.py
+│   ├── orchestrator.py            # Gap detection + backfill (721 lines)
+│   ├── service.py                 # Databento ingestion service (1,161 lines)
+│   ├── resume.py                  # Resume/retry ingestion logic
+│   ├── common.py                  # Backoff policy, rate limiter, ingest state
+│   ├── subscription.py            # Subscription policy enforcement (611 lines)
+│   ├── discovery.py               # Dataset discovery service (529 lines)
+│   ├── policy.py                  # Coverage policies
+│   ├── symbology.py               # Symbol resolution
+│   ├── databento_adapter.py       # Databento client adapter
+│   ├── nautilus_adapters.py       # Nautilus adapters
+│   ├── yfinance_adapter.py        # yfinance adapter
+│   ├── l2_efficient.py            # Efficient L2 gap fill (654 lines)
+│   ├── dbn_archive.py             # DBN archive utilities (398 lines)
+│   ├── macro_refresh.py           # Macro data refresh (344 lines)
+│   ├── market_bindings.py         # Market dataset binding resolution
+│   ├── metrics.py                 # Ingestion metrics
+│   ├── state.py                   # Ingestion state management
+│   └── api.py                     # Low-level API utilities
+│
+├── loaders/                       # Data loaders
+│   ├── __init__.py
+│   ├── fred_loader.py             # FRED economic data (1,123 lines)
+│   ├── alfred_loader.py           # ALFRED vintage data
+│   ├── ohlcv_recent.py            # Recent OHLCV backfills (431 lines)
+│   ├── fama_french_loader.py      # Fama-French factors
+│   ├── alternative.py             # Alternative data sources
+│   └── supplementary.py           # Supplementary data (spreads, correlations)
+│
+├── providers/                     # Data provider architecture
+│   ├── __init__.py
+│   ├── base.py                    # Protocol-based base classes (621 lines)
+│   ├── factory.py                 # Provider factory (527 lines)
+│   ├── metadata.py                # Instrument metadata provider
+│   ├── calendar.py                # Market calendar provider
+│   ├── events.py                  # Event schedule provider (516 lines)
+│   └── utils.py                   # Provider utilities
+│
+├── sources/                       # Data sources (mock & real)
+│   ├── __init__.py
+│   ├── metadata.py                # Metadata sources (446 lines)
+│   ├── calendar.py                # Calendar sources (769 lines)
+│   └── events.py                  # Event sources (916 lines)
+│
+├── earnings/                      # Earnings data subsystem
+│   ├── __init__.py
+│   ├── earnings_cache.py          # Earnings cache (494 lines)
+│   ├── yahoo_fetcher.py           # Yahoo Finance fetcher (329 lines)
+│   ├── edgar_fetcher.py           # SEC EDGAR fetcher (390 lines)
+│   └── xbrl_parser.py             # XBRL parser
+│
+└── fixtures/                      # Test fixtures
+    ├── __init__.py
+    ├── databento_fixtures.py      # Databento fixture generators
+    └── manifest.py                # Fixture manifest management
+```
+
+---
 
 ## Component Details
 
-### 1. Data Collection (`collector.py`)
+### 1. Data Ingestion System (`ingest/`)
 
-**Purpose**: Enhanced data collector optimizing Databento subscription value with intelligent multi-tier collection strategy.
+The ingestion subsystem provides robust historical and streaming data collection with comprehensive safety checks and observability.
 
-**Class**: `DataCollector`
+#### 1.1 Databento Ingestion Service (`service.py`, 1,161 lines)
 
-**I/O Specifications**:
+**Purpose**: Centralized entry point for all historical data ingestion with safety checks, cost estimation, and streaming interface.
 
-- **Input**:
-  - `storage_limit_gb`: Maximum storage budget (default: 1000GB, configurable)
-  - `data_dir`: Output directory for collected data
-  - `config`: DataCollectorConfig with collection parameters
-  - `end_date`: Last available data date (configurable for backtesting)
-  - Databento API key via `DATABENTO_API_KEY` environment variable
-- **Output**: Raw market data files in Parquet format with comprehensive metadata
-- **Storage**: Hierarchically organized by symbol and data type under configurable base directory
+**Class**: `DatabentoIngestionService`
 
-**Key Features**:
+**Key Features:**
+- **Policy Enforcement**: Dataset/schema allowlists, lookback limits from `ml.config.databento_policy`
+- **Cost Estimation**: Pre-ingestion cost checks with configurable thresholds
+- **Symbol Resolution**: Databento symbology client integration
+- **Rate Limiting**: Configurable per-minute API call limits
+- **Streaming Interface**: Yields `IngestionChunk` objects for flexible persistence
+- **Metrics**: Prometheus counters and histograms via `ml.common.metrics_bootstrap`
 
-- **Intelligent Collection Strategy**:
-  - L2 market depth (mbp-1): 30 days for top 50 most liquid symbols
-  - L1 trades: Multi-year historical data (1-7 years) for priority symbols
-  - TBBO quotes: 30 days for spread dynamics analysis
-  - Minute bars: 1 year coverage for all symbols with minimal storage footprint
-  - Extended L1 trades: Additional symbols based on available storage capacity
-- **Smart Storage Management**:
-  - Real-time storage usage tracking and projection
-  - Automatic phase adjustment and scope reduction based on available space
-  - Liquidity-based data size estimation with symbol-specific adjustments
-  - Collection metadata persistence with comprehensive statistics
-- **Priority Symbols**: Tiered approach with 20+ core symbols (SPY, QQQ, IWM, AAPL, MSFT, NVDA, etc.) plus extended coverage
-- **Operational Features**:
-  - Graceful degradation when API key unavailable (test environments)
-  - Rate limiting compliance with Databento API constraints
-  - Progress tracking and resumable collection sessions
+**I/O Specifications:**
+- **Input**: `IngestionRequest` with dataset, schema, symbols, time window, cost limits
+- **Output**: Sequence of `IngestionChunk` (symbol, window, DataFrame)
 
-**Current Status**: ✅ Complete production implementation
-
-### 2. Data Utilities (`catalog_utils.py`)
-
-**Purpose**: Helper functions for seamless ParquetDataCatalog integration.
-
-**Key Functions**:
-
-- `bars_to_dataframe()`: Converts Nautilus bars to ML-friendly DataFrames
-- `quotes_to_dataframe()`: Converts quote ticks to DataFrames
-- `trades_to_dataframe()`: Converts trade ticks to DataFrames
-- `resolve_instrument_id()`: Multi-venue symbol resolution
-
-**Features**:
-
-- Native Nautilus type handling with automatic conversion
-- Memory-efficient data loading with chunking support
-- Multi-venue instrument ID resolution (ARCA, NASDAQ, NYSE, etc.)
-- Comprehensive error handling with per-instrument failure isolation
-
-**Current Status**: ✅ Complete implementation with Nautilus integration
-
-### 3. Data Scheduling (`scheduler.py`)
-
-**Purpose**: Production-ready automated data collection and processing with comprehensive monitoring and resilience.
-
-**Class**: `DataScheduler`
-
-**I/O Specifications**:
-
-- **Input**:
-  - `catalog`: ParquetDataCatalog for data storage
-  - `config`: SchedulerConfig with Databento settings and feature store configuration
-  - `collector`: DataCollector instance (optional, creates default if None)
-  - `feature_engineer`: FeatureEngineer for feature computation (optional)
-  - `metrics_port`: Port for Prometheus metrics server (default: 8000)
-  - `connection`: Database connection string for feature store (optional)
-- **Output**:
-  - Updated ParquetDataCatalog with new market data and proper Nautilus types
-  - Computed features persisted to FeatureStore for training/inference parity
-  - DataRegistry events with SHA256 correlation IDs for end-to-end tracking
-  - Comprehensive Prometheus metrics for operational monitoring
-  - Watermark updates for data freshness and completeness tracking
-
-**Current Status**: ✅ Complete production implementation with enterprise-grade resilience
-
-**Key Features**:
-
-- **DataRegistry Integration**:
-  - Emits CATALOG_WRITTEN events for data lineage with SHA256-based correlation IDs
-  - Updates watermarks for dataset freshness and completeness tracking
-  - Progressive fallback: PostgreSQL backend → JSON backend for development
-  - Cross-domain event correlation for end-to-end pipeline tracing and analytics
-  - Event emission with comprehensive error handling and retry logic
-- **Comprehensive Metrics** (15+ Prometheus metrics):
-  - `data_collection_latency`: Collection time by instrument and data type
-  - `pipeline_stage_latency`: Stage execution times with percentile tracking
-  - `catalog_write_operations_total`: Catalog write success/failure counters
-  - `feature_store_operations_total`: Feature store operations with operation type labels
-  - `data_staleness_seconds`: Data freshness tracking per instrument
-  - `api_rate_limit_hits`: API rate limit monitoring with endpoint labels
-  - `active_collection_tasks`: Real-time task monitoring
-  - `data_retention_cleanup_total`: Cleanup operation tracking
-  - `features_computed_total`: Feature computation counters by instrument and type
-
-### 4. TFT Dataset Builder (`tft_dataset_builder.py`)
-
-**Purpose**: Advanced training dataset preparation with dual-source architecture and comprehensive feature integration.
-
-**Class**: `TFTDatasetBuilder`
-
-**I/O Specifications**:
-
-- **Input**:
-  - `catalog`: ParquetDataCatalog for raw data access
-  - `symbols`: List of symbols to include in dataset
-  - `feature_config`: MLFeatureConfig for feature engineering parameters (optional)
-  - `feature_store`: FeatureStore for pre-computed features (optional, enables training/inference parity)
-  - `include_macro`: Boolean flag for FRED economic indicators integration
-  - `include_micro`: Boolean flag for microstructure features via caching
-  - `include_l2`: Boolean flag for L2 order book features via caching
-  - `include_events`: Boolean flag for event-based known-future features
-- **Output**: TFT-compatible DataFrame (Pandas or Polars) with comprehensive feature set
-
-**Key Methods**:
-
-- `prepare_training_data_from_store()`: Load features from FeatureStore
-  - Ensures strict training/inference parity using identical feature computation paths
-  - Combines FeatureStore features with bar data for target generation
-  - Adds TFT-specific features (static covariates, known-future features)
-  - Comprehensive error handling with fallback to direct computation
-
-- `prepare_training_data()`: Intelligent source selection with automatic failover
-  - Priority: FeatureStore (for parity) → Direct computation (with logging)
-  - Supports both Polars and Pandas output formats
-  - Comprehensive logging for monitoring source selection decisions
-
-- `_build_training_dataset_direct()`: Direct feature computation with venue fallback
-  - Multi-venue symbol resolution (ARCA, NASDAQ, NYSE, etc.)
-  - Parquet file fallback for missing catalog entries
-  - Robust error handling with per-symbol failure isolation
-
-- `build_training_dataset()`: Legacy compatibility wrapper
-  - Maintains backward compatibility while using new dual-source architecture
-  - Automatic source selection with comprehensive error recovery
-
-**Current Status**: ✅ Complete with advanced dual-source architecture and comprehensive feature integration
-
-- **FeatureStore Integration**: Priority source ensuring strict training/inference parity with feature validation
-- **Automatic Fallback**: Graceful degradation to direct computation with comprehensive logging and error recovery
-- **Performance**: Optimized batch processing with parallel symbol processing and memory-efficient data handling
-- **Format Support**: Native support for both Polars and Pandas DataFrames with format-specific optimizations
-- **Advanced Features**:
-  - FRED economic indicators integration via `fred_join.py` with configurable publication lag
-  - L2 and microstructure feature caching via `l2_cache.py` and `micro_cache.py`
-  - Event-based known-future features via provider integration
-  - Comprehensive venue mapping and instrument ID resolution
-  - Date range filtering and time-based dataset slicing
-
-### 5. Data Provider Architecture (`providers/`)
-
-**Purpose**: Extensible SOLID-principle provider system for heterogeneous data sources.
-
-**Base Classes**:
-
-- `BaseDataProvider`: Common functionality (logging, metrics, validation)
-- `CachedDataProvider`: Template method with caching logic
-- `BaseStaticProvider`: Static data with indefinite caching
-- `BaseTimeSeriesProvider`: Time-varying data with validation
-
-**Concrete Implementations**:
-
-- `InstrumentMetadataProvider`: Static instrument information
-- `MarketCalendarProvider`: Calendar features (trading hours, holidays)
-- `EventScheduleProvider`: Corporate actions and earnings sourced from normalized event archives in `data/events/` (populated by `ml.preprocessing.event_ingestion`).
-- `ml.preprocessing.event_ingestion.EventIngestionUtility` centralizes feed ingestion (FRED/ALFRED vintages, corporate schedules, exchange calendars) and emits a single `events.parquet` archive consumed by file-backed event sources.
-
-**Key Features**:
-
-- **Protocol-First Design**: Structural typing without implementation coupling
-- **Factory Pattern**: Singleton provider instances with dependency injection
-- **Transform Adapter**: Maps feature transforms to appropriate providers
-- **Progressive Fallback**: Mock providers when real sources unavailable
-
-**Current Status**: ✅ Complete implementation with factory and adapter patterns
-
-### 6. Data Sources
-
-#### Calendar Sources (`sources/calendar.py`)
-
-**Purpose**: Comprehensive market calendar data sources with exchange-specific trading hours and holiday schedules.
-
-**Implementations**:
-
-- `MockCalendarSource`: Testing with realistic market schedules and holiday simulation
-- `SimpleCalendarSource`: Basic NYSE schedule with fixed hours and weekend detection
-- `PandasCalendarSource`: Production-ready real market calendar integration
-
-**Current Status**: ✅ Complete implementation with production-grade calendar provider
-
-**PandasCalendarSource Features**:
-
-- **Exchange Coverage**: NYSE, NASDAQ, CME, CBOT, ICE, CBOE, LSE, EUREX, JPX, HKEX, ASX, and 20+ major global exchanges
-- **Holiday Integration**: Accurate holiday calendars with early close detection
-- **Extended Hours**: Pre-market (4:00-9:30 AM) and after-hours (4:00-8:00 PM) session tracking
-- **24/7 Markets**: Special handling for cryptocurrency exchanges (BINANCE, COINBASE)
-- **Caching**: Intelligent schedule caching with configurable TTL to minimize API calls
-- **Fallback Logic**: Automatic fallback to SimpleCalendarSource when pandas_market_calendars unavailable
-
-## Deterministic Data Fixtures (Testing)
-
-For provider-agnostic ingestion and contract testing, deterministic, lightweight fixtures are provided under `ml/data/fixtures/`:
-
-- `make_tbbo_fixture` (L1 TBBO), `make_trades_fixture` (trades), `make_mbp10_fixture` (L2 snapshots)
-- Each returns `(DataFrame, FixtureManifest)` where `FixtureManifest` records `schema_hash` and `content_sha256` for reproducibility.
-- Property/contract tests validate ordering, idempotent replay deduplication, and schema stability.
-
-Usage example:
-
+**Usage Example:**
 ```python
-from ml.data.fixtures import make_tbbo_fixture
+from ml.data.ingest.service import DatabentoIngestionService, IngestionRequest
+from datetime import datetime, UTC
 
-df, manifest = make_tbbo_fixture(instrument_id="EURUSD.SIM", rows=60)
-assert len(df) == 60
+service = DatabentoIngestionService.from_env()
+request = IngestionRequest(
+    dataset="EQUS.MINI",
+    schema="trades",
+    symbols=("SPY",),
+    start=datetime(2025, 8, 1, tzinfo=UTC),
+    end=datetime(2025, 8, 2, tzinfo=UTC),
+)
+results = service.ingest(request)  # Generator of IngestionChunk
 ```
 
-See:
+**Safety Features:**
+- Dataset allowlist validation (line 264-268)
+- Schema safety checks (line 270-281)
+- Lookback limit enforcement (line 283-298)
+- Cost estimation and violation detection (line 300-320)
 
-- Contracts: `ml/tests/contracts/test_databento_fixtures_contracts.py`
-- Property: `ml/tests/property/test_ingestion_watermark_properties.py`
-- Performance: `ml/tests/performance/test_ingestion_microbench.py`
+**Location**: `/ml/data/ingest/service.py`
 
-## Ingestion Resume & Backoff
+#### 1.2 Ingestion Orchestrator (`orchestrator.py`, 721 lines)
 
-The ingestion helper `ml.data.ingest.resume.DatabentoIngestor` provides robust, provider‑agnostic ingestion with:
+**Purpose**: Coordinates gap detection, backfill, and live streaming integration with registry events and watermark updates.
 
-- Resume from last timestamp (stateful per instrument)
-- Retry/backoff on transient errors (configurable policy; injectable sleep function for tests)
-- Daily window planning across time zones (DST‑aware via `zoneinfo`)
-- Metrics emission through `ml.data.ingest.metrics`
+**Class**: `IngestionOrchestrator`
 
-Usage outline:
+**Key Features:**
+- **Gap Detection**: Uses `CoverageProviderProtocol` to identify missing day-buckets
+- **Backfill Coordination**: Splits large windows into schema-appropriate chunks
+- **Dual-Write Support**: Optional ParquetDataCatalog write via `RawIngestionWriterProtocol`
+- **Registry Integration**: Emits CATALOG_WRITTEN events with SHA256 correlation IDs
+- **Watermark Updates**: Advances watermarks for data freshness tracking
+- **Market Bindings**: Resolves multi-feed inputs using `resolve_market_dataset_bindings`
 
+**I/O Specifications:**
+- **Input**: `ResolvedMarketBinding`, lookback days, IngestState
+- **Output**: `BackfillWindowList` with persisted windows, frames written, rows written
+
+**Usage Example:**
 ```python
-from datetime import date
-from ml.data.ingest.resume import DatabentoIngestor, IngestState, BackoffPolicy
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.stores.providers import SqlCoverageProvider, SqlMarketDataWriter
+from ml.registry.data_registry import DataRegistry
+from pathlib import Path
 
-ingestor = DatabentoIngestor(client=databento_like_client, policy=BackoffPolicy())
+coverage = SqlCoverageProvider(connection_string=DB_URL, table_name="market_data")
+writer = SqlMarketDataWriter(connection_string=DB_URL, table_name="market_data")
+registry = DataRegistry(registry_path=Path("/tmp/registry"))
+
+orch = IngestionOrchestrator(
+    coverage=coverage,
+    writer=writer,
+    registry=registry,
+    ingestor=databento_ingestor,
+)
+
+# Backfill gaps in the last 7 days
+gaps = orch.backfill_gaps(
+    dataset_id="GLBX.MDP3",
+    schema="tbbo",
+    instrument_id="ES-USD-FUT.CME",
+    lookback_days=7,
+    state=IngestState(),
+)
+```
+
+**Key Methods:**
+- `backfill_binding()`: Backfill a single market binding (line 196-250)
+- `backfill_gaps()`: Detect and fill gaps (uses coverage provider)
+- `start_live()`: Hook for live streaming integration
+
+**Location**: `/ml/data/ingest/orchestrator.py`
+
+#### 1.3 Databento Ingestor (`resume.py`)
+
+**Purpose**: Resume/retry ingestion with DST-aware window planning and backoff policies.
+
+**Class**: `DatabentoIngestor`
+
+**Key Features:**
+- **Resume from Last Timestamp**: Stateful per-instrument resume
+- **Retry/Backoff**: Configurable policy with injectable sleep function (testable)
+- **DST-Aware Window Planning**: Uses `zoneinfo` for accurate daily windows
+- **Metrics Emission**: Via `ml.data.ingest.metrics`
+
+**Usage Example:**
+```python
+from ml.data.ingest.resume import DatabentoIngestor, IngestState, BackoffPolicy
+from datetime import date
+
+ingestor = DatabentoIngestor(client=databento_client, policy=BackoffPolicy())
 state = IngestState()
 
-# Plan DST‑aware daily windows
-windows = ingestor.plan_daily_windows(start_date=date(2021,3,13), end_date=date(2021,3,16), tz="America/New_York")
+# Plan DST-aware daily windows
+windows = ingestor.plan_daily_windows(
+    start_date=date(2021, 3, 13),
+    end_date=date(2021, 3, 16),
+    tz="America/New_York",
+)
 
 for start_ns, end_ns in windows:
     df = ingestor.ingest_time_window(
@@ -479,479 +391,1185 @@ for start_ns, end_ns in windows:
     # Process df...
 ```
 
-Tests:
+**Location**: `/ml/data/ingest/resume.py`
 
-- Backoff + resume: `ml/tests/unit/ingest/test_resume_backoff.py`
-- DST window planning: `ml/tests/property/test_window_planner_dst.py`
+#### 1.4 Subscription Management (`subscription.py`, 611 lines)
 
-## Streaming + Gap Backfill Orchestration
+**Purpose**: Enforce subscription policies and lookback limits based on Databento tiers.
 
-At process startup, orchestrate two complementary paths:
+**Key Classes:**
+- `SubscriptionPolicy`: Tier-based limits (BASIC, STANDARD, PROFESSIONAL, ENTERPRISE)
+- `SubscriptionChecker`: Validates requests against policies
 
-- Live streaming: attach a streaming client that writes incoming records through a `MarketDataWriterProtocol` to canonical storage.
-- Gap backfill: detect missing UTC day buckets via a `CoverageProviderProtocol` and backfill each window using `DatabentoIngestor`.
+**Key Functions:**
+- `get_effective_policy(dataset: str, schema: str)`: Returns active policy
+- `get_max_lookback_days(dataset: str, schema: str)`: Returns max lookback
 
-The orchestrator (`ml.data.ingest.orchestrator.IngestionOrchestrator`) wires these pieces together and integrates with the registry for events + watermarks:
+**Location**: `/ml/data/ingest/subscription.py`
 
+#### 1.5 Dataset Discovery (`discovery.py`, 529 lines)
+
+**Purpose**: Discover available datasets and schemas from Databento metadata API.
+
+**Class**: `DatasetDiscoveryService`
+
+**Key Features:**
+- Cost estimation for discovered inputs
+- Schema-level discovery with storage kind classification
+- Symbol resolution via symbology client
+
+**Location**: `/ml/data/ingest/discovery.py`
+
+---
+
+### 2. TFT Dataset Builder (`tft_dataset_builder.py`, 2,729 lines)
+
+**Purpose**: Fast training dataset preparation with comprehensive feature integration and dual-source architecture.
+
+**Class**: `TFTDatasetBuilder`
+
+**Key Architecture:**
+- **Dual-Source**: FeatureStore priority → direct computation fallback
+- **Market Bindings**: Multi-feed resolution with lineage tracking (lines 100-150)
+- **Macro Integration**: FRED/ALFRED with vintage policies (lines 500-600)
+- **Micro/L2 Integration**: Cached feature aggregation (lines 700-800)
+- **Events Integration**: Corporate actions, earnings, calendars (lines 900-1000)
+
+**I/O Specifications:**
+- **Input**:
+  - `catalog`: ParquetDataCatalog for raw data access
+  - `symbols`: List of symbols to include
+  - `instrument_ids`: Optional explicit instrument IDs
+  - `feature_store`: Optional FeatureStore for training/inference parity
+  - `data_store`: Optional DataStore for OHLCV loading via canonical storage
+  - `market_dataset_id`: Dataset ID for binding resolution
+  - `market_bindings`: Pre-resolved bindings
+  - Feature flags: `include_macro`, `include_micro`, `include_l2`, `include_events`, `include_calendar`, `include_earnings`
+  - Vintage options: `vintage_policy`, `vintage_as_of`, `include_macro_revisions`
+  - Paths: `fred_path`, `vintage_base_dir`, `events_base_dir`
+  - `student_mode`: L1-only real-time parity mode
+- **Output**: TFT-compatible DataFrame (Pandas or Polars) with comprehensive feature set
+
+**Key Methods:**
+
+1. **`build_training_dataset()`** (line 800-900)
+   - Legacy compatibility wrapper
+   - Automatic source selection with error recovery
+   - Supports both Polars and Pandas output formats
+
+2. **`prepare_training_data()`** (line 600-700)
+   - Intelligent source selection: FeatureStore → Direct computation
+   - Comprehensive logging for monitoring source selection decisions
+
+3. **`prepare_training_data_from_store()`** (line 500-600)
+   - Loads features from FeatureStore for strict training/inference parity
+   - Combines FeatureStore features with bar data for target generation
+   - Adds TFT-specific features (static covariates, known-future features)
+
+4. **`_build_training_dataset_direct()`** (line 1200-1400)
+   - Direct feature computation with venue fallback
+   - Multi-venue symbol resolution (ARCA, NASDAQ, NYSE, etc.)
+   - Parquet file fallback for missing catalog entries
+   - Robust error handling with per-symbol failure isolation
+
+5. **`_add_known_future_features_polars()`** (line 1500-1600)
+   - Adds calendar features (day of week, month, hour cyclic encoding)
+   - Event-based known-future features if `include_events=True`
+   - Earnings-based features if `include_earnings=True`
+
+6. **`get_binding_stats()`** (line 200-250)
+   - Returns `MarketBindingStats` for each binding
+   - Tracks ts_event range, row counts from store/catalog, source datasets
+
+**Macro Integration (lines 400-500):**
+- FRED indicators via `fred_join.py` with configurable publication lag
+- ALFRED vintage data with point-in-time accuracy
+- Revision-aware columns: `<series>`, `<series>__value_real_time`, `<series>__value_final`, `<series>__value_vintage_ts`
+- Vintage policies: `REAL_TIME` (as-of cutoff) vs `FINAL` (latest revised values)
+
+**L2/Micro Integration (lines 700-800):**
+- L2MinuteCache: Day-partitioned L2 aggregates (`data/features/l2_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`)
+- MicroMinuteCache: Day-partitioned microstructure aggregates (`data/features/micro_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`)
+- On-demand computation if cache partitions missing
+
+**Student Mode (line 150-200):**
+- L1-only features for real-time inference parity
+- Skips macro, micro, L2, events to match production constraints
+- Explicitly documents data requirements
+
+**Dataset Metadata (lines 2500-2700):**
+- Emits `dataset_metadata.json` describing:
+  - Vintage policy and cutoff
+  - Canonical ts_event start/end
+  - Overall/train/validation/test windows
+  - Macro observation counts
+  - Market binding lineage (dataset, schema, storage kind, ts_event ranges, row counts)
+
+**Usage Example:**
 ```python
-from pathlib import Path
-from ml.data.ingest.orchestrator import IngestionOrchestrator
-from ml.data.ingest.resume import DatabentoIngestor, IngestState
-from ml.stores.providers import SqlCoverageProvider, SqlMarketDataWriter
-from ml.registry.data_registry import DataRegistry
-from ml.registry.persistence import PersistenceConfig, BackendType
+from ml.data import TFTDatasetBuilder
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
+from datetime import datetime, UTC
 
-DB_URL = "postgresql://postgres:postgres@localhost:5433/nautilus"  # or $DB_CONNECTION
-
-coverage = SqlCoverageProvider(connection_string=DB_URL, table_name="market_data", ts_field="ts_event")
-writer = SqlMarketDataWriter(connection_string=DB_URL, table_name="market_data")
-registry = DataRegistry(
-    registry_path=Path("/tmp/registry"),
-    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES, connection_string=DB_URL),
+catalog = ParquetDataCatalog("./data")
+builder = TFTDatasetBuilder(
+    catalog=catalog,
+    symbols=["SPY", "QQQ", "AAPL"],
+    include_macro=True,
+    macro_lag_days=1,
+    include_micro=True,
+    include_l2=True,
+    include_events=True,
+    student_mode=False,
 )
 
-ingestor = DatabentoIngestor(client=databento_like_client)
-orch = IngestionOrchestrator(coverage=coverage, writer=writer, registry=registry, ingestor=ingestor)
-state = IngestState()
-
-# Backfill gaps in the last 7 days for an instrument
-gaps = orch.backfill_gaps(
-    dataset_id="GLBX.MDP3", schema="tbbo", instrument_id="ES-USD-FUT.CME", lookback_days=7, state=state
+dataset = builder.build_training_dataset(
+    horizon_minutes=15,
+    min_return_threshold=0.001,
+    lookback_periods=30,
+    use_polars=True,
+    start=datetime(2024, 1, 1, tzinfo=UTC),
+    end=datetime(2024, 12, 31, tzinfo=UTC),
 )
-
-# Live path integration hook (attach streaming client that writes via `writer`)
-orch.start_live()
 ```
 
-Tests:
+**Location**: `/ml/data/tft_dataset_builder.py`
 
-- Gap detection + backfill: `ml/tests/unit/ingest/test_orchestrator_backfill.py`
-- Retry/resume: `ml/tests/unit/ingest/test_resume_backoff.py`
-- DST window planning: `ml/tests/property/test_window_planner_dst.py`
+---
 
-SQL implementations for Postgres are provided via `ml.stores.providers` and use the canonical `market_data` table created by migration `ml/stores/migrations/003_market_data.sql`. If your raw layer is a Nautilus `ParquetDataCatalog`, you can use `ml.stores.providers.CatalogCoverageProvider` to derive gap coverage from catalog file intervals.
+### 3. Data Loaders (`loaders/`)
 
-### 7. FRED Economic Data Integration (`loaders/fred_loader.py`)
+#### 3.1 FRED Loader (`fred_loader.py`, 1,123 lines)
 
 **Purpose**: Complete economic indicator integration with comprehensive observability.
 
 **Class**: `FREDDataLoader`
 
-**Key Features**:
-
-- **Comprehensive Indicators**: 20+ economic indicators including rates, volatility, GDP, CPI, employment
+**Key Features:**
+- **Comprehensive Indicators**: 20+ economic indicators (rates, volatility, GDP, CPI, employment)
 - **Caching**: Configurable TTL with metadata persistence
 - **Rate Limiting**: FRED API compliance (120 calls/minute)
 - **DataStore Integration**: Proper instrument ID generation and storage
 - **DataRegistry Events**: Manifest registration with schema validation
-- **Observability**: Dedicated Prometheus metrics for monitoring
+- **Observability**: Dedicated Prometheus metrics (fetch counter, duration histogram, cache hits, errors)
 
-**Current Status**: ✅ Complete implementation with production observability
+**I/O Specifications:**
+- **Input**: `FREDConfig` with API key, cache settings, rate limits, backfill years
+- **Output**: Polars DataFrame with columns `timestamp`, `series_id`, `value`
 
-### 8. Feature Caching Infrastructure
+**Key Methods:**
+- `fetch_series(series_id: str)`: Fetch single series with retry/backoff
+- `fetch_all_indicators()`: Fetch all configured indicators
+- `export_ml_parquet(out_path: Path)`: Export ML-format parquet for dataset builder
+- `store_indicators(data_store, data_registry)`: Persist to DataStore with events
 
-#### L2 Minute Cache (`l2_cache.py`)
+**Default Indicators (lines 250-400):**
+- Interest rates: DGS10, DGS2, DFF, T10Y2Y
+- Volatility: VIXCLS
+- Economic: GDP, CPIAUCSL, UNRATE, PAYEMS, UMCSENT
+- Market breadth: NASDAQCOM, SP500
+- Currency: DEXUSEU, DEXJPUS
+
+**Usage Example:**
+```python
+from ml.data.loaders.fred_loader import FREDDataLoader, FREDConfig
+
+config = FREDConfig(
+    cache_ttl_hours=24,
+    backfill_years=10,
+    rate_limit_calls=120,
+)
+loader = FREDDataLoader(config)
+
+# Fetch all indicators
+indicators_df = loader.fetch_all_indicators()
+
+# Export ML-format parquet
+loader.export_ml_parquet(Path("data/fred/fred_indicators_ml_format.parquet"))
+
+# Store with DataRegistry integration
+loader.store_indicators(data_store, data_registry)
+```
+
+**Location**: `/ml/data/loaders/fred_loader.py`
+
+#### 3.2 ALFRED Loader (`alfred_loader.py`)
+
+**Purpose**: Fetch and persist ALFRED (vintage FRED) releases for point-in-time accuracy.
+
+**Class**: `ALFREDDataLoader`
+
+**Key Features:**
+- Per-series vintage snapshots under `data/fred/vintages/<series>/<yyyymmdd>.parquet`
+- Normalized `release_calendar.parquet` for strict point-in-time joins
+- Retry/backoff for API failures
+- Prometheus metrics (fetch counter, error counter, duration histogram)
+
+**I/O Specifications:**
+- **Input**: `ALFREDConfig` with series IDs, output directory, date range, window_days
+- **Output**: Parquet files with columns `series_id`, `observation_ts`, `value`, `release_ts`, `release_end_ts`
+
+**Usage Example:**
+```python
+from ml.data.loaders.alfred_loader import ALFREDDataLoader, ALFREDConfig
+
+config = ALFREDConfig(
+    series_ids=("GDP", "CPIAUCSL", "UNRATE"),
+    out_dir=Path("data/fred/vintages"),
+    start_date="2020-01-01",
+    end_date="2025-01-01",
+)
+loader = ALFREDDataLoader(config)
+stats = loader.refresh()  # Returns dict[series_id, {releases, rows}]
+```
+
+**Location**: `/ml/data/loaders/alfred_loader.py`
+
+#### 3.3 Recent OHLCV Backfill (`ohlcv_recent.py`, 431 lines)
+
+**Purpose**: Safely backfill recent minute bars to `data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet`.
+
+**Function**: `backfill_recent_ohlcv(config: OhlcvRecentBackfillConfig)`
+
+**Key Features:**
+- Streaming PyArrow row-group merges (no full file in RAM)
+- Resume/progress tracking per symbol
+- Rate limiting and throttling
+- Signal-safe flush on SIGINT/SIGTERM
+
+**Usage Example:**
+```python
+from ml.data.loaders.ohlcv_recent import backfill_recent_ohlcv, OhlcvRecentBackfillConfig
+
+config = OhlcvRecentBackfillConfig(
+    tier=1,
+    days=14,
+    max_symbols=5,
+    symbol_offset=0,
+    rate_limit=10,
+    sleep_between_symbols=1.0,
+)
+result = backfill_recent_ohlcv(config)
+print(f"Success: {result.succeeded}, Failed: {result.failed}")
+```
+
+**Location**: `/ml/data/loaders/ohlcv_recent.py`
+
+#### 3.4 Fama-French Loader (`fama_french_loader.py`)
+
+**Purpose**: Download and parse Fama-French factor datasets.
+
+**Function**: `download_fama_french_dataset(spec: FamaFrenchDatasetSpec)`
+
+**Supported Datasets:**
+- FF3: Fama-French 3-factor (Mkt-RF, SMB, HML)
+- FF5: Fama-French 5-factor (adds RMW, CMA)
+- Momentum: UMD factor
+- Industry portfolios
+
+**Location**: `/ml/data/loaders/fama_french_loader.py`
+
+#### 3.5 Alternative Data (`alternative.py`)
+
+**Purpose**: Load and persist alternative data sources.
+
+**Functions:**
+- `populate_alternative_data(config: AlternativeDataConfig)`
+- `load_tier1_symbols(tier: int)`
+
+**Supported Sources:**
+- SENTIMENT
+- NEWS
+- SOCIAL
+- FUNDAMENTAL
+
+**Location**: `/ml/data/loaders/alternative.py`
+
+---
+
+### 4. Provider Architecture (`providers/`)
+
+The provider subsystem implements **Pattern 2: Protocol-First Interface Design** with SOLID principles.
+
+#### 4.1 Base Classes (`base.py`, 621 lines)
+
+**Protocols:**
+- `DataProvider`: Base protocol for all providers
+- `StaticDataProvider`: Static data with indefinite caching
+- `TimeSeriesProvider`: Time-varying data with validation
+
+**Abstract Base Classes:**
+- `BaseDataProvider`: Common functionality (logging, metrics, validation)
+- `CachedDataProvider`: Template method with caching logic
+- `BaseStaticProvider`: Static data implementation
+- `BaseTimeSeriesProvider`: Time-series data implementation
+
+**Key Features:**
+- Structural typing without implementation coupling
+- Duck typing support for testing (DummyProviders conform to protocols)
+- Type safety without circular dependencies
+- Clear contracts for component interactions
+
+**Location**: `/ml/data/providers/base.py`
+
+#### 4.2 Provider Factory (`factory.py`, 527 lines)
+
+**Class**: `ProviderFactory`
+
+**Purpose**: Singleton factory for creating and managing data providers with dependency injection.
+
+**Key Features:**
+- **Singleton Pattern**: Same provider instance reused throughout application
+- **Progressive Fallback**: Real implementations → Mock providers when unavailable
+- **Open/Closed Principle**: Creator registry for extensibility
+
+**Initialization:**
+```python
+from ml.data.providers.factory import ProviderFactory
+
+factory = ProviderFactory(
+    metadata_source=metadata_source,  # Optional; uses MockMetadataSource if None
+    calendar_source=calendar_source,  # Optional; tries PandasCalendarSource → MockCalendarSource
+    event_source=event_source,        # Optional; tries FileEventSource → MockEventSource
+)
+```
+
+**Key Methods:**
+- `get_metadata_provider()`: Returns `InstrumentMetadataProvider`
+- `get_calendar_provider()`: Returns `MarketCalendarProvider`
+- `get_event_provider()`: Returns `EventScheduleProvider`
+- `register_provider_creator(name, creator)`: Register custom provider
+
+**Location**: `/ml/data/providers/factory.py`
+
+#### 4.3 Concrete Providers
+
+**InstrumentMetadataProvider** (`metadata.py`):
+- Static instrument information
+- Default metadata via `ml.data.sources.metadata.default_metadata(symbol)`
+
+**MarketCalendarProvider** (`calendar.py`):
+- Trading calendar features
+- Supports extended hours, holidays, early closes
+
+**EventScheduleProvider** (`events.py`, 516 lines):
+- Corporate actions and earnings sourced from `data/events/events.parquet`
+- Populated by `ml.preprocessing.event_ingestion.EventIngestionUtility`
+
+**Location**: `/ml/data/providers/{metadata,calendar,events}.py`
+
+---
+
+### 5. Data Sources (`sources/`)
+
+#### 5.1 Calendar Sources (`calendar.py`, 769 lines)
+
+**Implementations:**
+- `MockCalendarSource`: Testing with realistic market schedules
+- `SimpleCalendarSource`: Basic NYSE schedule with fixed hours
+- `PandasCalendarSource`: Production-ready with `pandas_market_calendars`
+
+**PandasCalendarSource Features:**
+- Exchange coverage: NYSE, NASDAQ, CME, CBOT, ICE, CBOE, LSE, EUREX, JPX, HKEX, ASX, 20+ major exchanges
+- Holiday integration with early close detection
+- Extended hours: Pre-market (4:00-9:30 AM), after-hours (4:00-8:00 PM)
+- 24/7 markets: Special handling for BINANCE, COINBASE
+- Intelligent schedule caching with configurable TTL
+
+**Location**: `/ml/data/sources/calendar.py`
+
+#### 5.2 Metadata Sources (`metadata.py`, 446 lines)
+
+**Implementations:**
+- `MockMetadataSource`: Testing
+- `DatabentoMetadataSource`: Databento metadata integration
+- `NautilusMetadataSource`: Nautilus-native metadata
+
+**Canonical Defaults:**
+- `default_metadata(symbol: str) -> dict[str, Any]` (line 50-100)
+- Used by Databento/Nautilus sources and provider empty-frame builders
+
+**Location**: `/ml/data/sources/metadata.py`
+
+#### 5.3 Event Sources (`events.py`, 916 lines)
+
+**Implementations:**
+- `MockEventSource`: Testing with simulated events
+- `FileEventSource`: Production file-backed source
+
+**Event Types:**
+- Earnings releases
+- Dividend announcements
+- Stock splits
+- Economic announcements (FOMC, CPI, NFP)
+
+**File Format:**
+- Single `events.parquet` archive in `data/events/`
+- Populated by `ml.preprocessing.event_ingestion.EventIngestionUtility`
+
+**Location**: `/ml/data/sources/events.py`
+
+---
+
+### 6. Feature Caching Infrastructure
+
+#### 6.1 L2 Minute Cache (`l2_cache.py`)
+
+**Class**: `L2MinuteCache`
 
 **Purpose**: Efficient caching of L2 order book per-minute aggregates.
 
-**Features**:
-
-- Day-partitioned storage (`data/features/l2_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`)
-- On-demand computation using `L2Aggregator`
+**Features:**
+- Day-partitioned storage: `data/features/l2_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`
+- On-demand computation using `L2Aggregator` if cache partitions missing
 - UTC timestamp handling with nanosecond precision
-- Automatic cache directory creation and management
+- Automatic cache directory creation
 
-#### Microstructure Cache (`micro_cache.py`)
+**Usage:**
+```python
+from ml.data import L2MinuteCache
+from datetime import datetime, timezone
+from pathlib import Path
+
+cache = L2MinuteCache(Path("data/features/l2_minute"))
+start = datetime(2025, 8, 11, tzinfo=timezone.utc)
+end = datetime(2025, 8, 18, tzinfo=timezone.utc)
+
+df = cache.get_range(
+    symbol="SPY",
+    start=start,
+    end=end,
+    raw_base_dir=Path("data/tier1"),
+)
+```
+
+**Semantics:**
+- Timestamp filter is half-open `[start, end)`
+- Results sorted and cast to `Datetime[ns, UTC]`
+- Missing partitions compute on demand and persist before returning
+
+**Location**: `/ml/data/l2_cache.py`
+
+#### 6.2 Microstructure Cache (`micro_cache.py`)
+
+**Class**: `MicroMinuteCache`
 
 **Purpose**: Caching of L1/L0-derived per-minute microstructure features.
 
-**Features**:
-
+**Features:**
 - Same partitioning scheme as L2 cache
 - Integration with `MicrostructureAggregator`
-- Efficient date range queries with [start, end) semantics
+- Efficient date range queries with `[start, end)` semantics
 - Memory-efficient concatenation of day partitions
 
-**Current Status**: ✅ Complete implementation with comprehensive caching
+**Usage:**
+```python
+from ml.data import MicroMinuteCache
+from datetime import datetime, timezone
+from pathlib import Path
 
-### 9. Build Pipeline Orchestration (`pipelines/build_runner.py`)
+cache = MicroMinuteCache(Path("data/features/micro_minute"))
+df = cache.get_range("SPY", start, end, raw_base_dir=Path("data/tier1"))
+```
 
-**Purpose**: Orchestrate parallel dataset building with progress tracking.
+**Location**: `/ml/data/micro_cache.py`
 
-**Key Features**:
+---
 
-- **Configuration**: JSON/TOML config support with comprehensive parameter validation
-- **Parallel Execution**: Configurable worker pool for symbol-level parallelism
-- **Progress Tracking**: JSONL progress logs with resumable execution
-- **Error Recovery**: Per-symbol error isolation with detailed logging
-- **Metrics Integration**: Prometheus metrics for build task monitoring
-- **Flexible Windows**: Date range, days-back, or open-ended collection
+### 7. Data Scheduler (`scheduler.py`, 1,542 lines)
 
-**Current Status**: ✅ Complete implementation with production orchestration
+**Purpose**: Production-ready automated data collection and processing with comprehensive monitoring and resilience.
 
-### 10. Feature Pipeline Infrastructure (`features/pipeline.py`)
+**Class**: `DataScheduler`
 
-**Purpose**: Declarative feature pipeline with transform catalog and capability gating.
+**Key Architecture:**
+- **Component-Based Facade** (default): Delegates to specialized components
+- **Legacy God Class** (`scheduler_legacy.py`): Available via `ML_USE_LEGACY_DATA_SCHEDULER=1`
 
-**Key Components**:
+**I/O Specifications:**
+- **Input**:
+  - `catalog`: ParquetDataCatalog for data storage
+  - `config`: SchedulerConfig with Databento settings and feature store configuration
+  - `collector`: DataCollector instance (optional, creates default if None)
+  - `feature_engineer`: FeatureEngineer for feature computation (optional)
+  - `metrics_port`: Port for Prometheus metrics server (default: 8000)
+  - `connection`: Database connection string for feature store (optional)
+- **Output**:
+  - Updated ParquetDataCatalog with new market data
+  - Computed features persisted to FeatureStore
+  - DataRegistry events with SHA256 correlation IDs
+  - Comprehensive Prometheus metrics
+  - Watermark updates for data freshness
 
-- **Transform Protocols**: Extensible feature transform interface with data requirements
-- **Pipeline Specification**: Configuration-driven feature computation
-- **Signature Hashing**: Deterministic pipeline versioning
-- **Capability Gating**: Data requirement validation (L1_ONLY, L1_L2, L1_L2_L3)
+**Key Features:**
 
-**Built-in Transforms**:
+1. **DataRegistry Integration:**
+   - Emits CATALOG_WRITTEN events for data lineage with SHA256 correlation IDs
+   - Updates watermarks for dataset freshness and completeness tracking
+   - Progressive fallback: PostgreSQL backend → JSON backend for development
+   - Cross-domain event correlation for end-to-end pipeline tracing
 
-- Returns, momentum, volatility transforms
-- Volume ratio and core technical indicators
-- Static covariates and calendar features
+2. **Comprehensive Metrics** (15+ Prometheus metrics):
+   - `data_collection_latency`: Collection time by instrument and data type
+   - `pipeline_stage_latency`: Stage execution times with percentile tracking
+   - `catalog_write_operations_total`: Catalog write success/failure counters
+   - `feature_store_operations_total`: Feature store operations with operation type labels
+   - `data_staleness_seconds`: Data freshness tracking per instrument
+   - `api_rate_limit_hits`: API rate limit monitoring with endpoint labels
+   - `active_collection_tasks`: Real-time task monitoring
+   - `data_retention_cleanup_total`: Cleanup operation tracking
+   - `features_computed_total`: Feature computation counters by instrument and type
 
-**Current Status**: ✅ Complete implementation with extensible transform system
+**Usage Example:**
+```python
+from ml.data.scheduler import DataScheduler
+from ml.config.scheduler_config import SchedulerConfig
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-## Status Summary
+config = SchedulerConfig(
+    symbols=["SPY.ARCA", "QQQ.NASDAQ"],
+    retention_days=90,
+)
+catalog = ParquetDataCatalog("./data")
+scheduler = DataScheduler(catalog=catalog, config=config)
 
-### Recently Completed 🎯
+# Run once (manual trigger)
+scheduler.run_once()
 
-- **Feature Caching Infrastructure**: L2MinuteCache and MicroMinuteCache for efficient training dataset building
-- **Build Pipeline Orchestration**: build_runner.py with parallel execution, progress tracking, and resumable builds
-- **Advanced TFT Integration**: Comprehensive feature integration (macro, micro, L2, events) with intelligent source selection
-- **FRED Economic Data**: Complete integration with caching, rate limiting, and DataStore persistence
-- **Enhanced Calendar Sources**: Production-ready PandasCalendarSource with global exchange support
-- **DataRegistry Event Correlation**: SHA256-based correlation IDs for end-to-end pipeline tracing
-- **Comprehensive Metrics**: 15+ Prometheus metrics with operational dashboards and alerting
-- **Production Resilience**: Progressive fallback chains and graceful degradation across all components
+# Or run daily update
+scheduler.run_daily_update()
+```
 
-### Integration Points
+**Location**: `/ml/data/scheduler.py`
 
-- **Nautilus Core**: Uses ParquetDataCatalog for data storage, native Nautilus types
-- **ML Stores**: Integrates with FeatureStore, DataStore, ModelStore for persistence
-- **Registry System**: Full DataRegistry integration with event emission and tracking
-- **Observability**: Comprehensive metrics, logging, and event correlation
-- **Configuration**: msgspec-based configs with validation and freezing
+---
+
+### 8. Fixtures and Testing (`fixtures/`)
+
+**Purpose**: Deterministic, lightweight test data generation utilities.
+
+**Key Functions:**
+- `make_mbp10_fixture(instrument_id: str, rows: int)`: MBP-10 test data
+- `make_tbbo_fixture(instrument_id: str, rows: int)`: TBBO test data
+- `make_trades_fixture(instrument_id: str, rows: int)`: Trade test data
+
+**Returns**: `(DataFrame, FixtureManifest)` where `FixtureManifest` records `schema_hash` and `content_sha256` for reproducibility.
+
+**Usage:**
+```python
+from ml.data.fixtures import make_tbbo_fixture
+
+df, manifest = make_tbbo_fixture(instrument_id="EURUSD.SIM", rows=60)
+assert len(df) == 60
+assert manifest.schema_hash is not None
+```
+
+**Test Coverage:**
+- Contracts: `ml/tests/contracts/test_databento_fixtures_contracts.py`
+- Property: `ml/tests/property/test_ingestion_watermark_properties.py`
+- Performance: `ml/tests/performance/test_ingestion_microbench.py`
+
+**Location**: `/ml/data/fixtures/`
+
+---
+
+### 9. Utilities and Helpers
+
+#### 9.1 Catalog Utilities (`catalog_utils.py`)
+
+**Functions:**
+- `bars_to_dataframe(catalog, instrument_ids, start, end)`: Convert Nautilus bars to Polars DataFrame
+- `quotes_to_dataframe(catalog, instrument_ids, start, end)`: Convert quotes to DataFrame
+- `trades_to_dataframe(catalog, instrument_ids, start, end)`: Convert trades to DataFrame
+- `resolve_instrument_id(symbol: str)`: Multi-venue symbol resolution (ARCA, NASDAQ, NYSE, etc.)
+
+**Features:**
+- Native Nautilus type handling with automatic conversion
+- Memory-efficient data loading with chunking support
+- Multi-venue instrument ID resolution
+- Comprehensive error handling with per-instrument failure isolation
+
+**Location**: `/ml/data/catalog_utils.py`
+
+#### 9.2 FRED Join (`fred_join.py`, 616 lines)
+
+**Function**: `join_fred_asof(dataset_df, timestamp_col, lag_days, fred_path)`
+
+**Purpose**: Perform as-of join against ML-format FRED parquet with configurable publication lag.
+
+**Features:**
+- Publication lag handling via `lag_days` parameter
+- Supports both Polars and Pandas DataFrames
+- Joins columns: `timestamp`, `series_id`, `value`
+
+**Location**: `/ml/data/fred_join.py`
+
+#### 9.3 Vintage Policy (`vintage.py`)
+
+**Enum**: `VintagePolicy`
+- `REAL_TIME`: Use vintage data as-of cutoff
+- `FINAL`: Use latest revised values
+
+**Utilities:**
+- `format_dt(dt: datetime | None) -> str | None`: ISO8601 formatting
+- `parse_dt(value: str | None) -> datetime | None`: Parse ISO8601 strings
+
+**Location**: `/ml/data/vintage.py`
+
+#### 9.4 Dataset Validation (`validation.py`)
+
+**Function**: `validate_dataset(df: PolarsDF, config: DatasetValidationConfig)`
+
+**Checks:**
+- Minimum row count
+- Target positive rate bounds
+- Feature coverage thresholds
+- Required macro series presence
+- Macro vintage observation counts
+
+**Returns**: `DatasetValidationResult` with statistics
+
+**Location**: `/ml/data/validation.py`
+
+---
+
+## Integration Points
+
+### Nautilus Core
+- Uses `ParquetDataCatalog` for data storage
+- Native Nautilus types (`InstrumentId`, `Bar`, `QuoteTick`, `TradeTick`)
+- Never modifies Nautilus core (`core/`, `model/`, `system/`)
+
+### ML Stores
+- `FeatureStore`: Training/inference parity via pre-computed features
+- `DataStore`: Unified persistence facade with contract validation and event emission
+- `ModelStore`: Predictions and model performance metrics
+- `StrategyStore`: Strategy state and trading decisions
+
+### Registry System
+- `DataRegistry`: Event emission and lineage tracking with SHA256 correlation IDs
+- `FeatureRegistry`: Feature schema validation and lifecycle management
+- `ModelRegistry`: Model deployment tracking and A/B testing
+- `StrategyRegistry`: Strategy compatibility and requirement validation
+
+### Observability
+- Comprehensive metrics via `ml.common.metrics_bootstrap`
+- Structured logging via `structlog`
+- Event correlation for end-to-end pipeline tracing
+
+### Configuration
+- `msgspec`-based configs with validation and freezing
+- DatabentoSafetyConfig for policy enforcement
+
+---
+
+## Testing Strategy
+
+### Property Tests
+- Invariants: ordering, bounds, idempotency
+- Use `hypothesis` with strategies capturing edge cases
+
+### Contract/Schema Tests
+- Pandera schemas for stores/events
+- Fixture manifest schema validation
+
+### Metamorphic Tests
+- Feature/model relationships
+- Cross-validation parity
+
+### Pairwise Tests
+- Config spaces
+
+### E2E Tests
+- `ml/tests/e2e/test_tft_dataset_builder_e2e.py`: Dataset builder validation
+- `ml/tests/e2e/test_pipeline_orchestrator_e2e.py`: Orchestrator integration
+
+### Integration Tests
+- `ml/tests/integration/cli/`: CLI integration
+- `ml/tests/integration/consumers/`: Consumer integration
+- `ml/tests/integration/dashboard/`: Dashboard integration
+
+### Performance Tests
+- `ml/tests/performance/test_ingestion_microbench.py`: Ingestion benchmarks
+- `ml/tests/performance/test_streaming_persistence_microbench.py`: Streaming persistence
+
+---
+
+## Known Gaps and Incomplete Work
+
+### Incomplete Implementations
+
+1. **Earnings Subsystem** (`earnings/`):
+   - `earnings_cache.py` (494 lines): Earnings cache implementation
+   - `yahoo_fetcher.py` (329 lines): Yahoo Finance earnings fetcher
+   - `edgar_fetcher.py` (390 lines): SEC EDGAR fetcher
+   - `xbrl_parser.py`: XBRL parser (incomplete)
+   - **Status**: Partial implementation; not fully integrated into TFT builder
+
+2. **Collection Coordinator** (`collection_coordinator.py`, 817 lines):
+   - Multi-tier collection orchestration
+   - **Status**: Implementation present but not actively used
+
+3. **Data Retention Manager** (`data_retention_manager.py`):
+   - Automatic data cleanup based on retention policies
+   - **Status**: Implementation present but not integrated into scheduler
+
+4. **Initialization Manager** (`initialization_manager.py`):
+   - Startup initialization utilities
+   - **Status**: Minimal implementation
+
+### TODOs and FIXMEs
+
+Search for `TODO`, `FIXME`, `XXX` in codebase for inline markers.
+
+### Deprecated Components
+
+- `scheduler_legacy.py` (1,551 lines): Legacy god class implementation
+- `tft_dataset_builder_legacy.py` (2,208 lines): Legacy TFT builder
+- Available via feature flags for backward compatibility
+
+---
+
+## Universal ML Architecture Pattern Compliance
+
+### Pattern 1: Mandatory 4-Store + 4-Registry Integration
+
+**Status**: ✅ APPROPRIATELY EXEMPT
+
+**Rationale**: Data layer components are cold path utilities serving ML actors, not ML actors themselves.
+
+**Partial Integration**:
+- `TFTDatasetBuilder`: Optional FeatureStore integration for training/inference parity
+- `FREDDataLoader`: Optional DataStore integration for persistence
+- `DataScheduler`: Optional DataRegistry integration for event emission
+
+**Proper Scope**: Components focus on data collection, processing, and preparation for ML actors.
+
+### Pattern 2: Protocol-First Interface Design
+
+**Status**: ✅ COMPLIANT
+
+**Implementation**:
+- `DataProvider`, `StaticDataProvider`, `TimeSeriesProvider` protocols (`providers/base.py`)
+- Runtime-checkable protocols for structural typing
+- Duck typing support for testing (DummyStore conforms to protocols)
+- Clear contracts for component interactions
+
+**Benefits**:
+- Enables structural typing without implementation coupling
+- Supports progressive fallback chains (real → mock)
+- Type safety without circular dependencies
+
+### Pattern 3: Hot/Cold Path Separation
+
+**Status**: ✅ FULLY COMPLIANT
+
+**Design Intent**: Data collection, processing, and caching are inherently cold path.
+
+**Appropriate Operations**:
+- DataFrame creation and manipulation (Polars/Pandas)
+- File I/O (Parquet read/write)
+- Network calls (Databento API, FRED API)
+- Heavy computation (feature aggregation, dataset building)
+
+**Documentation**: Module docstring explicitly states cold path focus.
+
+### Pattern 4: Progressive Fallback Chains
+
+**Status**: ✅ APPROPRIATELY IMPLEMENTED
+
+**Fallback Order**:
+- **DataRegistry**: PostgreSQL → JSON backend (development)
+- **Calendar Source**: PandasCalendarSource → MockCalendarSource
+- **Event Source**: FileEventSource → MockEventSource
+- **Metadata Source**: Real implementations → MockMetadataSource
+- **Optional Dependencies**: Graceful handling with clear error messages
+
+**Scope-Appropriate**: Circuit breakers not required for cold path data utilities.
+
+### Pattern 5: Centralized Metrics Bootstrap
+
+**Status**: ✅ MOSTLY COMPLIANT
+
+**Primary Components**: Use `ml.common.metrics_bootstrap` consistently.
+- `DataScheduler`: Uses `get_counter`, `get_histogram`
+- `FREDDataLoader`: Uses `get_counter`, `get_histogram`
+- `ALFREDDataLoader`: Uses `get_counter`, `get_histogram`
+- `DatabentoIngestionService`: Uses centralized metrics
+
+**No Direct Imports**: No direct `prometheus_client` usage found.
+
+**Pattern Adherence**: Strong compliance with centralized metrics approach.
+
+---
+
+## Operational Runbook
+
+### L0 Minute Bar Backfill
+
+```bash
+# Backfill recent 14 days for tier 1 symbols
+python -m ml.scripts.backfill_ohlcv_recent --tier 1 --days 14
+```
+
+**Output**: `data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet`
+
+### L2 Gap Fill (Resume-Safe Shards)
+
+```bash
+# Set environment caps to avoid OOM kills
+export POLARS_MAX_THREADS=1
+export PYARROW_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
+# Backfill in shards of 5 symbols
+for off in 0 5 10 15 20; do
+  python ml/scripts/populate_l2_efficient.py \
+    --tier 1 \
+    --days 14 \
+    --check-gaps \
+    --max-symbols 5 \
+    --symbol-offset $off \
+    --rate-limit 10 \
+    --sleep-between-symbols 1
+done
+```
+
+**Output**: `data/tier1/<SYMBOL>/l2/<SYMBOL>_mbp-10.parquet`
+
+**Resume**: Progress tracked in `data/tier1/.l2_progress.json` (per-day completion)
+
+### FRED Macro Refresh (90 days)
+
+```bash
+# Set FRED API key
+export FRED_API_KEY=your_api_key_here
+
+# Refresh FRED indicators
+python -m ml.cli.fred_export_ml_parquet \
+  --out data/fred/fred_indicators_ml_format.parquet
+```
+
+**Output**:
+- Wide format: `data/fred/fred_indicators_updated.parquet`
+- ML format: `data/fred/fred_indicators_ml_format.parquet`
+
+### ALFRED Vintage Refresh
+
+```python
+from ml.data.loaders.alfred_loader import ALFREDDataLoader, ALFREDConfig
+from pathlib import Path
+
+config = ALFREDConfig(
+    series_ids=("GDP", "CPIAUCSL", "UNRATE"),
+    out_dir=Path("data/fred/vintages"),
+    start_date="2020-01-01",
+    end_date="2025-01-01",
+)
+loader = ALFREDDataLoader(config)
+stats = loader.refresh()
+```
+
+**Output**: `data/fred/vintages/<series>/release_calendar.parquet`
+
+### Dataset Build (60-day)
+
+```bash
+python -m ml.pipelines.build_runner \
+  --config ml/config/build_universe_60d.json
+```
+
+**Output**:
+- Per-symbol: `/tmp/tft_universe_60d/<SYMBOL>/dataset.(parquet|csv)`
+- Feature sets registered in `~/.nautilus/ml/features`
+
+### Dataset Build (90-day)
+
+```bash
+python -m ml.pipelines.build_runner \
+  --config ml/config/build_universe_90d.json
+```
+
+**Output**: `/tmp/tft_universe_90d/merged/dataset.(parquet|csv)`
+
+### Orchestrator Auto-Fill
+
+```bash
+# Pre-build coverage sweep
+python -m ml.cli.pipeline_orchestrator \
+  --auto_fill_universe \
+  --symbols SPY.NYSE,QQQ.NASDAQ \
+  --include_l2
+```
+
+**Features**:
+- Backfills bars/TBBO/trades using `IngestionOrchestrator.backfill_gaps`
+- Coverage policy targets: 7y L0, 1y L1, 30d L2/3
+- Depth ingestion reuses `populate_l2_efficient`
+- Override L2 window: `--auto_fill_l2_days 60`
+
+---
+
+## Quick Commands
+
+### Type Checking
+```bash
+poetry run mypy ml/data --strict
+```
+
+### Linting
+```bash
+poetry ruff check ml/data
+```
+
+### Testing
+```bash
+# All ML data tests
+make pytest-ml
+
+# Specific subsystem
+poetry run pytest ml/tests/unit/data -k ingestion
+
+# E2E tests
+pytest -q ml/tests/e2e/test_tft_dataset_builder_e2e.py
+pytest -q ml/tests/e2e/test_pipeline_orchestrator_e2e.py
+
+# Performance tests
+pytest -q ml/tests/performance/test_ingestion_microbench.py --benchmark-only
+```
+
+### Validators
+```bash
+make validate-metrics                   # Validate Prometheus metrics
+make validate-events                    # Validate event definitions
+make validate-nautilus-patterns         # Extended validation
+```
+
+---
 
 ## API Reference
 
-### Core Functions
+### High-Level Dataset Building
 
 ```python
-# Data loading utilities (seamless Nautilus integration)
-from ml.data import bars_to_dataframe, quotes_to_dataframe, trades_to_dataframe
+# Public dataset build facade
+from ml.data import build_tft_dataset, DatasetBuildConfig
+from pathlib import Path
 
-# Load bars data with native Nautilus types
+cfg = DatasetBuildConfig(
+    data_dir=Path("data/tier1"),
+    out_dir=Path("./tft_datasets/60d"),
+    symbols=["SPY", "QQQ", "AAPL"],
+    dataset_id="tft_60d",
+    include_macro=True,
+    macro_lag_days=1,
+    include_micro=True,
+    include_l2=True,
+    include_events=True,
+    horizon_minutes=15,
+    lookback_periods=60,
+    register_features=True,
+    feature_registry_dir=Path("~/.nautilus/ml/features"),
+)
+
+result = build_tft_dataset(cfg, data_store=data_store)
+# result.dataset_parquet: Path
+# result.dataset_csv: Path
+# result.features_npz: Path
+# result.feature_names: list[str]
+# result.feature_set_id: str | None
+# result.metadata: DatasetMetadata
+```
+
+### Data Loading and Conversion
+
+```python
+from ml.data import bars_to_dataframe
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
+from datetime import datetime
+
+catalog = ParquetDataCatalog("./data")
 bars_df = bars_to_dataframe(
     catalog=catalog,
     instrument_ids=["SPY.NYSE", "AAPL.NASDAQ"],
     start=datetime(2024, 1, 1),
-    end=datetime(2024, 12, 31)
+    end=datetime(2024, 12, 31),
 )
+```
 
-# Advanced dataset building with comprehensive feature integration
-from ml.data.tft_dataset_builder import TFTDatasetBuilder
-from ml.stores.feature_store import FeatureStore
+### Dataset Builder Direct Usage
 
-feature_store = FeatureStore(connection_string="postgresql://...")
+```python
+from ml.data import TFTDatasetBuilder
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
+
+catalog = ParquetDataCatalog("./data")
 builder = TFTDatasetBuilder(
     catalog=catalog,
     symbols=["SPY", "AAPL"],
-    feature_store=feature_store,  # Enables training/inference parity
-    # When MLIntegrationManager is available:
-    # data_store=manager.data_store,
-    # market_dataset_id="EQUS.MINI",
-    include_macro=True,  # FRED economic indicators
-    include_micro=True,  # Microstructure features
-    include_l2=True,     # L2 order book features
-    include_events=True, # Event-based features
+    include_macro=True,
+    include_micro=True,
+    include_l2=True,
+    include_events=True,
+    student_mode=False,
 )
 
-# Intelligent source selection with comprehensive feature set
-dataset = builder.prepare_training_data(
-    start=datetime(2024, 1, 1),
+dataset = builder.build_training_dataset(
     horizon_minutes=15,
-    use_polars=True
-)
-
-# Student-mode build (L1-only real-time parity)
-student_builder = TFTDatasetBuilder(
-    catalog=catalog,
-    symbols=["SPY"],
-    student_mode=True,
+    lookback_periods=30,
+    use_polars=True,
 )
 ```
 
 ### Data Collection and Scheduling
 
 ```python
-# Automated data collection with monitoring
-from ml.data.collector import DataCollector
-from ml.data.scheduler import DataScheduler
+from ml.data import DataCollector, DataScheduler
+from ml.config.scheduler_config import SchedulerConfig
 
 collector = DataCollector(
     storage_limit_gb=1000,
-    data_dir="data/tier1"
+    data_dir="data/tier1",
 )
 
 scheduler = DataScheduler(
     catalog=catalog,
     collector=collector,
-    metrics_port=8000
+    metrics_port=8000,
 )
 
-# Run collection with comprehensive observability
-scheduler.run_once()
+scheduler.run_once()  # Manual trigger
+scheduler.run_daily_update()  # Daily automation
 ```
 
-### FRED Economic Data Integration
+### FRED Economic Data
 
 ```python
-# FRED economic data integration with comprehensive caching
-from ml.data.loaders.fred_loader import FREDConfig, FREDDataLoader
+from ml.data import FREDDataLoader, FREDConfig
+from pathlib import Path
 
-fred_config = FREDConfig(
+config = FREDConfig(
     cache_ttl_hours=24,
     backfill_years=10,
-    rate_limit_calls=120  # Compliant with FRED API limits
+    rate_limit_calls=120,
 )
-fred_loader = FREDDataLoader(fred_config)
+loader = FREDDataLoader(config)
 
-# Store with DataRegistry integration and correlation tracking
-fred_loader.store_indicators(data_store, data_registry)
+# Store with DataRegistry integration
+loader.store_indicators(data_store, data_registry)
 
-# Real-time updates
-fred_loader.update_realtime(data_store, data_registry)
+# Export ML-format parquet
+loader.export_ml_parquet(Path("data/fred/fred_indicators_ml_format.parquet"))
 
-# FRED data joining with configurable publication lag
+# Join with dataset
 from ml.data.fred_join import join_fred_asof
-
-# Join macro features with proper as-of semantics
 dataset_with_macro = join_fred_asof(
     dataset,
     timestamp_col="timestamp",
-    lag_days=1,  # Publication lag
-    fred_path="data/fred/fred_indicators_ml_format.parquet"
+    lag_days=1,
+    fred_path="data/fred/fred_indicators_ml_format.parquet",
 )
 ```
 
-## Advanced Features and Caching
-
-### L2 and Microstructure Feature Caching
+### L2 and Microstructure Caching
 
 ```python
-# L2 per-minute feature caching for efficient dataset building
-from ml.data.l2_cache import L2MinuteCache
+from ml.data import L2MinuteCache, MicroMinuteCache
 from datetime import datetime, timezone
+from pathlib import Path
 
-l2_cache = L2MinuteCache(cache_dir=Path("data/features/l2_minute"))
+# L2 cache
+l2_cache = L2MinuteCache(Path("data/features/l2_minute"))
 start = datetime(2025, 8, 11, tzinfo=timezone.utc)
 end = datetime(2025, 8, 18, tzinfo=timezone.utc)
 
-# Cached L2 features with on-demand computation
 l2_features = l2_cache.get_range(
     symbol="SPY",
     start=start,
     end=end,
-    raw_base_dir=Path("data/tier1")
+    raw_base_dir=Path("data/tier1"),
 )
 
-# Microstructure feature caching
-from ml.data.micro_cache import MicroMinuteCache
-
-micro_cache = MicroMinuteCache(cache_dir=Path("data/features/micro_minute"))
-micro_features = micro_cache.get_range("SPY", start, end, raw_base_dir)
+# Microstructure cache
+micro_cache = MicroMinuteCache(Path("data/features/micro_minute"))
+micro_features = micro_cache.get_range("SPY", start, end, Path("data/tier1"))
 ```
 
-### Build Pipeline Orchestration
+### Ingestion Service
 
 ```python
-# Parallel dataset building with build_runner
-from ml.pipelines.build_runner import BuildConfig, execute
-from pathlib import Path
+from ml.data.ingest.service import DatabentoIngestionService, IngestionRequest
+from datetime import datetime, UTC
 
-# Configuration for large-scale dataset building
-config = BuildConfig(
-    data_dir=Path("data/tier1"),
-    out_dir=Path("./tft_datasets"),
-    symbols=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"],  # Can handle 100+ symbols
-    workers=4,  # Parallel processing
-    include_macro=True,
-    include_micro=True,
-    include_l2=True,
-    horizon_minutes=15,
-    lookback_periods=60,
-    register_features=True
+service = DatabentoIngestionService.from_env()
+request = IngestionRequest(
+    dataset="EQUS.MINI",
+    schema="trades",
+    symbols=("SPY",),
+    start=datetime(2025, 8, 1, tzinfo=UTC),
+    end=datetime(2025, 8, 2, tzinfo=UTC),
 )
 
-# Execute with progress tracking and metrics
-results = execute(config)
-print(f"Success: {results['succeeded']}, Failed: {results['failed']}")
-```
-
-The CLI orchestrator (`ml.cli.pipeline_orchestrator`) mirrors this flow. When
-`--include_l2` is enabled it now triggers the efficient L2 ingestion helpers
-before dataset construction, and when `--register_features` is supplied the
-orchestrator exports a feature manifest to the configured registry path. If
-`--include_macro` is requested the orchestrator (and dataset CLI) now run a
-smart macro refresh that verifies the FRED parquet and optional ALFRED vintage
-calendars are no older than `--macro_freshness_hours`, refreshing them unless
-`--skip_macro_refresh` is passed. All builds run the dataset validator with
-configurable thresholds (row count, target balance, feature coverage, and
-required macro series) so production runs fail fast when the data is incomplete.
-
-### Feature Manifest Export
-
-```python
-# Export feature manifests for registry integration
-from ml.data.feature_manifest_export import export_feature_manifest, FeatureExportConfig
-from ml.registry.base import DataRequirements
-from ml.registry.feature_registry import FeatureRole
-
-config = FeatureExportConfig(
-    registry_path=Path("~/.nautilus/ml/features"),
-    role=FeatureRole.TEACHER,
-    data_requirements=DataRequirements.L1_ONLY,
-    version="2.0.0"
-)
-
-# Register computed features with hash-based versioning
-feature_set_id = export_feature_manifest(
-    feature_names=feature_columns,
-    feature_dtypes=["float32"] * len(feature_columns),
-    flags={"include_macro": True, "lookback_periods": 60},
-    cfg=config
-)
+for chunk in service.ingest(request):
+    print(f"Symbol: {chunk.symbol}, Rows: {len(chunk.frame)}")
+    # Persist chunk.frame to storage
 ```
 
 ---
 
-## Universal ML Architecture Pattern Compliance Analysis
+## File Reference (Alphabetical)
 
-**Analysis Date**: 2025-09-16
-**Scope**: Comprehensive validation of Universal ML Architecture Pattern adherence
+**Root Level:**
+- `__init__.py` (1,944 lines): Public API with lazy imports
+- `cache_common.py`: Shared caching utilities
+- `catalog_utils.py`: Nautilus catalog conversion
+- `collection_coordinator.py` (817 lines): Multi-tier collection
+- `collector.py` (828 lines): DataCollector
+- `data_retention_manager.py`: Retention policies
+- `dataset_manifest_defaults.py` (451 lines): Metadata helpers
+- `feature_computation_manager.py` (348 lines): Feature coordination
+- `feature_manifest_export.py`: Feature registry export
+- `fred_join.py` (616 lines): FRED as-of join
+- `initialization_manager.py`: Startup utilities
+- `l2_cache.py`: L2 per-minute cache
+- `macro_revisions.py` (369 lines): Revision analysis
+- `micro_cache.py`: Microstructure cache
+- `registry_integrator.py`: Registry integration
+- `scheduler.py` (1,542 lines): DataScheduler facade
+- `scheduler_legacy.py` (1,551 lines): Legacy god class
+- `tft_dataset_builder.py` (2,729 lines): TFT builder
+- `tft_dataset_builder_legacy.py` (2,208 lines): Legacy TFT
+- `trading_day_calculator.py`: Trading day utilities
+- `validation.py`: Dataset validation
+- `vintage.py`: Vintage policy utilities
 
-### Pattern Compliance Assessment
-
-**Pattern 1: Mandatory 4-Store + 4-Registry Integration**
-
-✅ **APPROPRIATELY EXEMPT**: Data layer components are cold path utilities, not ML actors
-
-- **Rationale**: ml/data provides foundational data utilities that serve ML actors, not actors themselves
-- **Partial Integration**: FeatureStore integration in TFTDatasetBuilder, DataStore in FRED loader
-- **Proper Scope**: Components focus on data collection, processing, and preparation for ML actors
-
-**Pattern 2: Protocol-First Interface Design**
-
-✅ **COMPLIANT**: Strong protocol-based architecture in providers
-
-- **Implementation**: `DataProvider`, `StaticDataProvider`, `TimeSeriesProvider` protocols
-- **Location**: `/ml/data/providers/base.py` with runtime-checkable protocols
-- **Benefits**: Enables structural typing and duck typing for testing
-- **Enhancement Opportunity**: Could expand protocol usage to additional components
-
-**Pattern 3: Hot/Cold Path Separation**
-
-✅ **FULLY COMPLIANT**: Exclusively cold path operations
-
-- **Design Intent**: Data collection, processing, and caching are inherently cold path
-- **No Hot Path Constraints**: Appropriate use of DataFrames, file I/O, heavy computation
-- **Clear Documentation**: Module docstring explicitly states cold path focus
-- **Performance Appropriate**: Uses efficient processing (Polars) without hot path constraints
-
-**Pattern 4: Progressive Fallback Chains**
-
-✅ **APPROPRIATELY IMPLEMENTED**: Graceful degradation where applicable
-
-- **DataRegistry Fallback**: PostgreSQL → JSON backend fallback implemented
-- **Dependency Handling**: Optional dependency checks with clear error messages
-- **Scope-Appropriate**: Circuit breakers not required for cold path data utilities
-- **Progressive Degradation**: Components handle missing dependencies gracefully
-
-**Pattern 5: Centralized Metrics Bootstrap**
-
-✅ **MOSTLY COMPLIANT**: Consistent use of metrics_bootstrap
-
-- **Primary Components**: DataScheduler and FRED loader use `ml.common.metrics_bootstrap`
-- **No Direct Imports**: No direct prometheus_client usage found
-- ⚠️ **Minor Inconsistency**: build_runner.py uses MetricsManager instead of metrics_bootstrap
-- **Overall Pattern**: Strong adherence to centralized metrics approach
-
-### Implementation Quality Assessment
-
-#### Core Strengths
-
-**Data Collection & Processing**
-
-- ✅ **DataCollector**: Configurable storage management with Databento integration
-- ✅ **TFTDatasetBuilder**: Dual-source architecture (FeatureStore + direct computation)
-- ✅ **FRED Integration**: Complete economic data loader with caching and rate limiting
-- ✅ **Feature Caching**: Efficient L2 and microstructure per-minute caches
-
-**Architecture & Design**
-
-- ✅ **Protocol-First Design**: Well-implemented provider architecture
-- ✅ **Public API**: Clean `__init__.py` with proper exports and lazy imports
-- ✅ **Separation of Concerns**: Clear distinction between sources, providers, and builders
-- ✅ **Nautilus Integration**: Effective use of ParquetDataCatalog and native types
-
-**Observability & Operations**
-
-- ✅ **Metrics Integration**: Proper use of metrics_bootstrap in key components
-- ✅ **Structured Logging**: Appropriate logging with context information
-- ✅ **Error Handling**: Per-symbol error isolation with detailed logging
-- ✅ **Progress Tracking**: JSONL progress logs with resumable execution
-
-#### Areas for Enhancement
-
-**Consistency Improvements**
-
-- ⚠️ **Metrics Standardization**: Ensure all components use metrics_bootstrap uniformly
-- ⚠️ **Protocol Expansion**: Could extend Protocol usage to additional components
-
-**Documentation Clarity**
-
-- ⚠️ **Pattern Exemption**: Better document why data utilities are exempt from ML actor patterns
-- ⚠️ **Scope Emphasis**: More clearly emphasize cold path nature and appropriate scope
-
-### Architectural Assessment
-
-**Design Excellence:**
-
-- Clean separation between data utilities and ML actors
-- Appropriate cold path patterns with efficient processing
-- Well-designed provider architecture with Protocol-based interfaces
-- Effective integration with Nautilus native components
-
-**Production Readiness:**
-
-- Functional data collection and processing capabilities
-- Proper error handling and observability integration
-- Progressive fallback strategies where applicable
-- Comprehensive feature integration (macro, micro, L2, events)
-
-**Universal Pattern Alignment:**
-
-- Appropriate exemptions for data utilities vs ML actors
-- Strong compliance with applicable patterns
-- Good architectural foundations for ML workflow support
-
-### Final Assessment
-
-**Pattern Compliance**: 90/100 (appropriate exemptions with strong compliance where applicable)
-**Implementation Quality**: 85/100 (solid functionality with good architectural patterns)
-**Documentation Accuracy**: 85/100 (accurate representation of capabilities and scope)
-**Scope Appropriateness**: 95/100 (well-designed for cold path data pipeline role)
-
-The ml/data module provides a solid, well-architected foundation for ML data workflows. It appropriately follows Universal ML Architecture Patterns where applicable while correctly operating as cold path utilities that serve ML actors rather than being ML actors themselves.
+**Subdirectories:**
+- `ingest/`: Data ingestion (12 files, ~6,000 lines)
+- `loaders/`: Data loaders (7 files, ~2,500 lines)
+- `providers/`: Provider architecture (6 files, ~2,500 lines)
+- `sources/`: Data sources (3 files, ~2,100 lines)
+- `earnings/`: Earnings subsystem (4 files, ~1,500 lines)
+- `fixtures/`: Test fixtures (3 files)
 
 ---
 
-**Document Version**: 4.0
-**Last Updated**: 2025-09-16
+## Document Metadata
+
+**Document Version**: 5.0
+**Last Updated**: 2025-10-19
 **Maintainer**: ML Data Pipeline Team
-**Status**: Implementation Complete - Cold Path Data Utilities
-**Changes**: Comprehensive accuracy review and Universal ML Architecture Pattern compliance analysis. Corrected documentation to accurately reflect current implementation state, clarified appropriate pattern exemptions for data utilities, and aligned with cold path design patterns.
+**Status**: Production - Cold Path Data Utilities
 
-### Canonical Ingestion Path and Dual-Write Guidance
+**Changes from v4.0**:
+- Comprehensive accuracy review of all 60+ files
+- Detailed ingestion subsystem documentation (service, orchestrator, resume, subscription, discovery)
+- Complete TFT builder architecture with market bindings and vintage policies
+- Expanded loader documentation (FRED, ALFRED, OHLCV recent, Fama-French, alternative)
+- Provider/source architecture clarification
+- Added operational runbook and quick commands
+- Cited specific file paths and line numbers throughout
+- Documented known gaps and incomplete work
+- Updated file reference with line counts
 
-- Prefer a single canonical ingestion writer for raw datasets per run: either SQL via `SqlMarketDataWriter` (canonical `market_data`)
-  or Parquet via `ParquetCatalogRawWriter` (for cold-path training convenience), orchestrated by DataStore for validation + eventing.
-- Avoid configuring multiple raw writers to the same dataset concurrently to prevent duplicated artifacts.
-- When DataStore is configured with a raw writer, it emits events and updates watermarks only after successful writes.
+**Scope**: This document covers actual implementation in `ml/data/` as of October 2025, focusing on what exists rather than what is planned.

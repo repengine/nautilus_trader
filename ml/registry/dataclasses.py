@@ -128,7 +128,7 @@ class QualityFlag(Enum):
 
     """
 
-    PASS = "pass"
+    PASS = "pass"  # nosec B105: symbolic validation status, not a credential
     WARN = "warn"
     FAIL = "fail"
     SKIP = "skip"

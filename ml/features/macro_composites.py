@@ -19,9 +19,6 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pl
 
 
-if pl is None:
-    check_ml_dependencies(["polars"])  # pragma: no cover
-
 if TYPE_CHECKING:
     import polars as _pl
 
@@ -85,48 +82,50 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
     - fx_stress: Volatility across major pairs
 
     """
-    if pl is None:
+    local_pl = pl
+    if local_pl is None:
         check_ml_dependencies(["polars"])  # pragma: no cover
-    _pl = pl
-    assert _pl is not None
+        local_pl = pl
+    if local_pl is None:
+        raise RuntimeError("polars dependency is required to build macro composites")
 
     composites = df.clone()
 
     # ===== Credit/Risk Spreads =====
     if "BAMLC0A0CM" in df.columns:
         composites = composites.with_columns(
-            _pl.col("BAMLC0A0CM").alias("credit_spread_ig"),
+            local_pl.col("BAMLC0A0CM").alias("credit_spread_ig"),
         )
 
     if "BAMLH0A0HYM2" in df.columns:
         composites = composites.with_columns(
-            _pl.col("BAMLH0A0HYM2").alias("credit_spread_hy"),
+            local_pl.col("BAMLH0A0HYM2").alias("credit_spread_hy"),
         )
 
     if "BAMLH0A0HYM2" in df.columns and "BAMLC0A0CM" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("BAMLH0A0HYM2") - _pl.col("BAMLC0A0CM")).alias("credit_spread_hy_ig"),
+            (local_pl.col("BAMLH0A0HYM2") - local_pl.col("BAMLC0A0CM")).alias("credit_spread_hy_ig"),
         )
 
     if "TEDRATE" in df.columns:
         composites = composites.with_columns(
-            _pl.col("TEDRATE").alias("ted_spread"),
+            local_pl.col("TEDRATE").alias("ted_spread"),
         )
 
     # Credit risk index: Average of normalized spreads + VIX
     credit_components = []
     if "BAMLC0A0CM" in df.columns:
-        credit_components.append(_pl.col("BAMLC0A0CM") / 100.0)  # Normalize to 0-1 range
+        credit_components.append(local_pl.col("BAMLC0A0CM") / 100.0)  # Normalize to 0-1 range
     if "BAMLH0A0HYM2" in df.columns:
-        credit_components.append(_pl.col("BAMLH0A0HYM2") / 500.0)
+        credit_components.append(local_pl.col("BAMLH0A0HYM2") / 500.0)
     if "TEDRATE" in df.columns:
-        credit_components.append(_pl.col("TEDRATE") / 50.0)
+        credit_components.append(local_pl.col("TEDRATE") / 50.0)
     if "VIXCLS" in df.columns:
-        credit_components.append(_pl.col("VIXCLS") / 50.0)
+        credit_components.append(local_pl.col("VIXCLS") / 50.0)
 
     if credit_components:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*credit_components).alias("credit_risk_index"),
+            local_pl.mean_horizontal(*credit_components).alias("credit_risk_index"),
         )
 
     # NEW: BBB-A spread (quality spread within IG)
@@ -136,21 +135,21 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # Approximate BBB-A spread as fraction of overall IG spread
         # (Real implementation would use actual BBB and A indices)
         composites = composites.with_columns(
-            (_pl.col("BAMLC0A0CM") * 0.4).alias("credit_spread_bbb_a"),
+            (local_pl.col("BAMLC0A0CM") * 0.4).alias("credit_spread_bbb_a"),
         )
 
     # NEW: Credit momentum indicators
     if "BAMLC0A0CM" in df.columns:
         composites = composites.with_columns(
             (
-                _pl.col("BAMLC0A0CM") - _pl.col("BAMLC0A0CM").shift(90)
+                local_pl.col("BAMLC0A0CM") - local_pl.col("BAMLC0A0CM").shift(90)
             ).alias("credit_spread_ig_momentum"),
         )
 
     if "BAMLH0A0HYM2" in df.columns:
         composites = composites.with_columns(
             (
-                _pl.col("BAMLH0A0HYM2") - _pl.col("BAMLH0A0HYM2").shift(90)
+                local_pl.col("BAMLH0A0HYM2") - local_pl.col("BAMLH0A0HYM2").shift(90)
             ).alias("credit_spread_hy_momentum"),
         )
 
@@ -158,37 +157,37 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
     distress_components = []
     if "BAMLH0A0HYM2" in df.columns:
         # Normalize HY spread (typical range 300-1000 bps)
-        distress_components.append(_pl.col("BAMLH0A0HYM2") / 1000.0)
+        distress_components.append(local_pl.col("BAMLH0A0HYM2") / 1000.0)
     if "VIXCLS" in df.columns:
         # Normalize VIX (typical range 10-80)
-        distress_components.append(_pl.col("VIXCLS") / 80.0)
+        distress_components.append(local_pl.col("VIXCLS") / 80.0)
     if "TEDRATE" in df.columns:
         # Normalize TED (typical range 0-100 bps)
-        distress_components.append(_pl.col("TEDRATE") / 100.0)
+        distress_components.append(local_pl.col("TEDRATE") / 100.0)
 
     if len(distress_components) >= 2:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*distress_components).alias("credit_distress_index"),
+            local_pl.mean_horizontal(*distress_components).alias("credit_distress_index"),
         )
 
     # ===== Duration/Term Structure =====
     if "T10Y2Y" in df.columns:
         composites = composites.with_columns(
-            _pl.col("T10Y2Y").alias("term_spread"),
+            local_pl.col("T10Y2Y").alias("term_spread"),
         )
     elif "DGS10" in df.columns and "DGS2" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("DGS10") - _pl.col("DGS2")).alias("term_spread"),
+            (local_pl.col("DGS10") - local_pl.col("DGS2")).alias("term_spread"),
         )
 
     if "DFII10" in df.columns:
         composites = composites.with_columns(
-            _pl.col("DFII10").alias("real_yield_10y"),
+            local_pl.col("DFII10").alias("real_yield_10y"),
         )
 
     if "DGS10" in df.columns and "DGS2" in df.columns:
         composites = composites.with_columns(
-            ((_pl.col("DGS10") - _pl.col("DGS2")) / _pl.col("DGS2")).alias(
+            ((local_pl.col("DGS10") - local_pl.col("DGS2")) / local_pl.col("DGS2")).alias(
                 "yield_curve_slope",
             ),
         )
@@ -196,53 +195,53 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
     # Fed policy stance: Fed funds relative to 10y (negative = accommodative)
     if "FEDFUNDS" in df.columns and "DGS10" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("FEDFUNDS") - _pl.col("DGS10")).alias("fed_policy_stance"),
+            (local_pl.col("FEDFUNDS") - local_pl.col("DGS10")).alias("fed_policy_stance"),
         )
 
     # NEW: 5s30s spread (long-end slope)
     if "DGS30" in df.columns and "DGS5" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("DGS30") - _pl.col("DGS5")).alias("term_spread_5s30s"),
+            (local_pl.col("DGS30") - local_pl.col("DGS5")).alias("term_spread_5s30s"),
         )
 
     # NEW: 2s30s spread (full curve slope)
     if "DGS30" in df.columns and "DGS2" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("DGS30") - _pl.col("DGS2")).alias("term_spread_2s30s"),
+            (local_pl.col("DGS30") - local_pl.col("DGS2")).alias("term_spread_2s30s"),
         )
 
     # NEW: Curve curvature (butterfly spread: 2*mid - short - long)
     if "DGS10" in df.columns and "DGS2" in df.columns and "DGS30" in df.columns:
         composites = composites.with_columns(
             (
-                2.0 * _pl.col("DGS10") - _pl.col("DGS2") - _pl.col("DGS30")
+                2.0 * local_pl.col("DGS10") - local_pl.col("DGS2") - local_pl.col("DGS30")
             ).alias("curve_curvature"),
         )
 
     # NEW: Real term premium (10y nominal - 10y TIPS = inflation compensation)
     if "DGS10" in df.columns and "DFII10" in df.columns:
         composites = composites.with_columns(
-            (_pl.col("DGS10") - _pl.col("DFII10")).alias("real_term_premium"),
+            (local_pl.col("DGS10") - local_pl.col("DFII10")).alias("real_term_premium"),
         )
 
     # ===== Liquidity/Funding =====
     if "WALCL" in df.columns:
         composites = composites.with_columns(
-            _pl.col("WALCL").alias("fed_balance_sheet"),
+            local_pl.col("WALCL").alias("fed_balance_sheet"),
         )
 
         # QE intensity: Balance sheet as % of GDP proxy
         # (Simplified: use raw value, could normalize by GDP if available)
         composites = composites.with_columns(
-            (_pl.col("WALCL") / 1_000_000.0).alias("qe_intensity"),  # Trillions
+            (local_pl.col("WALCL") / 1_000_000.0).alias("qe_intensity"),  # Trillions
         )
 
     if "TOTBKCR" in df.columns:
         # Bank credit growth: 3-month change
         composites = composites.with_columns(
             (
-                _pl.col("TOTBKCR")
-                - _pl.col("TOTBKCR").shift(90)  # ~3 months of daily data
+                local_pl.col("TOTBKCR")
+                - local_pl.col("TOTBKCR").shift(90)  # ~3 months of daily data
             )
             .alias("bank_credit_growth_3m"),
         )
@@ -250,15 +249,15 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
     # Liquidity index: Composite of Fed balance sheet, bank credit, funding stress
     liquidity_components = []
     if "WALCL" in df.columns:
-        liquidity_components.append(_pl.col("WALCL") / 10_000_000.0)  # Normalize
+        liquidity_components.append(local_pl.col("WALCL") / 10_000_000.0)  # Normalize
     if "TOTBKCR" in df.columns:
-        liquidity_components.append(_pl.col("TOTBKCR") / 20_000_000.0)
+        liquidity_components.append(local_pl.col("TOTBKCR") / 20_000_000.0)
     if "TEDRATE" in df.columns:
-        liquidity_components.append(-_pl.col("TEDRATE") / 50.0)  # Negative = more liquidity
+        liquidity_components.append(-local_pl.col("TEDRATE") / 50.0)  # Negative = more liquidity
 
     if liquidity_components:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*liquidity_components).alias("liquidity_index"),
+            local_pl.mean_horizontal(*liquidity_components).alias("liquidity_index"),
         )
 
     # NEW: SOFR-OBFR spread (repo market stress indicator)
@@ -268,28 +267,28 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # Approximate repo stress as TED + fed funds volatility
         composites = composites.with_columns(
             (
-                _pl.col("TEDRATE") + _pl.col("FEDFUNDS").rolling_std(window_size=30).fill_null(0.0)
+                local_pl.col("TEDRATE") + local_pl.col("FEDFUNDS").rolling_std(window_size=30).fill_null(0.0)
             ).alias("sofr_obfr_spread"),
         )
 
     # NEW: Financial stress composite (broader than just liquidity)
     stress_components = []
     if "VIXCLS" in df.columns:
-        stress_components.append(_pl.col("VIXCLS") / 80.0)
+        stress_components.append(local_pl.col("VIXCLS") / 80.0)
     if "TEDRATE" in df.columns:
-        stress_components.append(_pl.col("TEDRATE") / 100.0)
+        stress_components.append(local_pl.col("TEDRATE") / 100.0)
     if "BAMLH0A0HYM2" in df.columns:
-        stress_components.append(_pl.col("BAMLH0A0HYM2") / 1000.0)
+        stress_components.append(local_pl.col("BAMLH0A0HYM2") / 1000.0)
     if "T10Y2Y" in df.columns:
         # Inverted curve is stress signal (negative spread)
-        stress_components.append((-_pl.col("T10Y2Y")).clip(0.0, None) / 100.0)
+        stress_components.append((-local_pl.col("T10Y2Y")).clip(0.0, None) / 100.0)
     elif "DGS10" in df.columns and "DGS2" in df.columns:
-        spread = _pl.col("DGS10") - _pl.col("DGS2")
+        spread = local_pl.col("DGS10") - local_pl.col("DGS2")
         stress_components.append((-spread).clip(0.0, None) / 100.0)
 
     if len(stress_components) >= 2:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*stress_components).alias("financial_stress_composite"),
+            local_pl.mean_horizontal(*stress_components).alias("financial_stress_composite"),
         )
 
     # ===== Growth/Inflation Regime =====
@@ -300,25 +299,25 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # Month-over-month employment growth
         composites = composites.with_columns(
             (
-                (_pl.col("PAYEMS") - _pl.col("PAYEMS").shift(30)) / _pl.col("PAYEMS").shift(30)
+                (local_pl.col("PAYEMS") - local_pl.col("PAYEMS").shift(30)) / local_pl.col("PAYEMS").shift(30)
             ).alias("payems_mom"),
         )
-        growth_components.append(_pl.col("payems_mom") * 100.0)  # To percentage
+        growth_components.append(local_pl.col("payems_mom") * 100.0)  # To percentage
 
     if "INDPRO" in df.columns:
         composites = composites.with_columns(
             (
-                (_pl.col("INDPRO") - _pl.col("INDPRO").shift(30)) / _pl.col("INDPRO").shift(30)
+                (local_pl.col("INDPRO") - local_pl.col("INDPRO").shift(30)) / local_pl.col("INDPRO").shift(30)
             ).alias("indpro_mom"),
         )
-        growth_components.append(_pl.col("indpro_mom") * 100.0)
+        growth_components.append(local_pl.col("indpro_mom") * 100.0)
 
     if "CFNAI" in df.columns:
-        growth_components.append(_pl.col("CFNAI"))  # Already standardized
+        growth_components.append(local_pl.col("CFNAI"))  # Already standardized
 
     if growth_components:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*growth_components).alias("growth_momentum"),
+            local_pl.mean_horizontal(*growth_components).alias("growth_momentum"),
         )
 
     # Inflation momentum: Composite of CPI, PCE, PPI
@@ -326,31 +325,31 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
     if "CPIAUCSL" in df.columns:
         composites = composites.with_columns(
             (
-                (_pl.col("CPIAUCSL") - _pl.col("CPIAUCSL").shift(365))
-                / _pl.col("CPIAUCSL").shift(365)
+                (local_pl.col("CPIAUCSL") - local_pl.col("CPIAUCSL").shift(365))
+                / local_pl.col("CPIAUCSL").shift(365)
             ).alias("cpi_yoy"),
         )
-        inflation_components.append(_pl.col("cpi_yoy") * 100.0)
+        inflation_components.append(local_pl.col("cpi_yoy") * 100.0)
 
     if "PCEPI" in df.columns:
         composites = composites.with_columns(
             (
-                (_pl.col("PCEPI") - _pl.col("PCEPI").shift(365)) / _pl.col("PCEPI").shift(365)
+                (local_pl.col("PCEPI") - local_pl.col("PCEPI").shift(365)) / local_pl.col("PCEPI").shift(365)
             ).alias("pce_yoy"),
         )
-        inflation_components.append(_pl.col("pce_yoy") * 100.0)
+        inflation_components.append(local_pl.col("pce_yoy") * 100.0)
 
     if "PPIACO" in df.columns:
         composites = composites.with_columns(
             (
-                (_pl.col("PPIACO") - _pl.col("PPIACO").shift(365)) / _pl.col("PPIACO").shift(365)
+                (local_pl.col("PPIACO") - local_pl.col("PPIACO").shift(365)) / local_pl.col("PPIACO").shift(365)
             ).alias("ppi_yoy"),
         )
-        inflation_components.append(_pl.col("ppi_yoy") * 100.0)
+        inflation_components.append(local_pl.col("ppi_yoy") * 100.0)
 
     if inflation_components:
         composites = composites.with_columns(
-            _pl.mean_horizontal(*inflation_components).alias("inflation_momentum"),
+            local_pl.mean_horizontal(*inflation_components).alias("inflation_momentum"),
         )
 
     # Regime signals
@@ -358,34 +357,34 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # Stagflation: High inflation + weak growth
         composites = composites.with_columns(
             (
-                (_pl.col("inflation_momentum") > 3.0)
-                & (_pl.col("growth_momentum") < 0.0)
+                (local_pl.col("inflation_momentum") > 3.0)
+                & (local_pl.col("growth_momentum") < 0.0)
             )
-            .cast(_pl.Float64)
+            .cast(local_pl.Float64)
             .alias("stagflation_risk"),
         )
 
         # Goldilocks: Moderate growth + low inflation
         composites = composites.with_columns(
             (
-                (_pl.col("growth_momentum").is_between(1.0, 3.0))
-                & (_pl.col("inflation_momentum") < 2.5)
+                (local_pl.col("growth_momentum").is_between(1.0, 3.0))
+                & (local_pl.col("inflation_momentum") < 2.5)
             )
-            .cast(_pl.Float64)
+            .cast(local_pl.Float64)
             .alias("goldilocks_score"),
         )
 
     # ===== FX Positioning =====
     if "DTWEXBGS" in df.columns:
         composites = composites.with_columns(
-            _pl.col("DTWEXBGS").alias("dollar_strength"),
+            local_pl.col("DTWEXBGS").alias("dollar_strength"),
         )
 
         # Dollar momentum: 3-month change
         composites = composites.with_columns(
             (
-                (_pl.col("DTWEXBGS") - _pl.col("DTWEXBGS").shift(90))
-                / _pl.col("DTWEXBGS").shift(90)
+                (local_pl.col("DTWEXBGS") - local_pl.col("DTWEXBGS").shift(90))
+                / local_pl.col("DTWEXBGS").shift(90)
             ).alias("dollar_momentum_3m"),
         )
 
@@ -397,7 +396,7 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # Compute rolling volatility for each pair
         for pair in available_fx:
             composites = composites.with_columns(
-                ((_pl.col(pair) - _pl.col(pair).shift(1)) / _pl.col(pair).shift(1))
+                ((local_pl.col(pair) - local_pl.col(pair).shift(1)) / local_pl.col(pair).shift(1))
                 .rolling_std(window_size=30)
                 .alias(f"{pair}_vol"),
             )
@@ -405,7 +404,7 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         # FX stress: Average volatility across pairs
         vol_cols = [f"{pair}_vol" for pair in available_fx]
         composites = composites.with_columns(
-            _pl.mean_horizontal(*[_pl.col(c) for c in vol_cols]).alias("fx_stress"),
+            local_pl.mean_horizontal(*[local_pl.col(c) for c in vol_cols]).alias("fx_stress"),
         )
 
     # NEW: FX volatility composite (cross-pair realized vol)
@@ -414,13 +413,13 @@ def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
         fx_vol_components = []
         for pair in available_fx:
             fx_vol_components.append(
-                ((_pl.col(pair) - _pl.col(pair).shift(1)) / _pl.col(pair).shift(1))
+                ((local_pl.col(pair) - local_pl.col(pair).shift(1)) / local_pl.col(pair).shift(1))
                 .rolling_std(window_size=30)
                 .fill_null(0.0)
             )
 
         composites = composites.with_columns(
-            _pl.mean_horizontal(*fx_vol_components).alias("fx_volatility_composite"),
+            local_pl.mean_horizontal(*fx_vol_components).alias("fx_volatility_composite"),
         )
 
     drop_candidates = [col for col in composites.columns if col.endswith("_vol")]

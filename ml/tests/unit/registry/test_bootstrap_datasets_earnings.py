@@ -45,6 +45,7 @@ def test_bootstrap_datasets_postgres_registers_earnings(monkeypatch: pytest.Monk
 
     monkeypatch.setenv("NAUTILUS_REGISTRY_DB_URL", "postgresql://registry")
     monkeypatch.setattr("ml.registry.bootstrap_datasets.DataRegistry", _StubRegistry)
+    monkeypatch.setattr("ml.registry.data_registry.DataRegistry", _StubRegistry)
 
     bootstrap_datasets(backend=BackendType.POSTGRES)
 

@@ -7,7 +7,6 @@ feature computation, model inference, and signal generation.
 """
 
 import asyncio
-import random
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -24,6 +23,24 @@ from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.enums import AggregationSource
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
+
+
+_MOCK_RANDOM = np.random.default_rng()
+"""Module-level generator to drive synthetic variability for mock data."""
+
+
+def reseed_mock_random(seed: int | None = None) -> None:
+    """
+    Reseed the module-level random generator for deterministic test runs.
+
+    Parameters
+    ----------
+    seed : int | None
+        Seed value to initialize the generator. Uses current time when None.
+    """
+    global _MOCK_RANDOM
+    actual_seed = seed if seed is not None else int(time.time() * 1_000)
+    _MOCK_RANDOM = np.random.default_rng(actual_seed)
 
 
 class MockDatabentoGenerator:
@@ -94,7 +111,7 @@ class MockDatabentoGenerator:
         returns = np.random.normal(self.trend, self.volatility)
 
         # Occasionally add volatility spikes (5% chance)
-        if random.random() < 0.05:
+        if _MOCK_RANDOM.random() < 0.05:
             returns *= 3.0
 
         # Calculate OHLC prices
@@ -102,9 +119,9 @@ class MockDatabentoGenerator:
         close_price = open_price * (1 + returns)
 
         # High/Low with realistic wicks
-        wick_size = abs(returns) * random.uniform(0.5, 1.5)
-        high_price = max(open_price, close_price) + abs(open_price * wick_size * random.random())
-        low_price = min(open_price, close_price) - abs(open_price * wick_size * random.random())
+        wick_size = abs(returns) * _MOCK_RANDOM.uniform(0.5, 1.5)
+        high_price = max(open_price, close_price) + abs(open_price * wick_size * _MOCK_RANDOM.random())
+        low_price = min(open_price, close_price) - abs(open_price * wick_size * _MOCK_RANDOM.random())
 
         # Generate volume
         volume = max(100, int(np.random.normal(self.volume_mean, self.volume_std)))
@@ -119,7 +136,7 @@ class MockDatabentoGenerator:
             time_delta_ns = 1_000_000_000  # 1 second default
 
         ts_event = self.last_ts_event + time_delta_ns
-        ts_init = ts_event + random.randint(1000, 5000)  # Small processing delay
+        ts_init = ts_event + int(_MOCK_RANDOM.integers(1000, 5001))  # Small processing delay
 
         self.last_ts_event = ts_event
         self.bar_count += 1
@@ -200,7 +217,7 @@ class MockDatabentoClient:
         self.generator = MockDatabentoGenerator(
             instrument_id=self.instrument_id,
             bar_type=self.bar_type,
-            initial_price=650.0 + random.uniform(-5, 5),  # Random starting point
+            initial_price=650.0 + _MOCK_RANDOM.uniform(-5, 5),  # Random starting point
             volatility=0.002,  # 0.2% per minute
             trend=0.00005,  # Slight upward bias
             volume_mean=1_000_000,

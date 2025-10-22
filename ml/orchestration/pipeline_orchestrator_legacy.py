@@ -1676,8 +1676,12 @@ class MLPipelineOrchestrator:
         try:
             registry.get_manifest(dataset_id)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Dataset manifest lookup failed; proceeding with registration",
+                exc_info=True,
+                extra={"dataset_id": dataset_id, "reason": str(exc)},
+            )
 
         # Determine storage_kind based on write_mode if not provided
         if storage_kind is None:
@@ -1921,8 +1925,12 @@ class MLPipelineOrchestrator:
                 if manifest_id:
                     payload["manifest_id"] = manifest_id
                 meta_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Unable to persist feature registration metadata",
+                    exc_info=True,
+                    extra={"meta_path": str(meta_path), "dataset_id": cfg.dataset_id, "reason": str(exc)},
+                )
             dataset_metadata = getattr(result, "metadata", None)
             if dataset_metadata is not None:
                 try:
@@ -2096,8 +2104,12 @@ class MLPipelineOrchestrator:
         flags = {
             "include_macro": cfg.include_macro,
             "macro_lag_days": cfg.macro_lag_days,
+            "include_calendar": cfg.include_calendar,
             "include_events": cfg.include_events,
+            "include_earnings": cfg.include_earnings,
+            "include_micro": cfg.include_micro,
             "include_l2": cfg.include_l2,
+            "include_macro_revisions": cfg.include_macro_revisions,
             "student_mode": cfg.student_mode,
             "fred_vintages": bool(cfg.fred_vintage_dir),
             "events_dir": bool(cfg.events_dir),
@@ -2284,7 +2296,9 @@ class MLPipelineOrchestrator:
 
     @staticmethod
     def _infer_feature_names(out_dir: Path) -> tuple[str, ...]:
-        dataset_path = out_dir / "dataset.parquet"
+        dataset_path = out_dir / "dataset_with_vintage_age.parquet"
+        if not dataset_path.exists():
+            dataset_path = out_dir / "dataset.parquet"
         if not dataset_path.exists():
             logger.debug("Dataset parquet missing after CLI build: %s", dataset_path)
             return ()
@@ -2311,8 +2325,12 @@ class MLPipelineOrchestrator:
             return ()
         try:
             check_ml_dependencies(["polars"])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Optional dependency check failed",
+                exc_info=True,
+                extra={"dependency": "polars", "reason": str(exc)},
+            )
         return ()
 
     def _capture_cli_build_artifacts(self, cfg: DatasetBuildConfig) -> None:
@@ -2458,10 +2476,23 @@ class MLPipelineOrchestrator:
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
 
-        dataset_parquet = dataset_csv.parent / "dataset.parquet"
-        args: list[str] = ["--out_dir", str(out_dir), "--model_id", cfg.model_id, "--max_epochs", str(cfg.max_epochs)]
-        if dataset_parquet.exists():
-            args += ["--train_data_parquet", str(dataset_parquet)]
+        converted_parquet = dataset_csv.parent / "dataset_with_vintage_age.parquet"
+        legacy_parquet = dataset_csv.parent / "dataset.parquet"
+        parquet_path: Path | None = None
+        if converted_parquet.exists():
+            parquet_path = converted_parquet
+        elif legacy_parquet.exists():
+            parquet_path = legacy_parquet
+        args: list[str] = [
+            "--out_dir",
+            str(out_dir),
+            "--model_id",
+            cfg.model_id,
+            "--max_epochs",
+            str(cfg.max_epochs),
+        ]
+        if parquet_path is not None:
+            args += ["--train_data_parquet", str(parquet_path)]
         else:
             args += ["--train_data_csv", str(dataset_csv)]
         args += [
@@ -2476,7 +2507,7 @@ class MLPipelineOrchestrator:
             "invoking teacher training",
             extra={
                 "model_id": cfg.model_id,
-                "use_parquet": dataset_parquet.exists(),
+                "use_parquet": parquet_path is not None,
                 "args": args,
             },
         )
@@ -2848,8 +2879,12 @@ class MLPipelineOrchestrator:
                 if isinstance(data, dict):
                     feature_set_id = str(data.get("feature_set_id", feature_set_id))
                     metadata = {k: v for k, v in data.items() if isinstance(k, str)}
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Failed to load feature refresh metrics payload",
+                    exc_info=True,
+                    extra={"metrics_path": str(metrics_path), "reason": str(exc)},
+                )
 
         meta_payload = dict(metadata)
         meta_payload["feature_set_id"] = feature_set_id
@@ -2874,8 +2909,12 @@ class MLPipelineOrchestrator:
                 dataset_type="features",
                 component="pipeline_orchestrator.refresh_features",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to emit feature refresh dataset event",
+                exc_info=True,
+                extra={"feature_set_id": feature_set_id, "reason": str(exc)},
+            )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -3211,33 +3250,50 @@ def _extract_config_args(
     """
     Split ``raw_args`` into config path, stage override, and remaining args.
     """
+    flag_prefix = "--"
+    config_flag = "config"
+    stage_flag = "stage"
     config_path: str | None = None
     stage_override: str | None = None
     passthrough: list[str] = []
     idx = 0
     while idx < len(raw_args):
-        token = raw_args[idx]
-        if token == "--config":
+        argument = raw_args[idx]
+        if not argument.startswith(flag_prefix):
+            passthrough.append(argument)
+            idx += 1
+            continue
+
+        flag_body, sep, value = argument[len(flag_prefix) :].partition("=")
+        flag_name = flag_body.strip()
+        if flag_name == config_flag:
+            full_flag = f"{flag_prefix}{config_flag}"
+            if sep:
+                if not value:
+                    raise SystemExit(f"{full_flag} requires a file path")
+                config_path = value
+                idx += 1
+                continue
             if idx + 1 >= len(raw_args):
-                raise SystemExit("--config requires a file path")
+                raise SystemExit(f"{full_flag} requires a file path")
             config_path = raw_args[idx + 1]
             idx += 2
             continue
-        if token.startswith("--config="):
-            config_path = token.split("=", 1)[1]
-            idx += 1
-            continue
-        if token == "--stage":
+        if flag_name == stage_flag:
+            full_flag = f"{flag_prefix}{stage_flag}"
+            if sep:
+                if not value:
+                    raise SystemExit(f"{full_flag} requires a value")
+                stage_override = value
+                idx += 1
+                continue
             if idx + 1 >= len(raw_args):
-                raise SystemExit("--stage requires a value")
+                raise SystemExit(f"{full_flag} requires a value")
             stage_override = raw_args[idx + 1]
             idx += 2
             continue
-        if token.startswith("--stage="):
-            stage_override = token.split("=", 1)[1]
-            idx += 1
-            continue
-        passthrough.append(token)
+
+        passthrough.append(argument)
         idx += 1
     return config_path, stage_override, passthrough
 

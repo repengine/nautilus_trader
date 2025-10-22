@@ -186,10 +186,13 @@ class MacroFeatureTransform:
             revision_mode=self.revision_mode,
             revision_windows=None,  # Use defaults
         )
-        if pl is None:
-            check_ml_dependencies(["polars"])  # pragma: no cover
-        assert pl is not None
-        if not isinstance(result, pl.DataFrame):
+        polars_module = pl
+        if polars_module is None:
+            check_ml_dependencies(["polars"])  # pragma: no cover - raises on missing dep
+            polars_module = pl
+        if polars_module is None:
+            raise RuntimeError("Polars dependency 'polars' is required for macro transforms")
+        if not isinstance(result, polars_module.DataFrame):
             raise TypeError("join_fred_asof must return a polars DataFrame for polars input")
         output = cast(PolarsDataFrame, result)
 

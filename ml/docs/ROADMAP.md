@@ -8,6 +8,7 @@ References
 - Implementation plans: ml/docs/implementation/{event_driven_ml_pipeline_checklist.md, domain_bookkeeping_plan.md}
 - Context docs: ml/docs/context/* (actors, stores, features, models, strategies, monitoring)
 - Standards: ml/docs/development/CODING_STANDARDS.md, ml/tests/docs/TESTING_STRATEGY.md, CLAUDE.md
+- Streaming runbook: see the "Streaming Training Guardrails → Streaming Runbook" section in ml/docs/README.md for cap selection guidance and artifact expectations.
 
 Goals (Alpha)
 

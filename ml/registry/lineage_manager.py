@@ -16,7 +16,11 @@ import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import text
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import func
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ml.registry.dataclasses import DatasetLineageRecord
 
@@ -121,6 +125,21 @@ class LineageManager:
     def __init__(self) -> None:
         """Initialize lineage manager with empty storage."""
         self._lineage: list[dict[str, Any]] = []
+        self._lineage_table_cache: dict[int, Table] = {}
+
+    def _get_lineage_table(self, session: Session) -> Table:
+        """Reflect and cache the lineage table for the active engine."""
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for lineage queries")
+
+        cache_key = id(bind)
+        table = self._lineage_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table("ml_data_lineage", metadata, autoload_with=bind)
+            self._lineage_table_cache[cache_key] = table
+        return table
 
     def link_lineage(
         self,
@@ -184,25 +203,16 @@ class LineageManager:
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text(
-                        """
-                        INSERT INTO ml_data_lineage
-                        (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
-                        VALUES
-                        (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
-                    """,
+                    table = self._get_lineage_table(session)
+                    insert_stmt = table.insert().values(
+                        transform_id=transform_id,
+                        child_dataset_id=child_dataset_id,
+                        parent_dataset_id=parent_id,
+                        ts_range=json.dumps(ts_range),
+                        parameters=json.dumps(params),
                     )
 
-                    session.execute(
-                        query,
-                        {
-                            "transform_id": transform_id,
-                            "child_dataset_id": child_dataset_id,
-                            "parent_dataset_id": parent_id,
-                            "ts_range": json.dumps(ts_range),
-                            "parameters": json.dumps(params),
-                        },
-                    )
+                    session.execute(insert_stmt)
 
                 except Exception as e:
                     session.rollback()
@@ -302,34 +312,26 @@ class LineageManager:
                 raise RuntimeError("Failed to get database session")
 
             try:
-                conditions: list[str] = []
-                params: dict[str, Any] = {}
-                if child is not None:
-                    conditions.append("child_dataset_id = :child")
-                    params["child"] = child
-                if parent is not None:
-                    conditions.append("parent_dataset_id = :parent")
-                    params["parent"] = parent
-
-                where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                limit_clause = ""
-                if limit_value is not None:
-                    limit_clause = " LIMIT :limit"
-                    params["limit"] = limit_value
-
-                query = text(
-                    """
-                    SELECT transform_id, child_dataset_id, parent_dataset_id,
-                           ts_range, parameters,
-                           EXTRACT(EPOCH FROM created_at) AS created_at
-                    FROM ml_data_lineage
-                    """
-                    + where_clause
-                    + " ORDER BY created_at DESC"
-                    + limit_clause,
+                table = self._get_lineage_table(session)
+                stmt = select(
+                    table.c.transform_id,
+                    table.c.child_dataset_id,
+                    table.c.parent_dataset_id,
+                    table.c.ts_range,
+                    table.c.parameters,
+                    func.extract("epoch", table.c.created_at).label("created_at"),
                 )
 
-                rows = session.execute(query, params).fetchall()
+                if child is not None:
+                    stmt = stmt.where(table.c.child_dataset_id == child)
+                if parent is not None:
+                    stmt = stmt.where(table.c.parent_dataset_id == parent)
+
+                stmt = stmt.order_by(table.c.created_at.desc())
+                if limit_value is not None:
+                    stmt = stmt.limit(limit_value)
+
+                rows = session.execute(stmt).all()
             finally:
                 session.close()
 

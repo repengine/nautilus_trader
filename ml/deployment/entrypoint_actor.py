@@ -10,6 +10,7 @@ for health and metrics and enforces ONNX-only model artifacts for security compl
 import asyncio
 import logging
 import os
+import shlex
 import signal
 import sys
 import threading
@@ -26,8 +27,11 @@ from ml.actors.multi_signal import MultiInstrumentSignalActorConfig
 from ml.actors.recorder import RecorderActor
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 from ml.config.base import MLFeatureConfig
 from ml.core.integration import MLIntegrationManager
+from ml.deployment._databento import is_valid_databento_key
 from ml.deployment.metrics_http import build_app
 from ml.deployment.security import assert_allowed_model_path
 from ml.observability.bootstrap import auto_start_if_configured
@@ -43,6 +47,8 @@ from nautilus_trader.config import LiveDataEngineConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
 
+
+logger = logging.getLogger(__name__)
 
 # Backwards compatibility for legacy import paths used in tests and scripts.
 MLSignalActor = MultiInstrumentSignalActor
@@ -81,6 +87,22 @@ class MLSignalActorNode:
         actor_id = os.getenv("ACTOR_ID", "MLSignalActor-001")
         use_dummy_stores = os.getenv("USE_DUMMY_STORES", "false").lower() == "true"
 
+        if not use_mock_data and not is_valid_databento_key(databento_api_key):
+            if use_dummy_stores:
+                logger.warning(
+                    "Databento API key missing or invalid; falling back to mock data",
+                    extra={
+                        "use_dummy_stores": True,
+                        "has_key": databento_api_key is not None,
+                    },
+                )
+                use_mock_data = True
+                databento_api_key = None
+            else:
+                print("ERROR: DATABENTO_API_KEY environment variable not set or invalid")
+                print("Please set your Databento API key to connect to market data")
+                sys.exit(1)
+
         # Optional behavior overrides for testing/ops
         def _get_bool(name: str, default: bool) -> bool:
             val = os.getenv(name)
@@ -105,7 +127,7 @@ class MLSignalActorNode:
         bar_type = BarType.from_str(bar_type_str)
 
         # Check for API key unless running with mock data
-        if not databento_api_key and not use_mock_data:
+        if not use_mock_data and not databento_api_key:
             print("ERROR: DATABENTO_API_KEY environment variable not set")
             print("Please set your Databento API key to connect to market data")
             sys.exit(1)
@@ -200,8 +222,10 @@ class MLSignalActorNode:
                 # Remove minimum spacing between signals in test mode
                 actor_kwargs["min_signal_separation_bars"] = 0
             except Exception:
-                # Non-fatal; fall back to configured strategy
-                pass
+                logger.debug(
+                    "Custom strategy bootstrap failed; using configured strategy",
+                    exc_info=True,
+                )
 
         # Multi-instrument extensions (batching + universe)
         def _get_list(name: str) -> list[str] | None:
@@ -273,6 +297,7 @@ class MLSignalActorNode:
             )
 
         # Create trading node
+        _ensure_event_loop()
         self.node = TradingNode(config=node_config)
 
         # Register Databento factory only when using real data
@@ -322,9 +347,11 @@ class MLSignalActorNode:
                     ensure_healthy=False,
                     strict_protocol_validation=False,
                 )
+                if mgr.data_store is None:
+                    raise RuntimeError("DataStore not initialized")
                 recorder = LiveDataRecorder(
-                    data_store=mgr.data_store,  # type: ignore[arg-type]
-                    data_registry=mgr.data_registry,  # type: ignore[arg-type]
+                    data_store=mgr.data_store,
+                    data_registry=mgr.data_registry,
                     buffer_size=int(os.getenv("ML_LIVE_RECORD_BUFFER", "1000")),
                     flush_interval_ms=int(os.getenv("ML_LIVE_RECORD_FLUSH_MS", "1000")),
                 )
@@ -409,9 +436,6 @@ class MLSignalActorNode:
 
                     # Optional: backfill on start in fallback mode (catalog-only)
                     if os.getenv("ML_BACKFILL_ON_START", "").lower() in {"1", "true", "yes"}:
-                        import shlex
-                        import subprocess
-
                         from ml.config.coverage import CoveragePolicy
                         from ml.config.coverage import get_max_lookback_days
 
@@ -449,11 +473,12 @@ class MLSignalActorNode:
                             shlex.join(cmd),
                         )
                         try:
-                            subprocess.run(cmd, check=True)
-                        except Exception as bf_exc:
+                            run_command(cmd, timeout=300, log=logging.getLogger(__name__))
+                        except SubprocessExecutionError as bf_exc:
                             logging.getLogger(__name__).warning(
                                 "Fallback backfill failed: %s",
                                 bf_exc,
+                                exc_info=True,
                             )
                 except Exception as inner:
                     logging.getLogger(__name__).warning(
@@ -615,3 +640,18 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    Return a running event loop for the current thread, creating one if necessary.
+
+    Python 3.12 no longer auto-creates a loop when calling ``asyncio.get_event_loop``.
+    Production entrypoints expect a loop to exist before constructing ``TradingNode``,
+    so tests must mirror Phase0 behaviour by provisioning a loop explicitly.
+    """
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop

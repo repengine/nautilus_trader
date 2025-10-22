@@ -80,19 +80,41 @@ from .redis_streams_consumer import OnEvent
 from .redis_streams_consumer import RedisStreamsConsumer
 from .retry import RetriableConsumer
 from .retry import RetryPolicy
+from .streaming_training import FileBackedStreamingTrainingStateStore
+from .streaming_training import InMemoryStreamingTrainingStateStore
+from .streaming_training import StreamingHeartbeatRecord
+from .streaming_training import StreamingPlanRecord
+from .streaming_training import StreamingResultRecord
+from .streaming_training import StreamingTrainingConsumer
+from .streaming_training import StreamingTrainingStateStore
+from .streaming_training import attach_streaming_training_monitor
+from .streaming_training_service import StreamingTrainingPersistenceService
+from .streaming_training_worker import ConsumerFactory
+from .streaming_training_worker import StreamingTrainingPersistenceWorker
 
 
 __all__ = [
     "AggregatingConsumer",
+    "ConsumerFactory",
     "ConsumerKey",
     "ConsumerProtocol",
     "Envelope",
+    "FileBackedStreamingTrainingStateStore",
     "IdempotentConsumer",
+    "InMemoryStreamingTrainingStateStore",
     "LineageWriter",
     "OnEvent",
     "RedisStreamsConsumer",
     "RetriableConsumer",
     "RetryPolicy",
     "StageLike",
+    "StreamingHeartbeatRecord",
+    "StreamingPlanRecord",
+    "StreamingResultRecord",
+    "StreamingTrainingConsumer",
+    "StreamingTrainingPersistenceService",
+    "StreamingTrainingPersistenceWorker",
+    "StreamingTrainingStateStore",
     "TopicMapper",
+    "attach_streaming_training_monitor",
 ]

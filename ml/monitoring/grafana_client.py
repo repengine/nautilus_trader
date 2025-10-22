@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Self, cast
 from urllib.parse import urljoin
@@ -633,9 +634,12 @@ def main() -> None:
     """
     Demonstrate usage of the Grafana client.
     """
-    # Example usage - would normally get these from environment
-    grafana_url = "http://localhost:3000"
-    api_token = "your-api-token-here"
+    grafana_url = os.environ.get("GRAFANA_URL", "http://localhost:3000")
+    api_token = os.environ.get("GRAFANA_API_TOKEN")
+
+    if not api_token:
+        logger.warning("GRAFANA_API_TOKEN environment variable is required for Grafana client demo")
+        return
 
     try:
         with GrafanaClient(grafana_url, api_token=api_token) as client:

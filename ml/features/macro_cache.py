@@ -34,6 +34,17 @@ else:  # pragma: no cover - runtime type erasure
 logger = logging.getLogger(__name__)
 
 
+def _require_polars() -> Any:
+    """Return the optional Polars dependency or raise a clear error."""
+    module = pl
+    if module is None:
+        check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
+        module = pl
+    if module is None:
+        raise RuntimeError("Polars dependency 'polars' is required for macro cache operations")
+    return module
+
+
 @lru_cache(maxsize=1)
 def _load_relativedelta() -> Any:
     """Return the ``dateutil.relativedelta`` callable lazily."""
@@ -125,10 +136,7 @@ class MacroDataCache:
 
         Call this periodically (e.g., daily) to pick up new releases.
         """
-        if pl is None:
-            check_ml_dependencies(["polars"])  # pragma: no cover
-        _pl = pl
-        assert _pl is not None
+        _pl = _require_polars()
 
         all_series: list[str] = list(dict.fromkeys([*self.series_ids, *self.aux_series_ids]))
 

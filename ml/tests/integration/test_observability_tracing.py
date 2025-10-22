@@ -353,41 +353,42 @@ class TestEventTracingIntegration:
         """
         Test trace context propagation through events with mocked OpenTelemetry.
         """
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._propagate") as mock_propagate:
+        with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._propagate") as mock_propagate:
 
-                def mock_inject(carrier):
-                    carrier["traceparent"] = (
-                        "00-trace123456789012345678901234567890-span123456789012-01"
+                    def mock_inject(carrier):
+                        carrier["traceparent"] = (
+                            "00-trace123456789012345678901234567890-span123456789012-01"
+                        )
+
+                    mock_propagate.inject.side_effect = mock_inject
+
+                    # Mock registry
+                    mock_registry = Mock()
+                    mock_registry.emit_event = Mock()
+                    mock_registry.update_watermark = Mock()
+
+                    emit_dataset_event_and_watermark(
+                        registry=mock_registry,
+                        dataset_id="features",
+                        instrument_id="EUR/USD",
+                        stage=Stage.FEATURE_COMPUTED,
+                        source=Source.HISTORICAL,
+                        run_id="test_run",
+                        ts_min=1000000000,
+                        ts_max=2000000000,
+                        count=100,
+                        status=EventStatus.SUCCESS,
                     )
 
-                mock_propagate.inject.side_effect = mock_inject
+                    # Verify event contains trace context
+                    call_args = mock_registry.emit_event.call_args
+                    metadata = call_args.kwargs["metadata"]
 
-                # Mock registry
-                mock_registry = Mock()
-                mock_registry.emit_event = Mock()
-                mock_registry.update_watermark = Mock()
-
-                emit_dataset_event_and_watermark(
-                    registry=mock_registry,
-                    dataset_id="features",
-                    instrument_id="EUR/USD",
-                    stage=Stage.FEATURE_COMPUTED,
-                    source=Source.HISTORICAL,
-                    run_id="test_run",
-                    ts_min=1000000000,
-                    ts_max=2000000000,
-                    count=100,
-                    status=EventStatus.SUCCESS,
-                )
-
-                # Verify event contains trace context
-                call_args = mock_registry.emit_event.call_args
-                metadata = call_args.kwargs["metadata"]
-
-                assert "correlation_id" in metadata
-                assert "trace_context" in metadata
-                assert "traceparent" in metadata["trace_context"]
+                    assert "correlation_id" in metadata
+                    assert "trace_context" in metadata
+                    assert "traceparent" in metadata["trace_context"]
 
 
 @pytest.mark.integration

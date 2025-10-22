@@ -502,7 +502,11 @@ class BaseStaticProvider(BaseDataProvider):
             try:
                 del self._metadata_cache[cache_key]
             except Exception:
-                pass
+                self.logger.debug(
+                    "Failed to evict stale metadata cache entry",
+                    extra={"cache_key": cache_key},
+                    exc_info=True,
+                )
 
         # Load fresh
         self.metrics["static_cache_misses"] += 1
@@ -541,7 +545,7 @@ class BaseStaticProvider(BaseDataProvider):
                 del self._metadata_cache[oldest_key]
         except Exception:
             # Best-effort eviction; do not fail reads due to eviction logic
-            pass
+            self.logger.debug("Metadata cache eviction failed", exc_info=True)
 
     @abstractmethod
     def _load_metadata_impl(self, instruments: list[str]) -> _pl.DataFrame:

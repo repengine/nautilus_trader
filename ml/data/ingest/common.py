@@ -8,6 +8,7 @@ limiting, and durable JSON progress persistence.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from time import monotonic
 from time import sleep
@@ -26,6 +27,9 @@ __all__ = [
     "load_progress_json",
     "save_progress_json",
 ]
+
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -64,7 +68,11 @@ def load_progress_json(path: str | Path) -> dict[str, Any]:
 
             return dict(json.loads(p.read_text(encoding="utf-8")))
     except Exception:
-        pass
+        logger.debug(
+            "Failed to load ingestion progress JSON",
+            extra={"path": str(p)},
+            exc_info=True,
+        )
     return {}
 
 
@@ -85,4 +93,8 @@ def save_progress_json(path: str | Path, data: dict[str, Any]) -> None:
         try:
             p.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
         except Exception:
-            pass
+            logger.debug(
+                "Failed to persist ingestion progress JSON",
+                extra={"path": str(p)},
+                exc_info=True,
+            )

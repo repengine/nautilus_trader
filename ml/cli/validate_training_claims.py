@@ -48,10 +48,14 @@ def test_console_script(script_name: str) -> tuple[bool, str]:
     """
     Test if console script exists and shows help.
     """
-    import subprocess
+    from ml.common.subprocess_utils import SubprocessExecutionError
+    from ml.common.subprocess_utils import run_command
+
+    if Path(script_name).name != script_name:
+        return False, f"✗ Console script {script_name} rejected: must be a bare command name"
 
     try:
-        result = subprocess.run(
+        result = run_command(
             [script_name, "--help"],
             capture_output=True,
             text=True,
@@ -59,14 +63,12 @@ def test_console_script(script_name: str) -> tuple[bool, str]:
         )
         if result.returncode == 0:
             return True, f"✓ Console script {script_name} works"
-        else:
-            return False, f"✗ Console script {script_name} failed: {result.stderr[:200]}"
-    except FileNotFoundError:
-        return False, f"✗ Console script {script_name} not found"
-    except subprocess.TimeoutExpired:
-        return False, f"✗ Console script {script_name} timed out"
-    except Exception as e:
-        return False, f"✗ Console script {script_name} error: {e}"
+        return False, f"✗ Console script {script_name} failed: {str(result.stdout)[-200:]}"
+    except SubprocessExecutionError as exc:
+        stderr = exc.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="ignore")
+        return False, f"✗ Console script {script_name} error: {str(stderr)[-200:]}"
 
 
 def test_file_exists(file_path: str, description: str) -> tuple[bool, str]:

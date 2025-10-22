@@ -474,7 +474,8 @@ class TrainingActorContract(ABC):
         actor_model_path: str | Path,
         actor_config_path: str | Path | None = None,
     ) -> dict[str, Any]:  # pragma: no cover - interface
-        ...
+        del actor_model_path, actor_config_path
+        raise NotImplementedError
 
     def generate_actor_config(self) -> dict[str, Any]:  # pragma: no cover - stub
         """Placeholder: example configuration for MLSignalActor."""

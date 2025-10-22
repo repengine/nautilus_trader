@@ -216,28 +216,28 @@ def is_tracing_enabled() -> bool:
     -------
     bool
         True when tracing is enabled via environment and the backend is
-        initialized, or when a tracing backend has already been provisioned
-        (e.g., by a test harness patching internals).
+        initialized, False otherwise.
 
     Notes
     -----
-    - Default behavior remains OFF unless `ML_TRACING_ENABLED=true`.
-    - Tests may patch `_propagate`/`_tracer` directly to simulate an active
-      backend; honor that by treating tracing as enabled in that case.
+    - Default behavior is OFF unless `ML_TRACING_ENABLED=true`.
+    - Explicit `ML_TRACING_ENABLED=false` always disables tracing.
+    - When unset (auto mode), tracing is disabled by default.
 
     """
     # Three states:
     # - Explicitly disabled via env -> always False
     # - Explicitly enabled via env -> ensure backend and return status
-    # - Unset env (auto) -> treat as disabled unless a backend has been provisioned
+    # - Unset env (auto) -> disabled by default
     env_val = os.getenv("ML_TRACING_ENABLED")
     if env_val is not None and env_val.lower() == "false":
-        return bool(_tracer is not None or _propagate is not None)
+        return False
     if env_val is not None and env_val.lower() == "true":
-        return _ensure_tracing_backend() or bool(_tracer is not None or _propagate is not None)
+        if not HAS_OPENTELEMETRY:
+            return False
+        return _ensure_tracing_backend()
 
-    # Auto mode: enabled when a backend has already been provisioned (e.g., tests patch)
-    return bool(_tracer is not None or _propagate is not None)
+    return False
 
 
 @contextmanager
@@ -275,15 +275,14 @@ def trace_cold_path(
     ...     features = compute_features(data)
 
     """
+    if not is_tracing_enabled():
+        yield None
+        return
+
     tracer = _tracer
     if tracer is None:
-        if not is_tracing_enabled():
-            yield None
-            return
-        tracer = _tracer
-        if tracer is None:
-            yield None
-            return
+        yield None
+        return
 
     with tracer.start_as_current_span(operation_name) as span:
         # Set standard attributes
@@ -336,8 +335,7 @@ def trace_cold_path_decorator(
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            tracer = _tracer
-            if tracer is None and not is_tracing_enabled():
+            if not is_tracing_enabled():
                 return func(*args, **kwargs)
 
             # Extract correlation_id if parameter specified
@@ -388,8 +386,7 @@ def trace_inference(operation_name: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            tracer = _tracer
-            if tracer is None and not is_tracing_enabled():
+            if not is_tracing_enabled():
                 return func(*args, **kwargs)
 
             # Extract attributes from common actor patterns

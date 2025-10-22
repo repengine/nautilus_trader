@@ -83,6 +83,8 @@ from ml.config.market_data import MarketFeedDescriptor
 from ml.config.market_data import MarketFeedDescriptorSet
 from ml.config.market_data import load_market_feed_descriptors
 from ml.config.observability import ObservabilityConfig
+from ml.config.playground import LiquidityScalingDefaults
+from ml.config.playground import ThreeDRiskBacktestDefaults
 
 # =============================================================================
 # SPECIALIZED CONFIGURATIONS
@@ -110,6 +112,10 @@ from ml.config.shared import BaseGPUConfig
 from ml.config.shared import LightGBMGPUConfig
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig
+from ml.config.streaming_pipeline import DatasetServiceConfig
+from ml.config.streaming_pipeline import StreamingPersistenceConfig
+from ml.config.streaming_pipeline import StreamingWorkerConfig
+from ml.config.streaming_pipeline import TrainingOrchestratorConfig
 from ml.config.xgboost import UnifiedXGBoostConfig
 from ml.config.xgboost import XGBoostTrainingConfig
 
@@ -198,6 +204,7 @@ __all__ = [
     "CanaryDeploymentConfig",
     "CircuitBreakerConfig",
     "DatabentoConfig",
+    "DatasetServiceConfig",
     "EventSource",
     "EventStage",
     "EventStatus",
@@ -205,6 +212,7 @@ __all__ = [
     "IndicatorNames",
     "LightGBMGPUConfig",
     "LightGBMTrainingConfig",
+    "LiquidityScalingDefaults",
     "MLActorConfig",
     "MLConstants",
     "MLFeatureConfig",
@@ -226,9 +234,13 @@ __all__ = [
     "RegistryPolicyConfig",
     "SchedulerConfig",
     "StrategyConfig",
+    "StreamingPersistenceConfig",
+    "StreamingWorkerConfig",
     "SystemConstants",
     "TechnicalIndicatorPeriods",
+    "ThreeDRiskBacktestDefaults",
     "TimeConstants",
+    "TrainingOrchestratorConfig",
     "UnifiedLightGBMConfig",
     "UnifiedXGBoostConfig",
     "UniverseConfig",

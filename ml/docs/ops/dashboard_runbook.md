@@ -15,6 +15,10 @@ endpoints. All workflows rely on the existing infra components described in
   - Grafana (`GRAFANA_URL`) for provisioning and optional embeds.
   - Prometheus (`PROMETHEUS_URL`) for snapshot metrics.
   - Postgres (`ML_DB_CONNECTION`) when store summaries are enabled.
+- When running under Docker Compose, keep the `streaming_persistence_worker`
+  container healthy—this service materialises Redis streaming events into the
+  shared state file (`/app/ml_out/streaming_training_state.json`) mounted at
+  `ML_DASHBOARD_STREAMING_STATE_PATH`.
 - Export `ML_DASHBOARD_USE_COMPOSE=0` when running outside Docker Compose. The
   service controllers fall back to `NoopServiceController` in this mode.
 
@@ -95,6 +99,64 @@ The dashboard supports three UI modes optimized for different use cases:
   `ML_DASHBOARD_PROM_TIMEOUT`.
 - Dashboard cards display the last snapshot value and fall back to a placeholder
   when the helper is disabled or returns `{ "ok": false }`.
+
+### Streaming Orchestrator Admin
+
+- The streaming training orchestrator persists lifecycle state to
+  `ml_out/streaming_orchestrator_state.json` (override with
+  `ML_STREAM_ORCH_STATE_PATH`). Use the admin helpers on
+  `InMemoryStreamingOrchestrator` to manage backlog and retries without blowing
+  away historical context.
+- `clear_backlog(dataset_id: str | None, include_active: bool = False)` removes
+  persisted plans. Pass `include_active=True` before recycling workers or when a
+  dataset should be relaunched from scratch.
+- `resume_plan(plan_id: str)` resets retry counters, saturation flags, and
+  heartbeat timestamps so the plan can proceed on the next worker heartbeat.
+- `saturated_plan_ids()` surfaces plans currently throttled by
+  `saturation_heartbeat_limit`. Inspect these first when the dashboard backlog
+  gauge is flat.
+- `expired_plans()` returns the underlying `DatasetPlanEvent` objects whose
+  heartbeats aged out. Feed the results back into `enqueue_training` (or a
+  manual worker run) after confirming the data path is healthy.
+
+Example (run inside the `streaming_orchestrator` container or a local shell with
+the repo sourced):
+
+```python
+from pathlib import Path
+
+from ml.config.streaming_pipeline import DatasetServiceConfig, TrainingOrchestratorConfig
+from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
+from ml.training.event_driven.orchestrator import InMemoryStreamingOrchestrator
+
+config = TrainingOrchestratorConfig(
+    command_topic="",
+    result_topic="",
+    heartbeat_topic="",
+    enable_state_persistence=True,
+)
+planner = StreamingDatasetPlanner(DatasetServiceConfig(parquet_root="/data/streaming"))
+orchestrator = InMemoryStreamingOrchestrator(
+    config,
+    planner,
+    state_path=Path("/app/ml_out/streaming_orchestrator_state.json"),
+)
+print(orchestrator.saturated_plan_ids())
+orchestrator.clear_backlog(include_active=True)
+```
+
+- The dashboard `get_streaming_training_state()` endpoint now returns dataset-level
+  summaries (`dataset_details`) with outstanding plan counts, recent plan/result
+  timestamps, and active worker lists. Pair these with the Prometheus gauges
+  (`ml_tft_streaming_training_backlog`, `ml_tft_streaming_workers_active`) when
+  building backlog widgets or saturation alerts.
+- Multi-worker experiment procedures and results are tracked in
+  `ml/docs/ops/streaming_scaling_experiments.md`; update this log as new worker
+  counts are validated.
+- Alert thresholds (derived from multi-worker experiments):
+  - Warning when `summary.total_outstanding >= 4`, critical when `>= 8`.
+  - Warning when `summary.total_workers < expected_workers` (default 1), critical when zero.
+  - Dataset row highlights turn amber when outstanding plans > 0; red styling is applied when backlog >= 8 via the dashboard JS logic.
 
 ## UI Operations
 

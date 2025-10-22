@@ -15,6 +15,7 @@ Existing modules re-export these symbols with deprecation warnings.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -162,7 +163,13 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug(
+                            "raw_writer.bar_parse_failed instrument=%s error=%s",
+                            inst,
+                            exc,
+                            exc_info=True,
+                        )
                         continue
                 if not bars:
                     return 0
@@ -189,7 +196,13 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug(
+                            "raw_writer.quote_parse_failed row=%s error=%s",
+                            row,
+                            exc,
+                            exc_info=True,
+                        )
                         continue
                 if not quotes:
                     return 0
@@ -220,7 +233,13 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug(
+                            "raw_writer.trade_parse_failed row=%s error=%s",
+                            row,
+                            exc,
+                            exc_info=True,
+                        )
                         continue
                 if not trades:
                     return 0
@@ -237,3 +256,4 @@ __all__ = [
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
 ]
+logger = logging.getLogger(__name__)

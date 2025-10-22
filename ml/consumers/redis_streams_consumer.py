@@ -13,9 +13,16 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
+from ml import _imports as ml_imports
 from ml.consumers.idempotent import IdempotentConsumer
+
+
+if TYPE_CHECKING:
+    from redis import Redis as _RedisClient
+else:
+    _RedisClient = Any
 
 
 OnEvent = Callable[[str, dict[str, Any]], None]
@@ -38,14 +45,29 @@ class RedisStreamsConsumer:
         self._stream = stream
         self._handler = handler
         self._gate = gate or IdempotentConsumer()
-        try:
-            import redis
+        self._client: _RedisClient | None = None
+        self._logger = logging.getLogger(__name__)
+        redis_module = ml_imports.redis
+        if redis_module is None:
+            try:
+                import importlib
 
-            self._client = redis.Redis.from_url(url, decode_responses=True)
+                redis_module = importlib.import_module("redis")
+                setattr(ml_imports, "redis", redis_module)
+                setattr(ml_imports, "HAS_REDIS", True)
+            except Exception:  # pragma: no cover - redis genuinely unavailable
+                redis_module = None
+        if redis_module is None:
+            self._logger.debug(
+                "redis dependency unavailable; consumer disabled",
+                extra={"url": url},
+            )
+            return
+        try:
+            client = redis_module.Redis.from_url(url, decode_responses=True)
+            self._client = cast(_RedisClient, client)
         except Exception:  # pragma: no cover - import failure path
             self._client = None
-
-        self._logger = logging.getLogger(__name__)
 
     def poll_once(self, *, count: int = 100, block_ms: int = 0, last_id: str = "$") -> int:
         """
@@ -57,12 +79,17 @@ class RedisStreamsConsumer:
         if self._client is None:
             return 0
         try:
-            results = self._client.xread({self._stream: last_id}, count=count, block=block_ms)
+            raw_results = self._client.xread({self._stream: last_id}, count=count, block=block_ms)
         except Exception:
             return 0
 
+        results = cast(
+            list[tuple[str, list[tuple[str, dict[str, str]]]]],
+            raw_results or [],
+        )
+
         processed = 0
-        for _stream_name, entries in results or []:
+        for _stream_name, entries in results:
             for _entry_id, fields in entries:
                 topic = fields.get("topic", "")
                 payload_raw = fields.get("payload", "{}")

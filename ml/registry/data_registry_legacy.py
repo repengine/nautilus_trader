@@ -23,8 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, overload
 
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import func
+from sqlalchemy import select
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
@@ -161,20 +166,53 @@ class DataRegistryLegacy(MLComponentMixin):
 
         self.registry_file = self.registry_path / "data_registry.json"
         self._lock = threading.RLock()  # Use RLock to allow reentrant locking
+        self._watermarks_table_cache: dict[int, Table] = {}
 
         # Batch save management
         self._pending_save = False
         self._save_timer: threading.Timer | None = None
 
-        # Initialize or load registry
+        # Reflected Postgres tables (cached per engine) for safe SQL execution
+        self._registry_table_cache: dict[int, Table] = {}
+        self._lineage_table_cache: dict[int, Table] = {}
+
+        # Initialize or load registry state and log configuration
         self._load_registry()
 
         logger.info(
             "Initialized DataRegistryLegacy at %s with backend=%s, batch_save_interval=%ss",
-            registry_path,
+            self.registry_path,
             self.backend.value,
-            batch_save_interval,
+            self.batch_save_interval,
         )
+
+    def _get_registry_table(self, session: Session) -> Table:
+        """Return reflected dataset registry table for the session bind."""
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for manifests")
+
+        cache_key = id(bind)
+        table = self._registry_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table("ml_dataset_registry", metadata, autoload_with=bind)
+            self._registry_table_cache[cache_key] = table
+        return table
+
+    def _get_lineage_table(self, session: Session) -> Table:
+        """Return reflected lineage table for the session bind."""
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for lineage")
+
+        cache_key = id(bind)
+        table = self._lineage_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table("ml_data_lineage", metadata, autoload_with=bind)
+            self._lineage_table_cache[cache_key] = table
+        return table
 
     def _load_registry(self) -> None:
         """
@@ -705,9 +743,17 @@ class DataRegistryLegacy(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    # Build UPDATE query safely with all possible fields
-                    # This avoids dynamic SQL construction
-                    all_fields = [
+                    table = self._get_registry_table(session)
+
+                    column_aliases = {"lineage": "parents"}
+                    json_defaults: dict[str, Any] = {
+                        "partitioning": {},
+                        "schema": {},
+                        "constraints": {},
+                        "metadata": {},
+                        "parents": [],
+                    }
+                    allowed_fields = {
                         "name",
                         "version",
                         "dataset_type",
@@ -721,53 +767,62 @@ class DataRegistryLegacy(MLComponentMixin):
                         "parents",
                         "pipeline_signature",
                         "metadata",
-                    ]
+                    }
 
-                    # Build the update dict
-                    update_data = {"dataset_id": dataset_id}
-                    set_parts = []
+                    db_updates: dict[str, Any] = {}
+                    cache_updates: dict[str, Any] = {}
 
-                    for field in all_fields:
-                        if field in changes:
-                            value = changes[field]
-                            if field in [
-                                "partitioning",
-                                "schema",
-                                "constraints",
-                                "metadata",
-                                "parents",
-                            ]:
-                                update_data[field] = (
-                                    json.dumps(value) if value is not None else "{}"
-                                )
+                    for key, raw_value in changes.items():
+                        column = column_aliases.get(key, key)
+                        if column not in allowed_fields:
+                            continue
+
+                        value = raw_value
+                        cache_key = "lineage" if column == "parents" else key
+
+                        if column == "dataset_type":
+                            if isinstance(value, DatasetType):
+                                db_value = value.name.upper()
+                                cache_value = value.value
                             else:
-                                update_data[field] = value
-                            set_parts.append(f"{field} = :{field}")
+                                db_value = str(value).split(".")[-1].upper()
+                                cache_value = str(value).lower()
+                        elif column == "storage_kind":
+                            if isinstance(value, StorageKind):
+                                db_value = value.value
+                                cache_value = value.value
+                            else:
+                                db_value = str(value).lower()
+                                cache_value = db_value
+                        elif column in json_defaults:
+                            db_value = value if value is not None else json_defaults[column]
+                            cache_value = db_value
+                        else:
+                            db_value = value
+                            cache_value = value
 
-                    if not set_parts:
+                        db_updates[column] = db_value
+                        cache_updates[cache_key] = cache_value
+
+                    if not db_updates:
                         raise ValueError("No valid fields to update")
 
-                    # Safe query with parameterized values
-                    query = text(
-                        f"""
-                        UPDATE ml_dataset_registry
-                        SET {', '.join(set_parts)}, last_modified = NOW()
-                        WHERE dataset_id = :dataset_id
-                    """,
+                    update_stmt = (
+                        table.update()
+                        .where(table.c.dataset_id == dataset_id)
+                        .values(**db_updates, last_modified=func.now())
                     )
 
-                    result = session.execute(query, update_data)
-                    # Check if any rows were affected
+                    result = session.execute(update_stmt)
                     row_count = getattr(result, "rowcount", None)
                     if row_count is not None and row_count == 0:
                         raise ValueError(f"Dataset '{dataset_id}' not found")
 
                     session.commit()
 
-                    # Update cache if present
                     if dataset_id in self._manifests:
                         manifest_dict = self._manifest_to_dict(self._manifests[dataset_id])
-                        manifest_dict.update(changes)
+                        manifest_dict.update(cache_updates)
                         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
 
                         manifest_dict["last_modified"] = _sanitize2(
@@ -893,20 +948,28 @@ class DataRegistryLegacy(MLComponentMixin):
                 return list(self._manifests.values())
 
             try:
-                query = text(
-                    """
-                    SELECT dataset_id, dataset_type, storage_kind, location,
-                           partitioning, retention_days, schema, schema_hash,
-                           constraints, parents AS lineage, pipeline_signature,
-                           version,
-                           EXTRACT(EPOCH FROM created_at) * 1000000000 AS created_at,
-                           EXTRACT(EPOCH FROM last_modified) * 1000000000 AS last_modified,
-                           metadata
-                    FROM ml_dataset_registry
-                    ORDER BY dataset_id
-                    """,
+                table = self._get_registry_table(session)
+                stmt = (
+                    select(
+                        table.c.dataset_id,
+                        table.c.dataset_type,
+                        table.c.storage_kind,
+                        table.c.location,
+                        table.c.partitioning,
+                        table.c.retention_days,
+                        table.c.schema,
+                        table.c.schema_hash,
+                        table.c.constraints,
+                        table.c.parents.label("lineage"),
+                        table.c.pipeline_signature,
+                        table.c.version,
+                        (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
+                        (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
+                        table.c.metadata,
+                    )
+                    .order_by(table.c.dataset_id)
                 )
-                rows = session.execute(query).fetchall()
+                rows = session.execute(stmt).all()
             finally:
                 session.close()
 
@@ -960,25 +1023,33 @@ class DataRegistryLegacy(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text(
-                        """
-                        SELECT dataset_id, dataset_type, storage_kind, location,
-                               partitioning, retention_days, schema, schema_hash,
-                               constraints, parents as lineage, pipeline_signature,
-                               version, EXTRACT(EPOCH FROM created_at) * 1000000000 as created_at,
-                               EXTRACT(EPOCH FROM last_modified) * 1000000000 as last_modified,
-                               metadata
-                        FROM ml_dataset_registry
-                        WHERE dataset_id = :dataset_id
-                    """,
+                    table = self._get_registry_table(session)
+                    stmt = (
+                        select(
+                            table.c.dataset_id,
+                            table.c.dataset_type,
+                            table.c.storage_kind,
+                            table.c.location,
+                            table.c.partitioning,
+                            table.c.retention_days,
+                            table.c.schema,
+                            table.c.schema_hash,
+                            table.c.constraints,
+                            table.c.parents.label("lineage"),
+                            table.c.pipeline_signature,
+                            table.c.version,
+                            (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
+                            (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
+                            table.c.metadata,
+                        )
+                        .where(table.c.dataset_id == dataset_id)
+                        .limit(1)
                     )
 
-                    result = session.execute(query, {"dataset_id": dataset_id}).fetchone()
+                    result = session.execute(stmt).fetchone()
                     if result is None:
                         raise ValueError(f"Dataset '{dataset_id}' not found")
 
-                    # Convert to manifest using RowMapping for SQLAlchemy 1.4/2.0
-                    # `Row` iterates over values; use the mapping view to build a dict.
                     manifest = self._manifest_from_row(result)
 
                     # Cache for future use
@@ -1495,26 +1566,26 @@ class DataRegistryLegacy(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text(
-                        """
-                        SELECT dataset_id, instrument_id, source,
-                               last_success_ns, last_attempt_ns, last_count,
-                               completeness_pct, EXTRACT(EPOCH FROM updated_at) as updated_at
-                        FROM ml_data_watermarks
-                        WHERE dataset_id = :dataset_id
-                          AND instrument_id = :instrument_id
-                          AND source = :source
-                    """,
+                    table = self._get_watermarks_table(session)
+                    columns = (
+                        table.c.dataset_id,
+                        table.c.instrument_id,
+                        table.c.source,
+                        table.c.last_success_ns,
+                        table.c.last_attempt_ns,
+                        table.c.last_count,
+                        table.c.completeness_pct,
+                        func.extract("epoch", table.c.updated_at).label("updated_at"),
+                    )
+                    stmt = (
+                        select(*columns)
+                        .where(table.c.dataset_id == dataset_id)
+                        .where(table.c.instrument_id == instrument_id)
+                        .where(table.c.source == source_val)
+                        .limit(1)
                     )
 
-                    result = session.execute(
-                        query,
-                        {
-                            "dataset_id": dataset_id,
-                            "instrument_id": instrument_id,
-                            "source": source_val,
-                        },
-                    ).fetchone()
+                    result = session.execute(stmt).fetchone()
 
                     if result is None:
                         return None
@@ -1571,37 +1642,29 @@ class DataRegistryLegacy(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    conditions: list[str] = []
-                    params: dict[str, Any] = {}
-                    if dataset_id is not None:
-                        conditions.append("dataset_id = :dataset_id")
-                        params["dataset_id"] = dataset_id
-                    if instrument_id is not None:
-                        conditions.append("instrument_id = :instrument_id")
-                        params["instrument_id"] = instrument_id
-                    if source_value is not None:
-                        conditions.append("source = :source")
-                        params["source"] = source_value
-
-                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                    limit_clause = ""
-                    if limit_value is not None:
-                        limit_clause = " LIMIT :limit"
-                        params["limit"] = limit_value
-
-                    query = text(
-                        """
-                        SELECT dataset_id, instrument_id, source,
-                               last_success_ns, last_attempt_ns, last_count,
-                               completeness_pct, EXTRACT(EPOCH FROM updated_at) AS updated_at
-                        FROM ml_data_watermarks
-                        """
-                        + where_clause
-                        + " ORDER BY updated_at DESC"
-                        + limit_clause,
+                    table = self._get_watermarks_table(session)
+                    columns = (
+                        table.c.dataset_id,
+                        table.c.instrument_id,
+                        table.c.source,
+                        table.c.last_success_ns,
+                        table.c.last_attempt_ns,
+                        table.c.last_count,
+                        table.c.completeness_pct,
+                        func.extract("epoch", table.c.updated_at).label("updated_at"),
                     )
+                    stmt = select(*columns)
+                    if dataset_id is not None:
+                        stmt = stmt.where(table.c.dataset_id == dataset_id)
+                    if instrument_id is not None:
+                        stmt = stmt.where(table.c.instrument_id == instrument_id)
+                    if source_value is not None:
+                        stmt = stmt.where(table.c.source == source_value)
+                    stmt = stmt.order_by(table.c.updated_at.desc())
+                    if limit_value is not None:
+                        stmt = stmt.limit(limit_value)
 
-                    rows = session.execute(query, params).fetchall()
+                    rows = session.execute(stmt).all()
                 finally:
                     session.close()
 
@@ -1613,6 +1676,26 @@ class DataRegistryLegacy(MLComponentMixin):
                     records.append(watermark)
 
         yield from records
+
+    def _get_watermarks_table(self, session: Session) -> Table:
+        """
+        Lazily reflect the ml_data_watermarks table for the current session bind.
+        """
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for watermark queries")
+
+        cache_key = id(bind)
+        table = self._watermarks_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table(
+                "ml_data_watermarks",
+                metadata,
+                autoload_with=bind,
+            )
+            self._watermarks_table_cache[cache_key] = table
+        return table
 
     def link_lineage(
         self,
@@ -1769,34 +1852,26 @@ class DataRegistryLegacy(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    conditions: list[str] = []
-                    params: dict[str, Any] = {}
-                    if child is not None:
-                        conditions.append("child_dataset_id = :child")
-                        params["child"] = child
-                    if parent is not None:
-                        conditions.append("parent_dataset_id = :parent")
-                        params["parent"] = parent
-
-                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                    limit_clause = ""
-                    if limit_value is not None:
-                        limit_clause = " LIMIT :limit"
-                        params["limit"] = limit_value
-
-                    query = text(
-                        """
-                        SELECT transform_id, child_dataset_id, parent_dataset_id,
-                               ts_range, parameters,
-                               EXTRACT(EPOCH FROM created_at) AS created_at
-                        FROM ml_data_lineage
-                        """
-                        + where_clause
-                        + " ORDER BY created_at DESC"
-                        + limit_clause,
+                    table = self._get_lineage_table(session)
+                    stmt = select(
+                        table.c.transform_id,
+                        table.c.child_dataset_id,
+                        table.c.parent_dataset_id,
+                        table.c.ts_range,
+                        table.c.parameters,
+                        func.extract("epoch", table.c.created_at).label("created_at"),
                     )
 
-                    rows = session.execute(query, params).fetchall()
+                    if child is not None:
+                        stmt = stmt.where(table.c.child_dataset_id == child)
+                    if parent is not None:
+                        stmt = stmt.where(table.c.parent_dataset_id == parent)
+
+                    stmt = stmt.order_by(table.c.created_at.desc())
+                    if limit_value is not None:
+                        stmt = stmt.limit(limit_value)
+
+                    rows = session.execute(stmt).all()
                 finally:
                     session.close()
 

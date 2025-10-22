@@ -8,8 +8,8 @@ prediction history and computing percentiles with zero allocations in the hot pa
 
 from __future__ import annotations
 
-import random
-from typing import TYPE_CHECKING, Any
+from random import SystemRandom
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
@@ -19,7 +19,53 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class LockFreeRingBuffer:
+@runtime_checkable
+class RingBufferProtocol(Protocol):
+    """Protocol for ring buffer implementations."""
+
+    def append(self, value: float) -> None: ...
+
+    def get_last(self, n: int = 1) -> npt.NDArray[np.float64]: ...
+
+    def get_window(self, start: int, length: int) -> npt.NDArray[np.float64]: ...
+
+    def reset(self) -> None: ...
+
+    @property
+    def count(self) -> int: ...
+
+
+@runtime_checkable
+class FeatureCacheProtocol(Protocol):
+    """Protocol for feature cache implementations."""
+
+    def get_current_buffer(self) -> npt.NDArray[np.float32]: ...
+
+    def store_current_features(self) -> None: ...
+
+    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float32]: ...
+
+    def reset(self) -> None: ...
+
+    @property
+    def n_features(self) -> int: ...
+
+
+@runtime_checkable
+class SamplerProtocol(Protocol):
+    """Protocol for sampling implementations."""
+
+    def add_sample(self, value: float) -> None: ...
+
+    def get_percentile(self, q: float) -> float: ...
+
+    def reset(self) -> None: ...
+
+    @property
+    def count(self) -> int: ...
+
+
+class LockFreeRingBuffer(RingBufferProtocol):
     """
     Lock-free ring buffer for high-performance history tracking.
 
@@ -45,6 +91,7 @@ class LockFreeRingBuffer:
         self._index = 0
         self._count = 0
         self._dtype = dtype
+        self._random = SystemRandom()
 
     @property
     def size(self) -> int:
@@ -239,7 +286,7 @@ class LockFreeRingBuffer:
         return float(np.percentile(self.get_all(), q))
 
 
-class ReservoirSampler:
+class ReservoirSampler(SamplerProtocol):
     """
     Reservoir sampling for maintaining representative sample for percentile calculation.
 
@@ -266,6 +313,7 @@ class ReservoirSampler:
         self._count = 0
         self._total_seen = 0
         self._dtype = dtype
+        self._random = SystemRandom()
 
     @property
     def reservoir_size(self) -> int:
@@ -306,7 +354,7 @@ class ReservoirSampler:
             self._count += 1
         else:
             # Reservoir full, randomly replace
-            j = random.randint(0, self._total_seen - 1)
+            j = self._random.randint(0, self._total_seen - 1)
             if j < self._reservoir_size:
                 self._reservoir[j] = value
 
@@ -385,7 +433,7 @@ class ReservoirSampler:
         self._total_seen = 0
 
 
-class PreAllocatedFeatureCache:
+class PreAllocatedFeatureCache(FeatureCacheProtocol):
     """
     Pre-allocated cache for feature vectors with zero-allocation hot path operations.
 
@@ -733,3 +781,14 @@ class MultiChannelRingBuffer:
         """
         self._idx = 0
         self._count = 0
+
+
+__all__ = [
+    "FeatureCacheProtocol",
+    "LockFreeRingBuffer",
+    "MultiChannelRingBuffer",
+    "PreAllocatedFeatureCache",
+    "ReservoirSampler",
+    "RingBufferProtocol",
+    "SamplerProtocol",
+]

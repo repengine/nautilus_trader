@@ -60,6 +60,98 @@ services:
       timeout: 5s
       retries: 5
 
+  streaming_persistence_worker:
+    build:
+      context: ../..
+      dockerfile: ml/deployment/Dockerfile.pipeline
+    environment:
+      ML_BUS_ENABLE: "1"
+      ML_BUS_BACKEND: "redis"
+      ML_BUS_REDIS_URL: "redis://redis:6379/0"
+      ML_BUS_REDIS_STREAM: "${ML_BUS_REDIS_STREAM:-ml-events}"
+      ML_STREAM_PERSIST_ENABLE: "${ML_STREAM_PERSIST_ENABLE:-1}"
+      ML_STREAM_PERSIST_STATE_PATH: "/app/ml_out/streaming_training_state.json"
+      ML_STREAM_PERSIST_BATCH_SIZE: "${ML_STREAM_PERSIST_BATCH_SIZE:-256}"
+      ML_STREAM_PERSIST_BLOCK_MS: "${ML_STREAM_PERSIST_BLOCK_MS:-1000}"
+      ML_STREAM_PERSIST_POLL_INTERVAL_SECONDS: "${ML_STREAM_PERSIST_POLL_INTERVAL_SECONDS:-0.5}"
+    command: ["python", "-m", "ml.cli.streaming_persistence_worker"]
+    depends_on:
+      - redis
+    volumes:
+      - streaming_state_data:/app/ml_out
+    networks:
+      - nautilus-ml
+    restart: unless-stopped
+
+  streaming_training_runner:
+    build:
+      context: ../..
+      dockerfile: ml/deployment/Dockerfile.streaming
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      ML_BUS_ENABLE: "1"
+      ML_BUS_BACKEND: "redis"
+      ML_BUS_REDIS_URL: "redis://redis:6379/0"
+      ML_BUS_REDIS_STREAM: "${ML_BUS_REDIS_STREAM:-ml-events}"
+      ML_MODEL_REGISTRY_PATH: "/root/.nautilus/ml/models"
+      ML_STREAMING_PROMOTION_COMMAND: "${ML_STREAMING_PROMOTION_COMMAND:-}"
+      ML_STREAMING_BUS_RETRY_ATTEMPTS: "${ML_STREAMING_BUS_RETRY_ATTEMPTS:-3}"
+      ML_STREAMING_BUS_RETRY_DELAY_SECONDS: "${ML_STREAMING_BUS_RETRY_DELAY_SECONDS:-0.5}"
+    command:
+      [
+        "python",
+        "-m",
+        "ml.cli.streaming_training_runner",
+        "--dataset-dir",
+        "/app/${ML_STREAMING_DATASET_DIR}",
+        "--output-dir",
+        "/app/${ML_STREAMING_OUTPUT_DIR}",
+        "--state-path",
+        "/app/${ML_STREAMING_STATE_PATH}",
+        "--shard-row-budget",
+        "${ML_STREAMING_SHARD_ROW_BUDGET}",
+        "--max-total-rows",
+        "${ML_STREAMING_MAX_TOTAL_ROWS}",
+        "--max-total-sequences",
+        "${ML_STREAMING_MAX_TOTAL_SEQUENCES}",
+        "--max-shards",
+        "${ML_STREAMING_MAX_SHARDS}",
+        "--max-epochs",
+        "${ML_STREAMING_MAX_EPOCHS}",
+        "--plan-interval-seconds",
+        "${ML_STREAMING_PLAN_INTERVAL_SECONDS}",
+        "--promotion-threshold",
+        "${ML_STREAMING_PROMOTION_THRESHOLD}",
+        "--promotion-command",
+        "${ML_STREAMING_PROMOTION_COMMAND}",
+        "--accelerator",
+        "${ML_STREAMING_ACCELERATOR}",
+        "--devices",
+        "${ML_STREAMING_DEVICES}",
+        "--max-plans",
+        "${ML_STREAMING_MAX_PLANS}",
+        "--gpu-monitor-interval",
+        "${ML_STREAMING_GPU_MONITOR_INTERVAL}",
+        "--publish-retry-attempts",
+        "${ML_STREAMING_BUS_RETRY_ATTEMPTS}",
+        "--publish-retry-delay-seconds",
+        "${ML_STREAMING_BUS_RETRY_DELAY_SECONDS}",
+      ]
+    depends_on:
+      - redis
+    volumes:
+      - ../../ml_out:/app/ml_out
+      - ${HOME:-/root}/.nautilus:/root/.nautilus
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: ["gpu"]
+    networks:
+      - nautilus-ml
+    restart: unless-stopped
+
   # ML Signal Actor Container
   ml_signal_actor:
     build:
@@ -280,21 +372,26 @@ services:
       PROMETHEUS_HOST_PORT: "${PROMETHEUS_HOST_PORT:-9090}"
       GRAFANA_HOST_PORT: "${GRAFANA_HOST_PORT:-3000}"
       ML_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      ML_DASHBOARD_STREAMING_STATE_PATH: "/app/ml_out/streaming_training_state.json"
     command: ["python", "-m", "ml.dashboard.serve"]
     depends_on:
       - prometheus
       - grafana
+      - streaming_persistence_worker
     networks:
       - nautilus-ml
     restart: unless-stopped
     ports:
       - "${ML_DASHBOARD_HOST_PORT:-8010}:8010"
+    volumes:
+      - streaming_state_data:/app/ml_out
 
 volumes:
   postgres_data:
   postgres_playground_data:
   prometheus_data:
   grafana_data:
+  streaming_state_data:
 
 networks:
   nautilus-ml:

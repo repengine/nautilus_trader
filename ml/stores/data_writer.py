@@ -16,6 +16,7 @@ from typing import Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import pd
+from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -251,7 +252,7 @@ class DataWriter:
         Schema validation component
     registry : Any
         Data registry for manifest/contract retrieval
-    publisher : Any | None
+    publisher : MessagePublisherProtocol | None
         Message bus publisher (optional)
     enable_publishing : bool
         Enable event publishing
@@ -277,7 +278,7 @@ class DataWriter:
         contract_enforcer: ContractEnforcer,
         schema_validator: SchemaValidator,
         registry: Any,
-        publisher: Any | None = None,
+        publisher: MessagePublisherProtocol | None = None,
         enable_publishing: bool = False,
         fail_on_validation_error: bool = True,
         batch_size: int = 10000,
@@ -304,7 +305,7 @@ class DataWriter:
             Schema validation component
         registry : Any
             Data registry for manifest/contract retrieval
-        publisher : Any | None
+        publisher : MessagePublisherProtocol | None
             Message bus publisher (optional)
         enable_publishing : bool
             Enable event publishing
@@ -326,7 +327,7 @@ class DataWriter:
         self.contract_enforcer = contract_enforcer
         self.schema_validator = schema_validator
         self.registry = registry
-        self.publisher = publisher
+        self.publisher: MessagePublisherProtocol | None = publisher
         self.enable_publishing = enable_publishing
         self.fail_on_validation_error = fail_on_validation_error
         self.batch_size = batch_size
@@ -448,6 +449,13 @@ class DataWriter:
         use_strict = contract.enforcement_mode == "strict"
         quality_report = self.contract_enforcer.validate_batch(dataset_id, data_frame, strict_mode=use_strict)
 
+        monitor_message: str | None = None
+        if (
+            quality_report.quality_score < 1.0
+            and contract.enforcement_mode == "monitor_only"
+        ):
+            monitor_message = self.schema_validator.format_violations(quality_report.violations)
+
         # Enforce quality report
         if quality_report.quality_score < 1.0:
             self.schema_validator.enforce_quality_report(
@@ -549,6 +557,14 @@ class DataWriter:
             ts_min_s = _sanitize(int(ts_min), context="data_writer.write_ingestion:ts_min")
             ts_max_s = _sanitize(int(ts_max), context="data_writer.write_ingestion:ts_max")
 
+            metadata: dict[str, Any] = {
+                "quality_score": quality_report.quality_score,
+                "processing_time_ms": (time.perf_counter() - start_time) * 1000,
+                **extra_metadata,
+            }
+            if monitor_message is not None:
+                metadata["monitor_only_details"] = monitor_message
+
             event = DataEvent(
                 event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
                 dataset_id=dataset_id,
@@ -560,11 +576,7 @@ class DataWriter:
                 ts_max=ts_max_s,
                 record_count=len(cast(Any, data_frame)),
                 status=EventStatus.SUCCESS.value,
-                metadata={
-                    "quality_score": quality_report.quality_score,
-                    "processing_time_ms": (time.perf_counter() - start_time) * 1000,
-                    **extra_metadata,
-                },
+                metadata=metadata,
             )
 
             # Emit event and update watermark
@@ -1343,8 +1355,18 @@ class DataWriter:
                 pipeline_signature="auto_generated",
             )
 
-            # Register with registry
-            self.registry.register_manifest(manifest)
+            # Register with registry, falling back to legacy API when needed
+            registrar = getattr(self.registry, "register_manifest", None)
+            if callable(registrar):
+                registrar(manifest)
+            else:
+                legacy_registrar = getattr(self.registry, "register_dataset", None)
+                if callable(legacy_registrar):
+                    legacy_registrar(manifest)
+                else:  # pragma: no cover - defensive for unexpected stubs
+                    raise AttributeError(
+                        "Registry missing register_manifest/register_dataset methods",
+                    )
 
     def _get_stage_for_dataset_type(self, dataset_type: DatasetType) -> str:
         """

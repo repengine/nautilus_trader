@@ -143,8 +143,11 @@ class ALFREDDataLoader:
         if api_key is None:
             msg = "FRED_API_KEY must be provided via ALFREDConfig.api_key or environment"
             raise ValueError(msg)
-        assert _fredapi is not None  # guarded in __init__
-        return cast(_FredVintageClient, _fredapi.Fred(api_key=api_key))
+        client_module = _fredapi
+        if client_module is None:  # Guard for optional dependency resolution
+            msg = "fredapi module not available; ensure optional dependency is installed"
+            raise RuntimeError(msg)
+        return cast(_FredVintageClient, client_module.Fred(api_key=api_key))
 
     def _refresh_series(self, series_id: str) -> dict[str, int]:
         logger.info("Fetching ALFRED vintages for %s", series_id)
@@ -189,7 +192,9 @@ class ALFREDDataLoader:
             empty.write_parquet(series_dir / "release_calendar.parquet")
             return {"releases": releases, "rows": rows}
 
-        assert _pd is not None
+        if _pd is None:
+            msg = "pandas runtime not available for ALFRED loader"
+            raise RuntimeError(msg)
         pandas_frame = pandas_frame.copy()
         pandas_frame["realtime_start"] = (
             PANDAS.to_datetime(pandas_frame["realtime_start"], utc=True)

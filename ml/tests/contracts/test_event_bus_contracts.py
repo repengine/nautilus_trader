@@ -31,7 +31,15 @@ from ml.common.message_topics import build_topic_for_stage
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml._imports import HAS_PANDERA
+from ml._imports import PANDERA_IMPORT_ERROR
 from nautilus_trader.model.identifiers import InstrumentId
+
+if not HAS_PANDERA:  # pragma: no cover - optional dependency
+    pytest.skip(
+        f"Pandera unavailable: {PANDERA_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
 
 
 # ============================================================================

@@ -27,6 +27,7 @@ Feature Flag:
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -39,8 +40,7 @@ from ml.common.db_utils import get_or_create_engine
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.base import MLFeatureConfig
-
-# Re-export for test compatibility (tests patch EngineManager)
+from ml.core.db_engine import EngineManager
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -57,12 +57,40 @@ if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
 
     from ml.registry.protocols import RegistryProtocol
+    from ml.stores.services.feature_services import CrossAssetFeatureService
+
+
+def _should_use_component_impl() -> bool:
+    """
+    Determine whether to enable the component-based FeatureStore facade.
+
+    Precedence (highest to lowest):
+    1. ML_USE_COMPONENT_FEATURE_STORE=1 explicitly opts in.
+    2. ML_USE_COMPONENT_FEATURE_STORE=0 explicitly opts out.
+    3. Historical flag ML_USE_LEGACY_FEATURE_STORE keeps working:
+       - "1" => legacy implementation
+       - "0" => component implementation
+       - unset => legacy (default)
+    """
+    legacy_flag = os.getenv("ML_USE_LEGACY_FEATURE_STORE")
+    if legacy_flag is not None:
+        return legacy_flag.strip() == "0"
+
+    component_flag = os.getenv("ML_USE_COMPONENT_FEATURE_STORE")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
+
+    return False
+
+
+USE_COMPONENT_FEATURE_STORE = _should_use_component_impl()
+USE_LEGACY_FEATURE_STORE = not USE_COMPONENT_FEATURE_STORE
 
 
 logger = logging.getLogger(__name__)
 
 
-class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
+class ComponentFeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
     """
     Unified feature computation and storage facade.
 
@@ -220,6 +248,9 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         self._write_buffer: list[FeatureData] = []
         self._buffer: list[FeatureData] = self._write_buffer
 
+        # Cross-asset service (lazy initialization)
+        self._cross_asset_service: CrossAssetFeatureService | None = None
+
         # Optional message publishing
         self._init_bus_publishing(
             enable_publishing=enable_publishing,
@@ -252,6 +283,47 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         self._data_registry = registry
         # Update computation component's registry
         self._computation._data_registry = registry
+
+    @property
+    def cross_asset(self) -> CrossAssetFeatureService:
+        """
+        Access cross-asset feature operations (beta, spreads, correlations).
+
+        This property provides lazy initialization of the CrossAssetFeatureService,
+        which enables storage and retrieval of cross-asset relationship features
+        using the existing ml_feature_values table with namespaced feature_set_ids.
+
+        Returns
+        -------
+        CrossAssetFeatureService
+            Service instance for cross-asset feature operations.
+
+        Example
+        -------
+        >>> store = ComponentFeatureStore(connection_string="postgresql://...")
+        >>> store.cross_asset.write_beta(
+        ...     asset_id="AAPL",
+        ...     benchmark_id="SPY",
+        ...     ts_event=1234567890000000000,
+        ...     ts_init=1234567890000000000,
+        ...     beta=1.25,
+        ...     lookback_periods=60,
+        ...     ewma_span=30,
+        ... )
+        >>> history = store.cross_asset.get_beta_history(
+        ...     asset_id="AAPL",
+        ...     benchmark_id="SPY",
+        ...     start_ts=1234567890000000000,
+        ...     end_ts=1234567891000000000,
+        ... )
+
+        """
+        if self._cross_asset_service is None:
+            from ml.stores.services.feature_services import CrossAssetFeatureService
+
+            self._cross_asset_service = CrossAssetFeatureService(deps=self)
+
+        return self._cross_asset_service
 
     # -------------------------------------------------------------------------
     # Public API: Computation Methods
@@ -846,3 +918,41 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
 
         """
         return self.engine.connect()
+
+
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    """
+    Return the shared SQLAlchemy engine for ``connection_string``.
+
+    This helper mirrors the historical module-level function used throughout the
+    tests. It simply delegates to :class:`~ml.core.db_engine.EngineManager` so
+    all store modules share the same engine cache.
+
+    Args:
+        connection_string: Database URL (e.g. ``postgresql://...``).
+        **kwargs: Optional SQLAlchemy engine configuration overrides.
+
+    Returns:
+        Engine: The shared SQLAlchemy engine instance.
+    """
+    return EngineManager.get_engine(connection_string, **kwargs)
+
+
+# During type checking, expose the legacy type to satisfy existing annotations.
+if TYPE_CHECKING:
+    from ml.stores.feature_store_legacy import FeatureStoreLegacy as FeatureStore
+elif USE_COMPONENT_FEATURE_STORE:
+    FeatureStore = ComponentFeatureStore
+else:
+    from ml.stores.feature_store_legacy import FeatureStoreLegacy
+
+    FeatureStore = FeatureStoreLegacy
+
+
+__all__ = [
+    "ComponentFeatureStore",
+    "EngineManager",
+    "FeatureStore",
+    "FeatureStoreLegacy",
+    "create_engine",
+]

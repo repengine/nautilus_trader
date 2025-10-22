@@ -20,6 +20,7 @@ from hypothesis import strategies as st
 from hypothesis.stateful import Bundle
 from hypothesis.stateful import RuleBasedStateMachine
 from hypothesis.stateful import rule
+from hypothesis.stateful import run_state_machine_as_test
 
 from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
@@ -435,5 +436,10 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
             )
 
 
-# Create the stateful test
-TestMLSignalActorStateful = MLSignalActorStateMachine.TestCase
+
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
+def test_ml_signal_actor_state_machine() -> None:
+    """Execute stateful Hypothesis tests for the ML signal actor."""
+    run_state_machine_as_test(MLSignalActorStateMachine)

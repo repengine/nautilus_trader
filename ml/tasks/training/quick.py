@@ -73,7 +73,8 @@ def _select_data_dir(candidates: Sequence[Path]) -> Path:
 def _to_pandas_frame(obj: object) -> DataFrame:
     if pd is None:
         check_ml_dependencies(["pandas"])
-        assert pd is not None
+        if pd is None:
+            raise RuntimeError("pandas remains unavailable after dependency check")
     if pl is not None and isinstance(obj, pl.DataFrame):
         return cast(DataFrame, obj.to_pandas())
     if isinstance(obj, pd.DataFrame):

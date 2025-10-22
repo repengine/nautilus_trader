@@ -54,6 +54,10 @@ PD: Any = cast(Any, pd_runtime)
 pl = PL
 pd = PD
 
+if not TYPE_CHECKING:
+    _pl = pl  # type: ignore[assignment]
+    _pd = pd  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 

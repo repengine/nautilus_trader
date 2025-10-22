@@ -89,6 +89,45 @@ def test_feature_registry_roundtrip(names: list[str]) -> None:
         assert feature_set.manifest.stage == FeatureStage.PROD
 
 
+def test_register_feature_set_records_capability_flag_diff(tmp_path: Path) -> None:
+    reg = FeatureRegistry(tmp_path)
+    base_manifest = RegistryBuilder.feature_manifest(
+        feature_set_id="",
+        name="streaming_teacher",
+        version="1.0.0",
+        role=FeatureRole.TEACHER,
+        capability_flags={
+            "include_macro": True,
+            "include_l2": False,
+        },
+    )
+    first_id = reg.register_feature_set(base_manifest)
+    first_info = reg.get_feature_set(first_id)
+    assert first_info is not None
+    assert "capability_flags_diff" not in first_info.manifest.parity_digest
+
+    updated_manifest = RegistryBuilder.feature_manifest(
+        feature_set_id="",
+        name="streaming_teacher",
+        version="1.0.1",
+        role=FeatureRole.TEACHER,
+        capability_flags={
+            "include_macro": True,
+            "include_l2": True,
+        },
+    )
+    second_id = reg.register_feature_set(updated_manifest)
+    second_info = reg.get_feature_set(second_id)
+    assert second_info is not None
+    diff = second_info.manifest.parity_digest.get("capability_flags_diff")
+    assert diff == {
+        "include_l2": {
+            "previous": False,
+            "current": True,
+        },
+    }
+
+
 # =================================================================================================
 # Tests merged from test_feature_registry_basic.py
 # =================================================================================================

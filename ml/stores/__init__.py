@@ -87,13 +87,13 @@ def _should_use_component_feature_store() -> bool:
        - "0" => component implementation
        - unset => legacy (default)
     """
-    component_flag = _os.getenv("ML_USE_COMPONENT_FEATURE_STORE")
-    if component_flag is not None:
-        return component_flag.strip() == "1"
-
     legacy_flag = _os.getenv("ML_USE_LEGACY_FEATURE_STORE")
     if legacy_flag is not None:
         return legacy_flag.strip() == "0"
+
+    component_flag = _os.getenv("ML_USE_COMPONENT_FEATURE_STORE")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
 
     return False
 
@@ -107,6 +107,7 @@ def _should_use_component_feature_store() -> bool:
 # Abstract base store and data structures
 from ml.stores import data_store as data_store  # re-export module for test patch paths
 from ml.stores import feature_store as feature_store  # re-export module for test patch paths
+from ml.stores import model_store as model_store  # re-export module for test patch paths
 from ml.stores.base import BaseStore
 
 # Pattern 4: Fallback store for testing/unavailable PostgreSQL
@@ -141,7 +142,7 @@ else:
     if not _should_use_component_feature_store():
         from ml.stores.feature_store_legacy import FeatureStoreLegacy as _FeatureStoreImpl
     else:
-        from ml.stores.feature_store import FeatureStore as _FeatureStoreImpl
+        from ml.stores.feature_store import ComponentFeatureStore as _FeatureStoreImpl
 
     FeatureStore = cast(type[Any], _FeatureStoreImpl)
 

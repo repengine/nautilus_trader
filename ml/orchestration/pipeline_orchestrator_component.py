@@ -509,7 +509,8 @@ class MLPipelineOrchestrator:
         """
         # Distillation logic remains in facade for now (may extract in future Phase)
         logger.warning(
-            "Student distillation not yet implemented in component-based orchestrator; use legacy mode"
+            "Student distillation not yet implemented in component-based orchestrator; use legacy mode",
+            extra={"teacher_dir": str(teacher_dir), "dataset_csv": str(dataset_csv)},
         )
         return 1
 

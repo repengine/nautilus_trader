@@ -7,6 +7,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
+import msgspec
+
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
 from ml.config.base import MLActorConfig
 from ml.config.runtime import OnnxRuntimeConfig
 from nautilus_trader.common.config import NautilusConfig
@@ -58,6 +62,22 @@ class StrategyConfig(NautilusConfig, kw_only=True, frozen=True):
     threshold_short: float | None = None
 
 
+def _default_actor_db_connection() -> str | None:
+    """
+    Resolve the default actor database connection from environment-driven candidates.
+
+    Returns the first candidate URL discovered for :class:`~ml.common.db_connections.ConnectionRole.PRIMARY`.
+    When no candidates are available, ``None`` is returned so callers can decide how to proceed.
+    """
+    candidates = collect_postgres_candidates(ConnectionRole.PRIMARY).urls
+    if not candidates:
+        logging.getLogger(__name__).debug(
+            "actor_db_connection_default_missing",
+        )
+        return None
+    return candidates[0]
+
+
 class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     """
     Unified configuration for ML Signal Actor with all features.
@@ -91,7 +111,7 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     onnx_runtime_config: OnnxRuntimeConfig | None = None
     # FeatureStore integration
     use_feature_store: bool = False
-    db_connection: str = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    db_connection: str | None = msgspec.field(default_factory=_default_actor_db_connection)
     persist_features: bool = True
     pipeline_spec: Any | None = None
     # Test mode

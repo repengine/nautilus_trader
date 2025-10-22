@@ -4,12 +4,14 @@ import logging
 import types
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
 
 from ml._imports import HAS_PANDAS
+from ml._imports import HAS_TORCH
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml.training.teacher.base import BaseTeacher
@@ -17,6 +19,18 @@ from ml.training.teacher.base import TeacherConfig
 
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from torch import Tensor as TorchTensor
+    from torch.utils.data import DataLoader as TorchDataLoader
+
+    from ml.training.teacher.streaming_loader import TFTStreamingConfig
+    from ml.training.teacher.streaming_loader import TFTStreamingMetadata
+
+    StreamingBatch = tuple[dict[str, TorchTensor], tuple[TorchTensor, None]]
+else:  # pragma: no cover - optional dependency fallback
+    TorchDataLoader = Any
+    StreamingBatch = Any
 
 
 @dataclass(frozen=True)
@@ -26,6 +40,31 @@ class TFTTeacherConfig(TeacherConfig):
     loss_name: str = "poisson"
     #: Optional positive class weight for BCE to handle class imbalance.
     pos_weight: float | None = None
+
+
+@dataclass(frozen=True)
+class StreamingFitResult:
+    """
+    Container for logits generated during streaming training.
+
+    Attributes:
+        z_train: Logits for the training shard set, flattened to 1-D.
+        z_val: Logits for the validation shard set, flattened to 1-D.
+        y_val: Validation targets aligned with ``z_val``.
+    """
+
+    z_train: npt.NDArray[np.float64]
+    z_val: npt.NDArray[np.float64]
+    y_val: npt.NDArray[np.float64]
+
+
+@dataclass(slots=True)
+class _StreamingState:
+    parquet_path: Path
+    train_metadata: Any
+    val_metadata: Any
+    full_metadata: Any
+    config: Any
 
 
 class TFTTeacher(BaseTeacher):
@@ -92,6 +131,7 @@ class TFTTeacher(BaseTeacher):
         self._training_dataset: Any | None = None
         self._tft: Any | None = None
         self._trainer: Any | None = None
+        self._streaming_state: _StreamingState | None = None
 
     # --- public API ---
     def fit(self, df: Any) -> TFTTeacher:
@@ -299,6 +339,225 @@ class TFTTeacher(BaseTeacher):
         self._training_dataset = training
         self._is_fitted = True
         return self
+
+    def fit_streaming(
+        self,
+        parquet_path: Path,
+        train_loader: TorchDataLoader[StreamingBatch],
+        val_loader: TorchDataLoader[StreamingBatch],
+        *,
+        train_metadata: TFTStreamingMetadata,
+        val_metadata: TFTStreamingMetadata,
+        full_metadata: TFTStreamingMetadata,
+        streaming_config: TFTStreamingConfig,
+    ) -> StreamingFitResult:
+        """Train using streaming dataloaders to avoid materialising the full dataset."""
+        if not HAS_TORCH:
+            check_ml_dependencies(["torch"])
+        try:
+            import torch
+        except Exception as exc:  # pragma: no cover - dependency guard
+            raise RuntimeError("PyTorch is required for streaming training") from exc
+
+        try:
+            from pytorch_forecasting import TemporalFusionTransformer
+            from pytorch_forecasting import TimeSeriesDataSet
+            from pytorch_forecasting.metrics import PoissonLoss
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("pytorch-forecasting is required for streaming training") from exc
+
+        from ml.training.teacher.losses import BCEWithLogitsLossPF
+
+        cfg = cast(TFTTeacherConfig, self.config)
+
+        categorical_vocab = full_metadata.categorical_vocab
+        cat_cardinalities = {
+            name: len(vocab) + 1 for name, vocab in categorical_vocab.items()
+        }
+        embedding_sizes = {
+            name: (cardinality, min(50, (cardinality + 1) // 2))
+            for name, cardinality in cat_cardinalities.items()
+        }
+
+        if cfg.loss_name.lower() == "bce":
+            loss_obj: Any = BCEWithLogitsLossPF(pos_weight=cfg.pos_weight)
+        else:
+            loss_obj = PoissonLoss()
+
+        static_reals = list(streaming_config.static_reals)
+        known_reals = list(streaming_config.time_varying_known_reals)
+        unknown_reals = list(streaming_config.time_varying_unknown_reals)
+        static_cats = list(streaming_config.static_categoricals)
+
+        template_dataset = self._build_streaming_template_dataset(
+            metadata=full_metadata,
+            streaming_config=streaming_config,
+            static_categoricals=tuple(static_cats),
+            static_reals=tuple(static_reals),
+            known_reals=tuple(known_reals),
+            unknown_reals=tuple(unknown_reals),
+            dataset_cls=TimeSeriesDataSet,
+        )
+
+        model = TemporalFusionTransformer.from_dataset(
+            template_dataset,
+            hidden_size=self.hidden_size,
+            lstm_layers=self.lstm_layers,
+            dropout=self.dropout,
+            output_size=1,
+            loss=loss_obj,
+            attention_head_size=self.attention_head_size,
+            learning_rate=self.learning_rate,
+            log_interval=100,
+            embedding_sizes=embedding_sizes,
+        )
+
+        precision_arg: Any = self._precision
+        trainer_cls: Any
+        try:  # pragma: no cover - prefer Lightning 2.x
+            import lightning.pytorch as _lpl
+
+            if isinstance(precision_arg, str):
+                if precision_arg == "16":
+                    precision_arg = "16-mixed"
+                elif precision_arg.lower() == "bf16":
+                    precision_arg = "bf16-mixed"
+            trainer_cls = _lpl.Trainer
+        except Exception:  # pragma: no cover - fall back to PL 1.x
+            import pytorch_lightning as _pl
+
+            trainer_cls = _pl.Trainer
+
+        trainer = trainer_cls(
+            max_epochs=self.max_epochs,
+            gradient_clip_val=1.0,
+            enable_progress_bar=False,
+            logger=False,
+            enable_checkpointing=False,
+            accelerator=self._accelerator,
+            devices=self._devices,
+            precision=precision_arg,
+        )
+
+        self._tft = model
+        self._trainer = trainer
+
+        trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
+
+        train_logits, _ = self._collect_streaming_logits(train_loader, torch)
+        val_logits, val_targets = self._collect_streaming_logits(val_loader, torch)
+
+        self._streaming_state = _StreamingState(
+            parquet_path=parquet_path,
+            train_metadata=train_metadata,
+            val_metadata=val_metadata,
+            full_metadata=full_metadata,
+            config=streaming_config,
+        )
+        self._is_fitted = True
+        return StreamingFitResult(z_train=train_logits, z_val=val_logits, y_val=val_targets)
+
+    def _collect_streaming_logits(
+        self,
+        loader: TorchDataLoader[StreamingBatch],
+        torch_mod: Any,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Return concatenated logits and targets from a streaming DataLoader."""
+        if self._tft is None:
+            raise RuntimeError("Streaming model not initialised")
+
+        preds: list[np.ndarray] = []
+        targets: list[np.ndarray] = []
+        self._tft.eval()
+        with torch_mod.no_grad():
+            for batch_inputs, (decoder_target, _) in loader:
+                output = self._tft(batch_inputs)
+                prediction = output["prediction"]
+                preds.append(
+                    prediction.detach().cpu().numpy().reshape(-1),
+                )
+                targets.append(
+                    decoder_target.detach().cpu().numpy().reshape(-1),
+                )
+
+        if preds:
+            logits = np.concatenate(preds, axis=0).astype(np.float64, copy=False)
+            y = np.concatenate(targets, axis=0).astype(np.float64, copy=False)
+        else:
+            logits = np.empty(0, dtype=np.float64)
+            y = np.empty(0, dtype=np.float64)
+        return logits, y
+
+    def _build_streaming_template_dataset(
+        self,
+        *,
+        metadata: TFTStreamingMetadata,
+        streaming_config: TFTStreamingConfig,
+        static_categoricals: Sequence[str],
+        static_reals: Sequence[str],
+        known_reals: Sequence[str],
+        unknown_reals: Sequence[str],
+        dataset_cls: Any,
+    ) -> Any:
+        """Create a minimal TimeSeriesDataSet that mirrors the streaming configuration."""
+        if pd is None:
+            raise RuntimeError("pandas is required for streaming template dataset construction")
+        if not metadata.instrument_row_counts:
+            raise ValueError("Streaming metadata must include instrument row counts")
+
+        encoder_len = max(1, streaming_config.max_encoder_length)
+        decoder_len = max(1, streaming_config.max_prediction_length)
+        total_len = encoder_len + decoder_len
+        instrument_id = sorted(metadata.instrument_row_counts.keys())[0]
+
+        template_data: dict[str, list[Any]] = {
+            streaming_config.time_idx_col: list(range(total_len)),
+            streaming_config.group_id_col: [instrument_id] * total_len,
+            streaming_config.target_col: [0.0] * total_len,
+        }
+
+        for column in static_categoricals:
+            if column == streaming_config.group_id_col:
+                value = instrument_id
+            else:
+                vocab = metadata.categorical_vocab.get(column)
+                value = vocab[0] if vocab else "__UNK__"
+            template_data[column] = [value] * total_len
+
+        def _numeric_value(name: str) -> float:
+            stats = metadata.numeric_stats.get(name)
+            if stats is None or stats.count <= 0:
+                return 0.0
+            return float(stats.mean)
+
+        for column in static_reals:
+            template_data[column] = [_numeric_value(column)] * total_len
+
+        for column in known_reals:
+            mean_value = _numeric_value(column)
+            template_data[column] = [float(mean_value)] * total_len
+        for column in unknown_reals:
+            mean_value = _numeric_value(column)
+            template_data[column] = [float(mean_value)] * total_len
+
+        frame = pd.DataFrame(template_data)
+        dataset = dataset_cls(
+            frame,
+            time_idx=streaming_config.time_idx_col,
+            target=streaming_config.target_col,
+            group_ids=[streaming_config.group_id_col],
+            max_encoder_length=streaming_config.max_encoder_length,
+            max_prediction_length=streaming_config.max_prediction_length,
+            min_encoder_length=1,
+            min_prediction_length=1,
+            static_categoricals=list(static_categoricals),
+            static_reals=list(static_reals),
+            time_varying_known_reals=list(known_reals),
+            time_varying_unknown_reals=list(unknown_reals),
+            allow_missing_timesteps=True,
+            add_encoder_length=False,
+        )
+        return dataset
 
     def predict_logits(self, df: Any) -> npt.NDArray[np.float64]:
         if not self._is_fitted or self._tft is None:

@@ -1,1047 +1,614 @@
 # ML Deployment Architecture Context
 
+**Last Updated**: 2025-01-19
+**Implementation Status**: 98% Complete – Production-ready containerized deployment with comprehensive observability
+
+---
+
 ## Executive Summary
 
-The ML deployment architecture for Nautilus Trader provides a production-ready containerized environment for real-time algorithmic trading with machine learning components. Built on Docker Compose orchestration with comprehensive monitoring, this system enforces the mandatory 4-store + 4-registry pattern, supports multiple deployment modes (local development, containerized production, and backtest), implements progressive fallback strategies, and maintains strict safety controls with dry-run-by-default operations.
+The ML deployment architecture provides a production-hardened, containerized environment for running Nautilus Trader ML strategies with real-time market data integration. Built on Docker Compose v2 with comprehensive monitoring, this system enforces the mandatory 4-store + 4-registry pattern, implements progressive fallback strategies, maintains strict security controls (ONNX-only models, dry-run-by-default), and provides multiple deployment modes (production containers, local development, backtest simulation).
 
-**Implementation Status**: **98% Complete** - All core deployment components implemented with functional Docker Compose stack, health monitoring, and production deployment scripts.
+**Core Capabilities:**
+- **Multi-service orchestration** with health-based dependencies and graceful degradation
+- **Three deployment modes** supporting different use cases (production/dev/backtest)
+- **Comprehensive observability** via Prometheus/Grafana with custom dashboards and alerts
+- **Security-first design** with ONNX-only model enforcement and mandatory dry-run mode
+- **Progressive fallback** chains ensuring system resilience (PostgreSQL → DummyStore)
+- **Automated schema management** via Docker init volumes and CLI migration runner
+
+---
 
 ## Architecture Overview
 
-The deployment architecture is built around five universal ML patterns with comprehensive observability and progressive fallback strategies:
+### Service Topology
 
 ```
                     ┌─────────────────────────────────────────┐
-                    │          Observability Layer            │
-                    │  Prometheus + Grafana + Custom Alerts  │
-                    └─────────────────────────────────────────┘
-                                        │
-           ┌─────────────────────────────┼─────────────────────────────┐
-           │                             │                             │
-           ▼                             ▼                             ▼
-    ┌──────────────┐              ┌──────────────┐              ┌──────────────┐
-    │  ML Pipeline │              │ ML Signal    │              │ ML Trading   │
-    │  Container   │              │ Actor        │              │ Strategy     │
-    │              │              │ Container    │              │ Container    │
-    │• Data Sched. │◄────────────►│• Model Infer │◄────────────►│• Signal Proc │
-    │• Feature Eng │              │• Feature Eng │              │• Risk Mgmt   │
-    │• Health Check│              │• Hot Reload  │              │• DRY RUN     │
-    └──────┬───────┘              └──────┬───────┘              └──────┬───────┘
-           │                             │                             │
-           └─────────────────────────────┼─────────────────────────────┘
-                                         │
-                            ┌────────────┴────────────┐
-                            │   4-Store + 4-Registry  │
-                            │     Persistence Layer   │
-                            └─────────────────────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-                    ▼                    ▼                    ▼
-        ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-        │   PostgreSQL     │  │     Redis        │  │   File System    │
-        │   Database       │  │   Message Bus    │  │   Registry       │
-        │                  │  │                  │  │                  │
-        │• Schema Mgmt     │  │• Inter-service   │  │• Model Metadata  │
-        │• Auto Partition  │  │• Communication   │  │• Feature Schema  │
-        │• Progressive     │  │• Caching         │  │• Version Control │
-        │  Fallback        │  │• Health Checks   │  │• Local Fallback  │
-        └──────────────────┘  └──────────────────┘  └──────────────────┘
+                    │       Observability Layer               │
+                    │  Prometheus + Grafana + Alerts          │
+                    └────────┬──────────────────┬─────────────┘
+                             │                  │
+           ┌─────────────────┼──────────────────┼─────────────────┐
+           │                 │                  │                 │
+           ▼                 ▼                  ▼                 ▼
+    ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
+    │ Pipeline │      │  Signal  │      │ Strategy │      │Dashboard │
+    │ Service  │      │  Actor   │      │ Service  │      │ Control  │
+    │          │◄────►│          │◄────►│          │◄────►│  Plane   │
+    │ (cold)   │      │  (hot)   │      │  (hot)   │      │ (cold)   │
+    └────┬─────┘      └────┬─────┘      └────┬─────┘      └────┬─────┘
+         │                 │                  │                 │
+         └─────────────────┼──────────────────┼─────────────────┘
+                           │                  │
+              ┌────────────┴──────────────────┴────────────┐
+              │     4-Store + 4-Registry Persistence       │
+              └────────────┬───────────────┬────────────────┘
+                           │               │
+                  ┌────────┴────┐    ┌────┴────┐
+                  │  PostgreSQL │    │  Redis  │
+                  │  Database   │    │  Bus    │
+                  └─────────────┘    └─────────┘
 ```
 
-## Service Breakdown
+### Project Structure
 
-### Universal ML Architecture Patterns Implementation
-
-All ML deployment services adhere to the 5 universal patterns mandated by CLAUDE.md:
-
-**Pattern 1: Mandatory 4-Store + 4-Registry Integration**
-
-- All containers inherit from BaseMLInferenceActor
-- Automatic initialization with progressive fallback (PostgreSQL → DummyStore)
-- Health monitoring includes all components
-
-**Pattern 2: Protocol-First Interface Design**
-
-- All components use typing.Protocol for clean contracts
-- DummyStore conforms to protocols for testing
-- Type safety without circular dependencies
-
-**Pattern 3: Hot/Cold Path Separation**
-
-- Hot path: <5ms P99 latency, zero allocations, pre-allocated arrays
-- Cold path: Training, migrations, analytics, heavy I/O operations
-- ONNX Runtime for production inference
-
-**Pattern 4: Progressive Fallback Chains**
-
-- PostgreSQL → DummyStore (warnings logged)
-- Registry loading → Direct file loading
-- Network failures → Local caches
-
-**Pattern 5: Centralized Metrics Bootstrap**
-
-- ml.common.metrics_export provides abstracted metrics endpoint
-- Safe for module reloads and testing
-
-### Data Pipeline Services
-
-#### ML Pipeline Container (`ml_pipeline`)
-
-- **Image**: Custom built from `Dockerfile.pipeline` (lightweight, nautilus-trader + minimal ML deps)
-- **Purpose**: Automated data collection and feature computation (COLD PATH)
-- **Resources**: 16GB memory, 4 CPU cores (data processing intensive)
-- **Key Components**:
-  - DataScheduler with three operational modes (daily/backfill/realtime)
-  - FeatureEngineer for feature computation
-  - MLIntegrationManager for 4-store + 4-registry initialization
-  - Flask-based health check endpoint with /health and /metrics
-  - Auto-start observability flushing via bootstrap
-  - Prometheus metrics exposure
-
-**Environment Variables**:
-
-```yaml
-DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
-DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
-PIPELINE_MODE: "${PIPELINE_MODE:-daily}"  # daily, backfill, or realtime
-SCHEDULE_CRON: "0 4 * * *"  # Daily at 4 AM UTC
-HEALTH_PORT: 8080
-METRICS_PORT: 8000
-WRITE_MODE: "${WRITE_MODE:-sql}"       # sql (canonical)
-COVERAGE_MODE: "${COVERAGE_MODE:-sql}" # sql|catalog (planning)
-CATALOG_PATH: "${CATALOG_PATH:-}"     # required for catalog coverage/client
+```
+ml/deployment/
+├── docker-compose.yml              # Production stack (project: ml)
+├── docker-compose.test.yml         # Test stack (project: ml-test)
+├── docker-compose.override.yml     # Local overrides (external network bridge)
+├── .env.example                    # Environment variable template
+├── README.md                       # Quick start and troubleshooting guide
+│
+├── entrypoint_pipeline.py          # Pipeline service entrypoint (410 lines)
+├── entrypoint_actor.py             # Signal actor entrypoint (639 lines)
+├── entrypoint_strategy.py          # Trading strategy entrypoint (449 lines)
+├── entrypoint_mock.py              # Mock data testing entrypoint (388 lines)
+│
+├── Dockerfile.pipeline             # Pipeline container (50 lines)
+├── Dockerfile.actor                # Actor container (47 lines)
+├── Dockerfile.strategy             # Strategy container (similar to actor)
+│
+├── check_health.py                 # Multi-service health checker (198 lines)
+├── migrations.py                   # DB migration utility (166 lines)
+├── ci_migration_smoke.py           # CI migration smoke tests (99 lines)
+│
+├── security.py                     # Model artifact validation (28 lines)
+├── scheduling_utils.py             # Schedule parsing utilities (105 lines)
+├── metrics_http.py                 # Flask health/metrics server (44 lines)
+├── mock_databento.py               # Synthetic data generator
+│
+├── prometheus.yml                  # Prometheus scrape configuration
+├── alerts.yml                      # Alert rules (165 lines)
+├── grafana/
+│   └── ml_pipeline_health.json     # Dashboard definition (1500+ lines)
+│
+└── Makefile                        # Deployment convenience targets (144 lines)
 ```
 
-**Entrypoint**: `ml/deployment/entrypoint_pipeline.py`
+---
 
-- Three operational modes:
-  - **daily**: Scheduled updates using cron expression (default: 5 PM daily)
-  - **backfill**: Historical data collection for specified date ranges
-  - **realtime**: Continuous data streaming with configurable intervals
-- Flask-based health check endpoint on port 8080
-- Pipeline status tracking with error reporting
-- Graceful shutdown handling via signal handlers
+## Docker Compose Configuration
 
-**Daily Trigger Behavior (Implemented):**
+### Production Stack (`docker-compose.yml`)
 
-- On startup in daily mode, the pipeline immediately executes a `run_daily_update()`.
-- Subsequent runs follow `PIPELINE_SCHEDULE` (UTC). Accepts "HH:MM" or cron-like "M H * * *".
-- If `PIPELINE_SCHEDULE` is unset or invalid, falls back to `REALTIME_INTERVAL` seconds (default 300) between runs.
-- `last_run` in `/health` reflects UTC time of last successful invocation.
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/docker-compose.yml` (331 lines)
 
-**Unified Ingestion Flags:**
+**Project Name**: `ml` (line 2) – Ensures consistent naming across environments
 
-- `USE_ORCHESTRATOR=1|true|yes|on` (enable unified orchestrator path)
-- `DUAL_WRITE=1|true|yes|on` (dual-write SQL coverage/watermarks + Parquet catalog)
-- Entrypoint wires these to `DataScheduler(..., use_orchestrator=..., dual_write=...)`.
+#### Services Breakdown
 
-**Backfill Bootstrap (Orchestrator)**:
+| Service | Purpose | Hot/Cold | Resources | Ports |
+|---------|---------|----------|-----------|-------|
+| `postgres` | Primary data persistence | Cold | Default | 5433:5432 |
+| `postgres_playground` | Sandbox database | Cold | Default | 5435:5432 |
+| `redis` | Message bus and caching | Cold | Default | 6380:6379 |
+| `streaming_persistence_worker` | Event stream persistence | Cold | Default | None |
+| `ml_signal_actor` | Real-time ML inference | **Hot** | 8GB/2CPU | 8000:8000 |
+| `ml_strategy` | Trading decision execution | **Hot** | 8GB/2CPU | 8001:8001 |
+| `ml_pipeline` | Data collection + features | Cold | 16GB/4CPU | 8081:8080 |
+| `prometheus` | Metrics collection | Cold | Default | 9090:9090 |
+| `grafana` | Visualization dashboard | Cold | Default | 3000:3000 |
+| `ml_dashboard` | Control plane UI | Cold | Default | 8010:8010 |
 
-- For canonical market data storage, run a one-time or periodic gap backfill at startup using the orchestrator with SQL coverage + writer implementations.
-- Uses the same `DB_CONNECTION` as other services and the canonical `market_data` table from migration `ml/stores/migrations/003_market_data.sql`.
-
-Example wiring in `entrypoint_pipeline.py`:
-
-```python
-from pathlib import Path
-from ml.data.ingest.orchestrator import IngestionOrchestrator
-from ml.data.ingest.resume import DatabentoIngestor, IngestState
-from ml.stores.providers import SqlCoverageProvider, SqlMarketDataWriter
-from ml.registry.data_registry import DataRegistry
-from ml.registry.persistence import PersistenceConfig, BackendType
-
-DB_URL = os.getenv("DB_CONNECTION")
-
-coverage = SqlCoverageProvider(connection_string=DB_URL)
-writer = SqlMarketDataWriter(connection_string=DB_URL)
-registry = DataRegistry(
-    registry_path=Path("/app/registry"),
-    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES, connection_string=DB_URL),
-)
-ingestor = DatabentoIngestor(client=databento_client)
-orch = IngestionOrchestrator(coverage=coverage, writer=writer, registry=registry, ingestor=ingestor)
-
-orch.backfill_gaps(
-    dataset_id=os.getenv("DATABENTO_DATASET", "EQUS.MINI"),
-    schema=os.getenv("DB_SCHEMA", "tbbo"),
-    instrument_id=os.getenv("INSTRUMENT_ID", "SPY.XNAS"),
-    lookback_days=int(os.getenv("BACKFILL_LOOKBACK_DAYS", "7")),
-    state=IngestState(),
-)
-```
-
-Note: For live streaming, attach the client’s write path to `SqlMarketDataWriter` to persist incoming records consistently with backfilled data.
-
-**Backfill Bootstrap (IntegrationManager)**:
-
-- The `MLIntegrationManager` can automatically run a one-time backfill at startup when enabled via environment variables. This uses the same CLI (`ml.cli.ingest_backfill`) so behavior and flags are consistent across entrypoints.
-
-Environment flags:
-
-- `ML_BACKFILL_ON_START`: `1|true|yes` to enable
-- `BACKFILL_DATASET_ID`: dataset ID (e.g., `EQUS.MINI`) [required]
-- `BACKFILL_INSTRUMENTS`: comma-separated instrument IDs [required]
-- `BACKFILL_SCHEMA`: `bars|tbbo|trades` (default `bars`)
-- `BACKFILL_LOOKBACK_DAYS`: integer (default `7`)
-- `COVERAGE_MODE`: `sql|catalog` (default `sql`)
-- `WRITE_MODE`: `sql` (default `sql`)
-- `TABLE_NAME`: target table (default `market_data`)
-- `INGEST_CLIENT_MODE`: `catalog|databento|noop` (default `catalog`)
-- `CATALOG_PATH`: required for catalog coverage/client
-- `DATABENTO_API_KEY`: used if `client-mode=databento`
-
-Example (`docker-compose.yml` excerpt):
-
-```yaml
-services:
-  ml_pipeline:
-    environment:
-      DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
-      # Enable backfill on startup
-      ML_BACKFILL_ON_START: "true"
-      BACKFILL_DATASET_ID: "EQUS.MINI"
-      BACKFILL_INSTRUMENTS: "SPY.XNAS,QQQ.XNAS"
-      BACKFILL_SCHEMA: "bars"
-      BACKFILL_LOOKBACK_DAYS: "7"
-      COVERAGE_MODE: "sql"            # or 'catalog'
-      WRITE_MODE: "sql"
-      INGEST_CLIENT_MODE: "catalog"   # or 'databento'
-      CATALOG_PATH: "/data/catalog"   # required if using catalog
-      DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
-      # Dual-write: also persist domain objects into ParquetDataCatalog on boot backfill
-      ALSO_WRITE_CATALOG: "true"
-```
-
-Notes:
-
-- The IntegrationManager logs the full CLI invocation and soft-fails (logs a warning) if the backfill cannot run so as not to block container startup.
-- For long-running backfills or multiple instruments, prefer running the CLI as a separate one-shot job.
-
-### Unified Ingestion via DataScheduler (Orchestrator Mode)
-
-The `DataScheduler` supports a unified ingestion path backed by the IngestionOrchestrator.
-Enable it to dual-write market data into both SQL (canonical coverage) and the
-ParquetDataCatalog (dataset builder) in one pass:
-
-```python
-from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from ml.config.scheduler_config import SchedulerConfig
-from ml.data import DataScheduler
-
-catalog = ParquetDataCatalog("${CATALOG_PATH}")
-config = SchedulerConfig(symbols=["SPY.XNAS", "QQQ.XNAS"], databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"))
-
-scheduler = DataScheduler(
-    catalog=catalog,
-    config=config,
-    use_orchestrator=True,  # unified control path
-    dual_write=True,        # SQL + Parquet in the same pass
-)
-scheduler.run_daily_update()
-```
-
-Requirements:
-- `DATABENTO_API_KEY` set in the environment
-- DB connection available via one of `feature_store_connection` in config, `DB_CONNECTION`,
-  `DATABASE_URL`, or `NAUTILUS_DB_CONNECTION` for SQL coverage/writer
-
-### Core Trading Services
-
-#### 1. ML Signal Actor Container (`ml_signal_actor`)
-
-- **Image**: Custom built from `Dockerfile.actor` (full Poetry install with nautilus_trader)
-- **Purpose**: Real-time ML inference for signal generation (HOT PATH)
-- **Resources**: 8GB memory, 2 CPU cores
-- **Mandatory Architecture**: Inherits from BaseMLInferenceActor with 4-store + 4-registry
-- **Key Components**:
-  - Databento data client for market data ingestion
-  - ONNXModelLoader with optimized runtime (CPU/GPU providers)
-  - ProductionModelLoader supporting ONNX/XGBoost/LightGBM (NO PICKLE for security)
-  - Pre-allocated numpy arrays for feature computation
-  - Circuit breaker pattern with HealthMonitor
-  - Model hot-reloading capability
-  - Comprehensive Prometheus metrics (latency, confidence, predictions)
-
-**Environment Variables**:
-
-```yaml
-DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
-DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
-DATABENTO_DATASET: "${DATABENTO_DATASET:-EQUS.MINI}"
-MODEL_PATH: /app/models/model.onnx  # ONNX-only in production
-INSTRUMENT_ID: SPY.XNAS
-BAR_TYPE: SPY.XNAS-1-MINUTE-LAST-EXTERNAL
-ACTOR_ID: MLSignalActor-001
-USE_DUMMY_STORES: "false"  # Progressive fallback to DummyStore
-LOG_LEVEL: INFO
-```
-
-**Entrypoint**: `ml/deployment/entrypoint_actor.py`
-
-- Extends BaseMLInferenceActor with mandatory store initialization
-- Progressive fallback: PostgreSQL → DummyStore with warnings
-- Model validation and metadata extraction
-- Registry-based feature schema loading with manifest validation
-- Graceful shutdown with proper resource cleanup
-- Health monitoring with performance tracking
-- Strict security: NO pickle support, only safe formats (ONNX, joblib, JSON)
-
-#### 2. ML Trading Strategy Container (`ml_strategy`)
-
-- **Image**: Custom built from `Dockerfile.strategy` (full Poetry install, no models directory)
-- **Purpose**: Trading decision execution based on ML signals (HOT PATH decision making)
-- **Resources**: 8GB memory, 2 CPU cores
-- **Mandatory Architecture**: Inherits from BaseMLInferenceActor with 4-store + 4-registry
-- **Key Components**:
-  - MLSignal consumption and processing with model_id tracking
-  - Risk management and position sizing with configurable parameters
-  - Strategy state persistence via StrategyStore
-  - **MANDATORY DRY RUN MODE**: EXECUTE_TRADES must be "false" by default
-  - Comprehensive trading statistics and performance tracking
-  - Signal correlation and model performance analysis
-
-**Environment Variables**:
-
-```yaml
-DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
-STRATEGY_ID: MLStrategy-DRY-001
-ML_SIGNAL_SOURCE: MLSignalActor-001
-INSTRUMENT_ID: SPY.XNAS
-EXECUTE_TRADES: "false"  # MANDATORY DRY RUN - NO REAL TRADES!
-POSITION_SIZE_PCT: "0.02"
-MIN_CONFIDENCE: "0.6"
-MAX_POSITIONS: "1"
-STOP_LOSS_PCT: "0.02"
-TAKE_PROFIT_PCT: "0.04"
-USE_STRATEGY_STORE: "true"
-PERSIST_ALL_SIGNALS: "true"  # Required for audit trail
-LOG_LEVEL: INFO
-```
-
-**Entrypoint**: `ml/deployment/entrypoint_strategy.py`
-
-- Extends BaseMLInferenceActor with mandatory 4-store + 4-registry initialization
-- **SAFETY-FIRST**: Enforces dry run mode with explicit warnings and confirmation
-- Progressive fallback for database connectivity
-- Signal metadata correlation with model_id for A/B testing
-- Comprehensive audit trail: all signals and decisions persisted
-- Performance statistics: Sharpe ratio, win rate, average P&L tracking
-- Registry-based strategy manifest validation
-
-### Data Persistence Services
-
-#### 3. PostgreSQL Database (`postgres`)
-
-- **Image**: `postgres:15-alpine` with auto-initialization
-- **Purpose**: Primary data persistence for 4-store + 4-registry pattern
-- **Port**: 5433 (production), 5432 (development override)
-- **Database**: `nautilus`
-- **Credentials**: postgres/postgres
-- **Progressive Fallback**: Automatic DummyStore fallback if unreachable
-
-**Schema & Migrations (Canonical + Automated)**:
-
-The system implements automated schema management with two migration approaches:
-
-**Auto-Initialization (Docker)**:
-
-```yaml
-volumes:
-  - ../stores/migrations:/docker-entrypoint-initdb.d:ro  # Auto-apply on first init
-```
-
-**CLI Migration Runner (Production)**:
-
-```bash
-# Baseline migrations (mandatory)
-uv run --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5433/nautilus
-
-# Full deployment (recommended)
-uv run --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://... --full
-```
-
-**Migration Strategy**:
-
-- **Base Migrations**: 001-004, 007_add_event_metadata (mandatory)
-- **Optional Migrations**: Schema hardening, views, BRIN indexes, emergency fixes
-- **Idempotent Design**: Safe to run multiple times, handles conflicts gracefully
-- **Atomic Execution**: Statement-level transaction safety with proper error handling
-
-**Schema Components**:
-
-- **Stores Schema**: Partitioned tables (feature_values, model_predictions, strategy_signals)
-- **Registry Schema**: Model/feature/strategy manifest tables with versioning
-- **Auto-Partitioning**: Monthly partition creation with automated maintenance
-- **Event Metadata**: Comprehensive audit trail with ts_event/ts_init enforcement
-- **Progressive Views**: ml.pipeline_health, data_collection_stats, model_performance_summary
-
-**Database Engine Management**:
-
-- **Singleton Pattern**: EngineManager prevents connection pool exhaustion
-- **Conservative Pooling**: pool_size=5, max_overflow=10, pool_pre_ping=true
-- **Connection Recycling**: 3600s recycle time prevents timeout issues
-
-**Health Monitoring**:
-
-```bash
-# Docker health check
-pg_isready -U postgres
-
-# Application-level preflight
-python -c "from ml.stores.infrastructure import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5433/nautilus'))"
-```
-
-#### 4. Redis Message Bus (`redis`)
-
-- **Image**: `redis:7-alpine`
-- **Purpose**: Inter-service communication and caching
-- **Port**: 6379
-- **Health Check**: `redis-cli ping`
-
-### Observability & Monitoring Stack
-
-#### 5. Prometheus (`prometheus`)
-
-- **Image**: `prom/prometheus:latest`
-- **Purpose**: Centralized metrics collection following Pattern 5 (Centralized Metrics Bootstrap)
-- **Port**: 9090
-- **Configuration**: `ml/deployment/prometheus.yml`
-- **Scrape Interval**: 15s for minimal overhead
-
-**Scrape Targets & Metrics**:
-
-```yaml
-- job_name: 'ml_pipeline'
-  targets: ['ml_pipeline:8080']  # Flask /metrics endpoint
-
-- job_name: 'ml_signal_actor'
-  targets: ['ml_signal_actor:8000']  # BaseMLInferenceActor metrics
-  metrics:
-    - nautilus_ml_predictions_total
-    - nautilus_ml_prediction_latency_seconds
-    - nautilus_ml_signal_confidence
-
-- job_name: 'ml_strategy'
-  targets: ['ml_strategy:8001']  # Strategy-specific metrics
-  metrics:
-    - ml_strategy_dry_run_trades_total
-    - ml_strategy_decision_latency_seconds
-
-- job_name: 'postgres'          # Optional
-  targets: ['postgres_exporter:9187']
-
-- job_name: 'node'              # System metrics
-  targets: ['node_exporter:9100']
-```
-
-**Alert Rules** (`ml/deployment/alerts.yml`):
-
-```yaml
-- alert: MLModelInferenceLatencyHighP99
-  expr: histogram_quantile(0.99, sum(rate(nautilus_ml_model_inference_duration_seconds_bucket[5m])) by (le)) > 0.200
-  for: 5m
-
-- alert: MLPipelineHealthLow
-  expr: nautilus_ml_pipeline_health < 0.8
-  for: 5m
-```
-
-#### 6. Grafana (`grafana`)
-
-- **Image**: `grafana/grafana:latest`
-- **Purpose**: Real-time visualization and operational dashboards
-- **Port**: 3000
-- **Credentials**: admin/admin
-- **Plugins**: grafana-piechart-panel
-- **Dashboard**: `ml/deployment/grafana/ml_pipeline_health.json`
-
-**Key Dashboard Panels**:
-
-- **Pipeline Overview**: Health score gauge with color-coded thresholds
-- **Data Freshness**: Heatmap showing staleness by instrument
-- **Feature Computation**: Latency and throughput metrics
-- **Model Performance**: Inference latency P50/P95/P99 tracking
-- **Error Tracking**: Recent errors table with correlation IDs
-- **Resource Usage**: Memory and CPU utilization across containers
-
-## Container Orchestration Details
-
-### Docker Compose Configuration
-
-**Main Compose File**: `ml/deployment/docker-compose.yml`
-
-**Network**: `nautilus-ml` (bridge driver)
-
-**Volumes**:
-
-- `postgres_data`: PostgreSQL data persistence
-- `prometheus_data`: Metrics storage
-- `grafana_data`: Dashboard and configuration storage
-
-**Service Dependencies**:
+#### Service Dependencies
 
 ```yaml
 ml_pipeline:
   depends_on:
     postgres:
-      condition: service_healthy
+      condition: service_healthy  # Waits for pg_isready success
+
 ml_signal_actor:
   depends_on: [postgres, redis]
+
 ml_strategy:
   depends_on: [postgres, redis, ml_signal_actor]
+
 grafana:
   depends_on: [prometheus]
+
+ml_dashboard:
+  depends_on: [prometheus, grafana, streaming_persistence_worker]
 ```
 
-### Dockerfile Specifications
+**Health Checks** (lines 22-26, 42-46, 57-61, 240-246):
+- PostgreSQL: `pg_isready -U postgres` every 5s
+- Redis: `redis-cli ping` every 5s
+- Pipeline: HTTP GET `/health` every 30s with 60s start period
 
-## Container Topology & Quick Commands
-
-This section captures the concrete topology and ops commands used in practice.
-
-### Project + Network
-
-- Project name: `ml` (pinned in `ml/deployment/docker-compose.yml` via `name: ml`)
-- Network: `nautilus-ml` (bridge)
-
-### Services Summary
-
-- `postgres`
-  - Internal: `postgres:5432` on `nautilus-ml`
-  - Host port: `${POSTGRES_HOST_PORT:-5433}` → `5432`
-  - Health: `pg_isready -U postgres`
-  - Migrations: mounted SQL (`/docker-entrypoint-initdb.d`) + CLI helper
-
-- `postgres_playground`
-  - Internal: `postgres_playground:5432`
-  - Host port: `${PLAYGROUND_POSTGRES_HOST_PORT:-5435}` → `5432`
-  - Health: `pg_isready -U postgres`
-  - Purpose: sandbox database for playground research artifacts
-
-- `redis`
-  - Internal: `redis:6379`
-  - Host port: `${REDIS_HOST_PORT:-6380}` → `6379`
-  - Health: `redis-cli ping`
-
-- `ml_pipeline`
-  - Health: HTTP `GET http://localhost:8080/health`
-  - Host port: `${ML_PIPELINE_HOST_PORT:-8081}` → `8080`
-  - DB envs: always use `postgres` hostname (never `localhost` inside containers)
-
-- Optional: `ml_signal_actor`, `ml_strategy`, `prometheus`, `grafana`
-
-### Database URIs
-
-- Inside containers (service-to-service):
-  - `postgresql://postgres:postgres@postgres:5432/nautilus`
-- From host:
-  - `postgresql://postgres:postgres@localhost:${POSTGRES_HOST_PORT:-5433}/nautilus`
-  - `postgresql://postgres:postgres@localhost:${PLAYGROUND_POSTGRES_HOST_PORT:-5435}/nautilus_playground`
-
-### Makefile Shortcuts
-
-Top-level Makefile provides convenience targets:
-
-- `make ml-up` — start the stack (postgres, redis, ml_pipeline, grafana, prometheus)
-- `make ml-down` — stop the stack and remove volumes
-- `make ml-ps` — show service status
-- `make ml-logs` — tail `ml_pipeline` logs
-- `make ml-migrate` — apply DB migrations via compose exec helper
-
-### Migrations
-
-Apply canonical migrations idempotently:
-
-```
-uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml
-```
-
-This pipes SQL to `psql` in the `postgres` service.
-
-### Common Issues
-
-- Port conflicts (e.g., `Bind for 0.0.0.0:5433 failed`):
-  - Set `POSTGRES_HOST_PORT` to a free port (e.g., `5434`) or stop the conflicting Postgres
-- Duplicate projects (e.g., containers named `deployment-*` and `ml-*`):
-  - Use the pinned project name `ml`; bring down obsolete projects:
-    `docker compose -f ml/deployment/docker-compose.yml --project-name deployment down -v`
-- Defaults in code use `localhost`:
-  - These are for host/dev tests; in containers override to `postgres` via envs
-
-#### ML Pipeline Dockerfile (`Dockerfile.pipeline`)
-
-```dockerfile
-FROM python:3.11-slim
-- System deps: gcc, g++, postgresql-client, curl
-- Poetry installation with --no-dev flag
-- Flask and requests for health check endpoint
-- Creates directories: /app/data/catalog, /app/models, /app/logs, /app/configs
-- Health check: Python import verification
-- Entrypoint: /app/entrypoint.py
-```
-
-#### ML Signal Actor Dockerfile (`Dockerfile.actor`)
-
-```dockerfile
-FROM python:3.11-slim
-- System deps: gcc, g++, postgresql-client
-- Poetry installation with --no-dev flag
-- Creates models directory: /app/models
-- Health check: Python sys.exit(0) test
-- Entrypoint: /app/entrypoint.py
-```
-
-#### ML Trading Strategy Dockerfile (`Dockerfile.strategy`)
-
-```dockerfile
-FROM python:3.11-slim
-- System deps: gcc, g++, postgresql-client
-- Poetry installation with --no-dev flag
-- No models directory (consumes signals only)
-- Health check: Python sys.exit(0) test
-- Entrypoint: /app/entrypoint.py
-```
-
-## Configuration Management
-
-### Environment-Based Configuration Strategy
-
-The system implements a layered configuration approach with strict security defaults and comprehensive validation:
-
-**Mandatory Environment Variables**:
-
-```bash
-# Security & Data Access (REQUIRED)
-DATABENTO_API_KEY=your_databento_api_key_here      # Market data access
-EXECUTE_TRADES=false                                # MANDATORY DRY RUN - SAFETY FIRST
-
-# Database Configuration (Progressive Fallback)
-DB_CONNECTION=postgresql://postgres:postgres@postgres:5432/nautilus  # Auto-fallback to DummyStore
-```
-
-**Operational Configuration** (`.env` files):
-
-```bash
-# Pipeline Modes
-PIPELINE_MODE=daily                                 # daily|backfill|realtime
-PIPELINE_SCHEDULE=0 17 * * *                      # Daily time (UTC); runs immediately on start then on schedule
-REALTIME_INTERVAL=300                              # Seconds for realtime mode
-
-# Universe & Instruments
-UNIVERSE_SYMBOLS=SPY.XNAS,QQQ.XNAS,IWM.XNAS      # Comma-separated
-INSTRUMENT_ID=SPY.XNAS                             # Primary instrument
-BAR_TYPE=SPY.XNAS-1-MINUTE-LAST-EXTERNAL         # Data granularity
-
-# Performance Tuning
-MAX_WORKERS=4                                      # Parallel processing
-BATCH_SIZE=1000                                    # Data batch size
-LOG_LEVEL=INFO                                     # DEBUG|INFO|WARNING|ERROR
-
-# Port Management (Conflict Avoidance)
-POSTGRES_HOST_PORT=5433                           # Avoids local dev conflicts
-PLAYGROUND_POSTGRES_HOST_PORT=5435               # Dedicated playground database
-REDIS_HOST_PORT=6380                              # Avoids standard Redis
-ML_PIPELINE_HOST_PORT=8081                        # Health endpoint port
-```
-
-**Risk & Trading Parameters**:
-
-```bash
-# Position Management
-POSITION_SIZE_PCT=0.02                            # 2% per trade
-MIN_CONFIDENCE=0.6                                # Minimum signal confidence
-MAX_POSITIONS=1                                   # Concurrent position limit
-
-# Risk Controls
-STOP_LOSS_PCT=0.02                               # 2% stop loss
-TAKE_PROFIT_PCT=0.04                             # 4% take profit
-
-# Audit & Persistence
-USE_STRATEGY_STORE=true                          # Mandatory for audit trail
-PERSIST_ALL_SIGNALS=true                         # Required for analysis
-USE_DUMMY_STORES=false                           # Production persistence
-```
-
-### Configuration Files & Templates
-
-**Environment Templates**:
-
-- `.env.example`: Production template with security placeholders
-- `ml/deployment/.env`: Testing configuration (dummy API keys)
-
-**Observability Configuration**:
-
-**Prometheus** (`ml/deployment/prometheus.yml`):
+#### Named Volumes
 
 ```yaml
-global:
-  scrape_interval: 15s    # Minimal overhead
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'ml_pipeline'
-    targets: ['ml_pipeline:8080']
-    metrics_path: /metrics
-
-  - job_name: 'ml_signal_actor'
-    targets: ['ml_signal_actor:8000']  # BaseMLInferenceActor metrics
-
-  - job_name: 'ml_strategy'
-    targets: ['ml_strategy:8001']
+volumes:
+  postgres_data:                    # Persistent database storage
+  postgres_playground_data:         # Sandbox database storage
+  prometheus_data:                  # Metrics time series
+  grafana_data:                     # Dashboard configurations
+  streaming_state_data:             # Streaming training state snapshots
 ```
 
-**Alert Rules** (`ml/deployment/alerts.yml`):
+#### Network Configuration
 
 ```yaml
-groups:
-  - name: ml-observability
-    rules:
-      - alert: MLModelInferenceLatencyHighP99
-        expr: histogram_quantile(0.99, ...) > 0.200
-        for: 5m
-        labels:
-          severity: warning
+networks:
+  nautilus-ml:
+    driver: bridge
+    name: nautilus-ml              # Explicit network name for service discovery
 ```
 
-**Grafana Dashboard** (`ml/deployment/grafana/ml_pipeline_health.json`):
+**Container-to-Container Communication**:
+- Services communicate via Docker DNS: `postgres:5432`, `redis:6379`
+- No localhost references inside containers (handled via service names)
 
-- **Pipeline Health Gauge**: Overall system health with color coding
-- **Performance Metrics**: P50/P95/P99 latency tracking across services
-- **Data Freshness Heatmap**: Staleness visualization by instrument
-- **Error Correlation**: Recent errors with trace IDs and context
-- **Resource Utilization**: Memory/CPU across containers with thresholds
+---
 
-## Deployment Modes
+## Service Entrypoints
 
-The system supports three deployment approaches with automatic environment detection and progressive fallback strategies.
+### 1. Pipeline Service (`entrypoint_pipeline.py`)
 
-### 1. Production Docker Compose Deployment
-**Scripts**: `ml/deployment/run_dry_run.sh` (manual) | `ml/deployment/quick_start.sh` (automated)
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/entrypoint_pipeline.py` (413 lines)
 
-**Architecture Features**:
+**Purpose**: Automated data collection and feature computation (COLD PATH)
 
-- **Service Orchestration**: Full containerized environment with health-based dependencies
-- **Progressive Fallback**: PostgreSQL → DummyStore with warnings (no failures)
-- **Security-First**: Mandatory dry-run mode, no pickle models, API key validation
-- **Auto-Schema Management**: Docker init volumes + CLI migration runner
-- **Complete Observability**: Prometheus/Grafana + custom alerts + health endpoints
-- **Resource Management**: Bounded memory/CPU with deployment resource limits
-
-**Execution Flow** (Production Pattern):
-
-1. **Pre-flight Checks**: DATABENTO_API_KEY validation, Docker/Compose availability
-2. **Infrastructure Bootstrap**: PostgreSQL startup with health checks (5s intervals)
-3. **Schema Initialization**: Auto-apply canonical migrations via init volumes
-4. **Database Preflight**: Verify functions/partitions via `ml.stores.infrastructure`
-5. **Service Launch**: ML containers with dependency chains (postgres → actor → strategy)
-6. **Monitoring Stack**: Prometheus/Grafana with pre-configured dashboards
-7. **Health Validation**: End-to-end health checks with /health endpoints
-8. **Operational Display**: Service URLs, log aggregation, shutdown traps
-
-**Docker Compose Features**:
-
-```yaml
-services:
-  postgres:
-    volumes:
-      - ../stores/migrations:/docker-entrypoint-initdb.d:ro  # Auto-init
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-
-  ml_pipeline:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
-
-  ml_signal_actor:
-    deploy:
-      resources:
-        limits:
-          memory: 8g
-          cpus: '2'
-```
-
-### 2. Local Development Deployment
-**Script**: `ml/deployment/run_local_dry_run.py`
-
-**Development-Optimized Features**:
-
-- **Native Process Execution**: No containerization overhead for fast iteration
-- **Progressive Database Fallback**: PostgreSQL → SQLite → DummyStore (automatic detection)
-- **Auto-Model Generation**: Creates dummy models if missing (for rapid prototyping)
-- **Live Code Mounting**: Docker dev mode with live reload via `ml/docker-compose.dev.yml`
-- **Real Market Data**: Full Databento integration for authentic testing
-
-## Developer Tips
-
-- Standardize DB env for local dev/tests:
-  - `export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus`
-  - Start DB only: `make docker-up-test`
-  - Check readiness: `make check-db` (waits on `DATABASE_URL`)
-- ML stack Compose maps host `5433` → container `5432`. If you use it, set:
-  - `export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nautilus`
-- Prefer `EngineManager.get_engine(...)` in Python components to avoid connection pool exhaustion.
-- Mark DDL/DB-heavy tests `@pytest.mark.serial` and parallelize others with `-n auto --dist=loadscope`.
-- **Comprehensive Debug Info**: Enhanced logging, statistics reporting, performance profiling
-
-**Architecture Pattern Compliance**:
-
-- **Mandatory 4-Store + 4-Registry**: Even in local mode (with progressive fallback)
-- **Hot/Cold Path Separation**: Local processes maintain performance budgets
-- **Security**: Same restrictions (no pickle models, API key validation)
-
-**Development Override** (`ml/docker-compose.dev.yml`):
-
-```yaml
-services:
-  postgres:
-    ports:
-      - "5432:5432"  # Standard port for local dev
-
-  pgadmin:         # Database inspection
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@nautilus.io
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-```
-
-**Prerequisites & Auto-Detection**:
-
-- **API Key Validation**: DATABENTO_API_KEY with dataset access verification
-- **Database Connectivity**: Progressive fallback chain with clear warnings
-- **Model Availability**: Auto-generation with metadata consistency
-- **Dependencies**: ML package detection with helpful error messages
-
-### 3. Backtest Deployment
-**Script**: `ml/deployment/run_backtest_dry_run.py`
-
-**Features**:
-
-- Historical data replay with BacktestEngine
-- Synthetic bar data generation for testing
-- Support for SPY.XNAS with 1-minute bars
-- Netting OMS with cash account type
-- ML Signal Actor and Strategy integration
-- Configurable feature engineering
-- Performance statistics reporting
-
-**Data Generation**:
-
-- Creates 1000 synthetic bars over 5 days
-- Realistic price movements with continuity
-- Random volume generation
-- Nanosecond timestamp precision
-
-## Monitoring and Logging Setup
-
-### Metrics Collection
-
-**ML Signal Actor Metrics**:
-
-- `ml_signals_generated_total`: Signal generation count
-- `ml_signal_generation_seconds`: Latency measurements
-- `ml_feature_computation_seconds`: Feature calculation time
-- `ml_inference_latency_seconds`: Model inference performance
-
-**ML Strategy Metrics**:
-
-- `ml_strategy_dry_run_trades_total`: Dry run trade counter
-- Strategy decision latencies
-- Risk management metrics
-
-### Log Management
-
-**Container Logs**:
-
-```bash
-# View all services
-docker compose logs -f
-
-# Specific services
-docker compose logs -f ml_signal_actor
-docker compose logs -f ml_strategy
-```
-
-**Database Monitoring**:
-
-```sql
--- Signal monitoring
-SELECT * FROM public.ml_strategy_signals ORDER BY ts_event DESC LIMIT 10;
-
--- Feature monitoring
-SELECT * FROM public.ml_feature_values ORDER BY ts_event DESC LIMIT 10;
-
--- Model prediction monitoring
-SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
-```
-
-### Health Checks
-
-**Service Health Endpoints**:
-
-- PostgreSQL: `pg_isready` command
-- Redis: `redis-cli ping`
-- Prometheus: `http://localhost:9090/-/healthy`
-- Grafana: `http://localhost:3000/api/health`
-
-## Port Mappings and Networking
-
-### External Port Mappings
-
-```yaml
-3000: Grafana dashboards
-5432: PostgreSQL database
-6379: Redis cache
-8080: ML Pipeline health check endpoint
-9090: Prometheus metrics
-```
-
-### Internal Port Mappings
-
-```yaml
-8000: ML Signal Actor metrics endpoint
-8001: ML Strategy metrics endpoint
-9100: Node exporter (system metrics)
-9187: PostgreSQL exporter (optional)
-```
-
-### Internal Network Communication
-
-- **Network**: `nautilus-ml` (bridge)
-- **Service Discovery**: Docker DNS resolution
-- **Communication**: HTTP/gRPC for metrics, PostgreSQL protocol for persistence
-
-## CI/CD and Production Operations
-
-### Continuous Integration Workflows
-
-**GitHub Actions Integration**:
-
-**ML Property Tests** (`.github/workflows/ml-property-tests.yml`):
-
-```yaml
-name: ML Property Tests
-on:
-  push:
-    branches: [main, develop, ml]
-    paths: ['ml/**']
-strategy:
-  matrix:
-    python-version: ['3.11', '3.12']
-
-- name: Run property tests with coverage
-  run: |
-    pytest ml/tests/unit/*hypothesis*.py \
-      --hypothesis-show-statistics \
-      --hypothesis-profile=ci \
-      --cov=ml --cov-report=xml
-
-- name: Check minimum coverage
-  run: |
-    if (( $(echo "$coverage_percent < 75" | bc -l) )); then
-      exit 1
-    fi
-```
-
-**ML Prototype Phase-2** (`.github/workflows/ml-prototype-phase2.yml`):
-
-```yaml
-name: ml-prototype-phase2
-on:
-  schedule:
-    - cron: "0 6 * * *"  # Daily at 06:00 UTC
-
-- name: Run Phase-2 prototype suite
-  run: |
-    uv run --no-sync pytest -n logical --dist=loadgroup -m prototype ml/tests
-```
-
-**Security Hardening**:
-
-- **step-security/harden-runner**: Egress policy auditing
-- **No Pickle Models**: Strict enforcement in model loading
-- **API Key Validation**: Pre-deployment verification
-- **Progressive Fallback**: Never fail due to missing services
-
-### Migration Management & Database Operations
-
-**Automated Schema Management**:
-
-**CLI Migration Runner** (`ml/scripts/apply_migrations.py`):
-
-```bash
-# Baseline deployment
-uv run --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://...
-
-# Full production deployment
-uv run --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://... --full --schema both
-
-# Dry run validation
-uv run --no-sync python -m ml.scripts.apply_migrations --dry-run
-```
-
-**Migration Strategy**:
-
-- **Base Migrations**: 001_stores_schema.sql → 004_data_registry.sql + 007_add_event_metadata.sql
-- **Optional Migrations**: Schema hardening, views, BRIN indexes, emergency fixes
-- **Idempotent Design**: Safe multiple execution with conflict handling
-- **Statement-Level Safety**: Dollar-quoted function parsing, proper transaction boundaries
-
-**CI Migration Smoke Tests** (`ml/deployment/ci_migration_smoke.py`):
+**Key Components**:
 
 ```python
-def main():
-    _compose("up", "-d", "postgres")
-    wait_for_postgres()
-    apply_migrations_via_compose(compose_file=COMPOSE_FILE)
-    check_views()  # Verify ml.pipeline_health, data_collection_stats
+class PipelineRunner:
+    def __init__(self) -> None:
+        self.scheduler: DataScheduler | None = None
+        self.running: bool = False
+        self._shutdown_event = threading.Event()
+
+        # Graceful shutdown handlers (lines 115-130)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
 ```
 
-### Deployment Tools and Scripts
+**Operational Modes** (lines 219, 244-252):
 
-**Production Deployment Toolchain**:
+1. **Daily Mode** (`PIPELINE_MODE=daily`):
+   - Immediate execution on startup (line 289)
+   - Scheduled runs via `PIPELINE_SCHEDULE` (cron or HH:MM format)
+   - Falls back to `REALTIME_INTERVAL` if schedule invalid
+   - Cooperative shutdown via threading.Event (lines 314-327)
 
-**Quick Start Script** (`ml/deployment/quick_start.sh`):
+2. **Backfill Mode** (`PIPELINE_MODE=backfill`):
+   - Single `run_daily_update()` invocation (line 275)
+   - Maps to daily update for simplicity (full loop TBD)
 
-- **Environment Validation**: .env creation, DATABENTO_API_KEY verification
-- **Image Building**: Multi-stage Docker builds with dependency caching
-- **Service Orchestration**: Health-based startup with dependency chains
-- **Health Validation**: End-to-end /health endpoint verification
-- **Operational Display**: Service URLs, monitoring links, useful commands
+3. **Realtime Mode** (`PIPELINE_MODE=realtime`):
+   - Continuous updates with retry logic (lines 338-376)
+   - Exponential backoff via `ml.common.retry_utils` (lines 343-363)
+   - Configurable interval via `REALTIME_INTERVAL` (default 300s)
 
-**Makefile Operations** (`ml/deployment/Makefile`):
+**Configuration Loading** (lines 132-165):
+```python
+def _create_config(self) -> SchedulerConfig:
+    # Parse comma-separated symbols (line 138)
+    raw_symbols = os.environ.get("UNIVERSE_SYMBOLS", "SPY.XNAS")
+    symbols = [s.strip() for s in raw_symbols.split(",") if s.strip()]
 
-```makefile
-# Core Operations
-build:          # Build all Docker images
-up:             # Start all services
-down:           # Stop all services
-health:         # Check service health
-logs:           # View logs (SERVICE=name for specific)
+    # Databento configuration (lines 141-145)
+    databento_config = DatabentoConfig(
+        dataset=os.environ.get("DATABENTO_DATASET", "EQUS.MINI"),
+        schema=os.environ.get("DATABENTO_SCHEMA", "ohlcv-1m"),
+        stype_in=os.environ.get("DATABENTO_STYPE_IN", "raw_symbol"),
+    )
 
-# Advanced Operations
-migrate:        # Apply SQL migrations via compose
-ci-smoke:       # CI migration smoke test
-dev:            # Development mode with live code mounting
-backfill:       # Run pipeline in backfill mode (START=date END=date)
-scale:          # Scale pipeline workers (WORKERS=n)
-nuke:           # Remove containers and volumes (DANGEROUS)
-
-# Production Operations
-deploy:         # Production deployment with .env validation
-backup:         # Backup PostgreSQL database
-restore:        # Restore database (FILE=backup.sql)
+    # Universe expansion (lines 148-152)
+    universe = UniverseConfig(expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate"))
+    full_universe = list(dict.fromkeys(symbols + universe.get_full_universe()))
 ```
 
-**Health Check System** (`ml/deployment/check_health.py`):
+**Unified Ingestion Flags** (lines 231-238):
+```python
+use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
+dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
+self.scheduler = DataScheduler(
+    catalog=catalog,
+    config=config,
+    use_orchestrator=use_orchestrator,  # Unified control path
+    dual_write=dual_write,              # SQL + Parquet in one pass
+)
+```
+
+**Health Endpoints** (lines 84-98):
+- `/health`: Returns pipeline status with `last_run` timestamp
+- `/metrics`: Prometheus metrics via `ml.common.metrics_export.generate_latest()`
+
+**Flask Server** (lines 384-394):
+```python
+health_host = os.environ.get("HEALTH_CHECK_HOST", "127.0.0.1")
+health_thread = threading.Thread(
+    target=lambda: app.run(
+        host=health_host,
+        port=int(os.environ.get("HEALTH_CHECK_PORT", "8080")),
+        debug=False,
+    ),
+)
+health_thread.daemon = True
+health_thread.start()
+```
+
+**Observability Bootstrap** (lines 396-404):
+```python
+# Auto-start observability flushing if configured
+try:
+    mgr: MLIntegrationManager = MLIntegrationManager.__new__(MLIntegrationManager)
+    auto_start_if_configured(mgr)  # ml.observability.bootstrap
+except Exception:
+    logger.debug("Observability auto-start skipped", exc_info=True)
+```
+
+### 2. Signal Actor Service (`entrypoint_actor.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/entrypoint_actor.py` (639 lines)
+
+**Purpose**: Real-time ML inference for signal generation (HOT PATH)
+
+**Key Components**:
 
 ```python
-def main():
+class MLSignalActorNode:
+    def __init__(self) -> None:
+        self.node: TradingNode | None = None
+        self.running: bool = False
+        self._tasks: list[asyncio.Task[Any]] = []
+        self._healthy: bool = False
+```
+
+**Security Enforcement** (lines 118-127):
+```python
+# Enforce ONNX-only and existence
+try:
+    assert_allowed_model_path(model_path)  # ml.deployment.security
+except ValueError as exc:
+    print(f"ERROR: {exc}")
+    sys.exit(1)
+if not Path(model_path).exists():
+    print(f"ERROR: Model not found at {model_path}")
+    sys.exit(1)
+```
+
+**Multi-Instrument Configuration** (lines 221-244):
+```python
+universe: list[str] | None = _get_list("ACTOR_UNIVERSE") or _get_list("UNIVERSE_SYMBOLS")
+if not universe:
+    # Default multi-instrument universe (lines 223-231)
+    universe = [
+        "SPY.EQUS",   # ETFs use EQUS aggregated venue
+        "QQQ.EQUS",
+        "AAPL.XNAS",  # Equities use XNAS symbols
+        "MSFT.XNAS",
+        "NVDA.XNAS",
+    ]
+
+actor_config = MLSignalActorConfig(
+    **actor_kwargs,
+    max_batch_size=max_batch_size,            # Default 128
+    feature_dim=feature_dim,                  # Default 64
+    initial_universe=universe,
+    flush_max_latency_ms=flush_max_latency_ms,  # Default 0 (disabled)
+)
+```
+
+**Live Data Recording** (lines 313-469):
+```python
+live_record_enable = os.getenv("ML_LIVE_RECORD_ENABLE", "1") in {"1", "true", "yes"}
+if live_record_enable:
+    datasets_csv = os.getenv("ML_LIVE_RECORD_DATASETS", "bars")
+    dataset_tokens = {t.strip().lower() for t in datasets_csv.split(",") if t.strip()}
+
+    # Create RecorderActor with LiveDataRecorder (lines 333-347)
+    recorder = LiveDataRecorder(
+        data_store=mgr.data_store,
+        data_registry=mgr.data_registry,
+        buffer_size=int(os.getenv("ML_LIVE_RECORD_BUFFER", "1000")),
+        flush_interval_ms=int(os.getenv("ML_LIVE_RECORD_FLUSH_MS", "1000")),
+    )
+    rec_actor = RecorderActor(
+        recorder=recorder,
+        record_bars=record_bars,
+        record_quotes=record_quotes,
+        record_trades=record_trades,
+    )
+    self.node.trader.add_actor(rec_actor)
+```
+
+**Progressive Fallback to Catalog** (lines 360-469):
+```python
+except Exception as exc:
+    # JSON/catalog fallback when PostgreSQL unavailable (lines 362-469)
+    try:
+        catalog_path = os.getenv("CATALOG_PATH", "").strip()
+        if not catalog_path:
+            raise RuntimeError("CATALOG_PATH required for fallback")
+
+        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+        catalog = ParquetDataCatalog(catalog_path)
+        writer = ParquetCatalogMarketDataWriter(catalog)
+        data_store_fallback = CatalogWriteFacade(writer)
+
+        # JSON DataRegistry for events/watermarks (lines 374-391)
+        registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+        persistence = PersistenceConfig(
+            backend=BackendType.JSON,
+            json_path=registry_path,
+        )
+        data_registry = DataRegistry(
+            registry_path=registry_path,
+            persistence_config=persistence,
+        )
+```
+
+**Databento Configuration** (lines 261-280):
+```python
+venue_dataset_map = {"EQUS": "EQUS.MINI"}  # Anonymized EQUS for EQUS.MINI
+
+data_config: DatabentoDataClientConfig = DatabentoDataClientConfig(
+    api_key=databento_api_key or "",
+    http_gateway="https://hist.databento.com",
+    live_gateway="wss://stream.databento.com",
+    use_exchange_as_venue=False,
+    venue_dataset_map=venue_dataset_map,
+)
+
+node_config = TradingNodeConfig(
+    trader_id=TraderId("ML-ACTOR-001"),
+    data_engine=data_engine_cfg,
+    data_clients={"DATABENTO": data_config},
+    exec_clients={},  # No execution for signal actor
+)
+```
+
+**Metrics Server** (lines 590-600):
+```python
+port = int(os.getenv("METRICS_PORT", "8000"))
+host = os.getenv("METRICS_HOST", "127.0.0.1")
+app = build_app(lambda: actor_node._healthy)  # ml.deployment.metrics_http
+http_thread = threading.Thread(
+    target=lambda: app.run(host=host, port=port, debug=False),
+    daemon=True,
+)
+http_thread.start()
+```
+
+**Event Loop Management** (lines 624-638):
+```python
+def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    Return a running event loop for the current thread.
+
+    Python 3.12 no longer auto-creates a loop when calling get_event_loop.
+    """
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+```
+
+### 3. Trading Strategy Service (`entrypoint_strategy.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/entrypoint_strategy.py` (449 lines)
+
+**Purpose**: Trading decision execution based on ML signals (HOT PATH decision making)
+
+**Key Components**:
+
+```python
+class MLStrategyNode:
+    def __init__(self) -> None:
+        self.node: TradingNode | None = None
+        self.running: bool = False
+        self._tasks: list[asyncio.Task[Any]] = []
+        self._healthy: bool = False
+```
+
+**Mandatory Dry-Run Mode** (lines 79-116):
+```python
+# DRY RUN MODE (default to false)
+execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
+
+print("=" * 80)
+print("ML TRADING STRATEGY - CONTAINER MODE")
+print("=" * 80)
+print(f"Execute Trades: {execute_trades} {'(DRY RUN MODE)' if not execute_trades else '(LIVE MODE)'}")
+print("=" * 80)
+
+if not execute_trades:
+    print("\n⚠️  DRY RUN MODE ACTIVE ⚠️")
+    print("Strategy will process signals and make decisions")
+    print("but will NOT submit actual orders to the exchange")
+    print("=" * 80)
+```
+
+**Strategy Configuration** (lines 119-140):
+```python
+strategy_config = MLStrategyConfig(
+    strategy_id=strategy_id,
+    instrument_id=instrument_id,
+    ml_signal_source=ml_signal_source,
+    position_size_pct=position_size_pct,      # Default 2%
+    min_confidence=min_confidence,            # Default 0.6
+    max_positions=max_positions,              # Default 1
+    stop_loss_pct=stop_loss_pct,              # Default 2%
+    take_profit_pct=take_profit_pct,          # Default 4%
+    use_strategy_store=use_strategy_store,    # Default true
+    strategy_store_config=(
+        {
+            "connection_string": db_connection,
+            "batch_size": 100,
+            "flush_interval_ms": 1000,
+        }
+        if use_strategy_store
+        else None
+    ),
+    persist_all_signals=persist_all_signals,  # Default true
+    execute_trades=execute_trades,            # DRY RUN CONTROL
+)
+```
+
+**Graceful Shutdown with Statistics** (lines 274-318):
+```python
+async def shutdown(self) -> None:
+    print("\nShutting down...")
+    self.running = False
+    self._healthy = False
+
+    if self.node:
+        # Print final statistics (lines 285-307)
+        print("\n" + "=" * 80)
+        print("FINAL STATISTICS")
+        print("=" * 80)
+        try:
+            node_any = cast(Any, self.node)
+            trader = getattr(node_any, "trader", None)
+            strategies = trader.strategies() if trader and hasattr(trader, "strategies") else {}
+
+            if strategies:
+                strategy = next(iter(strategies.values()))
+                print(f"Signals Received: {getattr(strategy, '_signals_received', 0)}")
+                print(f"Dry Run Trades: {getattr(strategy, '_dry_run_trades', 0)}")
+                print(f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}")
+        except Exception:
+            print("Signals Received: 0")
+            print("Dry Run Trades: 0")
+```
+
+**Health Heartbeat Window** (lines 361-400):
+```python
+def _run_health_heartbeat(self, *, reason: str) -> bool:
+    """
+    Optional heartbeat window for tests to verify strategy lifecycle.
+
+    Enabled via ML_STRATEGY_HEARTBEAT_ENABLED (default: enabled).
+    """
+    if os.getenv("ML_STRATEGY_HEARTBEAT_ENABLED", "1").strip().lower() in {"0", "false", "off"}:
+        return False
+
+    duration = self._get_heartbeat_float("ML_STRATEGY_HEARTBEAT_DURATION_SECONDS", 120.0)
+    if duration <= 0.0:
+        return False
+
+    interval = max(0.5, self._get_heartbeat_float("ML_STRATEGY_HEARTBEAT_INTERVAL_SECONDS", 5.0))
+    deadline = time.monotonic() + duration
+
+    logger.info("Entering strategy heartbeat window", extra={"reason": reason, "duration_seconds": duration})
+    self._healthy = True
+    try:
+        while time.monotonic() < deadline:
+            time.sleep(interval)
+    finally:
+        self._healthy = False
+        logger.info("Strategy heartbeat window expired", extra={"reason": reason})
+    return True
+```
+
+---
+
+## Health Checking System
+
+### Multi-Service Health Checker (`check_health.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/check_health.py` (198 lines)
+
+**Purpose**: Comprehensive health validation for all deployment services
+
+**Health Check Functions**:
+
+```python
+def check_postgres() -> bool:
+    """Check PostgreSQL via docker compose exec (lines 59-70)"""
+    command = _compose_command("exec", "-T", "postgres", "pg_isready", "-U", "postgres")
+    result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+    return result.returncode == 0
+
+def check_redis() -> bool:
+    """Check Redis via docker compose exec (lines 73-83)"""
+    command = _compose_command("exec", "-T", "redis", "redis-cli", "ping")
+    result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+    return "PONG" in (result.stdout or "")
+
+def check_ml_pipeline() -> bool:
+    """Check ML Pipeline via HTTP endpoint (lines 86-96)"""
+    port = os.environ.get("ML_PIPELINE_HOST_PORT", "8080")
+    response = requests.get(f"http://localhost:{port}/health", timeout=5)
+    return response.status_code == 200
+
+def check_prometheus() -> bool:
+    """Check Prometheus health endpoint (lines 99-107)"""
+    response = requests.get("http://localhost:9090/-/healthy", timeout=5)
+    return response.status_code == 200
+
+def check_grafana() -> bool:
+    """Check Grafana API health (lines 110-118)"""
+    response = requests.get("http://localhost:3000/api/health", timeout=5)
+    return response.status_code == 200
+
+def check_docker_compose() -> bool:
+    """Check Docker Compose services via JSON output (lines 121-154)"""
+    command = _compose_command("ps", "--format", "json")
+    result = run_command(command, capture_output=True, text=True, check=False, timeout=10)
+
+    if result.returncode != 0:
+        return False
+
+    stdout = result.stdout.strip()
+    if stdout:
+        try:
+            services = json.loads(stdout)
+            required = {"postgres", "ml_pipeline"}
+            running = {s.get("Service") for s in services if s.get("State") == "running"}
+            return required.issubset(running)
+        except Exception:
+            return False
+    return False
+```
+
+**Docker Compose Command Resolution** (lines 27-40):
+```python
+def _compose_base() -> list[str]:
+    """Resolve docker-compose command invocation"""
+    override = os.environ.get("DOCKER_COMPOSE_BIN")
+    if override:
+        return [override]
+    docker_compose = shutil.which("docker-compose")
+    if docker_compose:
+        return [docker_compose]
+    docker = shutil.which("docker")
+    if docker:
+        return [docker, "compose"]
+    raise FileNotFoundError("docker-compose binary not found in PATH")
+```
+
+**Health Check Aggregator** (lines 157-194):
+```python
+def main() -> None:
     checks = [
         ("Docker Compose", check_docker_compose),
         ("PostgreSQL", check_postgres),
@@ -1050,447 +617,1246 @@ def main():
         ("Prometheus", check_prometheus),
         ("Grafana", check_grafana),
     ]
-    # Returns aggregated health with specific failure details
+
+    all_healthy = True
+    results = []
+
+    for name, check_func in checks:
+        print(f"Checking {name}...", end=" ")
+        healthy, message = check_service_health(name, check_func)
+        print(f"[{'✓' if healthy else '✗'}] {message}")
+        results.append((name, healthy, message))
+        if not healthy:
+            all_healthy = False
+
+    if all_healthy:
+        print("✓ All services are healthy!")
+        sys.exit(0)
+    else:
+        print("✗ Some services are unhealthy. Please check logs:")
+        print("  make logs SERVICE=<service_name>")
+        sys.exit(1)
 ```
 
-**Testing & Validation** (`ml/deployment/test_docker_setup.sh`):
+### Metrics HTTP Server (`metrics_http.py`)
 
-- **Docker Installation**: Version compatibility verification
-- **Compose Syntax**: Configuration validation with docker-compose config
-- **Environment Validation**: Required files and API key presence
-- **Dry-Run Build**: Container build testing without execution
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/metrics_http.py` (44 lines)
 
-### Makefile Commands
-**File**: `ml/deployment/Makefile`
+**Purpose**: Lightweight Flask server for /health and /metrics endpoints
 
-Convenient development and deployment commands:
+```python
+def build_app(is_healthy: Callable[[], bool]) -> Flask:
+    """
+    Create Flask app with health and metrics endpoints.
 
-- `make build` - Build all Docker images
-- `make up` - Start all services
-- `make down` - Stop all services
-- `make logs [SERVICE=name]` - View logs
-- `make clean` - Clean up volumes and images
-- `make test` - Run integration tests
-- `make health` - Check service health
-- `make pipeline` - Start only ML pipeline
-- `make backfill START=date END=date` - Run backfill mode
-- `make realtime` - Run realtime mode
-- `make dev` - Development mode with live code mounting
-- `make deploy` - Production deployment
-- `make scale WORKERS=n` - Scale pipeline workers
-- `make backup` - Backup PostgreSQL database
-- `make restore FILE=backup.sql` - Restore database
+    Uses ml.common.metrics_export facade to avoid direct prometheus_client imports.
+    """
+    app = Flask(__name__)
 
-### Test Script
-**Script**: `ml/deployment/test_docker_setup.sh`
+    @app.get("/health")
+    def health() -> tuple[Response, int]:
+        status = {"healthy": bool(is_healthy())}
+        return jsonify(status), 200 if status["healthy"] else 503
 
-Validates deployment prerequisites:
+    @app.get("/metrics")
+    def metrics() -> Response:
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-- Checks Docker and Docker Compose installation
-- Validates environment configuration
-- Verifies Docker Compose configuration syntax
-- Checks required files existence
-- Tests Docker build (dry run)
-- Validates Python imports in container
-- Provides colored output for test results
+    return app
+```
 
-### Health Check Script
-**Script**: `ml/deployment/check_health.py`
+**Usage in Entrypoints**:
+```python
+# Actor entrypoint (lines 590-600)
+app = build_app(lambda: actor_node._healthy)
+http_thread = threading.Thread(
+    target=lambda: app.run(host="127.0.0.1", port=8000, debug=False),
+    daemon=True,
+)
+http_thread.start()
 
-Comprehensive health monitoring:
+# Strategy entrypoint (lines 414-425)
+app = build_app(lambda: strategy_node._healthy)
+http_thread = threading.Thread(
+    target=lambda: app.run(host="127.0.0.1", port=8001, debug=False),
+    daemon=True,
+)
+http_thread.start()
+```
 
-- Checks Docker Compose services status
-- Validates PostgreSQL connectivity
-- Tests Redis connection
-- Verifies ML Pipeline HTTP endpoint
-- Checks Prometheus and Grafana health
-- Returns aggregated health status
+---
 
-### Development Override
-Note: Dev override now lives at `ml/docker-compose.dev.yml` (use `-f` with the base compose).
+## Database Migration System
 
-Development-specific configurations:
+### Migration Utility (`migrations.py`)
 
-- Source code live mounting for hot reload
-- Debug logging levels
-- Reduced batch sizes for testing
-- PostgreSQL port exposure for debugging
-- Optional pgAdmin service for database inspection
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/migrations.py` (166 lines)
 
-## Production Deployment Steps
+**Purpose**: Typed API for listing and applying canonical migrations via Docker Compose
 
-### Prerequisites
+**Key Functions**:
 
-1. **API Access**: Valid Databento API key
-2. **Infrastructure**: Docker and Docker Compose v2 installed
-3. **Database**: PostgreSQL 15+ server (local or remote)
-4. **Environment**: Environment variables configured
+```python
+MIGRATIONS_DIR: Path = Path("ml/stores/migrations").resolve()  # line 34
 
-### Deployment Procedure
+def list_migration_files() -> list[Path]:
+    """
+    Return migration files sorted by filename (lexicographic).
+
+    Only .sql files included. Never raises for missing directory.
+    """
+    if not MIGRATIONS_DIR.exists():
+        return []
+    files = sorted(p for p in MIGRATIONS_DIR.iterdir() if p.suffix == ".sql")
+    return list(files)
+
+def apply_migrations_via_compose(
+    *,
+    compose_file: Path | None,
+    database: str = "nautilus",
+    user: str = "postgres",
+    migrations: Iterable[Path] | None = None,
+) -> None:
+    """
+    Apply migrations to running Postgres container via compose exec.
+
+    Reads SQL from host and pipes to psql stdin to avoid bind-mount confusion.
+    """
+    files = list(migrations) if migrations is not None else list_migration_files()
+    for file in files:
+        sql = file.read_text(encoding="utf-8")
+        cmd = _compose_cmd(compose_file) + [
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-U",
+            user,
+            database,
+        ]
+        try:
+            COMMAND_RUNNER(cmd, input=sql, text=True, timeout=60, log=logger)
+        except SubprocessExecutionError as exc:
+            logger.error("migration_failed file=%s returncode=%s", file, exc.returncode, exc_info=True)
+            raise
+```
+
+**CLI Interface** (lines 142-162):
+```python
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ML DB migrations helper")
+    parser.add_argument("--apply", action="store_true", help="Apply migrations using docker compose exec")
+    parser.add_argument("--compose-file", type=Path, default=Path("ml/deployment/docker-compose.yml"))
+    args = parser.parse_args()
+
+    if args.apply:
+        apply_migrations_via_compose(compose_file=args.compose_file)
+    else:
+        for p in list_migration_files():
+            print(p)
+```
+
+**Usage**:
+```bash
+# Apply all canonical migrations
+python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml
+
+# List migration files
+python -m ml.deployment.migrations
+```
+
+### CI Migration Smoke Test (`ci_migration_smoke.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/ci_migration_smoke.py` (99 lines)
+
+**Purpose**: Automated validation of migration application and view creation
+
+**Workflow** (lines 81-94):
+```python
+def main() -> None:
+    # Start postgres only
+    _compose("up", "-d", "postgres", timeout=30)
+    wait_for_postgres()
+
+    # Apply migrations
+    from ml.deployment.migrations import apply_migrations_via_compose
+    apply_migrations_via_compose(compose_file=COMPOSE_FILE)
+
+    # Validate core views exist
+    check_views()
+
+    print("Migration smoke OK")
+```
+
+**PostgreSQL Readiness Wait** (lines 21-46):
+```python
+def wait_for_postgres(timeout: int = 30) -> None:
+    start = time.time()
+    while time.time() - start < timeout:
+        result = run_command(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+            log=logger,
+        )
+        if result.returncode == 0:
+            return
+        time.sleep(1)
+    raise RuntimeError("PostgreSQL did not become ready in time")
+```
+
+**View Validation** (lines 49-78):
+```python
+def check_views() -> None:
+    sql = """
+    SELECT 1 FROM pg_views WHERE viewname IN (
+        'pipeline_health',
+        'data_collection_stats',
+        'model_performance_summary',
+        'strategy_signal_summary'
+    ) AND schemaname = 'ml';
+    """
+    cmd = [
+        "docker", "compose", "-f", str(COMPOSE_FILE),
+        "exec", "-T", "postgres", "psql", "-U", "postgres", "nautilus",
+        "-v", "ON_ERROR_STOP=1", "-c", sql,
+    ]
+    try:
+        run_command(cmd, timeout=30, log=logger)
+    except SubprocessExecutionError as exc:
+        raise RuntimeError(f"View validation failed: {exc}") from exc
+```
+
+---
+
+## Security and Utilities
+
+### Model Security (`security.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/security.py` (28 lines)
+
+**Purpose**: Enforce ONNX-only model artifact usage in production
+
+```python
+def assert_allowed_model_path(path: str) -> None:
+    """
+    Validate model artifact path for deployment.
+
+    Only ONNX models are allowed. Raises ValueError with actionable message
+    if the path is not permitted.
+    """
+    suffix = Path(path).suffix.lower()
+    if suffix != ".onnx":
+        raise ValueError(
+            "Only ONNX model artifacts are permitted in production (.*.onnx). "
+            f"Refused: {path}",
+        )
+```
+
+**Usage in Actor Entrypoint** (lines 118-127 of entrypoint_actor.py):
+```python
+try:
+    assert_allowed_model_path(model_path)
+except ValueError as exc:
+    print(f"ERROR: {exc}")
+    sys.exit(1)
+if not Path(model_path).exists():
+    print(f"ERROR: Model not found at {model_path}")
+    sys.exit(1)
+```
+
+### Scheduling Utilities (`scheduling_utils.py`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/scheduling_utils.py` (105 lines)
+
+**Purpose**: Deterministic UTC schedule computation for daily pipeline runs
+
+**Key Components**:
+
+```python
+@dataclass(slots=True, frozen=True)
+class DailyTime:
+    """A daily time specification (UTC) with hour and minute components."""
+    hour: int
+    minute: int
+
+def parse_bool_env(value: str | None) -> bool:
+    """
+    Parse boolean environment value.
+
+    Accepts: "1", "true", "yes", "on" (case-insensitive).
+    """
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+def parse_daily_spec(spec: str) -> DailyTime:
+    """
+    Parse daily time specification.
+
+    Supported formats (UTC):
+    - "HH:MM" (e.g., "17:00")
+    - Crontab-like: "M H * * *" (e.g., "0 17 * * *")
+    """
+    s = spec.strip()
+
+    # Try HH:MM (lines 54-63)
+    if ":" in s and " " not in s:
+        parts = s.split(":", 1)
+        hour_str, minute_str = parts[0].strip(), parts[1].strip()
+        if not (hour_str.isdigit() and minute_str.isdigit()):
+            raise ValueError(f"Invalid daily time spec: {spec!r}")
+        hour, minute = int(hour_str), int(minute_str)
+        _validate_hm(hour, minute, spec)
+        return DailyTime(hour=hour, minute=minute)
+
+    # Try crontab-like (lines 66-70)
+    fields = s.split()
+    if len(fields) == 5 and fields[0].isdigit() and fields[1].isdigit():
+        minute, hour = int(fields[0]), int(fields[1])
+        _validate_hm(hour, minute, spec)
+        return DailyTime(hour=hour, minute=minute)
+
+    raise ValueError(f"Invalid daily schedule format: {spec!r}")
+
+def compute_next_utc_run(now: datetime, daily: DailyTime) -> datetime:
+    """
+    Compute next run datetime in UTC from daily time.
+
+    Assumes `now` is timezone-aware UTC or naive treated as UTC.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    else:
+        now = now.astimezone(UTC)
+
+    run_today = now.replace(hour=daily.hour, minute=daily.minute, second=0, microsecond=0)
+    if now < run_today:
+        return run_today
+    return (run_today + timedelta(days=1)).replace(tzinfo=UTC)
+```
+
+**Usage in Pipeline Entrypoint** (lines 296-311):
+```python
+schedule_raw = os.environ.get("PIPELINE_SCHEDULE")
+if schedule_raw:
+    try:
+        daily: DailyTime = parse_daily_spec(schedule_raw)
+        now = datetime.now(UTC)
+        next_run = compute_next_utc_run(now, daily)
+        sleep_seconds = max(0.0, (next_run - now).total_seconds())
+    except ValueError:
+        # Bad spec; fall back to interval mode
+        sleep_seconds = float(interval_seconds)
+else:
+    sleep_seconds = float(interval_seconds)
+```
+
+---
+
+## Observability Configuration
+
+### Prometheus Scrape Configuration
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/prometheus.yml` (26 lines)
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # ML Pipeline (exposes /metrics on port 8080)
+  - job_name: 'ml_pipeline'
+    static_configs:
+      - targets: ['ml_pipeline:8080']
+    metrics_path: /metrics
+
+  # ML Signal Actor metrics
+  - job_name: 'ml_signal_actor'
+    static_configs:
+      - targets: ['ml_signal_actor:8000']
+    metrics_path: /metrics
+
+  # ML Strategy metrics
+  - job_name: 'ml_strategy'
+    static_configs:
+      - targets: ['ml_strategy:8001']
+    metrics_path: /metrics
+```
+
+### Alert Rules Configuration
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/alerts.yml` (165 lines)
+
+**Alert Groups**:
+
+1. **Model Performance Alerts** (lines 5-16):
+```yaml
+- alert: MLModelInferenceLatencyHighP99
+  expr: |
+    histogram_quantile(0.99,
+      sum(rate(nautilus_ml_model_inference_duration_seconds_bucket[5m])) by (le)
+    ) > 0.200
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "High model inference latency (P99 > 200ms)"
+```
+
+2. **Pipeline Health Alerts** (lines 18-26):
+```yaml
+- alert: MLPipelineHealthLow
+  expr: nautilus_ml_pipeline_health < 0.8
+  for: 5m
+  labels:
+    severity: critical
+  annotations:
+    summary: "Pipeline health below threshold"
+```
+
+3. **Ingestion Monitoring** (lines 28-56):
+```yaml
+- alert: MLIngestErrorsHigh
+  expr: increase(nautilus_ml_data_collection_errors_total[5m]) > 0
+  for: 10m
+
+- alert: MLIngestWatermarkLagHigh
+  expr: max_over_time(nautilus_ml_watermark_lag_seconds[10m]) > 300
+  for: 10m
+
+- alert: MLIngestRateDrop
+  expr: sum by (dataset_type) (rate(nautilus_ml_data_events_total{stage="INGESTED"}[10m])) < 0.01
+  for: 15m
+```
+
+4. **Observability Worker Alerts** (lines 58-101):
+```yaml
+- alert: MLObsAsyncBackpressureDrops
+  expr: increase(nautilus_ml_backpressure_drops_total[5m]) > 0
+  for: 10m
+
+- alert: MLObsAsyncBackpressureSustained
+  expr: rate(nautilus_ml_backpressure_drops_total[5m]) > 0.5
+  for: 10m
+  labels:
+    severity: critical
+
+- alert: MLObsAsyncQueueDepthHigh
+  expr: nautilus_ml_observability_queue_depth{component="obs_async_worker"} > 3072
+  for: 10m
+
+- alert: MLObsAsyncFlushLatencyHighP99
+  expr: |
+    histogram_quantile(0.99,
+      sum(rate(nautilus_ml_observability_async_flush_duration_seconds_bucket[5m])) by (le)
+    ) > 0.5
+  for: 10m
+```
+
+5. **Aggregator Monitoring** (lines 103-131):
+```yaml
+- alert: MLAggregatorDuplicatesHigh
+  expr: rate(nautilus_ml_aggregator_duplicates_total[5m]) > 1
+  for: 10m
+
+- alert: MLAggregatorBufferHigh
+  expr: max_over_time(nautilus_ml_aggregator_buffer_size[10m]) > 5000
+  for: 10m
+
+- alert: MLAggregatorWatermarkLagHigh
+  expr: max_over_time(nautilus_ml_aggregator_watermark_lag_seconds[10m]) > 300
+  for: 10m
+```
+
+6. **Streaming Training Backlog** (lines 133-165):
+```yaml
+- alert: MLStreamingBacklogWarning
+  expr: max(ml_tft_streaming_training_backlog) > 4
+  for: 2m
+  labels:
+    severity: warning
+
+- alert: MLStreamingBacklogCritical
+  expr: max(ml_tft_streaming_training_backlog) > 8
+  for: 2m
+  labels:
+    severity: critical
+
+- alert: MLStreamingWorkersMissing
+  expr: |
+    (sum by (dataset_id) (ml_tft_streaming_training_backlog) > 0)
+      and on (dataset_id)
+    (sum by (dataset_id) (ml_tft_streaming_workers_active) <= 0)
+  for: 2m
+  labels:
+    severity: critical
+```
+
+---
+
+## Container Specifications
+
+### Pipeline Dockerfile
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/Dockerfile.pipeline` (50 lines)
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (lines 8-13)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Nautilus Trader from PyPI (line 16)
+RUN pip install --no-cache-dir nautilus-trader
+
+# Copy ML sources (line 17)
+COPY ml ./ml
+
+# Install runtime dependencies (lines 20-34)
+RUN pip install --no-cache-dir \
+    flask \
+    requests \
+    structlog \
+    sqlalchemy \
+    psycopg2-binary \
+    pandas \
+    numpy \
+    polars \
+    pyarrow \
+    msgspec \
+    prometheus-client \
+    databento \
+    scikit-learn \
+    rich
+
+# Create necessary directories (line 37)
+RUN mkdir -p /app/data/catalog /app/models /app/logs /app/configs
+
+# Copy entrypoint script (line 42)
+COPY ml/deployment/entrypoint_pipeline.py /app/entrypoint.py
+
+# Health check (lines 45-46)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import ml.data.scheduler; import psycopg2; import sys; sys.exit(0)" || exit 1
+
+# Default command (line 49)
+CMD ["python", "/app/entrypoint.py"]
+```
+
+### Actor Dockerfile
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/Dockerfile.actor` (47 lines)
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (lines 6-11)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements (line 14)
+COPY ml ./ml
+
+# Install runtime dependencies including ONNX runtime (lines 17-30)
+RUN pip install --no-cache-dir \
+    nautilus-trader \
+    numpy \
+    pandas \
+    msgspec \
+    structlog \
+    sqlalchemy \
+    psycopg2-binary \
+    prometheus-client \
+    requests \
+    flask \
+    onnxruntime \
+    onnx
+
+# Create models directory (line 33)
+RUN mkdir -p /app/models
+
+# Copy entrypoint scripts (lines 36-39)
+COPY ml/deployment/entrypoint_actor.py /app/entrypoint.py
+COPY ml/deployment/entrypoint_actor.py /app/entrypoint_actor.py
+COPY ml/deployment/entrypoint_mock.py /app/entrypoint_mock.py
+COPY ml/deployment/mock_databento.py /app/mock_databento.py
+
+# Health check (lines 42-43)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Run the actor (line 46)
+CMD ["python", "/app/entrypoint.py"]
+```
+
+---
+
+## Environment Configuration
+
+### Environment Variable Template (`.env.example`)
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/.env.example` (29 lines)
+
+```bash
+# External integrations
+DATABENTO_API_KEY=replace-me
+DATABENTO_DATASET=EQUS.MINI
+
+# Schedule and pipeline behaviour
+PIPELINE_MODE=daily
+PIPELINE_SCHEDULE=0 17 * * *
+UNIVERSE_SYMBOLS=SPY.XNAS
+LOG_LEVEL=INFO
+
+# Host port overrides (each maps host_port:container_port)
+POSTGRES_HOST_PORT=5433
+REDIS_HOST_PORT=6380
+ML_ACTOR_HOST_PORT=8000
+ML_STRATEGY_HOST_PORT=8001
+ML_PIPELINE_HOST_PORT=8081
+ML_DASHBOARD_HOST_PORT=8010
+
+# Streaming persistence worker configuration
+ML_BUS_REDIS_STREAM=ml-events
+ML_STREAM_PERSIST_ENABLE=1
+ML_STREAM_PERSIST_BATCH_SIZE=256
+ML_STREAM_PERSIST_BLOCK_MS=1000
+ML_STREAM_PERSIST_POLL_INTERVAL_SECONDS=0.5
+
+# Optional: direct host connection for tooling outside stack
+# ML_DB_CONNECTION=postgresql://postgres:postgres@localhost:5433/nautilus
+```
+
+### Common Environment Variables
+
+| Variable | Default | Purpose | Defined In |
+|----------|---------|---------|------------|
+| `DATABENTO_API_KEY` | *(required)* | Live market data access | .env.example, entrypoints |
+| `DATABENTO_DATASET` | `EQUS.MINI` | Dataset identifier | .env.example, compose |
+| `PIPELINE_MODE` | `daily` | Schedule mode (daily/backfill/realtime) | .env.example, entrypoint_pipeline.py:219 |
+| `PIPELINE_SCHEDULE` | `0 17 * * *` | Cron or HH:MM UTC schedule | .env.example, entrypoint_pipeline.py:296 |
+| `UNIVERSE_SYMBOLS` | `SPY.XNAS` | Comma-separated instrument list | .env.example, entrypoint_pipeline.py:137 |
+| `LOG_LEVEL` | `INFO` | Logging verbosity | .env.example, multiple services |
+| `POSTGRES_HOST_PORT` | `5433` | Host → container port mapping | .env.example, docker-compose.yml:18 |
+| `REDIS_HOST_PORT` | `6380` | Host → container port mapping | .env.example, docker-compose.yml:54 |
+| `ML_PIPELINE_HOST_PORT` | `8081` | Pipeline health endpoint port | .env.example, docker-compose.yml:248 |
+| `ML_ACTOR_HOST_PORT` | `8000` | Actor metrics endpoint port | .env.example, docker-compose.yml:131 |
+| `ML_STRATEGY_HOST_PORT` | `8001` | Strategy metrics endpoint port | .env.example, docker-compose.yml:178 |
+| `EXECUTE_TRADES` | `false` | **Dry run control** (SAFETY) | entrypoint_strategy.py:80 |
+| `USE_ORCHESTRATOR` | `false` | Enable unified ingestion | entrypoint_pipeline.py:231 |
+| `DUAL_WRITE` | `false` | SQL + Parquet dual write | entrypoint_pipeline.py:232 |
+| `ML_LIVE_RECORD_ENABLE` | `1` | Enable live data recording | entrypoint_actor.py:313 |
+| `ML_LIVE_RECORD_DATASETS` | `bars` | Dataset types to record | entrypoint_actor.py:319 |
+
+---
+
+## Makefile Targets
+
+**File**: `/home/nate/projects/nautilus_trader/ml/deployment/Makefile` (144 lines)
+
+### Core Operations
+
+```makefile
+build:          # Build all Docker images
+up:             # Start all services
+down:           # Stop all services
+health:         # Check service health
+logs:           # View logs (use SERVICE=name for specific service)
+ps:             # Show container status
+```
+
+### Database Operations
+
+```makefile
+migrate:        # Apply SQL migrations via compose exec
+                # Invokes: python -m ml.deployment.migrations --apply
+ci-smoke:       # CI migration smoke test (start DB, apply, verify views)
+                # Invokes: python -m ml.deployment.ci_migration_smoke
+```
+
+### Deployment Modes
+
+```makefile
+pipeline:       # Start only the ML pipeline service
+                # docker compose up -d postgres && docker compose up ml_pipeline
+
+backfill:       # Run pipeline in backfill mode
+                # docker compose run --rm -e PIPELINE_MODE=backfill ml_pipeline
+                # Requires: START=YYYY-MM-DD END=YYYY-MM-DD
+
+realtime:       # Run pipeline in realtime mode
+                # docker compose run --rm -e PIPELINE_MODE=realtime ml_pipeline
+
+dev:            # Development mode with live code mounting
+                # docker compose -f docker-compose.yml -f ../docker-compose.dev.yml up
+```
+
+### Operational Commands
+
+```makefile
+restart:        # Restart a service (SERVICE=name)
+                # docker compose restart $(SERVICE)
+
+scale:          # Scale pipeline workers (WORKERS=n)
+                # docker compose up -d --scale ml_pipeline=$(WORKERS)
+
+deploy:         # Production deployment
+                # Validates .env presence, starts with --env-file
+
+backup:         # Backup PostgreSQL database
+                # docker compose exec postgres pg_dump -U postgres nautilus > backup_<timestamp>.sql
+
+restore:        # Restore database (FILE=backup.sql)
+                # docker compose exec -T postgres psql -U postgres nautilus < $(FILE)
+
+nuke:           # Remove containers and volumes (DANGEROUS)
+                # docker compose down -v
+
+clean:          # Clean up volumes and prune system
+                # docker compose down -v && docker system prune -f
+```
+
+### Dashboard Integration
+
+```makefile
+grafana-import: # Import default dashboard via HTTP API
+                # Requires: GRAFANA_API_TOKEN
+                # curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:3000/api/dashboards/db
+```
+
+---
+
+## Deployment Patterns and Best Practices
+
+### Universal ML Architecture Pattern Compliance
+
+All deployment services enforce the **5 Universal ML Patterns** from CLAUDE.md:
+
+#### Pattern 1: Mandatory 4-Store + 4-Registry Integration
+
+**Implementation**: All services extend `BaseMLInferenceActor` which auto-initializes stores/registries
+
+```python
+# entrypoint_actor.py lines 326-332
+mgr = MLIntegrationManager(
+    db_connection=db_connection,
+    auto_start_postgres=False,
+    auto_migrate=False,
+    ensure_healthy=False,
+    strict_protocol_validation=False,
+)
+recorder = LiveDataRecorder(
+    data_store=mgr.data_store,      # Auto-initialized
+    data_registry=mgr.data_registry, # Auto-initialized
+    buffer_size=1000,
+    flush_interval_ms=1000,
+)
+```
+
+**Progressive Fallback** (entrypoint_actor.py lines 360-469):
+- PRIMARY: PostgreSQL via `MLIntegrationManager`
+- FALLBACK: ParquetDataCatalog + JSON DataRegistry
+- FINAL: DummyStore with warnings
+
+#### Pattern 2: Protocol-First Interface Design
+
+**Store Typing** (all entrypoints use protocol-typed stores):
+```python
+from ml.stores.protocols import DataStoreProtocol, DataRegistryProtocol
+
+data_store: DataStoreProtocol = mgr.data_store
+data_registry: DataRegistryProtocol = mgr.data_registry
+```
+
+**Benefits**:
+- Structural typing without implementation coupling
+- Duck typing support for testing (DummyStore conforms)
+- Type safety without circular dependencies
+
+#### Pattern 3: Hot/Cold Path Separation
+
+**Hot Path Services** (< 5ms P99 latency requirement):
+- `ml_signal_actor`: Real-time inference, pre-allocated arrays, ONNX runtime
+- `ml_strategy`: Signal processing, decision making
+
+**Cold Path Services**:
+- `ml_pipeline`: Data collection, feature computation
+- `ml_dashboard`: Control plane, monitoring
+
+**Hot Path Enforcement** (entrypoint_actor.py lines 143-152):
+```python
+feature_config = MLFeatureConfig(
+    lookback_window=20,
+    indicators={
+        "sma": {"period": 10},
+        "rsi": {"period": 14},
+        "bbands": {"period": 20, "std": 2},
+    },
+    normalize_features=True,
+    fill_missing_with=0.0,  # Pre-allocated defaults
+)
+```
+
+#### Pattern 4: Progressive Fallback Chains
+
+**Database Connectivity** (all entrypoints):
+```
+PostgreSQL → DummyStore → warnings logged
+```
+
+**Registry Loading** (entrypoint_actor.py lines 374-391):
+```
+PostgreSQL backend → JSON file backend → local registry path
+```
+
+**Configuration** (entrypoint_pipeline.py lines 159-163):
+```python
+feature_store_connection=os.environ.get(
+    "DB_CONNECTION",
+    os.environ.get("FEATURE_STORE_CONNECTION",
+    os.environ.get("DATABASE_URL")),
+)
+```
+
+#### Pattern 5: Centralized Metrics Bootstrap
+
+**Implementation** (all entrypoints use facade):
+```python
+from ml.common.metrics_export import CONTENT_TYPE_LATEST, generate_latest
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+```
+
+**Never import `prometheus_client` directly** – always use `ml.common.metrics_export`
+
+### Security Controls
+
+#### ONNX-Only Model Enforcement
+
+**Security Module** (`security.py` lines 12-24):
+```python
+def assert_allowed_model_path(path: str) -> None:
+    suffix = Path(path).suffix.lower()
+    if suffix != ".onnx":
+        raise ValueError(
+            "Only ONNX model artifacts are permitted in production (.*.onnx). "
+            f"Refused: {path}",
+        )
+```
+
+**Enforcement in Entrypoints** (entrypoint_actor.py lines 118-127):
+```python
+try:
+    assert_allowed_model_path(model_path)
+except ValueError as exc:
+    print(f"ERROR: {exc}")
+    sys.exit(1)
+```
+
+**No Pickle Support** (entrypoint_actor.py line 481):
+```python
+def _create_dummy_model(self, model_path: str) -> None:
+    raise RuntimeError("Dummy pickle models are no longer supported.")
+```
+
+#### Mandatory Dry-Run Mode
+
+**Default Configuration** (entrypoint_strategy.py line 80):
+```python
+execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
+```
+
+**Explicit Warning Display** (entrypoint_strategy.py lines 112-116):
+```python
+if not execute_trades:
+    print("\n⚠️  DRY RUN MODE ACTIVE ⚠️")
+    print("Strategy will process signals and make decisions")
+    print("but will NOT submit actual orders to the exchange")
+```
+
+**Docker Compose Enforcement** (docker-compose.yml line 153):
+```yaml
+environment:
+  EXECUTE_TRADES: "false"  # DRY RUN - NO REAL TRADES!
+```
+
+---
+
+## Testing and CI/CD Integration
+
+### Test Infrastructure
+
+**Unit Tests** (`ml/tests/unit/deployment/`):
+- `test_check_health.py` – Health checker validation
+- `test_migrations.py` – Migration utility testing
+- `test_metrics_http.py` – Flask endpoint testing
+- `test_model_security.py` – ONNX enforcement validation
+- `test_scheduling_utils.py` – Schedule parsing tests
+
+**Integration Tests** (`ml/tests/integration/deployment/`):
+- `test_deployment_integration.py` – End-to-end deployment validation
+
+### CI Smoke Test Workflow
+
+```python
+# ci_migration_smoke.py (lines 81-94)
+def main() -> None:
+    # 1. Start postgres container
+    _compose("up", "-d", "postgres", timeout=30)
+
+    # 2. Wait for readiness
+    wait_for_postgres()
+
+    # 3. Apply migrations
+    from ml.deployment.migrations import apply_migrations_via_compose
+    apply_migrations_via_compose(compose_file=COMPOSE_FILE)
+
+    # 4. Validate core views exist
+    check_views()
+
+    print("Migration smoke OK")
+```
+
+**Usage in CI**:
+```bash
+make ci-smoke
+# or
+python -m ml.deployment.ci_migration_smoke
+```
+
+---
+
+## Operational Procedures
+
+### Production Deployment Checklist
 
 1. **Environment Setup**:
-
-   ```bash
-   export DATABENTO_API_KEY=your_key_here
-   export DB_CONNECTION=postgresql://postgres:postgres@localhost:5432/nautilus
-   ```
-
-2. **Database Initialization**:
-
-   ```bash
-   createdb nautilus
-   psql nautilus -f ml/stores/migrations/001_stores_schema.sql
-   psql nautilus -f ml/stores/migrations/002_auto_partitioning.sql
-   psql nautilus -f ml/stores/migrations/003_market_data.sql
-   psql nautilus -f ml/stores/migrations/004_data_registry.sql
-   psql nautilus -f ml/stores/migrations/005_schema_hardening.sql
-   psql nautilus -f ml/stores/migrations/005a_feature_values_dedupe.sql
-   psql nautilus -f ml/stores/migrations/006_disable_partition_triggers.sql
-   ```
-
-3. **Quick Start Deployment**:
-
    ```bash
    cd ml/deployment
-   chmod +x quick_start.sh
-   ./quick_start.sh
+   cp .env.example .env
+   # Edit .env: set DATABENTO_API_KEY, adjust ports if needed
    ```
 
-   Or manual deployment:
-
+2. **Validate Configuration**:
    ```bash
-   chmod +x ml/deployment/run_dry_run.sh
-   ./ml/deployment/run_dry_run.sh
+   # Check compose syntax
+   docker compose config
+
+   # Verify .env variables
+   grep -v '^#' .env | grep -v '^$'
    ```
 
-4. **Verification**:
-   - Check service health: `docker compose ps`
-   - Monitor logs: `docker compose logs -f`
-   - Verify metrics: `http://localhost:9090`
-   - Check dashboards: `http://localhost:3000`
+3. **Database Initialization**:
+   ```bash
+   # Start PostgreSQL only
+   docker compose up -d postgres
 
-### Live Trading Transition
+   # Wait for health
+   docker compose ps postgres
 
-**Safety Checklist**:
+   # Apply migrations
+   make migrate
+   # or
+   python -m ml.deployment.migrations --apply --compose-file docker-compose.yml
+   ```
 
-1. Verify dry run mode: Check `EXECUTE_TRADES=false`
-2. Test with small data: Run for 1-hour periods
-3. Validate model predictions: Ensure reasonable outputs
-4. Monitor resource usage: CPU < 50%, stable memory
+4. **Service Startup**:
+   ```bash
+   # Start full stack
+   make up
+   # or
+   docker compose up -d
 
-**Live Mode Activation**:
+   # Check status
+   make ps
+   docker compose ps
+   ```
 
-1. Configure execution client
-2. Set `EXECUTE_TRADES=true`
-3. Start with minimal position sizes
-4. Implement kill switch procedures
+5. **Health Validation**:
+   ```bash
+   # Automated health check
+   python -m ml.deployment.check_health
 
-## Current Implementation Status
+   # Manual endpoint checks
+   curl http://localhost:8081/health  # Pipeline
+   curl http://localhost:8000/health  # Actor
+   curl http://localhost:8001/health  # Strategy
+   curl http://localhost:9090/-/healthy  # Prometheus
+   curl http://localhost:3000/api/health  # Grafana
+   ```
 
-### Completed Components
-✅ **Docker Compose orchestration** - Full multi-service setup with Docker Compose v2 and health dependencies
-✅ **ML Pipeline service** - Automated data collection with three operational modes (daily/backfill/realtime)
-✅ **ML Signal Actor** - Real-time inference with Databento integration and ONNX model support
-✅ **ML Trading Strategy** - Signal consumption and dry-run trading with comprehensive audit trail
-✅ **Container specifications** - Optimized Dockerfiles for all services with minimal dependencies
-✅ **Environment configuration** - Comprehensive environment variable support with validation
-✅ **Service dependencies** - Health-based startup ordering with progressive fallback
-✅ **Health monitoring** - Flask-based health endpoints, Docker health checks, and comprehensive status
-✅ **Database integration** - PostgreSQL with schema auto-initialization and migration management
-✅ **Monitoring stack** - Prometheus metrics, comprehensive Grafana dashboards, and alert rules
-✅ **Deployment scripts** - Shell and Python scripts for various deployment modes with validation
-✅ **Development tools** - Comprehensive Makefile, quick start, health checks, and test scripts
-✅ **Safety controls** - Mandatory dry run mode with explicit overrides and security enforcement
-✅ **Graceful shutdown** - Signal handling in all services with proper resource cleanup
-✅ **Logging** - Centralized logging with configurable levels and structured output
-✅ **Progressive fallback** - Database connectivity fallback with DummyStore implementations
-✅ **Security hardening** - No pickle models, API key validation, and resource limits
-✅ **Development override** - Separate dev configuration with PgAdmin and port mappings
+6. **Monitor Logs**:
+   ```bash
+   # All services
+   docker compose logs -f
 
-### Architecture Strengths
+   # Specific service
+   make logs SERVICE=ml_pipeline
+   docker compose logs -f ml_signal_actor
+   ```
 
-- **Separation of concerns**: Distinct containers for pipeline, signal generation, and trading
-- **Data persistence**: PostgreSQL with automated schema management
-- **Pipeline flexibility**: Three operational modes (daily, backfill, realtime)
-- **Safety first**: Dry run mode by default with clear warnings
-- **Comprehensive monitoring**: Prometheus metrics with custom Grafana dashboards
-- **Developer friendly**: Multiple deployment modes and convenience scripts
-- **Production ready**: Health checks, graceful shutdown, and error handling
-- **Easy onboarding**: Quick start script and test utilities
+### Troubleshooting Guide
+
+#### Port Conflicts
+
+**Symptom**: `Bind for 0.0.0.0:5433 failed: port is already allocated`
+
+**Solution**:
+```bash
+# Edit .env to use different ports
+POSTGRES_HOST_PORT=5543
+REDIS_HOST_PORT=6390
+ML_PIPELINE_HOST_PORT=8091
+
+# Restart stack
+make down
+make up
+```
+
+#### Database Connection Failures
+
+**Symptom**: Pipeline exits immediately with `could not connect to server`
+
+**Solution**:
+```bash
+# Check PostgreSQL health
+docker compose ps postgres
+docker compose logs postgres
+
+# Verify migrations applied
+docker compose exec postgres psql -U postgres -d nautilus -c "\dt"
+
+# Check connection string in .env
+echo $DB_CONNECTION
+```
+
+#### Missing Models
+
+**Symptom**: Actor exits with `ERROR: Model not found at /app/models/model.onnx`
+
+**Solution**:
+```bash
+# Verify model mount
+docker compose config | grep -A5 volumes
+
+# Check model exists on host
+ls -lh ml/models/
+
+# Restart actor
+make restart SERVICE=ml_signal_actor
+```
+
+#### Grafana Dashboard Not Loading
+
+**Symptom**: Grafana shows no datasource or dashboards
+
+**Solution**:
+```bash
+# Check Prometheus health
+curl http://localhost:9090/-/healthy
+
+# Verify datasource provisioning
+docker compose exec grafana ls /etc/grafana/provisioning/datasources/
+
+# Import dashboard manually
+make grafana-import GRAFANA_API_TOKEN=<token>
+```
+
+#### Stale Volumes
+
+**Symptom**: Disk space issues, old anonymous volumes
+
+**Solution**:
+```bash
+# List anonymous volumes
+docker volume ls --filter label=com.docker.volume.anonymous=
+
+# Remove unused volumes
+docker volume prune
+
+# Nuclear option (removes ALL volumes)
+make nuke  # DANGEROUS - loses all data
+```
+
+---
+
+## Integration with Other Modules
+
+### Cross-Module References
+
+**Data Pipeline Integration**:
+- Uses `ml.data.scheduler.DataScheduler` (entrypoint_pipeline.py:233)
+- Integrates `ml.data.ingest.orchestrator.IngestionOrchestrator`
+- Wraps `ml.data.providers` for SQL coverage/writers
+
+**Store Integration**:
+- Initializes via `ml.core.integration.MLIntegrationManager` (entrypoint_pipeline.py:398)
+- Uses `ml.stores.feature_store.FeatureStore` (entrypoint_pipeline.py:181)
+- Uses `ml.stores.model_store.ModelStore` (entrypoint_pipeline.py:188)
+- Uses `ml.stores.writers.LiveDataRecorder` (entrypoint_actor.py:333)
+
+**Actor Integration**:
+- Extends `ml.actors.multi_signal.MultiInstrumentSignalActor` (entrypoint_actor.py:25)
+- Uses `ml.actors.recorder.RecorderActor` for live data (entrypoint_actor.py:339)
+- Leverages `ml.config.base.MLFeatureConfig` (entrypoint_actor.py:143)
+
+**Strategy Integration**:
+- Uses `ml.strategies.ml_strategy.MLTradingStrategy` (entrypoint_strategy.py:28)
+- Integrates `ml.config.base.MLStrategyConfig` (entrypoint_strategy.py:119)
+
+**Registry Integration**:
+- Uses `ml.registry.data_registry.DataRegistry` (entrypoint_actor.py:388)
+- Integrates `ml.registry.persistence.PersistenceConfig` (entrypoint_actor.py:377)
+
+**Observability Integration**:
+- Uses `ml.observability.bootstrap.auto_start_if_configured` (all entrypoints)
+- Leverages `ml.common.metrics_export` for Prometheus endpoints
+- Integrates `ml.common.logging_config` for structured logging
+
+---
+
+## Known Limitations and Future Work
 
 ### Current Limitations
-⚠️ **Kubernetes support** - Docker Compose focused, no Helm charts or K8s manifests
-⚠️ **Limited execution clients** - Dry run mode only, broker integrations require manual configuration
-⚠️ **Manual scaling** - No auto-scaling based on load metrics (horizontal scaling supported via make scale)
-⚠️ **Single region** - No multi-region or failover support
-⚠️ **Secrets management** - API keys via environment variables (industry standard for containers)
 
-## Critical Operational Notes
-
-### Safety Protocols
-
-1. **Dry Run Mode**: `EXECUTE_TRADES=false` is enforced by default
-2. **Signal Validation**: All signals logged and persisted before execution
-3. **Resource Limits**: Memory and CPU constraints prevent resource exhaustion
-4. **Database Persistence**: All decisions stored for audit and analysis
-5. **Graceful Shutdown**: Proper signal handling for clean service termination
-
-### Performance Considerations
-
-- **Memory Allocation**:
-  - ML Pipeline: 16GB (data processing intensive)
-  - ML Signal Actor: 8GB (model inference)
-  - ML Trading Strategy: 8GB (signal processing)
-- **CPU Allocation**:
-  - ML Pipeline: 4 cores (parallel processing)
-  - Other services: 2 cores each
-- **Database Connections**: Connection pooling with proper cleanup
-- **Metrics Collection**: 15-second scrape intervals for minimal overhead
-
-### Security Measures
-
-- **API Key Protection**: Environment variable injection only
-- **Database Security**: Isolated network with credential management
-- **Container Isolation**: Minimal base images with only required dependencies
-- **Network Segmentation**: Bridge network with controlled inter-service communication
-
-### Disaster Recovery
-
-- **Data Persistence**: Volumes for critical data survival across restarts
-- **Configuration Backup**: All configurations version controlled
-- **State Recovery**: Database-backed state for service restart resilience
-- **Monitoring Alerts**: Prometheus alerting for service failure detection
-
-## Production Architecture Summary
-
-The ML deployment architecture provides a production-hardened, safety-first environment that enforces CLAUDE.md architectural patterns while maintaining operational excellence.
-
-### Core Architectural Strengths
-
-**Universal Pattern Enforcement**:
-
-- **Pattern 1**: Mandatory 4-store + 4-registry integration with progressive fallback
-- **Pattern 2**: Protocol-first design enabling DummyStore testing and type safety
-- **Pattern 3**: Strict hot/cold path separation with <5ms P99 latency requirements
-- **Pattern 4**: Progressive fallback chains (PostgreSQL → DummyStore → graceful warnings)
-- **Pattern 5**: Centralized metrics bootstrap preventing registry conflicts
-
-**Production-Ready Infrastructure**:
-
-- **Containerized Orchestration**: Docker Compose with health-based dependencies and resource limits
-- **Multi-Mode Deployment**: Production containers, local development, backtest simulation
-- **Automated Schema Management**: Docker init volumes + CLI migration runner with idempotent execution
-- **Comprehensive Observability**: Prometheus/Grafana with custom dashboards, alerts, and performance tracking
-- **Security-First Design**: No pickle models, mandatory dry-run mode, API key validation, progressive fallback
-
-**Operational Excellence**:
-
-- **Zero-Downtime Operations**: Health checks, graceful shutdown, circuit breakers
-- **Developer Experience**: Quick start scripts, live code mounting, comprehensive testing
-- **CI/CD Integration**: GitHub Actions workflows, property testing, coverage enforcement
-- **Audit Compliance**: Complete persistence of signals, decisions, and model metadata
-- **Performance Monitoring**: Real-time latency tracking, resource utilization, error correlation
-
-### Deployment Capabilities
-
-**Three Deployment Modes**:
-
-1. **Production Containers**: Full observability, resource management, health monitoring
-2. **Local Development**: Native processes, live reload, progressive database fallback
-3. **Backtest Simulation**: Historical replay, synthetic data, controlled environments
-
-**Operational Tools**:
-
-- **Makefile Operations**: 20+ commands for build, deploy, scale, backup, restore
-- **Health Monitoring**: Multi-layer health checks with aggregated status reporting
-- **Migration Management**: Automated schema deployment with validation and rollback
-- **Security Scanning**: Step Security hardening, egress policy auditing
-
-### Safety & Compliance Framework
-
-**Mandatory Safety Controls**:
-
-- **EXECUTE_TRADES=false**: Enforced dry-run mode with explicit warnings
-- **Model Security**: NO pickle support, only ONNX/XGBoost/LightGBM safe formats
-- **Audit Trail**: Complete persistence of signals, decisions, model metadata
-- **Progressive Fallback**: Never fail due to missing services, always degrade gracefully
-
-**Risk Management**:
-
-- **Position Limits**: Configurable size, confidence thresholds, concurrent limits
-- **Circuit Breakers**: Health monitoring with automatic degradation
-- **Performance Budgets**: Hot path <5ms P99, memory bounds, CPU limits
-- **Database Resilience**: Connection pooling, auto-reconnection, fallback strategies
-
-This architecture enables confident ML trading system deployment with enterprise-grade reliability, comprehensive monitoring, and safety-first operational practices.
-## Implementation Review Summary
-
-**Review Date**: 2025-01-16
-**Reviewer**: Claude Code
-**Focus**: Ground-truth validation of documentation claims vs. actual implementation
-
-### Universal ML Architecture Pattern Compliance Analysis
-
-#### ✅ Pattern 1: Mandatory 4-Store + 4-Registry Integration - VERIFIED
-
-**Documentation Claim**: "All containers inherit from BaseMLInferenceActor with automatic initialization and progressive fallback"
-
-**Implementation Status**: **FULLY IMPLEMENTED**
-
-- **File Evidence**: `/home/nate/projects/nautilus_trader/ml/actors/base.py:784-813`
-- **Key Implementation**: `_init_stores_and_registries()` method properly initializes all 4 stores via centralized facade
-- **Progressive Fallback**: Implemented via `ml.actors.actor_services.init_actor_services()` which delegates to `ml.core.integration.init_actor_stores_and_registries()`
-- **Protocol Compliance**: All stores are typed with Protocol interfaces (`FeatureStoreProtocol`, `ModelStoreProtocol`, etc.)
-- **Verification**: Entrypoint files correctly import and use `MLSignalActor` and `MLTradingStrategy` classes that inherit from `BaseMLInferenceActor`
-
-#### ⚠️ Pattern 2: Protocol-First Interface Design - PARTIALLY COMPLIANT
-
-**Documentation Claim**: "All components use typing.Protocol for clean contracts"
-
-**Implementation Status**: **MOSTLY IMPLEMENTED**
-
-- **Protocol Usage**: Verified in `ml.actors.base.py` - stores are correctly protocol-typed
-- **Missing Documentation**: Documentation doesn't mention that some type annotations use `object` instead of specific protocols (lines 843-868 in base.py)
-- **Runtime Safety**: `isinstance()` checks and `@runtime_checkable` decorators are used appropriately
-
-#### ✅ Pattern 3: Hot/Cold Path Separation - VERIFIED
-
-**Documentation Claim**: "Hot path: <5ms P99 latency, zero allocations, pre-allocated arrays"
-
-**Implementation Status**: **IMPLEMENTED**
-
-- **Pre-allocation**: Verified in `BaseMLInferenceActor` - `_features_buffer` and `_feature_window` are pre-allocated (lines 748-751)
-- **Performance Tracking**: Metrics for inference latency are implemented (lines 775-778)
-- **Memory Management**: `deque` with `maxlen` for fixed-size feature windows
-
-#### ✅ Pattern 4: Progressive Fallback Chains - VERIFIED
-
-**Documentation Claim**: "PostgreSQL → DummyStore with warnings logged"
-
-**Implementation Status**: **IMPLEMENTED**
-
-- **Fallback Strategy**: Implemented via `init_actor_stores_and_registries()` facade with error handling
-- **Logging**: Proper warning logs are generated during store initialization (line 812: "Stores and registries initialized")
-- **Connection Strings**: Environment variable fallback chains in entrypoints (e.g., `entrypoint_actor.py:46-50`)
-
-#### ⚠️ Pattern 5: Centralized Metrics Bootstrap - MIXED IMPLEMENTATION
-
-**Documentation Claim**: "NEVER import prometheus_client directly. Use ml.common.metrics_bootstrap"
-
-**Implementation Status**: **PARTIALLY COMPLIANT**
-
-- **Runtime Usage**: Deployment uses `ml.common.metrics_export` for metrics endpoint (`entrypoint_pipeline.py:29-30`)
-- **Dockerfile Dependencies**: `prometheus-client` included as runtime dependency for metrics export functionality
-- **No Direct Imports**: Entrypoint scripts use the metrics_export facade, not direct prometheus imports
-- **Impact**: Metrics are properly abstracted through ML common layer, though Dockerfile includes the dependency
-
-### Security Pattern Compliance
-
-#### ✅ No Pickle Models - VERIFIED
-
-**Documentation Claim**: "NO pickle support, only ONNX/XGBoost/LightGBM safe formats"
-
-**Implementation Status**: **ENFORCED**
-
-- **Security Check**: `entrypoint_actor.py:148` explicitly raises `RuntimeError` for pickle models
-- **Comment Evidence**: `run_local_dry_run.py:line` mentions "Removed insecure pickle-based dummy model creation"
-- **Container Safety**: Dockerfile.actor includes ONNX runtime but no pickle dependencies
-
-#### ✅ Dry Run Mode Enforcement - VERIFIED
-
-**Documentation Claim**: "EXECUTE_TRADES=false enforced by default with explicit warnings"
-
-**Implementation Status**: **IMPLEMENTED**
-
-- **Default Value**: `entrypoint_strategy.py:54` defaults to `"false"`
-- **Warning Display**: Lines 86-90 show clear "DRY RUN MODE ACTIVE" warnings
-- **Trade Prevention**: MLTradingStrategy properly checks execute_trades flag (lines 117, 137)
-
-### Container Architecture Analysis
-
-#### ✅ Docker Compose Structure - VERIFIED
-
-**Documentation Claim**: "Full containerized environment with health-based dependencies"
-
-**Implementation Status**: **CORRECTLY IMPLEMENTED**
-
-- **Project Name**: Pinned to `ml` (docker-compose.yml:2)
-- **Health Checks**: PostgreSQL, Redis, and ML Pipeline have proper health check configurations
-- **Dependencies**: Proper service dependency chains with health conditions
-- **Resource Limits**: Memory and CPU limits specified (8GB/2CPU for actors, 16GB/4CPU for pipeline)
-
-#### ✅ Grafana Dashboard Implementation - VERIFIED
-
-**Documentation Claim**: "Complete observability: Prometheus/Grafana + custom alerts + health endpoints"
-
-**Implementation Status**: **FULLY IMPLEMENTED**
-
-- **Dashboard File**: Complete `/grafana/ml_pipeline_health.json` with 1500+ lines of comprehensive monitoring
-- **Dashboard Features**: Pipeline health gauge, data freshness, error tracking, observability metrics, ingestion monitoring
-- **Dashboard Mounting**: docker-compose.yml properly mounts dashboard and datasource directories
-- **Prometheus Config**: Complete scrape configs for all ML services with proper endpoints
-
-### File Path Discrepancies
-
-#### ✅ Development Override Files - VERIFIED
-
-**Documentation Claim**: References to `ml/docker-compose.dev.yml`
-
-**Implementation Status**: **IMPLEMENTED**
-
-- **File**: `/home/nate/projects/nautilus_trader/ml/docker-compose.dev.yml` exists and provides development overrides
-- **Features**: PostgreSQL port mapping to 5432, PgAdmin service for database inspection
-- **Integration**: Properly integrated with main docker-compose.yml via `-f` flag usage in Makefile
-
-### Performance Metrics Claims Validation
-
-#### ⚠️ Performance Benchmarks - INFRASTRUCTURE READY
-
-**Documentation Claim**: "P99 latency <5ms validated in production"
-
-**Implementation Status**: **MONITORING INFRASTRUCTURE COMPLETE**
-
-- **Metrics Collection**: Comprehensive latency histograms configured in Prometheus for inference, feature computation
-- **Alert Rules**: P99 latency alerts configured (>200ms threshold in alerts.yml)
-- **Dashboard Monitoring**: Real-time P95/P99 latency tracking in Grafana dashboard
-- **Performance Claims**: Architecture supports claims but requires actual load testing for validation
-
-### Documentation Accuracy Assessment
-
-#### Minor Issues Identified
-
-1. **Performance Validation**: Latency claims require load testing verification
-2. **Kubernetes Support**: Docker Compose only, no enterprise orchestration
-3. **Secrets Management**: Environment variables only, no external secret stores
-4. **Multi-Region**: Single region deployment with no geographic redundancy
-
-#### Accuracy Rating: **98%**
-
-- **Architecture Patterns**: 5/5 patterns implemented (Pattern 5 uses appropriate abstraction layer)
-- **Security Controls**: Fully implemented as documented with no-pickle enforcement
-- **Container Structure**: Correctly implemented with comprehensive orchestration
-- **Deployment Features**: All documented features present and functional
-- **Monitoring Stack**: Complete implementation with comprehensive dashboards and alerts
-
-#### Recommendations
-
-1. **Performance Validation**: Add load testing scripts to validate <5ms P99 latency claims
-2. **Kubernetes Migration**: Consider adding Helm charts for enterprise deployment
-3. **Advanced Scaling**: Implement auto-scaling based on queue depth and latency metrics
-4. **Secrets Management**: Integrate with external secret stores for production environments
-5. **Multi-Region**: Design distributed deployment architecture for high availability
-
-**Overall Assessment**: The deployment architecture is comprehensively implemented as documented with excellent adherence to Universal ML Architecture Patterns. All claimed features are present and functional, including comprehensive monitoring, progressive fallback, and security controls. The system is production-ready with complete Docker orchestration, health monitoring, and operational tooling.
-
-## Cross-Module References
+⚠️ **Kubernetes Support**: Docker Compose only, no Helm charts or K8s manifests
+⚠️ **Execution Clients**: Dry-run mode only, broker integrations require manual configuration
+⚠️ **Auto-Scaling**: No horizontal pod autoscaling based on load metrics
+⚠️ **Multi-Region**: Single region deployment, no geographic redundancy
+⚠️ **Secrets Management**: Environment variables only, no external secret stores (Vault, AWS Secrets Manager)
+
+### Future Enhancements
+
+**Planned Features**:
+1. Kubernetes deployment manifests with StatefulSets for PostgreSQL
+2. Helm charts for multi-environment deployments
+3. Horizontal pod autoscaling based on queue depth and latency
+4. Multi-region active-active architecture
+5. External secret store integration (HashiCorp Vault, AWS Secrets Manager)
+6. Enhanced live trading execution client integrations (Interactive Brokers, Alpaca)
+7. Advanced canary deployment support for model A/B testing
+8. Distributed tracing integration (OpenTelemetry, Jaeger)
+
+---
+
+## Quick Reference
+
+### Port Map
+
+| Service | Container | Host Default | Override Variable |
+|---------|-----------|--------------|-------------------|
+| Postgres | 5432 | 5433 | `POSTGRES_HOST_PORT` |
+| Postgres Playground | 5432 | 5435 | `PLAYGROUND_POSTGRES_HOST_PORT` |
+| Redis | 6379 | 6380 | `REDIS_HOST_PORT` |
+| ML Signal Actor | 8000 | 8000 | `ML_ACTOR_HOST_PORT` |
+| ML Strategy | 8001 | 8001 | `ML_STRATEGY_HOST_PORT` |
+| ML Pipeline | 8080 | 8081 | `ML_PIPELINE_HOST_PORT` |
+| ML Dashboard | 8010 | 8010 | `ML_DASHBOARD_HOST_PORT` |
+| Prometheus | 9090 | 9090 | *(edit compose file)* |
+| Grafana | 3000 | 3000 | *(edit compose file)* |
+
+### Connection Strings
+
+**Inside Containers** (service-to-service):
+```
+postgresql://postgres:postgres@postgres:5432/nautilus
+redis://redis:6379/0
+```
+
+**From Host** (local development):
+```
+postgresql://postgres:postgres@localhost:5433/nautilus
+redis://localhost:6380/0
+```
+
+### Essential Commands
+
+```bash
+# Start production stack
+make ml-up
+
+# Check service status
+make ml-ps
+
+# View logs
+make ml-logs                    # Pipeline only
+make ml-logs SERVICE=ml_signal_actor
+
+# Health check
+python -m ml.deployment.check_health
+
+# Apply migrations
+make ml-migrate
+
+# Stop stack
+make ml-down
+
+# Nuclear reset (removes volumes)
+make ml-down-v
+```
+
+### File Locations
+
+| Purpose | Path |
+|---------|------|
+| Main compose file | `ml/deployment/docker-compose.yml` |
+| Test stack compose | `ml/deployment/docker-compose.test.yml` |
+| Environment template | `ml/deployment/.env.example` |
+| Pipeline entrypoint | `ml/deployment/entrypoint_pipeline.py` |
+| Actor entrypoint | `ml/deployment/entrypoint_actor.py` |
+| Strategy entrypoint | `ml/deployment/entrypoint_strategy.py` |
+| Health checker | `ml/deployment/check_health.py` |
+| Migration utility | `ml/deployment/migrations.py` |
+| Prometheus config | `ml/deployment/prometheus.yml` |
+| Alert rules | `ml/deployment/alerts.yml` |
+| Grafana dashboard | `ml/deployment/grafana/ml_pipeline_health.json` |
+| Deployment README | `ml/deployment/README.md` |
+
+---
+
+## Summary
+
+The ML deployment architecture provides a **production-ready, containerized environment** for running Nautilus Trader ML strategies with:
+
+✅ **Comprehensive service orchestration** via Docker Compose v2 with health-based dependencies
+✅ **Security-first design** with ONNX-only models and mandatory dry-run mode
+✅ **Progressive fallback chains** ensuring system resilience (PostgreSQL → DummyStore)
+✅ **Complete observability** via Prometheus/Grafana with custom dashboards and alerts
+✅ **Multiple deployment modes** (production containers, local dev, backtest)
+✅ **Automated schema management** via Docker init volumes and CLI migration runner
+✅ **Universal ML pattern compliance** enforcing 4-store + 4-registry architecture
+
+The system is **98% complete** and ready for production use with comprehensive monitoring, health checking, and operational tooling. All deployment services adhere to CLAUDE.md architectural patterns while maintaining operational excellence through graceful degradation, comprehensive logging, and safety-first controls.
+
+---
+
+## Cross-Module Documentation
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection
-- **Feature Engineering**: See `context_features.md` for feature computation
-- **Stores**: See `context_stores.md` for persistence layer
-- **Training**: See `context_training.md` for model training pipelines
-- **Registry**: See `context_registry.md` for lifecycle management
+- **Stores**: See `context_stores.md` for persistence layer details
+- **Actors**: See `context_actors.md` for ML inference actors
 - **Strategies**: See `context_strategies.md` for trading strategy framework
-- **Deployment**: See `context_deployment.md` for containerization
-- **Monitoring**: See `context_monitoring.md` for observability
-- **Actors**: See `context_actors.md` for inference actors
-- **Models**: See `context_models.md` for model implementations
+- **Registry**: See `context_registry.md` for lifecycle management
+- **Orchestration**: See `context_orchestration.md` for pipeline orchestration
+- **Monitoring**: See `ops/dashboard_runbook.md` for operational procedures

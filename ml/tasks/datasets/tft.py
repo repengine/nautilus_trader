@@ -4,8 +4,10 @@ Dataset task helpers consumed by CLI entry points.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -16,6 +18,9 @@ from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset as _build_tft_dataset
 from ml.data.vintage import VintagePolicy
+from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
+from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
+from ml.preprocessing.vintage_age import write_metadata
 
 
 FeatureRoleName = Literal["teacher", "student", "inference_support"]
@@ -42,6 +47,8 @@ class TFTDatasetTaskConfig:
     include_calendar: bool = False
     include_earnings: bool = False
     earnings_lag_days: int = 1
+    micro_base_dir: Path | None = None
+    l2_base_dir: Path | None = None
     chunk_days: int = 0
     start: datetime | None = None
     end: datetime | None = None
@@ -61,6 +68,10 @@ class TFTDatasetTaskConfig:
     market_inputs: tuple[MarketDatasetInput, ...] | None = None
     vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
     vintage_as_of: datetime | None = None
+    convert_vintage_to_age: bool = False
+    include_macro_revisions: bool = False
+    macro_revision_mode: Literal["minimal", "core", "full"] = "core"
+    macro_revision_windows: tuple[int, ...] | None = None
 
 
 def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
@@ -80,6 +91,8 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         include_calendar=cfg.include_calendar,
         include_earnings=cfg.include_earnings,
         earnings_lag_days=cfg.earnings_lag_days,
+        micro_base_dir=cfg.micro_base_dir,
+        l2_base_dir=cfg.l2_base_dir,
         horizon_minutes=cfg.horizon_minutes,
         threshold=cfg.threshold,
         lookback_periods=cfg.lookback_periods,
@@ -102,8 +115,28 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         market_inputs=cfg.market_inputs,
         vintage_policy=cfg.vintage_policy,
         vintage_as_of=cfg.vintage_as_of,
+        include_macro_revisions=cfg.include_macro_revisions,
+        macro_revision_mode=cfg.macro_revision_mode,
+        macro_revision_windows=cfg.macro_revision_windows,
     )
-    return _build_tft_dataset(dataset_cfg)
+    result = _build_tft_dataset(dataset_cfg)
+    if not cfg.convert_vintage_to_age:
+        return result
+
+    destination = result.dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+    conversion = convert_vintage_timestamps_to_age(result.dataset_parquet, destination)
+    metadata_path = result.dataset_parquet.with_name("dataset_metadata.json")
+    if not metadata_path.exists():
+        msg = f"Metadata file not found for dataset: {metadata_path}"
+        raise FileNotFoundError(msg)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    updated_metadata = update_metadata_with_vintage_age(
+        metadata,
+        vintage_columns=conversion.vintage_columns,
+        age_columns=conversion.age_columns,
+    )
+    write_metadata(metadata_path, updated_metadata)
+    return replace(result, dataset_parquet=destination)
 
 
 __all__ = [

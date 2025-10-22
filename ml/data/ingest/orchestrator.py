@@ -47,6 +47,8 @@ from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import FanoutMarketDataWriter
 
 
+logger = logging.getLogger(__name__)
+
 DAY_NS: Final[int] = 86_400_000_000_000
 
 
@@ -367,7 +369,14 @@ class IngestionOrchestrator:
                         else:
                             self.raw_writer.write(dataset_type=dataset_type, data=coerced_df)
                     except Exception:
-                        pass
+                        logger.debug(
+                            "Raw writer fallback failed during ingestion chunk",
+                            extra={
+                                "dataset_id": dataset_id,
+                                "instrument_id": instrument_id,
+                            },
+                            exc_info=True,
+                        )
             if self.service is not None:
                 start_dt = datetime.fromtimestamp(start_ns / 1_000_000_000, tz=UTC)
                 end_dt = datetime.fromtimestamp(end_ns / 1_000_000_000, tz=UTC)

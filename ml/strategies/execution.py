@@ -26,6 +26,9 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
 
 
+logger = logging.getLogger(__name__)
+
+
 if TYPE_CHECKING:
     from ml.actors.base import MLSignal
     from nautilus_trader.model.instruments import Instrument
@@ -37,11 +40,12 @@ try:  # Pragmatic compatibility for downstream callers and tests
 
     if not hasattr(_NTLimitOrder, "post_only"):
         setattr(_NTLimitOrder, "post_only", property(lambda self: bool(self.is_post_only)))
-except Exception:  # pragma: no cover - optional enhancement if C-extension unavailable
-    pass
-
-
-logger = logging.getLogger(__name__)
+except Exception as exc:  # pragma: no cover - optional enhancement if C-extension unavailable
+    logging.getLogger(__name__).debug(
+        "LimitOrder post_only augmentation skipped: %s",
+        exc,
+        exc_info=True,
+    )
 
 # ===== Metrics =====
 orders_created_total = get_counter(

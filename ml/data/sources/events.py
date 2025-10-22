@@ -329,8 +329,11 @@ class MockEventSource(EventSource):
             if isinstance(ts, datetime):
                 self.update_watermark(ts)
         except Exception:
-            # Ignore malformed events
-            pass
+            logger.debug(
+                "Failed to update event watermark from payload",
+                extra={"event_type": type(event).__name__},
+                exc_info=True,
+            )
 
         # Dispatch to subscribers, protecting isolation
         for _, handler in list(self._subscribers.items()):
@@ -833,6 +836,11 @@ class FileEventSource(EventSource):
                     },
                 )
             except Exception:
+                logger.debug(
+                    "Failed to normalize economic event record",
+                    extra={"raw_record": str(record)},
+                    exc_info=True,
+                )
                 continue
 
         events.sort(key=lambda r: r.get("event_timestamp", datetime.min))

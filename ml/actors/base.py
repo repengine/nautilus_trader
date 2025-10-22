@@ -32,6 +32,8 @@ from nautilus_trader.model.identifiers import InstrumentId
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
+from ml.common.logging_utils import KeywordLoggerMixin
+from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_manager import MetricsManager
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
@@ -62,8 +64,6 @@ if TYPE_CHECKING:
         def publish_data(self, *args: object, **kwargs: object) -> None: ...
     class NautilusData:  # typing stub
         pass
-
-    from ml.common.logging_utils import KeywordLogger
 
 else:
     from nautilus_trader.common.actor import Actor as NautilusActor
@@ -729,7 +729,7 @@ ml_signal_confidence = _MM.histogram(
 )
 
 
-class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
+class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, ABC):
     """
     Base class for ML inference actors with production features.
 
@@ -756,7 +756,6 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
 
     # Store attributes are initialized in _init_stores_and_registries
-    log: KeywordLogger
     _feature_store: FeatureStoreStrictProtocol  # Strict adapters wrap underlying stores
     _model_store: ModelStoreStrictProtocol
     _strategy_store: StrategyStoreStrictProtocol
@@ -787,14 +786,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         # Initialize with standard ActorConfig
         super().__init__(actor_config)
 
-        # Wrap logger to support structured keyword arguments
-        from ml.common.logging_utils import ensure_keyword_logger
-
-        _wrapped_logger = ensure_keyword_logger(self.log)
-        try:
-            self.log = _wrapped_logger
-        except AttributeError:
-            self._keyword_logger = _wrapped_logger
+        # Ensure keyword-safe logger wrapper is initialized
+        _ = self.log
 
         # Store the complete ML configuration
         self._config = config
@@ -846,6 +839,19 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._manifest_feature_names: list[str] = []
         self._manifest_feature_dtypes: list[str] = []
         self._manifest_feature_schema_hash: str | None = None
+
+    def _log_message(
+        self,
+        level: str,
+        msg: object,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        """
+        Log via the underlying actor logger without propagating keyword errors.
+        """
+        target_logger = getattr(self, "_keyword_logger", self.log)
+        log_best_effort(target_logger, level, msg, *args, **kwargs)
 
     def _init_stores_and_registries(self) -> None:
         """
@@ -928,9 +934,13 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                         exc_info=True,
                         extra={"error": repr(data_exc)},
                     )
-        except Exception:
+        except Exception as exc:
             # Never impact actor initialization
-            self.log.debug("Store circuit breaker propagation failed")
+            self.log.debug(
+                "Store circuit breaker propagation failed",
+                exc_info=True,
+                extra={"error": repr(exc)},
+            )
 
     @property
     def feature_store(self) -> FeatureStoreStrictProtocol:
@@ -1014,7 +1024,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 self._verify_parity_requirements()
             except Exception:
                 # Fail fast: parity guarantees are mandatory
-                self.log.error(
+                self._log_message(
+                    "error",
                     "Parity verification failed",
                     exc_info=True,
                 )
@@ -1048,7 +1059,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             )
 
         except Exception:
-            self.log.error(
+            self._log_message(
+                "error",
                 "Failed to start ML Actor",
                 exc_info=True,
             )
@@ -1141,7 +1153,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     f"{self._persistence_worker.queue_size()})",
                 )
             except Exception:
-                self.log.warning(
+                self._log_message(
+                    "warning",
                     "Error stopping persistence worker",
                     exc_info=True,
                 )
@@ -1323,7 +1336,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 self._publish_signal(signal)
 
         except Exception:
-            self.log.error(
+            self._log_message(
+                "error",
                 "Prediction failed",
                 exc_info=True,
             )
@@ -1498,7 +1512,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     maybe_warm_up_model(self._model, True, input_dim)
             except Exception as exc:
                 # Warm-up is a best-effort optimization; never fail startup
-                self.log.debug("Model warm-up skipped due to error: %s", exc)
+                self.log.debug(
+                    "Model warm-up skipped due to error: %s",
+                    exc,
+                    exc_info=True,
+                )
 
             self.log.info(
                 f"Loaded model with metadata: "
@@ -1508,7 +1526,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 f"type={self._model_metadata.get('type', 'unknown')}",
             )
         except Exception:
-            self.log.error(
+            self._log_message(
+                "error",
                 "Failed to load model",
                 exc_info=True,
             )
@@ -1669,7 +1688,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._last_model_check = time.time()
 
         except Exception:
-            self.log.error(
+            self._log_message(
+                "error",
                 "Model update check failed",
                 exc_info=True,
             )
@@ -1698,7 +1718,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             )
 
         except Exception:
-            self.log.error(
+            self._log_message(
+                "error",
                 "Model reload failed",
                 exc_info=True,
             )

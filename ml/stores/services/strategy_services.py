@@ -40,8 +40,12 @@ from ml.stores.services.common_stats import resolve_table_name as _resolve_table
 
 def _strategy_signals_table(table_name: str) -> TableClause:
     """Return a lightweight SQLAlchemy table clause for strategy signals."""
+    schema: str | None = None
+    table_id = table_name
+    if "." in table_name:
+        schema, table_id = table_name.split(".", 1)
     return sa_table(
-        table_name,
+        table_id,
         sa_column("strategy_id"),
         sa_column("instrument_id"),
         sa_column("ts_event"),
@@ -52,6 +56,7 @@ def _strategy_signals_table(table_name: str) -> TableClause:
         sa_column("risk_metrics"),
         sa_column("execution_params"),
         sa_column("is_live"),
+        schema=schema,
     )
 
 

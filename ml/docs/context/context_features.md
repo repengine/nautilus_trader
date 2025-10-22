@@ -1,447 +1,818 @@
 # Feature Engineering Context Document
 
+**Last Updated**: 2025-10-19
+**Module Size**: ~8,500 lines across 12 primary files + 4 subdirectories
+**Status**: Production-ready core with advanced macro/micro extensions
+
+---
+
 ## Executive Summary
 
-The `ml/features/` directory contains a sophisticated, production-ready feature engineering system that provides mathematical parity between batch (training) and real-time (inference) computation paths. This module implements hot/cold path separation, zero-allocation online processing, and comprehensive parity validation with <1e-10 tolerance.
+The `ml/features/` directory implements a multi-layered feature engineering system that provides batch/online parity for L1 (OHLCV), L2 (order book), and L3 (trade) market microstructure features, plus macroeconomic features with vintage-aware point-in-time semantics. The system is designed for low-latency real-time inference (<5ms P99) while maintaining mathematical identity with batch training computations.
 
-### Key Architectural Principles
+**Core Architecture**:
+1. **FeatureEngineer** (engineering.py, 3,296 lines): Technical indicators and price-based features with hot/cold path separation
+2. **MacroFeatureTransform** (macro_transforms.py, 795 lines): ALFRED vintage-aware macro features with real-time caching
+3. **MacroDataCache** (macro_cache.py, 446 lines): Fast O(1) lookup cache for latest macro releases and revisions
+4. **MacroComposites** (macro_composites.py, 523 lines): 37 composite features across credit, duration, liquidity, growth, and FX dimensions
+5. **Microstructure Aggregators** (micro_aggregate.py, l2_aggregate.py): Per-minute L1/L2 feature aggregation
+6. **Validation System** (validation.py, 693 lines): Parity validation with <1e-10 tolerance
+7. **Pipeline Framework** (pipeline.py, 859 lines): Declarative transform catalog with data requirements gating
 
-1. **Perfect Feature Parity**: Guaranteed identical features between batch and online computation
-2. **Hot/Cold Path Separation**: Optimized paths for training vs inference workloads
-3. **Zero-Allocation Online Processing**: Pre-allocated buffers for real-time performance
-4. **Comprehensive Validation**: Built-in parity validation with detailed reporting
-5. **Nautilus Integration**: Seamless integration with Nautilus Trader indicators
-6. **Pipeline Framework**: Declarative feature transform system with data requirements gating
-7. **Protocol-First Design**: Structural typing for feature transforms and components
+**Key Differentiators**:
+- **Vintage-Aware Macro Features**: Point-in-time macro data using ALFRED vintages prevents look-ahead bias
+- **Hot/Cold Path Parity**: Identical computation paths guarantee training/inference consistency
+- **Composite Features**: Pre-computed multi-series composites (credit spreads, term structure, regime indicators)
+- **Zero-Allocation Hot Path**: Pre-allocated buffers with numpy views for real-time performance
+
+---
 
 ## Module Structure
 
 ```
 ml/features/
-├── __init__.py              # Public API exports (23 lines)
-├── engineering.py           # Core feature engineering classes (2,609 lines)
-├── validation.py           # Parity validation system (680 lines)
-├── pipeline.py             # Declarative pipeline framework (509 lines)
-├── microstructure.py       # L2/L3 microstructure features (958 lines)
-├── feature_export.py       # Registry integration utilities (53 lines)
-├── materialize_cli.py      # Feature materialization CLI (115 lines)
-├── micro_aggregate.py      # Per-minute L1 microstructure aggregation (141 lines)
-└── l2_aggregate.py         # L2 order book per-minute aggregation (131 lines)
+├── engineering.py              # Core feature engineering (3,296 lines)
+├── validation.py              # Parity validation system (693 lines)
+├── pipeline.py                # Declarative pipeline framework (859 lines)
+├── macro_cache.py             # Real-time macro data cache (446 lines)
+├── macro_transforms.py        # Macro feature transforms (795 lines)
+├── macro_composites.py        # Composite macro features (523 lines)
+├── micro_aggregate.py         # L1 microstructure aggregation (162 lines)
+├── l2_aggregate.py            # L2 order book aggregation (242 lines)
+├── microstructure.py          # Advanced L2/L3 features (966 lines)
+├── materialize_cli.py         # Feature materialization CLI (122 lines)
+├── feature_export.py          # Registry integration (52 lines)
+├── __init__.py                # Public API exports (339 lines)
+├── cross_asset/               # Cross-asset relationship features
+│   ├── beta.py                # EWMA beta computation
+│   ├── spreads.py             # Z-score spread features
+│   ├── correlation.py         # Rolling correlation
+│   └── state.py               # Serializable state dataclasses
+├── earnings/                  # Earnings-based fundamental features
+│   ├── earnings_features.py   # EPS surprise, growth, momentum
+│   └── earnings_transforms.py # Transform specs for earnings
+└── README_*.md                # Documentation (macro features, earnings)
 ```
 
-**📊 CURRENT STATE:** Module structure reflects production-ready feature engineering system with comprehensive parity validation, zero-allocation hot path processing, and full integration with the 4-store + 4-registry architecture pattern.
+---
 
-## Core Components
+## 1. Core Feature Engineering (`engineering.py`)
 
-### 1. FeatureEngineer Class (`engineering.py`)
+### FeatureEngineer Class
 
-The primary feature computation engine implementing the Universal ML Architecture patterns:
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/engineering.py:617-2900`
 
-#### Universal Architecture Compliance
+The primary feature computation engine implementing hot/cold path separation for L1 OHLCV features.
 
-- **4-Store Integration**: Automatic initialization via BaseMLInferenceActor
-- **4-Registry Integration**: Feature, Model, Strategy, and Data registry access
-- **Protocol-First Design**: Structural typing for component interfaces
-- **Progressive Fallback**: PostgreSQL → DummyStore when unavailable
+#### Architecture
 
-#### Cold Path (Batch Processing)
-
-- **Purpose**: Training data preparation and validation
-- **Optimization**: Sequential processing using same online computation paths
-- **Memory**: Dynamic allocation acceptable
-- **Performance**: Optimized for throughput and perfect parity
+**NOT** integrated with Universal ML Architecture Pattern. The class:
+- Does NOT inherit from `BaseMLInferenceActor`
+- Does NOT automatically initialize 4 stores or 4 registries
+- Takes optional `feature_store: FeatureStoreProtocol | None = None` parameter (line 717)
+- Operates as a standalone feature computation library
 
 ```python
-# Batch processing with perfect online parity
-features_df, scaler = engineer.calculate_features(
-    df, mode="batch", fit_scaler=True
-)
+class FeatureEngineer:
+    """Core feature engineering with batch/online parity."""
+
+    def __init__(
+        self,
+        config: FeatureConfig | None = None,
+        metrics_collector: FeatureEngineeringCollector | None = None,
+        feature_store: FeatureStoreProtocol | None = None,
+    ) -> None:
+        self.config = config or FeatureConfig()
+        self._metrics = metrics_collector  # Optional metrics
+        self.feature_store = feature_store  # Optional store integration
+
+        # Pre-allocate feature buffer for hot path
+        spec = self.build_pipeline_spec_from_config()
+        n_features = len(PipelineRunner(spec, allowable=...).compute_feature_names())
+        buffer_size = n_features + SystemConstants.FEATURE_BUFFER_PAD
+        self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 ```
 
-#### Hot Path (Online Processing)
+#### Key Methods
 
-- **Purpose**: Real-time inference during trading
-- **Optimization**: Pre-allocated arrays, zero dynamic allocation
-- **Memory**: Fixed buffer with `FEATURE_BUFFER_PAD` space
-- **Performance**: <5ms P99 latency requirement
-
+**Batch Processing** (lines 900-1100):
 ```python
-# Online processing with indicator manager
-features = engineer.calculate_features(
-    current_bar, mode="online",
-    indicator_manager=mgr, scaler=scaler
-)
+def calculate_features(
+    self,
+    df: DataFrameLike,
+    mode: Literal["batch", "online"] = "batch",
+    fit_scaler: bool = False,
+    scaler: StandardScalerT | None = None,
+) -> tuple[PolarsDF | PandasDF, StandardScalerT | None]:
+    """
+    Compute features for batch (training) or online (inference) mode.
+
+    Batch mode processes entire DataFrame sequentially using same online
+    computation path for each row to guarantee parity.
+    """
 ```
 
-**🚀 PRODUCTION READY:** Multiple overloaded interfaces for flexible usage:
-
+**Online Processing** (lines 1300-1450):
 ```python
-# Direct OHLCV input for hot path convenience
-features = engineer.calculate_features_online(
-    close_price=100.5,
-    high_price=101.0,
-    low_price=100.0,
-    volume=1000000.0,
-    scaler=scaler
-)
+def calculate_features_online(
+    self,
+    current_bar: Bar | None = None,
+    indicator_manager: IndicatorManager | None = None,
+    scaler: StandardScalerT | None = None,
+    *,
+    close_price: float | None = None,
+    high_price: float | None = None,
+    low_price: float | None = None,
+    volume: float | None = None,
+) -> npt.NDArray[np.float32]:
+    """
+    Hot path feature computation with zero allocations.
+
+    Returns view of pre-allocated buffer (caller must copy if persisting).
+    """
 ```
 
-### 2. IndicatorManager Class
+#### Feature Categories
 
-Manages stateful Nautilus indicators for consistent calculations across hot/cold paths:
+**Price-Based Features** (L1_ONLY):
+- **Returns**: Configurable periods (default: [1, 5, 10, 20]), safe division
+- **Momentum**: Price change over lookback periods ([5, 10, 20])
+- **Volatility**: Rolling std dev (5-bar and 20-bar windows)
+- **HL Spread**: Normalized (high - low) / close
 
-#### Current Implementation Features
+**Volume Features** (L1_ONLY):
+- **Volume Ratios**: Current volume vs SMA([5, 10, 20]), safe division
 
-- **Indicators Supported**: SMA, EMA, RSI, Bollinger Bands, ATR, MACD
-- **State Management**: Price history with `PRICE_HISTORY_MAXLEN` limit (default 1000)
-- **Memory-Bounded**: Automatic trimming to prevent memory growth in long-running processes
-- **Dual Update Methods**:
-  - `update_from_bar(bar)`: Updates from Nautilus Bar objects
-  - `update_from_values()`: Updates from raw OHLCV values (hot path convenience)
-- **Vectorized Batch**: `update_batch_vectorized()` for efficient training data processing
+**Technical Indicators** (L1_ONLY - lines 1900-2500):
+- **RSI**: Normalized to [-1, 1] from Nautilus [0, 1], bounds-checked
+- **RSI Overbought/Oversold**: Binary signals at 70/30 thresholds
+- **Bollinger Bands**: Width (normalized) and position [0, 1]
+- **ATR**: Normalized by price with 1e-6 floor to prevent extreme ratios
+- **EMA Fast/Slow**: Distance and cross features
+- **MACD**: Line, signal, difference (all price-normalized)
+- **Price Position 20**: Location within 20-day high-low range
 
-#### State Synchronization
+**Microstructure Features** (L1_L2 - when enabled):
+- Simplified OHLCV approximations in hot path
+- Full L2 order book features in batch path
+- See microstructure.py for advanced L2/L3 features
 
-- **Warmup Protocol**: Ensures indicator states match between batch and online processing
-- **Memory Management**: Bounded history prevents OOM in production deployments
-- **Compatibility Proxy**: Provides `is_initialized` property for backward compatibility
+### FeatureConfig Class
 
-### 3. FeatureConfig Class
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/engineering.py:98-280`
 
-Configuration system with comprehensive validation and runtime constraints:
+Configuration with comprehensive validation in `__post_init__`:
 
 ```python
 @dataclass(kw_only=True, frozen=True)
 class FeatureConfig(MLFeatureConfig):
-    # Price-based features
-    return_periods: list[int] = [1, 5, 10, 20]
-    momentum_periods: list[int] = [5, 10, 20]
+    # Price features
+    return_periods: list[int] = field(default_factory=lambda: [1, 5, 10, 20])
+    momentum_periods: list[int] = field(default_factory=lambda: [5, 10, 20])
 
-    # Technical indicators
-    rsi_period: int = 14              # [2, 100] validated in __post_init__
-    bb_period: int = 20               # [2, 100] validated in __post_init__
-    bb_std: float = 2.0               # [0.5, 5.0] validated in __post_init__
-    atr_period: int = 20              # [2, 100] validated in __post_init__
-
-    # Moving averages
-    ema_fast: int = 12                # [2, 50] validated in __post_init__
-    ema_slow: int = 26                # [10, 200], > ema_fast validated
-    macd_signal: int = 9              # [2, 50] for MACD signal line
+    # Technical indicators (validated ranges in __post_init__)
+    rsi_period: int = 14        # [2, 100]
+    bb_period: int = 20         # [2, 100]
+    bb_std: float = 2.0         # [0.5, 5.0]
+    atr_period: int = 20        # [2, 100]
+    ema_fast: int = 12          # [2, 50]
+    ema_slow: int = 26          # [10, 200], must be > ema_fast
+    macd_signal: int = 9        # [2, 50]
 
     # Volume features
-    volume_ma_periods: list[int] = [5, 10, 20]
+    volume_ma_periods: list[int] = field(default_factory=lambda: [5, 10, 20])
 
-    # Advanced features (production ready)
+    # Advanced features
     include_microstructure: bool = False
     include_trade_flow: bool = False
-    validate_quality: bool = False    # Feature quality validation
+    validate_quality: bool = False
 
-    # Legacy compatibility toggles (optional, default None)
-    enable_returns: bool | None = None
-    enable_momentum: bool | None = None
-    enable_volatility: bool | None = None
-    enable_technical: bool | None = None
-    ma_periods: list[int] | None = None
+    # Data requirements gating
     data_requirements: DataRequirements = DataRequirements.L1_ONLY
 ```
 
-#### Validation Features
+**Validation** (lines 180-250):
+- Range checking for all indicator periods
+- Dependency validation (ema_slow > ema_fast)
+- Raises `ValueError` on invalid configuration
 
-- **Runtime Constraints**: All parameter ranges validated in `__post_init__()`
-- **Dependency Validation**: EMA slow period must exceed fast period
-- **Backward Compatibility**: Legacy test toggles supported without affecting normal operation
-- **Student/Teacher Gating**: `data_requirements` gates transforms (`L1_ONLY` for student, `L1_L2`/`L1_L2_L3` for teacher pipelines).
+### IndicatorManager Class
 
-## Feature Categories
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/engineering.py:428-615`
 
-### 1. Core Price-Based Features (L1_ONLY)
-
-#### Returns & Momentum
-
-- **Returns**: Configurable periods (default: 1, 5, 10, 20 bars)
-  - Computation: `(close - prev_close) / prev_close`
-  - Safe division with zero defaults to prevent NaN propagation
-- **Momentum**: Configurable periods (default: 5, 10, 20 bars)
-  - Computation: Price change over specified lookback periods
-
-#### Volatility Features
-
-- **Volatility 5**: Rolling standard deviation over 5 periods
-- **Volatility 20**: Rolling standard deviation over 20 periods
-- **Implementation**: `_calculate_volatility_features()` with safe division
-
-#### High-Low Spread
-
-- **hl_spread**: Normalized high-low spread `(high - low) / close`
-
-### 2. Volume Features (L1_ONLY)
-
-- **Volume Ratios**: Current volume vs moving averages
-  - Configurable periods: `volume_ma_periods` (default: [5, 10, 20])
-  - Computation: `current_volume / sma(volume, period)`
-  - Safe division prevents division by zero
-
-### 3. Technical Indicators (L1_ONLY)
-
-#### RSI Features
-
-- **RSI**: Normalized to [-1, 1] range from Nautilus [0, 1] using `(rsi - 0.5) * 2.0`
-- **RSI Overbought**: Binary indicator (1.0 if raw RSI > 70, else 0.0)
-- **RSI Oversold**: Binary indicator (1.0 if raw RSI < 30, else 0.0)
-- **Runtime Assertion**: RSI normalized values bounds-checked at runtime
-
-#### Bollinger Bands
-
-- **BB Width**: `(bb_upper - bb_lower) / bb_middle`
-- **BB Position**: `(close - bb_lower) / (bb_upper - bb_lower)` with 0.5 default
-
-#### ATR Features
-
-- **ATR Normalized**: `atr / close` with floor at 1e-6 to avoid extreme ratios
-- **Implementation**: `_normalize_atr()` helper with ratio thresholding
-
-#### EMA Features
-
-- **EMA Fast Distance**: `(close - ema_fast) / ema_fast`
-- **EMA Slow Distance**: `(close - ema_slow) / ema_slow`
-- **EMA Cross**: `(ema_fast - ema_slow) / ema_slow`
-
-#### MACD Features
-
-- **MACD Line**: `macd_line / close` (price-normalized)
-- **MACD Signal**: `macd_signal / close` (price-normalized)
-- **MACD Difference**: `macd_difference / close` (price-normalized)
-
-#### Additional Indicators
-
-- **Price Position 20**: Location within 20-day high-low range
-
-### 4. Microstructure Features (L1_L2 Data Requirements)
-
-Advanced order book and trade flow analysis with hot path optimization:
-
-#### L2 Order Book Features (when `include_microstructure=True`)
-
-**Hot Path Simplified Features** (computed from OHLCV approximations):
-
-- **spread_mean**: Average spread over lookback window
-- **spread_std**: Spread standard deviation
-- **spread_relative**: Relative spread normalized by price
-- **size_imbalance_mean**: Average bid-ask size imbalance
-- **size_imbalance_std**: Imbalance volatility
-- **mid_return_std**: Mid-price return volatility
-- **mid_return_autocorr**: Mid-price return autocorrelation
-
-**Implementation Notes**:
-
-- Hot path uses `_calculate_microstructure_features_online()` with OHLCV approximations
-- Batch path supports full L2 data via `_calculate_microstructure_features_batch()`
-- Features designed for zero-allocation online processing
-
-#### L3 Trade Flow Features (when `include_trade_flow=True`)
-
-**Hot Path Simplified Features**:
-
-- **trade_flow_imbalance**: Buy-sell volume imbalance (approximated)
-- **vwap**: Volume-weighted average price
-- **trade_intensity**: Trading rate normalized by average
-- **avg_price_impact**: Average price impact per trade (approximated)
-
-**Implementation Notes**:
-
-- Hot path uses `_calculate_trade_flow_features_online()` with OHLCV approximations
-- Batch path supports full L3 trade data via `_calculate_trade_flow_features_batch()`
-- Optimized for sub-millisecond latency requirements
-
-## Hot Path Optimizations
-
-The feature engineering system implements multiple optimization levels to achieve <5ms P99 latency:
-
-### 1. Pre-Allocation Strategy
+Manages stateful Nautilus indicators for consistent hot/cold path calculations:
 
 ```python
-# Dynamic buffer sizing based on actual feature requirements
-spec = self.build_pipeline_spec_from_config()
-allowable = DataRequirements.L1_L2 if (
-    self.config.include_microstructure or self.config.include_trade_flow
-) else DataRequirements.L1_ONLY
-runner = PipelineRunner(spec, allowable=allowable)
-n_features = len(runner.compute_feature_names())
-buffer_size = n_features + SystemConstants.FEATURE_BUFFER_PAD
-self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
+class IndicatorManager:
+    """Manages Nautilus indicators with bounded state."""
+
+    def __init__(self, config: FeatureConfig) -> None:
+        # Initialize indicators (RSI, BB, ATR, EMA, MACD)
+        self._price_history: deque[float] = deque(maxlen=PRICE_HISTORY_MAXLEN)
+
+    def update_from_bar(self, bar: Bar) -> None:
+        """Update indicators from Nautilus Bar object."""
+
+    def update_from_values(
+        self, close: float, high: float, low: float, volume: float
+    ) -> None:
+        """Update indicators from raw OHLCV values (hot path)."""
 ```
 
-### 2. Zero-Copy Returns with Safety
+**Memory Management**:
+- Bounded history: `PRICE_HISTORY_MAXLEN = 1000` (line 35)
+- Automatic trimming prevents OOM in long-running processes
+- Indicators maintain internal state across updates
+
+---
+
+## 2. Macro Feature System
+
+### MacroFeatureTransform
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/macro_transforms.py:42-419`
+
+Provides vintage-aware macro features with training/inference parity using ALFRED vintages and FRED data.
 
 ```python
-# Return view of buffer (zero allocation in hot path)
-return self.feature_buffer[:feature_idx]
+class MacroFeatureTransform:
+    """
+    Transform adding ALFRED/FRED macro features with point-in-time semantics.
+
+    Ensures macro features are computed identically in batch (historical) and
+    real-time (inference) modes to prevent look-ahead bias.
+    """
+
+    def __init__(
+        self,
+        macro_series_ids: list[str],          # e.g., ["PAYEMS", "UNRATE", "CPIAUCSL"]
+        vintage_base_dir: Path | str,         # data/fred/vintages/
+        fred_path: Path | str | None = None,
+        include_revisions: bool = False,
+        revision_mode: Literal["minimal", "core", "full"] = "core",
+        lag_days: int = 1,
+        vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME,
+        include_composites: bool = False,
+        composite_history_window: int = 400,
+    ) -> None:
+        # Real-time cache (lazy-loaded)
+        self._cache: MacroDataCache | None = None
 ```
 
-**CRITICAL**: View returned requires explicit copying for persistence across bars:
+**Key Methods**:
+
+**Batch Computation** (lines 148-225):
+```python
+def compute_batch(
+    self,
+    df: PolarsDataFrame,
+    timestamp_col: str = "timestamp",
+    vintage_cutoff: datetime | None = None,
+) -> PolarsDataFrame:
+    """
+    Compute macro features for batch (historical) data.
+
+    Uses join_fred_asof to apply point-in-time vintage logic, ensuring
+    features use only data available at each timestamp (no look-ahead bias).
+    """
+    from ml.data.fred_join import join_fred_asof
+
+    result = join_fred_asof(
+        df,
+        timestamp_col=timestamp_col,
+        lag_days=self.lag_days,
+        vintage_base_dir=self.vintage_base_dir,
+        series_filter=set(self._series_ids_for_batch),
+        vintage_policy=self.vintage_policy,
+        include_revisions=self.include_revisions,
+        revision_mode=self.revision_mode,
+    )
+```
+
+**Real-Time Computation** (lines 227-278):
+```python
+def compute_realtime(
+    self,
+    bar: Bar | None = None,
+    ts_event: int | None = None,
+) -> dict[str, float]:
+    """
+    Compute macro features for real-time inference.
+
+    Uses cached latest values - no point-in-time filtering needed since
+    we're always at "now".
+    """
+    cache = self._get_cache()
+    features = cache.get_all_features(mode=self.revision_mode)
+
+    if self.include_composites:
+        composites, issues = _compute_realtime_composites(cache)
+        features.update(composites)
+
+    return features
+```
+
+**Feature Modes**:
+- **minimal**: current, prior_1m, revision_1m
+- **core**: + mom_1m, pct_1m, net_signal_1m
+- **full**: + prior_3m/12m, revision_3m, mom_3m/12m, pct_12m
+
+**Metrics Integration** (lines 329-355):
+```python
+def _record_composite_issues(self, issues: Iterable[tuple[str, str]]) -> None:
+    """Record composite computation issues via metrics/logging."""
+    if self._composite_issue_metric is None:
+        self._composite_issue_metric = get_counter(
+            "ml_macro_composite_missing_total",
+            "Count of macro composite computations missing prerequisites",
+            labelnames=("series_id", "reason"),
+        )
+```
+
+**IMPORTANT**: This is the ONLY metrics usage in the entire features module. The transform uses `get_counter` from `ml.common.metrics_bootstrap` (line 18), demonstrating proper metrics bootstrap pattern.
+
+### MacroDataCache
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/macro_cache.py:102-446`
+
+Fast O(1) lookup cache for real-time macro feature access with <1ms P99 latency.
 
 ```python
-# Safe persistence pattern
-features = engineer.calculate_features_online(...)
-if need_persistence:
-    features_copy = features.copy()  # Explicit copy when needed
+@dataclass(slots=True)
+class MacroDataCache:
+    """
+    Fast cache for real-time macro feature access.
+
+    Pre-loads ALFRED vintages on initialization and provides O(1) lookups
+    for latest values, prior periods, and revisions.
+    """
+
+    vintage_base_dir: Path
+    series_ids: list[str]
+    enable_revisions: bool = True
+    aux_series_ids: list[str] = field(default_factory=list)
+    history_window: int = 400  # For composite calculations
+    _snapshots: dict[str, MacroSeriesSnapshot] = field(default_factory=dict, init=False)
+
+    def __post_init__(self) -> None:
+        """Load all vintages on initialization."""
+        self.refresh()
 ```
 
-### 3. Advanced Memory Management
-
-#### Bounded History Management
-
-- **Price History**: Limited to `PRICE_HISTORY_MAXLEN` (default: 1000)
-- **Automatic Trimming**: Prevents memory growth in long-running processes
-- **State Preservation**: Maintains sufficient history for all configured feature periods
-
-#### Indicator State Optimization
-
-- **Reused Indicators**: Same Nautilus indicator instances across calculations
-- **Compatibility Proxy**: `_IndicatorCompatProxy` provides `.is_initialized` for legacy tests
-- **State Persistence**: Indicators maintain state between feature computations
-
-### 4. Numerical Stability
-
-#### Safe Division Implementation
+**Data Structures**:
 
 ```python
-def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
-    if denominator == 0 or denominator is None:
-        return default
-    return numerator / denominator
+@dataclass(slots=True)
+class MacroSeriesSnapshot:
+    """Snapshot of macro series current state for real-time inference."""
+    series_id: str
+    current_value: float
+    observation_ts: datetime
+    release_ts: datetime
+    prior_1m_value: float | None = None
+    prior_3m_value: float | None = None
+    prior_12m_value: float | None = None
+    revision_1m: float | None = None
+    revision_3m: float | None = None
+    initial_value: float | None = None
+    history: tuple[float, ...] = ()  # For composite rolling calculations
 ```
 
-#### ATR Normalization with Floor
+**Key Methods** (lines 160-322):
+- `_load_series_snapshot()`: Load release calendar from parquet, compute revisions
+- `_get_prior_value()`: Get value from N months ago (latest release for that observation)
+- `_compute_cumulative_revisions()`: Sum revisions over trailing months
+- `get_snapshot()`: O(1) lookup of cached snapshot
+- `get_features()`: Generate all features for a series (minimal/core/full mode)
+
+**Revision Computation** (lines 214-229):
+```python
+if self.enable_revisions and prior_1m is not None:
+    # Revision = (current value for prior obs) - (initial value for prior obs)
+    relativedelta = _load_relativedelta()
+    prior_obs_ts = observation_ts - relativedelta(months=1)
+    prior_initial = self._get_initial_value(df, prior_obs_ts, _pl=_pl)
+    if prior_initial is not None:
+        revision_1m = prior_1m - prior_initial
+```
+
+### MacroComposites
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/macro_composites.py`
+
+Provides 37 composite features across economic dimensions:
+
+**Credit/Risk Spreads (9 features)**:
+- `credit_spread_ig`: BAMLC0A0CM (investment grade)
+- `credit_spread_hy`: BAMLH0A0HYM2 (high yield)
+- `credit_spread_hy_ig`: HY - IG (quality premium)
+- `credit_spread_bbb_a`: BBB-A quality spread
+- `credit_spread_ig_momentum`: 3-month IG change
+- `credit_spread_hy_momentum`: 3-month HY change
+- `credit_distress_index`: Composite distress indicator
+- `ted_spread`: TEDRATE (bank funding stress)
+- `credit_risk_index`: Composite of spreads + VIX
+
+**Duration/Term Structure (8 features)**:
+- `term_spread`: T10Y2Y or (DGS10 - DGS2)
+- `term_spread_5s30s`: Long-end slope
+- `term_spread_2s30s`: Full curve slope
+- `curve_curvature`: Butterfly (2*DGS10 - DGS2 - DGS30)
+- `real_yield_10y`: DFII10 (TIPS)
+- `real_term_premium`: DGS10 - DFII10
+- `yield_curve_slope`: (10y - 2y) / 2y
+- `fed_policy_stance`: FEDFUNDS relative to 10y
+
+**Liquidity/Funding (6 features)**:
+- `fed_balance_sheet`: WALCL
+- `qe_intensity`: WALCL / 1M (normalized)
+- `bank_credit_growth_3m`: TOTBKCR change
+- `sofr_obfr_spread`: Repo market stress
+- `financial_stress_composite`: Multi-indicator stress
+- `liquidity_index`: Composite of WALCL, TOTBKCR, TEDRATE
+
+**Growth/Inflation Regime (9 features)**:
+- `payems_mom`, `indpro_mom`: Employment and production growth
+- `growth_momentum`: Composite of PAYEMS, INDPRO, CFNAI
+- `cpi_yoy`, `pce_yoy`, `ppi_yoy`: Inflation measures
+- `inflation_momentum`: Composite inflation
+- `stagflation_risk`: High inflation + weak growth (binary)
+- `goldilocks_score`: Moderate growth + low inflation (binary)
+
+**FX Positioning (4 features)**:
+- `dollar_strength`: DTWEXBGS (broad dollar index)
+- `dollar_momentum_3m`: 3-month USD change
+- `fx_volatility_composite`: Cross-pair volatility
+- `fx_stress`: Volatility across major pairs
+
+**Batch Implementation** (lines 26-432):
+```python
+def compute_macro_composites_pl(df: _pl.DataFrame) -> _pl.DataFrame:
+    """
+    Compute composite macro features from base series.
+
+    Uses Polars expressions for high-performance batch computation.
+    """
+    composites = df.clone()
+
+    # Credit risk index: Average of normalized spreads + VIX
+    credit_components = []
+    if "BAMLC0A0CM" in df.columns:
+        credit_components.append(pl.col("BAMLC0A0CM") / 100.0)
+    if "BAMLH0A0HYM2" in df.columns:
+        credit_components.append(pl.col("BAMLH0A0HYM2") / 500.0)
+    # ... more components
+
+    if credit_components:
+        composites = composites.with_columns(
+            pl.mean_horizontal(*credit_components).alias("credit_risk_index"),
+        )
+```
+
+**Real-Time Implementation** (lines 474-795):
+```python
+def _compute_realtime_composites(
+    cache: MacroDataCache,
+) -> tuple[dict[str, float], set[tuple[str, str]]]:
+    """Compute macro composite features using cached snapshots."""
+    composites: dict[str, float] = dict.fromkeys(get_composite_feature_names(), math.nan)
+    issues: set[tuple[str, str]] = set()
+
+    # Helper functions for safe computation
+    def _current(series_id: str) -> float | None:
+        snapshot = cache.get_snapshot(series_id)
+        return snapshot.current_value if snapshot else None
+
+    def _safe_divide(num: float, denom: float, series_id: str, reason: str) -> float | None:
+        if denom == 0.0:
+            issues.add((series_id, reason))
+            return None
+        return num / denom
+
+    # Compute composites with error tracking
+    ig = _current("BAMLC0A0CM")
+    if ig is not None:
+        composites["credit_spread_ig"] = ig
+```
+
+**Required Series** (lines 490-523):
+```python
+def get_composite_series_requirements() -> tuple[str, ...]:
+    """Return base macro series required for composite features."""
+    return (
+        "BAMLC0A0CM", "BAMLH0A0HYM2", "TEDRATE", "VIXCLS",
+        "T10Y2Y", "DGS10", "DGS2", "DGS5", "DGS30", "DFII10",
+        "FEDFUNDS", "WALCL", "TOTBKCR",
+        "PAYEMS", "INDPRO", "CFNAI",
+        "CPIAUCSL", "PCEPI", "PPIACO",
+        "DTWEXBGS", "DEXUSAL", "DEXUSEU", "DEXJPUS",
+    )
+```
+
+---
+
+## 3. Microstructure Features
+
+### Micro Aggregation (L1)
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/micro_aggregate.py:42-162`
+
+Per-minute aggregation from L1 quotes and trades with Polars optimization:
 
 ```python
-def _normalize_atr(atr: float, close: float) -> float:
-    ratio = safe_divide(float(atr), float(close), default=0.0)
-    return 0.0 if ratio < 1e-6 else ratio  # Floor prevents extreme ratios
+def aggregate_microstructure_minute_pl(
+    quotes: PolarsDF | None,
+    trades: PolarsDF | None,
+    *,
+    timestamp_col: str = "ts_event",
+    bid_col: str = "bid_px_00",
+    ask_col: str = "ask_px_00",
+    bid_sz_col: str = "bid_sz_00",
+    ask_sz_col: str = "ask_sz_00",
+) -> PolarsDF:
+    """
+    Aggregate L1 microstructure features to per-minute bars.
+
+    Returns DataFrame with columns:
+    - midprice: (bid + ask) / 2 averaged per minute
+    - spread_bps: ((ask - bid) / midprice) * 10000 in basis points
+    - quote_imbalance: (bid_size - ask_size) / (bid_size + ask_size)
+    - trade_imbalance: Buy/sell volume imbalance from trade signs
+    - realized_vol: High-frequency volatility from trade price movements
+    """
 ```
 
-### 5. Performance Monitoring Integration
+**Features Computed** (lines 21-27):
+```python
+MICRO_COLUMNS = [
+    "midprice",
+    "spread_bps",
+    "quote_imbalance",
+    "trade_imbalance",
+    "realized_vol",
+]
+```
+
+**Safe Division Pattern** (lines 63-65):
+```python
+denom = (pl.col(bid_sz_col) + pl.col(ask_sz_col)).cast(pl.Float64)
+denom_safe = pl.when(denom > 0).then(denom).otherwise(1.0)
+quote_imbalance = (pl.col(bid_sz_col) - pl.col(ask_sz_col)) / denom_safe
+```
+
+**Aggregator Class** (lines 118-162):
+```python
+@dataclass(slots=True)
+class MicrostructureAggregator:
+    base_dir: Path
+
+    def compute_for_symbol(self, symbol: str) -> PolarsDF:
+        """Load quotes/trades and compute per-minute features."""
+        q = self._load_l1_quotes(symbol)
+        t = self._load_l1_trades(symbol)
+        return aggregate_microstructure_minute_pl(q, t)
+```
+
+### L2 Aggregation (Order Book Depth)
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/l2_aggregate.py:32-170`
+
+Multi-level depth features from MBP-10 snapshots:
 
 ```python
-# Optional metrics collector integration
-from ml.monitoring.collectors.features import FeatureEngineeringCollector
+def aggregate_l2_minute_pl(
+    l2: PolarsDF,
+    *,
+    timestamp_col: str = "ts_event",
+) -> PolarsDF:
+    """
+    Aggregate L2 order book depth to per-minute features.
 
-# Initialize with metrics collector
-metrics_collector = FeatureEngineeringCollector()
-engineer = FeatureEngineer(config=config, metrics_collector=metrics_collector)
-
-# Metrics are collected automatically during feature computation
+    Computes depth_imbalance, dwp_bps, bid_slope, ask_slope for top K levels
+    where K ∈ {1, 3, 5, 10}.
+    """
 ```
 
-## Parity Validation System
+**Features per Level** (lines 40-60):
+- `depth_imbalance_topK`: (bid_qty - ask_qty) / (bid_qty + ask_qty) across top K
+- `dwp_bps_topK`: Depth-weighted price deviation from mid in bps
+- `bid_slope_topK`: (p_{K-1} - p_0) / (K-1) price slope approximation
+- `ask_slope_topK`: (p_{K-1} - p_0) / (K-1) price slope approximation
 
-### FeatureParityValidator Class
+**Safe Division** (lines 80-85):
+```python
+def _safe_div(numer: pl.Expr, denom: pl.Expr) -> pl.Expr:
+    return numer / pl.when(denom > 0).then(denom).otherwise(1.0)
 
-Comprehensive validation ensuring mathematical identity between batch and online computation paths:
+def _slope_approx(p0: pl.Expr, pk: pl.Expr, k: int) -> pl.Expr:
+    return (pk - p0) / max(k - 1, 1)  # Prevent division by zero
+```
 
-#### Revolutionary Parity Architecture
+**Computation** (lines 90-150):
+```python
+for k in TOPKS:  # [1, 3, 5, 10]
+    bid_qty_top_k = sum(pl.col(f"bid_sz_{i:02d}") for i in range(k))
+    ask_qty_top_k = sum(pl.col(f"ask_sz_{i:02d}") for i in range(k))
 
-The current implementation achieves perfect parity by using **identical computation cores**:
+    depth_imb = _safe_div(
+        bid_qty_top_k - ask_qty_top_k,
+        bid_qty_top_k + ask_qty_top_k,
+    )
+
+    # Depth-weighted price
+    bid_dwp = sum(
+        pl.col(f"bid_px_{i:02d}") * pl.col(f"bid_sz_{i:02d}")
+        for i in range(k)
+    ) / bid_qty_top_k
+```
+
+---
+
+## 4. Validation System
+
+### FeatureParityValidator
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/validation.py:70-690`
+
+Comprehensive validation ensuring mathematical identity between batch and online computation:
 
 ```python
-class FeatureEngineer:
-    def calculate_features_batch(self, df, fit_scaler=False):
-        # CRITICAL: Uses same online computation path for each row
-        prices = self._extract_price_arrays(df)
-        indicator_mgr = IndicatorManager(self.config)
+class FeatureParityValidator:
+    """
+    Validates feature parity between batch and real-time computation.
 
-        all_features = []
-        for i in range(len(prices["close"])):
-            # Update indicators with current bar
-            indicator_mgr.update_from_values(
-                close=prices["close"][i],
-                high=prices["high"][i],
-                low=prices["low"][i],
-                volume=prices["volume"][i]
-            )
-            # Use SAME online computation method
-            features = self._compute_online_features(prices, i, indicator_mgr)
-            all_features.append(features.copy())  # CRITICAL: Copy to avoid overwrite
+    Critical for ML model performance - even small discrepancies can cause
+    model failure in production.
+    """
+
+    def __init__(
+        self,
+        config: FeatureConfig | None = None,
+        tolerance: float | None = None,
+    ) -> None:
+        self.config = config or FeatureConfig()
+        self.tolerance = tolerance or MLConstants.FEATURE_PARITY_TOLERANCE  # 1e-10
+        self.feature_engineer = FeatureEngineer(self.config)
 ```
 
-#### Validation Process
+**Validation Process** (lines 200-450):
 
-1. **Unified Computation**: Both paths use `_compute_online_features()` core
-2. **Sequential Processing**: Batch mimics online state progression exactly
-3. **State Synchronization**: Indicator warm-up ensures identical starting states
-4. **Buffer Management**: Explicit copying prevents view overwrites
-5. **Numerical Comparison**: <1e-10 tolerance for floating-point precision
+1. **Prepare Data**: Extract OHLCV arrays from DataFrame
+2. **Batch Computation**: Process entire DataFrame sequentially
+3. **Online Computation**: Process same data row-by-row with indicator warmup
+4. **Comparison**: Validate all features within tolerance
+5. **Reporting**: Generate detailed parity report with failing features
 
-#### Critical Implementation Details
-
-**Perfect State Alignment**:
-
+**Key Validation Method**:
 ```python
-def _warmup_indicators(self, df, start_idx):
-    indicator_mgr = IndicatorManager(self.config)
-    # Warm up to match batch state at validation start point
-    for i in range(start_idx):
-        indicator_mgr.update_from_values(...)
-    return indicator_mgr
+def validate_parity(
+    self,
+    df: DataFrameLike,
+    start_idx: int = 50,  # Skip initial warmup
+    end_idx: int | None = None,
+) -> dict[str, Any]:
+    """
+    Validate feature parity between batch and online computation.
+
+    Returns
+    -------
+    dict[str, Any]
+        {
+            "parity_passed": bool,
+            "max_difference": float,
+            "tolerance": float,
+            "failing_features": list[str],
+            "feature_differences": dict[str, float],
+            "validation_time": float,
+            "n_samples_validated": int,
+        }
+    """
 ```
 
-**Buffer Copy Safety**:
-
-```python
-# Online returns view - must copy for persistence
-online_features = self._compute_online_sequential(df, indicator_mgr)
-# CRITICAL: Copy since online path returns buffer views
-online_features_safe = [f.copy() for f in online_features]
-```
-
-#### Enhanced Validation Report
-
+**Parity Report Structure** (lines 400-420):
 ```python
 {
-    "parity_passed": bool,                    # Overall pass/fail
-    "max_difference": float,                  # Worst numerical difference
-    "tolerance": float,                       # Validation threshold (1e-10)
-    "failing_features": list[str],            # Names of failed features
-    "feature_differences": dict[str, float],  # Per-feature max differences
-    "validation_time": float,                 # Validation duration
-    "n_samples_validated": int,               # Number of samples checked
-    "parity_details": dict                    # Extended diagnostics
+    "parity_passed": True,
+    "max_difference": 1e-12,
+    "tolerance": 1e-10,
+    "failing_features": [],
+    "feature_differences": {
+        "rsi": 5e-13,
+        "bb_width": 3e-12,
+        # ... per-feature max differences
+    },
+    "validation_time": 1.234,
+    "n_samples_validated": 950,
+    "parity_details": {
+        # Extended diagnostics
+    }
 }
 ```
 
-#### Performance Validation Extensions
+---
 
-- **Latency Profiling**: P99 latency measurement with percentile breakdowns
-- **Performance Targets**: <5ms P99 for online feature computation
-- **Memory Stability**: Zero allocation validation in hot path
-- **Metrics Integration**: Performance results published to Prometheus
+## 5. Pipeline Framework
 
-## Pipeline Framework
+### Declarative Transform System
 
-### Declarative Transform System with Data Requirements Gating
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/pipeline.py`
 
-The pipeline framework provides a declarative approach to feature definition with automatic schema computation, signature hashing, and data requirements validation.
+Provides declarative feature definition with automatic schema computation and data requirements gating.
 
-#### Architecture Overview
-
-**Single Source of Truth**: The pipeline system eliminates schema drift by centralizing feature name generation:
-
+**Core Protocol** (lines 25-38):
 ```python
-class FeatureEngineer:
-    def build_pipeline_spec_from_config(self) -> PipelineSpec:
-        # Centralized pipeline building from configuration
-        spec = build_pipeline_spec_from_feature_config(self.config)
-        return spec
+class FeatureTransform(Protocol):
+    """Protocol for feature transform plugins."""
 
-    def get_feature_names(self) -> list[str]:
-        # Delegates to pipeline runner for consistency
-        spec = self.build_pipeline_spec_from_config()
-        runner = PipelineRunner(spec, allowable=DataRequirements.L1_L2)
-        return runner.compute_feature_names()
+    name: str
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]: ...
+
+    def requires(self) -> DataRequirements:
+        """Return required data level for this transform (used for gating)."""
+        ...
 ```
 
-#### Pipeline Construction
+**Data Requirements Hierarchy** (from `ml/registry/base.py`):
+```python
+class DataRequirements(Enum):
+    L1_ONLY = "L1_ONLY"        # OHLCV bars only
+    L1_L2 = "L1_L2"            # + Order book snapshots (MBP-10)
+    L1_L2_L3 = "L1_L2_L3"      # + Individual trade records
+```
 
+**Core Transforms** (lines 41-112):
+```python
+_CATALOG: dict[str, FeatureTransform] = {
+    "returns": _ReturnsTransform(),           # Configurable periods
+    "momentum": _MomentumTransform(),         # Momentum indicators
+    "volatility": _VolatilityTransform(),     # Fixed: vol_5, vol_20
+    "volume_ratio": _VolumeRatioTransform(),  # Volume vs MA ratios
+    "core_indicators": _CoreIndicatorsTransform(),  # RSI, BB, ATR, EMA, MACD
+}
+```
+
+**Core Indicators Output** (lines 88-108):
+```python
+class _CoreIndicatorsTransform:
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        return [
+            "rsi", "rsi_overbought", "rsi_oversold",  # RSI features (3)
+            "bb_width", "bb_position",                 # Bollinger Bands (2)
+            "atr_normalized",                          # ATR (1)
+            "ema_fast_dist", "ema_slow_dist", "ema_cross",  # EMA (3)
+            "macd_line", "macd_signal", "macd_difference",  # MACD (3)
+            "price_position_20", "hl_spread",          # Price position (2)
+        ]  # Total: 14 features
+```
+
+**Advanced Transforms** (lines 128-200):
+```python
+register_transform(_KeltnerTransform())      # Keltner channels (L1_L2)
+register_transform(_OBVTransform())          # On-Balance Volume (L1_L2)
+register_transform(_MicrostructureTransform())  # L2 order book features
+register_transform(_TradeFlowTransform())    # L3 trade flow features
+```
+
+**TFT Transforms** (lines 220-400):
+```python
+register_transform(_CalendarTransform())     # Time-based cyclical features
+register_transform(_EventScheduleTransform())  # Earnings, Fed, expiry
+register_transform(_MacroIndicatorsTransform())  # VIX, DXY, yields
+register_transform(_StaticCovariatesTransform())  # Instrument metadata
+```
+
+**Pipeline Spec** (lines 450-550):
+```python
+@dataclass(frozen=True)
+class PipelineSpec:
+    transforms: list[TransformSpec]
+
+@dataclass(frozen=True)
+class TransformSpec:
+    name: str
+    params: dict[str, Any]
+
+class PipelineRunner:
+    def __init__(self, spec: PipelineSpec, allowable: DataRequirements):
+        # Filter transforms based on data requirements
+        self.transforms = self._filter_transforms(spec.transforms, allowable)
+
+    def compute_feature_names(self) -> list[str]:
+        """Generate ordered feature names from transforms."""
+        names = []
+        for transform_spec in self.transforms:
+            transform = _CATALOG[transform_spec.name]
+            names.extend(transform.feature_names(transform_spec.params))
+        return names
+
+    def compute_signature(self) -> str:
+        """Generate SHA-256 signature for schema versioning."""
+        content = msgspec.json.encode(self.transforms).decode('utf-8')
+        return hashlib.sha256(content.encode()).hexdigest()
+```
+
+**Builder Function** (lines 600-700):
 ```python
 def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
     """Build pipeline specification from feature configuration."""
@@ -463,624 +834,220 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
     return PipelineSpec(transforms=transforms)
 ```
 
-#### Core Data Structures
+---
 
+## 6. Cross-Asset & Earnings Features
+
+### Cross-Asset Relationship Features
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/cross_asset/`
+
+Provides beta, correlation, and spread features with hot/cold path parity.
+
+**Modules**:
+- `beta.py`: EWMA beta computation (incremental and batch)
+- `correlation.py`: Rolling correlation (incremental and batch)
+- `spreads.py`: Z-score spread features (incremental and batch)
+- `state.py`: Serializable state dataclasses
+
+**Example - EWMA Beta**:
 ```python
-@dataclass(frozen=True)
-class PipelineSpec:
-    transforms: list[TransformSpec]
+# Hot path (O(1) incremental)
+from ml.features.cross_asset import EWMABetaState, compute_ewma_beta_incremental
 
-@dataclass(frozen=True)
-class TransformSpec:
-    name: str
-    params: dict[str, Any]
+state = EWMABetaState(alpha=0.94)
+for asset_return, market_return in zip(asset_returns, market_returns):
+    beta = compute_ewma_beta_incremental(state, asset_return, market_return)
 
-class PipelineRunner:
-    def __init__(self, spec: PipelineSpec, allowable: DataRequirements):
-        # Filter transforms based on data requirements
-        self.transforms = self._filter_transforms(spec.transforms, allowable)
+# Cold path (vectorized batch)
+from ml.features.cross_asset import compute_ewma_beta_batch
 
-    def compute_feature_names(self) -> list[str]:
-        # Generate ordered feature names from transforms
-        names = []
-        for transform_spec in self.transforms:
-            transform = _CATALOG[transform_spec.name]
-            names.extend(transform.feature_names(transform_spec.params))
-        return names
-
-    def compute_signature(self) -> str:
-        # Generate SHA-256 signature for schema versioning
-        content = msgspec.json.encode(self.transforms).decode('utf-8')
-        return hashlib.sha256(content.encode()).hexdigest()
+betas = compute_ewma_beta_batch(asset_returns, market_returns, alpha=0.94)
 ```
 
-### Transform Catalog
+**Features**:
+- **EWMA Beta**: Exponentially weighted beta with Welford's algorithm
+- **Rolling Correlation**: Incremental correlation updates
+- **Z-Score Spreads**: Statistical spread analysis with rolling mean/std
 
-#### Core Transforms (L1_ONLY - Always Available)
+**Performance**:
+- P99 latency < 5ms (hot path)
+- O(1) computational complexity
+- Zero allocations after warmup
 
-All core transforms implement the `FeatureTransform` protocol and are registered in `_CATALOG`:
+### Earnings Features
 
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/earnings/`
+
+Corporate fundamentals integration with hot/cold path parity.
+
+**Modules**:
+- `earnings_features.py`: Core earnings computations
+- `earnings_transforms.py`: Transform specs for pipeline integration
+
+**Features**:
+- **EPS Surprise**: Dollar and percentage surprise
+- **YoY/QoQ Growth**: Year-over-year and quarter-over-quarter EPS growth
+- **Beat Streak**: Consecutive quarters beating consensus
+- **EPS Volatility**: 4-quarter coefficient of variation
+- **Days to Earnings**: Calendar feature for earnings dates
+
+**Example**:
 ```python
-# Core L1_ONLY transforms registered in pipeline.py
-_CATALOG: dict[str, FeatureTransform] = {
-    "returns": _ReturnsTransform(),           # Price returns over periods
-    "momentum": _MomentumTransform(),         # Momentum indicators
-    "volatility": _VolatilityTransform(),     # Rolling volatility (5, 20)
-    "volume_ratio": _VolumeRatioTransform(),  # Volume vs MA ratios
-    "core_indicators": _CoreIndicatorsTransform(), # RSI, BB, ATR, EMA, MACD
-}
+# Hot path
+from ml.features.earnings import compute_earnings_surprise_incremental
+
+surprise = compute_earnings_surprise_incremental(actual=2.52, estimate=2.45)
+
+# Cold path
+from ml.features.earnings import compute_earnings_surprise_batch
+
+surprises = compute_earnings_surprise_batch(actuals, estimates)
 ```
 
-**Core Indicators Feature Names** (from `_CoreIndicatorsTransform`):
+---
+
+## 7. Integration Patterns
+
+### Actor Integration
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/actors/signal.py:400-600`
+
+ML actors use FeatureEngineer for real-time feature computation:
 
 ```python
-# Full feature list from core indicators
-[
-    "rsi", "rsi_overbought", "rsi_oversold",           # RSI features
-    "bb_width", "bb_position",                         # Bollinger Bands
-    "atr_normalized",                                  # ATR normalized
-    "ema_fast_dist", "ema_slow_dist", "ema_cross",    # EMA features
-    "macd_line", "macd_signal", "macd_difference",    # MACD features
-    "price_position_20", "hl_spread"                  # Position indicators
-]
+class MLSignalActor(BaseMLInferenceActor):
+    def __init__(self, config: MLSignalActorConfig) -> None:
+        super().__init__(config)
+
+        # Initialize feature engineer with config
+        self._feature_engineer = FeatureEngineer(
+            config=config.feature_config,
+            metrics_collector=None,  # Actor handles metrics separately
+            feature_store=self.feature_store,  # From BaseMLInferenceActor
+        )
+
+    def _on_bar(self, bar: Bar) -> None:
+        """Hot path: process bar and generate signal."""
+        # Update indicator state
+        self._indicator_manager.update_from_bar(bar)
+
+        # Compute features (hot path - zero allocations)
+        features = self._feature_engineer.calculate_features_online(
+            current_bar=bar,
+            indicator_manager=self._indicator_manager,
+            scaler=self._scaler,
+        )
+
+        # Run model inference
+        prediction = self._model_session.run(None, {"input": features})[0]
+
+        # Generate signal
+        signal = self._signal_strategy.generate_signal(prediction, features, bar)
 ```
 
-#### Advanced Transforms (L1_L2 Data Requirements)
+### TFT Dataset Builder Integration
 
-**Registered via `register_transform()` after core catalog initialization**:
+**Location**: Inferred from macro_transforms.py usage
 
-```python
-# Advanced transforms requiring L2 data or higher
-register_transform(_KeltnerTransform())      # Keltner channels
-register_transform(_OBVTransform())          # On-Balance Volume
-register_transform(_MicrostructureTransform()) # L2 order book features
-register_transform(_TradeFlowTransform())    # L3 trade flow features
-```
-
-#### Specialized TFT Transforms (Teacher Model Features)
-
-**Calendar and Macro Features**:
+The TFTDatasetBuilder integrates macro features via `MacroFeatureTransform`:
 
 ```python
-register_transform(_CalendarTransform())     # Time-based cyclical features
-register_transform(_EventScheduleTransform()) # Earnings, Fed meetings, expiry
-register_transform(_MacroIndicatorsTransform()) # VIX, DXY, yields, term spread
-register_transform(_StaticCovariatesTransform()) # Instrument metadata
-```
-
-### Data Requirements Gating System
-
-#### Requirements Hierarchy
-
-```python
-class DataRequirements(Enum):
-    L1_ONLY = "L1_ONLY"        # OHLCV bars only
-    L1_L2 = "L1_L2"            # + Order book snapshots (MBP-10)
-    L1_L2_L3 = "L1_L2_L3"      # + Individual trade records
-```
-
-#### Filtering Implementation
-
-```python
-class PipelineRunner:
-    def _filter_transforms(self, transforms: list[TransformSpec], allowable: DataRequirements):
-        """Filter transforms based on data availability."""
-        filtered = []
-        for spec in transforms:
-            transform = _CATALOG[spec.name]
-            if self._requirements_compatible(transform.requires(), allowable):
-                filtered.append(spec)
-        return filtered
-
-    def _requirements_compatible(self, required: DataRequirements, available: DataRequirements):
-        hierarchy = {
-            DataRequirements.L1_ONLY: 0,
-            DataRequirements.L1_L2: 1,
-            DataRequirements.L1_L2_L3: 2
-        }
-        return hierarchy[required] <= hierarchy[available]
-```
-
-## Integration Points
-
-### 1. Universal ML Architecture Pattern Compliance
-
-#### 4-Registry Integration (Mandatory)
-
-All ML actors automatically initialize and maintain access to four registries:
-
-```python
-class BaseMLInferenceActor:
-    def __init__(self, ...):
-        # Automatic 4-registry initialization
-        self.feature_registry = FeatureRegistry(registry_path)
-        self.model_registry = ModelRegistry(registry_path)
-        self.strategy_registry = StrategyRegistry(registry_path)
-        self.data_registry = DataRegistry(registry_path)
-```
-
-**Registry Functions**:
-
-- **FeatureRegistry**: Schema hashing, versioning, and feature set lifecycle
-- **ModelRegistry**: Model deployment tracking and A/B testing coordination
-- **StrategyRegistry**: Strategy compatibility and requirement validation
-- **DataRegistry**: Dataset manifest management and lineage tracking
-
-#### 4-Store Integration (Mandatory)
-
-All ML actors automatically initialize and maintain access to four stores:
-
-```python
-class BaseMLInferenceActor:
-    def __init__(self, ...):
-        # Automatic 4-store initialization with progressive fallback
-        self.feature_store = FeatureStore(engine) or DummyFeatureStore()
-        self.model_store = ModelStore(engine) or DummyModelStore()
-        self.strategy_store = StrategyStore(engine) or DummyStrategyStore()
-        self.data_store = DataStore(engine) or DummyDataStore()
-```
-
-**Store Functions & Feature Integration**:
-
-- **FeatureStore**: Persists computed feature values with schema validation
-  - Automatic persistence from DataScheduler
-  - TFTDatasetBuilder reads from FeatureStore for training/inference parity
-  - Real-time feature caching and retrieval
-- **ModelStore**: Stores predictions and performance metrics using features
-- **StrategyStore**: Persists trading decisions and feature-based signals
-- **DataStore**: Unified facade with contract validation and event emission
-
-### 2. Progressive Fallback Architecture
-
-```python
-# Production database available
-if postgresql_healthy:
-    stores = [FeatureStore(engine), ModelStore(engine), ...]
-# Fallback to dummy implementations with warnings
-else:
-    stores = [DummyFeatureStore(), DummyModelStore(), ...]
-    logger.warning("Using dummy stores - no persistence available")
-```
-
-### 3. Enhanced Aggregation Modules
-
-#### micro_aggregate.py - L1 Microstructure Aggregation
-
-**Production-Ready** per-minute aggregation from quotes and trades with Polars optimization:
-
-```python
-# Core aggregation function with robust error handling
-def aggregate_microstructure_minute_pl(
-    quotes: pl.DataFrame | None,
-    trades: pl.DataFrame | None,
-    *,
-    timestamp_col: str = "ts_event",
-    bid_col: str = "bid_px_00",
-    ask_col: str = "ask_px_00",
-    bid_sz_col: str = "bid_sz_00",
-    ask_sz_col: str = "ask_sz_00",
-) -> pl.DataFrame:
-```
-
-**Computed Features** (`MICRO_COLUMNS`):
-
-- **midprice**: `(bid + ask) / 2` averaged per minute
-- **spread_bps**: `((ask - bid) / midprice) * 10000` in basis points
-- **quote_imbalance**: `(bid_size - ask_size) / (bid_size + ask_size)`
-- **trade_imbalance**: Buy/sell volume imbalance from trade signs
-- **realized_vol**: High-frequency volatility from trade price movements
-
-**Integration Pattern**:
-
-```python
-class MicrostructureAggregator:
-    def compute_for_symbol(self, symbol: str, date_range: tuple) -> pl.DataFrame:
-        # Reads raw quotes/trades, computes features, saves to disk
-        return aggregate_microstructure_minute_pl(quotes, trades)
-```
-
-#### l2_aggregate.py - Order Book Depth Aggregation
-
-**Advanced L2** per-minute aggregation from MBP-10 snapshots:
-
-```python
-# Robust L2 aggregation with safe division and slope approximation
-def aggregate_l2_minute_pl(
-    l2: pl.DataFrame,
-    *,
-    timestamp_col: str = "ts_event"
-) -> pl.DataFrame:
-```
-
-**Multi-Level Depth Features** (computed for `TOPKS = (1, 3, 5, 10)`):
-
-- **depth_imbalance_topK**: `(bid_qty - ask_qty) / (bid_qty + ask_qty)` across top K levels
-- **dwp_bps_topK**: Depth-weighted price deviation from mid in basis points
-- **bid_slope_topK**: `(p_{K-1} - p_0) / (K-1)` price slope approximation
-- **ask_slope_topK**: `(p_{K-1} - p_0) / (K-1)` price slope approximation
-
-**Safe Division Implementation**:
-
-```python
-def _safe_div(numer: pl.Expr, denom: pl.Expr) -> pl.Expr:
-    return numer / pl.when(denom > 0).then(denom).otherwise(1.0)
-
-def _slope_approx(p0: pl.Expr, pk: pl.Expr, k: int) -> pl.Expr:
-    return (pk - p0) / max(k - 1, 1)  # Prevent division by zero
-```
-
-### 4. Metrics Integration & Monitoring
-
-#### Centralized Metrics Bootstrap Pattern
-
-**CRITICAL**: Never import `prometheus_client` directly. Use centralized bootstrap:
-
-```python
-# CORRECT: Use centralized metrics bootstrap
-from ml.common.metrics_bootstrap import get_counter, get_histogram
-
-feature_computation_timer = get_histogram(
-    "ml_feature_computation_seconds",
-    "Feature computation time",
-    buckets=FEATURE_TIME_BUCKETS
-)
-
-feature_counter = get_counter(
-    "ml_features_computed_total",
-    "Total features computed",
-    labelnames=["instrument_id", "feature_set_id", "mode"]
-)
-```
-
-#### Production Metrics Coverage
-
-**Performance Metrics**:
-
-- **Feature Computation Time**: Histograms by instrument, feature set, computation mode
-- **Parity Validation**: Success rates and maximum differences
-- **Hot Path Latency**: P99 measurements with <5ms SLA monitoring
-
-**Quality Metrics** (when `validate_quality=True`):
-
-- **Null Rate**: `ml_feature_null_rate_ratio` per feature
-- **Zero Rate**: `ml_feature_zero_rate_ratio` per feature
-- **Unique Ratio**: `ml_feature_unique_ratio` for diversity measurement
-- **Inf Rate**: `ml_feature_inf_rate_ratio` for float features
-- **Outlier Rate**: IQR-based detection with 1.5 * IQR threshold
-
-**Cache & Memory Metrics**:
-
-- **Feature Cache**: Hit rates and retrieval latencies
-- **Buffer Utilization**: Feature buffer usage and reallocation events
-- **Memory Stability**: Long-running process memory growth tracking
-
-## Performance Benchmarks
-
-### Production Hot Path Requirements (SLA)
-
-**Latency Targets** (enforced via metrics):
-
-- **P99 Feature Computation**: <5ms (measured via `METRIC_FEATURE_TIME_BY_SET_SECONDS`)
-- **P99 End-to-End Signal**: <5ms (from bar arrival to signal emission)
-- **Memory Allocation**: Zero dynamic allocation during inference hot path
-- **Buffer Reuse**: Same `feature_buffer` across all feature computations
-
-**Throughput Targets**:
-
-- **High-Frequency Support**: 1000+ bars/second processing capability
-- **Multi-Instrument**: Concurrent processing across instruments without degradation
-- **Memory Stable**: 24+ hour operation without memory growth
-
-### Enhanced Cold Path Optimization
-
-**Data Processing**:
-
-- **Polars-First**: Preferred over Pandas for 2-10x performance gains
-- **Sequential Consistency**: Batch processing mirrors online state progression exactly
-- **Vectorized Indicators**: Batch indicator updates via `update_batch_vectorized()`
-
-**Memory Management**:
-
-- **Bounded History**: `PRICE_HISTORY_MAXLEN` prevents unbounded growth
-- **Streaming Support**: Large dataset processing without loading entire dataset to memory
-- **Progressive Processing**: Chunk-based processing for multi-GB datasets
-
-## Current Implementation Status
-
-### Production-Ready Core Features ✅
-
-**Universal Architecture Compliance**:
-
-- [x] **4-Store Integration**: Automatic FeatureStore, ModelStore, StrategyStore, DataStore initialization
-- [x] **4-Registry Integration**: Feature, Model, Strategy, Data registry lifecycle management
-- [x] **Protocol-First Design**: Structural typing with duck typing support for testing
-- [x] **Progressive Fallback**: PostgreSQL → DummyStore fallback chains with health monitoring
-
-**Perfect Parity System**:
-
-- [x] **Mathematical Identity**: <1e-10 tolerance validation between batch/online computation
-- [x] **Unified Computation Core**: Both paths use identical `_compute_online_features()` method
-- [x] **State Synchronization**: Perfect indicator state alignment via warmup protocols
-- [x] **Revolutionary Architecture**: Batch processing uses same online path for each row
-
-**Core Feature Engineering**:
-
-- [x] **Technical Indicators**: RSI, Bollinger Bands, ATR, EMA, MACD with ML-optimized normalization
-- [x] **Price Features**: Configurable returns, momentum, volatility with safe division
-- [x] **Volume Features**: Volume ratios with configurable MA periods
-- [x] **Hot Path Optimization**: Zero-allocation processing with pre-allocated float32 buffers
-
-**Advanced Production Features**:
-
-- [x] **Microstructure Features**: L1_L2 hot path optimized with OHLCV approximations
-- [x] **Trade Flow Features**: L1_L2 simplified features for sub-millisecond latency
-- [x] **Quality Validation**: Comprehensive null rate, outlier, and drift detection
-- [x] **Performance Monitoring**: Full Prometheus metrics integration via bootstrap pattern
-
-### Declarative Pipeline System ✅
-
-**Transform Catalog**:
-
-- [x] **Core L1_ONLY Transforms**: returns, momentum, volatility, volume_ratio, core_indicators
-- [x] **Advanced L1_L2 Transforms**: keltner, obv, microstructure, trade_flow (registered)
-- [x] **TFT Transforms**: calendar, event_schedule, macro_indicators, static_covariates
-- [x] **Data Requirements Gating**: Automatic filtering based on available data levels
-
-**Schema Management**:
-
-- [x] **Single Source of Truth**: PipelineRunner generates canonical feature names
-- [x] **Schema Hashing**: SHA-256 signatures for versioning and compatibility
-- [x] **Manifest Generation**: Automatic FeatureManifest creation with validation
-
-### Advanced Aggregation System ✅
-
-**Microstructure Aggregation** (`micro_aggregate.py`):
-
-- [x] **L1 Per-Minute Features**: midprice, spread_bps, quote_imbalance, trade_imbalance, realized_vol
-- [x] **Polars Optimization**: High-performance DataFrame operations with safe division
-- [x] **Integration Pattern**: MicrostructureAggregator class with disk I/O management
-
-**L2 Order Book Aggregation** (`l2_aggregate.py`):
-
-- [x] **Multi-Level Depth Features**: depth_imbalance, dwp_bps, bid/ask_slope for top 1,3,5,10 levels
-- [x] **Robust Computation**: Safe division and slope approximation with error handling
-- [x] **MBP-10 Integration**: Direct processing of Databento MBP-10 snapshots
-
-### Integration & Deployment ✅
-
-**Store Integration**:
-
-- [x] **FeatureStore**: Schema-validated persistence with automatic DataScheduler integration
-- [x] **TFTDatasetBuilder**: Reads from FeatureStore for training/inference parity
-- [x] **Real-Time Caching**: Feature value caching and retrieval for hot path performance
-
-**Actor Integration**:
-
-- [x] **BaseMLInferenceActor**: Automatic store/registry initialization for all ML actors
-- [x] **MLSignalActor**: Production-ready signal generation with feature engineering
-- [x] **Hot-Swappable Models**: Atomic model updates with state preservation
-
-**Monitoring & Observability**:
-
-- [x] **Centralized Metrics**: Bootstrap pattern prevents registry conflicts
-- [x] **Performance SLA**: <5ms P99 latency monitoring with alerting
-- [x] **Quality Metrics**: Feature health tracking with drift detection
-
-### Production Feature Export & Registry ✅
-
-**Feature Manifest Generation**:
-
-```python
-# Generate manifest from current engineer configuration
-manifest = engineer.generate_feature_manifest(
-    name="production_features_v3",
-    version="3.0.0",
-    role=FeatureRole.PRIMARY,
-    data_requirements=DataRequirements.L1_L2,
-    parity_tolerance=1e-10,
-    parity_digest={"parity_passed": True, "max_difference": 1e-12},
-    perf_digest={"p99_latency_ms": 3.2, "memory_stable": True}
-)
-```
-
-**Registry Integration**:
-
-```python
-from ml.features.feature_export import register_feature_set_from_engineer
-
-# Register complete feature set with validation
-feature_set_id = register_feature_set_from_engineer(
-    registry_path=Path("ml/registry"),
-    name="production_ml_features",
-    version="3.0.0",
-    role=FeatureRole.PRIMARY,
-    data_requirements=DataRequirements.L1_L2,
-    feature_config=FeatureConfig(
-        include_microstructure=True,
-        include_trade_flow=True,
-        validate_quality=True
+# In TFTDatasetBuilder
+if self.macro_series_ids:
+    self._macro_transform = MacroFeatureTransform(
+        macro_series_ids=self.macro_series_ids,
+        vintage_base_dir=self.vintage_base_dir,
+        fred_path=self.fred_path,
+        include_revisions=True,
+        revision_mode="core",
+        include_composites=True,
     )
+
+# During dataset building
+df_with_macro = self._macro_transform.compute_batch(
+    df,
+    timestamp_col="timestamp",
+    vintage_cutoff=None,  # Use all available vintages
 )
 ```
 
-**Feature Materialization CLI**:
+### Feature Store Integration
 
-```bash
-# Production feature materialization
-python -m ml.features.materialize_cli \
-    --feature_registry_dir ml/registry \
-    --feature_set_id ${feature_set_id} \
-    --input_csv data/market_data.csv \
-    --output_csv data/features_materialized.csv
-```
-
-### Future Enhancements 📋
-
-**Advanced Feature Engineering**:
-
-- [ ] **Fractional Differencing**: Integration with StationarityTransformer for non-stationary time series
-- [ ] **Cross-Sectional Features**: Multi-instrument relative features (sector rotation, pairs trading)
-- [ ] **Feature Selection**: Automated importance analysis and dimensionality reduction
-- [ ] **Ensemble Features**: Meta-features from multiple model predictions
-
-**Infrastructure Enhancements**:
-
-- [ ] **Feature Streaming**: Real-time feature streaming for high-frequency strategies
-- [ ] **Distributed Computation**: Multi-core feature computation for large datasets
-- [ ] **GPU Acceleration**: CUDA/OpenCL support for computationally intensive features
-- [ ] **Feature Versioning**: Advanced versioning with backward compatibility management
-
-## Critical Implementation Notes
-
-### 1. Revolutionary Parity Architecture (Mathematical Identity Guaranteed)
-
-The current implementation represents a breakthrough in feature engineering consistency:
-
+**Pattern** (from engineering.py:717):
 ```python
 class FeatureEngineer:
-    def _compute_online_features(self, prices, row_idx, indicator_mgr):
-        """CORE computation method used by BOTH batch and online paths."""
-        feature_idx = 0
+    def __init__(self, ..., feature_store: FeatureStoreProtocol | None = None):
+        self.feature_store = feature_store  # Optional integration
 
-        # Use same computation for ALL features
-        feature_idx = self._calculate_return_features(
-            prices["close"][row_idx], prices["close"], feature_idx
-        )
-        feature_idx = self._calculate_technical_indicator_features(
-            prices["close"][row_idx], ..., indicator_mgr, feature_idx
-        )
-        # ... (all features use this same core)
-
-        return self.feature_buffer[:feature_idx]
+    # Feature store is NOT used within FeatureEngineer
+    # Integration happens at actor/orchestrator level
 ```
 
-**Architectural Breakthrough**:
-
-- **Single Source of Truth**: One computation method for both batch and online
-- **No Code Duplication**: Eliminates separate batch/online implementations
-- **Mathematical Identity**: Guaranteed <1e-10 precision across all features
-- **State Consistency**: Identical indicator progression in both paths
-
-**Complete 4-Store + 4-Registry compliance** via BaseMLInferenceActor:
+**Reality**: FeatureEngineer does NOT automatically persist to FeatureStore. Integration is manual:
 
 ```python
-class FeatureEngineer:
-    def __init__(self, config, metrics_collector=None, feature_store=None):
-        # Integration with universal architecture
-        self.config = config or FeatureConfig()
-        self._metrics = metrics_collector
-
-        # Store integration (when used in ML actors)
-        self.feature_store = feature_store  # Automatic persistence
-
-        # Pipeline-driven feature names ensure consistency
-        spec = self.build_pipeline_spec_from_config()
-        allowable = self._determine_data_requirements()
-        runner = PipelineRunner(spec, allowable=allowable)
-        n_features = len(runner.compute_feature_names())
-
-        # Pre-allocate buffer based on pipeline requirements
-        buffer_size = n_features + SystemConstants.FEATURE_BUFFER_PAD
-        self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
+# Actors must explicitly persist if desired
+features = feature_engineer.calculate_features_online(...)
+if self.feature_store:
+    self.feature_store.write_features(
+        instrument_id=bar.instrument_id,
+        ts_event=bar.ts_event,
+        features=features.copy(),  # Must copy - features is a view
+    )
 ```
 
-### 2. Production Hot Path Implementation
+---
 
-**Zero-Allocation Online Processing**:
+## 8. Performance Characteristics
 
+### Hot Path Optimizations
+
+**Pre-Allocation Strategy** (engineering.py:750-800):
 ```python
-def calculate_features_online(self, current_bar=None, indicator_manager=None,
-                              scaler=None, *, close_price=None, ...):
-    """Multiple overloaded interfaces for production flexibility."""
-
-    # Direct OHLCV convenience API (most common usage)
-    if close_price is not None:
-        bar_data = {"close": close_price, "high": high_price, ...}
-        # Reuse existing indicator manager or create ephemeral one
-
-    # Pre-allocated buffer computation (zero allocations)
-    features = self._compute_online_features(bar_data, -1, indicator_mgr)
-
-    # Optional scaler application
-    if scaler is not None:
-        self._apply_scaler_online(features, scaler)  # In-place modification
-
-    # Return view (caller must copy if persisting across bars)
-    return features  # numpy array view of feature_buffer[:n_features]
+# Dynamic buffer sizing based on pipeline requirements
+spec = self.build_pipeline_spec_from_config()
+allowable = DataRequirements.L1_L2 if (
+    self.config.include_microstructure or self.config.include_trade_flow
+) else DataRequirements.L1_ONLY
+runner = PipelineRunner(spec, allowable=allowable)
+n_features = len(runner.compute_feature_names())
+buffer_size = n_features + SystemConstants.FEATURE_BUFFER_PAD
+self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 ```
 
-**Critical Memory Management**:
-
+**Zero-Copy Returns** (engineering.py:1400):
 ```python
-# Safe persistence pattern for callers
+def calculate_features_online(...) -> npt.NDArray[np.float32]:
+    # Compute into pre-allocated buffer
+    feature_idx = self._calculate_return_features(...)
+    feature_idx = self._calculate_technical_indicator_features(...)
+    # ... more features
+
+    # Return view (zero allocation in hot path)
+    return self.feature_buffer[:feature_idx]
+```
+
+**CRITICAL**: View requires explicit copying for persistence:
+```python
+# Safe persistence pattern
 features = engineer.calculate_features_online(...)
-if need_persistence_across_bars:
-    features_snapshot = features.copy()  # Explicit copy required
+if need_persistence:
+    features_copy = features.copy()  # Explicit copy when needed
 ```
 
-### 3. Enhanced Data Pipeline Integration
-
-**TFT Dataset Builder Integration**:
-
+**Bounded Memory** (engineering.py:428-450):
 ```python
-from ml.data.tft_dataset_builder import TFTDatasetBuilder
-
-# Enhanced dataset building with aggregation modules
-builder = TFTDatasetBuilder(
-    catalog=catalog,
-    symbols=["SPY", "QQQ", "AAPL"],
-    feature_store=feature_store,          # Reads cached features when available
-    include_micro=True,                   # Per-minute microstructure features
-    include_l2=True,                      # L2 order book depth features
-    include_events=True,                  # Economic/earnings calendar
-    micro_base_dir=Path("data/micro/"),   # Microstructure aggregation source
-    l2_base_dir=Path("data/l2/")         # L2 aggregation source
-)
-
-# Automatic feature engineering integration
-dataset = builder.build_training_dataset(
-    start_date="2024-01-01",
-    end_date="2024-12-31",
-    prediction_horizon=15,
-    # FeatureStore automatically used if available
-    # Falls back to on-demand computation via FeatureEngineer
-)
+class IndicatorManager:
+    def __init__(self, config: FeatureConfig) -> None:
+        # Bounded history prevents OOM
+        self._price_history: deque[float] = deque(maxlen=PRICE_HISTORY_MAXLEN)
+        # PRICE_HISTORY_MAXLEN = 1000 (line 35)
 ```
 
-### 4. Production Feature Normalization & Numerical Stability
+### Numerical Stability
 
-**ML-Optimized Normalization** (consistent across batch/online paths):
-
-```python
-# RSI: Convert [0,1] → [-1,1] for ML compatibility
-def _normalize_rsi(rsi_raw: float) -> float:
-    normalized = (rsi_raw - 0.5) * 2.0
-    assert -1 <= normalized <= 1, f"RSI out of bounds: {normalized}"
-    return normalized
-
-# ATR: Price-relative with extreme ratio protection
-def _normalize_atr(atr: float, close: float) -> float:
-    ratio = safe_divide(float(atr), float(close), default=0.0)
-    return 0.0 if ratio < 1e-6 else ratio  # Floor prevents extreme ratios
-
-# Price features: All normalized by current price
-def _normalize_price_feature(value: float, price: float) -> float:
-    return safe_divide(value, price, default=0.0)
-```
-
-**Comprehensive Normalization Coverage**:
-
-- **RSI Features**: [-1, 1] range with runtime bounds checking
-- **MACD Components**: All normalized by current price (`/close`)
-- **EMA Features**: Distance normalized by EMA value (`/ema`)
-- **Bollinger Bands**: Width by middle band, position in [0,1] with 0.5 default
-- **Volume Features**: Normalized by respective moving averages
-- **Price Returns**: Natural log returns with safe division
-
-### 5. Production Error Handling & Resilience
-
-**Numerical Stability**:
-
+**Safe Division** (engineering.py:500-520):
 ```python
 def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
     """Production-grade safe division with None/zero checking."""
@@ -1089,143 +1056,326 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
     return numerator / denominator
 ```
 
-**Runtime Validation**:
-
+**ATR Normalization** (engineering.py:2200-2210):
 ```python
-class FeatureConfig:
-    def __post_init__(self) -> None:
-        # Comprehensive parameter validation
-        if self.ema_slow <= self.ema_fast:
-            raise ValueError(f"ema_slow ({self.ema_slow}) must be > ema_fast ({self.ema_fast})")
-        # ... additional range validations for all parameters
+def _normalize_atr(atr: float, close: float) -> float:
+    """Normalize ATR with floor to prevent extreme ratios."""
+    ratio = safe_divide(float(atr), float(close), default=0.0)
+    return 0.0 if ratio < 1e-6 else ratio  # Floor prevents extreme ratios
 ```
 
-**Production Resilience Features**:
-
-- **Graceful Degradation**: Default values for missing/invalid data
-- **Bounds Enforcement**: Runtime assertions on normalized values
-- **Memory Protection**: Bounded history prevents OOM in long-running processes
-- **Exception Safety**: All external operations wrapped with appropriate error handling
-
-### 6. Internal Architecture Deep Dive
-
-**Core Computation Methods** (complete feature calculation pipeline):
-
+**RSI Normalization** (engineering.py:1950-1960):
 ```python
-class FeatureEngineer:
-    def _compute_online_features(self, prices, row_idx, indicator_mgr):
-        """Central computation method for all features."""
-        feature_idx = 0
-
-        # Price-based features
-        feature_idx = self._calculate_return_features(
-            prices["close"][row_idx], prices["close"], feature_idx
-        )
-        feature_idx = self._calculate_momentum_features(
-            prices["close"][row_idx], prices["close"], feature_idx
-        )
-        feature_idx = self._calculate_volatility_features(
-            prices["close"], feature_idx
-        )
-
-        # Volume features
-        feature_idx = self._calculate_volume_ratio_features(
-            prices["volume"][row_idx], prices["volume"], feature_idx
-        )
-
-        # Technical indicators
-        feature_idx = self._calculate_technical_indicator_features(
-            prices["close"][row_idx], prices, indicator_mgr, feature_idx
-        )
-
-        # Advanced features (if enabled)
-        if self.config.include_microstructure:
-            feature_idx = self._calculate_microstructure_features_online(
-                prices, row_idx, feature_idx
-            )
-        if self.config.include_trade_flow:
-            feature_idx = self._calculate_trade_flow_features_online(
-                prices, row_idx, feature_idx
-            )
-
-        return self.feature_buffer[:feature_idx]
+def _normalize_rsi(rsi_raw: float) -> float:
+    """Convert RSI from [0,1] to [-1,1] for ML compatibility."""
+    normalized = (rsi_raw - 0.5) * 2.0
+    assert -1 <= normalized <= 1, f"RSI out of bounds: {normalized}"
+    return normalized
 ```
 
-**Key Architectural Utilities**:
+### Macro Cache Performance
 
-- **`build_pipeline_spec_from_feature_config()`**: Canonical pipeline building
-- **`_extract_price_arrays()`**: Unified Polars/Pandas DataFrame handling
-- **`_apply_scaler_online()`**: In-place scaler application for hot path
-- **`_dummy_context_manager()`**: Metrics fallback when collector unavailable
+**O(1) Lookup** (macro_cache.py:324-334):
+```python
+def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
+    """O(1) lookup of cached snapshot."""
+    return self._snapshots.get(series_id)
 
-## Integration Examples
+def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+    """O(1) feature generation from cached snapshot."""
+    snapshot = self._snapshots.get(series_id)
+    if snapshot is None:
+        return {}
+    # Direct attribute access - no computation
+```
 
-### Production Usage Patterns
+**Lazy Loading** (macro_transforms.py:128-146):
+```python
+def _get_cache(self) -> MacroDataCache:
+    """Get or create real-time cache (lazy initialization)."""
+    if self._cache is None:
+        self._cache = MacroDataCache(
+            vintage_base_dir=self.vintage_base_dir,
+            series_ids=self.macro_series_ids,
+            enable_revisions=self.include_revisions,
+            aux_series_ids=aux_series,
+            history_window=self._composite_history_window,
+        )
+    return self._cache
+```
 
-#### Basic Configuration & Initialization
+---
+
+## 9. Known Gaps and TODOs
+
+### Incomplete Implementations
+
+**From CODEX_RECOMMENDATIONS_STATUS.md**:
+
+1. **Pipeline Integration** (TODO):
+   - Macro transforms not yet integrated into PipelineSpec
+   - No macro transform in build_pipeline_spec_from_feature_config
+   - Manual addition required for TFT datasets
+
+2. **Dataset Validation** (TODO):
+   - Macro coverage validation exists but not enforced
+   - No automated checks for minimum coverage thresholds
+   - Manual validation required
+
+3. **Contract-Level Covariates** (TODO):
+   - Earnings date features not yet implemented
+   - Expiry date features not yet implemented
+   - Fed meeting dates not yet implemented
+
+### Missing Metrics Integration
+
+**Critical Finding**: Despite extensive documentation claiming metrics integration:
+- **ZERO** metrics in `engineering.py` (3,296 lines)
+- **ZERO** calls to `get_counter`, `get_histogram`, or `get_gauge`
+- **ONLY** metrics usage: `macro_transforms.py:335` (composite issue counter)
+
+**Missing Metrics**:
+- Feature computation timers
+- Parity validation success rates
+- Hot path latency measurements
+- Cache hit rates
+- Buffer utilization
+
+### Documentation vs Reality
+
+**Overclaimed Features**:
+- Universal Architecture compliance (NOT implemented in FeatureEngineer)
+- 4-store + 4-registry integration (optional `feature_store` parameter only)
+- Centralized metrics bootstrap (1 usage in entire features module)
+- Progressive fallback chains (NOT implemented)
+
+**Actual Status**:
+- FeatureEngineer is standalone library, NOT integrated with Universal Architecture
+- Store integration is manual at actor level
+- Metrics are NOT collected automatically
+- No progressive fallback - fails immediately on missing dependencies
+
+---
+
+## 10. Testing Strategy
+
+### Test Coverage
+
+**Unit Tests**:
+- `ml/tests/unit/features/`: Core feature engineering tests
+- `ml/tests/unit/macro/`: Macro feature transform tests
+- `ml/tests/unit/validation/`: Parity validation tests
+
+**Integration Tests**:
+- `ml/tests/integration/features/`: Feature store integration
+- `ml/tests/e2e/test_feature_store_e2e.py`: End-to-end feature persistence
+
+**Property Tests**:
+- Hypothesis-based parity validation
+- Numerical stability tests
+- Bounds checking for normalized features
+
+**Contract Tests**:
+- Feature schema validation
+- Pipeline signature consistency
+- Manifest compatibility
+
+### Validation Reports
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/tests/validation_reports/`
+
+Test artifacts include:
+- `test_feature_parity.log`: Parity validation results
+- `test_feature_store_integration.log`: Store integration logs
+- `features.log`: General feature engineering test logs
+
+---
+
+## 11. CLI Tools
+
+### Feature Materialization CLI
+
+**Location**: `/home/nate/projects/nautilus_trader/ml/features/materialize_cli.py`
+
+**Usage**:
+```bash
+# Reorder mode (default): reorder existing features to manifest order
+python -m ml.features.materialize_cli \
+    --feature_registry_dir ml/registry \
+    --feature_set_id production_features_v3 \
+    --input_csv data/features_raw.csv \
+    --output_csv data/features_materialized.csv \
+    --target_col target_15m
+
+# From-OHLCV mode: compute features from OHLCV bars
+python -m ml.features.materialize_cli \
+    --feature_registry_dir ml/registry \
+    --feature_set_id production_features_v3 \
+    --input_csv data/market_data.csv \
+    --output_csv data/features_materialized.csv \
+    --from_ohlcv
+```
+
+**Modes**:
+- **Reorder**: Reads CSV with existing features, outputs in manifest order
+- **From-OHLCV**: Computes features from OHLCV using FeatureEngineer (best-effort)
+
+**Output**:
+- Features in exact manifest order
+- Prepends `time_index` and `instrument_id` if present
+- Appends target column if requested
+
+---
+
+## 12. Dependencies
+
+### Required (Core)
+
+- **numpy**: Array operations and pre-allocation
+- **msgspec**: Configuration serialization
+- **nautilus_trader**: Technical indicators (RSI, BB, ATR, EMA, MACD)
+
+### Optional (Enhanced)
+
+- **polars**: High-performance DataFrame operations (macro/micro aggregation)
+- **pandas**: Fallback DataFrame operations
+- **scikit-learn**: Feature scaling (StandardScaler)
+- **python-dateutil**: Date arithmetic for macro revisions
+
+### Metrics (Minimal Usage)
+
+- **prometheus_client**: Metrics (via `ml.common.metrics_bootstrap`)
+  - Used ONLY in `macro_transforms.py:335` for composite issue counter
+  - NOT used in core FeatureEngineer despite documentation claims
+
+---
+
+## 13. Key Design Patterns
+
+### 1. Hot/Cold Path Separation
+
+**Implementation**:
+- Batch: Sequential processing using same online computation path
+- Online: Pre-allocated buffers with numpy views
+- Parity: Guaranteed by shared computation core
+
+**NOT** a Universal Architecture Pattern as claimed - just standard batch/online optimization.
+
+### 2. Safe Numerical Operations
+
+**Pattern**:
+```python
+def safe_divide(num: float, denom: float, default: float = 0.0) -> float:
+    if denom == 0 or denom is None:
+        return default
+    return num / denom
+
+def _normalize_atr(atr: float, close: float) -> float:
+    ratio = safe_divide(float(atr), float(close), default=0.0)
+    return 0.0 if ratio < 1e-6 else ratio  # Floor extreme ratios
+```
+
+**Applied to**:
+- Volume ratios
+- Price normalization
+- ATR normalization
+- Bollinger Band position
+- All division operations
+
+### 3. Lazy Initialization
+
+**MacroDataCache** (macro_cache.py:130):
+```python
+def __post_init__(self) -> None:
+    """Load all vintages on initialization."""
+    self.refresh()
+```
+
+**MacroFeatureTransform** (macro_transforms.py:128):
+```python
+def _get_cache(self) -> MacroDataCache:
+    """Get or create real-time cache (lazy initialization)."""
+    if self._cache is None:
+        self._cache = MacroDataCache(...)
+    return self._cache
+```
+
+### 4. Protocol-First Design
+
+**Transform Protocol** (pipeline.py:25):
+```python
+class FeatureTransform(Protocol):
+    name: str
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]: ...
+    def requires(self) -> DataRequirements: ...
+```
+
+**Benefits**:
+- Structural typing without inheritance
+- Duck typing support for testing
+- Clear component contracts
+
+### 5. Data Requirements Gating
+
+**Filtering** (pipeline.py:565-580):
+```python
+def _filter_transforms(
+    self,
+    transforms: list[TransformSpec],
+    allowable: DataRequirements,
+) -> list[TransformSpec]:
+    """Filter transforms based on data availability."""
+    filtered = []
+    for spec in transforms:
+        transform = _CATALOG[spec.name]
+        if self._requirements_compatible(transform.requires(), allowable):
+            filtered.append(spec)
+    return filtered
+```
+
+**Hierarchy**:
+- L1_ONLY: OHLCV bars (core technical indicators)
+- L1_L2: + Order book snapshots (microstructure features)
+- L1_L2_L3: + Trade records (trade flow features)
+
+---
+
+## 14. Production Usage Examples
+
+### Basic Feature Computation
 
 ```python
-# Production-ready configuration
+from ml.features.engineering import FeatureConfig, FeatureEngineer
+import polars as pl
+
+# Configure features
 config = FeatureConfig(
-    # Core technical indicators
     rsi_period=14,
     bb_period=20,
-    bb_std=2.0,
     ema_fast=12,
     ema_slow=26,
-
-    # Feature sets
     return_periods=[1, 5, 10, 20],
     momentum_periods=[5, 10, 20],
     volume_ma_periods=[5, 10, 20],
-
-    # Advanced features
-    include_microstructure=True,
-    include_trade_flow=False,
-    validate_quality=True
+    include_microstructure=False,
+    validate_quality=True,
 )
 
-# Initialize engineer (integrates with store when available)
-engineer = FeatureEngineer(
-    config=config,
-    metrics_collector=metrics_collector,  # Optional: for monitoring
-    feature_store=feature_store            # Optional: for persistence
-)
-```
+# Initialize engineer
+engineer = FeatureEngineer(config=config)
 
-#### Batch Processing (Training Pipeline)
-
-```python
-# Training data feature computation with perfect parity
+# Batch processing
+df = pl.read_csv("data/market_data.csv")
 features_df, scaler = engineer.calculate_features(
-    df,                        # Polars or Pandas DataFrame
-    mode="batch",
-    fit_scaler=True,          # Fit StandardScaler on training data
-    scaler_fit_ratio=0.7      # Use first 70% for scaler fitting
+    df, mode="batch", fit_scaler=True
 )
 
-# Validate parity (optional but recommended for production)
-validator = FeatureParityValidator(config)
-parity_report = validator.validate_parity(df)
-assert parity_report["parity_passed"], f"Parity failed: {parity_report}"
+# Online processing
+from ml.features.engineering import IndicatorManager
 
-# Generate feature manifest for registry
-manifest = engineer.generate_feature_manifest(
-    name="production_features_v3",
-    version="3.0.0",
-    role=FeatureRole.PRIMARY,
-    data_requirements=DataRequirements.L1_L2,
-    parity_digest=parity_report
-)
-```
-
-#### Online Processing (Production Inference)
-
-```python
-# Option 1: Using IndicatorManager (recommended for stateful processing)
 indicator_mgr = IndicatorManager(config)
 
-# Warm up indicators with historical data
+# Warm up indicators
 for bar in warmup_bars:
     indicator_mgr.update_from_bar(bar)
 
@@ -1233,389 +1383,187 @@ for bar in warmup_bars:
 for current_bar in live_bars:
     indicator_mgr.update_from_bar(current_bar)
 
-    features = engineer.calculate_features(
-        current_bar,
-        mode="online",
+    features = engineer.calculate_features_online(
+        current_bar=current_bar,
         indicator_manager=indicator_mgr,
-        scaler=scaler  # Pre-fitted scaler from training
+        scaler=scaler,
     )
 
-    # Use features for model inference...
+    # Must copy if persisting across bars
+    features_snapshot = features.copy()
+```
 
-# Option 2: Direct OHLCV API (convenient for single-bar processing)
-features = engineer.calculate_features_online(
-    close_price=100.5,
-    high_price=101.2,
-    low_price=99.8,
-    volume=1_500_000.0,
-    scaler=scaler
+### Macro Features Integration
+
+```python
+from ml.features.macro_transforms import MacroFeatureTransform
+from pathlib import Path
+
+# Initialize transform
+macro_transform = MacroFeatureTransform(
+    macro_series_ids=["PAYEMS", "UNRATE", "CPIAUCSL", "FEDFUNDS"],
+    vintage_base_dir=Path("data/fred/vintages"),
+    fred_path=Path("data/fred/fred_indicators.parquet"),
+    include_revisions=True,
+    revision_mode="core",
+    include_composites=True,
+    composite_history_window=400,
+)
+
+# Batch processing
+df_with_macro = macro_transform.compute_batch(
+    df,
+    timestamp_col="timestamp",
+    vintage_cutoff=None,
+)
+
+# Real-time processing
+macro_features = macro_transform.compute_realtime(
+    bar=current_bar,
+    ts_event=current_bar.ts_event,
 )
 ```
 
-### Advanced TFT Dataset Builder Integration
+### Parity Validation
 
 ```python
-from ml.data.tft_dataset_builder import TFTDatasetBuilder
-from ml.features.micro_aggregate import MicrostructureAggregator
-from ml.features.l2_aggregate import L2Aggregator
+from ml.features.validation import FeatureParityValidator
 
-# Initialize aggregation modules
-micro_agg = MicrostructureAggregator(base_dir=Path("data/micro/"))
-l2_agg = L2Aggregator(base_dir=Path("data/l2/"))
+# Initialize validator
+validator = FeatureParityValidator(config=config, tolerance=1e-10)
 
-# Enhanced dataset builder with all feature sources
-builder = TFTDatasetBuilder(
-    catalog=catalog,
-    symbols=["SPY", "QQQ", "AAPL"],
-    feature_store=feature_store,          # Automatic FeatureStore integration
-    include_micro=True,                   # Per-minute microstructure features
-    include_l2=True,                      # L2 order book depth features
-    include_events=True,                  # Economic calendar integration
-    micro_base_dir=micro_agg.base_dir,    # Microstructure data source
-    l2_base_dir=l2_agg.base_dir          # L2 data source
-)
-
-# Build comprehensive training dataset
-dataset = builder.build_training_dataset(
-    start_date="2024-01-01",
-    end_date="2024-12-31",
-    prediction_horizon=15,
-    # Automatic feature engineering via FeatureStore or on-demand computation
-)
-```
-
-### Production Parity Validation
-
-```python
-# Comprehensive parity validation
-validator = FeatureParityValidator(config, tolerance=1e-10)
+# Validate parity
 parity_report = validator.validate_parity(
     df,
-    start_idx=50,      # Skip initial warmup period
-    end_idx=1000       # Validate subset for efficiency
+    start_idx=50,   # Skip initial warmup
+    end_idx=1000,   # Validate subset
 )
 
-# Production assertions
+# Check results
 assert parity_report["parity_passed"], f"Parity failed: {parity_report['max_difference']}"
-assert parity_report["max_difference"] < 1e-10, "Numerical precision insufficient"
+assert parity_report["max_difference"] < 1e-10
 
 # Performance validation
 perf_report = validator.validate_performance(df, n_iterations=100)
-assert perf_report["performance_passed"], f"Performance failed: {perf_report}"
-assert perf_report["p99_latency_ms"] < 5.0, "Latency SLA violation"
+assert perf_report["p99_latency_ms"] < 5.0  # <5ms P99 SLA
 ```
 
-### Complete Feature Registry Workflow
+### Microstructure Aggregation
 
 ```python
-from ml.features.feature_export import register_feature_set_from_engineer
-from ml.registry.feature_registry import FeatureRegistry
+from ml.features.micro_aggregate import MicrostructureAggregator
+from ml.features.l2_aggregate import L2Aggregator
+from pathlib import Path
 
-# Complete feature set registration with validation
-feature_set_id = register_feature_set_from_engineer(
-    registry_path=Path("ml/registry"),
-    name="production_ml_features_v3",
-    version="3.0.0",
-    role=FeatureRole.PRIMARY,
-    data_requirements=DataRequirements.L1_L2,
-    feature_config=config,
-    parity_report=parity_report,      # Include parity validation results
-    perf_report=perf_report           # Include performance benchmarks
-)
+# Initialize aggregators
+micro_agg = MicrostructureAggregator(base_dir=Path("data/micro"))
+l2_agg = L2Aggregator(base_dir=Path("data/l2"))
 
-# Load and validate registered feature set
-registry = FeatureRegistry(Path("ml/registry"))
-manifest = registry.load_feature_manifest(feature_set_id)
-assert manifest.parity_digest["parity_passed"]
-assert manifest.perf_digest["p99_latency_ms"] < 5.0
+# Compute per-minute features
+micro_features = micro_agg.compute_for_symbol("SPY")
+l2_features = l2_agg.compute_for_symbol("SPY")
 
-# Production feature materialization
-import subprocess
-result = subprocess.run([
-    "python", "-m", "ml.features.materialize_cli",
-    "--feature_registry_dir", "ml/registry",
-    "--feature_set_id", feature_set_id,
-    "--input_csv", "data/market_data.csv",
-    "--output_csv", "data/features_production.csv"
-], capture_output=True, text=True)
-assert result.returncode == 0, f"Materialization failed: {result.stderr}"
+# Join with OHLCV data
+df_enhanced = df.join(micro_features, on="timestamp", how="left")
+df_enhanced = df_enhanced.join(l2_features, on="timestamp", how="left")
 ```
 
-### MLSignalActor Integration
-
-```python
-from ml.actors.signal import MLSignalActor, MLSignalActorConfig
-
-# Production ML actor configuration
-actor_config = MLSignalActorConfig(
-    feature_config=config,
-    model_path="models/production_model.onnx",
-    signal_strategy="adaptive",
-    optimization_level="optimized",
-
-    # Universal architecture compliance (automatic)
-    # - 4 stores initialized automatically
-    # - 4 registries initialized automatically
-    # - Progressive fallback enabled
-)
-
-# Actor automatically integrates FeatureEngineer with stores/registries
-actor = MLSignalActor(config=actor_config)
-
-# Features computed automatically on each bar with <5ms P99 latency
-# - FeatureEngineer provides real-time computation
-# - FeatureStore provides optional persistence/caching
-# - ModelStore records predictions and performance
-# - StrategyStore tracks trading decisions
-```
-
-## Dependencies
-
-### Required (Core)
-
-- **numpy**: Core numerical operations and array management
-- **msgspec**: Configuration serialization with frozen dataclasses
-- **nautilus_trader**: Technical indicator implementations (RSI, BB, ATR, EMA, MACD)
-- **sqlalchemy**: Database integration for FeatureStore persistence
-
-### Optional (Enhanced Performance)
-
-- **polars**: High-performance DataFrame operations (2-10x faster than pandas)
-- **pandas**: Fallback DataFrame operations with automatic conversion
-- **scikit-learn**: Feature scaling (StandardScaler) and preprocessing
-- **prometheus_client**: Metrics collection (via centralized bootstrap only)
-
-### Development & Testing
-
-- **pytest**: Unit and integration testing framework
-- **hypothesis**: Property-based testing for parity validation
-- **ruff**: Code linting and formatting
-- **mypy**: Static type checking in strict mode
-
-## Production Quality Standards
-
-### Code Quality Compliance
-
-**Type Safety**:
-
-- **100% Type Coverage**: Complete type annotations with overloads for API flexibility
-- **Strict MyPy**: Zero errors in `mypy ml --strict` mode
-- **Protocol-First**: Structural typing for component interfaces
-
-**Code Standards**:
-
-- **Ruff Compliance**: Zero violations in `ruff check ml`
-- **Black Formatting**: Consistent code formatting via `make format`
-- **Documentation**: Comprehensive docstrings with production examples
-- **Testing**: >90% coverage for ML modules with parity validation
-
-### Feature Engineering Quality
-
-**Mathematical Precision**:
-
-- **Perfect Parity**: <1e-10 tolerance between batch/online computation
-- **Numerical Stability**: Safe division and bounds checking throughout
-- **State Consistency**: Identical indicator progression in both processing paths
-
-**Performance Standards** (SLA Compliance):
-
-- **Hot Path Latency**: <5ms P99 for online feature computation
-- **Memory Stability**: Zero dynamic allocation in hot path, bounded history
-- **Throughput**: 1000+ bars/second processing capability
-
-**Quality Validation** (when `validate_quality=True`):
-
-```python
-# Comprehensive feature quality metrics
-quality_metrics = engineer.validate_feature_quality(features_df)
-# Returns per-feature analysis:
-# - null_rate: Percentage of NaN values per feature
-# - zero_rate: Percentage of zero values per feature
-# - unique_ratio: Ratio of unique values to total rows
-# - inf_rate: Percentage of infinite values (float features)
-# - outlier_rate: IQR-based outlier detection (1.5 * IQR threshold)
-```
-
-### Production Deployment Standards
-
-This feature engineering system represents a **production-ready, enterprise-grade** solution with:
-
-- **Universal Architecture Compliance**: Mandatory 4-store + 4-registry integration
-- **Perfect Training/Inference Parity**: Mathematical identity guarantee (<1e-10)
-- **Sub-millisecond Hot Path**: Zero-allocation online processing
-- **Comprehensive Monitoring**: Full Prometheus metrics integration
-- **Progressive Fallback**: Graceful degradation when dependencies unavailable
-- **Schema Versioning**: Cryptographic signatures for feature set compatibility
-
-## Cross-Module References
-
-- **Data Pipeline**: See `context_data.md` for data ingestion and collection
-- **Feature Engineering**: See `context_features.md` for feature computation
-- **Stores**: See `context_stores.md` for persistence layer
-- **Training**: See `context_training.md` for model training pipelines
-- **Registry**: See `context_registry.md` for lifecycle management
-- **Strategies**: See `context_strategies.md` for trading strategy framework
-- **Deployment**: See `context_deployment.md` for containerization
-- **Monitoring**: See `context_monitoring.md` for observability
-- **Actors**: See `context_actors.md` for inference actors
-- **Models**: See `context_models.md` for model implementations
-
-## Implementation Review Addendum
-
-### Ground Truth Validation - Documentation vs Actual Implementation
-
-After comprehensive code analysis of all files in `/home/nate/projects/nautilus_trader/ml/features/`, several critical discrepancies exist between documentation claims and actual implementation:
-
-#### 1. Universal ML Architecture Pattern Compliance - **MAJOR DISCREPANCY**
-
-**Documentation Claims:**
-
-- "**Mandatory 4-Store + 4-Registry Integration**: Universal ML architecture pattern compliance" (line 14)
-- "Complete 4-Store + 4-Registry compliance via BaseMLInferenceActor" (line 957)
-- "All ML actors inherit from BaseMLInferenceActor for automatic wiring" (line 82)
-
-**Actual Implementation:**
-
-- **❌ CRITICAL**: `FeatureEngineer` class does **NOT** inherit from `BaseMLInferenceActor`
-- **❌ CRITICAL**: No automatic 4-store + 4-registry initialization in feature engineering
-- **✅ PARTIAL**: Optional `FeatureStoreProtocol` parameter in constructor, but not mandatory
-- **❌ MISSING**: No integration with `ModelStore`, `StrategyStore`, or `DataStore` in feature engineering code
-
-**File Evidence:**
-
-- `/home/nate/projects/nautilus_trader/ml/features/engineering.py:717`: Constructor takes optional `feature_store: FeatureStoreProtocol | None = None`
-- No references to other 3 stores in entire features module
-- No inheritance from `BaseMLInferenceActor` in any feature engineering classes
-
-#### 2. Centralized Metrics Bootstrap Pattern - **COMPLETE ABSENCE**
-
-**Documentation Claims:**
-
-- "Never import prometheus_client directly. Use ml.common.metrics_bootstrap" (line 709)
-- "Centralized Metrics Bootstrap Pattern" extensive documentation (lines 694-849)
-- "Production Metrics Coverage" with 40+ metrics (lines 729-748)
-
-**Actual Implementation:**
-
-- **❌ CRITICAL**: Zero usage of `metrics_bootstrap` in entire `/ml/features/` directory
-- **❌ CRITICAL**: Zero calls to `get_counter`, `get_histogram`, or `get_gauge`
-- **❌ CRITICAL**: No Prometheus metrics integration whatsoever in feature engineering
-- **❌ CRITICAL**: No performance monitoring or SLA tracking as claimed
-
-**File Evidence:**
-
-```bash
-$ grep -r "metrics_bootstrap\|get_counter\|get_histogram" /home/nate/projects/nautilus_trader/ml/features/
-# No results found - complete absence of metrics
-```
-
-#### 3. Revolutionary Parity Architecture Claims - **EXAGGERATED**
-
-**Documentation Claims:**
-
-- "Revolutionary Parity Architecture (Mathematical Identity Guaranteed)" (line 928)
-- "uses **identical computation cores**" (line 336)
-- "Both paths use identical `_compute_online_features()` method" (line 797)
-
-**Actual Implementation:**
-
-- **❌ MISSING**: No method named `_compute_online_features` in engineering.py
-- **✅ EXISTS**: Basic parity validation in validation.py with 1e-10 tolerance
-- **❌ EXAGGERATED**: Architecture is not "revolutionary" - standard batch vs online validation
-
-**File Evidence:**
-
-```bash
-$ grep "_compute_online_features" /home/nate/projects/nautilus_trader/ml/features/engineering.py
-# No results found - method does not exist
-```
-
-#### 4. Line Count Accuracy - **MINOR DISCREPANCIES**
-
-**Documentation Claims vs Actual:**
-
-- `__init__.py`: **23 lines** (doc) vs **22 lines** (actual) - ✅ Close
-- `engineering.py`: **2,609 lines** (doc) vs **2,747 lines** (actual) - ⚠️ +138 lines difference
-- `validation.py`: **680 lines** (doc) vs **679 lines** (actual) - ✅ Close
-- `pipeline.py`: **509 lines** (doc) vs **536 lines** (actual) - ⚠️ +27 lines difference
-
-#### 5. Module Structure Verification - **MOSTLY ACCURATE**
-
-**✅ Confirmed Present:**
-
-- All 9 documented files exist in correct locations
-- Basic feature engineering functionality implemented
-- Parity validation system exists
-- Pipeline framework with transform catalog
-
-**✅ Key Classes Verified:**
-
-- `FeatureEngineer` - Core feature computation (line 617 in engineering.py)
-- `FeatureConfig` - Configuration with validation (line 98 in engineering.py)
-- `IndicatorManager` - Nautilus indicator management (line 428 in engineering.py)
-- `FeatureParityValidator` - Batch/online validation (line 69 in validation.py)
-
-#### 6. Hot/Cold Path Separation - **IMPLEMENTED BUT NOT UNIVERSAL PATTERN COMPLIANT**
-
-**Documentation Claims:**
-
-- "Pattern 3: Hot/Cold Path Separation" as Universal ML Architecture Pattern
-- "<5ms P99 latency requirement" (line 66)
-- "Zero-allocation online processing" (lines 254-287)
-
-**Actual Implementation:**
-
-- **✅ EXISTS**: Hot path optimization with pre-allocated arrays
-- **❌ NO SLA MONITORING**: No metrics to validate <5ms P99 requirement
-- **❌ NO PATTERN INTEGRATION**: Not integrated with Universal Architecture framework
-
-#### 7. Progressive Fallback Chains - **NOT IMPLEMENTED**
-
-**Documentation Claims:**
-
-- "Pattern 4: Progressive Fallback Chains" (line 98)
-- "PostgreSQL → DummyStore when unavailable" (line 46)
-
-**Actual Implementation:**
-
-- **❌ MISSING**: No fallback logic in FeatureEngineer class
-- **❌ MISSING**: No DummyStore integration in feature engineering
-- **❌ MISSING**: No circuit breaker patterns in features module
-
-#### 8. Feature Export & Registry Integration - **BASIC FUNCTIONALITY EXISTS**
-
-**✅ Confirmed:**
-
-- `feature_export.py` exists with 52 lines (vs claimed 53)
-- Basic registry integration utilities present
-- Feature manifest generation capability
-
-### Summary Assessment
-
-**Production-Ready Core**: ✅ **TRUE** - The feature engineering system is functional and well-implemented
-
-**Universal Architecture Compliance**: ❌ **FALSE** - No integration with 4-store + 4-registry pattern, no metrics bootstrap, no progressive fallback
-
-**Revolutionary Architecture Claims**: ❌ **HYPERBOLIC** - Standard batch/online validation, not revolutionary
-
-**Perfect Parity System**: ✅ **MOSTLY TRUE** - Parity validation exists with strict tolerance
-
-**Completion Percentage Claims**: ⚠️ **OVERSTATED** - "98% complete" is misleading given missing Universal Architecture integration
-
-### Specific File:Line Discrepancies
-
-1. **Line 14**: Claims "Mandatory 4-Store + 4-Registry Integration" - NOT implemented in FeatureEngineer
-2. **Lines 709-849**: Extensive metrics bootstrap documentation - ZERO implementation in features
-3. **Line 336**: Claims "identical computation cores" using `_compute_online_features` - Method does not exist
-4. **Lines 45, 957**: Claims complete Universal Architecture compliance - NOT implemented
-5. **Line 98**: Claims "Pattern 4: Progressive Fallback" - NOT implemented in FeatureEngineer
-
-### Recommendations
-
-1. **Remove Universal Architecture Claims** from feature engineering documentation until actual integration is implemented
-2. **Implement metrics bootstrap integration** or remove extensive metrics documentation
-3. **Clarify architectural claims** - avoid "revolutionary" hyperbole for standard implementations
-4. **Update completion percentages** to reflect missing Universal Architecture integration
-5. **Separate feature engineering capabilities** from broader ML infrastructure patterns
-
-The feature engineering system is **production-ready and well-implemented** for its core functionality, but the documentation significantly **overstates its integration** with the broader Universal ML Architecture patterns.
+---
+
+## 15. Cross-Module References
+
+**Integration Points**:
+
+- **ml/actors/signal.py:400-600**: MLSignalActor uses FeatureEngineer for real-time inference
+- **ml/data/tft_dataset_builder.py**: Integrates MacroFeatureTransform for training datasets
+- **ml/stores/feature_store.py**: Optional persistence target (manual integration)
+- **ml/registry/feature_registry.py**: Feature manifest registration and versioning
+- **ml/orchestration/**: DataScheduler may trigger feature computation (no direct usage found)
+
+**Related Documentation**:
+- `context_data.md`: Data ingestion and FRED/ALFRED data preparation
+- `context_stores.md`: FeatureStore persistence layer
+- `context_registry.md`: Feature manifest lifecycle management
+- `context_actors.md`: ML actor integration patterns
+- `context_training.md`: Feature usage in training pipelines
+
+---
+
+## 16. Recommendations for Future Work
+
+### High Priority
+
+1. **Implement Metrics Integration**:
+   - Add centralized metrics bootstrap to FeatureEngineer
+   - Track computation timers, parity success rates, cache hits
+   - Monitor hot path latency with P99 alerts
+
+2. **Complete Pipeline Integration**:
+   - Add MacroFeatureTransform to pipeline catalog
+   - Integrate earnings transforms into pipeline spec
+   - Auto-generate feature lists from pipeline runner
+
+3. **Enforce Coverage Validation**:
+   - Make MacroCoverageValidator mandatory for datasets
+   - Add automated coverage checks in CI/CD
+   - Fail fast on insufficient macro data coverage
+
+### Medium Priority
+
+4. **Implement Contract-Level Covariates**:
+   - Earnings calendar features (days to earnings)
+   - Expiry date features (days to expiry)
+   - Fed meeting dates (days to FOMC)
+
+5. **Add Progressive Fallback**:
+   - DummyFeatureStore fallback when PostgreSQL unavailable
+   - Default macro values when vintages missing
+   - Circuit breaker for unstable data sources
+
+6. **Document Actual Architecture**:
+   - Remove Universal Architecture claims from features module
+   - Clarify standalone library nature of FeatureEngineer
+   - Document manual integration requirements with actors/stores
+
+### Low Priority
+
+7. **Cross-Sectional Features**:
+   - Multi-instrument relative features
+   - Sector rotation indicators
+   - Pairs trading spreads
+
+8. **GPU Acceleration**:
+   - CUDA/OpenCL for computationally intensive features
+   - Batch feature computation on GPU
+   - Maintain CPU fallback
+
+---
+
+## Summary Assessment
+
+**Production-Ready Components** ✅:
+- FeatureEngineer core technical indicators
+- MacroFeatureTransform with vintage-aware semantics
+- MacroDataCache with O(1) real-time lookups
+- MacroComposites with 37 economic dimension features
+- Parity validation system with <1e-10 tolerance
+- Microstructure aggregators for L1/L2 features
+
+**NOT Production-Ready** ❌:
+- Metrics integration (minimal usage despite claims)
+- Universal Architecture compliance (not implemented)
+- Progressive fallback (not implemented)
+- 4-store + 4-registry integration (manual only)
+
+**Actual Line Counts**:
+- engineering.py: 3,296 lines (doc claimed 2,609)
+- macro_transforms.py: 795 lines ✓
+- macro_cache.py: 446 lines ✓
+- macro_composites.py: 523 lines ✓
+- validation.py: 693 lines (doc claimed 680)
+- pipeline.py: 859 lines (doc claimed 509)
+- Total: ~8,500 lines
+
+**Key Strength**: Vintage-aware macro features with composites provide unique edge in point-in-time economic data integration.
+
+**Key Weakness**: Overclaimed Universal Architecture integration and minimal metrics instrumentation despite extensive documentation.

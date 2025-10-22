@@ -136,7 +136,11 @@ class RegistryIntegrator:
                 try:
                     registry_path.mkdir(parents=True, exist_ok=True)
                 except Exception:
-                    pass
+                    self._logger.debug(
+                        "Failed to create registry directory; continuing with fallback path",
+                        extra={"registry_path": str(registry_path)},
+                        exc_info=True,
+                    )
                 persistence_config = PersistenceConfig(
                     backend=BackendType.JSON,
                     json_path=registry_path,

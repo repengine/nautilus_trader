@@ -239,24 +239,61 @@ class ContractEnforcer:
             # Convert to DataFrame if needed
             data_frame: DataFrameLike = self._to_dataframe(data)
             data_frame_any = cast(Any, data_frame)
+            actual_columns: set[str] = set()
+
+            # Empty data shortcut: treat as structurally valid to support legacy flows
+            if hasattr(data_frame_any, "__len__"):
+                try:
+                    if len(data_frame_any) == 0:
+                        validation_details["empty_data"] = True
+                        validation_details["preflight_passed"] = True
+                        return True, None, validation_details
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.debug(
+                        "len() check failed during preflight (ignored): %s",
+                        exc,
+                        exc_info=True,
+                    )
 
             # Check 1: Required columns present
-            if hasattr(data_frame, "columns"):
+            if hasattr(data_frame_any, "columns"):
+                actual_columns = {str(col) for col in data_frame_any.columns}
+                expected_columns = set(manifest.schema.keys())
+                missing_cols = expected_columns - actual_columns
+                extra_cols = actual_columns - expected_columns
+
                 validation_details["checks_performed"].append("required_columns")
-                actual_columns = set(data_frame_any.columns)
-                required_columns = set(manifest.schema.keys())
-                missing_cols = required_columns - actual_columns
+                validation_details["checks_performed"].append("column_presence")
+                validation_details["actual_columns"] = sorted(actual_columns)
+                validation_details["expected_columns"] = sorted(expected_columns)
 
                 if missing_cols:
+                    validation_details["missing_columns"] = sorted(missing_cols)
                     error_msg = f"Missing required columns: {missing_cols}"
-                    return False, error_msg, validation_details
+                    if strict or any(col in manifest.primary_keys for col in missing_cols):
+                        return False, error_msg, validation_details
+                    validation_details["warnings"].append(error_msg)
+
+                if extra_cols:
+                    if strict:
+                        validation_details["extra_columns"] = sorted(extra_cols)
+                        error_msg = f"Unexpected columns: {extra_cols}"
+                        if HAS_PROMETHEUS:
+                            schema_mismatch_counter.labels(
+                                dataset=dataset_id,
+                                mismatch_type="hash_mismatch",
+                            ).inc()
+                        return False, error_msg, validation_details
+                    validation_details["warnings"].append(
+                        f"Extra columns will be ignored: {extra_cols}",
+                    )
 
             # Check 2: Type compatibility
             type_mismatches = []
-            if hasattr(data_frame, "columns"):
+            if hasattr(data_frame_any, "columns"):
                 validation_details["checks_performed"].append("type_compatibility")
                 for col_name, expected_type in manifest.schema.items():
-                    if col_name in data_frame_any.columns:
+                    if col_name in actual_columns:
                         actual_type = str(data_frame_any[col_name].dtype)
                         if not self._types_compatible(actual_type, expected_type):
                             type_mismatches.append(
@@ -331,14 +368,14 @@ class ContractEnforcer:
             if manifest.constraints and "nullability" in manifest.constraints:
                 validation_details["checks_performed"].append("required_fields")
                 for field, nullable in manifest.constraints["nullability"].items():
-                    if not nullable and hasattr(data_frame, "columns") and field in data_frame.columns:
+                    if not nullable and hasattr(data_frame_any, "columns") and field in actual_columns:
                         # Handle both Polars and pandas
-                        if hasattr(data_frame[field], "is_null"):
+                        if hasattr(data_frame_any[field], "is_null"):
                             # Polars
-                            null_count = data_frame[field].is_null().sum()
-                        elif hasattr(data_frame[field], "isna"):
+                            null_count = data_frame_any[field].is_null().sum()
+                        elif hasattr(data_frame_any[field], "isna"):
                             # pandas
-                            null_count = data_frame[field].isna().sum()
+                            null_count = data_frame_any[field].isna().sum()
                         else:
                             null_count = 0
 

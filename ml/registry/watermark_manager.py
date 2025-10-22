@@ -16,7 +16,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, overload
 
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import func
+from sqlalchemy import select
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from ml.config.events import Source
 
@@ -212,6 +217,27 @@ class WatermarkManager:
     def __init__(self) -> None:
         """Initialize watermark manager with empty cache."""
         self._watermarks: dict[str, Watermark] = {}
+        self._watermarks_table_cache: dict[int, Table] = {}
+
+    def _get_watermarks_table(self, session: Session) -> Table:
+        """
+        Lazily reflect the ml_data_watermarks table for the given session bind.
+        """
+        bind = session.get_bind()
+        if bind is None:
+            raise RuntimeError("Failed to resolve database bind for watermark queries")
+
+        cache_key = id(bind)
+        table = self._watermarks_table_cache.get(cache_key)
+        if table is None:
+            metadata = MetaData()
+            table = Table(
+                "ml_data_watermarks",
+                metadata,
+                autoload_with=bind,
+            )
+            self._watermarks_table_cache[cache_key] = table
+        return table
 
     def update_watermark(
         self,
@@ -390,26 +416,26 @@ class WatermarkManager:
                 raise RuntimeError("Failed to get database session")
 
             try:
-                query = text(
-                    """
-                    SELECT dataset_id, instrument_id, source,
-                           last_success_ns, last_attempt_ns, last_count,
-                           completeness_pct, EXTRACT(EPOCH FROM updated_at) as updated_at
-                    FROM ml_data_watermarks
-                    WHERE dataset_id = :dataset_id
-                      AND instrument_id = :instrument_id
-                      AND source = :source
-                """,
+                table = self._get_watermarks_table(session)
+                columns = (
+                    table.c.dataset_id,
+                    table.c.instrument_id,
+                    table.c.source,
+                    table.c.last_success_ns,
+                    table.c.last_attempt_ns,
+                    table.c.last_count,
+                    table.c.completeness_pct,
+                    func.extract("epoch", table.c.updated_at).label("updated_at"),
+                )
+                stmt = (
+                    select(*columns)
+                    .where(table.c.dataset_id == dataset_id)
+                    .where(table.c.instrument_id == instrument_id)
+                    .where(table.c.source == source_val)
+                    .limit(1)
                 )
 
-                result = session.execute(
-                    query,
-                    {
-                        "dataset_id": dataset_id,
-                        "instrument_id": instrument_id,
-                        "source": source_val,
-                    },
-                ).fetchone()
+                result = session.execute(stmt).fetchone()
 
                 if result is None:
                     return None
@@ -494,37 +520,29 @@ class WatermarkManager:
                 raise RuntimeError("Failed to get database session")
 
             try:
-                conditions: list[str] = []
-                params: dict[str, Any] = {}
-                if dataset_id is not None:
-                    conditions.append("dataset_id = :dataset_id")
-                    params["dataset_id"] = dataset_id
-                if instrument_id is not None:
-                    conditions.append("instrument_id = :instrument_id")
-                    params["instrument_id"] = instrument_id
-                if source_value is not None:
-                    conditions.append("source = :source")
-                    params["source"] = source_value
-
-                where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-                limit_clause = ""
-                if limit_value is not None:
-                    limit_clause = " LIMIT :limit"
-                    params["limit"] = limit_value
-
-                query = text(
-                    """
-                    SELECT dataset_id, instrument_id, source,
-                           last_success_ns, last_attempt_ns, last_count,
-                           completeness_pct, EXTRACT(EPOCH FROM updated_at) AS updated_at
-                    FROM ml_data_watermarks
-                    """
-                    + where_clause
-                    + " ORDER BY updated_at DESC"
-                    + limit_clause,
+                table = self._get_watermarks_table(session)
+                columns = (
+                    table.c.dataset_id,
+                    table.c.instrument_id,
+                    table.c.source,
+                    table.c.last_success_ns,
+                    table.c.last_attempt_ns,
+                    table.c.last_count,
+                    table.c.completeness_pct,
+                    func.extract("epoch", table.c.updated_at).label("updated_at"),
                 )
+                stmt = select(*columns)
+                if dataset_id is not None:
+                    stmt = stmt.where(table.c.dataset_id == dataset_id)
+                if instrument_id is not None:
+                    stmt = stmt.where(table.c.instrument_id == instrument_id)
+                if source_value is not None:
+                    stmt = stmt.where(table.c.source == source_value)
+                stmt = stmt.order_by(table.c.updated_at.desc())
+                if limit_value is not None:
+                    stmt = stmt.limit(limit_value)
 
-                rows = session.execute(query, params).fetchall()
+                rows = session.execute(stmt).all()
             finally:
                 session.close()
 

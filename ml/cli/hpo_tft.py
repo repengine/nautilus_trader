@@ -21,7 +21,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
-import subprocess
+import logging
 import sys
 import time
 from collections.abc import Callable
@@ -36,6 +36,8 @@ from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score
 
 from ml._imports import HAS_OPTUNA
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 
 
 try:
@@ -54,6 +56,9 @@ def teacher_main(args: list[str] | None = None) -> int:
 
 
 __all__ = ["HAS_OPTUNA", "main", "teacher_main"]
+
+
+logger = logging.getLogger(__name__)
 
 
 def _score(npz_path: Path) -> dict[str, float]:
@@ -118,6 +123,13 @@ def _resolve_metric_value(metrics: Mapping[str, float], metric: str) -> float:
     return float(fallback) if fallback is not None else 0.0
 
 
+def _merge_error(existing: str | None, new: str) -> str:
+    """Append a new error message, preserving prior context."""
+    if existing:
+        return f"{existing}; {new}"
+    return new
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="HPO sweep for TFT teacher (BCE)")
     ap.add_argument("--dataset_csv", required=False)
@@ -174,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
         "--subprocess",
         action="store_true",
         help="Run each config in a isolated subprocess (default: in-process for tests/debug)",
+    )
+    ap.add_argument(
+        "--subprocess-timeout",
+        type=float,
+        default=None,
+        help="Optional timeout (seconds) for each teacher subprocess run.",
     )
     ap.add_argument(
         "--precision",
@@ -341,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
                                 run_dir.mkdir(parents=True, exist_ok=True)
                                 t0 = time.perf_counter()
                                 rc: int
+                                err_msg: str | None = None
                                 if not args.subprocess:
                                     # In-process path (tests/debug): call module-level teacher_main helper
                                     inproc_args = [
@@ -392,32 +411,71 @@ def main(argv: list[str] | None = None) -> int:
                                     log_path = run_dir / "train.log"
                                     try:
                                         with open(log_path, "wb") as lf:
-                                            proc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
-                                        rc = int(proc.returncode)
-                                    except Exception:
-                                        # Fallback to default capture when file open fails (should be rare)
-                                        proc = subprocess.run(cmd, capture_output=True)
-                                        rc = int(proc.returncode)
+                                            try:
+                                                proc = run_command(
+                                                    cmd,
+                                                    stdout=lf,
+                                                    merge_stderr=True,
+                                                    text=False,
+                                                    timeout=args.subprocess_timeout,
+                                                    log=logger,
+                                                )
+                                                rc = int(proc.returncode)
+                                            except SubprocessExecutionError as exc:
+                                                rc = int(exc.returncode)
+                                                err_msg = _merge_error(err_msg, f"train_failed: {exc}")
+                                    except OSError as file_error:
+                                        logger.debug(
+                                            "teacher_subprocess_log_open_failed model_id=%s path=%s",
+                                            model_id,
+                                            log_path,
+                                            exc_info=True,
+                                        )
+                                        try:
+                                            fallback_proc = run_command(
+                                                cmd,
+                                                capture_output=True,
+                                                merge_stderr=True,
+                                                text=True,
+                                                timeout=args.subprocess_timeout,
+                                                log=logger,
+                                            )
+                                            rc = int(fallback_proc.returncode)
+                                            stdout_value = fallback_proc.stdout
+                                            if isinstance(stdout_value, bytes):
+                                                stdout_text = stdout_value.decode("utf-8", errors="ignore")
+                                            else:
+                                                stdout_text = stdout_value or ""
+                                            log_path.write_text(stdout_text, encoding="utf-8")
+                                        except SubprocessExecutionError as exc:
+                                            rc = int(exc.returncode)
+                                            error_stdout = ""
+                                            if isinstance(exc.stdout, bytes):
+                                                error_stdout = exc.stdout.decode("utf-8", errors="ignore")
+                                            elif isinstance(exc.stdout, str):
+                                                error_stdout = exc.stdout
+                                            log_path.write_text(error_stdout, encoding="utf-8")
+                                            err_msg = _merge_error(err_msg, f"train_failed: {exc}")
+                                        err_msg = _merge_error(err_msg, f"log_file_open_failed: {file_error}")
                                     # Best-effort: free any buffers
                                     gc.collect()
-                                    # If process was killed by OOM, annotate in metrics later
+                                # If process was killed by OOM, annotate in metrics later
                                 dur = time.perf_counter() - t0
                                 npz = run_dir / "teacher_preds.npz"
                                 metrics_path = run_dir / "model_metrics.json"
-                                err_msg: str | None = None
                                 metrics: dict[str, float] = {}
                                 if metrics_path.exists():
                                     try:
                                         metrics_json = json.loads(metrics_path.read_text(encoding="utf-8"))
                                         metrics = {key: float(value) for key, value in metrics_json.items()}
                                     except Exception as exc:  # pragma: no cover - metrics JSON optional
-                                        err_msg = f"metrics_json_error: {exc}"
+                                        err_msg = _merge_error(err_msg, f"metrics_json_error: {exc}")
                                 if npz.exists():
                                     try:
                                         np_metrics = _score(npz)
                                         metrics.update(np_metrics)
                                     except Exception as exc:  # pragma: no cover
-                                        err_msg = str(exc)
+                                        err_msg = _merge_error(err_msg, str(exc))
                                 rec: dict[str, Any] = {
                                     "model_id": model_id,
                                     "rc": rc,

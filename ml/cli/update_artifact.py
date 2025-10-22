@@ -18,6 +18,7 @@ Notes
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -133,8 +134,12 @@ def main(argv: list[str] | None = None) -> int:
     if updated:
         try:
             registry._save_registry(immediate=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Model registry save skipped due to error: %s",
+                exc,
+                exc_info=True,
+            )
 
     return 0
 

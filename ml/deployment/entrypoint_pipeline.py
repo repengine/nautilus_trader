@@ -176,7 +176,8 @@ class PipelineRunner:
                 os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/nautilus"),
             ),
         )
-        assert fs_conn is not None
+        if not fs_conn:
+            raise RuntimeError("Feature store connection string is not configured")
         feature_store = FeatureStore(connection_string=fs_conn)
 
         # Initialize model store
@@ -256,6 +257,12 @@ class PipelineRunner:
             pipeline_status["errors"].append(str(e))
             sys.exit(1)
 
+    def _require_scheduler(self) -> DataScheduler:
+        """Return the initialized scheduler or raise if unavailable."""
+        if self.scheduler is None:
+            raise RuntimeError("Pipeline scheduler has not been initialized")
+        return self.scheduler
+
     def _run_backfill(self) -> None:
         """
         Run pipeline in backfill mode.
@@ -264,8 +271,8 @@ class PipelineRunner:
 
         # Backfill is currently mapped to a single daily update for simplicity.
         # A full backfill loop should iterate dates and call collection per day.
-        assert self.scheduler is not None
-        self.scheduler.run_daily_update()
+        scheduler = self._require_scheduler()
+        scheduler.run_daily_update()
 
         logger.info("Backfill completed successfully")
 
@@ -275,11 +282,11 @@ class PipelineRunner:
         """
         logger.info("Running daily scheduled mode")
         self.running = True
-        assert self.scheduler is not None
+        scheduler = self._require_scheduler()
 
         # Always perform an immediate daily update on entering daily mode
         try:
-            self.scheduler.run_daily_update()
+            scheduler.run_daily_update()
             pipeline_status["last_run"] = datetime.now(UTC).isoformat()
         except Exception as exc:
             logger.error("Initial daily update failed: %s", exc, exc_info=True)
@@ -312,7 +319,7 @@ class PipelineRunner:
                 break
 
             try:
-                self.scheduler.run_daily_update()
+                scheduler.run_daily_update()
                 pipeline_status["last_run"] = datetime.now(UTC).isoformat()
             except Exception as exc:
                 logger.error("Scheduled daily update failed: %s", exc, exc_info=True)
@@ -330,7 +337,7 @@ class PipelineRunner:
         # Run continuous updates
         while self.running and not self._shutdown_event.is_set():
             try:
-                assert self.scheduler is not None
+                scheduler = self._require_scheduler()
 
                 # Use standardized retry/backoff for transient realtime update failures
                 from ml.common.retry_utils import retry_with_backoff as _retry
@@ -341,9 +348,6 @@ class PipelineRunner:
                         f"Realtime update attempt {attempt + 1} failed: {exc}. "
                         f"Retrying in {wait_time}s...",
                     )
-
-                scheduler = self.scheduler
-                assert scheduler is not None
 
                 def _do_update() -> None:
                     scheduler.run_daily_update()

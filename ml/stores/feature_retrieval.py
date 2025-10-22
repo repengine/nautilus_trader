@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import pandas as pd
 from sqlalchemy import Table
+from sqlalchemy import bindparam
 from sqlalchemy import desc
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -347,40 +348,35 @@ class FeatureRetrieval:
             values, ts_event, ts_init
 
         """
-        from sqlalchemy import text as _text
-
         try:
-            where_parts: list[str] = ["ts_event >= :start_ns", "ts_event < :end_ns"]
             params: dict[str, Any] = {
                 "start_ns": int(start_ns),
                 "end_ns": int(end_ns),
             }
 
+            conditions = [
+                self._table.c.ts_event >= bindparam("start_ns"),
+                self._table.c.ts_event < bindparam("end_ns"),
+            ]
+
             if instrument_id is not None:
-                where_parts.append("instrument_id = :instrument_id")
+                conditions.append(self._table.c.instrument_id == bindparam("instrument_id"))
                 params["instrument_id"] = instrument_id
 
-            table_name = (
-                "ml_feature_values"
-                if self._engine.dialect.name == "sqlite"
-                else "public.ml_feature_values"
-            )
-
-            sql = _text(
-                f"""
-                SELECT feature_set_id,
-                       instrument_id,
-                       values,
-                       ts_event,
-                       ts_init
-                FROM {table_name}
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY ts_event
-                """,
+            stmt = (
+                select(
+                    self._table.c.feature_set_id,
+                    self._table.c.instrument_id,
+                    self._table.c["values"],
+                    self._table.c.ts_event,
+                    self._table.c.ts_init,
+                )
+                .where(*conditions)
+                .order_by(self._table.c.ts_event)
             )
 
             with self._engine.connect() as conn:
-                features_data = pd.read_sql_query(sql, conn, params=params)
+                features_data = pd.read_sql_query(stmt, conn, params=params)
 
             self._READ_COUNTER.inc()
             return features_data

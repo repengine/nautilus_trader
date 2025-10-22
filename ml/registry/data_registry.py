@@ -151,6 +151,15 @@ class DataRegistry(MLComponentMixin):
         else:
             logger.info("Using PostgreSQL backend - data is stored in database")
 
+        # Back-compat: expose legacy attributes referencing component caches
+        self._manifests = self._manifest_mgr._manifests
+        self._contracts = self._contract_mgr._contracts
+        self._events = self._event_mgr._events
+        self._watermarks = self._watermark_mgr._watermarks
+        self._lineage = self._lineage_mgr._lineage
+        self._pending_save = False
+        self._save_timer: threading.Timer | None = None
+
         logger.info(
             "Initialized DataRegistry facade at %s with backend=%s, batch_save_interval=%ss",
             registry_path,
@@ -230,6 +239,21 @@ class DataRegistry(MLComponentMixin):
                 }
 
                 self.persistence.save_json(data, "data_registry.json")
+
+    def _save_registry(self, immediate: bool = False) -> None:
+        """
+        Backward-compatible save helper for tooling/tests expecting legacy API.
+        """
+        self._save_json_registry(immediate=immediate)
+        self._pending_save = False
+        self._save_timer = None
+
+    def _load_registry(self) -> None:
+        """
+        Backward-compatible load helper mirroring legacy behavior.
+        """
+        if self.backend == BackendType.JSON:
+            self._load_json_registry()
 
     # -------------------------------------------------------------------------
     # Public API: Flush Method
@@ -323,6 +347,17 @@ class DataRegistry(MLComponentMixin):
 
             logger.info("Registered dataset '%s' version %s", manifest.dataset_id, manifest.version)
             return dataset_id
+
+    def register_manifest(self, manifest: DatasetManifest) -> str:
+        """
+        Backward-compatible alias for ``register_dataset``.
+
+        Returns
+        -------
+        str
+            Dataset identifier of the registered manifest.
+        """
+        return self.register_dataset(manifest)
 
     def get_manifest(self, dataset_id: str) -> DatasetManifest:
         """
@@ -881,8 +916,12 @@ class DataRegistry(MLComponentMixin):
         if self.backend == BackendType.JSON:
             try:
                 self._save_json_registry(immediate=True)
-            except Exception:
-                pass
+            except Exception as save_exc:
+                logger.debug(
+                    "data_registry.save_on_exit_failed",
+                    exc_info=True,
+                    extra={"error": repr(save_exc)},
+                )
 
         # Close persistence connections
         if hasattr(self, "persistence"):

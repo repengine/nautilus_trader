@@ -23,6 +23,7 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.base import MLStrategyConfig
 from ml.core.integration import MLIntegrationManager
+from ml.deployment._databento import is_valid_databento_key
 from ml.deployment.metrics_http import build_app
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -32,6 +33,22 @@ from nautilus_trader.live.node import TradingNode
 
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    Ensure an event loop exists for the current thread.
+
+    Trading nodes expect a loop to be present even in synchronous tests. Python 3.12
+    no longer auto-creates one, so we provision it lazily to match Phase0 behaviour.
+    """
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
 
 
 class MLStrategyNode:
@@ -125,6 +142,13 @@ class MLStrategyNode:
 
         # Get Databento API key if we need market data
         databento_api_key = os.getenv("DATABENTO_API_KEY")
+        if not is_valid_databento_key(databento_api_key):
+            if databento_api_key:
+                logger.warning(
+                    "Databento API key missing or invalid; disabling live market data",
+                    extra={"has_key": True},
+                )
+            databento_api_key = None
 
         # Trading node configuration
         if databento_api_key:
@@ -145,6 +169,7 @@ class MLStrategyNode:
             )
 
         # Create trading node
+        _ensure_event_loop()
         self.node = TradingNode(config=node_config)
 
         # Add ML Trading Strategy (be tolerant in tests if dependencies are missing)
@@ -218,7 +243,7 @@ class MLStrategyNode:
             try:
                 asyncio.run(self.shutdown())
             except Exception:
-                pass
+                logger.debug("Shutdown handler failed during signal handling", exc_info=True)
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, signal_handler)
@@ -232,7 +257,7 @@ class MLStrategyNode:
             try:
                 asyncio.run(self.shutdown())
             except Exception:
-                pass
+                logger.debug("Shutdown handler failed during signal handling", exc_info=True)
         except Exception as exc:
             logger.exception("Strategy run failed", exc_info=True)
             self.running = False

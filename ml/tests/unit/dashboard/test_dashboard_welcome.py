@@ -14,7 +14,7 @@ def test_start_services_invokes_compose(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_run(cmd: list[str], **_: object) -> None:
         calls.append(cmd)
 
-    monkeypatch.setattr("ml.dashboard_bootstrap.welcome.subprocess.run", fake_run)
+    monkeypatch.setattr("ml.dashboard_bootstrap.welcome.COMMAND_RUNNER", fake_run)
 
     welcome.start_services(compose_file="compose.yml", services=("grafana",), detach=True)
 

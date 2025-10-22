@@ -38,8 +38,12 @@ from ml.stores.services.common_stats import resolve_table_name as _resolve_table
 
 def _model_predictions_table(table_name: str) -> TableClause:
     """Return a lightweight SQLAlchemy table clause for model predictions."""
+    schema: str | None = None
+    table_id = table_name
+    if "." in table_name:
+        schema, table_id = table_name.split(".", 1)
     return sa_table(
-        table_name,
+        table_id,
         sa_column("model_id"),
         sa_column("instrument_id"),
         sa_column("ts_event"),
@@ -49,6 +53,7 @@ def _model_predictions_table(table_name: str) -> TableClause:
         sa_column("features_used"),
         sa_column("inference_time_ms"),
         sa_column("is_live"),
+        schema=schema,
     )
 
 
@@ -455,6 +460,7 @@ class ModelStatsService:
         )
         params2: dict[str, object] = dict(params)
         params2["model_id"] = model_id
+        percentile_params = (0.50, 0.95, 0.99)
         query: Select[Any] = select(
             func.count().label("prediction_count"),
             func.avg(predictions_table.c.confidence).label("avg_confidence"),
@@ -472,6 +478,9 @@ class ModelStatsService:
         ).where(predictions_table.c.model_id == bindparam("model_id"))
         for condition in time_conditions:
             query = query.where(condition)
+
+        for idx, pct in enumerate(percentile_params, start=1):
+            params2[f"percentile_cont_{idx}"] = float(pct)
 
         row = self.deps._fetch_one(query, params2)
         if row:
@@ -550,9 +559,16 @@ class ModelEventService:
 
                     _emit_wm = getattr(_ee, "emit_dataset_event_and_watermark", None)
                     _emit = getattr(_ee, "emit_dataset_event", None)
-                except Exception:
+                except Exception as import_exc:
                     _emit_wm = None
                     _emit = None
+                    self.logger.debug(
+                        "model_services.prediction_event_emitter_import_failed model_id=%s instrument_id=%s",
+                        model_id,
+                        instrument_id,
+                        exc_info=True,
+                        extra={"error": repr(import_exc)},
+                    )
 
                 # Ensure dataset is registered before emitting events
                 try:
@@ -612,9 +628,15 @@ class ModelEventService:
                     try:
                         registry.register_dataset(manifest)
                         self.logger.info("Registered dataset 'predictions' in registry")
-                    except Exception:
+                    except Exception as manifest_exc:
                         # Best-effort registration; continue with emission path.
-                        pass
+                        self.logger.debug(
+                            "model_services.prediction_manifest_register_failed model_id=%s instrument_id=%s",
+                            model_id,
+                            instrument_id,
+                            exc_info=True,
+                            extra={"error": repr(manifest_exc)},
+                        )
 
                 # Emit event + watermark; if watermark path fails (e.g., FK not yet visible
                 # under concurrent transactions), fall back to event-only emission.
@@ -635,7 +657,7 @@ class ModelEventService:
                             component=model_id,
                             metadata={"model_id": model_id},
                         )
-                    except Exception:
+                    except Exception as emit_exc:
                         try:
                             registry.emit_event(
                                 dataset_id="predictions",
@@ -649,9 +671,23 @@ class ModelEventService:
                                 status=EventStatus.SUCCESS,
                                 metadata={"model_id": model_id},
                             )
-                        except Exception:
+                        except Exception as event_exc:
                             # Event path must not impact hot writes
-                            pass
+                            self.logger.debug(
+                                "model_services.prediction_event_emit_failed model_id=%s instrument_id=%s",
+                                model_id,
+                                instrument_id,
+                                exc_info=True,
+                                extra={"error": repr(event_exc)},
+                            )
+                        else:
+                            self.logger.debug(
+                                "model_services.prediction_watermark_emit_failed model_id=%s instrument_id=%s",
+                                model_id,
+                                instrument_id,
+                                exc_info=True,
+                                extra={"error": repr(emit_exc)},
+                            )
                 else:
                     # Fallback: direct registry calls
                     try:
@@ -676,10 +712,22 @@ class ModelEventService:
                                 count=len(group),
                                 completeness_pct=100.0,
                             )
-                        except Exception:
+                        except Exception as watermark_exc:
                             # Watermark update is best-effort
-                            pass
-                    except Exception:
-                        pass
+                            self.logger.debug(
+                                "model_services.prediction_watermark_failed model_id=%s instrument_id=%s",
+                                model_id,
+                                instrument_id,
+                                exc_info=True,
+                                extra={"error": repr(watermark_exc)},
+                            )
+                    except Exception as direct_emit_exc:
+                        self.logger.debug(
+                            "model_services.prediction_event_direct_emit_failed model_id=%s instrument_id=%s",
+                            model_id,
+                            instrument_id,
+                            exc_info=True,
+                            extra={"error": repr(direct_emit_exc)},
+                        )
         except Exception:
             self.logger.warning("Failed to emit prediction events", exc_info=True)

@@ -173,7 +173,14 @@ class FeaturePersistence:
                 try:
                     self._circuit_breaker.record_success()
                 except Exception:
-                    pass
+                    self._logger.debug(
+                        "Circuit breaker record_success failed after write",
+                        extra={
+                            "feature_set_id": row.get("feature_set_id", "unknown"),
+                            "instrument_id": row.get("instrument_id", "unknown"),
+                        },
+                        exc_info=True,
+                    )
 
             return True
 
@@ -183,7 +190,14 @@ class FeaturePersistence:
                 try:
                     self._circuit_breaker.record_failure()
                 except Exception:
-                    pass
+                    self._logger.debug(
+                        "Circuit breaker record_failure failed after write error",
+                        extra={
+                            "feature_set_id": row.get("feature_set_id", "unknown"),
+                            "instrument_id": row.get("instrument_id", "unknown"),
+                        },
+                        exc_info=True,
+                    )
 
             self._WRITE_ERRORS.inc()
             self._logger.error(

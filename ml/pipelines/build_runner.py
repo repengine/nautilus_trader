@@ -18,6 +18,7 @@ Notes
 from __future__ import annotations
 
 import json
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 from dataclasses import dataclass
@@ -30,11 +31,25 @@ from pathlib import Path
 from typing import Any
 
 from ml._imports import check_ml_dependencies
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
+from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
+from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
+from ml.preprocessing.vintage_age import write_metadata
 
 
 # Optional metrics (object typed for runtime flexibility)
 _RUNS_TOTAL: Any | None = None
 _RUN_DURATION: Any | None = None
+
+logger = logging.getLogger(__name__)
+
+
+def _to_text(data: str | bytes | None) -> str:
+    """Decode subprocess output for safe logging."""
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="ignore")
+    return data or ""
 
 try:
     from ml.common.metrics_manager import MetricsManager
@@ -86,6 +101,7 @@ class BuildConfig:
     lookback_periods: int = 60
     workers: int = 1
     use_subprocess: bool = False
+    subprocess_timeout: float | None = None
     # Prefer calling the public datasets API instead of the CLI main
     prefer_api: bool = False
     # Additional build CLI options
@@ -94,6 +110,7 @@ class BuildConfig:
     feature_registry_dir: Path = field(
         default_factory=lambda: Path("~/.nautilus/ml/features").expanduser(),
     )
+    convert_vintage_to_age: bool = False
 
     @staticmethod
     def from_mapping(obj: dict[str, Any]) -> BuildConfig:
@@ -123,11 +140,17 @@ class BuildConfig:
             lookback_periods=int(_p("lookback_periods", 60)),
             workers=max(1, int(_p("workers", 1))),
             use_subprocess=bool(_p("use_subprocess", False)),
+            subprocess_timeout=(
+                float(_p("subprocess_timeout"))
+                if _p("subprocess_timeout") is not None
+                else None
+            ),
             chunk_days=int(_p("chunk_days", 0)),
             register_features=bool(_p("register_features", True)),
             feature_registry_dir=Path(
                 str(_p("feature_registry_dir", "~/.nautilus/ml/features")),
             ).expanduser(),
+            convert_vintage_to_age=bool(_p("convert_vintage_to_age", False)),
         )
         return cfg
 
@@ -167,6 +190,30 @@ def _log_progress(out_dir: Path, event: dict[str, Any]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     line = json.dumps(event, separators=(",", ":"))
     _progress_log_path(out_dir).open("a", encoding="utf-8").write(line + "\n")
+
+
+def _apply_vintage_conversion(dataset_parquet: Path) -> None:
+    metadata_path = dataset_parquet.with_name("dataset_metadata.json")
+    if not dataset_parquet.exists():
+        raise FileNotFoundError(dataset_parquet)
+    if not metadata_path.exists():
+        raise FileNotFoundError(metadata_path)
+    destination = dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+    conversion = convert_vintage_timestamps_to_age(dataset_parquet, destination)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    updated_metadata = update_metadata_with_vintage_age(
+        metadata,
+        vintage_columns=conversion.vintage_columns,
+        age_columns=conversion.age_columns,
+    )
+    write_metadata(metadata_path, updated_metadata)
+    logger.info(
+        "applied vintage age conversion",
+        extra={
+            "dataset_parquet": str(destination),
+            "vintage_columns": list(conversion.vintage_columns),
+        },
+    )
 
 
 def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
@@ -211,10 +258,10 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
         args += ["--register_features"]
         if cfg.feature_registry_dir:
             args += ["--feature_registry_dir", str(cfg.feature_registry_dir)]
+    if cfg.convert_vintage_to_age:
+        args += ["--convert-vintage-age"]
 
     if cfg.use_subprocess:
-        import subprocess
-
         cmd = [
             "uv",
             "run",
@@ -225,12 +272,31 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
             "ml.scripts.build_tft_dataset",
             *args,
         ]
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            proc = run_command(
+                cmd,
+                capture_output=True,
+                text=True,
+                merge_stderr=True,
+                timeout=cfg.subprocess_timeout,
+                log=logger,
+            )
+            rc = int(proc.returncode)
+            output_tail = _to_text(proc.stdout)[-5000:]
+        except SubprocessExecutionError as exc:
+            rc = int(exc.returncode)
+            output_tail = _to_text(exc.stdout)[-5000:]
+            logger.warning(
+                "dataset_build_subprocess_failed symbol=%s returncode=%s",
+                task.symbol,
+                exc.returncode,
+                exc_info=True,
+            )
         _log_progress(
             cfg.out_dir,
-            {"event": "subprocess_log", "symbol": task.symbol, "output": proc.stdout[-5000:]},
+            {"event": "subprocess_log", "symbol": task.symbol, "output": output_tail},
         )
-        return int(proc.returncode)
+        return rc
     else:
         # If requested, prefer the public API path (fewer moving parts, easier to test)
         if cfg.prefer_api:
@@ -269,7 +335,9 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                     register_features=cfg.register_features,
                     feature_registry_dir=cfg.feature_registry_dir,
                 )
-                api_build(api_cfg)
+                result = api_build(api_cfg)
+                if cfg.convert_vintage_to_age:
+                    _apply_vintage_conversion(result.dataset_parquet)
                 return 0
             except Exception as exc:
                 # On any failure, fall back to CLI path for compatibility — log and metric

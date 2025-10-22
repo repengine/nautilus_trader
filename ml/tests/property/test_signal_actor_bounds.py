@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -275,6 +276,17 @@ def feature_arrays(draw, n_features=None, allow_extreme_values=False):
     return np.array(values, dtype=np.float32)
 
 
+
+@lru_cache(maxsize=32)
+def _cached_model_path(n_features: int, n_outputs: int) -> str:
+    """Generate or fetch a cached ONNX model path for the given shape."""
+    model_path = TestModelFactory.create_onnx_model(
+        n_features=n_features,
+        n_outputs=n_outputs,
+    )
+    return str(model_path)
+
+
 @st.composite
 def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
     """
@@ -284,7 +296,7 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
     bar_type = draw(valid_bar_types(instrument_id))
 
     # Create a temporary model file
-    model_path = TestModelFactory.create_onnx_model(n_features=10, n_outputs=2)
+    model_path = _cached_model_path(10, 2)
 
     if feature_config is None:
         feature_config = FeatureConfig(
@@ -304,7 +316,7 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
 
     return MLSignalActorConfig(
         model_id="test_model",
-        model_path=str(model_path),
+        model_path=model_path,
         bar_type=bar_type,
         instrument_id=instrument_id,
         feature_config=feature_config,

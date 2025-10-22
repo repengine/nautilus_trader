@@ -830,7 +830,11 @@ class DatabentoIngestionService:
             try:
                 result_frame["ts_event"] = pd.to_datetime(result_frame["ts"], utc=True)
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to coerce Databento timeseries ts column to datetime",
+                    extra={"dataset": dataset, "schema": schema, "symbol": symbol},
+                    exc_info=True,
+                )
 
         if "ts_event" in result_frame.columns and pd.api.types.is_datetime64_any_dtype(result_frame["ts_event"]):
             result_frame["ts_event"] = result_frame["ts_event"].astype("int64")

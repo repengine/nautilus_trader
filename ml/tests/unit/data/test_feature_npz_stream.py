@@ -68,3 +68,4 @@ def test_compute_metadata_from_polars(tmp_path: Path) -> None:
     assert metadata.train_window is not None
     assert metadata.validation_window is not None
     assert metadata.macro_observation_counts["CPI"] == 5
+    assert metadata.capability_flags == {}

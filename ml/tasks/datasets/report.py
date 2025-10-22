@@ -251,7 +251,8 @@ def generate_dataset_report(config: DatasetReportConfig) -> DatasetReport:
     if pl is not None and isinstance(df, pl.DataFrame):
         columns = list(df.columns)
     else:
-        assert pd is not None
+        if pd is None:
+            raise RuntimeError("pandas is required to compute dataset columns")
         columns = list(df.columns)
 
     macro_cols = _infer_macro_columns(columns)

@@ -14,21 +14,33 @@ Exit code 0 always (advisory). Use Make target: `make sanity`.
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
-import subprocess
 from pathlib import Path
+
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+logger = logging.getLogger(__name__)
+
+
+def _to_text(payload: str | bytes | None) -> str:
+    if isinstance(payload, bytes):
+        return payload.decode("utf-8", errors="ignore")
+    return payload or ""
+
+
 def run(cmd: list[str]) -> tuple[int, str]:
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
-        return 0, out
-    except subprocess.CalledProcessError as e:
-        return e.returncode, e.output
+        result = run_command(cmd, capture_output=True, text=True, check=False)
+        return int(result.returncode), _to_text(result.stdout)
+    except SubprocessExecutionError as exc:
+        return int(exc.returncode), _to_text(exc.stdout)
 
 
 def header(title: str) -> None:
@@ -76,9 +88,18 @@ def rg(pattern: str) -> list[str]:
     matches: list[str] = []
     rx = re.compile(pattern)
     for p in ROOT.rglob("*.py"):
+        txt: str | None
         try:
             txt = p.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except Exception as read_exc:
+            logger.debug(
+                "sanity_check.read_failed path=%s",
+                p,
+                exc_info=True,
+                extra={"error": repr(read_exc)},
+            )
+            txt = None
+        if txt is None:
             continue
         for i, line in enumerate(txt.splitlines(), 1):
             if rx.search(line):

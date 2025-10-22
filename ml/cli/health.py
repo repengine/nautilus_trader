@@ -8,8 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Sequence
-from typing import Any
 
+from ml.core.integration import HealthSummary
 from ml.tasks.monitoring import aggregate_integration_health
 
 
@@ -36,7 +36,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    summary: dict[str, Any] = aggregate_integration_health(
+    summary: HealthSummary = aggregate_integration_health(
         args.db_connection,
         strict_protocol_validation=args.strict,
     )

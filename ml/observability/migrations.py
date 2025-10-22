@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Final
 
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
 
@@ -14,6 +15,111 @@ OBS_TABLES: Final[dict[str, str]] = {
     "obs_event_correlation": "ts_event",
     "obs_health_scores": "timestamp",
 }
+
+
+def _create_index(
+    conn: Connection,
+    index_name: str,
+    table_name: str,
+    columns: tuple[str, ...],
+    *,
+    using: str | None = None,
+) -> None:
+    """
+    Create an index if it does not exist using safe identifier quoting.
+    """
+    preparer = conn.dialect.identifier_preparer
+    columns_expr = ", ".join(preparer.quote(col) for col in columns)
+    using_clause = ""
+    if using is not None:
+        allowed = {"BRIN", "BTREE", "HASH", "GIN", "GIST"}
+        using_upper = using.upper()
+        if using_upper not in allowed:
+            raise ValueError(f"Unsupported index method '{using}'")
+        using_clause = f" USING {using_upper}"
+
+    conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                EXECUTE format(
+                    'CREATE INDEX IF NOT EXISTS %I ON %I%s (%s)',
+                    :index_name,
+                    :table_name,
+                    :using_clause,
+                    :columns_expr
+                );
+            END $$;
+            """,
+        ),
+        {
+            "index_name": index_name,
+            "table_name": table_name,
+            "using_clause": using_clause,
+            "columns_expr": columns_expr,
+        },
+    )
+
+
+def _create_partitioned_parent(conn: Connection, table_name: str, ts_col: str) -> None:
+    """Create a partitioned parent table if it does not already exist."""
+    conn.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS {table_name} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})",
+        ),
+    )
+
+
+def _drop_table_cascade(conn: Connection, table_name: str) -> None:
+    """
+    Drop a table (if it exists) using CASCADE semantics.
+    """
+    conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', :table_name);
+            END $$;
+            """,
+        ),
+        {"table_name": table_name},
+    )
+
+
+def _create_partition(
+    conn: Connection,
+    parent_name: str,
+    partition_name: str,
+    start_ns: int,
+    end_ns: int,
+) -> None:
+    """
+    Create a range partition for the provided bounds if it does not exist.
+    """
+    conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                EXECUTE format(
+                    'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%s) TO (%s)',
+                    :partition_name,
+                    :parent_name,
+                    :start_bound,
+                    :end_bound
+                );
+            END $$;
+            """,
+        ),
+        {
+            "partition_name": partition_name,
+            "parent_name": parent_name,
+            "start_bound": str(start_ns),
+            "end_bound": str(end_ns),
+        },
+    )
 
 
 def apply_observability_indices(engine: Engine) -> None:
@@ -29,25 +135,19 @@ def apply_observability_indices(engine: Engine) -> None:
 
     with engine.begin() as conn:
         for table, ts_col in OBS_TABLES.items():
-            # BRIN index on timestamp columns
-            conn.execute(
-                text(
-                    f"CREATE INDEX IF NOT EXISTS {table}_{ts_col}_brin "
-                    f"ON {table} USING BRIN ({ts_col});",
-                ),
-            )
-        # Composite indices for common lookups
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS obs_event_correlation_instrument_ts_idx "
-                "ON obs_event_correlation (instrument_id, ts_event);",
-            ),
+            _create_index(conn, f"{table}_{ts_col}_brin", table, (ts_col,), using="BRIN")
+
+        _create_index(
+            conn,
+            "obs_event_correlation_instrument_ts_idx",
+            "obs_event_correlation",
+            ("instrument_id", "ts_event"),
         )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS obs_metrics_name_ts_idx "
-                "ON obs_metrics (metric_name, timestamp);",
-            ),
+        _create_index(
+            conn,
+            "obs_metrics_name_ts_idx",
+            "obs_metrics",
+            ("metric_name", "timestamp"),
         )
 
 
@@ -79,57 +179,39 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
         return
 
     with engine.begin() as conn:
-        # Determine existence and row count
         exists = conn.execute(
             text("SELECT to_regclass(:t) IS NOT NULL"),
             {"t": table},
         ).scalar_one()
-
-        def _create_parent() -> None:
-            # Create as partitioned by RANGE on timestamp column
-            conn.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS {table} (LIKE {table}_template INCLUDING ALL)",
-                ),
-            )
-            # Fallback if template not present: define minimal schema with ts column
-            conn.execute(
-                text(
-                    f"DO $$ BEGIN\n"
-                    f"IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table}') THEN\n"
-                    f"EXECUTE 'CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})';\n"
-                    f"END IF;\nEND $$;",
-                ),
-            )
 
         is_partitioned = False
         if exists:
             is_partitioned = bool(
                 conn.execute(
                     text(
-                        "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table pt JOIN pg_class c ON pt.partrelid=c.oid WHERE c.relname=:t)",
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM pg_partitioned_table pt
+                            JOIN pg_class c ON pt.partrelid = c.oid
+                            WHERE c.relname = :t
+                        )
+                        """,
                     ),
                     {"t": table},
                 ).scalar_one(),
             )
             if not is_partitioned:
-                rowcount_val = int(conn.execute(text(f"SELECT COUNT(1) FROM {table}")).scalar_one())
+                preparer = conn.dialect.identifier_preparer
+                table_ident = preparer.quote(table)
+                count_stmt = text(f"SELECT COUNT(1) FROM {table_ident}")
+                rowcount_val = int(conn.execute(count_stmt).scalar_one())
                 if rowcount_val == 0:
-                    conn.execute(text(f"DROP TABLE {table} CASCADE"))
-                    # Create partitioned parent
-                    conn.execute(
-                        text(
-                            f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})",
-                        ),
-                    )
+                    _drop_table_cascade(conn, table)
+                    _create_partitioned_parent(conn, table, ts_col)
                     is_partitioned = True
         else:
-            # Fresh create
-            conn.execute(
-                text(
-                    f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})",
-                ),
-            )
+            _create_partitioned_parent(conn, table, ts_col)
             is_partitioned = True
 
         if not is_partitioned:
@@ -153,19 +235,8 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
                 int(end.timestamp() * 1_000_000_000),
                 context=f"obs.ensure_monthly_partitions.{table}.end",
             )
-            conn.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS "
-                    f"{part_name} PARTITION OF {table} FOR VALUES FROM (:start) TO (:end)",
-                ),
-                {"start": start_ns, "end": end_ns},
-            )
-            # BRIN index on partition child
-            conn.execute(
-                text(
-                    f"CREATE INDEX IF NOT EXISTS {part_name}_{ts_col}_brin ON {part_name} USING BRIN ({ts_col})",
-                ),
-            )
+            _create_partition(conn, table, part_name, start_ns, end_ns)
+            _create_index(conn, f"{part_name}_{ts_col}_brin", part_name, (ts_col,), using="BRIN")
 
 
 def apply_observability_monthly_partitions(engine: Engine) -> None:

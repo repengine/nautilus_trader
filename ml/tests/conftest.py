@@ -13,6 +13,12 @@ This module provides:
 """
 
 
+from contextlib import contextmanager
+from importlib import import_module
+from importlib import reload as _reload
+from types import ModuleType
+from typing import Callable, ContextManager, cast
+
 import os
 import subprocess
 import tempfile
@@ -164,6 +170,120 @@ else:
         settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "ci"))
     except Exception:
         settings.load_profile("ci")
+
+
+# ============================================================================
+# DataStore component/legacy toggle helpers
+# ============================================================================
+
+DataStoreModuleFactory = Callable[[bool], ContextManager[ModuleType]]
+
+
+def _reload_data_store_module() -> ModuleType:
+    module = import_module("ml.stores.data_store")
+    return _reload(module)
+
+
+@contextmanager
+def _component_data_store_context(use_component: bool) -> Generator[ModuleType, None, None]:
+    prev_component = os.environ.get("ML_USE_COMPONENT_DATA_STORE")
+    prev_legacy = os.environ.get("ML_USE_LEGACY_DATA_STORE")
+    try:
+        if use_component:
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "1"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
+        else:
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = "0"
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
+        module = _reload_data_store_module()
+        yield module
+    finally:
+        if prev_component is None:
+            os.environ.pop("ML_USE_COMPONENT_DATA_STORE", None)
+        else:
+            os.environ["ML_USE_COMPONENT_DATA_STORE"] = prev_component
+        if prev_legacy is None:
+            os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
+        else:
+            os.environ["ML_USE_LEGACY_DATA_STORE"] = prev_legacy
+        _reload_data_store_module()
+
+
+@pytest.fixture
+def component_data_store_factory() -> DataStoreModuleFactory:
+    def _factory(*, use_component: bool) -> ContextManager[ModuleType]:
+        return _component_data_store_context(use_component)
+
+    return _factory
+
+
+@pytest.fixture(params=(pytest.param(True, id="component"), pytest.param(False, id="legacy")))
+def datastore_variant(request: pytest.FixtureRequest) -> bool:
+    """
+    Parameterize tests across component and legacy DataStore implementations.
+    """
+    return bool(request.param)
+
+
+@pytest.fixture
+def datastore_module(
+    component_data_store_factory: DataStoreModuleFactory,
+    datastore_variant: bool,
+) -> Generator[ModuleType, None, None]:
+    """
+    Provide DataStore module for both component and legacy implementations.
+
+    Yields the dynamically reloaded module while toggling the appropriate
+    feature flags to ensure parity checks across tests.
+    """
+    with component_data_store_factory(use_component=datastore_variant) as module:
+        yield module
+
+
+@pytest.fixture
+def patch_datastore(
+    component_data_store_factory: DataStoreModuleFactory,
+    datastore_variant: bool,
+    request: pytest.FixtureRequest,
+) -> Generator[None, None, None]:
+    """
+    Patch `DataStore` in unit tests to target component and legacy implementations.
+    """
+    from importlib import import_module as _import_module
+
+    test_module = _import_module("ml.tests.unit.stores.test_data_store_emit_event")
+    original_datastore = getattr(test_module, "DataStore")
+
+    request.node._datastore_variant = datastore_variant  # type: ignore[attr-defined]
+
+    with component_data_store_factory(use_component=datastore_variant) as module:
+        setattr(test_module, "DataStore", getattr(module, "DataStore"))
+        try:
+            yield
+        finally:
+            setattr(test_module, "DataStore", original_datastore)
+            if hasattr(request.node, "_datastore_variant"):
+                delattr(request.node, "_datastore_variant")  # type: ignore[attr-defined]
+
+
+@pytest.fixture
+def use_component_datastore(
+    datastore_variant: bool,
+    patch_datastore: None,  # Ensure patch runs before exposing the flag
+) -> bool:
+    """
+    Expose whether the component DataStore implementation is active for the test.
+    """
+    return datastore_variant
+
+
+@pytest.fixture
+def datastore_class(datastore_module: ModuleType) -> type[Any]:
+    """
+    Provide the active DataStore class for tests needing direct instantiation.
+    """
+    return cast(type[Any], getattr(datastore_module, "DataStore"))
+
 
 # ============================================================================
 # Session-scoped fixtures for expensive resources
@@ -1435,8 +1555,10 @@ def pytest_sessionstart(session):
                 os.environ["PGPASSWORD"] = parsed.password
             else:
                 os.environ.setdefault("PGPASSWORD", "postgres")
+        os.environ.setdefault("ML_YFINANCE_FIXTURE", "static")
     except Exception:
         os.environ.setdefault("PGPASSWORD", "postgres")
+        os.environ.setdefault("ML_YFINANCE_FIXTURE", "static")
 
     # Skip DB initialization if requested (e.g., for test collection only)
     if os.environ.get("SKIP_DB_INIT", "").lower() in ("1", "true", "yes"):

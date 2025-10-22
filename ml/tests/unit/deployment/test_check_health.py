@@ -9,7 +9,6 @@ Tests health checks for all services and inter-service communication.
 from __future__ import annotations
 
 import json
-import subprocess
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -71,65 +70,84 @@ class TestServiceHealthChecks:
         assert result is False
         assert "ERROR: Connection failed" in message
 
-    @patch("subprocess.run")
-    def test_check_postgres_healthy(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_postgres_healthy(self, mock_compose, mock_run):
         """
         Test PostgreSQL health check when healthy.
         """
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
+        command = [
+            "docker-compose",
+            "exec",
+            "-T",
+            "postgres",
+            "pg_isready",
+            "-U",
+            "postgres",
+        ]
+        mock_compose.return_value = command
+        mock_run.return_value = Mock(returncode=0, stdout="")
 
         result = check_postgres()
 
         assert result is True
         mock_run.assert_called_once_with(
-            ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+            command,
             capture_output=True,
             text=True,
+            check=False,
+            timeout=10,
         )
 
-    @patch("subprocess.run")
-    def test_check_postgres_unhealthy(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_postgres_unhealthy(self, mock_compose, mock_run):
         """
         Test PostgreSQL health check when unhealthy.
         """
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"]
+        mock_run.return_value = Mock(returncode=1, stdout="")
 
         result = check_postgres()
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_check_redis_healthy(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_redis_healthy(self, mock_compose, mock_run):
         """
         Test Redis health check when healthy.
         """
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "PONG"
-        mock_run.return_value = mock_result
+        command = [
+            "docker-compose",
+            "exec",
+            "-T",
+            "redis",
+            "redis-cli",
+            "ping",
+        ]
+        mock_compose.return_value = command
+        mock_run.return_value = Mock(returncode=0, stdout="PONG")
 
         result = check_redis()
 
         assert result is True
         mock_run.assert_called_once_with(
-            ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
+            command,
             capture_output=True,
             text=True,
+            check=False,
+            timeout=10,
         )
 
-    @patch("subprocess.run")
-    def test_check_redis_unhealthy(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_redis_unhealthy(self, mock_compose, mock_run):
         """
         Test Redis health check when unhealthy.
         """
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Error: Connection refused"
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"]
+        mock_run.return_value = Mock(returncode=0, stdout="Error: Connection refused")
 
         result = check_redis()
 
@@ -238,8 +256,9 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_check_docker_compose_all_running(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_docker_compose_all_running(self, mock_compose, mock_run):
         """
         Test Docker Compose check when all services are running.
         """
@@ -251,22 +270,24 @@ class TestServiceHealthChecks:
             ],
         )
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = services_json
-        mock_run.return_value = mock_result
+        command = ["docker-compose", "ps", "--format", "json"]
+        mock_compose.return_value = command
+        mock_run.return_value = Mock(returncode=0, stdout=services_json)
 
         result = check_docker_compose()
 
         assert result is True
         mock_run.assert_called_once_with(
-            ["docker-compose", "ps", "--format", "json"],
+            command,
             capture_output=True,
             text=True,
+            check=False,
+            timeout=10,
         )
 
-    @patch("subprocess.run")
-    def test_check_docker_compose_missing_service(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_docker_compose_missing_service(self, mock_compose, mock_run):
         """
         Test Docker Compose check when required service is missing.
         """
@@ -278,17 +299,16 @@ class TestServiceHealthChecks:
             ],
         )
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = services_json
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "ps", "--format", "json"]
+        mock_run.return_value = Mock(returncode=0, stdout=services_json)
 
         result = check_docker_compose()
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_check_docker_compose_service_not_running(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_docker_compose_service_not_running(self, mock_compose, mock_run):
         """
         Test Docker Compose check when service is not running.
         """
@@ -300,37 +320,34 @@ class TestServiceHealthChecks:
             ],
         )
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = services_json
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "ps", "--format", "json"]
+        mock_run.return_value = Mock(returncode=0, stdout=services_json)
 
         result = check_docker_compose()
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_check_docker_compose_command_error(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_docker_compose_command_error(self, mock_compose, mock_run):
         """
         Test Docker Compose check when command fails.
         """
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "ps", "--format", "json"]
+        mock_run.return_value = Mock(returncode=1, stdout="")
 
         result = check_docker_compose()
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_check_docker_compose_invalid_json(self, mock_run):
+    @patch("ml.deployment.check_health.run_command")
+    @patch("ml.deployment.check_health._compose_command")
+    def test_check_docker_compose_invalid_json(self, mock_compose, mock_run):
         """
         Test Docker Compose check with invalid JSON output.
         """
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "invalid json"
-        mock_run.return_value = mock_result
+        mock_compose.return_value = ["docker-compose", "ps", "--format", "json"]
+        mock_run.return_value = Mock(returncode=0, stdout="invalid json")
 
         result = check_docker_compose()
 

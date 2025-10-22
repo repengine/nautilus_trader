@@ -244,8 +244,8 @@ def secure_onnx_load(
     try:
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])
-        # Help static analysis: ensure ort is non-None here
-        assert ort is not None
+        if ort is None:
+            raise ImportError("onnxruntime runtime module is unavailable")
     except ImportError as e:
         raise ImportError(f"ONNX Runtime not available: {e}") from e
 

@@ -89,7 +89,7 @@ class TestDatabase:
 
                 self.connection_string = os.getenv(
                     "DATABASE_URL",
-                    "postgresql://postgres:postgres@localhost:5432/nautilus",
+                    "postgresql://postgres:postgres@localhost:5434/nautilus_test",
                 )
 
             # Use EngineManager to get or create engine
@@ -116,6 +116,7 @@ class TestDatabase:
                     max_overflow=3,  # Conservative for tests
                 )
                 event.listen(self.engine, "connect", self._enforce_search_path)
+                event.listen(self.engine, "checkout", self._enforce_search_path_on_checkout)
 
         # Create session factory
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
@@ -131,9 +132,27 @@ class TestDatabase:
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
-    def _enforce_search_path(dbapi_conn: Any, connection_record: Any) -> None:
+    def _enforce_search_path(dbapi_conn: Any, connection_record: Any) -> None:  # noqa: ARG002
         """
         Ensure PostgreSQL sessions default to the public schema first.
+        """
+        TestDatabase._set_search_path(dbapi_conn)
+
+    @staticmethod
+    def _enforce_search_path_on_checkout(
+        dbapi_conn: Any,
+        connection_record: Any,  # noqa: ARG002 - required signature for SQLAlchemy
+        connection_proxy: Any,  # noqa: ARG002 - required signature for SQLAlchemy
+    ) -> None:
+        """
+        Reset pooled PostgreSQL connections to the canonical search path.
+        """
+        TestDatabase._set_search_path(dbapi_conn)
+
+    @staticmethod
+    def _set_search_path(dbapi_conn: Any) -> None:
+        """
+        Set the PostgreSQL search path so public objects shadow ml_registry.
         """
         try:
             cursor = dbapi_conn.cursor()
@@ -172,7 +191,7 @@ class TestDatabase:
                         "SELECT EXISTS (SELECT 1 FROM information_schema.routines WHERE routine_name = 'create_monthly_partitions')",
                     ),
                 ).scalar()
-                # If helper function exists, assume base schema applied
+                # Presence of helper function indicates bootstrap schema landed
                 needs_init = not bool(probe)
         except Exception:
             # On any error, fall back to running initialization
@@ -276,6 +295,15 @@ $$ LANGUAGE plpgsql;
         except Exception:
             # Ignore if migration helpers are unavailable in the environment
             pass
+        else:
+            # Ensure subsequent statements run with public first in search_path.
+            try:
+                with self.engine.begin() as _conn:
+                    _conn.execute(
+                        text("SET search_path TO public, pg_catalog, ml_registry"),
+                    )
+            except Exception:
+                pass
 
         self._schema_initialized = True
         _SCHEMA_INITIALIZED[engine_key] = True

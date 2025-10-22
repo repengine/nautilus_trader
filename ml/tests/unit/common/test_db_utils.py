@@ -16,6 +16,8 @@ from ml.common.db_utils import (
     get_default_pool_config,
 )
 
+pytestmark = pytest.mark.serial
+
 
 def test_get_default_pool_config():
     """Default pool config returns expected values."""

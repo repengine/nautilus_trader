@@ -34,6 +34,7 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.orchestration.config_loader import OrchestratorRunConfig
 from ml.orchestration.config_loader import Stage as OrchestratorStage
+from ml.registry.data_registry import DataRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -231,6 +232,7 @@ def run_forever(
     lock_path = Path(os.getenv("ORCH_LOCK_PATH", str(default_lock)))
 
     # Integration manager provides a registry for events
+    registry: DataRegistry | None = None
     try:
         from ml.core.integration import MLIntegrationManager
 
@@ -244,7 +246,7 @@ def run_forever(
         import logging as _logging
 
         _logging.getLogger(__name__).debug("MLIntegrationManager not available: %s", exc)
-        registry = object()
+        registry = None
 
     while True:
         now = datetime.now(tz=UTC)
@@ -332,22 +334,25 @@ def run_forever(
                 metadata = {"phase": "pipeline", "run_id": run_id, "duration": duration}
                 if error:
                     metadata["error"] = error
-                emit_event(
-                    registry,
-                    dataset_id="ml_pipeline",
-                    instrument_id="GLOBAL",
-                    stage=Stage.FEATURE_COMPUTED,
-                    source=Source.HISTORICAL,
-                    run_id=run_id,
-                    ts_min=now_ns,
-                    ts_max=now_ns,
-                    count=1,
-                    status=status,
-                    error=error,
-                    metadata=metadata,
-                    dataset_type="pipeline",
-                    component="scheduler",
-                )
+                if registry is None:
+                    logger.debug("Skipping scheduler dataset event; registry unavailable")
+                else:
+                    emit_event(
+                        registry,
+                        dataset_id="ml_pipeline",
+                        instrument_id="GLOBAL",
+                        stage=Stage.FEATURE_COMPUTED,
+                        source=Source.HISTORICAL,
+                        run_id=run_id,
+                        ts_min=now_ns,
+                        ts_max=now_ns,
+                        count=1,
+                        status=status,
+                        error=error,
+                        metadata=metadata,
+                        dataset_type="pipeline",
+                        component="scheduler",
+                    )
             except Exception as exc:
                 logger.debug(
                     "Emit scheduler dataset event failed (ignored): %s",

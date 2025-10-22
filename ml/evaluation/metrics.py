@@ -69,3 +69,43 @@ def pr_auc(
     else:  # NumPy < 2.0
         area = np.trapz(p, r)  # noqa: NPY201
     return float(area)
+
+
+def expected_calibration_error(
+    probabilities: npt.NDArray[np.float64],
+    targets: npt.NDArray[np.float64],
+    *,
+    bins: int = 20,
+) -> float:
+    """
+    Compute expected calibration error (ECE) using equal-width bins.
+
+    Args:
+        probabilities: Model probabilities in the range [0, 1].
+        targets: Binary labels aligned with ``probabilities``.
+        bins: Number of histogram bins to use when comparing confidence vs. accuracy.
+
+    Returns:
+        Expected calibration error in the range [0, 1].
+    """
+    if bins <= 0:
+        raise ValueError("bins must be positive")
+    probs = np.clip(probabilities.astype(np.float64).reshape(-1), 0.0, 1.0)
+    y = targets.astype(np.float64).reshape(-1)
+    if probs.size == 0 or y.size == 0:
+        return 0.0
+    bin_edges = np.linspace(0.0, 1.0, bins + 1)
+    assignments = np.digitize(probs, bin_edges[1:-1], right=True)
+    total = float(probs.size)
+    ece = 0.0
+    for bin_index in range(bins):
+        mask = assignments == bin_index
+        count = float(np.count_nonzero(mask))
+        if count == 0.0:
+            continue
+        bin_probs = probs[mask]
+        bin_targets = y[mask]
+        confidence = float(bin_probs.mean())
+        accuracy = float(bin_targets.mean())
+        ece += abs(accuracy - confidence) * (count / total)
+    return float(ece)

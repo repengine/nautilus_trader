@@ -39,7 +39,9 @@ def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:
     if pl is None:
         check_ml_dependencies(["polars"])  # pragma: no cover
     _pl = pl
-    assert _pl is not None
+    if _pl is None:
+        msg = "Polars runtime not available after dependency check"
+        raise RuntimeError(msg)
     path_ml = Path(fred_path) if fred_path else Path("data/fred/fred_indicators_ml_format.parquet")
     path_wide = Path("data/fred/fred_indicators_updated.parquet")
 
@@ -97,7 +99,9 @@ def _load_vintage_release_pl(
     if pl is None:
         check_ml_dependencies(["polars"])  # pragma: no cover
     _pl = pl
-    assert _pl is not None
+    if _pl is None:
+        msg = "Polars runtime not available after dependency check"
+        raise RuntimeError(msg)
     frames: list[PolarsDF] = []
     for series_id, series_dir in _iter_vintage_series_dirs(base_dir, series_filter):
         cal_path = series_dir / "release_calendar.parquet"
@@ -127,7 +131,9 @@ def _load_vintage_release_pd(
     if pd is None:
         check_ml_dependencies(["pandas"])  # pragma: no cover
     _pd = pd
-    assert _pd is not None
+    if _pd is None:
+        msg = "pandas runtime not available after dependency check"
+        raise RuntimeError(msg)
     frames: list[PandasDataFrame] = []
     for series_id, series_dir in _iter_vintage_series_dirs(base_dir, series_filter):
         cal_path = series_dir / "release_calendar.parquet"
@@ -219,7 +225,9 @@ def join_fred_asof(
     # Polars path
     if pl is not None and isinstance(df, pl.DataFrame):
         _pl = pl
-        assert _pl is not None
+        if _pl is None:  # Defensive guard for mypy/bandit expectations
+            msg = "Polars runtime not available for DataFrame operations"
+            raise RuntimeError(msg)
 
         fred = _load_fred_ml_pl(fred_path)
         series_names: set[str] = set()
@@ -377,6 +385,24 @@ def join_fred_asof(
             right_on="ts_effective",
             strategy="backward",
         )
+
+        if "ts_effective" in joined.columns:
+            try:
+                from ml.features.validation import validate_known_future_effective_times
+            except ImportError:  # pragma: no cover - optional dependency when validation module absent
+                validate_known_future_effective_times = None  # type: ignore[assignment]
+            if validate_known_future_effective_times is not None:
+                evaluation_values = (
+                    joined.select(pl.col(timestamp_col).cast(pl.Int64)).to_series().to_list()
+                )
+                effective_values = (
+                    joined.select(pl.col("ts_effective").cast(pl.Int64)).to_series().to_list()
+                )
+                validate_known_future_effective_times(
+                    evaluation_series=evaluation_values,
+                    effective_series=effective_values,
+                    context="macro_features",
+                )
 
         if series_list:
             realtime_exprs = [
@@ -599,6 +625,20 @@ def join_fred_asof(
                 final_merge.index = left_pd.index
                 merged = merged.join(
                     final_merge.drop(columns=[timestamp_col], errors="ignore"),
+                )
+
+        if "ts_effective" in merged.columns:
+            try:
+                from ml.features.validation import validate_known_future_effective_times
+            except ImportError:  # pragma: no cover - optional dependency when validation module absent
+                validate_known_future_effective_times = None  # type: ignore[assignment]
+            if validate_known_future_effective_times is not None:
+                evaluation_values = pd.to_datetime(merged[timestamp_col], utc=True, errors="coerce")
+                effective_values = pd.to_datetime(merged["ts_effective"], utc=True, errors="coerce")
+                validate_known_future_effective_times(
+                    evaluation_series=evaluation_values.values,
+                    effective_series=effective_values.values,
+                    context="macro_features",
                 )
 
         merged = merged.drop(columns=["ts_effective", "release_ts"], errors="ignore")

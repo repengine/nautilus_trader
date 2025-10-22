@@ -11,6 +11,7 @@ hashing, and simple lineage queries.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass
 from dataclasses import field
@@ -25,6 +26,9 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import FeatureTable
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureRole(Enum):
@@ -428,12 +432,28 @@ class FeatureRegistry(AbstractRegistry):
         artifacts: dict[str, str] | None = None,
     ) -> str:
         with self._lock:
+            previous_flags = self._latest_capability_flags(
+                manifest.name,
+                manifest.role,
+            )
             fid = manifest.feature_set_id or self._gen_id()
             now = time.time()
             manifest.feature_set_id = fid
             if manifest.created_at == 0.0:
                 manifest.created_at = now
             manifest.last_modified = now
+            capability_diff = self._build_capability_diff(previous_flags, manifest.capability_flags)
+            if capability_diff:
+                manifest.parity_digest["capability_flags_diff"] = capability_diff
+                logger.info(
+                    "feature capability flags changed",
+                    extra={
+                        "feature_set_id": fid,
+                        "feature_name": manifest.name,
+                        "feature_role": manifest.role.value,
+                        "capability_flag_diff": capability_diff,
+                    },
+                )
             feature_info = FeatureInfo(manifest=manifest, artifacts=artifacts or {})
             self._features[fid] = feature_info
 
@@ -540,6 +560,44 @@ class FeatureRegistry(AbstractRegistry):
             ],
         )
         return result
+
+    def _latest_capability_flags(
+        self,
+        name: str,
+        role: FeatureRole,
+    ) -> dict[str, bool] | None:
+        latest: FeatureInfo | None = None
+        latest_ts = float("-inf")
+        for info in self._features.values():
+            manifest = info.manifest
+            if manifest.name != name or manifest.role is not role:
+                continue
+            timestamp = manifest.last_modified or manifest.created_at or 0.0
+            if timestamp >= latest_ts:
+                latest = info
+                latest_ts = timestamp
+        if latest is None:
+            return None
+        return dict(latest.manifest.capability_flags)
+
+    @staticmethod
+    def _build_capability_diff(
+        previous: dict[str, bool] | None,
+        current: dict[str, bool],
+    ) -> dict[str, dict[str, bool]]:
+        if previous is None:
+            return {}
+        diff: dict[str, dict[str, bool]] = {}
+        all_keys = set(previous).union(current)
+        for key in sorted(all_keys):
+            prev_value = bool(previous.get(key, False))
+            curr_value = bool(current.get(key, False))
+            if prev_value != curr_value:
+                diff[key] = {
+                    "previous": prev_value,
+                    "current": curr_value,
+                }
+        return diff
 
     # Quality gating
     def validate_and_promote(

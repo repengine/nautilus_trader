@@ -28,6 +28,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from ml.config.registry import RegistryPolicyConfig
@@ -52,19 +53,81 @@ from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 
 
+try:
+    from ml.common.security import HAS_ONNX as HAS_ONNX
+    from ml.common.security import check_ml_dependencies as check_ml_dependencies
+    from ml.common.security import ort as ort
+except Exception:  # pragma: no cover - fallback when security helpers unavailable
+    HAS_ONNX = False
+    ort = None
+
+    def check_ml_dependencies(_deps: list[str]) -> None:
+        raise RuntimeError("Dependency check unavailable")
+
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "HAS_ONNX",
     "DataRequirements",
     "DeploymentStatus",
     "ModelInfo",
     "ModelManifest",
     "ModelRegistry",
     "ModelRole",
+    "check_ml_dependencies",
+    "ort",
 ]
 
-# Feature flag to control legacy vs new implementation
-USE_LEGACY = os.getenv("ML_USE_LEGACY_MODEL_REGISTRY", "0") == "1"
+def _should_use_component_impl() -> bool:
+    """
+    Determine whether to enable the component-based ModelRegistry facade.
+
+    Precedence (highest to lowest):
+    1. ML_USE_COMPONENT_MODEL_REGISTRY=1 explicitly opts in.
+    2. ML_USE_COMPONENT_MODEL_REGISTRY=0 explicitly opts out.
+    3. Historical flag ML_USE_LEGACY_MODEL_REGISTRY keeps working:
+       - "1" => legacy implementation
+       - "0" => component implementation
+       - unset => legacy (default)
+    """
+    component_flag = os.getenv("ML_USE_COMPONENT_MODEL_REGISTRY")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
+
+    legacy_flag = os.getenv("ML_USE_LEGACY_MODEL_REGISTRY")
+    if legacy_flag is not None:
+        return legacy_flag.strip() == "0"
+
+    return False
+
+
+USE_COMPONENT_MODEL_REGISTRY = _should_use_component_impl()
+USE_LEGACY = not USE_COMPONENT_MODEL_REGISTRY
+
+_LEGACY_MODULE: ModuleType | None = None
+
+
+def _sync_security_shims() -> None:
+    """
+    Keep legacy module security toggles in sync with facade-level exports.
+    """
+    global _LEGACY_MODULE
+    if _LEGACY_MODULE is None:
+        from ml.registry import model_registry_legacy as legacy_mod
+
+        _LEGACY_MODULE = legacy_mod
+    _LEGACY_MODULE.HAS_ONNX = HAS_ONNX  # type: ignore[attr-defined]
+    _LEGACY_MODULE.ort = ort  # type: ignore[attr-defined]
+    _LEGACY_MODULE.check_ml_dependencies = check_ml_dependencies  # type: ignore[attr-defined]
+    try:
+        _LEGACY_MODULE.open = open  # type: ignore[attr-defined]
+    except Exception as shim_exc:
+        logger.debug(
+            "model_registry.legacy_open_rebind_failed",
+            exc_info=True,
+            extra={"error": repr(shim_exc)},
+        )
 
 
 class ModelRegistry(AbstractRegistry):
@@ -137,6 +200,7 @@ class ModelRegistry(AbstractRegistry):
             )
             from ml.registry.model_registry_legacy import ModelRegistry as ModelRegistryLegacy
 
+            _sync_security_shims()
             self._legacy_impl = ModelRegistryLegacy(
                 registry_path=registry_path,
                 cache_size=cache_size,
@@ -153,7 +217,7 @@ class ModelRegistry(AbstractRegistry):
 
         # Use new component-based implementation
         logger.info(
-            "Using component-based ModelRegistry implementation (ML_USE_LEGACY_MODEL_REGISTRY=0)",
+            "Using component-based ModelRegistry implementation (opt-in)",
         )
         self._use_legacy = False
 
@@ -217,6 +281,18 @@ class ModelRegistry(AbstractRegistry):
             "ModelPersistence, ModelQualityValidator, ModelDeploymentManager, "
             "ABTestingManager, CanaryDeploymentManager",
         )
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Delegate attribute access to the legacy implementation when enabled.
+
+        Tests patch private helpers on the legacy class; forwarding maintains
+        compatibility while the facade defaults to the legacy path.
+        """
+        if getattr(self, "_use_legacy", False):
+            _sync_security_shims()
+            return getattr(self._legacy_impl, name)
+        raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
 
     def _save_registry(self, immediate: bool = False) -> None:
         """
@@ -284,6 +360,7 @@ class ModelRegistry(AbstractRegistry):
 
         """
         if self._use_legacy:
+            _sync_security_shims()
             return self._legacy_impl.register_model(
                 model_path,
                 manifest,
@@ -596,6 +673,7 @@ class ModelRegistry(AbstractRegistry):
 
         """
         if self._use_legacy:
+            _sync_security_shims()
             return self._legacy_impl.load_model(model_id)
         if model_id not in self._models:
             return None
@@ -1111,32 +1189,3 @@ class ModelRegistry(AbstractRegistry):
             self.flush()
         except Exception as exc:  # Best effort on cleanup
             logger.debug("ModelRegistry cleanup flush failed", exc_info=exc)
-
-    def __getattr__(self, name: str) -> Any:
-        """
-        Delegate unknown attributes to legacy implementation if in legacy mode.
-
-        This ensures complete backward compatibility for any methods not
-        explicitly delegated above.
-
-        Parameters
-        ----------
-        name : str
-            Attribute name
-
-        Returns
-        -------
-        Any
-            Attribute value
-
-        Raises
-        ------
-        AttributeError
-            If attribute not found
-
-        """
-        if self._use_legacy and hasattr(self, "_legacy_impl"):
-            return getattr(self._legacy_impl, name)
-        raise AttributeError(
-            f"'{type(self).__name__}' object has no attribute '{name}'",
-        )

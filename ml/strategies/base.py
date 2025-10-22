@@ -35,6 +35,7 @@ from ml.config.names import METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL
 from ml.config.names import METRIC_STRATEGY_STORE_BATCH_SIZE
 from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
+from ml.common.logging_utils import KeywordLoggerMixin
 
 if TYPE_CHECKING:
     from ml.stores.protocols import StrategyStoreProtocol
@@ -45,7 +46,6 @@ if TYPE_CHECKING:
     from ml.strategies.protocols import PositionSizerProtocol
     from ml.strategies.protocols import RiskManagerProtocol
     from ml.strategies.services import StrategyDecisionPublisher
-    from ml.common.logging_utils import KeywordLogger
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import DataType
@@ -142,7 +142,7 @@ _initialize_metrics()
 
 # Note: Upstream `Strategy` lacks complete typing; inheriting from it triggers a mypy
 # miscellaneous error in strict mode. This is safe and expected here.
-class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
+class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[misc]
     """
     Base class for ML-driven trading strategies.
 
@@ -161,8 +161,6 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
         The configuration for the ML strategy.
 
     """
-
-    log: KeywordLogger
 
     def __init__(self, config: MLStrategyConfig, stores: object | None = None) -> None:
         """
@@ -192,13 +190,8 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
 
         """
         super().__init__(config)
-        from ml.common.logging_utils import ensure_keyword_logger
-
-        _wrapped_logger = ensure_keyword_logger(self.log)
-        try:
-            self.log = _wrapped_logger
-        except AttributeError:
-            self._keyword_logger = _wrapped_logger
+        # Ensure keyword-safe logger wrapper is initialized
+        _ = self.log
         self._config = config
         self._stores = stores
 

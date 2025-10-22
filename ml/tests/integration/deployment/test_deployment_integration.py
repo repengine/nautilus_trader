@@ -10,10 +10,14 @@ metrics.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -35,6 +39,9 @@ from ml.deployment.entrypoint_pipeline import PipelineRunner
 from ml.deployment.entrypoint_strategy import MLStrategyNode
 
 
+logger = logging.getLogger(__name__)
+
+
 # Import test database fixture if not already available
 try:
     from ml.tests.conftest import clean_postgres_db
@@ -52,6 +59,60 @@ class TestDeploymentIntegration:
     """
     Integration tests for deployment components.
     """
+
+    _DIAGNOSTIC_ENV_KEYS: Sequence[str] = (
+        "DATABENTO_API_KEY",
+        "USE_DUMMY_STORES",
+        "USE_MOCK_DATA",
+        "DATABASE_URL",
+        "DB_CONNECTION",
+        "MODEL_PATH",
+        "CATALOG_PATH",
+        "INSTRUMENT_ID",
+        "BAR_TYPE",
+        "ACTOR_ID",
+        "STRATEGY_ID",
+        "ML_SIGNAL_SOURCE",
+        "PIPELINE_MODE",
+        "EXECUTE_TRADES",
+    )
+
+    @classmethod
+    def _log_deployment_env_state(
+        cls,
+        context: str,
+        *,
+        request: pytest.FixtureRequest | None = None,
+    ) -> None:
+        state: dict[str, str | None] = {}
+        for key in cls._DIAGNOSTIC_ENV_KEYS:
+            value = os.getenv(key)
+            if key == "DATABENTO_API_KEY" and value:
+                state[key] = f"<redacted len={len(value)}>"
+            else:
+                state[key] = value
+        if request is not None and hasattr(request, "node"):
+            callspec = getattr(request.node, "callspec", None)
+            if callspec is not None and hasattr(callspec, "id"):
+                state["pytest_variant"] = callspec.id
+        payload = json.dumps(state, sort_keys=True)
+        message = f"[deployment-diagnostics] context={context} env={payload}"
+        print(message)
+        logger.info(message)
+
+    @staticmethod
+    def _log_config_snapshot(actor_config: Any, strategy_config: Any) -> None:
+        snapshot: dict[str, Any] = {
+            "actor_component_id": getattr(actor_config, "component_id", None),
+            "actor_use_dummy_stores": getattr(actor_config, "use_dummy_stores", None),
+            "actor_publish_signals": getattr(actor_config, "publish_signals", None),
+            "strategy_ml_signal_source": getattr(strategy_config, "ml_signal_source", None),
+            "strategy_position_size_pct": getattr(strategy_config, "position_size_pct", None),
+        }
+        payload = json.dumps(snapshot, sort_keys=True, default=str)
+        message = f"[deployment-diagnostics] configs={payload}"
+        print(message)
+        logger.info(message)
 
     @pytest.fixture
     def deployment_env(self, monkeypatch, tmp_path, test_database):
@@ -92,10 +153,18 @@ class TestDeploymentIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_actor_to_strategy_communication(self, deployment_env):
+    def test_actor_to_strategy_communication(
+        self,
+        deployment_env: dict[str, Path],
+        request: pytest.FixtureRequest,
+    ) -> None:
         """
         Test signal actor communicates with strategy.
         """
+        self._log_deployment_env_state(
+            "test_actor_to_strategy_communication",
+            request=request,
+        )
         # Set up actor node
         actor_node = MLSignalActorNode()
         strategy_node = MLStrategyNode()
@@ -127,11 +196,14 @@ class TestDeploymentIntegration:
                         # Verify actor was created
                         mock_signal_actor.assert_called_once()
                         actor_config = mock_signal_actor.call_args[1]["config"]
-                        assert actor_config.component_id == "MLSignalActor-001"
 
                         # Verify strategy was created with correct signal source
                         mock_strategy.assert_called_once()
                         strategy_config = mock_strategy.call_args[1]["config"]
+
+                        self._log_config_snapshot(actor_config, strategy_config)
+
+                        assert actor_config.component_id == "MLSignalActor-001"
                         assert strategy_config.ml_signal_source == "MLSignalActor-001"
 
     @pytest.mark.asyncio
@@ -457,12 +529,24 @@ class TestDeploymentIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_configuration_validation(self, deployment_env, monkeypatch):
+    def test_configuration_validation(
+        self,
+        deployment_env: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        request: pytest.FixtureRequest,
+    ) -> None:
         """
         Test configuration validation across components.
         """
         # Test invalid configuration handling
+        monkeypatch.setenv("USE_DUMMY_STORES", "false")
+        monkeypatch.setenv("USE_MOCK_DATA", "false")
         monkeypatch.delenv("DATABENTO_API_KEY", raising=False)
+
+        self._log_deployment_env_state(
+            "test_configuration_validation:missing_key",
+            request=request,
+        )
 
         actor_node = MLSignalActorNode()
         with pytest.raises(SystemExit) as exc_info:
@@ -470,8 +554,13 @@ class TestDeploymentIntegration:
         assert exc_info.value.code == 1
 
         # Test missing model file
-        monkeypatch.setenv("DATABENTO_API_KEY", "test_key")
+        monkeypatch.setenv("DATABENTO_API_KEY", "x" * 32)
         monkeypatch.setenv("MODEL_PATH", "/nonexistent/model.pkl")
+
+        self._log_deployment_env_state(
+            "test_configuration_validation:missing_model",
+            request=request,
+        )
 
         actor_node = MLSignalActorNode()
         with pytest.raises(SystemExit) as exc_info:

@@ -126,6 +126,8 @@ Notes
 
 from __future__ import annotations
 
+import logging
+
 from ml.observability.async_db_persistence import ObservabilityAsyncDBPersistor
 
 # Async processing components
@@ -171,6 +173,9 @@ from ml.observability.tracing import trace_cold_path_decorator
 from ml.observability.tracing import trace_inference
 
 
+logger = logging.getLogger(__name__)
+
+
 # Ensure tests that temporarily stub ml.observability.tracing don't break later imports.
 # If a minimal stub module was inserted into sys.modules without all functions,
 # patch it with the real implementations.
@@ -199,9 +204,12 @@ try:  # pragma: no cover - defensive patch for test environments
         for _const in ("HAS_OPENTELEMETRY",):
             if not hasattr(_stub, _const) and hasattr(_tracing, _const):
                 setattr(_stub, _const, getattr(_tracing, _const))
-except Exception:
-    # Never impact normal operation
-    pass
+except Exception as exc:  # pragma: no cover - defensive guard
+    logger.debug(
+        "Observability tracing stub reconciliation failed",
+        exc_info=True,
+        extra={"reason": str(exc)},
+    )
 
 
 __all__ = [

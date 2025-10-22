@@ -71,6 +71,7 @@ class FeatureData(NautilusData):
         ts_event: int | None = None,
         ts_init: int | None = None,
         features: dict[str, float] | None = None,
+        feature_values: dict[str, float] | None = None,
         quality_flags: int = 0,
     ) -> None:
         """
@@ -84,7 +85,12 @@ class FeatureData(NautilusData):
         """
         self.feature_set_id = feature_set_id or "default"
         self.instrument_id = instrument_id
-        self.values = dict(features if features is not None else (values or {}))
+        source_values = features
+        if source_values is None:
+            source_values = feature_values
+        if source_values is None:
+            source_values = values
+        self.values = dict(source_values or {})
         # Event/init timestamps: prefer public aliases when provided
         evt = ts_event if ts_event is not None else _ts_event
         init = ts_init if ts_init is not None else _ts_init

@@ -129,3 +129,36 @@ groups:
           summary: "Aggregator watermark lag high (> 5m)"
           description: |
             Watermark not advancing sufficiently. Verify upstream ingestion and aggregator watermark conditions.
+
+      - alert: MLStreamingBacklogWarning
+        expr: max(ml_tft_streaming_training_backlog) > 4
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Streaming backlog warning (>= 4 plans)"
+          description: |
+            The streaming training backlog has exceeded the warning threshold (4 plans). Investigate worker availability or dataset skew.
+
+      - alert: MLStreamingBacklogCritical
+        expr: max(ml_tft_streaming_training_backlog) > 8
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Streaming backlog critical (>= 8 plans)"
+          description: |
+            Streaming training backlog exceeds the critical threshold (8 plans). Plans may stall without intervention.
+
+      - alert: MLStreamingWorkersMissing
+        expr: |
+          (sum by (dataset_id) (ml_tft_streaming_training_backlog) > 0)
+            and on (dataset_id)
+          (sum by (dataset_id) (ml_tft_streaming_workers_active) <= 0)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Streaming workers missing while backlog exists"
+          description: |
+            One or more datasets report backlog with no active workers. Check worker pods, orchestrator state, and availability budgets.

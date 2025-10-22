@@ -29,6 +29,7 @@ symbols = "SPY"  # TODO: Expand to all 95 instruments after first successful run
 # All 95: AAPL,ABBV,ABT,ACN,ADBE,AMAT,AMD,AMZN,AVGO,BA,BAC,BRK.B,C,CAT,COIN,COP,COST,CRM,CRWD,CVX,...
 out_dir = "ml_out/spy_full_macro"
 dataset_id = "spy_full_macro_v1"
+convert_vintage_to_age = true
 
 # Time range - ACTUAL DATA: March 28, 2023 → September 30, 2025 (2.5 years!)
 # Training: Use last 12 months for training, hold out recent data for validation

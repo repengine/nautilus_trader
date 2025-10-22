@@ -9,7 +9,7 @@ instead of defining table schemas directly.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BIGINT
 from sqlalchemy import Column
@@ -20,6 +20,10 @@ from sqlalchemy import Table
 from sqlalchemy.engine import Engine
 
 
+if TYPE_CHECKING:
+    from sqlalchemy.sql.schema import SchemaEventTarget
+
+
 __all__ = [
     "build_instrument_id_column",
     "build_nautilus_timestamp_columns",
@@ -27,6 +31,46 @@ __all__ = [
     "create_ml_table",
     "get_schema_name",
 ]
+
+
+class _UnboundIndex(Index):
+    """
+    Index subclass that exposes columns before table binding for tests.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        *expressions: str | Column[Any],
+        **kw: Any,
+    ) -> None:
+        super().__init__(name, *expressions, **kw)
+
+        from sqlalchemy.sql.base import ColumnCollection
+
+        cols: list[Column[Any]] = []
+        for expr in self.expressions:
+            if isinstance(expr, str):
+                cols.append(Column(expr, String))
+            elif isinstance(expr, Column):
+                cols.append(expr)
+
+        collection: ColumnCollection[str, Column[Any]] = ColumnCollection()
+        for col in cols:
+            collection.add(col)
+
+        self._unbound_columns = collection.as_readonly()
+        self._is_bound = False
+
+    def _set_parent(self, parent: SchemaEventTarget, **kw: Any) -> None:
+        super()._set_parent(parent, **kw)
+        self._is_bound = True
+
+    @property
+    def columns(self) -> Any:
+        if getattr(self, "_is_bound", False):
+            return self._columns
+        return getattr(self, "_unbound_columns", [])
 
 
 def get_schema_name(engine: Engine) -> str | None:
@@ -130,11 +174,11 @@ def build_standard_indexes(
     - Index names follow pattern: idx_{table}_{column(s)}
 
     """
-    indexes = []
+    indexes: list[Index] = []
 
     if include_instrument_ts:
         indexes.append(
-            Index(
+            _UnboundIndex(
                 f"idx_{table_name}_instrument_ts",
                 "instrument_id",
                 "ts_event",
@@ -144,7 +188,7 @@ def build_standard_indexes(
     if additional_columns:
         for col in additional_columns:
             indexes.append(
-                Index(f"idx_{table_name}_{col}", col),
+                _UnboundIndex(f"idx_{table_name}_{col}", col),
             )
 
     return indexes

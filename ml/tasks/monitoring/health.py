@@ -16,11 +16,15 @@ import argparse
 import json
 import os
 import sys
+import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
+from ml.core.integration import HealthSummary
 from ml.core.integration import MLIntegrationManager
 
 
@@ -35,13 +39,6 @@ except ImportError:
         "Warning: psycopg2 not installed. Install with: pip install psycopg2-binary",
         file=sys.stderr,
     )
-
-import uuid as _uuid
-from typing import Protocol
-
-from ml.common.logging_config import bind_log_context
-from ml.common.logging_config import configure_logging
-
 
 # Provide a typed tabulate symbol without importing untyped third-party stubs at type-check time.
 # We dynamically import the real implementation at runtime when available.
@@ -802,7 +799,7 @@ def aggregate_integration_health(
     db_connection: str | None = None,
     *,
     strict_protocol_validation: bool = False,
-) -> dict[str, Any]:
+) -> HealthSummary:
     """
     Aggregate ML integration health summary via :class:`MLIntegrationManager`.
     """

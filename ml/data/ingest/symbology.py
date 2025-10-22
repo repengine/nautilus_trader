@@ -33,7 +33,9 @@ class DatabentoSymbologyClient(Protocol):
         stype_out: str,
         start_date: str,
         end_date: str | None = None,
-    ) -> Any: ...
+    ) -> Any:
+        del symbols, dataset, stype_in, stype_out, start_date, end_date
+        raise NotImplementedError
 
 
 @dataclass(slots=True, frozen=True)

@@ -97,12 +97,20 @@ def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
         return ("data", "created")
     if stage is Stage.CATALOG_WRITTEN:
         return ("data", "updated")
+    if stage is Stage.DATASET_PLANNED:
+        return ("data", "planned")
     if stage is Stage.FEATURE_COMPUTED:
         return ("features", "updated")
     if stage is Stage.PREDICTION_EMITTED:
         return ("models", "created")
     if stage is Stage.SIGNAL_EMITTED:
         return ("strategies", "created")
+    if stage is Stage.MODEL_TRAINING_STARTED:
+        return ("models", "training_started")
+    if stage is Stage.MODEL_TRAINING_COMPLETED:
+        return ("models", "training_completed")
+    if stage is Stage.WORKER_HEARTBEAT:
+        return ("models", "heartbeat")
     # Fallback conservative default
     return ("data", "updated")
 

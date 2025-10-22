@@ -48,18 +48,29 @@ def test_apply_migrations_builds_compose_commands(
     file = tmp_path / "001.sql"
     file.write_text("SELECT 1;", encoding="utf-8")
 
-    # Patch subprocess.run to capture calls
+    # Patch command runner to capture docker compose invocations
     calls: list[list[str]] = []
 
-    def fake_run(cmd: list[str], input: str, text: bool, check: bool) -> types.SimpleNamespace:
+    def fake_runner(
+        cmd: list[str],
+        *,
+        input: str,
+        text: bool,
+        timeout: int,
+        log: Any,
+    ) -> types.SimpleNamespace:
         calls.append(cmd)
         # Validate some invariants of the command
         assert cmd[:2] == ["docker", "compose"]
         # Allow additional flags (e.g., -v ON_ERROR_STOP=1); ensure suffix is correct
         assert cmd[-3:] == ["-U", "postgres", "nautilus"]
+        # Ensure sql passed through
+        assert input == "SELECT 1;"
+        assert text is True
+        assert timeout == 60
         return types.SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(mig.subprocess, "run", fake_run)
+    monkeypatch.setattr(mig, "COMMAND_RUNNER", fake_runner, raising=True)
 
     mig.apply_migrations_via_compose(compose_file=None, migrations=[file])
     assert len(calls) == 1

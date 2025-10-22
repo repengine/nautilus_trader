@@ -244,7 +244,8 @@ class EventIngestionUtility:
         if self._cfg.economic_stub_path is None:
             return []
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            raise RuntimeError("Polars runtime unavailable for economic stub loading")
         df = _pl.read_csv(str(self._cfg.economic_stub_path))
         records: list[dict[str, Any]] = []
         for row in df.iter_rows(named=True):
@@ -282,7 +283,8 @@ class EventIngestionUtility:
         if self._cfg.alfred_vintage_dir is None:
             return []
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            raise RuntimeError("Polars runtime unavailable for ALFRED vintage loading")
         results: list[dict[str, Any]] = []
         for series in self._cfg.economic_series:
             cal_path = self._cfg.alfred_vintage_dir / series / "release_calendar.parquet"
@@ -321,7 +323,8 @@ class EventIngestionUtility:
         if self._cfg.corporate_source_path is None:
             return []
         _pl = pl
-        assert _pl is not None
+        if _pl is None:
+            raise RuntimeError("Polars runtime unavailable for corporate event loading")
         df = _pl.read_csv(str(self._cfg.corporate_source_path))
         results: list[dict[str, Any]] = []
         for row in df.iter_rows(named=True):

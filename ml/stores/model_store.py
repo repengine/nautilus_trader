@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -20,12 +21,14 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
+from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
 from ml.stores.mixins import BufferedStoreMixin
@@ -58,6 +61,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ModelPrediction",
     "ModelStore",
+    "create_engine",
 ]
 
 
@@ -719,3 +723,18 @@ class ModelStore(
     _last_flush_ns: int
     # SQLAlchemy table created in _setup_tables; typed loosely for protocol conformance
     model_predictions_table: Any
+
+
+def create_engine(connection_string: str, **kwargs: object) -> Engine:
+    """
+    Return the shared SQLAlchemy engine for ``connection_string``.
+
+    Args:
+        connection_string: Database URL (for example ``postgresql://...``).
+        **kwargs: Optional SQLAlchemy engine overrides.
+
+    Returns:
+        Engine: Shared engine instance managed by :class:`ml.core.db_engine.EngineManager`.
+    """
+    engine_getter = cast(Callable[..., Engine], EngineManager.get_engine)
+    return engine_getter(connection_string, **kwargs)

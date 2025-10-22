@@ -269,9 +269,15 @@ def register_and_promote_model(
             meta_update["universe_symbols"] = [str(x) for x in usyms]
         if meta_update:
             registry.update_metadata(model_id_out, meta_update)
-    except Exception:
-        # Non-fatal advisory metadata update
-        pass
+    except Exception as meta_exc:
+        logger.debug(
+            "promotions.model_metadata_update_failed",
+            exc_info=True,
+            extra={
+                "model_id": model_id_out,
+                "error": repr(meta_exc),
+            },
+        )
 
     # Track numeric metrics in performance history
     perf_metrics = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
@@ -599,8 +605,15 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
             dataset_type="model",
             component="promotions.stage2",
         )
-    except Exception:
-        pass
+    except Exception as emit_exc:
+        logger.debug(
+            "promotions.stage2_event_emit_failed",
+            exc_info=True,
+            extra={
+                "model_id": model_id or "",
+                "error": repr(emit_exc),
+            },
+        )
 
     final_status: str
     if result.status == "skipped":
@@ -659,8 +672,15 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
             _json.dumps(report, indent=2),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except Exception as report_exc:
+        logger.debug(
+            "promotions.write_promotion_report_failed",
+            exc_info=True,
+            extra={
+                "out_dir": str(cfg.out_dir),
+                "error": repr(report_exc),
+            },
+        )
 
     return summary
 

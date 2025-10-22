@@ -13,6 +13,7 @@ Contents
 - Run end-to-end pipeline with `ml.cli.pipeline_orchestrator`
 - Schedule pipeline runs with `ml.cli.pipeline_scheduler`
 - Maintain registry artifacts with `ml.cli.update_artifact`
+- Persist streaming training state via `ml.cli.streaming_persistence_worker`
 
 ## Databento Guards (US Equities — Standard)
 
@@ -188,7 +189,56 @@ python -m ml.scripts.dataset_report --dataset /tmp/tft_ds_small/QQQ/dataset.parq
 
 You should see macro columns (e.g., `DGS10`, `VIXCLS`) in the datasets and a target distribution summary in the markdown files.
 
-## 7) End-to-End Pipeline Orchestrator (Cold Path)
+## 7) Streaming Persistence Worker
+
+Keep the streaming dashboard and cold-path APIs in sync by running the persistence worker against Redis Streams. The worker reuses `StreamingPersistenceConfig.from_env`, so you can manage overrides via `ML_STREAM_PERSIST_*` variables and top them up with CLI flags when needed.
+
+```bash
+poetry run python -m ml.cli.streaming_persistence_worker \
+  --state-path ./ml_out/streaming_training_state.json \
+  --batch-size 256 \
+  --block-ms 1000
+
+### Admin Backlog Controls
+
+Use the streaming orchestrator helpers when you need to manually recover stuck
+plans or drain old backlog entries:
+
+- `InMemoryStreamingOrchestrator.clear_backlog(dataset_id=None, include_active=False)`
+  drops persisted plan state (opt-in to `include_active=True` before restarting
+  workers).
+- `InMemoryStreamingOrchestrator.resume_plan(plan_id)` resets retry counters and
+  heartbeats for a specific plan.
+- `InMemoryStreamingOrchestrator.saturated_plan_ids()` surfaces plans throttled
+  by saturation detection.
+- `InMemoryStreamingOrchestrator.expired_plans()` returns `DatasetPlanEvent`
+  instances ready to be retried.
+
+Example REPL session:
+
+```python
+from pathlib import Path
+
+from ml.config.streaming_pipeline import DatasetServiceConfig, TrainingOrchestratorConfig
+from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
+from ml.training.event_driven.orchestrator import InMemoryStreamingOrchestrator
+
+planner = StreamingDatasetPlanner(DatasetServiceConfig(parquet_root="/data/streaming"))
+orchestrator = InMemoryStreamingOrchestrator(
+    TrainingOrchestratorConfig(command_topic="", result_topic="", heartbeat_topic=""),
+    planner,
+    state_path=Path("./ml_out/streaming_orchestrator_state.json"),
+)
+print(orchestrator.expired_plans())
+orchestrator.clear_backlog(dataset_id="dataset-123", include_active=True)
+```
+
+- `ML_STREAM_PERSIST_ENABLE` toggles the loop (default `true`).
+- `ML_STREAM_PERSIST_STATE_PATH` should align with the dashboard service (`ML_DASHBOARD_STREAMING_STATE_PATH`).
+- `ML_STREAM_PERSIST_BATCH_SIZE`, `ML_STREAM_PERSIST_BLOCK_MS`, and `ML_STREAM_PERSIST_POLL_INTERVAL_SECONDS` tune throughput versus idle time.
+- The CLI installs SIGINT/SIGTERM handlers and will call `StreamingTrainingPersistenceWorker.stop()` before exit to flush the latest snapshot.
+
+## 8) End-to-End Pipeline Orchestrator (Cold Path)
 
 Run ingestion + dataset build + optional HPO + teacher training in a single command. All heavy work remains off hot paths.
 

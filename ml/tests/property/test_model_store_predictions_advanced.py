@@ -28,7 +28,12 @@ if not HAS_PANDAS:
 # Hypothesis imports with graceful fallback
 try:
     from hypothesis import HealthCheck, assume, given, settings, strategies as st
-    from hypothesis.stateful import Bundle, RuleBasedStateMachine, rule
+    from hypothesis.stateful import (
+        Bundle,
+        RuleBasedStateMachine,
+        run_state_machine_as_test,
+        rule,
+    )
 except ImportError:  # pragma: no cover
     pytest.skip("hypothesis not available", allow_module_level=True)
 
@@ -633,14 +638,17 @@ class ModelStoreStateMachine(RuleBasedStateMachine):
 # Test Runner Configuration
 # ============================================================================
 
-# Run stateful tests
-TestModelStoreStateful = ModelStoreStateMachine.TestCase
-TestModelStoreStateful.settings = settings(
-    max_examples=10,
-    stateful_step_count=25,
-    deadline=None,
-    suppress_health_check=(HealthCheck.too_slow,),
-)
+# Run stateful tests via explicit helper to avoid unittest fixture conflicts
+def test_model_store_stateful() -> None:
+    run_state_machine_as_test(
+        ModelStoreStateMachine,
+        settings=settings(
+            max_examples=10,
+            stateful_step_count=25,
+            deadline=None,
+            suppress_health_check=(HealthCheck.too_slow,),
+        ),
+    )
 
 
 # ============================================================================

@@ -1,0 +1,40 @@
+# Streaming training Dockerfile with GPU-ready PyTorch stack
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# Base packages required for compiling the nautilus_trader extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    clang \
+    libpq-dev \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install a recent Rust toolchain and upgrade pip
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal \
+    && /root/.cargo/bin/rustup default stable \
+    && pip install --upgrade pip
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy project metadata first to leverage Docker cache
+COPY pyproject.toml poetry.lock README.md build.py Cargo.toml Cargo.lock ./
+COPY nautilus_trader ./nautilus_trader
+COPY ml ./ml
+COPY python ./python
+COPY tools ./tools
+COPY crates ./crates
+
+# Install project (builds Rust/Cython extensions)
+RUN pip install --no-cache-dir .[ml]
+
+# Default command (overridden by docker-compose service)
+CMD ["python", "-m", "ml.cli.streaming_training_runner", "--help"]

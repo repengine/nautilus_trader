@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -32,18 +31,21 @@ from ml.config.events import Source as _source
 from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
+from ml.data.collection_coordinator import CollectionCoordinator
 from ml.data.collector import DataCollector
+from ml.data.data_retention_manager import DataRetentionManager
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
+from ml.data.feature_computation_manager import FeatureComputationManager
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
-from ml.registry.data_registry import DataRegistry
+from ml.data.initialization_manager import InitializationManager
+from ml.data.registry_integrator import RegistryIntegrator
+from ml.data.trading_day_calculator import TradingDayCalculator
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
-from ml.registry.persistence import BackendType
-from ml.registry.persistence import PersistenceConfig
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.raw_protocols import RawIngestionWriterProtocol
@@ -292,20 +294,52 @@ class DataScheduler:
         # Unified ingestion flags
         self._use_orchestrator: bool = bool(use_orchestrator)
         self._dual_write: bool = bool(dual_write)
+        # Trading day calculations (legacy compatibility)
+        self._trading_day_calc = TradingDayCalculator()
 
         # Scheduling state
         self.enabled = True
         self._databento_loader = DatabentoDataLoader()
         self._current_run_id: str = ""  # Will be set during collection runs
 
-        # Initialize DataRegistry for event tracking
-        self._data_registry: "RegistryProtocol" | None = None  # noqa: UP037
-        self._init_data_registry()
+        # Component managers (Pattern 1 compliance)
+        self._trading_day_calc = TradingDayCalculator()
+        self._init_mgr = InitializationManager(
+            feature_engineer=feature_engineer,
+            logger=logger,
+        )
+        self._registry_integrator = RegistryIntegrator(logger=logger)
+        self._retention_mgr = DataRetentionManager(catalog=catalog, logger=logger)
+
+        # Initialize DataRegistry for event tracking via integrator
+        self._data_registry: "RegistryProtocol" | None = self._registry_integrator.initialize_registry(  # noqa: UP037
+            connection=self._feature_store_connection,
+        )
 
         # Initialize feature store if configured
         self._feature_store: Any | None = None
         if self.config.feature_store_enabled and self.feature_engineer is not None:
             self._initialize_feature_store()
+
+        # Collection coordinator abstraction for Databento ingestion
+        self._collection_coord = CollectionCoordinator(
+            catalog=catalog,
+            config=self.config,
+            databento_loader=self._databento_loader,
+            registry_integrator=self._registry_integrator,
+            data_registry=self._data_registry,
+            logger=logger,
+        )
+
+        # Feature computation manager (cold path)
+        self._feature_comp_mgr = FeatureComputationManager(
+            catalog=catalog,
+            config=self.config,
+            feature_engineer=self.feature_engineer,
+            feature_store=self._feature_store,
+            trading_day_calc=self._trading_day_calc,
+            logger=logger,
+        )
 
         # Initialize metrics server if configured
         self._metrics_server: Any | None = None
@@ -382,44 +416,12 @@ class DataScheduler:
         tracking watermarks throughout the pipeline.
 
         """
-        try:
-            # Prefer resolved scheduler connection; fall back to JSON backend
-            db_connection = self._feature_store_connection
-
-            if db_connection:
-                # Use PostgreSQL backend in production
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.POSTGRES,
-                    connection_string=db_connection,
-                )
-                registry_path = Path(tempfile.gettempdir()) / "ml_registry"  # Path for JSON fallback
-            else:
-                # Use JSON backend for development (standardized location)
-                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
-                try:
-                    registry_path.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    pass
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.JSON,
-                    json_path=registry_path,
-                )
-
-            self._data_registry = DataRegistry(
-                registry_path=registry_path,
-                persistence_config=persistence_config,
-            )
-
-            logger.info(
-                "Initialized DataRegistry with backend=%s",
-                persistence_config.backend.value,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to initialize DataRegistry. Events will not be tracked.",
-                exc_info=True,
-            )
-            self._data_registry = None
+        # Maintained for backward compatibility with legacy callers.
+        if self._registry_integrator is None:
+            self._registry_integrator = RegistryIntegrator(logger=logger)
+        self._data_registry = self._registry_integrator.initialize_registry(
+            connection=self._feature_store_connection,
+        )
 
     def _initialize_feature_store(self) -> None:
         """
@@ -1185,17 +1187,7 @@ class DataScheduler:
             Previous trading day
 
         """
-        today = datetime.now()
-
-        if today.weekday() == 0:  # Monday
-            # Get Friday's data
-            return today - timedelta(days=3)
-        elif today.weekday() == 6:  # Sunday
-            # Get Friday's data
-            return today - timedelta(days=2)
-        else:
-            # Get previous day's data
-            return today - timedelta(days=1)
+        return self._trading_day_calc.get_previous_trading_day(datetime.now(tz=UTC))
 
     def _compute_features(self) -> None:
         """

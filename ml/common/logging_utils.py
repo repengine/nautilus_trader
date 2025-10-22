@@ -32,7 +32,24 @@ class KeywordLogger:
 
     def _call(self, method: Callable[..., Any], msg: object, *args: object, **kwargs: Any) -> None:
         prepared = self._prepare_kwargs(dict(kwargs))
-        method(msg, *args, **prepared)
+        try:
+            method(msg, *args, **prepared)
+            return
+        except TypeError:
+            fallback = dict(prepared)
+            removed = False
+            for key in ("exc_info", "stack_info", "stacklevel"):
+                if key in fallback:
+                    fallback.pop(key)
+                    removed = True
+            if removed:
+                try:
+                    method(msg, *args, **fallback)
+                    return
+                except Exception:
+                    logging.getLogger(__name__).debug("KeywordLogger fallback failed", exc_info=True)
+                    return
+            logging.getLogger(__name__).debug("KeywordLogger suppressed logging error", exc_info=True)
 
     def debug(self, msg: object, *args: object, **kwargs: Any) -> None:
         self._call(self._logger.debug, msg, *args, **kwargs)
@@ -92,4 +109,58 @@ def log_best_effort(
             logging.getLogger(__name__).debug("Best-effort log failed", exc_info=True)
 
 
-__all__ = ["KeywordLogger", "ensure_keyword_logger", "log_best_effort"]
+
+class KeywordLoggerMixin:
+    """
+    Mixin providing a KeywordLogger-backed ``log`` property.
+
+    Classes inheriting from this mixin receive a logger that gracefully handles
+    keyword arguments such as ``exc_info`` even when the underlying logger does not
+    support them.
+    """
+
+    _raw_logger: logging.Logger | KeywordLogger
+    _keyword_logger: KeywordLogger
+
+    @property
+    def log(self) -> KeywordLogger:
+        """
+        Return the keyword-safe logger, creating one on demand if needed.
+        """
+        if hasattr(self, "_keyword_logger"):
+            return self._keyword_logger
+
+        raw_logger = getattr(self, "_raw_logger", None)
+        if isinstance(raw_logger, KeywordLogger):
+            underlying = getattr(raw_logger, "_logger", None)
+            if underlying is not None:
+                self._raw_logger = underlying
+            self._keyword_logger = raw_logger
+            return self._keyword_logger
+
+        if raw_logger is None:
+            raw_logger = logging.getLogger(self.__class__.__name__)
+            self._raw_logger = raw_logger
+
+        self._keyword_logger = KeywordLogger(raw_logger)
+        return self._keyword_logger
+
+    @log.setter
+    def log(self, value: logging.Logger | KeywordLogger) -> None:
+        """
+        Store the raw logger (if available) and expose a keyword-safe wrapper.
+        """
+        if isinstance(value, KeywordLogger):
+            underlying = getattr(value, "_logger", None)
+            if underlying is not None:
+                self._raw_logger = underlying
+            else:
+                self._raw_logger = logging.getLogger(self.__class__.__name__)
+            self._keyword_logger = value
+            return
+
+        self._raw_logger = value
+        self._keyword_logger = KeywordLogger(value)
+
+
+__all__ = ["KeywordLogger", "KeywordLoggerMixin", "ensure_keyword_logger", "log_best_effort"]

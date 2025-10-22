@@ -13,6 +13,7 @@ This module provides a registry system for trading strategies with:
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import time
 from dataclasses import asdict
@@ -26,6 +27,9 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 from ml.registry.persistence import StrategyTable
+
+
+logger = logging.getLogger(__name__)
 
 
 # =================================================================================================
@@ -631,8 +635,16 @@ class StrategyRegistry(AbstractRegistry):
                             lm = float(data.get("last_modified", 0.0))
                             if last is None or lm > last:
                                 last = lm
-                except Exception:
-                    # Best-effort only
+                except Exception as manifest_exc:
+                    logger.debug(
+                        "strategy_registry.health_snapshot_manifest_failed path=%s",
+                        manifest_path,
+                        exc_info=True,
+                        extra={
+                            "manifest_path": str(manifest_path),
+                            "error": repr(manifest_exc),
+                        },
+                    )
                     continue
             return len(registry), last
 

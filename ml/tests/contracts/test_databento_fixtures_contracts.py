@@ -7,6 +7,14 @@ from pandera.typing import Series
 
 from ml.data.fixtures import make_tbbo_fixture, make_trades_fixture, make_mbp10_fixture
 from ml.data.fixtures.manifest import compute_schema_hash
+from ml._imports import HAS_PANDERA
+from ml._imports import PANDERA_IMPORT_ERROR
+
+if not HAS_PANDERA:  # pragma: no cover - optional dependency
+    pytest.skip(
+        f"Pandera unavailable: {PANDERA_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
 
 
 class TBBOSchema(pa.DataFrameModel):

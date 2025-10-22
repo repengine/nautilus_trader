@@ -38,6 +38,8 @@ from sqlalchemy import Table
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import ProgrammingError
 
 from ml.common.db_utils import get_or_create_engine
 from ml.common.error_handlers import with_fallback
@@ -349,38 +351,42 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 schema=schema_name,
             )
         except Exception:
-            # Fallback: create a non-partitioned compatible table for tests/dev
-            from sqlalchemy import Integer
+            try:
+                # Fallback: create a non-partitioned compatible table for tests/dev
+                from sqlalchemy import Integer
 
-            self.feature_values_table = Table(
-                "ml_feature_values",
-                self.metadata,
-                Column("id", Integer, primary_key=True, autoincrement=True),
-                Column("feature_set_id", String(255), nullable=False),
-                Column("instrument_id", String(100), nullable=False),
-                Column("ts_event", BIGINT, nullable=False),
-                Column("ts_init", BIGINT, nullable=False),
-                Column("values", JSON, nullable=False),
-                Column("is_live", BOOLEAN, default=False),
-                Column("source", String(50)),
-                Column("created_at", BIGINT),
-                Index(
-                    "idx_ml_feature_values_lookup",
-                    "feature_set_id",
-                    "instrument_id",
-                    "ts_event",
-                ),
-                Index(
-                    "uq_ml_feature_values_key_dev",
-                    "feature_set_id",
-                    "instrument_id",
-                    "ts_event",
-                    unique=True,
-                ),
-                Index("idx_ml_feature_values_live", "is_live"),
-                schema=schema_name,
-            )
-            self.metadata.create_all(self.engine)
+                self.feature_values_table = Table(
+                    "ml_feature_values",
+                    self.metadata,
+                    Column("id", Integer, primary_key=True, autoincrement=True),
+                    Column("feature_set_id", String(255), nullable=False),
+                    Column("instrument_id", String(100), nullable=False),
+                    Column("ts_event", BIGINT, nullable=False),
+                    Column("ts_init", BIGINT, nullable=False),
+                    Column("values", JSON, nullable=False),
+                    Column("is_live", BOOLEAN, default=False),
+                    Column("source", String(50)),
+                    Column("created_at", BIGINT),
+                    Index(
+                        "idx_ml_feature_values_lookup",
+                        "feature_set_id",
+                        "instrument_id",
+                        "ts_event",
+                    ),
+                    Index(
+                        "uq_ml_feature_values_key_dev",
+                        "feature_set_id",
+                        "instrument_id",
+                        "ts_event",
+                        unique=True,
+                    ),
+                    Index("idx_ml_feature_values_live", "is_live"),
+                    schema=schema_name,
+                )
+                self.metadata.create_all(self.engine)
+            except OperationalError as exc:
+                logger.warning("FeatureStore table setup failed: %s", exc, exc_info=True)
+                self.feature_values_table = None  # type: ignore[assignment]
 
     @staticmethod
     def _normalize_ts_ns(ts_value: int) -> tuple[int, bool]:
@@ -666,19 +672,33 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                         },
                     )
                     conn.execute(stmt, row)
-            except Exception:
+            except Exception as write_exc:
                 try:
                     if cb is not None:
                         cb.record_failure()
-                except Exception:
-                    pass
+                except Exception as breaker_exc:
+                    logger.debug(
+                        "feature_store_legacy.cb_record_failure_failed error=%s",
+                        breaker_exc,
+                        exc_info=True,
+                    )
+                logger.debug(
+                    "feature_store_legacy.realtime_write_failed instrument=%s",
+                    row.get("instrument_id"),
+                    exc_info=True,
+                    extra={"error": repr(write_exc)},
+                )
                 raise
             else:
                 try:
                     if cb is not None:
                         cb.record_success()
-                except Exception:
-                    pass
+                except Exception as breaker_exc:
+                    logger.debug(
+                        "feature_store_legacy.cb_record_success_failed error=%s",
+                        breaker_exc,
+                        exc_info=True,
+                    )
 
                 # Emit FEATURE_COMPUTED event for successful realtime computation with storage
                 try:
@@ -1313,15 +1333,18 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         # Optional audit logging (sampled)
         try:
             import os
-            import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:
-                logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
-        except Exception:
+            if sample > 0:
+                import secrets
+
+                if secrets.randbelow(sample) == 0:
+                    logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
+        except Exception as audit_exc:
             logger.debug(
                 "Audit logging skipped due to error",
                 exc_info=True,
+                extra={"error": repr(audit_exc)},
             )
         # Final guard: normalize any incoming timestamps
         from ml.common.timestamps import sanitize_timestamp_ns
@@ -1359,24 +1382,39 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             cb = None
 
         if cb is not None and not cb.can_execute():
+            logger.debug("feature_store_legacy.bulk_write_skipped circuit=open")
             return
 
         try:
             with self.engine.begin() as conn:
                 conn.execute(stmt)
-        except Exception:
+        except Exception as write_exc:
             try:
                 if cb is not None:
                     cb.record_failure()
-            except Exception:
-                pass
+            except Exception as breaker_exc:
+                logger.debug(
+                    "feature_store_legacy.cb_record_failure_failed error=%s",
+                    breaker_exc,
+                    exc_info=True,
+                )
+            logger.debug(
+                "feature_store_legacy.bulk_write_failed instrument=%s",
+                row.get("instrument_id"),
+                exc_info=True,
+                extra={"error": repr(write_exc)},
+            )
             raise
         else:
             try:
                 if cb is not None:
                     cb.record_success()
-            except Exception:
-                pass
+            except Exception as breaker_exc:
+                logger.debug(
+                    "feature_store_legacy.cb_record_success_failed error=%s",
+                    breaker_exc,
+                    exc_info=True,
+                )
 
         # Optional per-row publish when enabled
         if (
@@ -1571,31 +1609,36 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         """
         # Local import to avoid importing pandas at module import time
         import pandas as pd
-        from sqlalchemy import text as _text
+        from sqlalchemy import bindparam as _bind
+        from sqlalchemy import select as _select
 
-        where_parts: list[str] = ["ts_event >= :start_ns", "ts_event < :end_ns"]
+        # Use reflected table metadata to ensure proper schema qualification
+        feature_table = getattr(self, "feature_values_table", None)
+        if feature_table is None:
+            self._setup_tables()
+            feature_table = self.feature_values_table
+        table_alias = feature_table.alias("fv")
+
+        condition = (table_alias.c.ts_event >= _bind("start_ns")) & (
+            table_alias.c.ts_event < _bind("end_ns")
+        )
         params: dict[str, Any] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
         if instrument_id is not None:
-            where_parts.append("instrument_id = :instrument_id")
+            condition = condition & (table_alias.c.instrument_id == _bind("instrument_id"))
             params["instrument_id"] = instrument_id
 
-        table_name = (
-            "ml_feature_values"
-            if self.engine.dialect.name == "sqlite"
-            else "public.ml_feature_values"
+        query = (
+            _select(
+                table_alias.c.feature_set_id,
+                table_alias.c.instrument_id,
+                table_alias.c["values"],
+                table_alias.c.ts_event,
+                table_alias.c.ts_init,
+            )
+            .where(condition)
+            .order_by(table_alias.c.ts_event)
         )
-        sql = _text(
-            f"""
-                SELECT feature_set_id,
-                       instrument_id,
-                       values,
-                       ts_event,
-                       ts_init
-                FROM {table_name}
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY ts_event
-                """,
-        )
+        sql = query
         # Prefer a mock-friendly session when available; else engine
         sess: Any | None = getattr(self, "persistence", None)
         session_obj: Any | None = None
@@ -1653,8 +1696,18 @@ class FeatureStoreLegacy(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                     ],
                 )
 
-        with self.engine.connect() as conn:
-            return pd.read_sql_query(sql, conn, params=params)
+        try:
+            with self.engine.connect() as conn:
+                return pd.read_sql_query(sql, conn, params=params)
+        except ProgrammingError as exc:
+            orig = getattr(exc, "orig", None)
+            pgcode = getattr(orig, "pgcode", None)
+            if pgcode == "42P01":  # undefined_table
+                logger.debug("Feature table missing; attempting creation", exc_info=True)
+                self._setup_tables()
+                with self.engine.connect() as conn:
+                    return pd.read_sql_query(sql, conn, params=params)
+            raise
 
     def store_features(self, *args: Any, **kwargs: Any) -> None:
         """

@@ -27,6 +27,10 @@ from __future__ import annotations
 from typing import Final
 
 
+SINGLE_TOKEN_WILDCARD: Final[str] = "*"  # nosec: B105 - wildcard token marker, not a credential
+MULTI_TOKEN_WILDCARD: Final[str] = "#"  # nosec: B105 - wildcard token marker, not a credential
+
+
 def match_topic(pattern: str, topic: str) -> bool:
     """
     Return True if ``topic`` matches the wildcard ``pattern``.
@@ -44,7 +48,7 @@ def match_topic(pattern: str, topic: str) -> bool:
     i = j = 0
     while i < len(p_parts) and j < len(t_parts):
         token = p_parts[i]
-        if token == "#":
+        if token == MULTI_TOKEN_WILDCARD:
             # '#' at end matches the rest; if not last, attempt greedy match
             if i == len(p_parts) - 1:
                 return True
@@ -55,7 +59,7 @@ def match_topic(pattern: str, topic: str) -> bool:
                     return True
                 j += 1
             return False
-        if token == "*":
+        if token == SINGLE_TOKEN_WILDCARD:
             i += 1
             j += 1
             continue
@@ -66,7 +70,7 @@ def match_topic(pattern: str, topic: str) -> bool:
 
     # Exhaustion conditions
     # If remaining pattern is a single trailing '#', it matches empty remainder
-    if i == len(p_parts) - 1 and p_parts[i] == "#":
+    if i == len(p_parts) - 1 and p_parts[i] == MULTI_TOKEN_WILDCARD:
         return True
     return i == len(p_parts) and j == len(t_parts)
 

@@ -55,6 +55,10 @@ PD: Any = cast(Any, pd_runtime)
 pl = PL
 pd = PD
 
+if not TYPE_CHECKING:
+    _pl = pl  # type: ignore[assignment]
+    _pd = pd  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +330,12 @@ class TFTDatasetBuilder:
             self.include_events = False
             self.include_l2 = False
             self.include_earnings = False
+
+        if self.include_l2 and not self.include_micro:
+            logger.debug(
+                "include_l2 requested; enabling include_micro to reuse microstructure cache",
+            )
+            self.include_micro = True
 
         self._binding_index: dict[str, ResolvedMarketBinding] = {}
         self._binding_stats: dict[str, MarketBindingStats] = {}
@@ -762,6 +772,23 @@ class TFTDatasetBuilder:
         else:
             earnings_joined = earnings_joined.with_columns(
                 pl.lit(0).alias("is_earnings_available"),
+            )
+
+        try:
+            from ml.features.validation import validate_known_future_effective_times
+        except ImportError:  # pragma: no cover - optional dependency
+            validate_known_future_effective_times = None  # type: ignore[assignment]
+        if validate_known_future_effective_times is not None and "effective_date" in earnings_joined.columns:
+            evaluation_values = (
+                earnings_joined.select(pl.col("timestamp").cast(pl.Int64)).to_series().to_list()
+            )
+            effective_values = (
+                earnings_joined.select(pl.col("effective_date").cast(pl.Int64)).to_series().to_list()
+            )
+            validate_known_future_effective_times(
+                evaluation_series=evaluation_values,
+                effective_series=effective_values,
+                context="earnings_features",
             )
 
         logger.debug(
@@ -1308,6 +1335,12 @@ class TFTDatasetBuilder:
                         last_err = e_inner
                         continue
                 if df.is_empty():
+                    if not self._allow_parquet_fallback:
+                        logger.warning(
+                            "No bars found for %s and parquet fallback disabled; skipping symbol",
+                            symbol,
+                        )
+                        continue
                     # Fallback: read OHLCV minute parquet directly under base dir
                     try:
                         base = _Path(self.micro_base_dir or "data/tier1")
@@ -1663,7 +1696,7 @@ class TFTDatasetBuilder:
         # Combine (retain timestamp for macro joins)
         dataset = pl.concat(
             [
-                df.select(["timestamp", "time_index", "instrument_id"]),
+                df.select(["timestamp", "time_index", "instrument_id", "close"]),
                 features,
                 targets,
             ],
@@ -1964,7 +1997,7 @@ class TFTDatasetBuilder:
         # Combine (retain timestamp for macro joins)
         dataset = pd.concat(
             [
-                df[["timestamp", "time_index", "instrument_id"]],
+                df[["timestamp", "time_index", "instrument_id", "close"]],
                 features,
                 targets,
             ],

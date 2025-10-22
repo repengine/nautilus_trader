@@ -73,7 +73,8 @@ def update_model_artifact(
         if request.validate and request.artifact_format.lower() == "onnx":
             ok = validate_onnx(request.artifact_path)
         from sqlalchemy import text as _text
-        assert session is not None
+        if session is None:
+            raise RuntimeError("PersistenceManager returned no active session")
         session.execute(
             _text(
                 """

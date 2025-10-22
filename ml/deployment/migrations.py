@@ -21,20 +21,46 @@ Environment variables:
 from __future__ import annotations
 
 import argparse
-import subprocess
+import importlib
+import logging
+import types
 from collections.abc import Iterable
 from pathlib import Path
+
+from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command
 
 
 MIGRATIONS_DIR: Path = Path("ml/stores/migrations").resolve()
 
 __all__ = [
+    "COMMAND_RUNNER",  # Exposed for tests that monkeypatch process execution
     "MIGRATIONS_DIR",
     "apply_migrations_via_compose",
     "list_migration_files",
-    # Expose subprocess for tests that monkeypatch process execution
-    "subprocess",
+    "subprocess",  # Legacy compatibility for tests patching subprocess.run
 ]
+
+logger = logging.getLogger(__name__)
+
+COMMAND_RUNNER = run_command
+
+
+class _LazySubprocess(types.ModuleType):
+    """Lazy proxy exposing the standard subprocess module on demand."""
+
+    _cached: types.ModuleType | None = None
+
+    def _load(self) -> types.ModuleType:
+        if self._cached is None:
+            self._cached = importlib.import_module("subprocess")  # nosec: B404 - delegated to shared safe wrapper
+        return self._cached
+
+    def __getattr__(self, item: str) -> object:
+        return getattr(self._load(), item)
+
+
+subprocess = _LazySubprocess("subprocess_proxy")
 
 
 def list_migration_files() -> list[Path]:
@@ -95,7 +121,22 @@ def apply_migrations_via_compose(
             user,
             database,
         ]
-        subprocess.run(cmd, input=sql, text=True, check=True)
+        try:
+            COMMAND_RUNNER(
+                cmd,
+                input=sql,
+                text=True,
+                timeout=60,
+                log=logger,
+            )
+        except SubprocessExecutionError as exc:
+            logger.error(
+                "migration_failed file=%s returncode=%s",
+                file,
+                exc.returncode,
+                exc_info=True,
+            )
+            raise
 
 
 def main() -> None:

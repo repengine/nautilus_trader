@@ -7,6 +7,9 @@
 -- Notes: No production data existed - clean slate deployment
 -- ============================================================================
 
+-- Ensure store objects land in the public schema by default.
+SET search_path TO public, pg_catalog, ml_registry;
+
 -- ============================================================================
 -- Helper Functions
 -- ============================================================================
@@ -424,15 +427,59 @@ BEGIN
 
     IF p_status = 'success' THEN
         INSERT INTO ml_data_watermarks (
-            dataset_id, instrument_id, source, ts_max, count, updated_at
+            dataset_id,
+            instrument_id,
+            source,
+            last_success_ns,
+            last_attempt_ns,
+            last_count,
+            completeness_pct,
+            updated_at
         )
         VALUES (
-            p_dataset_id, p_instrument_id, p_source, p_ts_max, p_count, NOW()
+            p_dataset_id,
+            p_instrument_id,
+            p_source,
+            p_ts_max,
+            p_ts_max,
+            p_count,
+            100.0,
+            NOW()
         )
         ON CONFLICT (dataset_id, instrument_id, source)
         DO UPDATE SET
-            ts_max = GREATEST(ml_data_watermarks.ts_max, EXCLUDED.ts_max),
-            count = ml_data_watermarks.count + EXCLUDED.count,
+            last_success_ns = GREATEST(
+                COALESCE(ml_data_watermarks.last_success_ns, 0),
+                EXCLUDED.last_success_ns
+            ),
+            last_attempt_ns = GREATEST(
+                COALESCE(ml_data_watermarks.last_attempt_ns, 0),
+                EXCLUDED.last_attempt_ns
+            ),
+            last_count = EXCLUDED.last_count,
+            completeness_pct = COALESCE(EXCLUDED.completeness_pct, ml_data_watermarks.completeness_pct),
+            updated_at = NOW();
+    ELSE
+        INSERT INTO ml_data_watermarks (
+            dataset_id,
+            instrument_id,
+            source,
+            last_attempt_ns,
+            updated_at
+        )
+        VALUES (
+            p_dataset_id,
+            p_instrument_id,
+            p_source,
+            p_ts_max,
+            NOW()
+        )
+        ON CONFLICT (dataset_id, instrument_id, source)
+        DO UPDATE SET
+            last_attempt_ns = GREATEST(
+                COALESCE(ml_data_watermarks.last_attempt_ns, 0),
+                EXCLUDED.last_attempt_ns
+            ),
             updated_at = NOW();
     END IF;
 
@@ -467,23 +514,44 @@ CREATE OR REPLACE FUNCTION update_watermark(
     p_dataset_id VARCHAR(255),
     p_instrument_id VARCHAR(100),
     p_source VARCHAR(50),
-    p_ts_max BIGINT,
+    p_last_success_ns BIGINT,
     p_count BIGINT,
-    p_last_seq BIGINT DEFAULT NULL
+    p_completeness_pct NUMERIC DEFAULT NULL
 )
 RETURNS VOID AS $$
 BEGIN
     INSERT INTO ml_data_watermarks (
-        dataset_id, instrument_id, source, ts_max, count, last_seq, updated_at
+        dataset_id,
+        instrument_id,
+        source,
+        last_success_ns,
+        last_attempt_ns,
+        last_count,
+        completeness_pct,
+        updated_at
     )
     VALUES (
-        p_dataset_id, p_instrument_id, p_source, p_ts_max, p_count, p_last_seq, NOW()
+        p_dataset_id,
+        p_instrument_id,
+        p_source,
+        p_last_success_ns,
+        p_last_success_ns,
+        p_count,
+        p_completeness_pct,
+        NOW()
     )
     ON CONFLICT (dataset_id, instrument_id, source)
     DO UPDATE SET
-        ts_max = GREATEST(ml_data_watermarks.ts_max, EXCLUDED.ts_max),
-        count = ml_data_watermarks.count + EXCLUDED.count,
-        last_seq = COALESCE(EXCLUDED.last_seq, ml_data_watermarks.last_seq),
+        last_success_ns = GREATEST(
+            COALESCE(ml_data_watermarks.last_success_ns, 0),
+            EXCLUDED.last_success_ns
+        ),
+        last_attempt_ns = GREATEST(
+            COALESCE(ml_data_watermarks.last_attempt_ns, 0),
+            EXCLUDED.last_attempt_ns
+        ),
+        last_count = EXCLUDED.last_count,
+        completeness_pct = COALESCE(EXCLUDED.completeness_pct, ml_data_watermarks.completeness_pct),
         updated_at = NOW();
 END;
 $$ LANGUAGE plpgsql;

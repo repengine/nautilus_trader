@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -12,12 +13,15 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pd
 import ml.common.metrics_bootstrap as metrics_bootstrap
 from ml.training.teacher.streaming_loader import (
+    StreamingLimitSummary,
     TFTStreamingConfig,
     TFTStreamingDataModule,
     TFTStreamingDataset,
     TFTStreamingSummary,
+    apply_streaming_limits,
     build_streaming_dataloader,
     collect_streaming_metadata,
+    count_sequences,
     filter_metadata_by_instruments,
     instrument_row_counts,
     is_within_shard_budget,
@@ -217,7 +221,7 @@ def test_streaming_dataset_shard_partitioning(tmp_path: Path) -> None:
         static_reals=(),
         time_varying_known_reals=(),
         time_varying_unknown_reals=("feature",),
-        max_encoder_length=3,
+        max_encoder_length=2,
         max_prediction_length=1,
         batch_size=2,
         drop_last=False,
@@ -240,6 +244,138 @@ def test_streaming_dataset_shard_partitioning(tmp_path: Path) -> None:
 
     assert worker0_ids.isdisjoint(worker1_ids)
     assert worker0_ids.union(worker1_ids) == all_ids
+
+
+@pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
+def test_build_streaming_dataloader_respects_limits(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(12, dtype=np.int64),
+            "instrument_id": ["AAPL"] * 6 + ["MSFT"] * 6,
+            "y": np.linspace(0.0, 11.0, num=12, dtype=np.float32),
+            "feature": np.linspace(1.0, 12.0, num=12, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "cap_limits.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        shard_row_budget=6,
+    )
+
+    base_config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=2,
+        max_prediction_length=1,
+        batch_size=2,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=0,
+        num_workers=0,
+    )
+
+    limited_shards_config = replace(base_config, max_shards=1)
+    loader = build_streaming_dataloader(parquet_path, metadata, limited_shards_config)
+    dataset = loader.dataset  # type: ignore[attr-defined]
+    assert isinstance(dataset, TFTStreamingDataset)
+    assert len(dataset._metadata.shard_indices) == 1  # type: ignore[attr-defined]
+
+    limited_sequences_config = replace(base_config, max_total_sequences=4)
+    loader_seq = build_streaming_dataloader(parquet_path, metadata, limited_sequences_config)
+    dataset_seq = loader_seq.dataset  # type: ignore[attr-defined]
+    assert len(dataset_seq._metadata.shard_indices) == 1  # type: ignore[attr-defined]
+
+    strict_rows_config = replace(base_config, max_total_rows=3)
+    with pytest.raises(RuntimeError):
+        build_streaming_dataloader(parquet_path, metadata, strict_rows_config)
+
+
+@pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
+def test_apply_streaming_limits_and_count_sequences(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(12, dtype=np.int64),
+            "instrument_id": ["AAPL"] * 6 + ["MSFT"] * 6,
+            "y": np.linspace(0.0, 11.0, num=12, dtype=np.float32),
+            "feature": np.linspace(1.0, 12.0, num=12, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "limits.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        shard_row_budget=3,
+    )
+    total_rows = sum(metadata.instrument_row_counts.values())
+
+    config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=2,
+        max_prediction_length=1,
+        batch_size=2,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=0,
+        num_workers=0,
+        max_shards=2,
+    )
+
+    assert config.max_encoder_length == 2
+    assert all(shard.row_count >= 3 for shard in metadata.shard_indices)
+
+    limited, summary = apply_streaming_limits(metadata, config)
+    assert isinstance(summary, StreamingLimitSummary)
+    assert len(limited.shard_indices) == 2
+    assert summary.skipped_shards == max(0, len(metadata.shard_indices) - 2)
+    selected_rows = sum(limited.instrument_row_counts.values())
+    assert selected_rows <= total_rows
+    assert summary.skipped_rows == max(0, total_rows - selected_rows)
+
+    selected_sequences = count_sequences(limited, config)
+    assert selected_sequences >= 0
+
+    loader = build_streaming_dataloader(
+        parquet_path,
+        limited,
+        config,
+        metadata_is_limited=True,
+        limit_summary=summary,
+    )
+    batch_inputs, (targets, _) = next(iter(loader))
+    assert "encoder_cont" in batch_inputs
+    assert targets.shape[0] > 0
 
 
 def test_is_within_shard_budget_guard() -> None:

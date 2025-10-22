@@ -217,7 +217,14 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
         for token in candidates:
             try:
                 InstrumentId.from_str(token)
-            except Exception:
+            except Exception as exc:
+                logger.debug(
+                    "market_data_writer.invalid_instrument_token token=%s instrument_id=%s",
+                    token,
+                    instrument_id,
+                    exc_info=True,
+                    extra={"error": repr(exc)},
+                )
                 continue
             return token
         return None

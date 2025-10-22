@@ -50,7 +50,9 @@ DEFAULT_SCHEMA: Final[str] = "ohlcv-1m"
 
 if not HAS_POLARS:  # pragma: no cover - import guard mirrors CLI behaviour
     check_ml_dependencies(["polars"])
-assert _pl is not None  # narrow Optional at runtime
+if _pl is None:
+    msg = "Polars runtime not available after dependency check"
+    raise RuntimeError(msg)
 PL = _pl
 
 

@@ -183,21 +183,29 @@ class SchemaValidator:
         # Import locally to avoid circular dependency
         data_frame = data
 
+        data_frame_any = cast(Any, data_frame)
+
         # Get total record count
-        if hasattr(data_frame, "__len__"):
-            total_records = len(data_frame)
+        if hasattr(data_frame_any, "__len__"):
+            total_records = len(data_frame_any)
         else:
             total_records = 0
 
         # Apply all validation rules
         violations: list[ValidationViolation] = []
         for rule in contract.validation_rules:
-            violation = self.apply_validation_rule(rule, data_frame, manifest)
+            violation = self.apply_validation_rule(rule, data_frame_any, manifest)
             if violation:
                 violations.append(violation)
 
         # Calculate quality metrics
-        failed_records = sum(v.violation_count for v in violations)
+        failed_record_estimate = sum(
+            v.violation_count
+            for v in violations
+            if v.severity == QualityFlag.FAIL
+            or (strict_mode and v.severity == QualityFlag.WARN)
+        )
+        failed_records = min(total_records, failed_record_estimate)
         passed_records = max(0, total_records - failed_records)
 
         # Calculate quality score (simple ratio)
@@ -206,17 +214,45 @@ class SchemaValidator:
         else:
             quality_score = 1.0
 
-        # Apply strict mode adjustment
-        if strict_mode:
-            warnings = [v for v in violations if v.severity == QualityFlag.WARN]
-            if warnings:
-                # In strict mode, warnings count against quality
-                quality_score *= 0.9
-
         validation_time_ms = (time.perf_counter() - start_time) * 1000
+
+        # Evaluate quality thresholds (null rate, etc.)
+        if contract.quality_thresholds:
+            try:
+                from ml.common.dataframe_utils import total_nulls as _total_nulls
+
+                columns_obj = getattr(data_frame_any, "columns", None)
+                column_count = len(columns_obj) if columns_obj is not None else 0
+                null_count_total: int = _total_nulls(data_frame_any)
+                base_count = total_records * column_count if total_records > 0 else 0
+                null_rate = float(null_count_total) / float(base_count) if base_count else 0.0
+
+                threshold = contract.quality_thresholds.get("null_rate")
+                if threshold is not None and null_rate > threshold:
+                    violations.append(
+                        ValidationViolation(
+                            rule_type=ValidationRuleType.NULLABILITY,
+                            field_name="*",
+                            severity=QualityFlag.WARN,
+                            violation_count=max(1, int(null_rate * total_records)) if total_records else 1,
+                            sample_values=[],
+                            description=f"Null rate {null_rate:.2%} exceeds threshold",
+                        ),
+                    )
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("quality_threshold_evaluation_failed", exc_info=True)
 
         # Record metrics
         if HAS_PROMETHEUS:
+            logger.info(
+                "recording_schema_validation_metrics",
+                extra={
+                    "dataset_id": manifest.dataset_id,
+                    "quality_metric": type(quality_score_histogram).__name__,
+                    "duration_metric": type(validation_duration_histogram).__name__,
+                    "violation_count": len(violations),
+                },
+            )
             quality_score_histogram.labels(dataset_id=manifest.dataset_id).observe(quality_score)
             validation_duration_histogram.labels(dataset_id=manifest.dataset_id).observe(
                 validation_time_ms / 1000
@@ -228,6 +264,21 @@ class SchemaValidator:
                     rule_type=violation.rule_type.value,
                     severity=violation.severity.value,
                 ).inc()
+        else:
+            logger.info(
+                "schema_validation_metrics_not_recorded",
+                extra={
+                    "dataset_id": manifest.dataset_id,
+                    "has_prometheus": HAS_PROMETHEUS,
+                },
+            )
+
+        report_metadata = {
+            "contract_version": contract.version,
+            "enforcement_mode": contract.enforcement_mode,
+            "strict_mode": strict_mode,
+            "rules_evaluated": len(contract.validation_rules),
+        }
 
         return QualityReport(
             dataset_id=manifest.dataset_id,
@@ -237,6 +288,7 @@ class SchemaValidator:
             quality_score=quality_score,
             violations=violations,
             validation_time_ms=validation_time_ms,
+            metadata=report_metadata,
         )
 
     def apply_validation_rule(
@@ -741,12 +793,19 @@ class SchemaValidator:
             if HAS_PROMETHEUS:
                 try:
                     from ml.common.metrics import write_rejection_counter
+
                     write_rejection_counter.labels(
                         dataset_id=dataset_id,
                         reason="validation_failed",
                     ).inc()
-                except Exception:
-                    pass
+                except Exception as metric_exc:
+                    logger.debug(
+                        "schema_validator.metric_increment_failed dataset_id=%s reason=%s",
+                        dataset_id,
+                        "validation_failed",
+                        exc_info=True,
+                        extra={"error": repr(metric_exc)},
+                    )
             raise ValueError(
                 f"Data validation failed for {dataset_id} (fail-closed). "
                 f"Quality score: {quality_report.quality_score:.2f}. "
@@ -758,12 +817,19 @@ class SchemaValidator:
             if HAS_PROMETHEUS:
                 try:
                     from ml.common.metrics import write_rejection_counter
+
                     write_rejection_counter.labels(
                         dataset_id=dataset_id,
                         reason="strict_mode_violation",
                     ).inc()
-                except Exception:
-                    pass
+                except Exception as metric_exc:
+                    logger.debug(
+                        "schema_validator.metric_increment_failed dataset_id=%s reason=%s",
+                        dataset_id,
+                        "strict_mode_violation",
+                        exc_info=True,
+                        extra={"error": repr(metric_exc)},
+                    )
             raise ValueError(
                 f"Data validation failed for {dataset_id} (strict mode). "
                 f"Quality score: {quality_report.quality_score:.2f}. "

@@ -25,7 +25,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -41,6 +41,22 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.tasks.datasets.splits import create_purged_splits
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
+from ml.training.teacher.streaming_telemetry import StreamingLoaderTelemetry
+from ml.training.teacher.streaming_telemetry import StreamingRunTelemetry
+from ml.training.teacher.tft_teacher import TFTTeacher
+from ml.training.teacher.tft_teacher import TFTTeacherConfig
+
+
+if TYPE_CHECKING:
+    import pandas as _pd_typed
+
+    from ml.training.teacher.streaming_loader import TFTStreamingConfig as _TFTStreamingConfig
+
+    PandasDataFrame = _pd_typed.DataFrame
+    TFTStreamingConfigType = _TFTStreamingConfig
+else:  # pragma: no cover - pandas optional at runtime
+    PandasDataFrame = Any
+    TFTStreamingConfigType = Any
 
 
 logger = logging.getLogger(__name__)
@@ -72,6 +88,254 @@ def _compute_sharpe_ratio(
         return 0.0
     mean = float(np.mean(strategy_returns))
     return float(mean / std)
+
+
+def _parse_arg_list(value: str | None) -> list[str]:
+    """Return trimmed list parsed from a comma-separated CLI argument."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _run_streaming_training(
+    args: argparse.Namespace,
+    *,
+    feature_names: list[str],
+    static_categoricals: list[str],
+    static_reals: tuple[str, ...],
+    known_future_reals: tuple[str, ...],
+    unknown_reals: tuple[str, ...],
+) -> tuple[
+    TFTTeacher,
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    StreamingRunTelemetry,
+]:
+    """
+    Train the TFT teacher using the streaming loader and capped resource limits.
+
+    The helper resolves shard metadata, applies global limits (shards/rows/sequences), and
+    returns both the fitted teacher, the logits/targets generated during streaming, and
+    telemetry describing how caps affected shard selection.
+    It raises ``SystemExit`` when streaming is requested without a parquet source or when
+    the configured limits filter out every shard.
+    """
+    from ml.training.teacher import streaming_loader as stream
+
+    if not args.train_data_parquet:
+        raise SystemExit("--streaming requires --train_data_parquet to be provided")
+
+    parquet_path = Path(args.train_data_parquet)
+
+    base_static_cats = list(dict.fromkeys(static_categoricals))
+    static_reals_seq = static_reals
+    known_future_seq = known_future_reals
+    time_varying_unknown_reals = unknown_reals
+
+    scan_features = set(feature_names)
+    scan_features.update(base_static_cats)
+    scan_features.update(static_reals_seq)
+    scan_features.update(known_future_seq)
+    scan_features.add(args.target_col)
+
+    shard_row_budget = args.streaming_shard_budget
+    metadata_kwargs: dict[str, int] = {}
+    if shard_row_budget is not None:
+        metadata_kwargs["shard_row_budget"] = shard_row_budget
+    metadata_stream = stream.collect_streaming_metadata(
+        parquet_path,
+        feature_names=tuple(sorted(scan_features)),
+        categorical_columns=tuple(base_static_cats),
+        numeric_columns=tuple({args.target_col, *static_reals_seq, *known_future_seq, *time_varying_unknown_reals}),
+        group_id_col=args.group_id_col,
+        time_index_col=args.time_index_col,
+        **metadata_kwargs,
+    )
+    if int(args.limit_groups or 0) > 0:
+        counts = stream.instrument_row_counts(metadata_stream)
+        top_instruments = [
+            instrument
+            for instrument, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[
+                : int(args.limit_groups)
+            ]
+        ]
+        metadata_stream = stream.filter_metadata_by_instruments(metadata_stream, top_instruments)
+
+    metadata_summary = stream.summarize_metadata(metadata_stream)
+    logger.info(
+        "streaming metadata ready",
+        extra={
+            "total_shards": metadata_summary.total_shards,
+            "total_rows": metadata_summary.total_rows,
+            "max_shard_rows": metadata_summary.max_shard_rows,
+        },
+    )
+
+    train_meta, val_meta = stream.split_metadata_by_row_fraction(metadata_stream, 0.8)
+
+    streaming_config = stream.TFTStreamingConfig(
+        time_idx_col=args.time_index_col,
+        group_id_col=args.group_id_col,
+        target_col=args.target_col,
+        static_categoricals=tuple(base_static_cats),
+        static_reals=static_reals_seq,
+        time_varying_known_reals=known_future_seq,
+        time_varying_unknown_reals=time_varying_unknown_reals,
+        max_encoder_length=int(args.max_encoder_length),
+        max_prediction_length=int(args.max_prediction_length),
+        batch_size=int(args.batch_size),
+        drop_last=False,
+        shuffle_shards=False,
+        seed=args.seed,
+        num_workers=int(args.dataloader_workers),
+        max_total_rows=args.max_streaming_rows,
+        max_total_sequences=args.max_streaming_sequences,
+        max_shards=args.max_streaming_shards,
+    )
+
+    train_limited_meta, train_limit_summary = stream.apply_streaming_limits(train_meta, streaming_config)
+    val_limited_meta, val_limit_summary = stream.apply_streaming_limits(val_meta, streaming_config)
+
+    train_stats = StreamingLoaderTelemetry.from_metadata(
+        "train",
+        train_limited_meta,
+        train_limit_summary,
+        streaming_config,
+    )
+    val_stats = StreamingLoaderTelemetry.from_metadata(
+        "validation",
+        val_limited_meta,
+        val_limit_summary,
+        streaming_config,
+    )
+    for stats in (train_stats, val_stats):
+        logger.info("streaming caps applied", extra=stats.as_logging_extra())
+
+    telemetry = StreamingRunTelemetry(
+        metadata_summary=metadata_summary,
+        caps={
+            "shard_row_budget": shard_row_budget,
+            "max_shards": streaming_config.max_shards,
+            "max_total_rows": streaming_config.max_total_rows,
+            "max_total_sequences": streaming_config.max_total_sequences,
+        },
+        train=train_stats,
+        validation=val_stats,
+    )
+
+    train_loader = stream.build_streaming_dataloader(
+        parquet_path,
+        train_limited_meta,
+        streaming_config,
+        metadata_is_limited=True,
+        limit_summary=train_limit_summary,
+    )
+    val_loader = stream.build_streaming_dataloader(
+        parquet_path,
+        val_limited_meta,
+        streaming_config,
+        metadata_is_limited=True,
+        limit_summary=val_limit_summary,
+    )
+
+    pos_weight_val = None
+    if str(args.loss).lower() == "bce" and args.pos_weight:
+        try:
+            if str(args.pos_weight).strip().lower() == "auto":
+                target_stats = train_limited_meta.numeric_stats.get(args.target_col)
+                if target_stats is not None and target_stats.count > 0 and 0.0 < target_stats.mean < 1.0:
+                    pos_weight_val = float((1.0 - target_stats.mean) / target_stats.mean)
+            else:
+                pos_weight_val = float(args.pos_weight)
+        except Exception:
+            pos_weight_val = None
+
+    teacher = TFTTeacher(
+        TFTTeacherConfig(
+            architecture="TFT",
+            loss_name=str(args.loss),
+            pos_weight=pos_weight_val,
+        ),
+        max_encoder_length=args.max_encoder_length,
+        max_prediction_length=args.max_prediction_length,
+        static_categoricals=tuple(base_static_cats),
+        static_reals=static_reals_seq,
+        time_varying_known_reals=known_future_seq,
+        time_varying_unknown_reals=time_varying_unknown_reals,
+        time_idx_col=args.time_index_col,
+        group_id_col=args.group_id_col,
+        target_col=args.target_col,
+        max_epochs=args.max_epochs,
+        hidden_size=args.hidden_size,
+        lstm_layers=args.lstm_layers,
+        attention_head_size=args.attention_head_size,
+        dropout=args.dropout,
+        dataloader_workers=args.dataloader_workers,
+        pretrained_state_path=(args.pretrained_state_path or None),
+        learning_rate=float(args.learning_rate),
+        accelerator=str(args.accelerator),
+        devices=int(args.devices),
+        batch_size=int(args.batch_size),
+        precision=str(args.precision),
+    )
+
+    result = teacher.fit_streaming(
+        parquet_path=parquet_path,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        train_metadata=train_limited_meta,
+        val_metadata=val_limited_meta,
+        full_metadata=metadata_stream,
+        streaming_config=streaming_config,
+    )
+    return teacher, result.z_train, result.z_val, result.y_val, telemetry
+
+
+def _persist_teacher_outputs(
+    out_dir: Path,
+    *,
+    q_train: npt.NDArray[np.float32] | None,
+    q_val: npt.NDArray[np.float32] | None,
+    y_val_true: npt.NDArray[np.float64],
+    meta: dict[str, Any],
+    streaming_telemetry: StreamingRunTelemetry | None,
+) -> dict[str, Path]:
+    """Persist teacher outputs and optional streaming telemetry."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    preds_path = out_dir / "teacher_preds.npz"
+    if q_train is not None:
+        np.savez_compressed(
+            preds_path,
+            q_train=q_train.squeeze(),
+            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
+            y_val_true=y_val_true.astype(np.float32),
+        )
+    else:
+        np.savez_compressed(
+            preds_path,
+            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
+            y_val_true=y_val_true.astype(np.float32),
+        )
+
+    meta_path = out_dir / "teacher_meta.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    summary_path: Path | None = None
+    if streaming_telemetry is not None:
+        summary_path = out_dir / "streaming_summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(streaming_telemetry.as_dict(), f, indent=2)
+
+    paths: dict[str, Path] = {
+        "preds_path": preds_path,
+        "meta_path": meta_path,
+    }
+    if summary_path is not None:
+        paths["streaming_summary_path"] = summary_path
+    return paths
 
 
 class CalibratingTeacher(BaseTeacher):
@@ -195,6 +459,54 @@ def main(argv: list[str] | None = None) -> int:
         default=64,
         help="Batch size for train/val DataLoaders (default: 64)",
     )
+    ap.add_argument(
+        "--streaming",
+        action="store_true",
+        help=(
+            "Enable the streaming parquet training path. Use when training datasets exceed the"
+            " in-memory budget; requires --train_data_parquet."
+        ),
+    )
+    ap.add_argument(
+        "--streaming_shard_budget",
+        required=False,
+        type=int,
+        default=None,
+        help=(
+            "Optional row budget applied during metadata scans (default: 2,000,000)."
+            " Start with 100,000-250,000 when prototyping to cap peak RSS."
+        ),
+    )
+    ap.add_argument(
+        "--max_streaming_shards",
+        required=False,
+        type=int,
+        default=None,
+        help=(
+            "If set, cap the number of shards processed in streaming mode."
+            " Typical smoke values: 2 for single instrument, 4 for two instruments."
+        ),
+    )
+    ap.add_argument(
+        "--max_streaming_rows",
+        required=False,
+        type=int,
+        default=None,
+        help=(
+            "If set, cap total rows processed by the streaming loader."
+            " Practical ranges: 200,000-500,000 depending on device memory."
+        ),
+    )
+    ap.add_argument(
+        "--max_streaming_sequences",
+        required=False,
+        type=int,
+        default=None,
+        help=(
+            "If set, cap the number of encoder sequences processed in streaming mode."
+            " Start around 120,000 for single-instrument smoke tests."
+        ),
+    )
 
     ap.add_argument(
         "--accelerator",
@@ -298,6 +610,37 @@ def main(argv: list[str] | None = None) -> int:
         help="Register the trained teacher as a non-serveable model",
     )
     args = ap.parse_args(argv)
+    out_dir = Path(args.out_dir)
+
+    static_categoricals = _parse_arg_list(args.static_categoricals)
+    static_reals = _parse_arg_list(args.static_reals)
+    known_future_reals = _parse_arg_list(args.known_future_reals)
+
+    streaming_mode = bool(args.streaming and args.train_data_parquet and not args.train_data_csv)
+    if args.streaming and not args.train_data_parquet:
+        raise SystemExit("--streaming requires --train_data_parquet")
+    if args.streaming and args.train_data_csv:
+        raise SystemExit("--streaming cannot be used with --train_data_csv")
+
+    if args.seed is not None:
+        import random
+
+        import numpy as _np
+
+        try:
+            import torch as _torch
+
+            _torch.manual_seed(args.seed)
+            _torch.cuda.manual_seed_all(args.seed)
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Torch seeding failed; continuing",
+                exc_info=True,
+            )
+        random.seed(args.seed)
+        _np.random.seed(args.seed)
 
     metadata_path: Path | None = Path(args.dataset_metadata) if args.dataset_metadata else None
     metadata_required = bool(args.train_data_csv or args.train_data_parquet)
@@ -308,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
             if candidate:
                 metadata_path = Path(candidate).with_name("dataset_metadata.json")
         if metadata_path is None:
-            metadata_path = Path(args.out_dir) / "dataset_metadata.json"
+            metadata_path = out_dir / "dataset_metadata.json"
         if not metadata_path.exists():
             raise FileNotFoundError(f"Dataset metadata is required at {metadata_path}")
         metadata = load_dataset_metadata(metadata_path)
@@ -371,299 +714,309 @@ def main(argv: list[str] | None = None) -> int:
     y_val_true: npt.NDArray[np.float64] | None = None
     validation_returns: npt.NDArray[np.float64] | None = None
 
+    base_static_cats = list(dict.fromkeys(static_categoricals))
+    if args.group_id_col not in base_static_cats:
+        base_static_cats.append(args.group_id_col)
+    static_reals_seq = tuple(dict.fromkeys(static_reals))
+    known_future_seq = tuple(dict.fromkeys(known_future_reals))
+    unknown_reals_seq = tuple(
+        name
+        for name in feature_names
+        if name not in base_static_cats
+        and name not in static_reals_seq
+        and name not in known_future_seq
+        and name != args.target_col
+    )
+
+    teacher_tft: TFTTeacher | None = None
+    z_val_vec: npt.NDArray[np.float64] | None = None
+    z_train_vec: npt.NDArray[np.float64] | None = None
+    y_val_true = None
+    df_val: PandasDataFrame | None = None
+    _df_train: PandasDataFrame | None = None
+    z_all: npt.NDArray[np.float64] | None = None
+    used_tft = False
+    streaming_telemetry: StreamingRunTelemetry | None = None
+
     # If training data is provided, run training mode
     if args.train_data_csv or args.train_data_parquet:
-        if not HAS_PANDAS:
-            check_ml_dependencies(["pandas"])  # pragma: no cover - import guard
-        if pd is None:
-            raise SystemExit("pandas is required to load training data")
-        df = (
-            pd.read_parquet(args.train_data_parquet)
-            if args.train_data_parquet
-            else pd.read_csv(args.train_data_csv)
-        )
-        # Set seeds if provided
-        if args.seed is not None:
-            import random
+        if streaming_mode:
+            (
+                teacher_tft,
+                z_train_vec_stream,
+                z_val_vec_stream,
+                y_val_true_stream,
+                streaming_telemetry,
+            ) = _run_streaming_training(
+                args,
+                feature_names=feature_names,
+                static_categoricals=list(base_static_cats),
+                static_reals=static_reals_seq,
+                known_future_reals=known_future_seq,
+                unknown_reals=unknown_reals_seq,
+            )
+            z_train_vec = z_train_vec_stream
+            z_val_vec = z_val_vec_stream
+            y_val_true = y_val_true_stream
+            validation_returns = None
+            used_tft = True
+        else:
+            if not HAS_PANDAS:
+                check_ml_dependencies(["pandas"])  # pragma: no cover - import guard
+            if pd is None:
+                raise SystemExit("pandas is required to load training data")
+            df = (
+                pd.read_parquet(args.train_data_parquet)
+                if args.train_data_parquet
+                else pd.read_csv(args.train_data_csv)
+            )
+            missing = [c for c in feature_names if c not in df.columns]
+            if missing:
+                raise SystemExit(f"Training CSV missing required feature columns: {missing}")
+            df_sorted = df.sort_values(args.time_index_col)
+            if int(args.limit_groups or 0) > 0:
+                counts = df_sorted[args.group_id_col].value_counts()
+                keep = set(counts.head(int(args.limit_groups)).index.tolist())
+                df_sorted = df_sorted[df_sorted[args.group_id_col].isin(keep)]
+            if int(args.tail_rows or 0) > 0:
+                try:
+                    df_sorted = (
+                        df_sorted.groupby(args.group_id_col, group_keys=False)
+                        .tail(int(args.tail_rows))
+                        .reset_index(drop=True)
+                    )
+                except Exception:
+                    df_sorted = df_sorted.tail(int(args.tail_rows)).reset_index(drop=True)
+            # Prefer time-based validation window if requested and timestamp is available
+            _df_train = None
+            df_val = None
+            use_time_window = (
+                int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns
+            )
+            if use_time_window:
+                try:
+                    ts = pd.to_datetime(df_sorted[args.timestamp_col], errors="coerce")
+                    df_sorted = df_sorted.assign(_ts=ts)
+                    max_ts = df_sorted["_ts"].max()
+                    if pd.notna(max_ts):
+                        cutoff_ts = max_ts - pd.Timedelta(days=int(args.val_days))
+                        mask_val = df_sorted["_ts"] > cutoff_ts
+                        df_val = df_sorted.loc[mask_val].drop(columns=["_ts"], errors="ignore")
+                        _df_train = df_sorted.loc[~mask_val].drop(columns=["_ts"], errors="ignore")
+                except Exception:
+                    _df_train = None
+                    df_val = None
 
-            import numpy as _np
+            if (_df_train is None or df_val is None or len(df_val) == 0) and not use_time_window:
+                try:
+                    split_info = create_purged_splits(
+                        df_sorted,
+                        timestamp_col=args.timestamp_col,
+                        test_fraction=float(args.test_fraction),
+                        n_splits=int(args.cv_splits),
+                        purge_gap=int(args.purge_gap),
+                        embargo_hours=float(args.embargo_hours),
+                    )
+                    if split_info["cv_splits"]:
+                        train_idx, val_idx = split_info["cv_splits"][-1]
+                        _df_train = df_sorted.iloc[train_idx]
+                        df_val = df_sorted.iloc[val_idx]
+                except Exception:
+                    _df_train = None
+                    df_val = None
 
-            try:
-                import torch as _torch
+            if _df_train is None or df_val is None or len(df_val) == 0:
+                n_total = len(df_sorted)
+                min_val_len = max(int(n_total * 0.2), 1)
+                cutoff = max(int(n_total * 0.8), n_total - min_val_len)
+                _df_train = df_sorted.iloc[:cutoff]
+                df_val = df_sorted.iloc[cutoff:]
+            y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
+            if "forward_return" in df_val.columns:
+                try:
+                    validation_returns = np.asarray(
+                        df_val["forward_return"],
+                        dtype=np.float64,
+                    ).reshape(-1)
+                except Exception:
+                    validation_returns = None
 
-                _torch.manual_seed(args.seed)
-                _torch.cuda.manual_seed_all(args.seed)
+            # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
+            z_val_vec = None
+            z_train_vec = None
+            z_all = None
+            used_tft = False
+            # Determine BCE pos_weight (class imbalance) if requested and applicable
+            pos_weight_val = None
+            if str(args.loss).lower() == "bce" and args.pos_weight:
+                try:
+                    if str(args.pos_weight).strip().lower() == "auto":
+                        # prevalence on training slice
+                        y_tr = np.asarray(_df_train[args.target_col], dtype=np.float64)
+                        prev = float(y_tr.mean()) if y_tr.size > 0 else 0.0
+                        if prev > 0.0 and prev < 1.0:
+                            pos_weight_val = float((1.0 - prev) / prev)
+                    else:
+                        pos_weight_val = float(args.pos_weight)
+                except Exception:
+                    pos_weight_val = None
+            try:  # pragma: no cover - exercised in integration path when dependencies ok
+                from ml.training.teacher.tft_teacher import TFTTeacher
+                from ml.training.teacher.tft_teacher import TFTTeacherConfig
+
+                teacher_tft = TFTTeacher(
+                    TFTTeacherConfig(
+                        architecture="TFT",
+                        loss_name=str(args.loss),
+                        pos_weight=pos_weight_val,
+                    ),
+                    max_encoder_length=args.max_encoder_length,
+                    max_prediction_length=args.max_prediction_length,
+                    time_varying_unknown_reals=(
+                        unknown_reals_seq if unknown_reals_seq else tuple(feature_names)
+                    ),
+                    batch_size=int(args.batch_size),
+                    precision=str(args.precision),
+                    static_categoricals=tuple(base_static_cats) if base_static_cats else None,
+                    static_reals=static_reals_seq if static_reals_seq else None,
+                    time_varying_known_reals=known_future_seq if known_future_seq else None,
+                    time_idx_col=args.time_index_col,
+                    group_id_col=args.group_id_col,
+                    target_col=args.target_col,
+                    max_epochs=args.max_epochs,
+                    hidden_size=args.hidden_size,
+                    lstm_layers=args.lstm_layers,
+                    attention_head_size=args.attention_head_size,
+                    dropout=args.dropout,
+                    dataloader_workers=args.dataloader_workers,
+                    pretrained_state_path=(args.pretrained_state_path or None),
+                    learning_rate=float(args.learning_rate),
+                    accelerator=str(args.accelerator),
+                    devices=int(args.devices),
+                )
+                teacher_tft.fit(df)
+                # Prefer aligned PF targets for validation to ensure q_val matches y_val_true
+                z_val_vec = None
+                z_train_vec = None
+                try:
+                    # Prefer PF return_x alignment when it yields a sufficiently large validation set
+                    z_val_vec, y_val_true_pf = teacher_tft.predict_logits_with_targets(df_val)
+                    min_required = 100
+                    if (
+                        z_val_vec is None
+                        or (hasattr(z_val_vec, "size") and int(z_val_vec.size) < min_required)
+                        or (
+                            hasattr(y_val_true_pf, "size")
+                            and int(getattr(y_val_true_pf, "size", 0)) < min_required
+                        )
+                        or (np.unique(y_val_true_pf).size < 2)
+                    ):
+                        raise RuntimeError(
+                            "Insufficient validation samples or label variance from PF alignment",
+                        )
+                    # Override y_val_true with PF-aligned decoder targets
+                    y_val_true = y_val_true_pf
+                except Exception:
+                    # Fallback path 1: predict on the full sorted frame and slice
+                    try:
+                        z_all = teacher_tft.predict_logits(df_sorted)
+                        z_val_vec = z_all[cutoff:]
+                        # use original df_val labels already assigned above
+                    except Exception:
+                        z_val_vec = None
+                # Fallback path 2: predict directly on validation frame
+                if z_val_vec is None or (hasattr(z_val_vec, "size") and z_val_vec.size == 0):
+                    try:
+                        z_val_vec = teacher_tft.predict_logits(df_val)
+                    except Exception:
+                        z_val_vec = None
+                # For q_train, compute logits on the training slice directly; fallback to slicing if needed
+                try:
+                    z_train_vec = teacher_tft.predict_logits(_df_train)
+                except Exception:
+                    try:
+                        if z_all is not None:
+                            z_train_vec = z_all[:cutoff]
+                        else:
+                            z_train_vec = None
+                    except Exception:
+                        z_train_vec = None
+                # Guard: ensure we have non-empty validation logits for calibration
+                if z_val_vec is None or (hasattr(z_val_vec, "size") and z_val_vec.size == 0):
+                    raise RuntimeError("Empty validation logits after TFT prediction")
+                # Align y_val_true length to z_val_vec if needed (fallback modes may produce shorter sequences)
+                try:
+                    import numpy as _np
+
+                    z_len = int(z_val_vec.shape[0])
+                    y_len = int(_np.asarray(y_val_true).shape[0]) if y_val_true is not None else 0
+                    if z_len > 0 and y_len > 0 and z_len != y_len:
+                        if z_len < y_len:
+                            # Use most recent labels to match predicted horizon
+                            y_val_true = _np.asarray(y_val_true, dtype=_np.float64)[-z_len:]
+                            if validation_returns is not None:
+                                validation_returns = _np.asarray(
+                                    validation_returns,
+                                    dtype=_np.float64,
+                                )[-z_len:]
+                        else:
+                            z_val_vec = _np.asarray(z_val_vec, dtype=_np.float64)[-y_len:]
+                            if validation_returns is not None and validation_returns.size >= y_len:
+                                validation_returns = _np.asarray(
+                                    validation_returns,
+                                    dtype=_np.float64,
+                                )[-y_len:]
+                    # If training logits exist, enforce 80/20 split consistency (optional)
+                    if z_train_vec is not None:
+                        zt = int(z_train_vec.shape[0])
+                        if zt == 0:
+                            z_train_vec = None
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("TFT post-processing alignment failed: %s", exc)
+                used_tft = True
             except Exception:
                 import logging as _logging
 
-                _logging.getLogger(__name__).debug(
-                    "Torch seeding failed; continuing",
-                    exc_info=True,
+                _logging.getLogger(__name__).exception(
+                    "TFT training failed; falling back to logistic regression",
                 )
-            random.seed(args.seed)
-            _np.random.seed(args.seed)
-        # Enforce feature column order
-        missing = [c for c in feature_names if c not in df.columns]
-        if missing:
-            raise SystemExit(f"Training CSV missing required feature columns: {missing}")
-        # Use last 20% as validation; keep train/val slices explicit
-        df_sorted = df.sort_values(args.time_index_col)
-        # Optionally restrict groups to top-N by size
-        if int(args.limit_groups or 0) > 0:
-            counts = df_sorted[args.group_id_col].value_counts()
-            keep = set(counts.head(int(args.limit_groups)).index.tolist())
-            df_sorted = df_sorted[df_sorted[args.group_id_col].isin(keep)]
-        # Optionally cap rows per group to tail N (recent data)
-        if int(args.tail_rows or 0) > 0:
-            try:
-                df_sorted = (
-                    df_sorted.groupby(args.group_id_col, group_keys=False)
-                    .tail(int(args.tail_rows))
-                    .reset_index(drop=True)
-                )
-            except Exception:
-                # Fallback: global tail if groupby-tail not available
-                df_sorted = df_sorted.tail(int(args.tail_rows)).reset_index(drop=True)
-        # Prefer time-based validation window if requested and timestamp is available
-        _df_train = None
-        df_val = None
-        use_time_window = (
-            int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns
-        )
-        if use_time_window:
-            try:
-                ts = pd.to_datetime(df_sorted[args.timestamp_col], errors="coerce")
-                df_sorted = df_sorted.assign(_ts=ts)
-                max_ts = df_sorted["_ts"].max()
-                if pd.notna(max_ts):
-                    cutoff_ts = max_ts - pd.Timedelta(days=int(args.val_days))
-                    mask_val = df_sorted["_ts"] > cutoff_ts
-                    df_val = df_sorted.loc[mask_val].drop(columns=["_ts"], errors="ignore")
-                    _df_train = df_sorted.loc[~mask_val].drop(columns=["_ts"], errors="ignore")
-            except Exception:
-                _df_train = None
-                df_val = None
+                # Fallback: scikit-learn logistic regression as a simple teacher proxy
+                from ml._imports import HAS_SKLEARN
 
-        if (_df_train is None or df_val is None or len(df_val) == 0) and not use_time_window:
-            try:
-                split_info = create_purged_splits(
-                    df_sorted,
-                    timestamp_col=args.timestamp_col,
-                    test_fraction=float(args.test_fraction),
-                    n_splits=int(args.cv_splits),
-                    purge_gap=int(args.purge_gap),
-                    embargo_hours=float(args.embargo_hours),
-                )
-                if split_info["cv_splits"]:
-                    train_idx, val_idx = split_info["cv_splits"][-1]
-                    _df_train = df_sorted.iloc[train_idx]
-                    df_val = df_sorted.iloc[val_idx]
-            except Exception:
-                _df_train = None
-                df_val = None
+                if not HAS_SKLEARN:
+                    raise SystemExit("Training requires TFT dependencies or scikit-learn as fallback")
+                from sklearn.linear_model import LogisticRegression
 
-        if _df_train is None or df_val is None or len(df_val) == 0:
-            n_total = len(df_sorted)
-            min_val_len = max(int(n_total * 0.2), 1)
-            cutoff = max(int(n_total * 0.8), n_total - min_val_len)
-            _df_train = df_sorted.iloc[:cutoff]
-            df_val = df_sorted.iloc[cutoff:]
-        y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
-        if "forward_return" in df_val.columns:
-            try:
-                validation_returns = np.asarray(
-                    df_val["forward_return"],
-                    dtype=np.float64,
-                ).reshape(-1)
-            except Exception:
-                validation_returns = None
-
-        # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
-        z_val_vec: npt.NDArray[np.float64] | None
-        z_train_vec: npt.NDArray[np.float64] | None
-        z_all: npt.NDArray[np.float64] | None = None
-        used_tft = False
-        # Determine BCE pos_weight (class imbalance) if requested and applicable
-        pos_weight_val = None
-        if str(args.loss).lower() == "bce" and args.pos_weight:
-            try:
-                if str(args.pos_weight).strip().lower() == "auto":
-                    # prevalence on training slice
-                    y_tr = np.asarray(_df_train[args.target_col], dtype=np.float64)
-                    prev = float(y_tr.mean()) if y_tr.size > 0 else 0.0
-                    if prev > 0.0 and prev < 1.0:
-                        pos_weight_val = float((1.0 - prev) / prev)
-                else:
-                    pos_weight_val = float(args.pos_weight)
-            except Exception:
-                pos_weight_val = None
-        try:  # pragma: no cover - exercised in integration path when dependencies ok
-            from ml.training.teacher.tft_teacher import TFTTeacher
-            from ml.training.teacher.tft_teacher import TFTTeacherConfig
-
-            teacher_tft = TFTTeacher(
-                TFTTeacherConfig(
-                    architecture="TFT",
-                    loss_name=str(args.loss),
-                    pos_weight=pos_weight_val,
-                ),
-                max_encoder_length=args.max_encoder_length,
-                max_prediction_length=args.max_prediction_length,
-                time_varying_unknown_reals=feature_names,
-                batch_size=int(args.batch_size),
-                precision=str(args.precision),
-                static_categoricals=(
-                    [s for s in (args.static_categoricals or "").split(",") if s]
-                    if args.static_categoricals
-                    else None
-                ),
-                static_reals=(
-                    [s for s in (args.static_reals or "").split(",") if s]
-                    if args.static_reals
-                    else None
-                ),
-                time_varying_known_reals=(
-                    [s for s in (args.known_future_reals or "").split(",") if s]
-                    if args.known_future_reals
-                    else None
-                ),
-                time_idx_col=args.time_index_col,
-                group_id_col=args.group_id_col,
-                target_col=args.target_col,
-                max_epochs=args.max_epochs,
-                hidden_size=args.hidden_size,
-                lstm_layers=args.lstm_layers,
-                attention_head_size=args.attention_head_size,
-                dropout=args.dropout,
-                dataloader_workers=args.dataloader_workers,
-                pretrained_state_path=(args.pretrained_state_path or None),
-                learning_rate=float(args.learning_rate),
-                accelerator=str(args.accelerator),
-                devices=int(args.devices),
-            )
-            teacher_tft.fit(df)
-            # Prefer aligned PF targets for validation to ensure q_val matches y_val_true
-            z_val_vec = None
-            z_train_vec = None
-            try:
-                # Prefer PF return_x alignment when it yields a sufficiently large validation set
-                z_val_vec, y_val_true_pf = teacher_tft.predict_logits_with_targets(df_val)
-                min_required = 100
-                if (
-                    z_val_vec is None
-                    or (hasattr(z_val_vec, "size") and int(z_val_vec.size) < min_required)
-                    or (
-                        hasattr(y_val_true_pf, "size")
-                        and int(getattr(y_val_true_pf, "size", 0)) < min_required
-                    )
-                    or (np.unique(y_val_true_pf).size < 2)
-                ):
-                    raise RuntimeError(
-                        "Insufficient validation samples or label variance from PF alignment",
-                    )
-                # Override y_val_true with PF-aligned decoder targets
-                y_val_true = y_val_true_pf
-            except Exception:
-                # Fallback path 1: predict on the full sorted frame and slice
+                X = np.asarray(df_sorted[feature_names].to_numpy(), dtype=np.float64)
+                y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
+                # Derive cutoff from previously prepared splits when available; else 80/20
                 try:
-                    z_all = teacher_tft.predict_logits(df_sorted)
-                    z_val_vec = z_all[cutoff:]
-                    # use original df_val labels already assigned above
+                    # _df_train is defined earlier in this scope; use its length when available
+                    cut_idx = len(_df_train) if _df_train is not None else None
                 except Exception:
-                    z_val_vec = None
-            # Fallback path 2: predict directly on validation frame
-            if z_val_vec is None or (hasattr(z_val_vec, "size") and z_val_vec.size == 0):
-                try:
-                    z_val_vec = teacher_tft.predict_logits(df_val)
-                except Exception:
-                    z_val_vec = None
-            # For q_train, compute logits on the training slice directly; fallback to slicing if needed
-            try:
-                z_train_vec = teacher_tft.predict_logits(_df_train)
-            except Exception:
-                try:
-                    if z_all is not None:
-                        z_train_vec = z_all[:cutoff]
-                    else:
-                        z_train_vec = None
-                except Exception:
-                    z_train_vec = None
-            # Guard: ensure we have non-empty validation logits for calibration
-            if z_val_vec is None or (hasattr(z_val_vec, "size") and z_val_vec.size == 0):
-                raise RuntimeError("Empty validation logits after TFT prediction")
-            # Align y_val_true length to z_val_vec if needed (fallback modes may produce shorter sequences)
-            try:
-                import numpy as _np
-
-                z_len = int(z_val_vec.shape[0])
-                y_len = int(_np.asarray(y_val_true).shape[0]) if y_val_true is not None else 0
-                if z_len > 0 and y_len > 0 and z_len != y_len:
-                    if z_len < y_len:
-                        # Use most recent labels to match predicted horizon
-                        y_val_true = _np.asarray(y_val_true, dtype=_np.float64)[-z_len:]
-                        if validation_returns is not None:
-                            validation_returns = _np.asarray(
-                                validation_returns,
-                                dtype=_np.float64,
-                            )[-z_len:]
-                    else:
-                        z_val_vec = _np.asarray(z_val_vec, dtype=_np.float64)[-y_len:]
-                        if validation_returns is not None and validation_returns.size >= y_len:
-                            validation_returns = _np.asarray(
-                                validation_returns,
-                                dtype=_np.float64,
-                            )[-y_len:]
-                # If training logits exist, enforce 80/20 split consistency (optional)
-                if z_train_vec is not None:
-                    zt = int(z_train_vec.shape[0])
-                    if zt == 0:
-                        z_train_vec = None
-            except Exception as exc:
-                logging.getLogger(__name__).debug("TFT post-processing alignment failed: %s", exc)
-            used_tft = True
-        except Exception:
-            import logging as _logging
-
-            _logging.getLogger(__name__).exception(
-                "TFT training failed; falling back to logistic regression",
-            )
-            # Fallback: scikit-learn logistic regression as a simple teacher proxy
-            from ml._imports import HAS_SKLEARN
-
-            if not HAS_SKLEARN:
-                raise SystemExit("Training requires TFT dependencies or scikit-learn as fallback")
-            from sklearn.linear_model import LogisticRegression
-
-            X = np.asarray(df_sorted[feature_names].to_numpy(), dtype=np.float64)
-            y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
-            # Derive cutoff from previously prepared splits when available; else 80/20
-            try:
-                # _df_train is defined earlier in this scope; use its length when available
-                cut_idx = len(_df_train) if _df_train is not None else None
-            except Exception:
-                cut_idx = None
-            if not cut_idx:
-                n_total = int(X.shape[0])
-                min_val_len = 5000
-                cut_idx = max(int(n_total * 0.8), n_total - min_val_len)
-            X_train, X_val_arr = X[:cut_idx], X[cut_idx:]
-            y_train = y[:cut_idx]
-            # Impute NaNs with training column means for logistic regression fallback
-            if np.isnan(X_train).any() or np.isnan(X_val_arr).any():
-                col_means = np.nanmean(X_train, axis=0)
-                # Replace NaNs in training set
-                inds_tr = np.where(np.isnan(X_train))
-                if inds_tr[0].size > 0:
-                    X_train[inds_tr] = np.take(col_means, inds_tr[1])
-                # Replace NaNs in validation set using training means
-                inds_va = np.where(np.isnan(X_val_arr))
-                if inds_va[0].size > 0:
-                    X_val_arr[inds_va] = np.take(col_means, inds_va[1])
-            lr = LogisticRegression(max_iter=200)
-            lr.fit(X_train, y_train)
-            # decision_function gives logits for binary classifier
-            z_train_vec = lr.decision_function(X_train).astype(np.float64)
-            z_val_vec = lr.decision_function(X_val_arr).astype(np.float64)
+                    cut_idx = None
+                if not cut_idx:
+                    n_total = int(X.shape[0])
+                    min_val_len = 5000
+                    cut_idx = max(int(n_total * 0.8), n_total - min_val_len)
+                X_train, X_val_arr = X[:cut_idx], X[cut_idx:]
+                y_train = y[:cut_idx]
+                # Impute NaNs with training column means for logistic regression fallback
+                if np.isnan(X_train).any() or np.isnan(X_val_arr).any():
+                    col_means = np.nanmean(X_train, axis=0)
+                    # Replace NaNs in training set
+                    inds_tr = np.where(np.isnan(X_train))
+                    if inds_tr[0].size > 0:
+                        X_train[inds_tr] = np.take(col_means, inds_tr[1])
+                    # Replace NaNs in validation set using training means
+                    inds_va = np.where(np.isnan(X_val_arr))
+                    if inds_va[0].size > 0:
+                        X_val_arr[inds_va] = np.take(col_means, inds_va[1])
+                lr = LogisticRegression(max_iter=200)
+                lr.fit(X_train, y_train)
+                # decision_function gives logits for binary classifier
+                z_train_vec = lr.decision_function(X_train).astype(np.float64)
+                z_val_vec = lr.decision_function(X_val_arr).astype(np.float64)
 
         # Calibrate and produce calibrated probabilities
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
@@ -675,7 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
             q_train = teacher.predict_proba(z_train_vec.reshape(-1, 1)).astype(np.float32)
 
         # Optional interpretability save
-        if used_tft and args.save_interpretability:
+        if used_tft and args.save_interpretability and df_val is not None:
             try:
                 # Build val dataset/loader similar to predict path
                 from pytorch_forecasting import TimeSeriesDataSet
@@ -694,7 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
                 tft_model = getattr(teacher_tft, "_tft", None)
                 if tft_model is not None and hasattr(tft_model, "calculate_feature_relevance"):
                     relevance = tft_model.calculate_feature_relevance(val_loader)
-                    interp_path = Path(args.out_dir) / "interpretability.npz"
+                    interp_path = out_dir / "interpretability.npz"
                     np.savez_compressed(interp_path, feature_relevance=relevance)
             except Exception:
                 import logging as _logging
@@ -730,7 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # Choose an artifact format and persist (TorchScript > safetensors > pickle)
             artifact_format = "pkl"
-            if used_tft and getattr(args, "export_torchscript", False):
+            if used_tft and getattr(args, "export_torchscript", False) and df_val is not None:
                 try:
                     from pytorch_forecasting import TimeSeriesDataSet
 
@@ -960,28 +1313,8 @@ def main(argv: list[str] | None = None) -> int:
         q_cal = teacher.predict_proba(z_val.reshape(-1, 1)).astype(np.float32)
         q_val = q_cal
 
-    # Persist outputs
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    preds_path = out_dir / "teacher_preds.npz"
-    # Save q_train (if available) and q_val for student distillation
     if y_val_true is None:
         raise SystemExit("Final outputs require y_val_true; got None")
-    if q_train is not None:
-        np.savez_compressed(
-            preds_path,
-            q_train=q_train.squeeze(),
-            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
-            y_val_true=y_val_true.astype(np.float32),
-        )
-    else:
-        # Calibration-only/ONNX path — save validation predictions only
-        np.savez_compressed(
-            preds_path,
-            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
-            y_val_true=y_val_true.astype(np.float32),
-        )
-    meta_path = out_dir / "teacher_meta.json"
     meta = {
         "model_id": args.model_id,
         "feature_set_id": args.feature_set_id,
@@ -990,10 +1323,22 @@ def main(argv: list[str] | None = None) -> int:
         "calibrator": True,
         "onnx_output_is_logits": bool(args.onnx_output_is_logits),
     }
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2)
-
-    print(f"Saved: {preds_path}\nMeta: {meta_path}")
+    output_paths = _persist_teacher_outputs(
+        out_dir,
+        q_train=q_train,
+        q_val=q_val,
+        y_val_true=y_val_true,
+        meta=meta,
+        streaming_telemetry=streaming_telemetry,
+    )
+    summary_path = output_paths.get("streaming_summary_path")
+    if summary_path is not None:
+        print(
+            "Saved: "
+            f"{output_paths['preds_path']}\nMeta: {output_paths['meta_path']}\nStreaming summary: {summary_path}",
+        )
+    else:
+        print(f"Saved: {output_paths['preds_path']}\nMeta: {output_paths['meta_path']}")
 
     # ---------------------------------------------------------------------
     # Predictive metrics summary (Phase-1 gating inputs)

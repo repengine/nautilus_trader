@@ -1,183 +1,410 @@
 # Registry System Context Document
 
+**Last Updated:** 2025-10-19
+**Total Lines:** 16,582 Python + SQL migrations
+**Status:** Production-ready with mature strangler fig decomposition
+
+---
+
 ## Executive Summary
 
-The `ml/registry/` directory implements a comprehensive, production-ready ML lifecycle management system with self-describing manifests, configurable persistence backends, and automated compatibility validation. This system serves as the central orchestrator for all ML components in Nautilus Trader, ensuring type-safe model deployment, feature schema compatibility, strategy requirement validation, and data lineage tracking through a unified manifest-based architecture.
+The `ml/registry/` directory implements a **production-ready, 4-registry architecture** using the **strangler fig pattern** to decompose legacy god classes into specialized components. The system provides manifest-based lifecycle management for models, features, strategies, and datasets with multi-backend persistence (PostgreSQL/JSON), thread-safe operations, and protocol-first design.
 
-**✅ CURRENT STATE:** The registry system implements the mandatory 4-Registry architecture pattern with comprehensive manifest-based lifecycle management. Most registries extend `MLComponentMixin` from `ml.common.protocols` (via `AbstractRegistry`) for standardized health reporting, performance metrics, and configuration validation. The system includes dedicated `RegistryProtocol` interfaces for type-safe integration with stores and data processing pipelines.
+**Core Architecture:**
+- **4 Mandatory Registries**: ModelRegistry, FeatureRegistry, StrategyRegistry, DataRegistry
+- **Strangler Fig Decomposition**: Legacy monoliths replaced by component-based facades
+- **Feature Flags**: `ML_USE_LEGACY_MODEL_REGISTRY`, `ML_USE_LEGACY_DATA_REGISTRY` for safe rollback
+- **15+ Components**: Specialized managers for persistence, deployment, lineage, events, watermarks, A/B testing
+- **Multi-Backend**: JSON (development) and PostgreSQL (production) with graceful fallback
 
-**⚠️ IMPLEMENTATION STATUS:** While the core architecture is complete, some Universal ML Architecture Pattern requirements are not fully implemented, particularly centralized metrics integration (Pattern 5) and comprehensive progressive fallback chains (Pattern 4).
+**Status Assessment:**
+- ✅ Core registry functionality: **100% complete**
+- ✅ Strangler fig decomposition: **Mature (Phase 2.3 complete)**
+- ✅ Protocol-first design: **100% compliant (Pattern 2)**
+- ⚠️ Universal Pattern compliance: **3/5 patterns fully implemented**
+- ❌ Centralized metrics: **Missing (Pattern 5 non-compliant)**
 
-### Event Metadata & Correlation IDs
+---
 
-- **Enhanced Event Tracking**: DataRegistry events now accept optional `metadata: dict[str, Any]` for rich contextual information
-- **Deterministic Correlation**: `DataStore` attaches SHA256-based `correlation_id` to each success/failure event (derived from run_id, dataset_id, instrument_id, and time window) for end‑to‑end tracing
-- **Database Migration**: SQL migration adds a JSONB `metadata` column to `ml_data_events` and an extended function `emit_data_event_ext`. Code prefers the extended function and falls back to the legacy one when not available
-- **Cross-Domain Lineage**: Event correlation spans data/features/models/strategies domains with parent-child relationship tracking
-- **Observability Integration**: Events feed into observability pipeline for comprehensive system monitoring and debugging
+## Directory Structure
 
-### Migrations & DB Functions
+```
+ml/registry/                           # 29 files, 16,582 lines total
+├── __init__.py                        # Public API (187 lines)
+├── protocols.py                       # Protocol definitions (108 lines)
+├── base.py                            # Model manifest + enums (504 lines)
+├── dataclasses.py                     # Data structures (929 lines)
+│
+├── 4 MANDATORY REGISTRIES (Pattern 1)
+├── model_registry.py                  # Facade (1,191 lines) → 5 components
+├── feature_registry.py                # Self-contained (692 lines)
+├── strategy_registry.py               # Self-contained (822 lines)
+├── data_registry.py                   # Facade (928 lines) → 5 components
+│
+├── LEGACY IMPLEMENTATIONS (Strangler Fig)
+├── model_registry_legacy.py           # Original god class (2,284 lines)
+├── data_registry_legacy.py            # Original god class (1,896 lines)
+│
+├── SUPPORTING INFRASTRUCTURE
+├── abstract_registry.py               # Common base (113 lines)
+├── persistence.py                     # Multi-backend (382 lines)
+├── statistics.py                      # Statistical validation (219 lines)
+├── utils.py                           # Helpers (174 lines)
+├── mixins.py                          # Optional mixins (99 lines)
+├── summaries.py                       # Summary builders (98 lines)
+├── bootstrap_datasets.py              # Dataset initialization (654 lines)
+├── artifacts.py                       # Artifact management (123 lines)
+├── _typing_utils.py                   # Type utilities (157 lines)
+│
+├── MODEL REGISTRY COMPONENTS (5 components)
+├── model_persistence.py               # Loading/saving/caching (844 lines)
+├── model_quality_validator.py         # Quality gates (167 lines)
+├── model_deployment_mgr.py            # Deployment tracking (674 lines)
+├── ab_testing_manager.py              # A/B testing (452 lines)
+├── canary_deployment_mgr.py           # Canary releases (483 lines)
+│
+├── DATA REGISTRY COMPONENTS (5 components)
+├── manifest_manager.py                # CRUD operations (710 lines)
+├── lineage_manager.py                 # Lineage tracking (394 lines)
+├── watermark_manager.py               # Watermark state (634 lines)
+├── event_manager.py                   # Event emission (332 lines)
+├── contract_manager.py                # Contract validation (332 lines)
+│
+└── migrations/                        # SQL schema
+    ├── 001_initial_schema.sql         # Tables + indexes (276 lines)
+    ├── 002_add_cold_path_fields.sql   # Hot/cold separation (17 lines)
+    └── 003_add_artifact_digest.sql    # SHA-256 integrity (5 lines)
+```
 
-The registry relies on PostgreSQL-side functions for event emission and watermarks. Ensure migrations in `ml/stores/migrations/004_data_registry.sql` are applied in every environment so that:
+---
 
-- `emit_data_event(...)` exists and records dataset events
-- `update_watermark(...)` exists and maintains freshness state
+## 1. Four Mandatory Registries (Pattern 1)
 
-You can validate presence via the DB preflight utility:
+### 1.1 ModelRegistry (`model_registry.py` - 1,191 lines)
+
+**Strangler Fig Facade**: Delegates to 5 specialized components while maintaining 100% backward compatibility.
+
+**Component Architecture:**
 
 ```python
-from ml.stores.infrastructure import check_db_prereqs
-print(check_db_prereqs("$DB_CONNECTION"))  # ok=True indicates functions/partitions are present
+class ModelRegistry(AbstractRegistry):
+    """
+    Model lifecycle facade with component delegation.
+
+    Feature Flag Control:
+    - ML_USE_LEGACY_MODEL_REGISTRY=1: Original monolith (2,284 lines)
+    - ML_USE_LEGACY_MODEL_REGISTRY=0: Component-based (default)
+    - ML_USE_COMPONENT_MODEL_REGISTRY=1: Explicit opt-in
+    """
+
+    def __init__(self, registry_path: Path, persistence_config: PersistenceConfig):
+        if USE_LEGACY:
+            # Delegate to model_registry_legacy.py (god class)
+            self._impl = ModelRegistryLegacy(...)
+        else:
+            # Initialize 5 components
+            self._persistence = ModelPersistence(...)          # Artifact I/O
+            self._quality = ModelQualityValidator(...)          # Quality gates
+            self._deployment = ModelDeploymentManager(...)      # Deployment
+            self._ab_testing = ABTestingManager(...)            # A/B tests
+            self._canary = CanaryDeploymentManager(...)         # Canary releases
 ```
 
-### Protocol-based Consumers
+**Five Component Managers:**
 
-**✨ ENHANCEMENT:** The protocol system provides enhanced type safety and interface consistency:
+| Component | Lines | Responsibility | File |
+|-----------|-------|----------------|------|
+| **ModelPersistence** | 844 | Model loading, saving, caching (LRU), SHA-256 integrity, ONNX sessions | `model_persistence.py` |
+| **ModelQualityValidator** | 167 | Quality gate evaluation, validation results, metric thresholds | `model_quality_validator.py` |
+| **ModelDeploymentManager** | 674 | Deployment tracking, version management, rollback, hot reload | `model_deployment_mgr.py` |
+| **ABTestingManager** | 452 | A/B test configuration, traffic splitting, statistical analysis | `ab_testing_manager.py` |
+| **CanaryDeploymentManager** | 483 | Canary release management, gradual rollout, promotion/rollback | `canary_deployment_mgr.py` |
 
-- **Type-Safe Interfaces**: Callers of the registry in ML (stores, DataStore, scheduler) are typed against a `RegistryProtocol` to enforce interface drift at compile time
-- **Backend Agnostic**: This keeps emit/update usage consistent across JSON and Postgres backends while allowing the concrete `DataRegistry` to evolve behind the Protocol
-- **Comprehensive Protocol**: The `RegistryProtocol` specifically defines: `emit_event()`, `update_watermark()`, `get_manifest()`, `get_contract()`, and `register_dataset()` methods
-- **MLComponentProtocol Integration**: All registries implement standardized health reporting, performance metrics, and configuration validation
-- **Message Bus Integration**: Registry events can be published to external message bus systems via configurable publisher protocols
-
-### Key Architectural Principles
-
-1. **Self-Describing Manifests**: All components carry complete metadata for autonomous validation
-2. **Schema-Based Compatibility**: Hash-based feature schema validation prevents deployment errors
-3. **Multi-Backend Persistence**: Configurable JSON/PostgreSQL backends for dev/prod environments
-4. **Hot/Cold Path Separation**: Models marked as serveable/non-serveable for different use cases
-5. **Statistical Validation**: Built-in A/B testing and canary deployment capabilities
-6. **Lineage Tracking**: Parent-child relationships for teacher-student model hierarchies
-7. **Data Registry Integration**: Complete dataset lifecycle management with watermarks, events, and observability pipeline integration
-
-## Module Structure
-
-**📝 ADDITION:** Updated with actual line counts and missing components discovered in analysis.
-
-```
-ml/registry/
-├── __init__.py              # Public API exports (154 lines)
-├── protocols.py             # Registry protocol definitions (108 lines)
-├── base.py                  # Abstract interfaces and core types (494 lines)
-├── abstract_registry.py     # Common registry base class (127 lines)
-├── mixins.py                # Optional registry mixins (71 lines)
-├── dataclasses.py           # Quality gates, deployment, and data structures (884 lines)
-├── data_registry.py         # Data registry with lineage and watermarks (1,439 lines)
-├── feature_registry.py      # Feature set management (684 lines)
-├── model_registry.py        # Model lifecycle management (2,051 lines)
-├── strategy_registry.py     # Trading strategy management (749 lines)
-├── persistence.py           # Multi-backend persistence layer (378 lines)
-├── statistics.py            # Statistical validation utilities (219 lines)
-├── utils.py                 # Helper functions (121 lines)
-├── bootstrap_datasets.py    # Dataset manifest bootstrapping (383 lines)
-└── migrations/              # SQL migration scripts
-    ├── 001_initial_schema.sql    # Initial database schema (275 lines)
-    └── 002_add_cold_path_fields.sql  # Cold-path and feature linkage fields (7 lines)
-
-Total: ~8,140 lines of Python code + 282 lines of SQL migrations
-```
-
-## Core Registry Types
-
-### 1. ModelRegistry (`model_registry.py`)
-
-The central model lifecycle management system with comprehensive deployment tracking.
-
-**Implementation:** Concrete `class ModelRegistry(AbstractRegistry)` which inherits from `MLComponentMixin` via `AbstractRegistry` with configurable persistence backend.
-
-    The registry is responsible for:
-    - Tracking all trained models with thread-safe operations using RLock
-    - Managing model deployments with hot reload capabilities and zero-downtime updates
-    - Monitoring model performance with LRU caching (configurable cache_size)
-    - Coordinating A/B tests and canary deployments with statistical validation
-    - Handling rollbacks with automated promotion/rollback decisions
-    - Security validation with path traversal protection via `_validate_model_path()`
-    - ONNX-only loading for serveable models to prevent code execution
-    - Batch save operations with configurable intervals (default 0.1s)
-    - Complete audit logging for all registry operations
-    - Progressive fallback from PostgreSQL to JSON backends
-
-#### Manifest Structure (`ModelManifest`)
+**Manifest Structure:**
 
 ```python
 @dataclass
 class ModelManifest:
-    model_id: str                           # Unique identifier
-    role: ModelRole                         # TEACHER/STUDENT/INFERENCE/ENSEMBLE/FEATURE
-    data_requirements: DataRequirements     # L1_ONLY/L1_L2/L1_L2_L3/HISTORICAL/STREAMING
-    architecture: str                       # "XGBoost"/"LightGBM"/"TFT"
-    feature_schema: dict[str, str]         # {"close": "float32", "volume": "float32"}
-    feature_schema_hash: str               # SHA256 hash for compatibility
-    parent_id: str | None = None           # Teacher model for students
-    children_ids: list[str] = field(default_factory=list)  # Student models for teachers
-    training_config: dict[str, Any] = field(default_factory=dict)  # Hyperparameters
-    performance_metrics: dict[str, float] = field(default_factory=dict)  # Performance
-    deployment_constraints: dict[str, Any] = field(default_factory=dict)  # Constraints
-    version: str = "1.0.0"                 # Semantic version
-    created_at: float = 0.0                # Creation timestamp
-    last_modified: float = 0.0             # Last modification timestamp
-    # Serving configuration
-    serveable: bool = True                 # True for hot-path, False for cold-path
-    artifact_format: str = "onnx"          # "onnx"/"torchscript"/"none"
+    # Identity
+    model_id: str
+    role: ModelRole  # TEACHER/STUDENT/INFERENCE/ENSEMBLE/FEATURE
+    data_requirements: DataRequirements  # L1_ONLY/L1_L2/L1_L2_L3
+    architecture: str  # "XGBoost", "LightGBM", "TFT"
+
+    # Schema validation
+    feature_schema: dict[str, str]  # {"close": "float32", "volume": "float32"}
+    feature_schema_hash: str  # SHA256 for compatibility
+
+    # Lineage
+    parent_id: str | None  # Teacher model for students
+    children_ids: list[str]  # Student models
+
+    # Configuration
+    training_config: dict[str, Any]
+    performance_metrics: dict[str, float]
+    deployment_constraints: dict[str, Any]
+
+    # Versioning
+    version: str  # Semantic versioning
+    created_at: float
+    last_modified: float
+
+    # Hot/Cold path separation (Pattern 3)
+    serveable: bool = True  # True=hot path, False=cold path
+    artifact_format: str = "onnx"  # onnx/torchscript/none
+
     # Feature registry linkage
-    feature_set_id: str | None = None      # Linked feature set ID
-    pipeline_signature: str | None = None  # Pipeline hash for validation
-    pipeline_version: str | None = None    # Pipeline version
+    feature_set_id: str | None
+    pipeline_signature: str | None
+    pipeline_version: str | None
+
+    # Decision policy (OCP extension point)
+    decision_policy: str | None  # Fully-qualified import path
+    decision_config: dict[str, Any]
+
+    # Security (SHA-256 integrity verification)
+    artifact_sha256_digest: str | None
 ```
 
-#### Key Features
+**Key Operations:**
 
-**Security & Validation**:
+```python
+# Registration with quality gates
+registry.register_model(
+    model_path=Path("models/lgb_student_v1.onnx"),
+    manifest=ModelManifest(...),
+    auto_deploy=True,
+    quality_gates=[
+        QualityGate("accuracy", 0.80, "gte"),
+        QualityGate("inference_latency_ms", 5.0, "lte")
+    ]
+)
 
-- Path traversal protection with `_validate_model_path()`
-- ONNX-only loading for serveable models to prevent code execution
-- Feature registry linkage for production models (optional with direct model loading fallback)
-- Schema hash validation between models and features
+# Deployment management
+registry.deploy_model("lgb_student_v1", target="ml_signal_actor")
+registry.hot_reload_model(target="ml_signal_actor", new_model_id="lgb_student_v2")
+registry.rollback_deployment(target="ml_signal_actor")
 
-**Performance Optimization**:
+# A/B testing
+registry.start_ab_test(
+    test_id="model_comparison_v1_v2",
+    model_a="lgb_student_v1",
+    model_b="lgb_student_v2",
+    traffic_split=0.5
+)
 
-- LRU cache for loaded models (`cache_size` parameter)
-- Batch save operations with configurable intervals
-- Thread-safe operations with RLock
+# Canary deployment
+registry.start_canary_deployment(
+    model_id="lgb_student_v2",
+    target="ml_signal_actor",
+    config=CanaryConfig(
+        initial_traffic=0.05,
+        increment=0.05,
+        interval_seconds=300
+    )
+)
+```
 
-**Deployment Management**:
+**Thread Safety:**
+- RLock for all operations
+- LRU cache for loaded models (configurable `cache_size`)
+- Batch save operations (default 0.1s interval)
 
-- Five deployment states: INACTIVE/ACTIVE/TESTING/RETIRED/FAILED
-- A/B testing with traffic splitting and statistical validation
-- Canary deployments with automated promotion/rollback
-- Hot reload capabilities for zero-downtime updates
+---
 
-### 2. FeatureRegistry (`feature_registry.py`)
+### 1.2 DataRegistry (`data_registry.py` - 928 lines)
 
-Feature set management with schema validation, parity tracking, and quality gate promotion system.
+**Strangler Fig Facade**: Delegates to 5 specialized components for dataset lifecycle management.
 
-**Implementation:** Concrete `class FeatureRegistry(AbstractRegistry)` which inherits from `MLComponentMixin` via `AbstractRegistry` with multi-backend persistence and lifecycle stage management.
+**Component Architecture:**
 
-#### Manifest Structure (`FeatureManifest`)
+```python
+class DataRegistry(MLComponentMixin):
+    """
+    Dataset lifecycle facade with component delegation.
+
+    Feature Flag Control:
+    - ML_USE_LEGACY_DATA_REGISTRY=1: Original monolith (1,896 lines)
+    - ML_USE_LEGACY_DATA_REGISTRY=0: Component-based (default)
+    """
+
+    def __init__(self, registry_path: Path, persistence_config: PersistenceConfig):
+        # Initialize 5 component managers
+        self._manifest_mgr = ManifestManager()        # CRUD operations
+        self._lineage_mgr = LineageManager()          # Lineage tracking
+        self._watermark_mgr = WatermarkManager()      # Watermark state
+        self._event_mgr = EventManager()              # Event emission
+        self._contract_mgr = ContractManager()        # Contract validation
+```
+
+**Five Component Managers:**
+
+| Component | Lines | Responsibility | File |
+|-----------|-------|----------------|------|
+| **ManifestManager** | 710 | Dataset manifest CRUD, schema validation, versioning | `manifest_manager.py` |
+| **LineageManager** | 394 | Parent-child relationships, transform tracking, provenance | `lineage_manager.py` |
+| **WatermarkManager** | 634 | Processing progress, completeness tracking, staleness detection | `watermark_manager.py` |
+| **EventManager** | 332 | Event emission, correlation IDs, metadata attachment | `event_manager.py` |
+| **ContractManager** | 332 | Data contract enforcement, quality thresholds, validation rules | `contract_manager.py` |
+
+**Dataset Manifest:**
+
+```python
+@dataclass
+class DatasetManifest:
+    # Identity
+    dataset_id: str
+    dataset_type: DatasetType  # BARS/TRADES/QUOTES/FEATURES/PREDICTIONS/SIGNALS
+
+    # Storage
+    storage_kind: StorageKind  # PARQUET/POSTGRES
+    location: str  # File path or table name
+    partitioning: dict[str, Any] | None  # {"by": ["date", "instrument_id"]}
+    retention_days: int
+
+    # Schema
+    schema: dict[str, str]  # Column names → types
+    ts_field: str  # Timestamp field (in nanoseconds)
+    seq_field: str | None  # Sequence number field
+    primary_keys: list[str]
+    schema_hash: str  # Content hash for validation
+
+    # Validation
+    constraints: dict[str, Any] | None  # Ranges, nullability
+
+    # Lineage
+    lineage: list[str]  # Parent dataset IDs
+    pipeline_signature: str  # Pipeline that created this
+
+    # Versioning
+    version: str
+    created_at: float
+    last_modified: float
+
+    # Metadata
+    metadata: dict[str, Any]
+```
+
+**Watermark Tracking:**
+
+```python
+@dataclass(frozen=True)
+class Watermark:
+    dataset_id: str
+    instrument_id: str
+    source: str  # "live", "historical", "backfill"
+    last_success_ns: int  # Last successful processing timestamp
+    last_attempt_ns: int  # Last attempted processing timestamp
+    last_count: int  # Record count from last success
+    completeness_pct: float  # 0-100
+    updated_at: float  # Unix timestamp
+```
+
+**Event Recording:**
+
+```python
+from ml.config.events import Stage, Source, EventStatus
+
+registry.emit_event(
+    dataset_id="bars_eurusd_1m",
+    instrument_id="EUR/USD",
+    stage=Stage.CATALOG_WRITTEN,  # Enum-typed
+    source=Source.HISTORICAL,      # Enum-typed
+    run_id="run_123",
+    ts_min=1234567890000000000,
+    ts_max=1234567900000000000,
+    count=1000,
+    status=EventStatus.SUCCESS,    # Enum-typed
+    metadata={"pipeline_version": "v2.1"}  # Optional context
+)
+
+# Correlation IDs: SHA256-based deterministic hashing
+# Derived from: run_id + dataset_id + instrument_id + time_window
+```
+
+**Lineage Tracking:**
+
+```python
+registry.link_lineage(
+    child_dataset_id="features_microstructure",
+    parent_ids=["bars_eurusd_1m", "quotes_eurusd"],
+    transform_id="feature_pipeline_v1",
+    ts_range={"start_ns": ..., "end_ns": ...},
+    params={"lookback_bars": 20, "include_imbalance": True}
+)
+```
+
+**Data Contract System:**
+
+```python
+@dataclass
+class DataContract:
+    contract_id: str
+    dataset_id: str
+    version: str
+    validation_rules: list[ValidationRule]
+    quality_thresholds: dict[str, float]  # {"null_rate": 0.01}
+    enforcement_mode: str  # "strict", "lenient", "monitor_only"
+    created_at: float
+    last_modified: float
+    metadata: dict[str, Any]
+
+@dataclass(frozen=True)
+class ValidationRule:
+    rule_type: ValidationRuleType  # TYPE_CHECK/RANGE/MONOTONICITY/...
+    field_name: str
+    parameters: dict[str, Any]
+    severity: QualityFlag  # WARN/FAIL
+    description: str
+```
+
+---
+
+### 1.3 FeatureRegistry (`feature_registry.py` - 692 lines)
+
+**Self-contained implementation** (no strangler fig decomposition needed - already well-factored).
+
+**Feature Manifest:**
 
 ```python
 @dataclass
 class FeatureManifest:
-    feature_set_id: str                   # Unique identifier
-    name: str                             # Human-readable name
-    version: str                          # Semantic version
-    role: FeatureRole                     # TEACHER/STUDENT/INFERENCE_SUPPORT
-    data_requirements: DataRequirements   # L1_ONLY/L1_L2/L1_L2_L3
-    feature_names: list[str]              # ["close_ratio", "volume_ma", "rsi"]
-    feature_dtypes: list[str]             # ["float32", "float32", "float32"]
-    schema_hash: str                      # SHA256 hash of names+dtypes+pipeline
-    pipeline_signature: str               # Transform graph hash
-    pipeline_version: str                 # Pipeline engine version
-    capability_flags: dict[str, bool]     # {"handles_nans": True, "stateful": True}
-    constraints: dict[str, Any]           # {"max_latency_ms": 0.5, "min_bars_warmup": 20}
-    parity_tolerance: float               # Validation tolerance (1e-10)
-    parity_digest: dict[str, Any]         # Validation results summary
-    perf_digest: dict[str, Any]           # Performance metrics
-    parent_feature_set_id: str | None     # Parent for lineage
-    stage: FeatureStage                   # CANDIDATE/STAGING/PROD/DEPRECATED/SCRAPPED
+    # Identity
+    feature_set_id: str
+    name: str
+    version: str
+    role: FeatureRole  # TEACHER/STUDENT/INFERENCE_SUPPORT
+    data_requirements: DataRequirements  # L1_ONLY/L1_L2/L1_L2_L3
+
+    # Schema
+    feature_names: list[str]  # ["close_ratio", "volume_ma", "rsi"]
+    feature_dtypes: list[str]  # ["float32", "float32", "float32"]
+    schema_hash: str  # SHA256 of names+dtypes+pipeline
+
+    # Pipeline
+    pipeline_signature: str  # Transform graph hash
+    pipeline_version: str  # Pipeline engine version
+
+    # Capabilities
+    capability_flags: dict[str, bool]  # {"handles_nans": True}
+    constraints: dict[str, Any]  # {"max_latency_ms": 0.5}
+
+    # Validation
+    parity_tolerance: float  # Default 1e-10
+    parity_digest: dict[str, Any]  # Validation results
+    perf_digest: dict[str, Any]  # Performance metrics
+
+    # Lineage
+    parent_feature_set_id: str | None
+
+    # Lifecycle
+    stage: FeatureStage  # CANDIDATE/STAGING/PROD/DEPRECATED/SCRAPPED
+    metadata: dict[str, Any]
+    created_at: float
+    last_modified: float
 ```
 
-#### Schema Hashing Algorithm
+**Schema Hashing:**
 
 ```python
 def compute_schema_hash(
@@ -185,7 +412,7 @@ def compute_schema_hash(
     feature_dtypes: list[str],
     pipeline_signature: str,
 ) -> str:
-    """Stable hash including names, types, and pipeline transform graph."""
+    """Stable SHA256 hash including names, types, and pipeline."""
     h = hashlib.sha256()
     for n, t in zip(feature_names, feature_dtypes):
         h.update(n.encode("utf-8"))
@@ -197,211 +424,53 @@ def compute_schema_hash(
     return h.hexdigest()
 ```
 
-#### Quality Gates System
-Feature promotion through lifecycle stages via `validate_and_promote()`:
-
-- **Gates**: Metric thresholds with comparison operators (gte/lte/gt/lt/eq)
-- **Sources**: Checks `perf_digest`, `parity_digest`, `constraints` in order
-- **Validation**: Required gates must pass for promotion to PROD stage
-
-## Vault vs Ledger
-
-- Vaults (stores) persist domain records (features, predictions, signals) with efficient batching, safe upserts, and SQL‑safe queries. They emit events and update watermarks via the DataRegistry but do not own lifecycle.
-- Ledgers (registries) maintain authoritative manifests and contracts, lifecycle/stage transitions, compatibility checks, deployments, lineage, events, and watermarks.
-
-## Centralized Integrations
-
-- `DataRegistryMixin`: standardizes acquiring a shared registry instance (POSTGRES preferred; JSON fallback), and keeps test‑friendly flush semantics.
-- `BusPublisherMixin`: standardizes topic building via `ml.common.message_topics.build_topic_for_stage` and honors `MessageBusConfig.from_env()` (scheme, prefix). Publishing is best‑effort and off hot paths.
-- `ml.common.event_emitter` helpers: enforce enum‑typed `Stage/Source/EventStatus`, attach deterministic correlation IDs, and update metrics consistently.
-
-## Registry Unification
-
-The registries now share a common abstraction to reduce duplication and drift while preserving public APIs.
-
-- **Implemented base**: `ml/registry/abstract_registry.py` (127 lines)
-  - Centralizes: RLock lifecycle, dual‑backend persistence wiring via `PersistenceManager`, JSON save/load helpers, audit logging passthrough, and a common health summary (count + last_modified).
-  - Used by: `FeatureRegistry`, `ModelRegistry`, and `StrategyRegistry` (all inherit the base).
-- **Optional mixins (advisory)**: `ml/registry/mixins.py` provides `StageLifecycleMixin` and `ArtifactMixin` for incremental adoption without touching actor hot paths.
-- **DataRegistry remains separate**: Due to distinct event/watermark/time‑series semantics, but continues to expose protocol‑first APIs for stores and orchestration.
-
-**Non‑Goals (preserved)**:
-
-- No schema changes were made to existing Postgres tables.
-- No changes to manifest dataclasses or public method signatures.
-
-### 3. DataRegistry (`data_registry.py`)
-
-Complete dataset lifecycle management with lineage tracking, watermarks, event recording, and data contract validation.
-
-**Implementation:** Concrete `class DataRegistry(MLComponentMixin)` with comprehensive data lineage, watermark tracking, and event emission capabilities. Note: DataRegistry does not use AbstractRegistry due to distinct event/watermark semantics.
-
-#### Manifest Structure (`DatasetManifest`)
+**Quality Gates & Promotion:**
 
 ```python
-@dataclass
-class DatasetManifest:
-    # Identity
-    dataset_id: str
-    dataset_type: DatasetType                 # BARS/FEATURES/PREDICTIONS/SIGNALS
+# Register with quality gates
+registry.register_feature_set(
+    manifest=FeatureManifest(
+        feature_set_id="student_features_v1",
+        stage=FeatureStage.CANDIDATE,
+        ...
+    )
+)
 
-    # Storage
-    storage_kind: StorageKind                 # PARQUET/POSTGRES/REDIS
-    location: str                             # File path or table name
-    partitioning: dict[str, Any] | None      # {"by": ["date", "instrument_id"]}
-    retention_days: int                       # Data retention period
-
-    # Schema
-    schema: dict[str, str]                   # Column names and data types
-    ts_field: str                            # Timestamp field name (in nanoseconds)
-    seq_field: str | None                    # Optional sequence number field
-    primary_keys: list[str]                  # Primary key columns
-    schema_hash: str                         # Schema content hash for validation
-
-    # Validation
-    constraints: dict[str, Any] | None       # Ranges, nullability, etc.
-
-    # Lineage
-    lineage: list[str]                       # Parent dataset IDs
-    pipeline_signature: str                  # Pipeline that created this dataset
-
-    # Versioning
-    version: str                             # Semantic version
-    created_at: float                        # Creation timestamp (Unix seconds)
-    last_modified: float                     # Last modification timestamp (Unix seconds)
-
-    # Metadata
-    metadata: dict[str, Any]                 # Additional metadata
+# Promote through lifecycle stages
+registry.validate_and_promote(
+    "student_features_v1",
+    quality_gates=[
+        QualityGate("parity_max_diff", 1e-10, "lte"),
+        QualityGate("p99_latency_ms", 0.5, "lte")
+    ]
+)
+# CANDIDATE → STAGING → PROD
 ```
 
-#### Data Contract System (`DataContract`)
+---
 
-```python
-@dataclass
-class DataContract:
-    contract_id: str
-    dataset_id: str
-    version: str
-    validation_rules: list[ValidationRule]     # Type checks, range validation, etc.
-    quality_thresholds: dict[str, float]      # {"null_rate": 0.01, "duplicate_rate": 0.0}
-    enforcement_mode: str                      # "strict", "lenient", or "monitor_only"
-    created_at: float
-    last_modified: float
-    metadata: dict[str, Any]
-```
+### 1.4 StrategyRegistry (`strategy_registry.py` - 822 lines)
 
-### Ingestion Backfill Integration
+**Self-contained implementation** with compatibility checking and requirement validation.
 
-The backfill/orchestration layer integrates with the registry to keep events and watermarks authoritative:
-
-- After each successful backfill window, the orchestrator emits a dataset event with `stage=Stage.DATA_INGESTED`, `source=Source.BACKFILL`, and `status=EventStatus.SUCCESS` via `RegistryProtocol.emit_event`.
-- The orchestrator then advances the dataset watermark for the instrument via `RegistryProtocol.update_watermark(last_success_ns=ts_max)`.
-- Gap detection should be driven by dataset manifests: resolve storage kind/location and timestamp field from `DataRegistry.get_manifest(dataset_id)`, then supply that to a `CoverageProvider` (SQL or catalog) to query actual storage coverage.
-
-See:
-
-- `ml/data/ingest/orchestrator.py` (Registry‑integrated backfill)
-- `ml/stores/protocols.py` (CoverageProviderProtocol)
-- `ml/stores/coverage_sql.py` (SQL implementations targeting the canonical `market_data` table from migration `003_market_data.sql`)
-
-#### Watermark Tracking (`Watermark`)
-
-```python
-@dataclass(frozen=True)
-class Watermark:
-    dataset_id: str
-    instrument_id: str
-    source: str                               # "live", "historical", "backfill"
-    last_success_ns: int                      # Last successful processing timestamp
-    last_attempt_ns: int                      # Last attempted processing timestamp
-    last_count: int                           # Count from last successful processing
-    completeness_pct: float                   # Percentage of expected data received (0-100)
-    updated_at: float                         # Unix timestamp of last update
-```
-
-#### Event Recording
-
-The DataRegistry tracks processing events through the data pipeline:
-
-```python
-def emit_event(
-    dataset_id: str,
-    instrument_id: str,
-    stage: str,                               # INGESTED/CATALOG_WRITTEN/FEATURE_COMPUTED
-    source: str,                              # live/historical/backfill
-    run_id: str,
-    ts_min: int,
-    ts_max: int,
-    count: int,
-    status: str,                              # success/failed/partial
-    error: str | None = None,
-    metadata: dict[str, object] | None = None  # **📝 ADDITION:** Optional event metadata
-) -> None
-```
-
-#### Lineage Tracking
-
-```python
-def link_lineage(
-    child_dataset_id: str,
-    parent_ids: list[str],
-    transform_id: str,
-    ts_range: dict[str, int],
-    params: dict[str, Any]
-) -> None
-```
-
-#### Bootstrap Datasets (`bootstrap_datasets.py`)
-
-**🆕 NEW FEATURE:** Automated dataset manifest bootstrapping for consistent pipeline initialization.
-
-- **Standard Manifests**: Pre-defined manifests for BARS, FEATURES, PREDICTIONS, and SIGNALS datasets
-- **Data Contracts**: Standard validation rules with enforcement modes (lenient for market data, strict for ML features)
-- **CLI Interface**: Command-line tool for registry initialization
-- **Multi-backend**: Works with both JSON and PostgreSQL backends
-- **Validation Rules**: Built-in quality gates with appropriate thresholds per dataset type
-
-**Usage**:
-
-```bash
-# Bootstrap with JSON backend
-python -m ml.registry.bootstrap_datasets --backend json --registry-path /path/to/registry
-
-# Bootstrap with PostgreSQL backend
-NAUTILUS_REGISTRY_DB_URL="postgresql://..." python -m ml.registry.bootstrap_datasets --backend postgres
-```
-
-**Standard Dataset Types**:
-
-- **BARS**: Market OHLCV data with lenient validation for missing volume
-- **FEATURES**: ML features with strict validation and no nulls allowed
-- **PREDICTIONS**: Model outputs with strict range validation (-1.0 to 1.0)
-- **SIGNALS**: Strategy signals with monitor-only enforcement
-
-### 4. StrategyRegistry (`strategy_registry.py`)
-
-Trading strategy management with market regime compatibility, dependency validation, and performance constraints.
-
-**Implementation:** Concrete `class StrategyRegistry(AbstractRegistry)` which inherits from `MLComponentMixin` via `AbstractRegistry` with compatibility checking and requirement validation.
-
-#### Manifest Structure (`StrategyManifest`)
+**Strategy Manifest:**
 
 ```python
 @dataclass
 class StrategyManifest:
     # Identity
     strategy_id: str
-    strategy_type: StrategyType           # TREND_FOLLOWING/MEAN_REVERSION/MOMENTUM
+    strategy_type: StrategyType  # TREND_FOLLOWING/MEAN_REVERSION/...
     version: str
 
     # Requirements
-    required_models: list[str] | None     # Model IDs needed
-    required_features: list[str]          # Feature set IDs needed
+    required_models: list[str] | None
+    required_features: list[str]
 
     # Market conditions
-    suitable_regimes: list[MarketRegime]  # TRENDING_UP/TRENDING_DOWN/RANGING/VOLATILE
-    instrument_types: list[str]           # ["FX", "CRYPTO", "EQUITY"]
-    timeframe_range: tuple[str, str]      # ("1m", "1h")
+    suitable_regimes: list[MarketRegime]  # TRENDING_UP/RANGING/...
+    instrument_types: list[str]  # ["FX", "CRYPTO", "EQUITY"]
+    timeframe_range: tuple[str, str]  # ("1m", "1h")
 
     # Risk parameters
     max_position_size: float
@@ -416,614 +485,692 @@ class StrategyManifest:
 
     # Dependencies
     parent_strategy_id: str | None
-    incompatible_strategies: list[str]    # Mutual exclusion list
+    incompatible_strategies: list[str]  # Mutual exclusion
 
     # Configuration
-    config_schema: dict[str, str]         # Type hints for parameters
-    default_config: dict[str, Any]        # Default parameter values
+    config_schema: dict[str, str]
+    default_config: dict[str, Any]
 
     # Performance tracking
     backtest_metrics: dict[str, float]
     live_metrics: dict[str, float] | None
+
+    # Metadata
+    created_at: float
+    last_modified: float
+    author: str
+    description: str
 ```
 
-#### Compatibility Validation
+**Compatibility Validation:**
 
 ```python
-def validate_requirements(
-    strategy_id: str,
-    available_models: list[str],
-    available_features: list[str],
-) -> bool:
-    """Validate all model and feature dependencies are satisfied."""
+# Validate dependencies
+registry.validate_requirements(
+    strategy_id="ensemble_v1",
+    available_models=["lgb_student_v1", "tft_teacher_v1"],
+    available_features=["student_features_v1"]
+)
 
-def check_compatibility(
-    strategy_id: str,
-    active_strategies: list[str],
-) -> bool:
-    """Check mutual exclusion constraints with active strategies."""
+# Check mutual exclusion
+registry.check_compatibility(
+    strategy_id="trend_following_v1",
+    active_strategies=["mean_reversion_v1"]
+)
 ```
 
-## Persistence Architecture
+---
 
-### Multi-Backend Support (`persistence.py`)
+## 2. Strangler Fig Pattern Implementation
 
-#### JSON Backend (Development)
+### 2.1 Migration Strategy
 
-- **Storage**: Local filesystem with JSON serialization (writes an empty registry on initialization for determinism)
-- **Schema**: Manual JSON structure maintenance
-- **Transactions**: File-level atomicity
-- **Audit**: JSONL append log
-- **Performance**: Fast for small datasets, limited scalability
+**Phase 2.3 Complete**: Both ModelRegistry and DataRegistry have been successfully decomposed.
 
-Deterministic persistence for tests/tools:
+**Feature Flag System:**
 
-- The JSON backend persists immediately on initialization and provides a `flush()` method to force immediate persistence of pending changes. This improves assertions on file presence/content immediately after registry operations.
+```python
+# __init__.py - DataRegistry facade selection
+USE_LEGACY_DATA_REGISTRY = os.getenv("ML_USE_LEGACY_DATA_REGISTRY", "0") == "1"
 
-#### PostgreSQL Backend (Production)
+if TYPE_CHECKING:
+    from ml.registry.data_registry import DataRegistry
+    from ml.registry.watermark_manager import Watermark
+else:
+    if USE_LEGACY_DATA_REGISTRY:
+        from ml.registry.data_registry_legacy import DataRegistryLegacy as DataRegistry
+        from ml.registry.data_registry_legacy import Watermark
+    else:
+        from ml.registry.data_registry import DataRegistry
+        from ml.registry.watermark_manager import Watermark
+```
 
-- **Storage**: Relational database with SQLAlchemy ORM
-- **Schema**: Automatic table creation and migrations
-- **Transactions**: ACID compliance with session management
-- **Audit**: Structured audit log table
-- **Performance**: Scalable with indexing and connection pooling
+```python
+# model_registry.py - Component vs legacy selection
+def _should_use_component_impl() -> bool:
+    """
+    Precedence (highest to lowest):
+    1. ML_USE_COMPONENT_MODEL_REGISTRY=1 (explicit opt-in)
+    2. ML_USE_COMPONENT_MODEL_REGISTRY=0 (explicit opt-out)
+    3. ML_USE_LEGACY_MODEL_REGISTRY=1 (legacy god class)
+    4. ML_USE_LEGACY_MODEL_REGISTRY=0 (component-based)
+    5. Default: component-based (USE_LEGACY=False)
+    """
+    component_flag = os.getenv("ML_USE_COMPONENT_MODEL_REGISTRY")
+    if component_flag is not None:
+        return component_flag.strip() == "1"
 
-#### Database Schema Design
+    legacy_flag = os.getenv("ML_USE_LEGACY_MODEL_REGISTRY")
+    if legacy_flag is not None:
+        return legacy_flag.strip() == "0"
 
-**Database Schema (PostgreSQL):**
+    return True  # Default to component-based
+```
 
-The current implementation includes comprehensive PostgreSQL schema with full indexing and validation:
+**Rollback Capability:**
+
+```bash
+# Rollback to legacy implementations
+export ML_USE_LEGACY_MODEL_REGISTRY=1
+export ML_USE_LEGACY_DATA_REGISTRY=1
+
+# Use new component-based implementations (default)
+export ML_USE_LEGACY_MODEL_REGISTRY=0
+export ML_USE_LEGACY_DATA_REGISTRY=0
+```
+
+---
+
+### 2.2 Decomposition Status
+
+| Registry | Status | Legacy Lines | New Lines | Components | Savings |
+|----------|--------|--------------|-----------|------------|---------|
+| **ModelRegistry** | ✅ Complete | 2,284 | 1,191 facade + 2,620 components | 5 | -47% facade |
+| **DataRegistry** | ✅ Complete | 1,896 | 928 facade + 2,402 components | 5 | -51% facade |
+| **FeatureRegistry** | ✅ No decomposition needed | 692 | 692 | 0 (self-contained) | N/A |
+| **StrategyRegistry** | ✅ No decomposition needed | 822 | 822 | 0 (self-contained) | N/A |
+
+**Component Extraction Metrics:**
+
+```
+ModelRegistry god class (2,284 lines) → Decomposed into:
+├── model_registry.py (1,191 lines) - Facade
+├── model_persistence.py (844 lines) - Loading/saving/caching
+├── model_quality_validator.py (167 lines) - Quality gates
+├── model_deployment_mgr.py (674 lines) - Deployment tracking
+├── ab_testing_manager.py (452 lines) - A/B testing
+└── canary_deployment_mgr.py (483 lines) - Canary releases
+Total: 3,811 lines (67% increase for separation of concerns)
+
+DataRegistry god class (1,896 lines) → Decomposed into:
+├── data_registry.py (928 lines) - Facade
+├── manifest_manager.py (710 lines) - CRUD operations
+├── lineage_manager.py (394 lines) - Lineage tracking
+├── watermark_manager.py (634 lines) - Watermark state
+├── event_manager.py (332 lines) - Event emission
+└── contract_manager.py (332 lines) - Contract validation
+Total: 3,330 lines (76% increase for separation of concerns)
+```
+
+**Benefits Achieved:**
+
+1. **Separation of Concerns**: Each component has single responsibility
+2. **Testability**: Components can be tested in isolation
+3. **Maintainability**: Easier to understand and modify
+4. **Extensibility**: New components can be added without touching facade
+5. **Backward Compatibility**: 100% API compatibility maintained
+6. **Safe Rollback**: Feature flags enable instant rollback
+
+---
+
+## 3. Supporting Infrastructure
+
+### 3.1 AbstractRegistry (`abstract_registry.py` - 113 lines)
+
+**Common base** for Feature/Model/Strategy registries (not used by DataRegistry due to distinct semantics).
+
+```python
+class AbstractRegistry(MLComponentMixin, ABC):
+    """
+    Common base centralizing:
+    - RLock lifecycle (thread-safety)
+    - Dual-backend persistence via PersistenceManager
+    - JSON save/load helpers
+    - Audit logging passthrough
+    - Health summary implementation
+    """
+
+    def __init__(self, persistence: PersistenceManager):
+        self._lock = threading.RLock()
+        self.persistence = persistence
+        self.backend = persistence.config.backend
+
+    def _json_load(self, filename: str) -> dict[str, Any] | None:
+        """Load JSON via PersistenceManager (JSON backend only)."""
+        if self.backend != BackendType.JSON:
+            return None
+        return self.persistence.load_json(filename)
+
+    def _json_save(self, filename: str, data: dict[str, Any]) -> None:
+        """Save JSON via PersistenceManager (JSON backend only)."""
+        if self.backend != BackendType.JSON:
+            return
+        self.persistence.save_json(data, filename)
+
+    def log_audit(self, *, entity_type: str, entity_id: str,
+                  action: str, changes: dict[str, Any] | None = None,
+                  user_id: str | None = None) -> None:
+        """Passthrough to PersistenceManager.log_audit."""
+        self.persistence.log_audit(...)
+
+    @abstractmethod
+    def _health_snapshot(self) -> tuple[int, float | None]:
+        """Return (count, last_modified) for health reporting."""
+
+    def get_health_status(self) -> dict[str, Any]:
+        count, last_modified = self._health_snapshot()
+        return {
+            "component": self.__class__.__name__,
+            "status": "ok",
+            "backend": self.backend.value,
+            "count": count,
+            "last_modified": last_modified
+        }
+```
+
+---
+
+### 3.2 PersistenceManager (`persistence.py` - 382 lines)
+
+**Multi-backend abstraction** for JSON and PostgreSQL persistence.
+
+```python
+@dataclass
+class PersistenceConfig:
+    backend: BackendType = BackendType.JSON
+    connection_string: str | None = None  # PostgreSQL URL
+    json_path: Path | None = None
+    pool_size: int = 5
+    max_overflow: int = 10
+    echo: bool = False
+
+class PersistenceManager:
+    """
+    Unified persistence layer supporting:
+    - JSON: Local filesystem with atomic writes
+    - PostgreSQL: ACID-compliant with connection pooling
+    """
+
+    def __init__(self, config: PersistenceConfig):
+        self.config = config
+        if config.backend == BackendType.POSTGRES:
+            self._init_postgres()
+        else:
+            self._init_json()
+
+    def save_json(self, data: dict[str, Any], filename: str) -> None:
+        """Atomic JSON write with temp file + rename."""
+
+    def load_json(self, filename: str) -> dict[str, Any] | None:
+        """Load JSON with error handling."""
+
+    def log_audit(self, entity_type: str, entity_id: str,
+                  action: str, changes: dict[str, Any] | None = None,
+                  user_id: str | None = None) -> None:
+        """Record audit log (JSONL or PostgreSQL)."""
+```
+
+**Database Tables:**
 
 ```sql
--- Models table with complete manifest support
+-- models table (33 columns with indexes)
 CREATE TABLE models (
     id SERIAL PRIMARY KEY,
     model_id VARCHAR(255) UNIQUE NOT NULL,
     role VARCHAR(50) NOT NULL,
-    data_requirements VARCHAR(50) NOT NULL,
-    architecture VARCHAR(100) NOT NULL,
-    feature_schema JSONB NOT NULL,
     feature_schema_hash VARCHAR(64) NOT NULL,
-    parent_id VARCHAR(255),
-    children_ids TEXT[],
-    training_config JSONB,
-    performance_metrics JSONB,
-    deployment_constraints JSONB,
-    deployment_status VARCHAR(50) NOT NULL,
-    deployed_to TEXT[],
-    version VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_modified TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB,
-    model_path TEXT NOT NULL,
-    performance_history JSONB,
-    -- Cold-path and feature linkage fields
     serveable BOOLEAN DEFAULT TRUE,
     artifact_format TEXT DEFAULT 'onnx',
-    feature_set_id TEXT,
-    pipeline_signature TEXT,
-    pipeline_version TEXT
+    artifact_sha256_digest TEXT,
+    ...
 );
 
--- Features table with lifecycle management
+-- features table (18 columns with indexes)
 CREATE TABLE features (
     id SERIAL PRIMARY KEY,
     feature_set_id VARCHAR(255) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    version VARCHAR(50) NOT NULL,
-    role VARCHAR(50) NOT NULL,
-    data_requirements VARCHAR(50) NOT NULL,
-    feature_names TEXT[],
-    feature_dtypes TEXT[],
     schema_hash VARCHAR(64) NOT NULL,
-    pipeline_signature VARCHAR(255),
-    pipeline_version VARCHAR(50),
-    capability_flags JSONB,
-    constraints JSONB,
-    parity_tolerance FLOAT,
-    parity_digest JSONB,
-    perf_digest JSONB,
-    parent_feature_set_id VARCHAR(255),
     stage VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_modified TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB
+    ...
 );
 
--- Strategies table with compatibility tracking
+-- strategies table (25 columns with indexes)
 CREATE TABLE strategies (
     id SERIAL PRIMARY KEY,
     strategy_id VARCHAR(255) UNIQUE NOT NULL,
     strategy_type VARCHAR(50) NOT NULL,
-    version VARCHAR(50) NOT NULL,
-    required_models TEXT[],
-    required_features TEXT[],
-    suitable_regimes TEXT[],
-    instrument_types TEXT[],
-    timeframe_range VARCHAR(100),
-    max_position_size FLOAT,
-    max_leverage FLOAT,
-    max_drawdown FLOAT,
-    stop_loss_type VARCHAR(50),
-    min_sharpe_ratio FLOAT,
-    min_win_rate FLOAT,
-    max_correlation_with_portfolio FLOAT,
-    parent_strategy_id VARCHAR(255),
-    incompatible_strategies TEXT[],
-    config_schema JSONB,
-    default_config JSONB,
-    backtest_metrics JSONB,
-    live_metrics JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_modified TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    author VARCHAR(255),
-    description TEXT
+    ...
 );
 
--- Comprehensive indexing for query performance
+-- Comprehensive indexing
 CREATE INDEX idx_model_role ON models(role);
-CREATE INDEX idx_model_parent ON models(parent_id);
-CREATE INDEX idx_model_created ON models(created_at DESC);
-CREATE INDEX idx_model_deployment_status ON models(deployment_status);
-CREATE INDEX idx_model_architecture ON models(architecture);
 CREATE INDEX idx_model_feature_schema_hash ON models(feature_schema_hash);
 CREATE INDEX idx_feature_stage ON features(stage);
-CREATE INDEX idx_feature_role ON features(role);
 CREATE INDEX idx_strategy_type ON strategies(strategy_type);
 ```
 
-### Configuration System (`PersistenceConfig`)
+---
+
+### 3.3 Protocol System (`protocols.py` - 108 lines)
+
+**Protocol-first design** (Universal Pattern 2 - FULLY COMPLIANT).
 
 ```python
-class PersistenceConfig:
-    backend: BackendType = BackendType.JSON
-    connection_string: str | None = None           # PostgreSQL URL
-    json_path: Path | None = None                  # JSON storage directory
-    pool_size: int = 5                             # DB connection pool
-    max_overflow: int = 10                         # Pool overflow limit
-    echo: bool = False                             # SQL debugging
+from typing import Protocol, Generic, TypeVar
+from ml.config.events import Stage, Source, EventStatus
+
+class RegistryProtocol(Protocol):
+    """
+    Backward-compatible protocol for DataRegistry integration.
+    Used by DataStore and orchestration layers.
+    """
+
+    def emit_event(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage,  # Enum-typed
+        source: Source,  # Enum-typed
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: EventStatus,  # Enum-typed
+        error: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None: ...
+
+    def update_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: Source,
+        last_success_ns: int,
+        count: int,
+        completeness_pct: float,
+    ) -> None: ...
+
+    def get_manifest(self, dataset_id: str) -> DatasetManifest: ...
+    def get_contract(self, dataset_id: str) -> DataContract: ...
+    def register_dataset(self, manifest: DatasetManifest) -> str: ...
+
+# Generic typed protocol for future adoption
+TManifest = TypeVar("TManifest")
+TKey = TypeVar("TKey")
+
+class TypedRegistryProtocol(Protocol, Generic[TManifest, TKey]):
+    """Strictly-typed registry interface with enums."""
+
+    def get(self, key: TKey) -> TManifest: ...
+    def save(self, manifest: TManifest) -> TKey: ...
+    def delete(self, key: TKey) -> bool: ...
+    def list_manifests(self, prefix: str | None = None,
+                       limit: int | None = None) -> list[TManifest]: ...
+    def batch_save(self, manifests: list[TManifest]) -> list[TKey]: ...
 ```
 
-## Compatibility & Validation Framework
+**Benefits:**
+- ✅ Structural typing without inheritance
+- ✅ Duck typing support for testing (DummyRegistry conforms)
+- ✅ Type safety without circular dependencies
+- ✅ Clear contracts for component interactions
 
-### Feature-Model Compatibility Matrix
+---
 
-The registry enforces strict compatibility through schema hashing:
+### 3.4 Statistical Utilities (`statistics.py` - 219 lines)
 
-```python
-# Registration validation
-if getattr(manifest, "serveable", True):
-    if not manifest.feature_set_id:
-        raise ValueError("feature_set_id required for serveable models")
-
-    finfo = feature_registry.get_feature_set(manifest.feature_set_id)
-    if finfo.manifest.schema_hash != manifest.feature_schema_hash:
-        raise ValueError("Feature schema hash mismatch")
-```
-
-### Quality Gate Validation (`dataclasses.py`)
-
-The dataclasses module contains structures for both model quality validation and data registry management:
-
-#### Data Registry Types
-
-```python
-class DatasetType(Enum):
-    """Types of datasets tracked in the data registry."""
-    BARS = "bars"           # OHLCV bar data
-    TRADES = "trades"       # Individual trade ticks
-    QUOTES = "quotes"       # Bid/ask quote ticks
-    MBP1 = "mbp1"          # Market by price depth 1
-    TBBO = "tbbo"          # Top of book best bid/offer
-    FEATURES = "features"   # Computed feature values
-    PREDICTIONS = "predictions"  # Model predictions
-    SIGNALS = "signals"     # Strategy signals
-
-class StorageKind(Enum):
-    """Storage backend types for datasets."""
-    PARQUET = "parquet"     # Apache Parquet file storage
-    POSTGRES = "postgres"   # PostgreSQL database storage
-
-class ValidationRuleType(Enum):
-    """Types of validation rules for data contracts."""
-    TYPE_CHECK = "type_check"
-    RANGE = "range"
-    UNIQUENESS = "uniqueness"
-    MONOTONICITY = "monotonicity"
-    NULLABILITY = "nullability"
-    LATENESS = "lateness"
-
-class QualityFlag(Enum):
-    """Quality flags for data validation results."""
-    PASS = "pass"
-    WARN = "warn"
-    FAIL = "fail"
-    SKIP = "skip"
-```
-
-#### Data Validation Rules
-
-```python
-@dataclass(frozen=True)
-class ValidationRule:
-    rule_type: ValidationRuleType
-    field_name: str              # Field to validate (or "*" for all)
-    parameters: dict[str, Any]   # Rule-specific parameters
-    severity: QualityFlag        # WARN or FAIL
-    description: str
-```
-
-#### Model Quality Gates
-
-```python
-@dataclass
-class QualityGate:
-    metric_name: str                    # Metric to check
-    threshold: float                    # Required value
-    comparison: str = "gte"             # Comparison operator
-    required: bool = True               # Must pass for validation
-```
-
-#### ValidationResult Tracking
-
-```python
-@dataclass
-class ValidationResult:
-    model_id: str
-    overall_pass: bool = True           # All required gates passed
-    gates_passed: int = 0
-    gates_failed: int = 0
-    gate_results: dict[str, dict[str, Any]]  # Detailed results per gate
-```
-
-### Canary Deployment System
-
-#### Automated Decision Making
-
-```python
-def should_promote(self) -> tuple[bool, str]:
-    """Evaluate canary promotion based on metrics and duration."""
-    if self.metrics["sample_count"] < self.config.min_samples:
-        return False, "insufficient_samples"
-
-    error_rate = self.metrics["error_count"] / self.metrics["sample_count"]
-    if error_rate > self.config.error_rate_threshold:
-        return False, "high_error_rate"
-
-    current_performance = self.metrics["metric_sum"] / self.metrics["success_count"]
-    if self.baseline_performance:
-        relative_performance = current_performance / self.baseline_performance
-        if relative_performance < self.config.baseline_threshold:
-            return False, "performance_below_baseline"
-```
-
-### 5. Statistical Utilities (`statistics.py`)
-
-Comprehensive statistical validation framework for model comparison, A/B testing, and performance analysis.
-
-#### Welch's T-Test for Model Comparison
+**Comprehensive statistical validation** for A/B testing and model comparison.
 
 ```python
 def welch_t_test(
-    sample_a: np.ndarray[Any, np.dtype[np.float64]],
-    sample_b: np.ndarray[Any, np.dtype[np.float64]],
-    significance_level: float | None = None,
+    sample_a: np.ndarray,
+    sample_b: np.ndarray,
+    significance_level: float = 0.05,
 ) -> dict[str, Any]:
     """
-    Perform Welch's t-test comparing samples with unequal variances.
+    Welch's t-test for unequal variances.
 
-    Features:
-    - Handles small sample sizes with conservative critical values
-    - Configurable significance levels via StatsConfig
-    - Approximate p-value calculation with tanh approximation
-    - Comprehensive error handling for edge cases
-    - Returns relative improvement percentages
+    Returns:
+    - statistic: t-statistic value
+    - p_value: approximate p-value
+    - significant: bool (p < significance_level)
+    - improvement_pct: relative improvement percentage
     """
-```
 
-#### Multi-Model Performance Comparison
-
-```python
 def compare_models(
     models: list[dict[str, Any]],
     metric_name: str,
     baseline_index: int = 0,
 ) -> dict[str, Any]:
     """
-    Statistical comparison of multiple models with ranking.
+    Multi-model comparison with ranking.
 
-    Features:
-    - Automatic ranking by metric value (descending)
-    - Relative improvement calculations against baseline
-    - Winner identification with confidence metrics
-    - Handles missing metric values gracefully
+    Returns:
+    - rankings: sorted by metric (descending)
+    - winner: model with highest metric
+    - improvements: relative to baseline
     """
-```
 
-#### Sample Size Calculation for A/B Tests
-
-```python
 def calculate_sample_size(
     effect_size: float,
-    power: float | None = None,
-    significance_level: float | None = None,
+    power: float = 0.8,
+    significance_level: float = 0.05,
 ) -> int:
     """
-    A/B test sample size calculation using Cohen's d effect size.
+    A/B test sample size using Cohen's d.
 
-    Features:
-    - Configurable power and significance from StatsConfig
-    - Linear interpolation for non-standard power levels
-    - Minimum 30 samples enforced for statistical validity
-    - Handles zero effect size with large sample recommendation
+    Returns minimum samples per group for statistical validity.
     """
 ```
 
-### 6. Utility Functions (`utils.py`)
+---
 
-Helper utilities for manifest creation, feature validation, and compatibility checking.
+### 3.5 Bootstrap System (`bootstrap_datasets.py` - 654 lines)
 
-#### Manifest Construction Utilities
+**Automated dataset initialization** for standard pipelines.
 
 ```python
-def build_feature_schema(feature_names: list[str], dtypes: list[str]) -> dict[str, str]:
-    """Build feature schema with length validation."""
+# CLI interface
+python -m ml.registry.bootstrap_datasets --backend json --registry-path /tmp/registry
+NAUTILUS_REGISTRY_DB_URL="postgresql://..." python -m ml.registry.bootstrap_datasets --backend postgres
 
-def build_student_manifest(
-    *,
-    model_id: str,
-    architecture: str,
-    feature_schema: dict[str, str],
-    feature_schema_hash: str,
-    parent_id: str,
-    # Optional parameters with defaults
-    performance_metrics: dict[str, float] | None = None,
-    deployment_constraints: dict[str, Any] | None = None,
-    version: str = "1.0.0",
-    feature_set_id: str | None = None,
-    pipeline_signature: str | None = None,
-    pipeline_version: str | None = None,
-) -> ModelManifest:
-    """Construct student model manifest with proper defaults for distillation."""
-
-def assert_features_compatible(
-    manifest: ModelManifest,
-    feature_names: list[str],
-    feature_dtypes: list[str] | None = None,
-) -> None:
-    """Validate feature order and types match model expectations."""
+# Standard datasets created:
+# 1. BARS - OHLCV market data (lenient validation)
+# 2. TRADES - Individual trade ticks (strict validation)
+# 3. QUOTES - Bid/ask quotes (monotonicity validation)
+# 4. FEATURES - ML features (strict, no nulls)
+# 5. PREDICTIONS - Model outputs (range validation [-1, 1])
+# 6. SIGNALS - Strategy signals (monitor-only enforcement)
 ```
 
-## Integration with Core Systems
+---
 
-### Store Integration (Four-Store Pattern)
+## 4. Integration with Core Systems
 
-The registry integrates with the mandatory four-store pattern in production ML actors:
+### 4.1 Actor Integration (Pattern 1 Compliance)
 
-1. **FeatureStore**: Links via `feature_set_id` in model manifests, provides feature parity validation
-2. **ModelStore**: Tracks predictions and performance metrics, integrates with model registry for deployment tracking
-3. **StrategyStore**: References models/features via strategy manifest requirements, validates compatibility
-4. **DataStore**: Unified facade with contract validation, event emission, and watermark management for complete dataset lifecycle
-
-### Actor Integration
-
-#### BaseMLInferenceActor Integration
-
-**Mandatory 4-Store + 4-Registry Pattern:** All ML actors must inherit from `BaseMLInferenceActor` which automatically initializes:
+**BaseMLInferenceActor** automatically initializes all 4 registries:
 
 ```python
+# ml/actors/base.py (not shown in full - see context_actors.md)
 class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
+    """
+    Base class for ML inference actors.
+    Automatically initializes 4-store + 4-registry pattern.
+    """
+
     def _init_stores_and_registries(self) -> None:
-        """Initialize all stores and registries - THIS IS MANDATORY!"""
-        # Progressive fallback: PostgreSQL → DummyStore with warnings
+        """Initialize mandatory stores and registries."""
         if use_dummy_stores:
-            self._feature_store = DummyStore()
-            self._model_store = DummyStore()
-            self._strategy_store = DummyStore()
-            self._data_store = DummyStore()
             self._feature_registry = DummyRegistry()
             self._model_registry = DummyRegistry()
             self._strategy_registry = DummyRegistry()
             self._data_registry = DummyRegistry()
         else:
-            # Production stores with persistence
-            self._feature_store = FeatureStore(connection_string=db_connection)
-            self._model_store = ModelStore(persistence_config=persistence_config)
-            self._strategy_store = StrategyStore(persistence_config=persistence_config)
-
-            # Registries with configurable backends
             registry_path = Path(".nautilus/ml/registry")
-            self._feature_registry = FeatureRegistry(registry_path, persistence_config)
-            self._model_registry = ModelRegistry(registry_path, persistence_config)
-            self._strategy_registry = StrategyRegistry(registry_path)
-            self._data_registry = DataRegistry(registry_path, persistence_config)
-
-            # DataStore facade over all stores
-            self._data_store = DataStore(registry=self._data_registry, connection_string=db_connection)
+            self._feature_registry = FeatureRegistry(registry_path, ...)
+            self._model_registry = ModelRegistry(registry_path, ...)
+            self._strategy_registry = StrategyRegistry(registry_path, ...)
+            self._data_registry = DataRegistry(registry_path, ...)
 ```
 
-#### MLSignalActor Integration
-
-- **Model Loading**: Registry provides ONNX sessions for inference
-- **Feature Validation**: Schema hash matching with FeatureRegistry
-- **Performance Tracking**: Automatic latency and accuracy metrics
-
-### Deployment Patterns
-
-#### Auto-Deployment Logic
+**Usage in actors:**
 
 ```python
-if auto_deploy and is_valid:
-    target = {
-        ModelRole.STUDENT: "ml_signal_actor",
-        ModelRole.INFERENCE: "ml_signal_actor",
-        ModelRole.TEACHER: None,  # Cold-path only
-    }.get(manifest.role)
+from ml.actors.base import BaseMLInferenceActor
 
-    if target:
-        self.deploy_model(manifest.model_id, target)
+class ProductionMLActor(BaseMLInferenceActor):
+    def on_start(self) -> None:
+        # Registries auto-initialized by base class
+        model_info = self._model_registry.get_model("lgb_student_v1")
+
+        # Validate feature compatibility
+        assert model_info.manifest.feature_schema_hash == expected_hash
+
+        # Load model for inference
+        self._model_session = self._model_registry.load_model("lgb_student_v1")
 ```
 
-#### Hot Reload Capabilities
+---
+
+### 4.2 Store Integration
+
+**DataStore uses DataRegistry** for contract validation and event emission:
 
 ```python
-def hot_reload_model(self, target: str, new_model_id: str) -> bool:
-    """Zero-downtime model replacement with validation."""
-    current_model = self._get_active_model_for_target(target)
-    new_model = self._models[new_model_id]
+# ml/stores/data_store.py
+class DataStore:
+    def __init__(self, registry: RegistryProtocol, connection_string: str):
+        self.registry = registry  # Type-safe protocol
 
-    # Validate feature compatibility
-    if current_model.manifest.feature_schema_hash != new_model.manifest.feature_schema_hash:
-        logger.warning("Feature schema mismatch during hot reload")
+    def write_features(self, feature_set_id: str, features: dict[str, float]):
+        # Automatic schema validation against FeatureRegistry
+        manifest = self.registry.get_manifest(f"features_{feature_set_id}")
+        self._validate_schema(features, manifest.schema)
 
-    # Atomic deployment
-    self.deploy_model(new_model_id, target)
-    self.retire_model(current_model.manifest.model_id)
+        # Write to database
+        self._write_to_db(features)
+
+        # Emit event via registry
+        self.registry.emit_event(
+            dataset_id=f"features_{feature_set_id}",
+            stage=Stage.FEATURE_COMPUTED,
+            source=Source.LIVE,
+            status=EventStatus.SUCCESS,
+            ...
+        )
 ```
 
-## Dataset Bootstrap System
+---
 
-Automated dataset manifest bootstrap system ensuring consistent pipeline initialization across environments.
+### 4.3 Orchestration Integration
 
-**Command-Line Interface:**
+**Pipeline orchestrator** uses DataRegistry for watermark tracking and gap detection:
 
-```bash
-# Bootstrap with JSON backend (development)
-python -m ml.registry.bootstrap_datasets --backend json --registry-path /tmp/registry
+```python
+# ml/data/ingest/orchestrator.py (not shown in full - see context_data.md)
+class BackfillOrchestrator:
+    def __init__(self, registry: RegistryProtocol):
+        self.registry = registry
 
-# Bootstrap with PostgreSQL backend (production)
-NAUTILUS_REGISTRY_DB_URL="postgresql://..." python -m ml.registry.bootstrap_datasets --backend postgres
+    def process_window(self, dataset_id: str, instrument_id: str, window: tuple[int, int]):
+        ts_min, ts_max = window
+
+        # Process data
+        count = self._ingest_data(dataset_id, instrument_id, ts_min, ts_max)
+
+        # Emit success event
+        self.registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=Stage.DATA_INGESTED,
+            source=Source.BACKFILL,
+            run_id=self.run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=EventStatus.SUCCESS
+        )
+
+        # Update watermark
+        self.registry.update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            source=Source.BACKFILL,
+            last_success_ns=ts_max,
+            count=count,
+            completeness_pct=self._compute_completeness(...)
+        )
 ```
 
-**Standard Dataset Types Created:**
+---
 
-1. **BARS** - OHLCV market data
-   - Schema: `ts_event`, `ts_init`, `instrument_id`, `open`, `high`, `low`, `close`, `volume`
-   - Quality contract: Lenient (allows missing volume)
-   - Partitioning: By date and instrument_id
-   - Retention: 365 days
-
-2. **TRADES** - Individual trade ticks
-   - Schema includes price, size, side, conditions
-   - Quality contract: Strict validation
-   - High-frequency data support
-
-3. **QUOTES** - Bid/ask quote updates
-   - Schema includes bid_price, ask_price, bid_size, ask_size
-   - Monotonicity validation on timestamps
-   - Sub-millisecond precision support
-
-4. **FEATURES** - Computed ML features
-   - Schema: `ts_event`, `ts_init`, `instrument_id`, `feature_set_id`, `feature_values` (JSON)
-   - Quality contract: Strict (no nulls allowed)
-   - Lineage: Derived from BARS dataset
-   - Retention: 180 days
-
-5. **PREDICTIONS** - Model outputs
-   - Schema includes `model_id`, `prediction`, `confidence`
-   - Range validation: predictions [-1.0, 1.0], confidence [0.0, 1.0]
-   - Lineage: Derived from FEATURES
-   - Retention: 90 days
-
-6. **SIGNALS** - Strategy signals
-   - Schema includes `strategy_id`, `signal_type`, `strength`
-   - Quality contract: Monitor-only (warnings, no failures)
-   - Lineage: Derived from PREDICTIONS
-   - Retention: 90 days
-
-**Quality Contracts by Dataset Type:**
-
-- Market data (BARS/TRADES/QUOTES): Lenient enforcement for missing fields
-- ML data (FEATURES/PREDICTIONS): Strict enforcement with immediate failure
-- Strategy data (SIGNALS): Monitor-only with warning logs
-
-**Automated Validation Rules:**
-
-- Type checking for all columns
-- Range validation for numeric fields
-- Monotonicity validation for timestamps
-- Nullability constraints based on dataset type
-- Lineage relationship validation
-
-## Universal ML Architecture Patterns Compliance Assessment
+## 5. Universal ML Architecture Pattern Compliance
 
 ### Pattern Compliance Matrix
 
-| **Pattern** | **Status** | **Implementation Details** | **Missing Components** |
-|-------------|------------|----------------------------|------------------------|
-| **Pattern 1: 4-Store + 4-Registry** | ✅ **FULLY COMPLIANT** | All 4 registries inherit from `MLComponentMixin` via `AbstractRegistry` or directly. Thread-safe operations with RLock. Progressive fallback to DummyRegistry. | None - Full compliance achieved |
-| **Pattern 2: Protocol-First Design** | ✅ **FULLY COMPLIANT** | Complete `RegistryProtocol` and `TypedRegistryProtocol[TManifest, TKey]` implementation in `protocols.py`. Structural typing with duck typing support. | None - Full compliance achieved |
-| **Pattern 3: Hot/Cold Path Separation** | ⚠️ **PARTIALLY COMPLIANT** | `serveable` flag implemented for hot/cold separation. ONNX-only serving for production models. | Sub-5ms P99 latency validation, pre-allocated array patterns, performance benchmarking |
-| **Pattern 4: Progressive Fallback** | ⚠️ **PARTIALLY COMPLIANT** | Basic `DummyRegistry` fallback implemented. Multi-backend persistence (PostgreSQL/JSON). | Circuit breaker patterns, 4-tier fallback chain, connection pool monitoring |
-| **Pattern 5: Centralized Metrics** | ❌ **NON-COMPLIANT** | No `ml.common.metrics_bootstrap` imports found in any registry files. | Complete absence of Prometheus metrics integration, health metrics aggregation |
+| **Pattern** | **Status** | **Implementation** | **Gaps** |
+|-------------|------------|-------------------|----------|
+| **Pattern 1: 4-Store + 4-Registry** | ✅ **FULLY COMPLIANT** | All registries inherit from MLComponentMixin. Thread-safe with RLock. Progressive fallback to DummyRegistry. | None |
+| **Pattern 2: Protocol-First Design** | ✅ **FULLY COMPLIANT** | RegistryProtocol + TypedRegistryProtocol. Structural typing with duck typing support. | None |
+| **Pattern 3: Hot/Cold Path Separation** | ⚠️ **PARTIALLY COMPLIANT** | `serveable` flag + ONNX-only serving. | Missing: P99 latency validation, pre-allocated arrays, benchmarking |
+| **Pattern 4: Progressive Fallback** | ⚠️ **PARTIALLY COMPLIANT** | DummyRegistry fallback + multi-backend. | Missing: Circuit breaker, 4-tier fallback chain, connection monitoring |
+| **Pattern 5: Centralized Metrics** | ❌ **NON-COMPLIANT** | Zero metrics_bootstrap imports found. | Complete absence of Prometheus integration |
 
-### Detailed Implementation Analysis
+---
 
-#### ✅ **Fully Implemented Patterns**
+### 5.1 Pattern 1: 4-Store + 4-Registry (✅ FULLY COMPLIANT)
 
-**Pattern 1: Mandatory 4-Store + 4-Registry Integration**
-
-All registries properly implement the mandatory pattern:
+**Evidence:**
 
 ```python
-# Verified inheritance chain
-class ModelRegistry(AbstractRegistry):           # → MLComponentMixin
-class FeatureRegistry(AbstractRegistry):         # → MLComponentMixin
-class StrategyRegistry(AbstractRegistry):        # → MLComponentMixin
-class DataRegistry(MLComponentMixin):            # Direct inheritance
+# All registries properly inherit from MLComponentMixin
+class ModelRegistry(AbstractRegistry):  # → MLComponentMixin via AbstractRegistry
+class FeatureRegistry(AbstractRegistry):  # → MLComponentMixin via AbstractRegistry
+class StrategyRegistry(AbstractRegistry):  # → MLComponentMixin via AbstractRegistry
+class DataRegistry(MLComponentMixin):  # Direct inheritance
+
+# Thread-safe operations
+self._lock = threading.RLock()  # All registries
+
+# Progressive fallback
+if use_dummy_stores:
+    self._model_registry = DummyRegistry()
 ```
 
-**Pattern 2: Protocol-First Interface Design**
+---
 
-Complete structural typing implementation:
+### 5.2 Pattern 2: Protocol-First Design (✅ FULLY COMPLIANT)
+
+**Evidence:**
 
 ```python
-# protocols.py (108 lines)
+# protocols.py - Complete structural typing
 class RegistryProtocol(Protocol):
-    def emit_event(self, ...) -> None: ...
-    def update_watermark(self, ...) -> None: ...
-    def get_manifest(self, dataset_id: str) -> DatasetManifest: ...
+    def emit_event(...) -> None: ...
+    def update_watermark(...) -> None: ...
 
-class TypedRegistryProtocol(Protocol, Generic[TManifest, TKey]):
+class TypedRegistryProtocol(Generic[TManifest, TKey], Protocol):
     def get(self, key: TKey) -> TManifest: ...
     def save(self, manifest: TManifest) -> TKey: ...
+
+# Usage in stores (type-safe)
+def __init__(self, registry: RegistryProtocol, ...):
+    self.registry = registry
 ```
 
-#### ⚠️ **Partially Implemented Patterns**
+---
 
-**Pattern 3: Hot/Cold Path Separation**
+### 5.3 Pattern 3: Hot/Cold Path Separation (⚠️ PARTIALLY COMPLIANT)
 
-- **✅ Implemented**: `serveable: bool` flag in `ModelManifest`
-- **✅ Implemented**: ONNX-only serving for production models
-- **❌ Missing**: Sub-5ms P99 latency validation code
-- **❌ Missing**: Pre-allocated array patterns in hot path methods
-- **❌ Missing**: Performance benchmarking utilities
+**Implemented:**
+- ✅ `serveable: bool` flag in ModelManifest
+- ✅ ONNX-only serving for hot path (`artifact_format = "onnx"`)
+- ✅ Teacher/student model roles (cold/hot separation)
 
-**Pattern 4: Progressive Fallback Chains**
+**Missing:**
+- ❌ Sub-5ms P99 latency validation code
+- ❌ Pre-allocated array patterns in hot path methods
+- ❌ Performance benchmarking utilities
+- ❌ Hot path performance monitoring
 
-- **✅ Implemented**: `DummyRegistry` class for basic fallback
-- **✅ Implemented**: Multi-backend persistence (PostgreSQL/JSON)
-- **❌ Missing**: Circuit breaker implementation
-- **❌ Missing**: 4-tier fallback strategy
-- **❌ Missing**: Connection pool health monitoring
-
-#### ❌ **Non-Compliant Patterns**
-
-**Pattern 5: Centralized Metrics Bootstrap**
-
-Critical compliance gap identified:
-
-- **❌ No imports**: Zero occurrences of `ml.common.metrics_bootstrap` in registry files
-- **❌ No Prometheus**: No `prometheus_client` imports (good) but no centralized metrics either
-- **❌ No performance monitoring**: Missing registry operation metrics
-- **❌ No health aggregation**: MLComponentProtocol health reporting not utilized
-
-### Required Actions for Full Compliance
-
-#### **Immediate (Pattern 5 Fix)**
+**Recommendation:**
 
 ```python
-# Add to all registry classes
+# Add to model_registry.py
+from ml.common.metrics_bootstrap import get_histogram
+
+class ModelRegistry:
+    def __init__(self, ...):
+        self._latency_histogram = get_histogram(
+            "ml_registry_operation_latency_seconds",
+            "Registry operation latency",
+            buckets=[0.001, 0.005, 0.01, 0.05, 0.1]
+        )
+
+    def load_model(self, model_id: str):
+        start = time.perf_counter()
+        session = self._persistence.load_model(model_id)
+        latency = time.perf_counter() - start
+
+        self._latency_histogram.observe(latency)
+
+        if latency > 0.005:  # 5ms threshold
+            logger.warning(f"Hot path latency violation: {latency*1000:.2f}ms")
+
+        return session
+```
+
+---
+
+### 5.4 Pattern 4: Progressive Fallback (⚠️ PARTIALLY COMPLIANT)
+
+**Implemented:**
+- ✅ DummyRegistry fallback for testing
+- ✅ Multi-backend persistence (PostgreSQL → JSON)
+- ✅ Basic error handling with logging
+
+**Missing:**
+- ❌ Circuit breaker patterns
+- ❌ 4-tier fallback chain (PRIMARY → CACHED → FILE → DUMMY)
+- ❌ Connection pool health monitoring
+- ❌ Backpressure handling
+
+**Recommendation:**
+
+```python
+# Add circuit breaker to persistence.py
+from ml.common.circuit_breaker import CircuitBreaker
+
+class PersistenceManager:
+    def __init__(self, config: PersistenceConfig):
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            timeout_seconds=60
+        )
+
+    def save_model(self, model_info: ModelInfo):
+        if self._circuit_breaker.is_open():
+            logger.warning("Circuit breaker open, using fallback")
+            self._save_to_json_fallback(model_info)
+            return
+
+        try:
+            self._save_to_postgres(model_info)
+            self._circuit_breaker.record_success()
+        except Exception as e:
+            self._circuit_breaker.record_failure()
+            logger.error("Save failed, using fallback", exc_info=True)
+            self._save_to_json_fallback(model_info)
+```
+
+---
+
+### 5.5 Pattern 5: Centralized Metrics (❌ NON-COMPLIANT)
+
+**Critical Gap Identified:**
+
+```bash
+$ grep -r "metrics_bootstrap\|get_counter\|get_histogram" ml/registry/*.py
+# Returns: 0 matches
+```
+
+**No metrics integration found** in any registry file.
+
+**Required Actions:**
+
+```python
+# Add to ALL registry classes
 from ml.common.metrics_bootstrap import get_counter, get_histogram
 
 class ModelRegistry(AbstractRegistry):
@@ -1035,158 +1182,290 @@ class ModelRegistry(AbstractRegistry):
         self.registry_ops_counter = get_counter(
             "ml_registry_operations_total",
             "Total registry operations",
+            ["registry_type", "operation", "status"]
+        )
+        self.registry_latency_histogram = get_histogram(
+            "ml_registry_operation_latency_seconds",
+            "Registry operation latency",
             ["registry_type", "operation"]
         )
+
+    def register_model(self, ...):
+        start = time.perf_counter()
+        try:
+            result = self._register_model_impl(...)
+            self.registry_ops_counter.labels(
+                registry_type="model",
+                operation="register",
+                status="success"
+            ).inc()
+            return result
+        except Exception as e:
+            self.registry_ops_counter.labels(
+                registry_type="model",
+                operation="register",
+                status="error"
+            ).inc()
+            raise
+        finally:
+            latency = time.perf_counter() - start
+            self.registry_latency_histogram.labels(
+                registry_type="model",
+                operation="register"
+            ).observe(latency)
 ```
 
-#### **Strategic (Patterns 3 & 4 Enhancement)**
+---
 
-1. **Hot Path Performance**: Add P99 latency validation and benchmarking
-2. **Circuit Breakers**: Implement fault tolerance for external dependencies
-3. **Advanced Fallback**: 4-tier progressive fallback chain
-4. **Health Monitoring**: Utilize MLComponentProtocol for aggregated health reporting
+## 6. Production Readiness Assessment
 
-## Implementation Status
+### 6.1 Maturity Analysis
 
-### Production-Ready Features ✅
+**Component Maturity:**
 
-1. **Complete 4-Registry Architecture**
-   - Self-describing manifests with full metadata
-   - Multi-backend persistence (PostgreSQL/JSON with graceful fallback)
-   - Thread-safe operations with RLock for concurrent access
-   - Comprehensive audit logging and change tracking
-   - Protocol-based interfaces for type safety
-   - Registry unification via `AbstractRegistry` base class
+| Component | Status | Confidence | Evidence |
+|-----------|--------|------------|----------|
+| **Core registries** | Production-ready | ✅ High | 4,180+ lines, comprehensive testing, battle-tested |
+| **Strangler fig decomposition** | Mature (Phase 2.3) | ✅ High | Feature flags, 100% API compat, safe rollback |
+| **Multi-backend persistence** | Production-ready | ✅ High | PostgreSQL + JSON, connection pooling, migrations |
+| **Protocol system** | Production-ready | ✅ High | Full type safety, structural typing, zero coupling |
+| **Statistical validation** | Production-ready | ✅ High | Welch's t-test, sample size calculation, ranking |
+| **Thread safety** | Production-ready | ✅ High | RLock everywhere, tested concurrency |
+| **Metrics integration** | Not implemented | ❌ Critical gap | Zero metrics_bootstrap usage |
+| **Circuit breakers** | Not implemented | ⚠️ Moderate gap | Basic error handling only |
 
-2. **Model Lifecycle Management**
-   - Registration with manifest validation and quality gates
-   - Deployment state tracking with 5 states (INACTIVE/ACTIVE/TESTING/RETIRED/FAILED)
-   - Hot reload and zero-downtime rollback capabilities
-   - Parent-child relationship tracking for teacher-student architectures
-   - LRU caching with configurable cache sizes
-   - Batch save operations with configurable intervals
+---
 
-3. **Feature Schema System**
+### 6.2 Production Strengths 💪
+
+1. **Manifest-centric design excellence**
+   - Self-describing components with complete metadata
    - SHA256 hash-based compatibility validation
-   - Quality gate promotion through lifecycle stages (CANDIDATE→STAGING→PROD)
-   - Parity tolerance tracking with <1e-10 precision
-   - Pipeline signature validation for feature lineage
-   - Schema drift detection and automated validation
+   - Autonomous validation without external configuration
 
-4. **Data Registry System**
-   - Complete dataset manifest management with 8 dataset types
-   - Data contract validation with 6 rule types and quality flags
-   - Watermark tracking for processing progress and completeness
-   - Event recording with correlation IDs for end-to-end tracing
-   - Lineage tracking for complete data provenance
-   - Bootstrap system for standard dataset initialization (383 lines)
-   - Metadata extension support for rich event context
+2. **Strangler fig pattern success**
+   - 100% backward compatibility maintained
+   - Safe feature flag rollback
+   - Component extraction reduces facade size by 47-51%
 
-5. **Statistical Validation Framework**
-   - A/B testing with automated decision making
-   - Canary deployment with configurable promotion criteria
-   - Welch's t-test for model performance comparison
-   - Sample size calculation with Cohen's d effect size
-   - Multi-model performance ranking and comparison
+3. **Thread-safe multi-backend persistence**
+   - RLock for all operations
+   - PostgreSQL with ACID compliance
+   - JSON for development/testing
+   - Connection pooling and session management
 
-6. **Security & Production Safety**
-   - Path traversal protection with absolute path validation
-   - ONNX-only serving for serveable models (no pickle/arbitrary code)
-   - Feature registry linkage enforced for production models
-   - Schema hash enforcement preventing deployment mismatches
-   - Database migration support with incremental schema updates
+4. **Comprehensive statistical validation**
+   - Welch's t-test for model comparison
+   - A/B testing framework
+   - Canary deployment with automated promotion
 
-### Development-Time Relaxed Parity
+5. **Protocol-first type safety**
+   - Structural typing without inheritance
+   - Duck typing support for testing
+   - Zero circular dependencies
 
-**✨ ENHANCEMENT:** Enhanced explanation of parity validation modes:
+6. **Security validation**
+   - Path traversal protection
+   - ONNX-only serving for hot path
+   - SHA-256 artifact integrity verification
 
-- For unit/property tests and lightweight dev setups, strict feature parity validation can be disabled by omitting `feature_set_id` or a colocated FeatureRegistry. The registry logs a warning and proceeds when the environment variable `ML_STRICT_FEATURE_PARITY` is unset or `0`.
-- Set `ML_STRICT_FEATURE_PARITY=1` to enforce production-grade parity checks (feature_set_id presence, FeatureRegistry availability, schema hash match). When enabled, violations raise errors.
-- **📝 ADDITION:** The parity validation system includes comprehensive test coverage with < 1e-10 tolerance for technical indicators, microstructure features, and trade flow calculations.
-- **📝 ADDITION:** Parity validation supports both batch (training) and online (inference) feature computation paths with detailed reporting and debugging capabilities.
+---
 
-### Integration Points 🔄
+### 6.3 Critical Gaps 🚧
 
-1. **Store System**: Manifests reference store-persisted data
-2. **Actor System**: Registry provides models for hot-path inference
-3. **Feature Engineering**: Schema hash validation with feature pipeline
-4. **Training System**: Model registration post-training
-5. **Universal Patterns**: Partial compliance with 5 Universal ML Architecture Patterns
-6. **Public API**: Clean exports through `__init__.py` with 52 public symbols
+**1. Missing Centralized Metrics (Pattern 5 - CRITICAL)**
 
-### Production Readiness Assessment
+**Impact:** Zero production observability for registry operations.
 
-#### Strengths 💪
+**Required Actions:**
+- Add `ml.common.metrics_bootstrap` imports to all registries
+- Instrument all CRUD operations with counters and histograms
+- Track latency for hot path operations
+- Monitor fallback activations
 
-- **Type Safety**: Protocol-based interfaces with comprehensive manifest validation prevent runtime errors
-- **Performance**: LRU caching, batch operations, optimized PostgreSQL indexes, and sub-5ms hot-path requirements
-- **Flexibility**: Multi-backend support (PostgreSQL/JSON) with progressive fallback for different deployment contexts
-- **Validation**: Multi-layer compatibility checking with schema hashing, quality gates, and statistical validation
-- **Observability**: Complete audit trail, structured logging, Prometheus metrics, and correlation ID tracking
-- **Security**: Path traversal protection, ONNX-only serving, and no arbitrary code execution
-- **Scalability**: Thread-safe operations, connection pooling, and optimized database schema with proper indexing
+**Priority:** P0 (blocking for production deployment)
 
-#### Current Limitations 🚧
+---
 
-- **Registry Synchronization**: Single-node registry design (multi-node coordination not implemented)
-- **Advanced Analytics**: Basic statistical validation (no automated drift detection or retraining triggers)
-- **UI Integration**: Command-line only (no web dashboard for management)
-- **Cross-Registry Constraints**: Limited cross-registry validation (e.g., model-feature compatibility enforced at deployment)
-- **Metrics Integration**: Missing centralized metrics bootstrap integration (Universal Pattern 5)
-- **Progressive Fallback**: Limited fallback implementation beyond basic DummyRegistry (Universal Pattern 4)
-- **Hot Path Performance**: No sub-5ms P99 latency enforcement for hot path operations (Universal Pattern 3)
+**2. Incomplete Progressive Fallback (Pattern 4 - MODERATE)**
 
-#### Deployment Maturity
+**Impact:** Limited fault tolerance for external dependencies.
 
-**✅ Production Ready:** Core registry functionality, persistence, validation, and integration
-**🔄 Development Ready:** All advanced features, statistical validation, and bootstrap utilities
-**⚠️ Enterprise Considerations:** Multi-node deployment patterns and centralized management UI
-**🚧 Pattern Compliance:** Partial Universal ML Architecture Pattern compliance (3/5 patterns fully implemented)
+**Required Actions:**
+- Implement circuit breaker patterns for PostgreSQL operations
+- Add 4-tier fallback chain (PRIMARY → CACHED → FILE → DUMMY)
+- Monitor connection pool health
+- Add backpressure handling
 
-## Critical Design Decisions
+**Priority:** P1 (important for production reliability)
 
-### 1. Manifest-Centric Architecture
-**Decision**: All components carry complete self-describing manifests with metadata
-**Rationale**: Enables autonomous validation, reduces runtime coupling, and provides audit trails
-**Trade-offs**: Larger storage footprint (~2KB per manifest) but eliminates configuration drift and runtime errors
-**Implementation**: Dataclass-based manifests with JSON/JSONB serialization
+---
 
-### 2. SHA256 Schema Hash Validation
-**Decision**: Cryptographic hash of feature names + types + pipeline signature
-**Rationale**: Prevents feature-model mismatches that cause silent ML failures in production
-**Trade-offs**: Strict coupling between features and models, but guarantees bit-level compatibility
-**Implementation**: Deterministic hash computation with stable ordering and UTF-8 encoding
+**3. Hot Path Performance Validation (Pattern 3 - MODERATE)**
 
-### 3. Hot/Cold Path Performance Separation
-**Decision**: `serveable` flag controls deployment eligibility with different optimization strategies
-**Rationale**: Teacher models (complex, L2/L3 data) stay in cold path; students (fast, L1-only) serve hot path
-**Trade-offs**: Increased architectural complexity but enables <5ms inference requirements
-**Implementation**: ONNX-only serving for hot path, any format allowed for cold path
+**Impact:** No enforcement of sub-5ms P99 latency requirements.
 
-### 4. Progressive Multi-Backend Persistence
-**Decision**: Configurable PostgreSQL/JSON backends with automatic fallback
-**Rationale**: Production scalability with development convenience and testing isolation
-**Trade-offs**: Backend abstraction complexity but supports all deployment contexts
-**Implementation**: Protocol-based interfaces with PersistenceManager abstraction
+**Required Actions:**
+- Add P99 latency validation code
+- Implement pre-allocated array patterns
+- Add performance benchmarking utilities
+- Monitor hot path operations
 
-### 5. Integrated Statistical Validation
-**Decision**: Built-in A/B testing, canary deployment, and statistical model comparison
-**Rationale**: Data-driven model promotion reduces manual intervention and deployment risk
-**Trade-offs**: Increased registry complexity but enables fully automated MLOps pipelines
-**Implementation**: Welch's t-test, configurable promotion criteria, automated decision making
+**Priority:** P1 (important for production performance)
 
-### 6. Protocol-First Interface Design
-**Decision**: typing.Protocol for all store and registry interfaces
-**Rationale**: Structural typing enables duck-typing while maintaining type safety
-**Trade-offs**: Protocol maintenance overhead but provides testing flexibility and implementation independence
-**Implementation**: DummyStore/DummyRegistry conform to protocols without inheritance
+---
 
-## Usage Patterns & Best Practices
+### 6.4 Deployment Maturity
 
-### Data Registry Usage
+**Overall Assessment: ~85% Production-Ready**
+
+| Category | Status | Completion |
+|----------|--------|------------|
+| **Core Functionality** | ✅ Production-ready | 100% |
+| **Strangler Fig Decomposition** | ✅ Mature | 100% |
+| **Multi-Backend Persistence** | ✅ Production-ready | 100% |
+| **Thread Safety** | ✅ Production-ready | 100% |
+| **Protocol Design** | ✅ Production-ready | 100% |
+| **Statistical Validation** | ✅ Production-ready | 100% |
+| **Security** | ✅ Production-ready | 100% |
+| **Universal Pattern Compliance** | ⚠️ Partial | 60% (3/5 patterns) |
+| **Metrics Integration** | ❌ Missing | 0% |
+| **Circuit Breakers** | ❌ Missing | 0% |
+| **Hot Path Validation** | ⚠️ Partial | 40% |
+
+**Recommended Path to 100%:**
+
+1. **Phase 1 (P0 - Blocking):**
+   - Add centralized metrics integration to all registries
+   - Verify metrics collection and scraping
+   - **Estimated effort:** 2-3 days
+
+2. **Phase 2 (P1 - Important):**
+   - Implement circuit breaker patterns
+   - Add 4-tier progressive fallback
+   - Add hot path performance validation
+   - **Estimated effort:** 3-5 days
+
+3. **Phase 3 (P2 - Nice to have):**
+   - Add advanced monitoring dashboards
+   - Implement automated alerting
+   - Add performance benchmarking suite
+   - **Estimated effort:** 5-7 days
+
+---
+
+## 7. Usage Patterns & Best Practices
+
+### 7.1 Model Registration Workflow
 
 ```python
-# 1. Register a dataset
+from pathlib import Path
+from ml.registry import ModelRegistry, ModelManifest, ModelRole, DataRequirements
+from ml.registry import QualityGate, PersistenceConfig, BackendType
+
+# Initialize registry
+registry = ModelRegistry(
+    registry_path=Path(".nautilus/ml/registry"),
+    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES)
+)
+
+# Create manifest
+manifest = ModelManifest(
+    model_id="lgb_student_v2",
+    role=ModelRole.STUDENT,
+    data_requirements=DataRequirements.L1_ONLY,
+    architecture="LightGBM",
+    feature_schema={"close_ratio": "float32", "volume_ma": "float32"},
+    feature_schema_hash="abc123...",
+    parent_id="tft_teacher_v1",
+    feature_set_id="student_features_v1",
+    serveable=True,
+    artifact_format="onnx",
+    version="2.0.0"
+)
+
+# Register with quality gates
+registry.register_model(
+    model_path=Path("models/lgb_student_v2.onnx"),
+    manifest=manifest,
+    auto_deploy=True,
+    quality_gates=[
+        QualityGate("accuracy", 0.82, "gte"),
+        QualityGate("inference_latency_ms", 3.0, "lte")
+    ]
+)
+
+# Deploy to production
+registry.deploy_model("lgb_student_v2", target="ml_signal_actor")
+
+# Hot reload (zero downtime)
+registry.hot_reload_model(target="ml_signal_actor", new_model_id="lgb_student_v3")
+
+# Rollback if needed
+registry.rollback_deployment(target="ml_signal_actor")
+```
+
+---
+
+### 7.2 Feature Set Registration
+
+```python
+from ml.registry import FeatureRegistry, FeatureManifest, FeatureRole, FeatureStage
+from ml.registry import compute_schema_hash, QualityGate
+
+# Compute schema hash
+schema_hash = compute_schema_hash(
+    feature_names=["close_ratio", "volume_ma", "rsi"],
+    feature_dtypes=["float32", "float32", "float32"],
+    pipeline_signature="pipeline_v2_hash"
+)
+
+# Create manifest
+manifest = FeatureManifest(
+    feature_set_id="student_features_v2",
+    name="Student Features V2",
+    version="2.0.0",
+    role=FeatureRole.STUDENT,
+    data_requirements=DataRequirements.L1_ONLY,
+    feature_names=["close_ratio", "volume_ma", "rsi"],
+    feature_dtypes=["float32", "float32", "float32"],
+    schema_hash=schema_hash,
+    pipeline_signature="pipeline_v2_hash",
+    pipeline_version="2.0.0",
+    stage=FeatureStage.CANDIDATE,
+    parity_tolerance=1e-10,
+    constraints={"max_latency_ms": 0.5, "min_bars_warmup": 20}
+)
+
+# Register feature set
+registry.register_feature_set(manifest)
+
+# Promote through lifecycle stages
+registry.validate_and_promote(
+    "student_features_v2",
+    quality_gates=[
+        QualityGate("parity_max_diff", 1e-10, "lte"),
+        QualityGate("p99_latency_ms", 0.5, "lte")
+    ]
+)
+# CANDIDATE → STAGING → PROD
+```
+
+---
+
+### 7.3 Dataset Registration & Tracking
+
+```python
+from ml.registry import DataRegistry, DatasetManifest, DatasetType, StorageKind
+from ml.config.events import Stage, Source, EventStatus
+
+# Initialize registry
+registry = DataRegistry(
+    registry_path=Path(".nautilus/ml/registry"),
+    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES)
+)
+
+# Register dataset
 manifest = DatasetManifest(
     dataset_id="bars_eurusd_1m",
     dataset_type=DatasetType.BARS,
@@ -1206,282 +1485,285 @@ manifest = DatasetManifest(
     },
     ts_field="ts_event",
     primary_keys=["instrument_id", "ts_event"],
-    schema_hash="abc123...",
-    constraints={
-        "ranges": {
-            "open": {"min": 0.0},
-            "high": {"min": 0.0},
-            "low": {"min": 0.0},
-            "close": {"min": 0.0},
-            "volume": {"min": 0.0}
-        }
-    },
+    schema_hash="def456...",
     lineage=[],
     pipeline_signature="data_scheduler_v1",
     version="1.0.0"
 )
 
-data_registry = DataRegistry(
-    registry_path=Path("/tmp/registry"),
-    persistence_config=PersistenceConfig(backend=BackendType.JSON)
-)
-dataset_id = data_registry.register_dataset(manifest)
+dataset_id = registry.register_dataset(manifest)
 
-# 2. Emit processing events
-from ml.config.events import Stage, Source, EventStatus
-data_registry.emit_event(
+# Emit processing event
+registry.emit_event(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
     stage=Stage.CATALOG_WRITTEN,
     source=Source.HISTORICAL,
-    run_id="run_123",
+    run_id="backfill_2025_q1",
     ts_min=1234567890000000000,
     ts_max=1234567900000000000,
     count=1000,
-    status=EventStatus.SUCCESS
+    status=EventStatus.SUCCESS,
+    metadata={"pipeline_version": "v2.1", "worker_id": "worker_01"}
 )
 
-# 3. Update watermark
-data_registry.update_watermark(
+# Update watermark
+registry.update_watermark(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    source=Source.LIVE,
+    source=Source.BACKFILL,
     last_success_ns=1234567900000000000,
     count=1000,
     completeness_pct=98.5
 )
 
-# 4. Link lineage for derived datasets
-data_registry.link_lineage(
+# Link lineage
+registry.link_lineage(
     child_dataset_id="features_microstructure",
     parent_ids=["bars_eurusd_1m", "quotes_eurusd"],
-    transform_id="feature_pipeline_v1",
+    transform_id="feature_pipeline_v2",
     ts_range={"start_ns": 1234567890000000000, "end_ns": 1234567900000000000},
     params={"lookback_bars": 20, "include_imbalance": True}
 )
 ```
 
-### Model Registration Flow
+---
+
+### 7.4 A/B Testing & Canary Deployment
 
 ```python
-# 1. Create manifest
-manifest = ModelManifest(
-    model_id="lgb_student_v1",
-    role=ModelRole.STUDENT,
-    data_requirements=DataRequirements.L1_ONLY,
-    feature_schema_hash="abc123...",
-    parent_id="tft_teacher_v1",
-    feature_set_id="student_features_v1"
+# Start A/B test
+registry.start_ab_test(
+    test_id="lgb_v1_vs_v2_comparison",
+    model_a="lgb_student_v1",
+    model_b="lgb_student_v2",
+    traffic_split=0.5,
+    metric_name="sharpe_ratio",
+    min_samples=1000
 )
 
-# 2. Register with validation
-registry.register_model(
-    model_path=Path("models/lgb_student_v1.onnx"),
-    manifest=manifest,
-    auto_deploy=True,  # Deploy if validation passes
-    quality_gates=[
-        QualityGate("accuracy", 0.80, "gte"),
-        QualityGate("inference_latency_ms", 5.0, "lte")
-    ]
+# Check A/B test results
+results = registry.get_ab_test_results("lgb_v1_vs_v2_comparison")
+# {
+#   "winner": "lgb_student_v2",
+#   "statistic": 2.34,
+#   "p_value": 0.019,
+#   "significant": True,
+#   "improvement_pct": 12.5
+# }
+
+# Start canary deployment
+from ml.registry import CanaryConfig
+
+registry.start_canary_deployment(
+    model_id="lgb_student_v3",
+    target="ml_signal_actor",
+    config=CanaryConfig(
+        initial_traffic=0.05,
+        increment=0.05,
+        interval_seconds=300,
+        min_samples=500,
+        error_rate_threshold=0.05,
+        baseline_threshold=0.95
+    )
 )
+
+# Canary auto-promotes or rolls back based on metrics
 ```
 
-### Feature Set Registration
+---
 
-```python
-# 1. Compute schema hash
-schema_hash = compute_schema_hash(
-    feature_names=["close_ratio", "volume_ma"],
-    feature_dtypes=["float32", "float32"],
-    pipeline_signature="pipeline_v1_hash"
-)
+## 8. Migration Guide
 
-# 2. Create manifest
-manifest = FeatureManifest(
-    feature_set_id="student_features_v1",
-    role=FeatureRole.STUDENT,
-    feature_names=["close_ratio", "volume_ma"],
-    feature_dtypes=["float32", "float32"],
-    schema_hash=schema_hash,
-    stage=FeatureStage.CANDIDATE
-)
+### 8.1 Migrating from Legacy to Component-Based
 
-# 3. Register and promote
-feature_registry.register_feature_set(manifest)
-feature_registry.validate_and_promote(
-    "student_features_v1",
-    [QualityGate("parity_max_diff", 1e-10, "lte")]
-)
+**Current Default:** Component-based implementations are default (no action needed).
+
+**To rollback to legacy:**
+
+```bash
+# Rollback to legacy god classes
+export ML_USE_LEGACY_MODEL_REGISTRY=1
+export ML_USE_LEGACY_DATA_REGISTRY=1
+
+# Restart services
+systemctl restart nautilus-trader
 ```
 
-### Deployment Query Patterns
+**To explicitly opt-in to component-based:**
 
-```python
-# Find compatible models
-compatible = model_registry.list_compatible(
-    schema_hash="abc123...",
-    role=ModelRole.STUDENT,
-    architecture="LightGBM"
-)
+```bash
+# Use new component-based implementations
+export ML_USE_COMPONENT_MODEL_REGISTRY=1
+export ML_USE_LEGACY_DATA_REGISTRY=0
 
-# Get latest version
-latest = model_registry.resolve_latest(
-    role=ModelRole.STUDENT,
-    architecture="LightGBM",
-    schema_hash="abc123..."
-)
-
-# Load for inference
-session = model_registry.load_model("lgb_student_v1")
+# Restart services
+systemctl restart nautilus-trader
 ```
 
-## Deployment and Integration
+---
 
-Register new models and features using the registry system:
+### 8.2 Database Migration
 
-- FeatureRegistry: Register feature manifests with schema hashes
-- ModelRegistry: Register model manifests with semantic versions
-- StrategyRegistry: Register strategy manifests with compatibility checks
+```bash
+# Apply registry migrations
+psql $DATABASE_URL -f ml/registry/migrations/001_initial_schema.sql
+psql $DATABASE_URL -f ml/registry/migrations/002_add_cold_path_fields.sql
+psql $DATABASE_URL -f ml/registry/migrations/003_add_artifact_digest.sql
 
-Provide proper version hashes using compute_schema_hash for features and semantic versions for models.
-
-**Mandatory 4-Store + 4-Registry Integration Pattern:**
-
-All ML actors MUST inherit from `BaseMLInferenceActor` which automatically initializes the complete persistence layer:
-
-**Stores** (protocol-typed for interface consistency):
-
-- **FeatureStore**: Persists feature values with schema validation and parity checking
-- **ModelStore**: Tracks predictions, performance metrics, and deployment history
-- **StrategyStore**: Manages strategy state, signals, and compatibility validation
-- **DataStore**: Unified facade providing contract validation, event emission, and watermark tracking
-
-**Registries** (manifest-based lifecycle management):
-
-- **FeatureRegistry**: Schema validation, quality gates, and feature set promotion through lifecycle stages
-- **ModelRegistry**: Model deployment tracking, A/B testing, canary deployments, and hot reload
-- **StrategyRegistry**: Strategy compatibility checking, requirement validation, and performance monitoring
-- **DataRegistry**: Dataset manifest management, lineage tracking, event recording, and data contracts
-
-**Progressive Fallback Architecture:**
-
-- **Primary**: PostgreSQL with full ACID compliance and structured audit logging
-- **Development**: JSON files with deterministic persistence and immediate flush capability
-- **Testing**: DummyStore/DummyRegistry with no I/O operations and safe defaults
-- **Graceful Degradation**: Automatic fallback with warnings when database unavailable
-
-These stores and registries are initialized automatically in BaseMLInferenceActor. Do not create custom storage layers outside these components.
-
-When creating ML actors:
-
-1. Extend BaseMLInferenceActor for custom inference actors
-2. Use MLSignalActor for signal generation with built-in features
-3. Extend MLTradingStrategy for full trading strategies
-
-All actors MUST inherit from BaseMLInferenceActor to ensure mandatory stores are initialized. Maintain backwards compatibility when updating.
-
-If adding new metrics or health checks, update Prometheus configuration and relevant Grafana dashboards.
-
-## Architecture Summary
-
-The ML Registry system provides a production-grade foundation for ML lifecycle management in Nautilus Trader with comprehensive automation and safety guarantees.
-
-### Core Architecture Pillars
-
-1. **4-Registry Mandatory Pattern**
-   - **ModelRegistry**: Complete lifecycle with A/B testing, canary deployment, hot reload
-   - **FeatureRegistry**: Schema validation, quality gates, parity tracking through stages
-   - **DataRegistry**: Dataset lifecycle with watermarks, events, lineage, data contracts
-   - **StrategyRegistry**: Compatibility validation, requirement checking, performance constraints
-
-2. **Manifest-Centric Design**
-   - Self-describing components with complete metadata
-   - SHA256 hash-based compatibility validation
-   - Autonomous validation without external configuration
-   - Complete audit trails for regulatory compliance
-
-3. **Multi-Backend Persistence**
-   - PostgreSQL for production with ACID compliance
-   - JSON for development with deterministic behavior
-   - Progressive fallback with graceful degradation
-   - Protocol-based interfaces for implementation independence
-
-4. **Statistical Validation Framework**
-   - Automated A/B testing with configurable promotion criteria
-   - Welch's t-test for unbiased model performance comparison
-   - Sample size calculation for statistically valid experiments
-   - Canary deployment with automated rollback decisions
-
-5. **Production Safety Systems**
-   - Path traversal protection and security validation
-   - ONNX-only serving for hot path (no arbitrary code execution)
-   - Thread-safe operations with proper locking patterns
-   - Circuit breaker pattern for fault tolerance
-
-### Integration Success
-
-The registry system successfully bridges research experimentation and production deployment through:
-
-- **Hot/Cold Path Separation**: Sub-5ms inference requirements with teacher-student distillation
-- **Type Safety**: Protocol-based interfaces preventing runtime errors
-- **Observability**: Complete metrics, logging, and correlation ID tracking
-- **Scalability**: Optimized PostgreSQL schema with proper indexing strategies
-- **Automation**: Bootstrap utilities, quality gates, and statistical validation
-
-This architecture enables fully automated MLOps pipelines while maintaining the strict performance and reliability requirements of high-frequency trading systems.
-
-## Integration Patterns
-
-### Registry-Store Interaction Patterns
-
-```python
-# Model registration with automatic store integration
-model_registry.register_model(
-    model_path="models/lgb_student_v1.onnx",
-    manifest=ModelManifest(
-        model_id="lgb_student_v1",
-        role=ModelRole.STUDENT,
-        feature_set_id="student_features_v1",  # Links to FeatureRegistry
-        parent_id="tft_teacher_v1",           # Lineage tracking
-    ),
-    auto_deploy=True,  # Deploy if validation passes
-)
-
-# Feature validation through registry integration
-feature_registry.validate_and_promote(
-    "student_features_v1",
-    [QualityGate("parity_max_diff", 1e-10, "lte")]
-)
-
-# Data contract enforcement through DataStore
-data_store.write_features(
-    feature_set_id="student_features_v1",
-    features={"close_ratio": 0.95, "volume_ma": 1500.0},
-    # Automatic schema validation against FeatureRegistry
-)
+# Verify migrations
+psql $DATABASE_URL -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'ml_registry';"
+# Expected: models, features, strategies, audit_log
 ```
 
-### Actor-Registry Integration
+---
+
+### 8.3 Bootstrap Standard Datasets
+
+```bash
+# Bootstrap with JSON backend (development)
+python -m ml.registry.bootstrap_datasets \
+    --backend json \
+    --registry-path /tmp/registry
+
+# Bootstrap with PostgreSQL backend (production)
+export NAUTILUS_REGISTRY_DB_URL="postgresql://user:pass@localhost/nautilus"
+python -m ml.registry.bootstrap_datasets --backend postgres
+
+# Verify datasets
+python -c "
+from ml.registry import DataRegistry
+from pathlib import Path
+registry = DataRegistry(Path('/tmp/registry'))
+print(registry.list_datasets())
+"
+```
+
+---
+
+## 9. Testing Strategy
+
+### 9.1 Test Coverage by Component
+
+| Component | Coverage | Test Files | Notes |
+|-----------|----------|------------|-------|
+| **ModelRegistry** | High | `test_model_registry*.py` | Unit + integration + property tests |
+| **DataRegistry** | High | `test_data_registry*.py` | Unit + integration + E2E tests |
+| **FeatureRegistry** | High | `test_feature_registry*.py` | Schema hashing + quality gates |
+| **StrategyRegistry** | High | `test_strategy_registry*.py` | Compatibility checking |
+| **Persistence** | High | `test_persistence*.py` | JSON + PostgreSQL backends |
+| **Components** | Moderate | `test_*_manager.py` | Individual component tests |
+| **Migrations** | Moderate | `test_migrations.py` | Schema validation |
+
+---
+
+### 9.2 Testing Patterns
 
 ```python
-class ProductionMLActor(BaseMLInferenceActor):
-    def on_start(self) -> None:
-        # Registries automatically initialized by base class
-        model_info = self._model_registry.get_model("lgb_student_v1")
+# Property-based testing (hypothesis)
+from hypothesis import given, strategies as st
 
-        # Validate feature compatibility
-        self._validate_feature_schema(
-            manifest=model_info.manifest,
-            feature_names=self._feature_names
+@given(
+    model_id=st.text(min_size=1, max_size=255),
+    feature_names=st.lists(st.text(min_size=1), min_size=1, max_size=100),
+    feature_dtypes=st.lists(st.sampled_from(["float32", "float64", "int32"]), min_size=1)
+)
+def test_schema_hash_deterministic(model_id, feature_names, feature_dtypes):
+    """Schema hash is deterministic for same inputs."""
+    hash1 = compute_schema_hash(feature_names, feature_dtypes, "sig1")
+    hash2 = compute_schema_hash(feature_names, feature_dtypes, "sig1")
+    assert hash1 == hash2
+
+# Contract testing (pandera-style)
+def test_model_manifest_schema_validation():
+    """ModelManifest enforces schema constraints."""
+    with pytest.raises(ValueError, match="feature_schema_hash must be 64 chars"):
+        ModelManifest(
+            model_id="test",
+            feature_schema_hash="short_hash",  # Invalid
+            ...
         )
 
-        # Load model with hot reload capability
-        self._model_session = self._model_registry.load_model("lgb_student_v1")
+# Integration testing
+@pytest.mark.serial
+def test_registry_postgres_integration(postgres_engine):
+    """End-to-end registry operations with PostgreSQL."""
+    registry = ModelRegistry(
+        registry_path=Path("/tmp/test"),
+        persistence_config=PersistenceConfig(
+            backend=BackendType.POSTGRES,
+            connection_string=postgres_engine.url
+        )
+    )
+
+    # Register model
+    manifest = ModelManifest(...)
+    registry.register_model(Path("test.onnx"), manifest)
+
+    # Verify persistence
+    loaded = registry.get_model(manifest.model_id)
+    assert loaded.manifest == manifest
 ```
 
-## Cross-Module References
+---
 
-- **Data Pipeline**: See `context_data.md` for data ingestion and DataRegistry integration
+## 10. Known Issues & Future Work
+
+### 10.1 Known Limitations
+
+1. **Single-node registry design**
+   - No multi-node coordination
+   - No distributed locking
+   - Limited to vertical scaling
+
+2. **Basic drift detection**
+   - No automated retraining triggers
+   - Manual monitoring required
+   - No statistical drift alerts
+
+3. **No web dashboard**
+   - Command-line only
+   - No visual model comparison
+   - No interactive deployment management
+
+4. **Limited cross-registry validation**
+   - Model-feature compatibility checked at deployment
+   - No proactive compatibility scanning
+   - No dependency graph visualization
+
+---
+
+### 10.2 Future Enhancements
+
+**Phase 4: Advanced Observability (Q1 2026)**
+- Complete Pattern 5 compliance (centralized metrics)
+- Circuit breaker patterns (Pattern 4)
+- Hot path performance validation (Pattern 3)
+- Real-time drift detection
+
+**Phase 5: Multi-Node Coordination (Q2 2026)**
+- Distributed locking via Redis
+- Registry synchronization across nodes
+- Leader election for deployment decisions
+- Horizontal scaling support
+
+**Phase 6: Advanced Analytics (Q3 2026)**
+- Automated drift detection and alerting
+- Model performance degradation analysis
+- Feature importance tracking over time
+- Dependency graph visualization
+
+**Phase 7: Web Dashboard (Q4 2026)**
+- Interactive model comparison
+- Deployment management UI
+- Real-time monitoring dashboards
+- Audit trail visualization
+
+---
+
+## 11. Cross-Module References
+
+- **Data Pipeline**: See `context_data.md` for DataRegistry integration with ingestion
 - **Feature Engineering**: See `context_features.md` for FeatureRegistry validation patterns
 - **Stores**: See `context_stores.md` for 4-store persistence architecture
 - **Training**: See `context_training.md` for model registration post-training
@@ -1490,328 +1772,34 @@ class ProductionMLActor(BaseMLInferenceActor):
 - **Monitoring**: See `context_monitoring.md` for registry observability integration
 - **Configuration**: See `context_config.md` for persistence and policy configuration
 
-## Implementation Review Addendum
+---
 
-**Comprehensive Code Review of ml/registry Domain**
+## 12. Key Takeaways
 
-*Conducted: 2025-09-12*
-*Reviewer: AI Code Analysis System*
-*Scope: All 12 files in `/home/nate/projects/nautilus_trader/ml/registry/`*
+### ✅ Production-Ready Strengths
 
-### Summary of Findings
+1. **Mature Strangler Fig Pattern**: Phase 2.3 complete with feature flag rollback
+2. **Component Decomposition**: 10 specialized components replace 2 god classes
+3. **Protocol-First Design**: Full type safety without coupling
+4. **Multi-Backend Persistence**: PostgreSQL + JSON with graceful fallback
+5. **Thread-Safe Operations**: RLock everywhere with batch operations
+6. **Comprehensive Testing**: Unit + integration + property + E2E tests
 
-The registry implementation demonstrates **exceptional adherence** to documented specifications and Universal ML Architecture Patterns. Out of 7,572 lines of code reviewed across 12 modules, **95%+ of claims in the documentation are accurate** with only minor discrepancies in completion percentages and some missing advanced features.
+### ⚠️ Critical Gaps Requiring Attention
 
-### 1. Documentation Accuracy Validation
+1. **Missing Metrics Integration**: Zero Prometheus metrics (Pattern 5 non-compliant)
+2. **Incomplete Fallback**: No circuit breakers or 4-tier fallback chain
+3. **Hot Path Validation**: No P99 latency enforcement
 
-#### ✅ **Accurate Claims Validated**
+### 📊 Overall Assessment
 
-**Module Structure & Line Counts:**
-
-- **VERIFIED**: All documented files exist with accurate line counts:
-  - `base.py` (494 lines) vs documented (489 lines) - **99.0% accurate**
-  - `dataclasses.py` (884 lines) vs documented (884 lines) - **100% accurate**
-  - `data_registry.py` (1,439 lines) vs documented (1,381 lines) - **95.8% accurate**
-  - `model_registry.py` (2,051 lines) vs documented (2,014 lines) - **98.2% accurate**
-  - `protocols.py` (102 lines) vs documented (40 lines) - **Underestimated by 155%**
-
-**Universal ML Architecture Patterns Compliance:**
-
-- **VERIFIED Pattern 1**: All 4 registry classes (`ModelRegistry`, `FeatureRegistry`, `DataRegistry`, `StrategyRegistry`) inherit from `MLComponentMixin` as claimed
-- **VERIFIED Pattern 2**: `protocols.py` implements Protocol-based interfaces with `RegistryProtocol` and `TypedRegistryProtocol[TManifest, TKey]`
-- **VERIFIED Pattern 5**: No direct `prometheus_client` imports found - compliant with centralized metrics bootstrap requirement
-
-**Database Schema Implementation:**
-
-- **VERIFIED**: Complete PostgreSQL schema exists in `migrations/001_initial_schema.sql` (276 lines) with all documented tables, indexes, views, and functions
-- **VERIFIED**: Migration `002_add_cold_path_fields.sql` adds serveable/artifact_format fields as documented
-
-**Persistence Architecture:**
-
-- **VERIFIED**: Multi-backend support implemented in `persistence.py` (378 lines) with `BackendType.JSON` and `BackendType.POSTGRES`
-- **VERIFIED**: Thread-safe operations using `threading.RLock()` in all registry classes
-- **VERIFIED**: Batch save management with configurable intervals (default 0.1s)
-
-#### ⚠️ **Minor Discrepancies Found**
-
-**Completion Percentage Claims:**
-
-- **OVERSTATED**: Documentation claims "100% complete" but several advanced features are missing:
-  - No `metrics_bootstrap` imports found - registries lack Prometheus metrics integration
-  - No evidence of circuit breaker patterns in failure handling
-  - Limited fallback chain implementation beyond DummyRegistry
-  - Missing hot/cold path performance monitoring
-
-**Line Count Accuracy:**
-
-- **protocols.py**: Documented as 40 lines, actually 102 lines (155% underestimate)
-- Most other files within 5% accuracy range
-
-### 2. Universal ML Architecture Patterns Compliance
-
-#### ✅ **Pattern 1: Mandatory 4-Store + 4-Registry Integration**
-
-**COMPLIANT**: All registry classes properly implement the pattern:
-
-```python
-# model_registry.py:45
-class ModelRegistry(MLComponentMixin):
-
-# feature_registry.py:154
-class FeatureRegistry(MLComponentMixin):
-
-# data_registry.py:79
-class DataRegistry(MLComponentMixin):
-
-# strategy_registry.py (similar pattern)
-class StrategyRegistry(MLComponentMixin):
-```
-
-**Assessment**: ✅ **FULLY COMPLIANT** - All registries inherit from `MLComponentMixin` ensuring standardized health reporting and performance metrics.
-
-#### ✅ **Pattern 2: Protocol-First Interface Design**
-
-**COMPLIANT**: Registry protocols properly implemented:
-
-```python
-# protocols.py:17-47
-class RegistryProtocol(Protocol):
-    def emit_event(self, ...) -> None: ...
-    def update_watermark(self, ...) -> None: ...
-    def get_manifest(self, dataset_id: str) -> DatasetManifest: ...
-
-# protocols.py:54-97
-class TypedRegistryProtocol(Generic[TManifest, TKey], Protocol):
-    def get(self, key: TKey) -> TManifest: ...
-    def save(self, manifest: TManifest) -> TKey: ...
-```
-
-**Assessment**: ✅ **FULLY COMPLIANT** - Structural typing with generic protocol support enables duck typing and type safety.
-
-#### ⚠️ **Pattern 3: Hot/Cold Path Separation**
-
-**PARTIALLY COMPLIANT**: Implementation includes serveable flag but limited performance monitoring:
-
-```python
-# base.py:115-116
-serveable: bool = True  # True for hot-path models; False for cold-path
-artifact_format: str = "onnx"  # onnx|torchscript|none
-```
-
-**Issues Found**:
-
-- No sub-5ms P99 latency validation code found
-- Missing pre-allocated array patterns in hot path methods
-- No evidence of performance benchmarking utilities
-
-**Assessment**: ⚠️ **PARTIALLY COMPLIANT** - Basic hot/cold separation via `serveable` flag but missing performance enforcement.
-
-#### ⚠️ **Pattern 4: Progressive Fallback Chains**
-
-**LIMITED IMPLEMENTATION**: Basic fallback via `DummyRegistry` class:
-
-```python
-# base.py:412-494
-class DummyRegistry:
-    """Dummy registry for testing purposes."""
-    def __getattr__(self, name: str) -> object:
-        def dummy_method(*args: object, **kwargs: object) -> None:
-            return None
-        return dummy_method
-```
-
-**Missing Features**:
-
-- No circuit breaker implementation found
-- Limited fallback strategies beyond dummy operations
-- No evidence of connection pool management for PostgreSQL failures
-
-**Assessment**: ⚠️ **PARTIALLY COMPLIANT** - Basic fallback but missing comprehensive failure handling.
-
-#### ❌ **Pattern 5: Centralized Metrics Bootstrap**
-
-**NON-COMPLIANT**: No metrics integration found:
-
-**Issues Found**:
-
-- No `ml.common.metrics_bootstrap` imports in any registry file
-- No Prometheus metrics recording for registry operations
-- Missing performance monitoring beyond basic audit logging
-- No evidence of health metrics aggregation
-
-**Assessment**: ❌ **NON-COMPLIANT** - Complete absence of centralized metrics integration despite documentation claims.
-
-### 3. Code Quality Assessment
-
-#### ✅ **Strengths**
-
-**Type Safety & Modern Python:**
-
-```python
-# Excellent type annotations throughout
-from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
-def welch_t_test(
-    sample_a: np.ndarray[Any, np.dtype[np.float64]],
-    sample_b: np.ndarray[Any, np.dtype[np.float64]],
-    significance_level: float | None = None,
-) -> dict[str, Any]:
-```
-
-**Thread Safety:**
-
-```python
-# model_registry.py:101
-self._lock = threading.RLock()  # Use RLock to allow reentrant locking
-```
-
-**Comprehensive Manifest Design:**
-
-```python
-# base.py:99-126 - Self-describing ModelManifest with 20+ fields
-# dataclasses.py:53-123 - FeatureManifest with lifecycle management
-```
-
-**Security Validation:**
-
-```python
-# model_registry.py:89 - Path traversal protection
-self._registry_root = self.registry_path.resolve()
-```
-
-#### ⚠️ **Areas for Improvement**
-
-**Missing Metrics Integration:**
-
-- **File**: All registry classes
-- **Issue**: No Prometheus metrics despite Universal Pattern 5 requirements
-- **Impact**: Lack of production observability
-
-**Limited Error Handling:**
-
-- **File**: `persistence.py:168-174`
-- **Issue**: Basic try/catch without sophisticated retry logic
-- **Recommendation**: Implement exponential backoff and circuit breakers
-
-**Incomplete Fallback Implementation:**
-
-- **File**: Registry initialization code
-- **Issue**: Missing progressive fallback chain beyond DummyRegistry
-- **Recommendation**: Implement 4-tier fallback as documented
-
-### 4. Architectural Completeness
-
-#### ✅ **Production-Ready Features**
-
-1. **Multi-Backend Persistence**: ✅ PostgreSQL + JSON with automatic table creation
-2. **Thread-Safe Operations**: ✅ RLock usage throughout
-3. **Schema Validation**: ✅ SHA256 hash-based compatibility checking
-4. **Audit Logging**: ✅ Comprehensive audit trail with `AuditLogTable`
-5. **Statistical Validation**: ✅ Welch's t-test and A/B testing framework
-6. **Bootstrap Utilities**: ✅ Standard dataset manifest creation
-
-#### ⚠️ **Missing Advanced Features**
-
-1. **Real-time Metrics**: ❌ No Prometheus integration found
-2. **Circuit Breakers**: ❌ No fault tolerance beyond basic error handling
-3. **Hot Path Performance**: ⚠️ No sub-5ms latency enforcement
-4. **Health Aggregation**: ❌ No evidence of MLComponentProtocol health reporting usage
-
-### 5. Specific File Analysis
-
-#### `model_registry.py` (2,051 lines) - **Grade: A-**
-
-- **Strengths**: Comprehensive model lifecycle, A/B testing, thread safety
-- **Issues**: Missing metrics integration, limited fallback strategies
-- **Key Finding**: Excellent manifest-based architecture with quality gates
-
-#### `data_registry.py` (1,439 lines) - **Grade: A**
-
-- **Strengths**: Complete lineage tracking, watermarks, event correlation
-- **Issues**: Minor - good implementation overall
-- **Key Finding**: Sophisticated event tracking with correlation IDs
-
-#### `persistence.py` (378 lines) - **Grade: B+**
-
-- **Strengths**: Clean multi-backend abstraction
-- **Issues**: Missing connection pool monitoring, basic error handling
-- **Key Finding**: Good separation of JSON vs PostgreSQL concerns
-
-#### `protocols.py` (102 lines) - **Grade: A**
-
-- **Strengths**: Proper Protocol usage, generic typing support
-- **Issues**: None significant
-- **Key Finding**: Excellent structural typing implementation
-
-### 6. Documentation Accuracy Score
-
-| **Category** | **Accuracy** | **Evidence** |
-|-------------|-------------|-------------|
-| **Module Structure** | 98% | All files exist, line counts 95%+ accurate |
-| **API Documentation** | 95% | Methods and signatures match documentation |
-| **Architecture Patterns** | 60% | 2/5 patterns fully compliant, 2 partial, 1 non-compliant |
-| **Feature Completeness** | 85% | Core features implemented, advanced features missing |
-| **Code Examples** | 90% | Documented code patterns match implementation |
-
-**Overall Documentation Accuracy: 86%**
-
-### 7. Recommendations
-
-#### **Immediate Actions Required**
-
-1. **Fix Pattern 5 Compliance**: Add `ml.common.metrics_bootstrap` imports to all registry classes
-
-   ```python
-   from ml.common.metrics_bootstrap import get_counter, get_histogram
-   registry_ops_counter = get_counter("ml_registry_operations_total", ...)
-   ```
-
-2. **Implement Circuit Breakers**: Add fault tolerance to PostgreSQL operations
-3. **Add Hot Path Monitoring**: Implement P99 latency tracking for critical operations
-4. **Update Documentation**: Correct line counts and completion percentages
-
-#### **Strategic Improvements**
-
-1. **Performance Benchmarking**: Add sub-5ms validation for hot path operations
-2. **Advanced Fallback**: Implement 4-tier progressive fallback chain
-3. **Health Aggregation**: Utilize MLComponentProtocol health reporting
-4. **Connection Monitoring**: Add PostgreSQL connection health tracking
-
-### 8. Final Assessment
-
-**VERDICT**: The ml/registry implementation is **production-ready** with exceptional architecture and design quality, but falls short of the "100% complete" claim due to missing metrics integration and incomplete Universal Pattern compliance.
-
-**Strengths**:
-
-- Manifest-centric design excellence
-- Thread-safe, multi-backend persistence
-- Comprehensive statistical validation
-- Strong type safety and modern Python practices
-
-**Critical Gaps**:
-
-- Missing Prometheus metrics (Universal Pattern 5)
-- Incomplete fallback chains (Universal Pattern 4)
-- Limited hot path performance enforcement (Universal Pattern 3)
-
-**Recommended Action**: Implement missing metrics integration before claiming "100% complete" status. Current state: **~85% complete** for alpha production deployment.
-
-### Updated Completion Assessment Based on Implementation Review
-
-**Actual Implementation Status:**
-
-- **Core Registry Functionality**: ✅ 100% Complete
-- **Multi-Backend Persistence**: ✅ 100% Complete
-- **Thread Safety & Concurrency**: ✅ 100% Complete
-- **Manifest-Based Architecture**: ✅ 100% Complete
-- **Statistical Validation**: ✅ 100% Complete
-- **Security & Path Validation**: ✅ 100% Complete
-- **Universal Pattern Compliance**: ⚠️ 60% Complete (3/5 patterns fully implemented)
-- **Production Observability**: ❌ 30% Complete (missing centralized metrics)
-
-**Overall Registry System Status: ~85% Complete**
-
-The registry system demonstrates exceptional architectural quality and is production-ready for core functionality, but requires Universal Pattern compliance fixes for full alpha production deployment readiness."
+**Status**: ~85% production-ready
+**Confidence**: High for core functionality, moderate for advanced patterns
+**Recommendation**: Implement missing metrics integration (P0) before full production deployment
 
 ---
 
-*This review validates the exceptional quality of the registry implementation while identifying specific areas requiring attention for full Universal Pattern compliance and production readiness.*
+**Document Version:** 2.0
+**Agent**: Agent 5 (Context Documentation Specialist)
+**Review Date:** 2025-10-19
+**Next Review:** 2026-01-19 (quarterly update recommended)

@@ -146,18 +146,27 @@ class _FeatureStoreStub(FeatureStoreNoOp):
 
     def compute_realtime(self, *, bar: Bar, store: bool) -> npt.NDArray[np.float32]:  # type: ignore[override]
         del store
-        spread = float(bar.high) - float(bar.low)
-        price_scale = 1_000.0
-        spread_scale = 10.0
-        return np.array(
+        close_price = float(bar.close)
+        open_price = float(bar.open)
+        high_price = float(bar.high)
+        low_price = float(bar.low)
+        volume = float(bar.volume)
+
+        # Mirror the legacy stub scaling so metamorphic expectations remain valid.
+        price_scale = 10_000.0
+        spread = max(high_price - low_price, 0.0)
+        spread_scale = 100.0
+
+        features = np.array(
             [
-                float(bar.close) / price_scale,
-                float(bar.open) / price_scale,
+                close_price / price_scale,
+                open_price / price_scale,
                 spread / spread_scale,
-                float(bar.volume),
+                volume,
             ],
             dtype=np.float32,
         )
+        return np.clip(features, -999.0, 999.0)
 
 
 def _attach_feature_store_stub(actor: MLSignalActor) -> _FeatureStoreStub:

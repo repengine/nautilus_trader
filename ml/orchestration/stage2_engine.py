@@ -18,6 +18,7 @@ gates. Two engines are exposed:
 All logic here is cold-path. No hot-path imports or work occur in this module.
 """
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC
@@ -484,7 +485,13 @@ class BacktestStage2EngineRunner:
                         )
                         self.submit_order(order)
                     except Exception:
-                        pass
+                        logger.debug(
+                            "stage2_engine.order_submit_failed instrument=%s delta=%s",
+                            inst,
+                            delta,
+                            exc_info=True,
+                            extra={"instrument_id": inst, "delta": float(delta)},
+                        )
                     self._last_side[inst] = desired
                     flip = 1
 
@@ -512,8 +519,12 @@ class BacktestStage2EngineRunner:
                     self._equity.append(equity)
                     self._flip_marks.append(flip)
                 except Exception:
-                    # Skip snapshot on any portfolio error
-                    pass
+                    logger.debug(
+                        "stage2_engine.equity_snapshot_failed instrument=%s",
+                        inst,
+                        exc_info=True,
+                        extra={"instrument_id": inst},
+                    )
 
         strat = _QThresholdStrategy(q_map, float(starting_money))
         engine.add_strategy(strat)
@@ -547,7 +558,15 @@ class BacktestStage2EngineRunner:
             if flips and len(flips) == arr.size:
                 arr = arr - (np.asarray(flips, dtype=np.float64) * bp)
         except Exception:
-            pass
+            logger.debug(
+                "stage2_engine.cost_adjustment_failed",
+                exc_info=True,
+                extra={
+                    "cost_bps": getattr(cfg, "cost_bps", None),
+                    "commission_bps": getattr(cfg, "commission_bps", None),
+                    "slippage_bps": getattr(cfg, "slippage_bps", None),
+                },
+            )
         import math
 
         mu = float(np.mean(arr))
@@ -586,3 +605,4 @@ def build_engine(mode: Literal["returns", "backtest"]) -> Stage2Engine:
     if mode == "backtest" and _BACKTEST_ENABLED:
         return BacktestStage2EngineRunner()
     return ReturnsStage2Engine()
+logger = logging.getLogger(__name__)

@@ -148,8 +148,10 @@ import hashlib
 import json
 import os as _os
 import shutil
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
@@ -391,6 +393,8 @@ class DatasetBuildConfig:
     include_calendar: bool = False
     include_earnings: bool = False
     earnings_lag_days: int = 1
+    micro_base_dir: Path | None = None
+    l2_base_dir: Path | None = None
     fred_vintage_dir: Path | None = None
     events_base_dir: Path | None = None
     student_mode: bool = False
@@ -465,6 +469,8 @@ class DatasetMetadata:
     test_window: tuple[str, str] | None
     macro_observation_counts: dict[str, int]
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
+    capability_flags: dict[str, bool] = field(default_factory=dict)
+    publication_lags: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -605,6 +611,13 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
             )
         market_bindings = tuple(converted)
 
+    capability_raw = raw.get("capability_flags") or {}
+    capability_flags = {
+        str(key): bool(value)
+        for key, value in capability_raw.items()
+        if isinstance(key, str)
+    }
+
     return DatasetMetadata(
         dataset_id=str(raw.get("dataset_id")) if raw.get("dataset_id") else None,
         vintage_policy=policy,
@@ -618,6 +631,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         test_window=_as_tuple(raw.get("test_window")),
         macro_observation_counts=macro_counts,
         market_bindings=market_bindings,
+        capability_flags=capability_flags,
     )
 
 
@@ -844,7 +858,8 @@ def _write_feature_npz_from_polars(
     X_train: NDArray[np.float32] | np.memmap[Any, np.dtype[np.float32]]
     X_val: NDArray[np.float32] | np.memmap[Any, np.dtype[np.float32]]
     if train_mem is not None:
-        assert train_tmp is not None
+        if train_tmp is None:
+            raise RuntimeError("train_tmp path is required when train_mem is allocated")
         train_mem.flush()
         X_train = np.memmap(
             str(train_tmp),
@@ -855,7 +870,8 @@ def _write_feature_npz_from_polars(
     else:
         X_train = np.empty((0, num_features), dtype=np.float32)
     if val_mem is not None:
-        assert val_tmp is not None
+        if val_tmp is None:
+            raise RuntimeError("val_tmp path is required when val_mem is allocated")
         val_mem.flush()
         X_val = np.memmap(
             str(val_tmp),
@@ -1098,7 +1114,8 @@ def _build_dataset_chunked(
         import polars as polars_module_import
 
         polars_module = polars_module_import
-    assert polars_module is not None
+    if polars_module is None:
+        raise RuntimeError("polars runtime is unavailable after dependency check")
 
     chunk_dir = cfg.out_dir / ".chunks"
     if chunk_dir.exists():
@@ -1130,7 +1147,9 @@ def _build_dataset_chunked(
 
             if not HAS_PANDAS:
                 check_ml_dependencies(["pandas"])  # pragma: no cover
-            assert pd is not None
+            if pd is None:
+                msg = "pandas module not available after dependency check"
+                raise RuntimeError(msg)
             df_chunk = polars_module.from_pandas(df_any)
 
         if not df_chunk.is_empty():
@@ -1177,6 +1196,9 @@ def _build_dataset_chunked(
         features_npz = cfg.out_dir / "features_npz.npz"
         if dataset_parquet.exists():
             dataset_parquet.unlink()
+        converted_parquet = dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+        if converted_parquet.exists():
+            converted_parquet.unlink()
         if dataset_csv.exists():
             dataset_csv.unlink()
         empty_df = polars_module.DataFrame()
@@ -1242,6 +1264,9 @@ def _build_dataset_chunked(
 
     if dataset_parquet.exists():
         dataset_parquet.unlink()
+    converted_parquet = dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+    if converted_parquet.exists():
+        converted_parquet.unlink()
     if dataset_csv.exists():
         dataset_csv.unlink()
     if features_npz.exists():
@@ -1297,7 +1322,9 @@ def _build_dataset_chunked(
             non_null_counts = dict.fromkeys(feature_names, 0)
 
         if feature_names:
-            assert non_null_counts is not None
+            if non_null_counts is None:
+                msg = "non_null_counts not initialized before usage"
+                raise RuntimeError(msg)
             for name in feature_names:
                 if name in df_chunk.columns:
                     non_null_counts[name] += int(df_chunk[name].is_not_null().sum())
@@ -1427,6 +1454,8 @@ def _compute_dataset_metadata(
     build_ts: datetime,
     dataset_id: str | None,
     macro_observation_counts: dict[str, int] | None,
+    capability_flags: Mapping[str, bool] | None = None,
+    publication_lags: Mapping[str, int] | None = None,
 ) -> DatasetMetadata:
     from ml._imports import pd
     from ml._imports import pl
@@ -1496,6 +1525,19 @@ def _compute_dataset_metadata(
 
     vintage_iso = format_dt(vintage_as_of) if vintage_as_of else None
     macro_counts = dict(macro_observation_counts or {})
+    capabilities = {
+        str(key): bool(value)
+        for key, value in (capability_flags or {}).items()
+    }
+    lag_map: dict[str, int] = {}
+    if publication_lags is not None:
+        for key, value in publication_lags.items():
+            if value is None:
+                continue
+            try:
+                lag_map[str(key)] = int(value)
+            except (TypeError, ValueError):
+                continue
 
     metadata = DatasetMetadata(
         dataset_id=dataset_id,
@@ -1509,6 +1551,8 @@ def _compute_dataset_metadata(
         validation_window=validation_window,
         test_window=None,
         macro_observation_counts=macro_counts,
+        capability_flags=capabilities,
+        publication_lags=lag_map,
     )
     return metadata
 
@@ -1549,6 +1593,8 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         ]
     else:
         payload["market_bindings"] = None
+    payload["capability_flags"] = dict(metadata.capability_flags)
+    payload["publication_lags"] = dict(metadata.publication_lags)
     return payload
 
 
@@ -1589,6 +1635,10 @@ def _validate_dataset_metadata(metadata: DatasetMetadata) -> None:
             raise ValueError(f"{label}_window starts before overall window")
         if end and overall_end and end > overall_end:
             raise ValueError(f"{label}_window ends after overall window")
+
+    for lag_name, lag_value in metadata.publication_lags.items():
+        if lag_value < 0:
+            raise ValueError(f"publication lag '{lag_name}' must be non-negative")
 
 def build_tft_dataset(
     cfg: DatasetBuildConfig,
@@ -1685,8 +1735,8 @@ def build_tft_dataset(
         vintage_base_dir=cfg.fred_vintage_dir,
         events_base_dir=cfg.events_base_dir,
         student_mode=cfg.student_mode,
-        micro_base_dir=str(cfg.data_dir),
-        l2_base_dir=str(cfg.data_dir),
+        micro_base_dir=str(cfg.micro_base_dir or cfg.data_dir),
+        l2_base_dir=str(cfg.l2_base_dir or cfg.data_dir),
         macro_series_ids=cfg.macro_series_ids,
         vintage_policy=cfg.vintage_policy,
         vintage_as_of=vintage_as_of,
@@ -1711,7 +1761,11 @@ def build_tft_dataset(
     from ml._imports import HAS_POLARS
     from ml._imports import pl
 
-    assert HAS_POLARS and pl is not None
+    if not HAS_POLARS or pl is None:
+        check_ml_dependencies(["polars"])
+        if pl is None:
+            msg = "polars module not available after dependency check"
+            raise RuntimeError(msg)
 
     df_any = builder.build_training_dataset(
         horizon_minutes=cfg.horizon_minutes,
@@ -1729,7 +1783,9 @@ def build_tft_dataset(
 
         if not HAS_PANDAS:
             check_ml_dependencies(["pandas"])  # pragma: no cover
-        assert pd is not None
+        if pd is None:
+            msg = "pandas module not available after dependency check"
+            raise RuntimeError(msg)
         dataset_df = pl.from_pandas(df_any)
 
     # Validate dataset before persisting artifacts
@@ -1774,6 +1830,35 @@ def build_tft_dataset(
         cutoff=cutoff,
     )
 
+    capability_flags = {
+        "include_macro": bool(getattr(builder, "include_macro", cfg.include_macro)),
+        "include_macro_revisions": bool(
+            getattr(builder, "include_macro_revisions", cfg.include_macro_revisions),
+        ),
+        "include_calendar": bool(getattr(builder, "include_calendar", cfg.include_calendar)),
+        "include_events": bool(getattr(builder, "include_events", cfg.include_events)),
+        "include_earnings": bool(getattr(builder, "include_earnings", cfg.include_earnings)),
+        "include_micro": bool(getattr(builder, "include_micro", cfg.include_micro)),
+        "include_l2": bool(getattr(builder, "include_l2", cfg.include_l2)),
+        "student_mode": bool(getattr(builder, "student_mode", cfg.student_mode)),
+    }
+    publication_lags = {
+        "macro_lag_days": max(
+            0,
+            int(getattr(builder, "macro_lag_days", cfg.macro_lag_days)),
+        ),
+        "earnings_lag_days": max(
+            0,
+            int(getattr(builder, "earnings_lag_days", cfg.earnings_lag_days)),
+        ),
+    }
+    events_notice = getattr(builder, "events_notice_minutes", None)
+    if events_notice is not None:
+        try:
+            publication_lags["events_notice_minutes"] = max(0, int(events_notice))
+        except (TypeError, ValueError):
+            publication_lags["events_notice_minutes"] = 0
+
     metadata = _compute_dataset_metadata(
         df_sorted,
         cutoff,
@@ -1782,6 +1867,8 @@ def build_tft_dataset(
         build_ts,
         getattr(cfg, "dataset_id", None),
         getattr(validation_result, "macro_observation_counts", {}),
+        capability_flags=capability_flags,
+        publication_lags=publication_lags,
     )
     binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
     metadata = replace(metadata, market_bindings=binding_metadata)
@@ -1810,18 +1897,17 @@ def build_tft_dataset(
             role=role_map.get(cfg.feature_role, FeatureRole.TEACHER),
             data_requirements=data_req,
         )
-        flags = {
-            "include_macro": cfg.include_macro,
-            "include_micro": cfg.include_micro,
-            "include_l2": cfg.include_l2,
-            "include_earnings": cfg.include_earnings,
-            "horizon_minutes": cfg.horizon_minutes,
-            "lookback_periods": cfg.lookback_periods,
-        }
+        manifest_flags: dict[str, Any] = dict(capability_flags)
+        manifest_flags.update(
+            {
+                "horizon_minutes": cfg.horizon_minutes,
+                "lookback_periods": cfg.lookback_periods,
+            },
+        )
         feature_set_id = export_feature_manifest(
             feature_names=feature_names,
             feature_dtypes=["float32"] * len(feature_names),
-            flags=flags,
+            flags=manifest_flags,
             cfg=reg_cfg,
         )
 

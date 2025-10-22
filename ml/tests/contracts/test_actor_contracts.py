@@ -17,6 +17,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from ml._imports import HAS_NAUTILUS_CORE
+from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
 from ml.actors.base import MLSignal
 from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.common.actor import Actor
@@ -24,6 +26,12 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
+
+if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
+    pytest.skip(
+        f"Nautilus Trader core extensions unavailable: {NAUTILUS_CORE_IMPORT_ERROR}",
+        allow_module_level=True,
+    )
 
 
 @pytest.mark.parallel_safe
