@@ -7,7 +7,6 @@
 *.xml
 *.html
 *.json
-task*.md
 tasks/*.md
 htmlcov/
 
@@ -182,7 +181,6 @@ PHASE_3_2_COMMIT_VALIDATION_SUMMARY.md
 PHASE_3_2_VALIDATION_EXECUTIVE_SUMMARY.txt
 VALIDATION_REPORT_PHASE_3_2.md
 E2E_TESTING_STRATEGY.md
-AGENT_TASK_FRAMEWORK.md
 check_circular_simple.py
 check_circular_deps.py
 ml/dashboard/services/PLAN_actor_management.md
@@ -201,3 +199,18 @@ ml/dashboard/services/PLAN_pipeline_orchestration.md
 ml/dashboard/services/PLAN_strategy_builder.md
 ml/dashboard/services/PLAN_terminal_settings.md
 ml/dashboard/services/PLAN_trading_controls.md
+ARCHITECTURAL_AUDIT_PLAN.md
+AUDIT_2_4_INDEX.md
+AUDIT_COMPLETION_REPORT.md
+AUDIT_COMPLETION_SUMMARY_2_5.txt
+AUDIT_COMPLETION_VERIFICATION.txt
+AUDIT_DATA_LAYER_SUMMARY.md
+AUDIT_SUMMARY_2_4.md
+COMMIT_VALIDATION_REPORT.md
+CONFIG_CHAOS_ANALYSIS.md
+CONFIG_CHAOS_FILE_MANIFEST.md
+CONFIGURATION_ISSUES_SUMMARY.md
+GRANULAR_AUDIT_PLAN.md
+MULTI_AGENT_SEARCH_PLAN.md
+parallel_run_output.txt
+TEST_AUDIT_REPORT.md
