@@ -6,6 +6,7 @@ with focus on mathematical properties and behavioral guarantees.
 
 Performance targets: P99 < 5ms for property validation
 Hot/Cold path separation: hot = prediction storage, cold = property validation
+
 """
 
 from __future__ import annotations
@@ -73,12 +74,14 @@ MAX_TIMESTAMP = 2_000_000_000_000_000_000  # ~2033
 # Test Utilities and Mocks
 # ============================================================================
 
+
 @contextmanager
 def _mock_model_store_io(sink: list[dict[str, Any]]) -> Iterator[None]:
     """
     Mock ModelStore I/O operations to capture writes without database dependency.
 
     This preserves the existing patch pattern while providing clean isolation.
+
     """
     # Store original methods
     orig_setup = ModelStore._setup_tables
@@ -86,13 +89,16 @@ def _mock_model_store_io(sink: list[dict[str, Any]]) -> Iterator[None]:
 
     # Import and patch database engine
     from ml.core import db_engine as _db
+
     orig_get_engine = _db.EngineManager.get_engine
 
     class _DummyConnection:
         def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type: type[Exception] | None, exc: Exception | None, tb: Any) -> Literal[False]:
+        def __exit__(
+            self, exc_type: type[Exception] | None, exc: Exception | None, tb: Any
+        ) -> Literal[False]:
             return False
 
         def execute(self, *_args: Any, **_kwargs: Any) -> None:
@@ -135,7 +141,9 @@ def _create_model_prediction(
     inference_time_ms: float = 1.0,
     is_live: bool = False,
 ) -> ModelPrediction:
-    """Create ModelPrediction with sanitized inputs."""
+    """
+    Create ModelPrediction with sanitized inputs.
+    """
     return ModelPrediction(
         model_id=model_id,
         instrument_id=instrument_id,
@@ -207,10 +215,13 @@ single_prediction = st.builds(
     is_live=st.booleans(),
 )
 
+
 # Batch prediction strategy with monotonic timestamps
 @st.composite
 def batch_predictions_with_monotonic_timestamps(draw: st.DrawFn) -> list[ModelPrediction]:
-    """Generate batch of predictions with monotonically increasing timestamps."""
+    """
+    Generate batch of predictions with monotonically increasing timestamps.
+    """
     size = draw(st.integers(min_value=1, max_value=50))
     base_ts = draw(timestamps)
 
@@ -249,8 +260,11 @@ def batch_predictions_with_monotonic_timestamps(draw: st.DrawFn) -> list[ModelPr
 # Property-Based Tests: Core Invariants
 # ============================================================================
 
+
 class TestModelStorePredictionInvariants:
-    """Property-based tests for ModelStore prediction invariants."""
+    """
+    Property-based tests for ModelStore prediction invariants.
+    """
 
     @PROPERTY_TEST_SETTINGS
     @given(prediction=single_prediction)
@@ -264,7 +278,7 @@ class TestModelStorePredictionInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test")
+            store = ModelStore(connection_string="sqlite:///:memory:")
 
             # Store the same prediction twice
             store.write_batch([prediction])
@@ -301,7 +315,7 @@ class TestModelStorePredictionInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test")
+            store = ModelStore(connection_string="sqlite:///:memory:")
             store.write_batch(predictions_batch)
 
             assert len(sink) == len(predictions_batch)
@@ -316,7 +330,9 @@ class TestModelStorePredictionInvariants:
                 assert ts_init >= ts_event, f"ts_init ({ts_init}) < ts_event ({ts_event})"
 
                 # ts_event must be non-decreasing (monotonic)
-                assert ts_event >= last_ts_event, f"Timestamp ordering violated: {ts_event} < {last_ts_event}"
+                assert (
+                    ts_event >= last_ts_event
+                ), f"Timestamp ordering violated: {ts_event} < {last_ts_event}"
                 last_ts_event = ts_event
 
     @PROPERTY_TEST_SETTINGS
@@ -330,7 +346,7 @@ class TestModelStorePredictionInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test")
+            store = ModelStore(connection_string="sqlite:///:memory:")
 
             # Successful batch write
             store.write_batch(predictions_batch)
@@ -382,11 +398,11 @@ class TestModelStorePredictionInvariants:
 
         # Store same versioned predictions twice
         with _mock_model_store_io(sink1):
-            store1 = ModelStore(connection_string="dummy://test1")
+            store1 = ModelStore(connection_string="sqlite:///:memory:")
             store1.write_batch(versioned_predictions)
 
         with _mock_model_store_io(sink2):
-            store2 = ModelStore(connection_string="dummy://test2")
+            store2 = ModelStore(connection_string="sqlite:///:memory:")
             store2.write_batch(versioned_predictions)
 
         # Results should be identical
@@ -407,23 +423,27 @@ class TestModelStorePredictionInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test")
+            store = ModelStore(connection_string="sqlite:///:memory:")
             store.write_batch(predictions_batch)
 
             # Verify confidence bounds for all stored predictions
             for stored_pred in sink:
                 confidence = float(stored_pred["confidence"])
-                assert CONFIDENCE_MIN <= confidence <= CONFIDENCE_MAX, \
-                    f"Confidence {confidence} outside bounds [{CONFIDENCE_MIN}, {CONFIDENCE_MAX}]"
+                assert (
+                    CONFIDENCE_MIN <= confidence <= CONFIDENCE_MAX
+                ), f"Confidence {confidence} outside bounds [{CONFIDENCE_MIN}, {CONFIDENCE_MAX}]"
 
                 # Also verify prediction bounds
                 prediction = float(stored_pred["prediction"])
-                assert PREDICTION_MIN <= prediction <= PREDICTION_MAX, \
-                    f"Prediction {prediction} outside bounds [{PREDICTION_MIN}, {PREDICTION_MAX}]"
+                assert (
+                    PREDICTION_MIN <= prediction <= PREDICTION_MAX
+                ), f"Prediction {prediction} outside bounds [{PREDICTION_MIN}, {PREDICTION_MAX}]"
 
     @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
-    def test_prediction_uniqueness_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
+    def test_prediction_uniqueness_invariant(
+        self, predictions_batch: list[ModelPrediction]
+    ) -> None:
         """
         Property: No duplicate predictions for same (instrument, timestamp, model).
 
@@ -454,7 +474,7 @@ class TestModelStorePredictionInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test")
+            store = ModelStore(connection_string="sqlite:///:memory:")
             store.write_batch(test_batch)
 
             # Collect unique keys
@@ -478,12 +498,17 @@ class TestModelStorePredictionInvariants:
 # Property-Based Tests: Performance and Data Integrity
 # ============================================================================
 
+
 class TestModelStorePerformanceInvariants:
-    """Property-based tests for ModelStore performance and data integrity."""
+    """
+    Property-based tests for ModelStore performance and data integrity.
+    """
 
     @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
-    def test_no_data_loss_during_flush_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
+    def test_no_data_loss_during_flush_invariant(
+        self, predictions_batch: list[ModelPrediction]
+    ) -> None:
         """
         Property: No data loss during flush operations.
 
@@ -492,7 +517,9 @@ class TestModelStorePerformanceInvariants:
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
-            store = ModelStore(connection_string="dummy://test", batch_size=1000)  # Large batch size
+            store = ModelStore(
+                connection_string="sqlite:///:memory:", batch_size=1000
+            )  # Large batch size
 
             # Add predictions to buffer without auto-flush
             for pred in predictions_batch:
@@ -539,12 +566,15 @@ class TestModelStorePerformanceInvariants:
 
         # Verify monotonic progression
         for i in range(1, len(watermarks)):
-            assert watermarks[i] >= watermarks[i-1], \
-                f"Watermark regression: {watermarks[i]} < {watermarks[i-1]}"
+            assert (
+                watermarks[i] >= watermarks[i - 1]
+            ), f"Watermark regression: {watermarks[i]} < {watermarks[i-1]}"
 
     @PROPERTY_TEST_SETTINGS
     @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
-    def test_performance_metrics_consistency(self, predictions_batch: list[ModelPrediction]) -> None:
+    def test_performance_metrics_consistency(
+        self, predictions_batch: list[ModelPrediction]
+    ) -> None:
         """
         Property: Performance metrics calculations must be mathematically correct.
 
@@ -560,7 +590,9 @@ class TestModelStorePerformanceInvariants:
         std_prediction = np.std(prediction_values, ddof=1) if len(prediction_values) > 1 else 0
 
         # Verify mathematical properties
-        assert -1.0 <= mean_prediction <= 1.0, f"Mean prediction {mean_prediction} outside valid bounds"
+        assert (
+            -1.0 <= mean_prediction <= 1.0
+        ), f"Mean prediction {mean_prediction} outside valid bounds"
         assert std_prediction >= 0, f"Standard deviation {std_prediction} cannot be negative"
 
         # If we have variance, verify Sharpe-like ratio calculation
@@ -574,12 +606,14 @@ class TestModelStorePerformanceInvariants:
 # Stateful Property Testing
 # ============================================================================
 
+
 class ModelStoreStateMachine(RuleBasedStateMachine):
     """
     Stateful property testing for ModelStore operations.
 
-    Tests complex sequences of operations to verify invariants hold
-    across multiple interactions.
+    Tests complex sequences of operations to verify invariants hold across multiple
+    interactions.
+
     """
 
     predictions = Bundle("predictions")
@@ -589,11 +623,13 @@ class ModelStoreStateMachine(RuleBasedStateMachine):
         self._sink: list[dict[str, Any]] = []
         self._store_context = _mock_model_store_io(self._sink)
         self._store_context.__enter__()
-        self._store = ModelStore(connection_string="dummy://stateful")
+        self._store = ModelStore(connection_string="sqlite:///:memory:")
         self._stored_count = 0
 
     def teardown(self) -> None:
-        """Clean up resources."""
+        """
+        Clean up resources.
+        """
         try:
             self._store_context.__exit__(None, None, None)
         except Exception:
@@ -602,25 +638,33 @@ class ModelStoreStateMachine(RuleBasedStateMachine):
 
     @rule(target=predictions, prediction=single_prediction)
     def add_prediction(self, prediction: ModelPrediction) -> ModelPrediction:
-        """Add a single prediction to the store."""
+        """
+        Add a single prediction to the store.
+        """
         self._store.write_batch([prediction])
         self._stored_count += 1
         return prediction
 
     @rule(prediction_batch=batch_predictions_with_monotonic_timestamps())
     def add_batch_predictions(self, prediction_batch: list[ModelPrediction]) -> None:
-        """Add a batch of predictions to the store."""
+        """
+        Add a batch of predictions to the store.
+        """
         self._store.write_batch(prediction_batch)
         self._stored_count += len(prediction_batch)
 
     @rule()
     def flush_store(self) -> None:
-        """Manually flush the store."""
+        """
+        Manually flush the store.
+        """
         self._store.flush()
 
     @rule()
     def verify_invariants(self) -> None:
-        """Verify all stored data maintains invariants."""
+        """
+        Verify all stored data maintains invariants.
+        """
         # Check that stored count matches expected
         assert len(self._sink) <= self._stored_count  # May be less due to deduplication
 
@@ -637,6 +681,7 @@ class ModelStoreStateMachine(RuleBasedStateMachine):
 # ============================================================================
 # Test Runner Configuration
 # ============================================================================
+
 
 # Run stateful tests via explicit helper to avoid unittest fixture conflicts
 def test_model_store_stateful() -> None:
@@ -655,18 +700,20 @@ def test_model_store_stateful() -> None:
 # Integration with Existing Test Infrastructure
 # ============================================================================
 
+
 def test_property_tests_integration() -> None:
     """
     Verify property tests integrate correctly with existing test infrastructure.
 
-    This test ensures our property-based tests follow the established patterns
-    and can be run alongside existing unit tests.
+    This test ensures our property-based tests follow the established patterns and can
+    be run alongside existing unit tests.
+
     """
     # Test that we can create mock stores consistently
     sink: list[dict[str, Any]] = []
 
     with _mock_model_store_io(sink):
-        store = ModelStore(connection_string="dummy://integration")
+        store = ModelStore(connection_string="sqlite:///:memory:")
 
         # Test basic functionality
         pred = _create_model_prediction(
@@ -689,6 +736,7 @@ def test_property_tests_integration() -> None:
 # Property Test Performance Benchmarking
 # ============================================================================
 
+
 @PROPERTY_TEST_SETTINGS
 @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
 def test_property_validation_performance(predictions_batch: list[ModelPrediction]) -> None:
@@ -709,4 +757,6 @@ def test_property_validation_performance(predictions_batch: list[ModelPrediction
 
     # Property validation should be fast (< 5ms for reasonable batch sizes)
     if len(predictions_batch) <= 100:
-        assert validation_time_ms < 5.0, f"Validation took {validation_time_ms:.2f}ms for {len(predictions_batch)} predictions"
+        assert (
+            validation_time_ms < 5.0
+        ), f"Validation took {validation_time_ms:.2f}ms for {len(predictions_batch)} predictions"

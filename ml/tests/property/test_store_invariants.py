@@ -108,7 +108,7 @@ class TestFeatureStoreInvariants:
             mock_engine_manager.get_engine.return_value = mock_engine
 
             # Create store with mocked engine
-            store = FeatureStore(connection_string="dummy://")
+            store = FeatureStore(connection_string="sqlite:///:memory:")
             store._features_cache = {}  # Simple in-memory cache
             return store
 
