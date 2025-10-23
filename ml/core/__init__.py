@@ -105,9 +105,11 @@ class FeatureEngineer:
 """
 
 # Core integration components
+from typing import TYPE_CHECKING
 
 # High-performance data structures (hot path optimized)
 from ml.core.cache import LockFreeRingBuffer
+from ml.core.cache import MultiChannelRingBuffer
 from ml.core.cache import PreAllocatedFeatureCache
 from ml.core.cache import ReservoirSampler
 
@@ -115,30 +117,45 @@ from ml.core.cache import ReservoirSampler
 from ml.core.db_engine import EngineManager
 
 
-# Integration classes are imported lazily to avoid import cycles
-
+# Integration components - use TYPE_CHECKING for static analysis
+if TYPE_CHECKING:
+    from ml.core.integration import ActorStoresRegistries
+    from ml.core.integration import MLIntegrationManager
+    from ml.core.integration import get_integration_manager
+    from ml.core.integration import init_actor_stores_and_registries
+    from ml.core.integration import init_ml_stores_and_registries
+    from ml.core.integration import reset_integration_manager
 
 __all__ = [
     "ActorStoresRegistries",
     "EngineManager",
     "LockFreeRingBuffer",
     "MLIntegrationManager",
+    "MultiChannelRingBuffer",
     "PreAllocatedFeatureCache",
     "ReservoirSampler",
+    "get_integration_manager",
     "init_actor_stores_and_registries",  # Deprecated alias
     "init_ml_stores_and_registries",
+    "reset_integration_manager",
 ]
 
 
 def __getattr__(name: str) -> object:
     """
     Lazy import integration symbols to avoid import-time cycles.
+
+    Type information is provided via TYPE_CHECKING imports for static analysis.
+    Runtime imports are delayed to prevent circular dependencies between:
+    ml.core -> ml.core.integration -> ml.common.db_connections -> ml.core.db_engine
     """
     if name in {
         "ActorStoresRegistries",
         "MLIntegrationManager",
         "init_actor_stores_and_registries",
         "init_ml_stores_and_registries",
+        "get_integration_manager",
+        "reset_integration_manager",
     }:
         from ml.core import integration as _integration
 
