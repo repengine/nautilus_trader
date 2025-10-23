@@ -15,7 +15,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, TypeVar, cast, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
@@ -69,6 +69,9 @@ from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.stores.raw_protocols import RawReaderProtocol
 from ml.stores.strategy_store import StrategyStore
 
+
+# Type variable for generic actor return types
+ActorT = TypeVar("ActorT")
 
 logger = logging.getLogger(__name__)
 
@@ -1271,21 +1274,35 @@ class MLIntegrationManager:
         except Exception:
             return False
 
-    def create_integrated_actor(self, actor_class: type[Any], config: object) -> object:
+    def create_integrated_actor(self, actor_class: type[ActorT], config: object) -> ActorT:
         """
         Create an actor with automatic integration.
 
+        Creates an instance of the given actor class with automatic initialization
+        of all ML stores and registries via the base class.
+
         Parameters
         ----------
-        actor_class : type
-            The actor class to instantiate
-        config : Any
-            Actor configuration (should include db_connection)
+        actor_class : type[ActorT]
+            The actor class to instantiate (should extend BaseMLInferenceActor)
+        config : object
+            Actor configuration object (should include db_connection and other
+            configuration attributes matching actor_class expectations)
 
         Returns
         -------
-        Any
-            Instantiated actor with all stores automatically connected
+        ActorT
+            Instance of actor_class with all stores automatically connected
+
+        Example
+        -------
+        >>> from ml.config.actors import MyActorConfig
+        >>> from ml.actors.signal import MLSignalActor
+        >>> integration = MLIntegrationManager()
+        >>> config = MyActorConfig(db_connection="...")
+        >>> actor = integration.create_integrated_actor(MLSignalActor, config)
+        >>> # mypy knows actor is MLSignalActor, not just 'object'!
+        >>> actor.predict(bar)  # IDE autocomplete works!
 
         """
         # Ensure config has the database connection
@@ -1299,9 +1316,10 @@ class MLIntegrationManager:
                 logging.exception("Failed to attach db_connection to config")
 
         # Create actor - stores are automatically initialized by the base class
-        actor = actor_class(config=config)
+        # mypy can't verify generic constructor signature, but all actors accept config
+        actor = actor_class(config=config)  # type: ignore[call-arg]
 
-        return actor
+        return actor  # Type inferred as ActorT from actor_class parameter
 
     def shutdown(self) -> None:
         """
