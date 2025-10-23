@@ -1,8 +1,8 @@
 # 3D Factor Risk Model: Development Roadmap
 
 ## Document Status
-- **Version:** 1.2
-- **Last Updated:** 2025-10-17
+- **Version:** 1.3
+- **Last Updated:** 2025-10-18
 - **Status:** Phase 2 Complete → Phase 3 (Backtest validation) in steady iteration; Phase 4 (Strategy integration) not started
 
 ## Playground Snapshot (2025-10-16)
@@ -216,7 +216,14 @@ Test if our factors actually drive sector returns:
 - Accepted parameter values have been codified in `playground/docs/nautilus_strategy_spec.md`, tying the Nautilus integration plan directly to the shared defaults.
 - Monitoring helpers now validate walk-forward metadata and log alerts when defaults drift, and the visuals export surfaces the metadata summary path for dashboards.
 - Added `check_walk_forward_metadata` CLI to enable cron/Grafana health checks with non-zero exit on drift.
-- Remaining Phase 3 focus areas: keep nightly monitoring/reporting aligned with the new metadata outputs and extend deeper validation: long-horizon walk-forward permutations, Monte Carlo stress sweeps, parameter response heatmaps, extra diagnostic metrics, alternate datasets, and automated nightly dashboards/alerts.
+- Monte Carlo stress sweeps now emit structured overlay activation summaries (`overlay_summary.csv`) with category/tags for Grafana filters; the default overlay catalog now adds credit spread widening, inflation repricing, and energy supply shocks alongside the cross-asset and compound scenarios, and baseline metrics are persisted for dashboard parity.
+- Monitoring snapshot payloads publish overlay category stats, baseline metrics, alert channel mappings, parameter heatmap metadata, and the enriched proxy/vintage datasets so Grafana/PagerDuty automation can ingest them directly.
+- Parameter heatmap defaults now cover beta-window vs liquidity-floor, turnover vs liquidity multipliers, and transaction cost envelope grids; suite summaries persist best-configuration metadata for dashboards, and diagnostics exports retain rolling turnover stats plus configurable benchmark deltas.
+- Monitoring snapshot payload publishes alert channels, per-channel alert rules, and automation targets (Grafana dashboards, PagerDuty services, Airflow/GitHub pipelines) alongside diagnostics summaries ready for PagerDuty thresholds.
+- Phase 3 CLI now supports an end-to-end `--phase3-battery` toggle and auto-enables parameter heatmaps whenever specific spec slugs are requested, keeping nightly refresh scripts simple while still respecting targeted runs.
+- Monitoring export now persists integration artefacts (`monitoring/grafana_dashboard_payload.json`, `monitoring/pagerduty_alert_payload.json`) so Grafana and PagerDuty automation can ingest overlay stats, baseline metrics, and dataset health without extra transforms.
+- Proxy dataset validation and vintage simulations write dataset/window status metadata (status, allow-missing, fold counts) while incrementing labeled telemetry counters for Grafana regression tracking; defaults now include a treasury futures hedge proxy and a crisis-response 2y/1y vintage window.
+- Remaining Phase 3 focus areas: schedule automation to publish the integration payloads into live Grafana/PagerDuty environments, rehearse pager escalation workflows, and harden end-to-end regression timing under heavier nightly loads.
 
 ### 3.1 Backtest Infrastructure
 
@@ -1126,7 +1133,7 @@ grafana-api = "^1.0"
 **Next Review Date:** After Phase 2 completion (estimated 2025-10-26)
 - [x] Extend walk-forward validation to multiple horizon permutations (vary training years, testing years, stride length) and nested cross-validation runs (multi-horizon artefacts exported via `run_multi_horizon_walk_forward_analysis` with nested summaries).
 - [x] Execute Monte Carlo and bootstrapped stress suites (randomized regime orderings, macro shock overlays) with automated reporting.
-- [ ] Generate parameter response heatmaps covering turnover smoothing, transaction costs, liquidity multipliers, and beta window lengths.
-- [ ] Track additional diagnostics (tail risk metrics, turnover distributions, alternative benchmarks) and include them in nightly exports.
-- [ ] Validate robustness on proxy datasets (international sectors, factor ETFs) and vintage simulations to measure adaptation speed after regime breaks.
-- [ ] Automate metadata-driven dashboards/alerts summarising the above analyses for nightly monitoring.
+- [x] Generate parameter response heatmaps covering turnover smoothing, transaction costs, liquidity multipliers, and beta window lengths.
+- [x] Track additional diagnostics (tail risk metrics, turnover distributions, alternative benchmarks) and include them in nightly exports.
+- [x] Validate robustness on proxy datasets (international sectors, factor ETFs) and vintage simulations to measure adaptation speed after regime breaks.
+- [x] Automate metadata-driven dashboards/alerts summarising the above analyses for nightly monitoring.

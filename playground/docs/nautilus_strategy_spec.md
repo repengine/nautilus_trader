@@ -57,3 +57,56 @@ walk-forward CLI, and documentation) stay aligned.
    parameter changes.
 3. Backtests or experiments that deviate from these values should record the
    overrides explicitly (e.g., via `turnover_overrides` or scenario metadata).
+4. Parameter heatmaps, diagnostics, proxy validations, and monitoring snapshots
+   inherit their defaults from `ThreeDRiskBacktestDefaults`; regenerate artefacts
+   via the CLI flags (`--parameter-heatmaps`, `--extended-diagnostics`,
+   `--proxy-validation`, `--monitoring-export`) whenever these configurations are
+   tuned.
+
+## Monte Carlo Overlay Catalog (Phase 3)
+
+Current overlays encoded in `ThreeDRiskBacktestDefaults().monte_carlo_stress`:
+
+- `rate_hike_shock` *(rates)* – Tightening-aligned drawdown applied to rate sensitive regimes.
+- `growth_scare` *(growth)* – Multi-session negative drift reflecting macro slowdowns.
+- `liquidity_crunch` *(liquidity)* – Acute liquidity withdrawal aligned with stress regimes.
+- `volatility_breakout` *(volatility)* – Elevated realised vol hitting returns over ~1 week.
+- `cross_asset_contagion` *(cross_asset)* – Equity/credit/commodity deleveraging tandem event.
+- `compound_liquidity_growth` *(compound)* – Sequential liquidity then growth shock cascade.
+- `credit_spread_widening` *(credit)* – Cyclical credit spread blowout across tightening regimes.
+- `inflation_repricing` *(inflation)* – Surprise inflation repricing duration-sensitive sectors.
+- `energy_supply_shock` *(commodities)* – Energy supply disruption impacting equities and credit.
+
+Per-path overlay activations, category aggregates, and baseline metrics are
+persisted under `stress/monte_carlo/` for Grafana dashboards.
+
+## Proxy & Vintage Coverage
+
+Proxy datasets now include:
+
+- International sectors (baseline proxy)
+- Factor ETF proxy universe
+- Global macro overlay dataset
+- Treasury futures hedge proxy *(new)* – guards duration hedging assumptions
+
+Vintage simulations cover:
+
+- Five-Year Rolling (5y/1y)
+- Seven-Year Rolling (7y/1y)
+- Three-Year High Frequency (3y/1y)
+- Crisis Response 2y/1y *(new)* – emphasises rapid regime adaptation
+
+All proxies/vintages persist metadata (status, allow-missing, fold counts) for
+monitoring and telemetry.
+
+## Phase 3 Automation Flags
+
+- `--heatmap-specs` triggers the parameter heatmap suite automatically when
+  specific spec slugs are provided, enabling targeted refreshes without setting
+  `--parameter-heatmaps`.
+- `--phase3-battery` executes the full validation stack (walk-forward, Monte
+  Carlo, heatmaps, diagnostics, proxy/vintage suites, monitoring export) in a
+  single command for nightly smoke tests and pre-deployment rehearsals.
+- Monitoring exports also persist ``monitoring/grafana_dashboard_payload.json``
+  and ``monitoring/pagerduty_alert_payload.json`` to streamline dashboard and
+  escalation automation.

@@ -14,18 +14,67 @@ All tests use mock datasets to enable fast, deterministic testing.
 from __future__ import annotations
 
 import json
+import sys
+import types
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
+
+if "nautilus_trader" not in sys.modules:
+    nt_module = types.ModuleType("nautilus_trader")
+    core_module = types.ModuleType("nautilus_trader.core")
+    core_module.nautilus_pyo3 = object()
+    core_data_module = types.ModuleType("nautilus_trader.core.data")
+    model_module = types.ModuleType("nautilus_trader.model")
+    model_data_module = types.ModuleType("nautilus_trader.model.data")
+    identifiers_module = types.ModuleType("nautilus_trader.model.identifiers")
+    identifiers_module.ComponentId = type("ComponentId", (), {})
+    identifiers_module.InstrumentId = type("InstrumentId", (), {})
+    model_data_module.BarType = type("BarType", (), {})
+
+    class _StubConfigBase:
+        def __init_subclass__(cls, **kwargs):
+            return None
+
+    class NautilusConfig(_StubConfigBase):
+        """Stub Nautilus configuration base class."""
+
+    class StrategyConfig(_StubConfigBase):
+        """Stub strategy configuration base class."""
+
+    common_module = types.ModuleType("nautilus_trader.common")
+    common_config_module = types.ModuleType("nautilus_trader.common.config")
+    common_config_module.NautilusConfig = NautilusConfig
+    for name in ("NonNegativeFloat", "NonNegativeInt", "PositiveFloat", "PositiveInt"):
+        setattr(common_config_module, name, type(name, (), {}))
+    config_module = types.ModuleType("nautilus_trader.config")
+    config_module.StrategyConfig = StrategyConfig
+    sys.modules["nautilus_trader"] = nt_module
+    sys.modules["nautilus_trader.core"] = core_module
+    sys.modules["nautilus_trader.core.data"] = core_data_module
+    sys.modules["nautilus_trader.model"] = model_module
+    sys.modules["nautilus_trader.model.data"] = model_data_module
+    sys.modules["nautilus_trader.model.identifiers"] = identifiers_module
+    sys.modules["nautilus_trader.common"] = common_module
+    sys.modules["nautilus_trader.common.config"] = common_config_module
+    sys.modules["nautilus_trader.config"] = config_module
+
+from ml.config.playground import DiagnosticsDefaults
+from ml.config.playground import MonitoringExportDefaults
 from ml.config.playground import MonteCarloShockOverlayDefaults
 from ml.config.playground import MonteCarloStressDefaults
 from ml.config.playground import NestedWalkForwardDefaults
+from ml.config.playground import ParameterHeatmapSpecDefaults
+from ml.config.playground import ProxyDatasetSpecDefaults
+from ml.config.playground import ProxyDatasetSuiteDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
+from ml.config.playground import VintageWindowDefaults
 from ml.config.playground import WalkForwardPermutationDefaults
 from playground.backtest.engine import BacktestConfig
 from playground.backtest.engine import BacktestResult
@@ -33,15 +82,23 @@ from playground.backtest.liquidity_controls import LiquidityScalingConfig
 from playground.backtest.performance_metrics import PerformanceMetrics
 from playground.backtest.runner import BacktestSuite
 from playground.backtest.runner import LiquidityMitigationScenario
+from playground.backtest.runner import MonteCarloOverlayActivation
 from playground.backtest.runner import WalkForwardBacktestResult
+from playground.backtest.runner import export_phase3_monitoring_snapshot
 from playground.backtest.runner import get_liquidity_mitigation_scenarios
+from playground.backtest.runner import run_extended_diagnostics
 from playground.backtest.runner import run_full_backtest_suite
 from playground.backtest.runner import run_liquidity_mitigation_experiments
 from playground.backtest.runner import run_monte_carlo_stress_suite
 from playground.backtest.runner import run_multi_horizon_walk_forward_analysis
+from playground.backtest.runner import run_parameter_heatmap_suite
+from playground.backtest.runner import run_proxy_dataset_validation
+from playground.backtest.runner import run_vintage_simulation_suite
 from playground.backtest.runner import run_walk_forward_backtest_suite
 from playground.backtest.splits import TrainTestSplit
 from playground.backtest.splits import WalkForwardConfig
+from playground.scripts.run_phase3_walk_forward import _parse_comma_separated
+from playground.scripts.run_phase3_walk_forward import parse_args as parse_walk_forward_args
 
 
 # ===== Fixtures =====
@@ -235,13 +292,520 @@ def test_run_monte_carlo_stress_suite_generates_paths(
     assert not summary.is_empty()
     strategy_names = summary.get_column("strategy").to_list()
     assert stress_config.target_strategy in strategy_names
+    assert "overlay_count_mean" in summary.columns
+    assert "overlay_total_impact_mean" in summary.columns
 
     artefact_root = tmp_path / "stress" / "monte_carlo"
     assert (artefact_root / "summary.csv").exists()
     assert (artefact_root / "paths.csv").exists()
     assert (artefact_root / "config.json").exists()
+    overlay_summary_path = artefact_root / "overlay_summary.csv"
+    assert overlay_summary_path.exists()
+    overlay_summary = pl.read_csv(overlay_summary_path)
+    assert "activation_count" in overlay_summary.columns
+    assert overlay_summary.get_column("activation_count").sum() >= 1
+    config_payload = json.loads((artefact_root / "config.json").read_text(encoding="utf-8"))
+    assert config_payload.get("overlay_summary_path") == "overlay_summary.csv"
+    assert config_payload.get("overlay_category_summary_path") == "overlay_category_summary.csv"
+    assert config_payload.get("baseline_metrics_path") == "baseline_metrics.csv"
+    category_summary_path = artefact_root / "overlay_category_summary.csv"
+    assert category_summary_path.exists()
+    category_summary = pl.read_csv(category_summary_path)
+    assert "category" in category_summary.columns
+    assert "activation_count" in category_summary.columns
+    assert not category_summary.is_empty()
+    baseline_path = artefact_root / "baseline_metrics.csv"
+    assert baseline_path.exists()
+    baseline_frame = pl.read_csv(baseline_path)
+    assert baseline_frame.get_column("strategy").to_list() == [stress_config.target_strategy]
+    paths_frame = pl.read_csv(artefact_root / "paths.csv")
+    assert "overlay_events" in paths_frame.columns
+    assert "overlay_names" in paths_frame.columns
+    assert "overlay_total_impact" in paths_frame.columns
+    assert paths_frame.get_column("overlay_total_impact").abs().sum() != 0
     path_overlays = [path.overlay_events for path in result.paths]
     assert any(events for events in path_overlays)
+    assert all(isinstance(events, tuple) for events in path_overlays)
+    flattened = [event for events in path_overlays for event in events]
+    assert flattened
+    assert all(isinstance(event, MonteCarloOverlayActivation) for event in flattened)
+    assert all(event.total_impact != 0.0 for event in flattened)
+
+
+def test_run_parameter_heatmap_suite_generates_outputs(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parameter heatmap suite should produce pivot artefacts."""
+    spec = ParameterHeatmapSpecDefaults(
+        name="Unit Heatmap",
+        description="Test heatmap specification.",
+        target_strategy="Equal Weight",
+        parameters=("config.transaction_cost_bps", "config.rebalance_threshold"),
+        grid={
+            "config.transaction_cost_bps": (5.0, 10.0),
+            "config.rebalance_threshold": (0.02, 0.03),
+        },
+    )
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        metrics = {
+            "Equal Weight": SimpleNamespace(
+                sharpe_ratio=1.0,
+                calmar_ratio=0.5,
+                annualized_return=0.12,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    result = run_parameter_heatmap_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        specs=(spec,),
+    )
+
+    heatmap_root = tmp_path / "heatmaps" / spec.slug
+    assert heatmap_root.exists()
+    assert (heatmap_root / "results.csv").exists()
+    assert (heatmap_root / "heatmap.csv").exists()
+    summary = result.summary_frame()
+    assert not summary.is_empty()
+
+
+def test_parameter_heatmap_defaults_include_new_specs() -> None:
+    """Defaults should expose liquidity multiplier and transaction cost envelopes."""
+    defaults = ThreeDRiskBacktestDefaults()
+    specs_by_slug = {spec.slug: spec for spec in defaults.parameter_heatmaps.specs}
+    assert "turnover-vs-liquidity-multipliers" in specs_by_slug
+    multipliers_spec = specs_by_slug["turnover-vs-liquidity-multipliers"]
+    assert multipliers_spec.parameters == (
+        "turnover_overrides.3d_factor_rolling",
+        "liquidity_scaling.neutral_liquidity_multiplier",
+    )
+    assert multipliers_spec.metric == "calmar_ratio"
+    assert multipliers_spec.base_overrides["liquidity_scaling.moderate_liquidity_multiplier"] == pytest.approx(0.7)
+    assert "transaction-cost-envelope" in specs_by_slug
+    envelope_spec = specs_by_slug["transaction-cost-envelope"]
+    assert envelope_spec.parameters == ("config.transaction_cost_bps", "config.slippage_bps")
+    assert envelope_spec.metric == "sortino_ratio"
+    assert envelope_spec.grid["config.transaction_cost_bps"] == (5.0, 10.0, 15.0, 20.0)
+
+
+def test_run_parameter_heatmap_suite_filters_by_slug(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Heatmap execution should honour slug filters."""
+    spec_a = ParameterHeatmapSpecDefaults(
+        name="Spec Alpha",
+        description="Spec alpha description.",
+        target_strategy="Equal Weight",
+        parameters=("config.transaction_cost_bps", "config.rebalance_threshold"),
+        grid={
+            "config.transaction_cost_bps": (5.0, 10.0),
+            "config.rebalance_threshold": (0.02, 0.03),
+        },
+    )
+    spec_b = ParameterHeatmapSpecDefaults(
+        name="Spec Beta",
+        description="Spec beta description.",
+        target_strategy="Equal Weight",
+        parameters=("config.transaction_cost_bps", "config.slippage_bps"),
+        grid={
+            "config.transaction_cost_bps": (5.0, 10.0),
+            "config.slippage_bps": (0.0, 5.0),
+        },
+        metric="sortino_ratio",
+    )
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        metrics = {
+            "Equal Weight": SimpleNamespace(
+                sharpe_ratio=1.0,
+                calmar_ratio=0.6,
+                annualized_return=0.12,
+                sortino_ratio=0.75,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    result = run_parameter_heatmap_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        specs=(spec_a, spec_b),
+        spec_slugs=(spec_a.slug,),
+    )
+
+    assert [run.spec.slug for run in result.runs] == [spec_a.slug]
+
+
+def test_run_parameter_heatmap_suite_raises_on_unknown_slug(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Filtering by an unknown slug should raise."""
+    spec = ParameterHeatmapSpecDefaults(
+        name="Spec Gamma",
+        description="Spec gamma description.",
+        target_strategy="Equal Weight",
+        parameters=("config.transaction_cost_bps", "config.rebalance_threshold"),
+        grid={
+            "config.transaction_cost_bps": (5.0, 10.0),
+            "config.rebalance_threshold": (0.02, 0.03),
+        },
+    )
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        metrics = {
+            "Equal Weight": SimpleNamespace(
+                sharpe_ratio=1.0,
+                calmar_ratio=0.6,
+                annualized_return=0.12,
+                sortino_ratio=0.75,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    with pytest.raises(ValueError):
+        run_parameter_heatmap_suite(
+            dataset_path=mock_dataset_path,
+            output_dir=tmp_path,
+            specs=(spec,),
+            spec_slugs=("unknown-slug",),
+        )
+
+
+def test_run_extended_diagnostics_produces_reports(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Extended diagnostics should emit CSV artefacts."""
+    suite = run_full_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path / "baseline",
+        split=None,
+    )
+    diagnostics = run_extended_diagnostics(
+        suite=suite,
+        output_dir=tmp_path,
+        config=DiagnosticsDefaults(tail_quantiles=(0.05,), turnover_bins=(0.05, 0.10)),
+    )
+    diagnostics_dir = tmp_path / "diagnostics"
+    assert (diagnostics_dir / "tail_metrics.csv").exists()
+    assert (diagnostics_dir / "turnover_distribution.csv").exists()
+    assert not diagnostics.tail_metrics.is_empty()
+
+
+def test_run_proxy_dataset_validation_handles_existing_dataset(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Proxy dataset validation should succeed when dataset exists."""
+    suite_defaults = ProxyDatasetSuiteDefaults(
+        specs=(
+            ProxyDatasetSpecDefaults(
+                name="Fixture Proxy",
+                relative_path=str(mock_dataset_path),
+                description="Fixture dataset",
+                allow_missing=False,
+                min_train_years=4,
+                min_test_years=1,
+            ),
+        ),
+        vintage_windows=tuple(),
+    )
+    result = run_proxy_dataset_validation(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        suite_defaults=suite_defaults,
+    )
+    summary = result.summary_frame()
+    assert not summary.is_empty()
+    assert summary.get_column("status").to_list() == ["success"]
+    assert summary.get_column("allow_missing").to_list() == [False]
+    assert "tags" in summary.columns
+
+
+def test_run_proxy_dataset_validation_marks_allowed_missing(tmp_path: Path) -> None:
+    """Allowed missing datasets should be reported with explicit status."""
+    missing_path = (tmp_path / "missing_proxy.parquet").resolve()
+    suite_defaults = ProxyDatasetSuiteDefaults(
+        specs=(
+            ProxyDatasetSpecDefaults(
+                name="Missing Proxy",
+                relative_path=str(missing_path),
+                description="Optional dataset",
+                allow_missing=True,
+                min_train_years=4,
+                min_test_years=1,
+            ),
+        ),
+        vintage_windows=tuple(),
+    )
+    result = run_proxy_dataset_validation(
+        dataset_path=tmp_path,
+        output_dir=tmp_path,
+        suite_defaults=suite_defaults,
+    )
+    summary = result.summary_frame()
+    assert summary.get_column("status").to_list() == ["missing_allowed"]
+    assert summary.get_column("allow_missing").to_list() == [True]
+
+
+def test_run_vintage_simulation_suite_creates_summary(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Vintage simulation should produce per-window summaries."""
+    window = VintageWindowDefaults(
+        label="Short Window",
+        train_years=4,
+        test_years=1,
+        step_years=2,
+        min_folds=1,
+    )
+    result = run_vintage_simulation_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        windows=(window,),
+    )
+    vintage_dir = tmp_path / "vintage" / window.slug
+    assert (vintage_dir / "summary.csv").exists()
+    summary = result.summary_frame()
+    assert summary.height == 1
+    assert summary.get_column("status").to_list() == ["success"]
+    assert summary.get_column("min_folds").to_list() == [1]
+
+
+def test_run_vintage_simulation_suite_handles_errors(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Vintage simulations should record error status when execution fails."""
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "playground.backtest.runner.run_walk_forward_backtest_suite",
+        _raise,
+    )
+
+    window = VintageWindowDefaults(
+        label="Error Window",
+        train_years=4,
+        test_years=1,
+        step_years=1,
+        min_folds=2,
+    )
+    result = run_vintage_simulation_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        windows=(window,),
+    )
+    summary = result.summary_frame()
+    assert summary.get_column("status").to_list() == ["error"]
+    assert summary.get_column("fold_count").to_list() == [0]
+
+
+def test_export_phase3_monitoring_snapshot_compiles_paths(tmp_path: Path) -> None:
+    """Monitoring snapshot should aggregate supplied artefact paths."""
+    walk_forward_dir = tmp_path / "walk_forward"
+    walk_forward_dir.mkdir(parents=True, exist_ok=True)
+    (walk_forward_dir / "permutation_summary.csv").write_text("", encoding="utf-8")
+    (walk_forward_dir / "nested_summary.csv").write_text("", encoding="utf-8")
+    (walk_forward_dir / "nested_rollup.csv").write_text("", encoding="utf-8")
+
+    stress_dir = tmp_path / "stress" / "monte_carlo"
+    stress_dir.mkdir(parents=True, exist_ok=True)
+    (stress_dir / "summary.csv").write_text("", encoding="utf-8")
+    (stress_dir / "paths.csv").write_text("", encoding="utf-8")
+    (stress_dir / "overlay_summary.csv").write_text("", encoding="utf-8")
+    (stress_dir / "overlay_category_summary.csv").write_text("", encoding="utf-8")
+    (stress_dir / "baseline_metrics.csv").write_text("", encoding="utf-8")
+    (stress_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    heatmap_dir = tmp_path / "heatmaps"
+    heatmap_dir.mkdir(parents=True, exist_ok=True)
+    (heatmap_dir / "summary.csv").write_text("", encoding="utf-8")
+
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "tail_metrics.csv").write_text("", encoding="utf-8")
+    (diagnostics_dir / "turnover_distribution.csv").write_text("", encoding="utf-8")
+    (diagnostics_dir / "benchmark_deltas.csv").write_text("", encoding="utf-8")
+    (diagnostics_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    proxy_dir = tmp_path / "proxy_datasets"
+    proxy_dir.mkdir(parents=True, exist_ok=True)
+    (proxy_dir / "summary.csv").write_text("", encoding="utf-8")
+
+    vintage_dir = tmp_path / "vintage"
+    vintage_dir.mkdir(parents=True, exist_ok=True)
+    (vintage_dir / "summary.csv").write_text("", encoding="utf-8")
+
+    walk_forward_stub = SimpleNamespace(base_directory=tmp_path)
+
+    class _MonteCarloStub:
+        def __init__(self, base_directory: Path) -> None:
+            self.base_directory = base_directory
+            self.paths = (SimpleNamespace(overlay_events=tuple()),)
+            self.stress_config = SimpleNamespace(
+                report_metrics=("sharpe_ratio",),
+                report_quantiles=(0.5,),
+            )
+
+        def overlay_category_summary(self) -> list[dict[str, object]]:
+            return [{
+                "category": "rates",
+                "activation_count": 1,
+                "total_impact": -0.01,
+                "overlay_names": "rate_hike_shock",
+                "tags": "macro|rates",
+            }]
+
+        def baseline_metrics_dict(self) -> dict[str, object]:
+            return {
+                "strategy": "3D Factor (Rolling Betas)",
+                "sharpe_ratio": 1.25,
+                "annualized_return": 0.11,
+            }
+
+    monte_carlo_stub = _MonteCarloStub(tmp_path)
+    heatmap_stub = SimpleNamespace(
+        base_directory=tmp_path,
+        output_dirname="heatmaps",
+        runs=(
+            SimpleNamespace(
+                spec=SimpleNamespace(slug="unit-test-spec"),
+                metadata={
+                    "target_strategy": "3D Factor (Rolling Betas)",
+                    "metric_name": "sharpe_ratio",
+                    "best_metric": 0.95,
+                    "evaluated_combinations": 4,
+                    "best_config": {"turnover_overrides.3d_factor_rolling": 0.40},
+                },
+            ),
+        ),
+    )
+    tail_df = pl.DataFrame([
+        {
+            "strategy": "Equal Weight",
+            "quantile": 0.05,
+            "value_at_risk": -0.03,
+            "conditional_value_at_risk": -0.04,
+            "num_observations": 100,
+        },
+    ])
+    turnover_df = pl.DataFrame([
+        {
+            "strategy": "Equal Weight",
+            "bucket": "0.00-0.05",
+            "count": 10,
+            "proportion": 0.5,
+            "mean_turnover": 0.04,
+            "p95_turnover": 0.08,
+            "rolling_window_days": 252,
+            "rolling_mean_turnover": 0.05,
+            "rolling_max_turnover": 0.09,
+        },
+    ])
+    benchmark_df = pl.DataFrame([
+        {
+            "benchmark": "60/40 Portfolio",
+            "strategy": "Equal Weight",
+            "sharpe_ratio_delta": 0.1,
+        },
+    ])
+    diagnostics_stub = SimpleNamespace(
+        tail_metrics=tail_df,
+        turnover_distribution=turnover_df,
+        benchmark_deltas=benchmark_df,
+        output_directory=diagnostics_dir,
+        config=DiagnosticsDefaults(),
+    )
+    proxy_stub = SimpleNamespace(
+        base_directory=tmp_path,
+        runs=(
+            SimpleNamespace(
+                spec=SimpleNamespace(slug="proxy-fixture", tags=("demo",), allow_missing=False),
+                status="success",
+                message=None,
+            ),
+        ),
+    )
+    vintage_stub = SimpleNamespace(
+        base_directory=tmp_path,
+        runs=(
+            SimpleNamespace(
+                window=SimpleNamespace(slug="vintage-fixture", label="Fixture Window", min_folds=1),
+                summary=pl.DataFrame(),
+                output_directory=tmp_path,
+                fold_count=2,
+                status="success",
+                message=None,
+            ),
+        ),
+    )
+
+    snapshot = export_phase3_monitoring_snapshot(
+        output_dir=tmp_path,
+        walk_forward=walk_forward_stub,
+        monte_carlo=monte_carlo_stub,
+        heatmaps=heatmap_stub,
+        diagnostics=diagnostics_stub,
+        proxy_datasets=proxy_stub,
+        vintage=vintage_stub,
+    )
+    assert snapshot.path.exists()
+    data = json.loads(snapshot.path.read_text(encoding="utf-8"))
+    assert "sections" in data
+    assert "walk_forward" in data["sections"]
+    assert "alert_channels" in data
+    assert "dashboard_targets" in data
+    assert "alert_rules" in data
+    assert "automation_targets" in data
+    assert data["sections"]["monte_carlo"]["overlay_summary_path"] is not None
+    assert data["sections"]["monte_carlo"]["overlay_category_summary_path"] is not None
+    assert data["sections"]["monte_carlo"]["baseline_metrics_path"] is not None
+    assert data["sections"]["monte_carlo"]["config_path"] is not None
+    assert data["sections"]["parameter_heatmaps"]["config_specs"] == ["unit-test-spec"]
+    assert data["sections"]["proxy_datasets"]["datasets"] == ["proxy-fixture"]
+    assert data["monte_carlo_metadata"]["report_metrics"] == ["sharpe_ratio"]
+    assert data["monte_carlo_metadata"]["overlay_category_stats"][0]["category"] == "rates"
+    assert data["monte_carlo_metadata"]["baseline_metrics"]["strategy"] == "3D Factor (Rolling Betas)"
+    assert data["parameter_heatmap_metadata"][0]["best_config"]["turnover_overrides.3d_factor_rolling"] == 0.40
+    assert data["sections"]["proxy_datasets"]["dataset_status"]["proxy-fixture"] == "success"
+    assert data["proxy_dataset_metadata"]["proxy-fixture"]["allow_missing"] is False
+    vintage_windows = data["sections"]["vintage_simulations"]["windows"]
+    assert vintage_windows[0]["status"] == "success"
+    assert data["vintage_metadata"][0]["slug"] == "vintage-fixture"
+    assert "summary" in data["sections"]["extended_diagnostics"]
+    diagnostics_metadata = data.get("diagnostics_metadata")
+    assert diagnostics_metadata is not None
+    tail_summary = diagnostics_metadata["tail"]["Equal Weight"]
+    assert tail_summary["var_p05"] == pytest.approx(-0.03)
+    turnover_summary = diagnostics_metadata["turnover"]["Equal Weight"]
+    assert turnover_summary["rolling_window_days"] == 252
 
 
 def test_run_full_backtest_suite_config_overrides(
@@ -1002,3 +1566,28 @@ def test_three_d_risk_backtest_defaults_fallbacks_are_immutable() -> None:
 
     with pytest.raises(TypeError):
         defaults.liquidity_contribution_fallbacks["New Regime"] = -0.01
+
+
+def test_parse_comma_separated_deduplicates_and_orders() -> None:
+    """CLI helper should strip whitespace and remove duplicates."""
+    parsed = _parse_comma_separated("  alpha , beta,alpha , , gamma ")
+    assert parsed == ("alpha", "beta", "gamma")
+
+
+def test_parse_args_accepts_heatmap_specs() -> None:
+    """CLI parser should expose heatmap spec string argument."""
+    namespace = parse_walk_forward_args(["--heatmap-specs", "foo,bar"])
+    assert namespace.heatmap_specs == "foo,bar"
+    assert namespace.parameter_heatmaps is False
+
+
+def test_parse_args_exposes_phase3_battery_flag() -> None:
+    """CLI parser should surface the phase3 battery toggle."""
+    namespace = parse_walk_forward_args(["--phase3-battery"])
+    assert namespace.phase3_battery is True
+
+
+def test_monitoring_defaults_validate_alert_rules() -> None:
+    """Monitoring defaults should enforce alert rule coverage."""
+    with pytest.raises(ValueError, match="alert_rules"):
+        MonitoringExportDefaults(alert_rules={"grafana": "alerts/only-grafana.yml"})

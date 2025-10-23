@@ -45,6 +45,7 @@ Run full backtest suite:
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import math
 import re
@@ -59,17 +60,26 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from types import MethodType
-from typing import TYPE_CHECKING, Any, TextIO, cast
+from typing import TYPE_CHECKING, Any, TextIO, TypedDict, cast
 
 import numpy as np
 import polars as pl
 import structlog
 
+from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.playground import DiagnosticsDefaults
+from ml.config.playground import MonitoringExportDefaults
 from ml.config.playground import MonteCarloShockOverlayDefaults
 from ml.config.playground import MonteCarloStressDefaults
 from ml.config.playground import NestedWalkForwardDefaults
+from ml.config.playground import ParameterHeatmapSpecDefaults
+from ml.config.playground import ParameterHeatmapSuiteDefaults
+from ml.config.playground import ParameterValue
+from ml.config.playground import ProxyDatasetSpecDefaults
+from ml.config.playground import ProxyDatasetSuiteDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
+from ml.config.playground import VintageWindowDefaults
 from ml.config.playground import WalkForwardPermutationDefaults
 from playground.backtest.benchmarks import MinimumVarianceStrategy
 from playground.backtest.benchmarks import RiskParityStrategy
@@ -118,6 +128,54 @@ MONTE_CARLO_DRAWDOWN_HIST = get_histogram(
     labelnames=("strategy",),
     buckets=(-0.8, -0.6, -0.4, -0.3, -0.2, -0.1, -0.05, 0.0),
 )
+MONTE_CARLO_OVERLAY_COUNTER = get_counter(
+    "phase3_monte_carlo_overlay_activations_total",
+    "Count of Monte Carlo overlay activations during Phase 3 stress sweeps.",
+    labelnames=("strategy", "overlay", "category"),
+)
+HEATMAP_METRIC_HIST = get_histogram(
+    "phase3_parameter_heatmap_metric",
+    "Performance metric distribution captured during Phase 3 parameter heatmaps",
+    labelnames=("strategy", "spec"),
+    buckets=(-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0),
+)
+DIAGNOSTIC_TAIL_HIST = get_histogram(
+    "phase3_tail_risk_metric",
+    "Tail risk metrics observed during Phase 3 diagnostics",
+    labelnames=("strategy", "quantile"),
+    buckets=(-0.10, -0.08, -0.06, -0.04, -0.02, -0.01, 0.0),
+)
+PROXY_STATUS_COUNTER = get_counter(
+    "phase3_proxy_dataset_status_total",
+    "Count of proxy dataset validation outcomes grouped by status.",
+    labelnames=("status", "dataset"),
+)
+VINTAGE_STATUS_COUNTER = get_counter(
+    "phase3_vintage_simulation_status_total",
+    "Count of vintage simulation outcomes grouped by status.",
+    labelnames=("status", "window"),
+)
+MONITORING_EXPORT_COUNTER = get_counter(
+    "phase3_monitoring_snapshot_total",
+    "Number of monitoring snapshots generated during Phase 3 runs.",
+    labelnames=("status",),
+)
+
+
+class _ProxyMetadataEntry(TypedDict):
+    status: str
+    allow_missing: bool
+    tags: list[str]
+    message: str | None
+
+
+class _VintageWindowMetadataEntry(TypedDict):
+    slug: str
+    label: str
+    status: str
+    fold_count: int
+    min_folds: int
+    message: str | None
 
 
 # ===== Backtest Suite Dataclass =====
@@ -1057,6 +1115,70 @@ class MultiHorizonWalkForwardResult:
 
 
 @dataclass(slots=True)
+class MonteCarloOverlayActivation:
+    """
+    Structured metadata describing a triggered Monte Carlo overlay.
+
+    Attributes
+    ----------
+    name : str
+        Overlay identifier.
+    category : str
+        Overlay category (rates, growth, liquidity, etc.).
+    start_index : int
+        Zero-based index within the synthetic path where the overlay activates.
+    duration : int
+        Number of days the overlay remains active (bounded by path length).
+    regime : str | None
+        Regime label active when the overlay triggers, if determinable.
+    magnitude : float
+        Initial additive shock applied on the first activation day.
+    decay : float
+        Decay multiplier applied for subsequent days.
+    total_impact : float
+        Aggregate additive impact applied across all active days.
+    tags : tuple[str, ...]
+        Optional structured tags for reporting/alert routing.
+    """
+
+    name: str
+    category: str
+    start_index: int
+    duration: int
+    regime: str | None
+    magnitude: float
+    decay: float
+    total_impact: float
+    tags: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """
+        Convert the activation metadata into a serialisable dictionary.
+        """
+        return {
+            "name": self.name,
+            "category": self.category,
+            "start_index": self.start_index,
+            "duration": self.duration,
+            "regime": self.regime,
+            "magnitude": self.magnitude,
+            "decay": self.decay,
+            "total_impact": self.total_impact,
+            "tags": list(self.tags),
+        }
+
+
+@dataclass(slots=True)
+class _OverlayCategoryAccumulator:
+    """Mutable accumulator for Monte Carlo overlay category summaries."""
+
+    activation_count: int = 0
+    total_impact: float = 0.0
+    overlay_names: set[str] = field(default_factory=set)
+    tags: set[str] = field(default_factory=set)
+
+
+@dataclass(slots=True)
 class MonteCarloStressPathResult:
     """
     Result of a single Monte Carlo stress simulation path.
@@ -1083,8 +1205,8 @@ class MonteCarloStressPathResult:
         Indicator that terminal value exceeded the starting value.
     regime_sequence : tuple[str, ...]
         Sequence of regime names used to construct the synthetic path.
-    overlay_events : tuple[str, ...]
-        Overlays applied during the simulation (one entry per activation).
+    overlay_events : tuple[MonteCarloOverlayActivation, ...]
+        Overlay activations applied during the simulation.
     path_length : int
         Number of return observations in the synthetic path.
     """
@@ -1099,8 +1221,15 @@ class MonteCarloStressPathResult:
     terminal_value: float
     positive_terminal: bool
     regime_sequence: tuple[str, ...]
-    overlay_events: tuple[str, ...]
+    overlay_events: tuple[MonteCarloOverlayActivation, ...]
     path_length: int
+
+    @property
+    def overlay_total_impact(self) -> float:
+        """Return aggregate impact from all overlays applied in the path."""
+        if not self.overlay_events:
+            return 0.0
+        return float(sum(event.total_impact for event in self.overlay_events))
 
     def regime_signature(self) -> str:
         """
@@ -1123,9 +1252,13 @@ class MonteCarloStressPathResult:
             "terminal_value": self.terminal_value,
             "positive_terminal": self.positive_terminal,
             "regime_sequence": list(self.regime_sequence),
-            "overlay_events": list(self.overlay_events),
+            "overlay_events": [event.to_dict() for event in self.overlay_events],
             "path_length": self.path_length,
             "regime_signature": self.regime_signature(),
+            "overlay_count": len(self.overlay_events),
+            "overlay_names": [event.name for event in self.overlay_events],
+            "overlay_categories": sorted({event.category for event in self.overlay_events}),
+            "overlay_total_impact": self.overlay_total_impact,
         }
 
 
@@ -1169,7 +1302,7 @@ class MonteCarloStressSuiteResult:
         frame = self.to_frame()
         if frame.is_empty():
             return frame
-        quantiles = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
+        quantiles = list(self.stress_config.report_quantiles)
         summary_columns = [
             pl.lit(self.target_strategy).alias("strategy"),
             pl.lit(self.stress_config.num_paths).alias("num_paths"),
@@ -1180,11 +1313,129 @@ class MonteCarloStressSuiteResult:
             pl.col("max_drawdown").mean().alias("max_drawdown_mean"),
             pl.col("positive_terminal").mean().alias("positive_terminal_rate"),
             pl.col("terminal_value").mean().alias("terminal_value_mean"),
+            pl.col("overlay_count").mean().alias("overlay_count_mean"),
         ]
+        existing_aliases = {
+            "strategy",
+            "num_paths",
+            "sharpe_mean",
+            "sharpe_std",
+            "return_mean",
+            "volatility_mean",
+            "max_drawdown_mean",
+            "positive_terminal_rate",
+            "terminal_value_mean",
+            "overlay_count_mean",
+        }
+        for metric in self.stress_config.report_metrics:
+            if metric not in frame.columns:
+                continue
+            alias = f"{metric}_mean"
+            if alias in existing_aliases:
+                continue
+            summary_columns.append(pl.col(metric).mean().alias(alias))
+            existing_aliases.add(alias)
         for q in quantiles:
             label = f"sharpe_p{int(q * 100):02d}"
             summary_columns.append(pl.col("sharpe_ratio").quantile(q).alias(label))
         return frame.select(summary_columns)
+
+    def overlay_summary_frame(self) -> pl.DataFrame:
+        """
+        Summarise overlay activation counts and aggregate impacts.
+        """
+        rows: list[dict[str, object]] = []
+        for path in self.paths:
+            for event in path.overlay_events:
+                rows.append({
+                    "name": event.name,
+                    "category": event.category,
+                    "regime": event.regime,
+                    "duration": event.duration,
+                    "total_impact": event.total_impact,
+                    "tags": "|".join(sorted(event.tags)),
+                })
+        if not rows:
+            return pl.DataFrame()
+        frame = pl.DataFrame(rows)
+        aggregated = frame.group_by("name", "category").agg(
+            [
+                pl.len().alias("activation_count"),
+                pl.mean("duration").alias("mean_duration"),
+                pl.max("duration").alias("max_duration"),
+                pl.sum("total_impact").alias("total_impact"),
+                pl.first("tags").alias("tags"),
+            ],
+        )
+        return aggregated.sort(["category", "name"])
+
+    def overlay_category_summary_frame(self) -> pl.DataFrame:
+        """
+        Summarise overlay activation statistics aggregated by category.
+        """
+        category_rows: dict[str, _OverlayCategoryAccumulator] = {}
+        for path in self.paths:
+            for event in path.overlay_events:
+                accumulator = category_rows.setdefault(event.category, _OverlayCategoryAccumulator())
+                accumulator.activation_count += 1
+                accumulator.total_impact += event.total_impact
+                accumulator.overlay_names.add(event.name)
+                accumulator.tags.update(event.tags)
+        if not category_rows:
+            return pl.DataFrame()
+        records: list[dict[str, object]] = []
+        for category, accumulator in sorted(category_rows.items()):
+            records.append({
+                "category": category,
+                "activation_count": accumulator.activation_count,
+                "total_impact": accumulator.total_impact,
+                "overlay_names": "|".join(sorted(accumulator.overlay_names)),
+                "tags": "|".join(sorted(accumulator.tags)),
+            })
+        return pl.DataFrame(records)
+
+    def overlay_category_summary(self) -> list[dict[str, object]]:
+        """
+        Convert overlay category summary to a list of dictionaries.
+
+        Returns
+        -------
+        list[dict[str, object]]
+            Overlay category activation statistics for telemetry exports.
+        """
+        frame = self.overlay_category_summary_frame()
+        if frame.is_empty():
+            return []
+        return frame.sort(["category"]).to_dicts()
+
+    def baseline_metrics_dict(self) -> dict[str, object]:
+        """
+        Serialise baseline performance metrics for downstream dashboards.
+        """
+        payload = {
+            "strategy": self.target_strategy,
+            "annualized_return": self.baseline_metrics.annualized_return,
+            "annualized_volatility": self.baseline_metrics.annualized_volatility,
+            "cumulative_return": self.baseline_metrics.cumulative_return,
+            "maximum_drawdown": self.baseline_metrics.maximum_drawdown,
+            "sharpe_ratio": self.baseline_metrics.sharpe_ratio,
+            "sortino_ratio": self.baseline_metrics.sortino_ratio,
+            "calmar_ratio": self.baseline_metrics.calmar_ratio,
+            "var_95": self.baseline_metrics.var_95,
+            "var_99": self.baseline_metrics.var_99,
+            "cvar_95": self.baseline_metrics.cvar_95,
+            "cvar_99": self.baseline_metrics.cvar_99,
+            "turnover_rate": self.baseline_metrics.turnover_rate,
+            "transaction_costs_total": self.baseline_metrics.transaction_costs_total,
+            "transaction_costs_pct": self.baseline_metrics.transaction_costs_pct,
+            "num_rebalances": self.baseline_metrics.num_rebalances,
+            "total_days": self.baseline_metrics.total_days,
+        }
+        if self.baseline_metrics.start_date is not None:
+            payload["start_date"] = self.baseline_metrics.start_date.isoformat()
+        if self.baseline_metrics.end_date is not None:
+            payload["end_date"] = self.baseline_metrics.end_date.isoformat()
+        return payload
 
     def write_summary(self) -> None:
         """
@@ -1194,6 +1445,22 @@ class MonteCarloStressSuiteResult:
         directory.mkdir(parents=True, exist_ok=True)
         paths_frame = self.to_frame()
         if not paths_frame.is_empty():
+            def _serialize_overlay_events(value: object) -> str:
+                candidate = value
+                if hasattr(candidate, "to_list"):
+                    candidate = candidate.to_list()
+                if isinstance(candidate, list):
+                    serializable: list[object] = []
+                    for item in candidate:
+                        if hasattr(item, "as_dict"):
+                            serializable.append(item.as_dict())
+                        elif hasattr(item, "to_dict"):
+                            serializable.append(item.to_dict())
+                        else:
+                            serializable.append(item)
+                    return json.dumps(serializable, sort_keys=True)
+                return json.dumps(candidate, sort_keys=True)
+
             sanitized = paths_frame.with_columns(
                 [
                     pl.col("regime_sequence")
@@ -1201,15 +1468,30 @@ class MonteCarloStressSuiteResult:
                     .cast(pl.Utf8)
                     .alias("regime_sequence"),
                     pl.col("overlay_events")
+                    .map_elements(_serialize_overlay_events, return_dtype=pl.Utf8)
+                    .alias("overlay_events"),
+                    pl.col("overlay_names")
                     .list.join("|")
                     .cast(pl.Utf8)
-                    .alias("overlay_events"),
+                    .alias("overlay_names"),
+                    pl.col("overlay_categories")
+                    .list.join("|")
+                    .cast(pl.Utf8)
+                    .alias("overlay_categories"),
                 ],
             )
             sanitized.write_csv(directory / "paths.csv")
         summary = self.summary_frame()
         if not summary.is_empty():
             summary.write_csv(directory / "summary.csv")
+        overlay_summary = self.overlay_summary_frame()
+        if not overlay_summary.is_empty():
+            overlay_summary.write_csv(directory / "overlay_summary.csv")
+        overlay_category_summary = self.overlay_category_summary_frame()
+        if not overlay_category_summary.is_empty():
+            overlay_category_summary.write_csv(directory / "overlay_category_summary.csv")
+        baseline_metrics_payload = self.baseline_metrics_dict()
+        pl.DataFrame([baseline_metrics_payload]).write_csv(directory / "baseline_metrics.csv")
         baseline_payload = asdict(self.baseline_metrics)
         for field_name in ("start_date", "end_date"):
             value = baseline_payload.get(field_name)
@@ -1219,6 +1501,13 @@ class MonteCarloStressSuiteResult:
             "stress_config": self.stress_config.to_dict(),
             "target_strategy": self.target_strategy,
             "baseline_metrics": baseline_payload,
+            "overlay_summary_path": "overlay_summary.csv"
+            if not overlay_summary.is_empty()
+            else None,
+            "overlay_category_summary_path": "overlay_category_summary.csv"
+            if not overlay_category_summary.is_empty()
+            else None,
+            "baseline_metrics_path": "baseline_metrics.csv",
         }
         (directory / "config.json").write_text(
             json.dumps(config_payload, indent=2, sort_keys=True),
@@ -1294,6 +1583,7 @@ def run_monte_carlo_stress_suite(
         strategy=target_strategy,
         num_paths=stress_config.num_paths,
         overlays=[overlay.name for overlay in stress_config.overlays],
+        overlay_categories=sorted({overlay.category for overlay in stress_config.overlays}),
     )
 
     rng = np.random.default_rng(stress_config.random_seed)
@@ -1327,6 +1617,12 @@ def run_monte_carlo_stress_suite(
             block_lengths=tuple(block_lengths),
             overlays=stress_config.overlays,
         )
+        for event in overlay_events:
+            MONTE_CARLO_OVERLAY_COUNTER.labels(
+                strategy=target_strategy,
+                overlay=event.name,
+                category=event.category,
+            ).inc()
 
         path_result = _compute_monte_carlo_metrics(
             simulation_id=index,
@@ -1353,8 +1649,1077 @@ def run_monte_carlo_stress_suite(
         strategy=target_strategy,
         num_paths=len(results),
         positive_terminal=sum(1 for path in results if path.positive_terminal),
+        overlay_events=sum(len(path.overlay_events) for path in results),
     )
     return suite_result
+
+
+# ===== Parameter Heatmap Analysis =====
+
+
+@dataclass(slots=True)
+class ParameterHeatmapRunResult:
+    """
+    Result of executing a single parameter heatmap specification.
+
+    Attributes
+    ----------
+    spec : ParameterHeatmapSpecDefaults
+        Configuration defining the parameter sweep.
+    results_frame : pl.DataFrame
+        Tall table containing evaluated parameter combinations and metric outputs.
+    pivot_frame : pl.DataFrame
+        Heatmap-ready pivot table for the primary parameter pair.
+    output_directory : Path
+        Directory containing persisted artefacts for the run.
+    metadata : dict[str, object]
+        Serialised metadata summarising optimal configuration and diagnostics.
+    """
+
+    spec: ParameterHeatmapSpecDefaults
+    results_frame: pl.DataFrame
+    pivot_frame: pl.DataFrame
+    output_directory: Path
+    metadata: dict[str, object]
+
+    def write_summary(self) -> None:
+        """Persist heatmap artefacts to disk."""
+        self.output_directory.mkdir(parents=True, exist_ok=True)
+        if not self.results_frame.is_empty():
+            self.results_frame.write_csv(self.output_directory / "results.csv")
+        if not self.pivot_frame.is_empty():
+            self.pivot_frame.write_csv(self.output_directory / "heatmap.csv")
+        metadata_path = self.output_directory / "metadata.json"
+        metadata_path.write_text(json.dumps(self.metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+
+@dataclass(slots=True)
+class ParameterHeatmapSuiteResult:
+    """
+    Aggregated results for all parameter heatmap specifications.
+    """
+
+    base_directory: Path
+    output_dirname: str
+    runs: tuple[ParameterHeatmapRunResult, ...]
+
+    def summary_frame(self) -> pl.DataFrame:
+        """Return summary dataframe capturing best metric per specification."""
+        if not self.runs:
+            return pl.DataFrame()
+        rows: list[dict[str, object]] = []
+        for run in self.runs:
+            metadata = run.metadata
+            best_config_json = json.dumps(metadata.get("best_config", {}), sort_keys=True)
+            rows.append({
+                "spec": run.spec.name,
+                "slug": run.spec.slug,
+                "strategy": metadata.get("target_strategy"),
+                "metric": metadata.get("metric_name"),
+                "metric_value": metadata.get("best_metric"),
+                "row_parameter": run.spec.parameters[0],
+                "column_parameter": run.spec.parameters[1],
+                "evaluated_combinations": metadata.get("evaluated_combinations"),
+                "best_config": best_config_json,
+            })
+        return pl.DataFrame(rows)
+
+    def write_summary(self) -> None:
+        """Persist suite-level summary table."""
+        summary_frame = self.summary_frame()
+        if summary_frame.is_empty():
+            return
+        root = self.base_directory / self.output_dirname
+        root.mkdir(parents=True, exist_ok=True)
+        summary_frame.write_csv(root / "summary.csv")
+
+
+def _apply_heatmap_override(
+    key: str,
+    value: ParameterValue,
+    *,
+    config_overrides: dict[str, Any],
+    turnover_overrides: dict[str, float],
+    strategy_overrides: dict[str, dict[str, Any]],
+    liquidity_overrides: dict[str, float],
+    applied_values: dict[str, ParameterValue],
+) -> None:
+    """
+    Partition a heatmap override key into the appropriate override mapping.
+    """
+    applied_values[key] = value
+    if key.startswith("config."):
+        config_overrides[key.split(".", 1)[1]] = value
+    elif key.startswith("turnover_overrides."):
+        turnover_overrides[key.split(".", 1)[1]] = float(value)
+    elif key.startswith("strategy_params."):
+        parts = key.split(".", 2)
+        if len(parts) != 3:
+            msg = f"strategy_params override '{key}' must include strategy and parameter"
+            raise ValueError(msg)
+        strategy_slug = parts[1]
+        param_name = parts[2]
+        overrides = strategy_overrides.setdefault(strategy_slug, {})
+        overrides[param_name] = value
+    elif key.startswith("liquidity_scaling."):
+        liquidity_key = key.split(".", 1)[1]
+        liquidity_overrides[liquidity_key] = float(value)
+    else:
+        config_overrides[key] = value
+
+
+def _build_liquidity_config_from_overrides(
+    *,
+    base_defaults: ThreeDRiskBacktestDefaults,
+    overrides: Mapping[str, float],
+) -> LiquidityScalingConfig:
+    """
+    Construct a LiquidityScalingConfig applying override values.
+    """
+    if not overrides:
+        return base_defaults.build_liquidity_config()
+    base_kwargs = base_defaults.liquidity_scaling.to_kwargs()
+    for key, value in overrides.items():
+        base_kwargs[key] = float(value)
+    return LiquidityScalingConfig(**base_kwargs)
+
+
+def run_parameter_heatmap_suite(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    specs: Sequence[ParameterHeatmapSpecDefaults] | None = None,
+    split: TrainTestSplit | None = None,
+    spec_slugs: Sequence[str] | None = None,
+) -> ParameterHeatmapSuiteResult:
+    """
+    Execute configured parameter heatmap sweeps and persist the resulting artefacts.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Location of the sector dataset (directory or standalone Parquet file).
+    output_dir : Path
+        Directory for persisted artefacts.
+    specs : Sequence[ParameterHeatmapSpecDefaults] | None, optional
+        Explicit specification list overriding defaults.
+    split : TrainTestSplit | None, optional
+        Custom train/test split; defaults to canonical split when omitted.
+    spec_slugs : Sequence[str] | None, optional
+        When provided, restrict execution to heatmap specs whose slugs match the
+        supplied values. Slugs are matched case-sensitively after trimming.
+    """
+    defaults = BACKTEST_DEFAULTS
+    suite_defaults: ParameterHeatmapSuiteDefaults = defaults.parameter_heatmaps
+    resolved_specs = tuple(specs or suite_defaults.specs)
+    if not resolved_specs:
+        raise ValueError("No parameter heatmap specifications provided")
+    if spec_slugs:
+        normalized_slugs: list[str] = []
+        seen_slugs: set[str] = set()
+        for slug in spec_slugs:
+            trimmed = slug.strip()
+            if not trimmed or trimmed in seen_slugs:
+                continue
+            normalized_slugs.append(trimmed)
+            seen_slugs.add(trimmed)
+        if normalized_slugs:
+            slug_to_spec = {spec.slug: spec for spec in resolved_specs}
+            filtered_specs: list[ParameterHeatmapSpecDefaults] = []
+            missing: list[str] = []
+            for slug in normalized_slugs:
+                candidate = slug_to_spec.get(slug)
+                if candidate is None:
+                    missing.append(slug)
+                else:
+                    filtered_specs.append(candidate)
+            if missing:
+                missing_joined = ", ".join(sorted(missing))
+                msg = f"No parameter heatmap specifications matched requested slugs: {missing_joined}"
+                raise ValueError(msg)
+            resolved_specs = tuple(filtered_specs)
+
+    dataset = _load_sector_dataset(dataset_path)
+    resolved_split = split or define_train_test_split()
+    _validate_split_against_dataset(dataset, resolved_split, defaults)
+
+    runs: list[ParameterHeatmapRunResult] = []
+    for spec in resolved_specs:
+        run_base_dir = output_dir / suite_defaults.output_dirname / spec.slug
+        combination_rows: list[dict[str, object]] = []
+        best_metric_value = float("-inf")
+        best_configuration: dict[str, ParameterValue] | None = None
+        pivot_frame = pl.DataFrame()
+
+        grid_keys = tuple(spec.grid.keys())
+        grid_values = [spec.grid[key] for key in grid_keys]
+        combinations = list(itertools.product(*grid_values))
+        if not combinations:
+            LOGGER.warning("Heatmap spec has no parameter combinations", spec=spec.name)
+            run = ParameterHeatmapRunResult(
+                spec=spec,
+                results_frame=pl.DataFrame(),
+                pivot_frame=pl.DataFrame(),
+                output_directory=run_base_dir,
+                metadata={
+                    "target_strategy": spec.target_strategy,
+                    "metric_name": spec.metric,
+                    "best_metric": None,
+                    "best_config": {},
+                    "comment": "No parameter combinations evaluated.",
+                },
+            )
+            run.write_summary()
+            runs.append(run)
+            continue
+
+        for index, combo in enumerate(combinations, start=1):
+            config_overrides: dict[str, Any] = {}
+            turnover_overrides: dict[str, float] = {}
+            strategy_override_map: dict[str, dict[str, Any]] = {}
+            liquidity_override_map: dict[str, float] = {}
+            applied_values: dict[str, ParameterValue] = {}
+
+            for base_key, base_value in spec.base_overrides.items():
+                _apply_heatmap_override(
+                    base_key,
+                    base_value,
+                    config_overrides=config_overrides,
+                    turnover_overrides=turnover_overrides,
+                    strategy_overrides=strategy_override_map,
+                    liquidity_overrides=liquidity_override_map,
+                    applied_values=applied_values,
+                )
+
+            for key, value in zip(grid_keys, combo):
+                _apply_heatmap_override(
+                    key,
+                    value,
+                    config_overrides=config_overrides,
+                    turnover_overrides=turnover_overrides,
+                    strategy_overrides=strategy_override_map,
+                    liquidity_overrides=liquidity_override_map,
+                    applied_values=applied_values,
+                )
+
+            liquidity_config = _build_liquidity_config_from_overrides(
+                base_defaults=defaults,
+                overrides=liquidity_override_map,
+            )
+
+            combination_dir = run_base_dir / "suites" / f"combination_{index:02d}"
+            suite = _execute_backtest_suite(
+                dataset=dataset,
+                output_dir=combination_dir,
+                split=resolved_split,
+                config_overrides=config_overrides or None,
+                liquidity_config=liquidity_config,
+                turnover_overrides=turnover_overrides or None,
+                strategy_overrides=strategy_override_map or None,
+            )
+            metrics = suite.metrics.get(spec.target_strategy)
+            if metrics is None:
+                LOGGER.warning(
+                    "Target strategy metrics missing in heatmap sweep",
+                    strategy=spec.target_strategy,
+                    spec=spec.name,
+                )
+                continue
+            if not hasattr(metrics, spec.metric):
+                msg = (
+                    f"PerformanceMetrics lacks attribute '{spec.metric}' "
+                    f"for heatmap specification '{spec.name}'"
+                )
+                raise AttributeError(msg)
+            metric_value = float(getattr(metrics, spec.metric))
+            HEATMAP_METRIC_HIST.labels(strategy=spec.target_strategy, spec=spec.slug).observe(metric_value)
+            row_payload: dict[str, object] = {
+                "combination_index": index,
+                "strategy": spec.target_strategy,
+                "metric": metric_value,
+            }
+            for key in grid_keys:
+                row_payload[key] = applied_values.get(key)
+            row_payload.update({
+                key: applied_values.get(key)
+                for key in spec.base_overrides.keys()
+                if key not in row_payload
+            })
+            combination_rows.append(row_payload)
+            if metric_value > best_metric_value:
+                best_metric_value = metric_value
+                best_configuration = dict(sorted(applied_values.items()))
+
+        if combination_rows:
+            results_frame = pl.DataFrame(combination_rows)
+            row_param, column_param = spec.parameters
+            pivot_columns = [row_param, column_param, "metric"]
+            for column in pivot_columns:
+                if column not in results_frame.columns:
+                    results_frame = results_frame.with_columns(pl.lit(None).alias(column))
+            pivot_ready = results_frame.with_columns(
+                pl.col(row_param).cast(pl.Utf8),
+                pl.col(column_param).cast(pl.Utf8),
+            )
+            try:
+                pivot_frame = pivot_ready.pivot(
+                    on=column_param,
+                    index=row_param,
+                    values="metric",
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to pivot heatmap results",
+                    spec=spec.name,
+                )
+                pivot_frame = pl.DataFrame()
+        else:
+            results_frame = pl.DataFrame()
+
+        metadata: dict[str, object] = {
+            "target_strategy": spec.target_strategy,
+            "metric_name": spec.metric,
+            "best_metric": best_metric_value if combination_rows else None,
+            "evaluated_combinations": len(combination_rows),
+        }
+        metadata["best_config"] = cast(object, best_configuration or {})
+        run_result = ParameterHeatmapRunResult(
+            spec=spec,
+            results_frame=results_frame,
+            pivot_frame=pivot_frame,
+            output_directory=run_base_dir,
+            metadata=metadata,
+        )
+        run_result.write_summary()
+        runs.append(run_result)
+
+    suite_result = ParameterHeatmapSuiteResult(
+        base_directory=output_dir,
+        output_dirname=suite_defaults.output_dirname,
+        runs=tuple(runs),
+    )
+    suite_result.write_summary()
+    return suite_result
+
+
+# ===== Extended Diagnostics =====
+
+
+@dataclass(slots=True)
+class DiagnosticsResult:
+    """
+    Aggregated diagnostic outputs derived from a backtest suite.
+
+    Attributes
+    ----------
+    tail_metrics : pl.DataFrame
+        Distribution of tail risk metrics by strategy and quantile.
+    turnover_distribution : pl.DataFrame
+        Histogram of turnover observations bucketed by configured bins.
+    benchmark_deltas : pl.DataFrame
+        Performance deltas versus alternative benchmarks.
+    output_directory : Path
+        Directory housing persisted artefacts.
+    config : DiagnosticsDefaults
+        Configuration used for the diagnostic calculations.
+    """
+
+    tail_metrics: pl.DataFrame
+    turnover_distribution: pl.DataFrame
+    benchmark_deltas: pl.DataFrame
+    output_directory: Path
+    config: DiagnosticsDefaults
+
+    def write_summary(self) -> None:
+        """Persist diagnostics artefacts."""
+        self.output_directory.mkdir(parents=True, exist_ok=True)
+        if not self.tail_metrics.is_empty():
+            self.tail_metrics.write_csv(self.output_directory / "tail_metrics.csv")
+        if not self.turnover_distribution.is_empty():
+            self.turnover_distribution.write_csv(self.output_directory / "turnover_distribution.csv")
+        if not self.benchmark_deltas.is_empty():
+            self.benchmark_deltas.write_csv(self.output_directory / "benchmark_deltas.csv")
+        config_payload = {
+            "tail_quantiles": list(self.config.tail_quantiles),
+            "turnover_bins": list(self.config.turnover_bins),
+            "alternative_benchmarks": list(self.config.alternative_benchmarks),
+            "turnover_window_days": self.config.turnover_window_days,
+            "benchmark_delta_metrics": list(self.config.benchmark_delta_metrics),
+        }
+        (self.output_directory / "config.json").write_text(
+            json.dumps(config_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+
+def _compute_turnover_series(result: BacktestResult) -> np.ndarray:
+    """Derive turnover estimates from backtest position weights."""
+    if result.positions.is_empty():
+        return np.array([], dtype=np.float64)
+    frame = result.positions.sort("timestamp")
+    weight_columns = [column for column in frame.columns if column != "timestamp"]
+    if not weight_columns:
+        return np.array([], dtype=np.float64)
+    try:
+        turnover_frame = frame.select(
+            pl.sum_horizontal([pl.col(col).diff().abs() for col in weight_columns]).alias("gross_turnover")
+        )
+    except Exception:
+        LOGGER.exception("Failed to derive turnover series", strategy=result.strategy_name)
+        return np.array([], dtype=np.float64)
+    turnover_values = turnover_frame.get_column("gross_turnover").to_numpy()
+    if turnover_values.size <= 1:
+        return np.array([], dtype=np.float64)
+    return np.asarray(turnover_values[1:] / 2.0, dtype=np.float64)
+
+
+def run_extended_diagnostics(
+    suite: BacktestSuite,
+    output_dir: Path,
+    *,
+    config: DiagnosticsDefaults | None = None,
+) -> DiagnosticsResult:
+    """
+    Execute extended diagnostics covering tail risk, turnover distribution, and benchmark deltas.
+    """
+    defaults = BACKTEST_DEFAULTS
+    diagnostics_config = config or defaults.diagnostics
+
+    tail_rows: list[dict[str, object]] = []
+    for strategy_name, backtest_result in suite.full_results.items():
+        returns = np.asarray(backtest_result.returns, dtype=np.float64)
+        if returns.size == 0:
+            continue
+        for quantile in diagnostics_config.tail_quantiles:
+            value_at_risk = float(np.quantile(returns, quantile))
+            mask = returns <= value_at_risk + 1e-12
+            if np.any(mask):
+                conditional_var = float(np.mean(returns[mask]))
+            else:
+                conditional_var = value_at_risk
+            quantile_label = f"{int(quantile * 100)}%"
+            DIAGNOSTIC_TAIL_HIST.labels(strategy=strategy_name, quantile=quantile_label).observe(value_at_risk)
+            tail_rows.append({
+                "strategy": strategy_name,
+                "quantile": quantile,
+                "value_at_risk": value_at_risk,
+                "conditional_value_at_risk": conditional_var,
+                "num_observations": int(returns.size),
+            })
+    tail_frame = pl.DataFrame(tail_rows) if tail_rows else pl.DataFrame()
+
+    turnover_rows: list[dict[str, object]] = []
+    bin_edges = [0.0, *diagnostics_config.turnover_bins, float("inf")]
+    bin_labels: list[str] = []
+    for index in range(len(bin_edges) - 1):
+        lower = bin_edges[index]
+        upper = bin_edges[index + 1]
+        if math.isinf(upper):
+            label = f">={lower:.2f}"
+        else:
+            label = f"{lower:.2f}-{upper:.2f}"
+        bin_labels.append(label)
+
+    for strategy_name, backtest_result in suite.full_results.items():
+        turnover_series = _compute_turnover_series(backtest_result)
+        if turnover_series.size == 0:
+            continue
+        counts, _ = np.histogram(turnover_series, bins=bin_edges)
+        total = int(np.sum(counts))
+        mean_turnover = float(np.mean(turnover_series))
+        p95_turnover = float(np.quantile(turnover_series, 0.95))
+        window = min(diagnostics_config.turnover_window_days, turnover_series.size)
+        if window > 0:
+            rolling_mean = float(np.mean(turnover_series[-window:]))
+            rolling_max = float(np.max(turnover_series[-window:]))
+        else:
+            rolling_mean = mean_turnover
+            rolling_max = mean_turnover
+        for label, count in zip(bin_labels, counts):
+            turnover_rows.append({
+                "strategy": strategy_name,
+                "bucket": label,
+                "count": int(count),
+                "proportion": float(count / total) if total > 0 else 0.0,
+                "mean_turnover": mean_turnover,
+                "p95_turnover": p95_turnover,
+                "rolling_window_days": diagnostics_config.turnover_window_days,
+                "rolling_mean_turnover": rolling_mean,
+                "rolling_max_turnover": rolling_max,
+            })
+    turnover_frame = pl.DataFrame(turnover_rows) if turnover_rows else pl.DataFrame()
+
+    benchmark_rows: list[dict[str, object]] = []
+    for benchmark_name in diagnostics_config.alternative_benchmarks:
+        baseline = suite.metrics.get(benchmark_name)
+        if baseline is None:
+            continue
+        for strategy_name, metrics in suite.metrics.items():
+            row: dict[str, object] = {
+                "benchmark": benchmark_name,
+                "strategy": strategy_name,
+            }
+            for metric_name in diagnostics_config.benchmark_delta_metrics:
+                strategy_value = getattr(metrics, metric_name, None)
+                baseline_value = getattr(baseline, metric_name, None)
+                if strategy_value is None or baseline_value is None:
+                    continue
+                alias = f"{metric_name}_delta"
+                row[alias] = strategy_value - baseline_value
+            if len(row) > 2:
+                benchmark_rows.append(row)
+    benchmark_frame = pl.DataFrame(benchmark_rows) if benchmark_rows else pl.DataFrame()
+
+    diagnostics_dir = output_dir / "diagnostics"
+    diagnostics_result = DiagnosticsResult(
+        tail_metrics=tail_frame,
+        turnover_distribution=turnover_frame,
+        benchmark_deltas=benchmark_frame,
+        output_directory=diagnostics_dir,
+        config=diagnostics_config,
+    )
+    diagnostics_result.write_summary()
+    return diagnostics_result
+
+
+# ===== Proxy Dataset Validation =====
+
+
+@dataclass(slots=True)
+class ProxyDatasetRunResult:
+    """
+    Result of validating a single proxy dataset specification.
+    """
+
+    spec: ProxyDatasetSpecDefaults
+    status: str
+    message: str | None
+    output_directory: Path
+    summary_frame: pl.DataFrame
+
+    def write_summary(self) -> None:
+        """Persist proxy dataset summary artefacts."""
+        self.output_directory.mkdir(parents=True, exist_ok=True)
+        if not self.summary_frame.is_empty():
+            self.summary_frame.write_csv(self.output_directory / "benchmark_summary.csv")
+        metadata = {
+            "name": self.spec.name,
+            "status": self.status,
+            "message": self.message,
+            "relative_path": self.spec.relative_path,
+            "allow_missing": self.spec.allow_missing,
+            "min_train_years": self.spec.min_train_years,
+            "min_test_years": self.spec.min_test_years,
+            "tags": list(self.spec.tags),
+        }
+        (self.output_directory / "metadata.json").write_text(
+            json.dumps(metadata, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+
+@dataclass(slots=True)
+class ProxyDatasetSuiteResult:
+    """
+    Aggregated results for all proxy dataset validations.
+    """
+
+    base_directory: Path
+    runs: tuple[ProxyDatasetRunResult, ...]
+
+    def summary_frame(self) -> pl.DataFrame:
+        """Return consolidated status summary."""
+        if not self.runs:
+            return pl.DataFrame()
+        rows = [{
+            "name": run.spec.name,
+            "slug": run.spec.slug,
+            "status": run.status,
+            "message": run.message,
+            "allow_missing": run.spec.allow_missing,
+            "tags": "|".join(run.spec.tags),
+        } for run in self.runs]
+        return pl.DataFrame(rows)
+
+    def write_summary(self) -> None:
+        """Persist suite-level summary."""
+        summary = self.summary_frame()
+        if summary.is_empty():
+            return
+        directory = self.base_directory / "proxy_datasets"
+        directory.mkdir(parents=True, exist_ok=True)
+        summary.write_csv(directory / "summary.csv")
+
+
+def run_proxy_dataset_validation(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    suite_defaults: ProxyDatasetSuiteDefaults | None = None,
+    config_overrides: Mapping[str, Any] | None = None,
+) -> ProxyDatasetSuiteResult:
+    """
+    Execute proxy dataset validations using configured specifications.
+    """
+    defaults = BACKTEST_DEFAULTS
+    resolved_defaults = suite_defaults or defaults.proxy_datasets
+    runs: list[ProxyDatasetRunResult] = []
+    base_directory = output_dir / "proxy_datasets"
+
+    for spec in resolved_defaults.specs:
+        proxy_path = Path(spec.relative_path)
+        if not proxy_path.is_absolute():
+            proxy_path = Path.cwd() / proxy_path
+        run_dir = base_directory / spec.slug
+        if not proxy_path.exists():
+            status = "missing_allowed" if spec.allow_missing else "missing"
+            error_message = f"Dataset not found at {proxy_path}"
+            PROXY_STATUS_COUNTER.labels(status=status, dataset=spec.slug).inc()
+            run = ProxyDatasetRunResult(
+                spec=spec,
+                status=status,
+                message=error_message if not spec.allow_missing else f"{error_message} (allowed)",
+                output_directory=run_dir,
+                summary_frame=pl.DataFrame(),
+            )
+            run.write_summary()
+            runs.append(run)
+            continue
+
+        message: str | None
+        try:
+            suite = run_full_backtest_suite(
+                dataset_path=proxy_path,
+                output_dir=run_dir / "suite",
+                split=None,
+                config_overrides=dict(config_overrides or {}),
+            )
+            summary = suite.benchmark_summary()
+            status = "success"
+            message = None
+        except Exception as exc:
+            LOGGER.exception(
+                "Proxy dataset validation failed",
+                dataset=str(proxy_path),
+                spec=spec.name,
+            )
+            status = "error"
+            message = str(exc)
+            summary = pl.DataFrame()
+
+        PROXY_STATUS_COUNTER.labels(status=status, dataset=spec.slug).inc()
+        run = ProxyDatasetRunResult(
+            spec=spec,
+            status=status,
+            message=message,
+            output_directory=run_dir,
+            summary_frame=summary,
+        )
+        run.write_summary()
+        runs.append(run)
+
+    suite_result = ProxyDatasetSuiteResult(
+        base_directory=output_dir,
+        runs=tuple(runs),
+    )
+    suite_result.write_summary()
+    return suite_result
+
+
+# ===== Vintage Simulation Suite =====
+
+
+@dataclass(slots=True)
+class VintageSimulationRunResult:
+    """
+    Result of executing a vintage walk-forward simulation.
+    """
+
+    window: VintageWindowDefaults
+    summary: pl.DataFrame
+    output_directory: Path
+    fold_count: int
+    status: str
+    message: str | None
+
+    def write_summary(self) -> None:
+        """Persist vintage simulation summary."""
+        self.output_directory.mkdir(parents=True, exist_ok=True)
+        if not self.summary.is_empty():
+            self.summary.write_csv(self.output_directory / "summary.csv")
+        payload = self.window.to_dict()
+        payload["fold_count"] = self.fold_count
+        payload["status"] = self.status
+        if self.message is not None:
+            payload["message"] = self.message
+        (self.output_directory / "metadata.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+
+@dataclass(slots=True)
+class VintageSimulationSuiteResult:
+    """
+    Aggregated results for vintage simulation windows.
+    """
+
+    base_directory: Path
+    runs: tuple[VintageSimulationRunResult, ...]
+
+    def summary_frame(self) -> pl.DataFrame:
+        """Return summary of fold counts per vintage specification."""
+        if not self.runs:
+            return pl.DataFrame()
+        rows = [{
+            "label": run.window.label,
+            "slug": run.window.slug,
+            "fold_count": run.fold_count,
+            "status": run.status,
+            "message": run.message,
+            "min_folds": run.window.min_folds,
+        } for run in self.runs]
+        return pl.DataFrame(rows)
+
+    def write_summary(self) -> None:
+        """Persist suite summary."""
+        summary = self.summary_frame()
+        if summary.is_empty():
+            return
+        directory = self.base_directory / "vintage"
+        directory.mkdir(parents=True, exist_ok=True)
+        summary.write_csv(directory / "summary.csv")
+
+
+def run_vintage_simulation_suite(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    windows: Sequence[VintageWindowDefaults] | None = None,
+) -> VintageSimulationSuiteResult:
+    """
+    Execute sequential vintage simulations across configured windows.
+    """
+    defaults = BACKTEST_DEFAULTS
+    resolved_windows = tuple(windows or defaults.proxy_datasets.vintage_windows)
+    if not resolved_windows:
+        raise ValueError("No vintage window specifications provided")
+
+    dataset = _load_sector_dataset(dataset_path)
+    bounds = dataset.sector_returns.select(
+        pl.col("timestamp").min().alias("min_ts"),
+        pl.col("timestamp").max().alias("max_ts"),
+    ).row(0)
+    data_start = bounds[0]
+    data_end = bounds[1]
+    if isinstance(data_start, datetime) and data_start.tzinfo is None:
+        data_start = data_start.replace(tzinfo=UTC)
+    if isinstance(data_end, datetime) and data_end.tzinfo is None:
+        data_end = data_end.replace(tzinfo=UTC)
+
+    runs: list[VintageSimulationRunResult] = []
+    vintage_root = output_dir / "vintage"
+
+    for window in resolved_windows:
+        walk_forward_config = WalkForwardConfig(
+            start_date=data_start,
+            end_date=data_end,
+            train_years=window.train_years,
+            test_years=window.test_years,
+            step_years=window.step_years,
+        )
+        window_dir = vintage_root / window.slug
+        status = "success"
+        message: str | None = None
+        summary = pl.DataFrame()
+        fold_count = 0
+        try:
+            result = run_walk_forward_backtest_suite(
+                dataset_path=dataset_path,
+                output_dir=window_dir,
+                walk_forward_config=walk_forward_config,
+            )
+            summary = result.summarize_metrics()
+            fold_count = len(result.splits)
+        except Exception as exc:
+            LOGGER.exception(
+                "Vintage simulation execution failed",
+                window=window.label,
+            )
+            status = "error"
+            message = str(exc)
+        else:
+            if fold_count < window.min_folds:
+                status = "insufficient_folds"
+                message = (
+                    f"Produced {fold_count} folds but require >= {window.min_folds}"
+                )
+                LOGGER.warning(
+                    "Vintage simulation produced fewer folds than expected",
+                    label=window.label,
+                    folds=fold_count,
+                    minimum=window.min_folds,
+                )
+        run_result = VintageSimulationRunResult(
+            window=window,
+            summary=summary,
+            output_directory=window_dir,
+            fold_count=fold_count,
+            status=status,
+            message=message,
+        )
+        run_result.write_summary()
+        VINTAGE_STATUS_COUNTER.labels(status=status, window=window.slug).inc()
+        runs.append(run_result)
+
+    suite_result = VintageSimulationSuiteResult(
+        base_directory=output_dir,
+        runs=tuple(runs),
+    )
+    suite_result.write_summary()
+    return suite_result
+
+
+# ===== Monitoring Snapshot =====
+
+
+@dataclass(slots=True)
+class MonitoringSnapshotResult:
+    """
+    Metadata snapshot exported for monitoring dashboards.
+    """
+
+    path: Path
+    payload: dict[str, object]
+
+
+def export_phase3_monitoring_snapshot(
+    output_dir: Path,
+    *,
+    walk_forward: MultiHorizonWalkForwardResult | None = None,
+    monte_carlo: MonteCarloStressSuiteResult | None = None,
+    heatmaps: ParameterHeatmapSuiteResult | None = None,
+    diagnostics: DiagnosticsResult | None = None,
+    proxy_datasets: ProxyDatasetSuiteResult | None = None,
+    vintage: VintageSimulationSuiteResult | None = None,
+    defaults: MonitoringExportDefaults | None = None,
+) -> MonitoringSnapshotResult:
+    """
+    Generate consolidated monitoring snapshot referencing generated artefacts.
+    """
+    resolved_defaults = defaults or BACKTEST_DEFAULTS.monitoring
+    snapshot_dir = output_dir
+    sections: dict[str, dict[str, object]] = {}
+    diagnostics_summary: dict[str, object] | None = None
+    proxy_metadata: dict[str, _ProxyMetadataEntry] | None = None
+    vintage_windows_metadata: list[_VintageWindowMetadataEntry] | None = None
+    overlay_category_stats: list[dict[str, object]] | None = None
+    baseline_metrics_payload: dict[str, object] | None = None
+    heatmap_metadata: list[dict[str, object]] | None = None
+
+    def _rel_path(path: Path) -> str | None:
+        return str(path) if path.exists() else None
+
+    def _summarize_diagnostics(result: DiagnosticsResult) -> dict[str, object]:
+        def _coerce_float(value: object, default: float = 0.0) -> float:
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    return float(value)
+                except ValueError:
+                    return default
+            return default
+
+        def _coerce_int(value: object, default: int = 0) -> int:
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(value)
+                except ValueError:
+                    return default
+            return default
+
+        tail_summary: dict[str, dict[str, float]] = {}
+        if not result.tail_metrics.is_empty():
+            for row in result.tail_metrics.to_dicts():
+                strategy = str(row.get("strategy", ""))
+                if not strategy:
+                    continue
+                quantile_raw = row.get("quantile")
+                if quantile_raw is None:
+                    continue
+                try:
+                    quantile = float(quantile_raw)
+                except (TypeError, ValueError):
+                    continue
+                quantile_label = f"p{round(quantile * 100):02d}"
+                bucket = tail_summary.setdefault(strategy, {})
+                value_at_risk = row.get("value_at_risk")
+                if value_at_risk is not None:
+                    bucket[f"var_{quantile_label}"] = _coerce_float(value_at_risk)
+                conditional_value = row.get("conditional_value_at_risk")
+                if conditional_value is not None:
+                    bucket[f"cvar_{quantile_label}"] = _coerce_float(conditional_value)
+
+        turnover_summary: dict[str, dict[str, float | int]] = {}
+        if not result.turnover_distribution.is_empty():
+            for row in result.turnover_distribution.to_dicts():
+                strategy = str(row.get("strategy", ""))
+                if not strategy or strategy in turnover_summary:
+                    continue
+                turnover_summary[strategy] = {
+                    "mean_turnover": _coerce_float(row.get("mean_turnover", 0.0)),
+                    "p95_turnover": _coerce_float(row.get("p95_turnover", 0.0)),
+                    "rolling_window_days": _coerce_int(row.get("rolling_window_days", 0)),
+                    "rolling_mean_turnover": _coerce_float(row.get("rolling_mean_turnover", 0.0)),
+                    "rolling_max_turnover": _coerce_float(row.get("rolling_max_turnover", 0.0)),
+                }
+
+        benchmark_summary: dict[str, dict[str, dict[str, float]]] = {}
+        if not result.benchmark_deltas.is_empty():
+            for row in result.benchmark_deltas.to_dicts():
+                benchmark = str(row.get("benchmark", ""))
+                strategy = str(row.get("strategy", ""))
+                if not benchmark or not strategy:
+                    continue
+                metrics: dict[str, float] = {}
+                for key, value in row.items():
+                    if key in {"benchmark", "strategy"} or value is None:
+                        continue
+                    metrics[key] = _coerce_float(value)
+                if metrics:
+                    strategy_metrics = benchmark_summary.setdefault(benchmark, {})
+                    strategy_metrics[strategy] = metrics
+
+        return {
+            "tail": tail_summary,
+            "turnover": turnover_summary,
+            "benchmark_deltas": benchmark_summary,
+            "config": {
+                "tail_quantiles": list(result.config.tail_quantiles),
+                "turnover_window_days": result.config.turnover_window_days,
+                "benchmark_delta_metrics": list(result.config.benchmark_delta_metrics),
+            },
+        }
+
+    if "walk_forward" in resolved_defaults.include_sections and walk_forward is not None:
+        walk_forward_root = walk_forward.base_directory / "walk_forward"
+        sections["walk_forward"] = {
+            "summary_path": _rel_path(walk_forward_root / "permutation_summary.csv"),
+            "nested_summary_path": _rel_path(walk_forward_root / "nested_summary.csv"),
+            "nested_rollup_path": _rel_path(walk_forward_root / "nested_rollup.csv"),
+        }
+
+    if "monte_carlo" in resolved_defaults.include_sections and monte_carlo is not None:
+        stress_root = monte_carlo.base_directory / "stress" / "monte_carlo"
+        overlay_category_stats = monte_carlo.overlay_category_summary()
+        baseline_metrics_payload = monte_carlo.baseline_metrics_dict()
+        sections["monte_carlo"] = {
+            "summary_path": _rel_path(stress_root / "summary.csv"),
+            "paths_path": _rel_path(stress_root / "paths.csv"),
+            "overlay_summary_path": _rel_path(stress_root / "overlay_summary.csv"),
+            "overlay_category_summary_path": _rel_path(stress_root / "overlay_category_summary.csv"),
+            "baseline_metrics_path": _rel_path(stress_root / "baseline_metrics.csv"),
+            "config_path": _rel_path(stress_root / "config.json"),
+        }
+
+    if "parameter_heatmaps" in resolved_defaults.include_sections and heatmaps is not None:
+        heatmap_root = heatmaps.base_directory / heatmaps.output_dirname
+        sections["parameter_heatmaps"] = {
+            "summary_path": _rel_path(heatmap_root / "summary.csv"),
+            "config_specs": [run.spec.slug for run in heatmaps.runs],
+        }
+        heatmap_metadata = [
+            {
+                "slug": run.spec.slug,
+                "metric": run.metadata.get("metric_name"),
+                "best_metric": run.metadata.get("best_metric"),
+                "evaluated_combinations": run.metadata.get("evaluated_combinations"),
+                "best_config": run.metadata.get("best_config"),
+            }
+            for run in heatmaps.runs
+        ]
+
+    if "extended_diagnostics" in resolved_defaults.include_sections and diagnostics is not None:
+        diagnostics_section: dict[str, object] = {
+            "tail_metrics_path": _rel_path(diagnostics.output_directory / "tail_metrics.csv"),
+            "turnover_distribution_path": _rel_path(diagnostics.output_directory / "turnover_distribution.csv"),
+            "benchmark_deltas_path": _rel_path(diagnostics.output_directory / "benchmark_deltas.csv"),
+            "config_path": _rel_path(diagnostics.output_directory / "config.json"),
+        }
+        diagnostics_summary = _summarize_diagnostics(diagnostics)
+        diagnostics_section["summary"] = diagnostics_summary
+        sections["extended_diagnostics"] = diagnostics_section
+
+    if "proxy_datasets" in resolved_defaults.include_sections and proxy_datasets is not None:
+        proxy_root = proxy_datasets.base_directory / "proxy_datasets"
+        proxy_section: dict[str, object] = {
+            "summary_path": _rel_path(proxy_root / "summary.csv"),
+            "datasets": [run.spec.slug for run in proxy_datasets.runs],
+        }
+        proxy_metadata = {
+            run.spec.slug: _ProxyMetadataEntry(
+                status=run.status,
+                allow_missing=run.spec.allow_missing,
+                tags=list(run.spec.tags),
+                message=run.message,
+            )
+            for run in proxy_datasets.runs
+        }
+        proxy_section["dataset_status"] = {slug: meta["status"] for slug, meta in proxy_metadata.items()}
+        proxy_section["allow_missing"] = {slug: meta["allow_missing"] for slug, meta in proxy_metadata.items()}
+        sections["proxy_datasets"] = proxy_section
+
+    if "vintage_simulations" in resolved_defaults.include_sections and vintage is not None:
+        vintage_root = vintage.base_directory / "vintage"
+        vintage_windows_metadata = [
+            _VintageWindowMetadataEntry(
+                slug=run.window.slug,
+                label=run.window.label,
+                status=run.status,
+                fold_count=run.fold_count,
+                min_folds=run.window.min_folds,
+                message=run.message,
+            )
+            for run in vintage.runs
+        ]
+        sections["vintage_simulations"] = {
+            "summary_path": _rel_path(vintage_root / "summary.csv"),
+            "windows": vintage_windows_metadata,
+        }
+
+    payload: dict[str, object] = {
+        "generated_at": datetime.now(tz=UTC).isoformat(),
+        "sections": cast(object, sections),
+        "alert_channels": list(resolved_defaults.alert_channels),
+        "dashboard_targets": dict(resolved_defaults.dashboard_targets),
+        "alert_rules": dict(resolved_defaults.alert_rules),
+        "automation_targets": dict(resolved_defaults.automation_targets),
+    }
+    if monte_carlo is not None:
+        payload["monte_carlo_metadata"] = {
+            "overlay_events": int(sum(len(path.overlay_events) for path in monte_carlo.paths)),
+            "report_metrics": list(monte_carlo.stress_config.report_metrics),
+            "report_quantiles": list(monte_carlo.stress_config.report_quantiles),
+            "overlay_category_stats": overlay_category_stats or [],
+            "baseline_metrics": baseline_metrics_payload,
+        }
+    if heatmap_metadata is not None:
+        payload["parameter_heatmap_metadata"] = heatmap_metadata
+    if diagnostics_summary is not None:
+        payload["diagnostics_metadata"] = diagnostics_summary
+    if proxy_metadata is not None:
+        payload["proxy_dataset_metadata"] = proxy_metadata
+    if vintage_windows_metadata is not None:
+        payload["vintage_metadata"] = vintage_windows_metadata
+    snapshot_path = snapshot_dir / resolved_defaults.filename
+    snapshot_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    MONITORING_EXPORT_COUNTER.labels(status="success").inc()
+    return MonitoringSnapshotResult(path=snapshot_path, payload=payload)
 
 
 # ===== Liquidity Mitigation Experiments =====
@@ -2131,7 +3496,7 @@ def _apply_monte_carlo_overlays(
     regime_sequence: tuple[str, ...],
     block_lengths: tuple[int, ...],
     overlays: Sequence[MonteCarloShockOverlayDefaults],
-) -> list[str]:
+) -> list[MonteCarloOverlayActivation]:
     """
     Apply macro shock overlays in-place to the synthetic return path.
     """
@@ -2143,7 +3508,15 @@ def _apply_monte_carlo_overlays(
         offsets.append(cursor)
         cursor += length
     total_length = returns.size
-    applied: list[str] = []
+    applied: list[MonteCarloOverlayActivation] = []
+
+    def _resolve_regime(index: int) -> str | None:
+        for block_index, start in enumerate(offsets):
+            end = start + block_lengths[block_index]
+            if start <= index < end:
+                return regime_sequence[block_index]
+        return None
+
     for overlay in overlays:
         attempts = 0
         while attempts < overlay.max_applications:
@@ -2169,13 +3542,34 @@ def _apply_monte_carlo_overlays(
             if start_bound >= end_bound:
                 break
             start_idx = int(rng.integers(start_bound, end_bound))
+            if start_idx >= total_length:
+                break
             for day_offset in range(overlay.duration_days):
                 target_idx = start_idx + day_offset
                 if target_idx >= total_length:
                     break
                 decay_multiplier = overlay.decay ** day_offset
                 returns[target_idx] = returns[target_idx] + (overlay.magnitude * decay_multiplier)
-            applied.append(overlay.name)
+            duration_applied = min(overlay.duration_days, max(0, total_length - start_idx))
+            if duration_applied == 0:
+                continue
+            total_impact = float(sum(
+                overlay.magnitude * (overlay.decay ** day_offset)
+                for day_offset in range(duration_applied)
+            ))
+            applied.append(
+                MonteCarloOverlayActivation(
+                    name=overlay.name,
+                    category=overlay.category,
+                    start_index=start_idx,
+                    duration=duration_applied,
+                    regime=_resolve_regime(start_idx),
+                    magnitude=overlay.magnitude,
+                    decay=overlay.decay,
+                    total_impact=total_impact,
+                    tags=overlay.tags,
+                ),
+            )
     return applied
 
 
@@ -2185,7 +3579,7 @@ def _compute_monte_carlo_metrics(
     returns: np.ndarray,
     stress_config: MonteCarloStressDefaults,
     regime_sequence: tuple[str, ...],
-    overlay_events: tuple[str, ...],
+    overlay_events: tuple[MonteCarloOverlayActivation, ...],
 ) -> MonteCarloStressPathResult:
     """
     Compute summary metrics for a synthetic Monte Carlo path.
@@ -2331,6 +3725,7 @@ def _execute_backtest_suite(
     *,
     liquidity_config: LiquidityScalingConfig | None = None,
     turnover_overrides: Mapping[str, float] | None = None,
+    strategy_overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> BacktestSuite:
     """
     Execute the backtest suite using a preloaded dataset and split.
@@ -2350,6 +3745,8 @@ def _execute_backtest_suite(
     turnover_overrides : Mapping[str, float] | None
         Optional turnover smoothing overrides keyed by strategy slug
         (``3d_factor_stable`` or ``3d_factor_rolling``).
+    strategy_overrides : Mapping[str, Mapping[str, Any]] | None
+        Optional per-strategy overrides applied to strategy parameter dictionaries.
     """
     defaults = BACKTEST_DEFAULTS
     train_config = _create_backtest_config(split, config_overrides, period="train")
@@ -2402,10 +3799,20 @@ def _execute_backtest_suite(
     train_results: dict[str, BacktestResult] = {}
     test_results: dict[str, BacktestResult] = {}
     full_results: dict[str, BacktestResult] = {}
+    resolved_strategy_overrides = {
+        key: dict(value)
+        for key, value in (strategy_overrides or {}).items()
+    }
 
     for strategy_display_name, strategy_key, strategy_params in strategies_to_run:
         LOGGER.info("Running backtests", strategy=strategy_display_name)
         params = dict(strategy_params)
+        if resolved_strategy_overrides:
+            override = resolved_strategy_overrides.get(strategy_key)
+            if override is None:
+                override = resolved_strategy_overrides.get(strategy_display_name)
+            if override is not None:
+                params.update(override)
         for period_label, config in (
             ("train", train_config),
             ("test", test_config),
@@ -3463,13 +4870,25 @@ def _build_regime_resolver(
 
 __all__ = [
     "BacktestSuite",
+    "DiagnosticsResult",
     "LiquidityMitigationResult",
     "LiquidityMitigationScenario",
+    "MonitoringSnapshotResult",
+    "MonteCarloStressSuiteResult",
+    "ParameterHeatmapSuiteResult",
+    "ProxyDatasetSuiteResult",
+    "VintageSimulationSuiteResult",
     "WalkForwardBacktestResult",
+    "export_phase3_monitoring_snapshot",
     "get_default_liquidity_mitigation_scenarios",
     "get_liquidity_mitigation_scenarios",
+    "run_extended_diagnostics",
     "run_full_backtest_suite",
     "run_liquidity_mitigation_experiments",
+    "run_monte_carlo_stress_suite",
+    "run_parameter_heatmap_suite",
+    "run_proxy_dataset_validation",
+    "run_vintage_simulation_suite",
     "run_walk_forward_backtest_suite",
 ]
 

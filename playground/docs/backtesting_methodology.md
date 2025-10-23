@@ -1260,6 +1260,73 @@ shock parameters remain centralised under
 ``ThreeDRiskBacktestDefaults().monte_carlo_stress`` to preserve config-driven
 behaviour.
 
+The default overlay catalog spans rates hikes, growth scares, liquidity crunches,
+volatility breakouts, cross-asset contagion, compound liquidity-growth cascades,
+credit spread widening, inflation repricing shocks, and energy-supply
+disruptions. Overlay activations are exported both at the event level and in
+category aggregates (`overlay_category_summary.csv`), and baseline metrics are
+persisted in `baseline_metrics.csv` for dashboard parity.
+
+### 8.4 Parameter Response Heatmaps
+
+Use the parameter heatmap suite to visualise stability across combinations of
+transaction costs, turnover smoothing, liquidity multipliers, and related inputs.
+Artefacts are written under ``playground/reports/backtesting/heatmaps`` with both
+long-form result tables and pivot-ready CSVs:
+
+```bash
+poetry run python -m playground.scripts.run_phase3_walk_forward --parameter-heatmaps
+```
+
+The evaluated grids and target strategy are defined in
+``ThreeDRiskBacktestDefaults().parameter_heatmaps`` ensuring reproducible,
+config-driven sweeps.
+
+Pass ``--heatmap-specs turnover-vs-liquidity-multipliers,transaction-cost-envelope`` to
+target specific grids—the CLI automatically enables the heatmap suite whenever
+spec slugs are provided. Suite summaries capture evaluation counts and the
+best-performing configuration for each specification so dashboards can surface
+preferred parameters directly.
+
+### 8.5 Extended Diagnostics & Proxy Datasets
+
+Running the ``--extended-diagnostics`` flag captures tail risk statistics,
+turnover histograms, and benchmark deltas for the baseline suite, persisting under
+``playground/reports/backtesting/diagnostics``. Proxy dataset validation is driven
+via ``--proxy-validation`` and reuses specifications from
+``ThreeDRiskBacktestDefaults().proxy_datasets`` so alternative universes and
+vintage windows stay in sync with configuration files.
+Defaults now include international sectors, factor ETF proxies, a treasury
+futures hedge dataset, and a crisis-response 2y/1y vintage window so rate and
+liquidity scenarios remain covered.
+
+### 8.6 Monitoring Snapshot Export
+
+Enable ``--monitoring-export`` to emit a consolidated JSON snapshot summarising
+available artefacts for dashboards and alerting systems. The export references the
+latest walk-forward summaries, Monte Carlo stresses, heatmaps, diagnostics, proxy
+status, and vintage simulations, and is written to the backtesting output root as
+``phase3_monitoring_snapshot.json``.
+Snapshot payloads include overlay event totals, category aggregates, baseline
+metrics, parameter heatmap metadata, proxy dataset health, vintage window status,
+alert channel mappings, and automation targets so Grafana and PagerDuty consumers
+can ingest the data without additional transformation. The CLI also persists
+integration-ready payloads under ``playground/reports/backtesting/monitoring/``:
+
+- ``grafana_dashboard_payload.json`` summarises artefact paths, overlay category
+  statistics, and baseline metrics for dashboard provisioning.
+- ``pagerduty_alert_payload.json`` captures alert rules, automation targets,
+  diagnostics metadata, and proxy/vintage health for escalation workflows.
+
+### 8.7 Phase 3 Validation Battery
+
+Use ``--phase3-battery`` to execute the entire Phase 3 validation stack in a
+single invocation. The flag runs the walk-forward refresh, Monte Carlo stress
+sweep, parameter heatmaps (respecting any ``--heatmap-specs`` overrides), extended
+diagnostics, proxy validation, vintage simulations, and emits the monitoring
+snapshot. This is the preferred option for nightly CI smoke runs and offline
+pre-deployment rehearsals.
+
 ### 8.3 Manual Validation Checklist
 
 Before production deployment, manually verify:
