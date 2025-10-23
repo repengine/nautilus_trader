@@ -2287,7 +2287,7 @@ def test_pipeline_service_infers_stage_and_ingestion_config() -> None:
 
     run_cfg = service._build_run_config(pipeline_type="ingest_only", payload=payload)
 
-    assert run_cfg.stage is Stage.INGEST
+    assert run_cfg.stage == Stage.INGEST
     assert run_cfg.ingestion is not None
     assert run_cfg.ingestion.enabled is True
     assert run_cfg.ingestion.dataset_id == "CUSTOM.DATASET"
@@ -2307,5 +2307,5 @@ def test_pipeline_service_respects_explicit_stage_override() -> None:
 
     run_cfg = service._build_run_config(pipeline_type="ingest", payload=payload)
 
-    assert run_cfg.stage is Stage.TRAIN
+    assert run_cfg.stage == Stage.TRAIN
     assert run_cfg.ingestion is None

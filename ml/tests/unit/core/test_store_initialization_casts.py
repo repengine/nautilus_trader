@@ -452,32 +452,9 @@ def test_init_registries_uses_cast_for_fallback() -> None:
             "If cast() is present in _init_registries, it should be used with registries"
 
 
-def test_data_store_initialization_uses_cast_for_create_data_store() -> None:
-    """
-    Verify DataStore initialization via create_data_store() uses cast().
-
-    In the PostgreSQL path, data_store is created via create_data_store() factory
-    function. The return value might need cast() for type compatibility.
-
-    This test verifies:
-    - create_data_store() call is wrapped with cast()
-    - DataStore type annotation is compatible with factory return type
-    - No mypy errors for data_store assignment
-
-    Behavior tested: DataStore factory cast() usage.
-    """
-    from ml.core.integration import MLIntegrationManager
-
-    # Get source code of _init_registries (where data_store is initialized)
-    source = inspect.getsource(MLIntegrationManager._init_registries)
-
-    # Verify create_data_store is called
-    assert "create_data_store(" in source, \
-        "create_data_store() should be called in _init_registries"
-
-    # Verify result is cast to DataStore type
-    # Pattern: self.data_store = cast(DataStore, create_data_store(...))
-    if "self.data_store" in source and "create_data_store" in source:
-        # If data_store is assigned from create_data_store, it should use cast()
-        assert "cast(" in source, \
-            "create_data_store() result should be cast to DataStore type"
+# Test removed: test_data_store_initialization_uses_cast_for_create_data_store
+# Reason: Protocol Remediation Task 2.3 removed cast() pattern from create_data_store()
+# The function now has an explicit return type signature (-> DataStore), making cast()
+# unnecessary. Type safety is verified by mypy and Task 2.3's validation, not runtime
+# inspection.
+# See: tasks/protocol_remediation/task_2_3_create_data_store_type_erasure.md

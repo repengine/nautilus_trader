@@ -17,7 +17,7 @@ def test_load_orchestrator_run_config_parses_sections() -> None:
     config_path = _fixture_path("minimal.json")
     run_cfg = load_orchestrator_run_config(config_path)
 
-    assert run_cfg.stage is Stage.DATASET
+    assert run_cfg.stage == Stage.DATASET
     assert run_cfg.dataset is not None
     assert run_cfg.dataset.include_macro is True
     assert run_cfg.dataset.instrument_ids == ("SPY.NYSE", "QQQ.NASDAQ")
