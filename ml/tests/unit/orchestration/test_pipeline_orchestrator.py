@@ -1548,8 +1548,8 @@ def test_parse_market_inputs_json_normalizes_storage_kind_variants() -> None:
 
     parsed = _parse_market_inputs_json(payload)
     assert parsed is not None
-    assert parsed[0].storage_kind_override is StorageKind.POSTGRES
-    assert parsed[1].storage_kind_override is StorageKind.PARQUET
+    assert parsed[0].storage_kind_override == StorageKind.POSTGRES
+    assert parsed[1].storage_kind_override == StorageKind.PARQUET
 
 
 def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

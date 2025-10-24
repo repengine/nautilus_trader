@@ -107,7 +107,7 @@ def test_validate_uniqueness_violation() -> None:
         ],
     )
     report = store.validate_batch("test_ds", df)
-    assert report.violations and report.violations[0].rule_type is ValidationRuleType.UNIQUENESS
+    assert report.violations and report.violations[0].rule_type == ValidationRuleType.UNIQUENESS
 
 
 def test_validate_monotonicity_violation() -> None:
@@ -128,7 +128,7 @@ def test_validate_monotonicity_violation() -> None:
         ],
     )
     report = store.validate_batch("test_ds", df)
-    assert report.violations and report.violations[0].rule_type is ValidationRuleType.MONOTONICITY
+    assert report.violations and report.violations[0].rule_type == ValidationRuleType.MONOTONICITY
 
 
 def test_validate_required_field_nullability_violation() -> None:
@@ -159,7 +159,7 @@ def test_validate_type_check_violation() -> None:
     )
     report = store.validate_batch("test_ds", df)
     assert report.violations and any(
-        v.rule_type is ValidationRuleType.TYPE_CHECK for v in report.violations
+        v.rule_type == ValidationRuleType.TYPE_CHECK for v in report.violations
     )
 
 
@@ -182,7 +182,7 @@ def test_validate_lateness_violation() -> None:
     )
     report = store.validate_batch("test_ds", df)
     assert report.violations and any(
-        v.rule_type is ValidationRuleType.LATENESS for v in report.violations
+        v.rule_type == ValidationRuleType.LATENESS for v in report.violations
     )
 
 
@@ -249,12 +249,12 @@ def test_quality_thresholds_null_rate_warn_default_and_strict() -> None:
     # Default mode
     report1 = store.validate_batch("test_ds", df, strict_mode=False)
     assert any(
-        v.rule_type is ValidationRuleType.NULLABILITY and v.severity is QualityFlag.WARN
+        v.rule_type == ValidationRuleType.NULLABILITY and v.severity == QualityFlag.WARN
         for v in report1.violations
     )
     # Strict mode still records threshold breach as WARN (rule escalation doesn't apply here)
     report2 = store.validate_batch("test_ds", df, strict_mode=True)
     assert any(
-        v.rule_type is ValidationRuleType.NULLABILITY and v.severity is QualityFlag.WARN
+        v.rule_type == ValidationRuleType.NULLABILITY and v.severity == QualityFlag.WARN
         for v in report2.violations
     )

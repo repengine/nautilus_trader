@@ -502,6 +502,11 @@ export-phase3-walk-forward:  #-- Regenerate Phase 3 walk-forward artefacts
 	$(info $(M) Regenerating Phase 3 walk-forward suite...)
 	$Q uv run --active --no-sync python playground/scripts/run_phase3_walk_forward.py --liquidity-experiments $(if $(SCENARIOS),--scenarios "$(SCENARIOS)",)
 
+.PHONY: publish-phase3-monitoring
+publish-phase3-monitoring:  #-- Publish Phase 3 monitoring integration payloads
+	$(info $(M) Publishing Phase 3 monitoring integrations...)
+	$Q uv run --active --no-sync python playground/scripts/publish_phase3_monitoring_integrations.py $(if $(SNAPSHOT),--snapshot-path "$(SNAPSHOT)",) $(if $(SIMULATE_ESCALATION),--simulate-escalation,)
+
 #== Docker
 
 .PHONY: docker-build
@@ -833,14 +838,14 @@ sanity:
 
 .PHONY: pytest-ml
 
-pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API), then serial integration (no real API)
-	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api), then serial integration (excl. real_api) ...)
+pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API/slow), then serial integration (no real API/slow)
+	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api/slow), then serial integration (excl. real_api/slow) ...)
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api and not slow" -q -n auto --dist=loadscope || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api" -k "not streaming_persistence_worker_cli and not streaming_persistence_integration" -q -n 1 || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api and not slow" -k "not streaming_persistence_worker_cli and not streaming_persistence_integration" -q -n 1 || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		poetry run pytest -c ml/pytest.ini ml/tests/integration/cli/test_streaming_persistence_worker_cli.py ml/tests/integration/consumers/test_streaming_persistence_integration.py -q -n 1 || exit $$?
+		poetry run pytest -c ml/pytest.ini ml/tests/integration/cli/test_streaming_persistence_worker_cli.py ml/tests/integration/consumers/test_streaming_persistence_integration.py -m "not slow" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf

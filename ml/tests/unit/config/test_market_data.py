@@ -7,15 +7,15 @@ from ml.registry.dataclasses import StorageKind
 
 
 def test_coerce_storage_kind_accepts_enum_member() -> None:
-    assert coerce_storage_kind(StorageKind.POSTGRES) is StorageKind.POSTGRES
+    assert coerce_storage_kind(StorageKind.POSTGRES) == StorageKind.POSTGRES
 
 
 def test_coerce_storage_kind_accepts_uppercase_name() -> None:
-    assert coerce_storage_kind("POSTGRES") is StorageKind.POSTGRES
+    assert coerce_storage_kind("POSTGRES") == StorageKind.POSTGRES
 
 
 def test_coerce_storage_kind_accepts_prefixed_string() -> None:
-    assert coerce_storage_kind("StorageKind.PARQUET") is StorageKind.PARQUET
+    assert coerce_storage_kind("StorageKind.PARQUET") == StorageKind.PARQUET
 
 
 def test_coerce_storage_kind_none_returns_none() -> None:

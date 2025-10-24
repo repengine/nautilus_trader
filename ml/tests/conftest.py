@@ -85,10 +85,34 @@ if TYPE_CHECKING:
 # Constants and Configuration
 # ============================================================================
 
-DATABASE_URL = os.getenv(
+# Worker-namespaced DATABASE_URL for pytest-xdist isolation
+# Each xdist worker gets its own database to prevent race conditions
+_WORKER_ID = os.getenv("PYTEST_XDIST_WORKER", "master")
+_BASE_DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/nautilus",
 )
+
+# If running under xdist, append worker ID to database name
+if _WORKER_ID != "master":
+    # Parse URL and modify database name
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(_BASE_DATABASE_URL)
+    # Extract database name from path (e.g., "/nautilus" -> "nautilus")
+    db_name = parsed.path.lstrip("/") if parsed.path else "nautilus"
+    # Append worker ID to database name
+    worker_db_name = f"{db_name}_{_WORKER_ID}"
+    # Reconstruct URL with new database name
+    DATABASE_URL = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        f"/{worker_db_name}",
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ))
+else:
+    DATABASE_URL = _BASE_DATABASE_URL
 
 # ============================================================================
 # Mark TDD prototype suites for default exclusion
@@ -179,13 +203,43 @@ else:
 DataStoreModuleFactory = Callable[[bool], ContextManager[ModuleType]]
 
 
+# DEPRECATED: Module reloading removed to fix enum identity issues
+# See: reports/investigation/agent_a_enum_patterns.md
+# Module reloading creates new Enum instances, breaking equality checks
+# Use mocking or factory patterns instead of environment-based reloading
+
 def _reload_data_store_module() -> ModuleType:
+    """DEPRECATED: Do not use - causes enum identity issues.
+
+    This function previously reloaded ml.stores.data_store to pick up
+    environment variable changes. However, reloading creates new Enum
+    class instances, breaking equality comparisons.
+
+    Use mocking patterns instead:
+        @patch.dict(os.environ, {"ML_USE_LEGACY_DATA_STORE": "1"})
+        @patch("ml.stores.data_store.get_store_impl")
+        def test_with_mock(mock_get_impl):
+            mock_get_impl.return_value = MockStore()
+    """
     module = import_module("ml.stores.data_store")
-    return _reload(module)
+    # DO NOT RELOAD - return existing module to preserve enum identity
+    return module
 
 
 @contextmanager
 def _component_data_store_context(use_component: bool) -> Generator[ModuleType, None, None]:
+    """DEPRECATED: Do not use - causes enum identity issues.
+
+    This context manager previously reloaded modules to toggle between
+    component and legacy implementations. However, reloading creates new
+    Enum instances, breaking equality comparisons.
+
+    Use mocking patterns instead:
+        @patch.dict(os.environ, {"ML_USE_COMPONENT_DATA_STORE": "1"})
+        @patch("ml.stores.data_store.DataStore")
+        def test_component_mode(mock_store):
+            # Test with mocked component implementation
+    """
     prev_component = os.environ.get("ML_USE_COMPONENT_DATA_STORE")
     prev_legacy = os.environ.get("ML_USE_LEGACY_DATA_STORE")
     try:
@@ -195,7 +249,8 @@ def _component_data_store_context(use_component: bool) -> Generator[ModuleType, 
         else:
             os.environ["ML_USE_COMPONENT_DATA_STORE"] = "0"
             os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
-        module = _reload_data_store_module()
+        # Return module without reloading to preserve enum identity
+        module = import_module("ml.stores.data_store")
         yield module
     finally:
         if prev_component is None:
@@ -206,7 +261,7 @@ def _component_data_store_context(use_component: bool) -> Generator[ModuleType, 
             os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
         else:
             os.environ["ML_USE_LEGACY_DATA_STORE"] = prev_legacy
-        _reload_data_store_module()
+        # Do not reload on cleanup to preserve enum identity
 
 
 @pytest.fixture
@@ -908,6 +963,7 @@ $$ LANGUAGE plpgsql;
     try:
         yield bundle
     finally:
+        # Cleanup: flush buffers, cancel timers, reset state, close connections
         for store in (feature_store, model_store, strategy_store):
             try:
                 store.flush()
@@ -919,6 +975,21 @@ $$ LANGUAGE plpgsql;
                     timer.cancel()
                 except Exception:
                     pass
+            # Reset internal state (buffers, caches) if method exists
+            if hasattr(store, "reset"):
+                try:
+                    store.reset()
+                except Exception:
+                    pass
+            # Close connections if method exists
+            if hasattr(store, "close"):
+                try:
+                    store.close()
+                except Exception:
+                    pass
+
+        # Reset shared MagicMock call history to prevent pollution
+        persistence_manager.reset_mock()
 
 
 @pytest.fixture
@@ -1287,27 +1358,49 @@ def cleanup_engines() -> None:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def configure_test_logging():
+def configure_test_logging() -> Generator[None, None, None]:
     """
     Configure logging for tests.
 
     Reduces log noise during test runs while preserving important error information.
+    Restores original logging configuration after session completes.
 
     """
     import logging
 
-    # Set appropriate log levels
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    logging.getLogger("ml").setLevel(logging.INFO)
+    # Save original logging state for restoration
+    original_levels = {
+        "sqlalchemy.engine": logging.getLogger("sqlalchemy.engine").level,
+        "ml": logging.getLogger("ml").level,
+        "root": logging.root.level,
+    }
 
-    # Add test run identifier to logs
-    import uuid
+    # Save original handlers to restore later
+    original_handlers = logging.root.handlers.copy()
 
-    test_run_id = str(uuid.uuid4())[:8]
-    logging.basicConfig(
-        format=f"[{test_run_id}] %(levelname)s %(name)s: %(message)s",
-        level=logging.INFO,
-    )
+    try:
+        # Set appropriate log levels
+        logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+        logging.getLogger("ml").setLevel(logging.INFO)
+
+        # Add test run identifier to logs
+        import uuid
+
+        test_run_id = str(uuid.uuid4())[:8]
+        logging.basicConfig(
+            format=f"[{test_run_id}] %(levelname)s %(name)s: %(message)s",
+            level=logging.INFO,
+        )
+
+        yield
+    finally:
+        # Restore original logging configuration
+        logging.getLogger("sqlalchemy.engine").setLevel(original_levels["sqlalchemy.engine"])
+        logging.getLogger("ml").setLevel(original_levels["ml"])
+        logging.root.setLevel(original_levels["root"])
+
+        # Restore original handlers (remove test-specific handlers)
+        logging.root.handlers = original_handlers
 
 
 # ============================================================================

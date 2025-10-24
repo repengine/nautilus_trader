@@ -292,7 +292,16 @@ class TestEdgeCases:
         assert len(ml.core.__all__) > 0
 
     def test_module_reload_works(self):
-        """Verify module can be reloaded without errors."""
+        """Verify module can be reloaded without errors.
+
+        NOTE: This test intentionally uses importlib.reload() to verify that
+        ml.core can be reloaded without crashing. This is different from the
+        enum identity issue - we're testing reload capability itself, not
+        toggling feature flags via reload.
+
+        Acceptable use: Testing reload behavior explicitly.
+        Unacceptable use: Using reload to toggle feature flags in production tests.
+        """
         import ml.core
 
         # Initial import works

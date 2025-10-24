@@ -126,7 +126,7 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
     assert result.dataset_csv.exists()
     assert result.features_npz.exists()
     assert result.metadata is not None
-    assert result.metadata.vintage_policy is VintagePolicy.REAL_TIME
+    assert result.metadata.vintage_policy == VintagePolicy.REAL_TIME
     assert result.metadata.market_bindings is not None
     assert len(result.metadata.market_bindings) == 1
     assert result.metadata.capability_flags["include_macro"] is True
@@ -150,7 +150,7 @@ def test_build_tft_dataset_invokes_macro_refresh(monkeypatch: pytest.MonkeyPatch
     assert capabilities_json.get("include_macro") is True
     assert capabilities_json.get("include_calendar") is False
     assert capabilities_json.get("include_micro") is False
-    assert builder_params["vintage_policy"] is VintagePolicy.REAL_TIME
+    assert builder_params["vintage_policy"] == VintagePolicy.REAL_TIME
     assert builder_params["vintage_as_of"] is None
 
 

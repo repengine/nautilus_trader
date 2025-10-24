@@ -8,6 +8,13 @@ from pytest import MonkeyPatch
 
 
 def test_metrics_detection_true_when_module_present(monkeypatch: MonkeyPatch) -> None:
+    """Test metrics detection when prometheus_client is available.
+
+    NOTE: This test intentionally uses importlib.reload() to test module-level
+    detection logic. This is acceptable because we're testing import-time behavior,
+    not toggling feature flags. The reload is necessary to re-execute the module's
+    detection code after monkeypatching sys.modules.
+    """
     # Inject a dummy prometheus_client module
     dummy = ModuleType("prometheus_client")
     monkeypatch.setitem(sys.modules, "prometheus_client", dummy)
@@ -19,6 +26,13 @@ def test_metrics_detection_true_when_module_present(monkeypatch: MonkeyPatch) ->
 
 
 def test_metrics_detection_false_when_module_missing(monkeypatch: MonkeyPatch) -> None:
+    """Test metrics detection when prometheus_client is missing.
+
+    NOTE: This test intentionally uses importlib.reload() to test module-level
+    detection logic. This is acceptable because we're testing import-time behavior,
+    not toggling feature flags. The reload is necessary to re-execute the module's
+    detection code after monkeypatching importlib.import_module.
+    """
     # Force importlib.import_module to raise for prometheus_client
     orig_import_module = importlib.import_module
 

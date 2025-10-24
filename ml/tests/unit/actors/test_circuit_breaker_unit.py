@@ -35,33 +35,33 @@ def test_circuit_breaker_transitions(
 
     # Initially closed
     initial_state = cb.state
-    assert initial_state is CircuitBreakerState.CLOSED
+    assert initial_state == CircuitBreakerState.CLOSED
     assert cb.can_execute() is True
 
     # Trigger failures up to threshold → OPEN
     cb.record_failure()
     cb.record_failure()
     state_after_two_failures = cb.state
-    assert state_after_two_failures is CircuitBreakerState.CLOSED  # not yet at threshold
+    assert state_after_two_failures == CircuitBreakerState.CLOSED  # not yet at threshold
     cb.record_failure()
     state_after_third_failure = cb.state
-    assert state_after_third_failure is CircuitBreakerState.OPEN
+    assert state_after_third_failure == CircuitBreakerState.OPEN
     assert cb.can_execute() is False  # within recovery window
 
     # Advance time to allow HALF_OPEN attempt
     stub_time.advance(cfg.recovery_timeout)
     assert cb.can_execute() is True
     half_open_state = cb.state
-    assert half_open_state is CircuitBreakerState.HALF_OPEN
+    assert half_open_state == CircuitBreakerState.HALF_OPEN
 
     # One success not enough to close
     cb.record_success()
     after_first_success = cb.state
-    assert after_first_success is CircuitBreakerState.HALF_OPEN
+    assert after_first_success == CircuitBreakerState.HALF_OPEN
     # Second success closes
     cb.record_success()
     final_state = cb.state
-    assert final_state is CircuitBreakerState.CLOSED
+    assert final_state == CircuitBreakerState.CLOSED
 
 
 def test_circuit_breaker_half_open_failure_reopens(
@@ -79,15 +79,15 @@ def test_circuit_breaker_half_open_failure_reopens(
     cb.record_failure()
     cb.record_failure()
     state_after_open = cb.state
-    assert state_after_open is CircuitBreakerState.OPEN
+    assert state_after_open == CircuitBreakerState.OPEN
 
     # Move to half-open
     stub_time.advance(cfg.recovery_timeout)
     assert cb.can_execute() is True
     reopened_state = cb.state
-    assert reopened_state is CircuitBreakerState.HALF_OPEN
+    assert reopened_state == CircuitBreakerState.HALF_OPEN
 
     # A failure in half-open reopens immediately
     cb.record_failure()
     reopened_after_failure = cb.state
-    assert reopened_after_failure is CircuitBreakerState.OPEN
+    assert reopened_after_failure == CircuitBreakerState.OPEN

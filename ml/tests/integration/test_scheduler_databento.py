@@ -32,8 +32,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
+@pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
+@pytest.mark.slow
 @pytest.mark.usefixtures("clean_postgres_db_class")
 class TestDataSchedulerIntegration:
     """
