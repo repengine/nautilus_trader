@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+from pandera.typing import Series
+
+globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
 
 from ml.observability.persistence import ObservabilityPersistor
 from ml.observability.pipeline import build_event_correlation
