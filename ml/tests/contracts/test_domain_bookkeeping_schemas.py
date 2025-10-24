@@ -23,6 +23,8 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pandera.typing import Series
 
+globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
+
 from ml.stores.data_store import DataStore
 from nautilus_trader.core.uuid import UUID4
 
