@@ -85,34 +85,14 @@ if TYPE_CHECKING:
 # Constants and Configuration
 # ============================================================================
 
-# Worker-namespaced DATABASE_URL for pytest-xdist isolation
-# Each xdist worker gets its own database to prevent race conditions
-_WORKER_ID = os.getenv("PYTEST_XDIST_WORKER", "master")
-_BASE_DATABASE_URL = os.getenv(
+# Database URL from environment or default
+# Note: Worker namespacing is NOT needed because all database tests are grouped
+# to run on a single worker via xdist_group("db") marker (see pytest_collection_modifyitems).
+# This prevents race conditions without requiring separate databases per worker.
+DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/nautilus",
 )
-
-# If running under xdist, append worker ID to database name
-if _WORKER_ID != "master":
-    # Parse URL and modify database name
-    from urllib.parse import urlparse, urlunparse
-    parsed = urlparse(_BASE_DATABASE_URL)
-    # Extract database name from path (e.g., "/nautilus" -> "nautilus")
-    db_name = parsed.path.lstrip("/") if parsed.path else "nautilus"
-    # Append worker ID to database name
-    worker_db_name = f"{db_name}_{_WORKER_ID}"
-    # Reconstruct URL with new database name
-    DATABASE_URL = urlunparse((
-        parsed.scheme,
-        parsed.netloc,
-        f"/{worker_db_name}",
-        parsed.params,
-        parsed.query,
-        parsed.fragment,
-    ))
-else:
-    DATABASE_URL = _BASE_DATABASE_URL
 
 # ============================================================================
 # Mark TDD prototype suites for default exclusion
