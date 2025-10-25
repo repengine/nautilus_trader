@@ -130,6 +130,15 @@ class ModelRegistry(AbstractRegistry):
         self._pending_save = False
         self._save_timer: threading.Timer | None = None
 
+        # Pre-initialize core dictionaries to ensure they exist even if _load_registry()
+        # is mocked or fails. This defensive pattern matches FeatureRegistry and DataRegistry.
+        self._models: dict[str, ModelInfo] = {}
+        self._ab_tests: dict[str, dict[str, Any]] = {}
+        self._deployments: dict[str, list[str]] = {}
+        self._rollout_plans: dict[str, RolloutPlan] = {}
+        self._canary_deployments: dict[str, CanaryDeployment] = {}
+        self._ab_test_metrics: dict[str, dict[str, list[float]]] = {}
+
         # Initialize or load registry
         self._load_registry()
 
@@ -149,33 +158,28 @@ class ModelRegistry(AbstractRegistry):
             if self.registry_file.exists():
                 data = self._json_load("registry.json")
                 if data is not None:
-                    self._models: dict[str, ModelInfo] = {
+                    # Use update() to preserve pre-initialized dicts
+                    self._models.update({
                         model_id: self._dict_to_model_info(model_data)
                         for model_id, model_data in data.get("models", {}).items()
-                    }
-                    self._ab_tests: dict[str, dict[str, Any]] = data.get("ab_tests", {})
-                    self._deployments: dict[str, list[str]] = data.get("deployments", {})
-                else:
-                    self._models = {}
-                    self._ab_tests = {}
-                    self._deployments = {}
+                    })
+                    self._ab_tests.update(data.get("ab_tests", {}))
+                    self._deployments.update(data.get("deployments", {}))
+                # If data is None, dicts are already initialized, no action needed
             else:
-                self._models = {}
-                self._ab_tests = {}
-                self._deployments = {}  # target -> model_ids
+                # Dicts already initialized in __init__, just save empty registry
                 self._save_registry()
         elif self.backend == BackendType.POSTGRES:
             # Load all models from PostgreSQL
             session = self.persistence.get_session()
             if session is None:
-                self._models = {}
-                self._ab_tests = {}
-                self._deployments = {}
+                # Dicts already initialized in __init__
                 return
             try:
-                self._models = {}
-                self._ab_tests = {}
-                self._deployments = {}
+                # Dicts already initialized; clear and repopulate from database
+                self._models.clear()
+                self._ab_tests.clear()
+                self._deployments.clear()
 
                 models = session.query(ModelTable).all()
                 for model in models:
@@ -192,9 +196,10 @@ class ModelRegistry(AbstractRegistry):
                     "Error loading from database. Starting with empty registry.",
                     exc_info=True,
                 )
-                self._models = {}
-                self._ab_tests = {}
-                self._deployments = {}
+                # Clear dicts on error (already initialized in __init__)
+                self._models.clear()
+                self._ab_tests.clear()
+                self._deployments.clear()
             finally:
                 session.close()
 
@@ -1773,9 +1778,7 @@ class ModelRegistry(AbstractRegistry):
                 baseline_performance=baseline_performance,
             )
 
-            # Store canary deployment
-            if not hasattr(self, "_canary_deployments"):
-                self._canary_deployments: dict[str, CanaryDeployment] = {}
+            # Store canary deployment (dict already initialized in __init__)
             self._canary_deployments[deployment_id] = canary
 
             # Update model status
@@ -1792,8 +1795,6 @@ class ModelRegistry(AbstractRegistry):
         """
         Get canary deployment by ID.
         """
-        if not hasattr(self, "_canary_deployments"):
-            return None
         return self._canary_deployments.get(deployment_id)
 
     def update_canary_metrics(
@@ -1819,9 +1820,6 @@ class ModelRegistry(AbstractRegistry):
 
         """
         with self._lock:
-            if not hasattr(self, "_canary_deployments"):
-                return
-
             canary = self._canary_deployments.get(deployment_id)
             if canary:
                 canary.record_metric(metric_value, latency_ms, error_occurred)
@@ -1842,9 +1840,6 @@ class ModelRegistry(AbstractRegistry):
 
         """
         with self._lock:
-            if not hasattr(self, "_canary_deployments"):
-                return False, "no_canary_deployments"
-
             canary = self._canary_deployments.get(deployment_id)
             if not canary:
                 return False, "deployment_not_found"
@@ -1867,9 +1862,6 @@ class ModelRegistry(AbstractRegistry):
 
         """
         with self._lock:
-            if not hasattr(self, "_canary_deployments"):
-                return False, "no_canary_deployments"
-
             canary = self._canary_deployments.get(deployment_id)
             if not canary:
                 return False, "deployment_not_found"
@@ -1892,9 +1884,6 @@ class ModelRegistry(AbstractRegistry):
 
         """
         with self._lock:
-            if not hasattr(self, "_canary_deployments"):
-                return False
-
             canary = self._canary_deployments.get(deployment_id)
             if not canary:
                 return False
@@ -2018,9 +2007,7 @@ class ModelRegistry(AbstractRegistry):
 
             if config:
                 test_id = f"ab_test_{int(time.time())}"
-                # Store A/B test metrics tracking
-                if not hasattr(self, "_ab_test_metrics"):
-                    self._ab_test_metrics: dict[str, dict[str, list[float]]] = {}
+                # Store A/B test metrics tracking (dict already initialized in __init__)
                 self._ab_test_metrics[test_id] = {
                     model_a_id: [],
                     model_b_id: [],
@@ -2039,9 +2026,6 @@ class ModelRegistry(AbstractRegistry):
         Track metric for A/B test.
         """
         with self._lock:
-            if not hasattr(self, "_ab_test_metrics"):
-                return
-
             if test_id in self._ab_test_metrics:
                 if model_id in self._ab_test_metrics[test_id]:
                     self._ab_test_metrics[test_id][model_id].append(metric_value)
@@ -2062,9 +2046,6 @@ class ModelRegistry(AbstractRegistry):
 
         """
         with self._lock:
-            if not hasattr(self, "_ab_test_metrics"):
-                return None
-
             if test_id not in self._ab_test_metrics:
                 return None
 
@@ -2214,9 +2195,7 @@ class ModelRegistry(AbstractRegistry):
                 stage_duration_minutes=stage_duration_minutes,
             )
 
-            # Store rollout plan
-            if not hasattr(self, "_rollout_plans"):
-                self._rollout_plans: dict[str, RolloutPlan] = {}
+            # Store rollout plan (dict already initialized in __init__)
             self._rollout_plans[rollout_id] = rollout
 
             # Start first stage
@@ -2239,9 +2218,6 @@ class ModelRegistry(AbstractRegistry):
         Get rollout status.
         """
         with self._lock:
-            if not hasattr(self, "_rollout_plans"):
-                return None
-
             rollout = self._rollout_plans.get(rollout_id)
             if not rollout:
                 return None
@@ -2259,9 +2235,6 @@ class ModelRegistry(AbstractRegistry):
         Advance to next rollout stage.
         """
         with self._lock:
-            if not hasattr(self, "_rollout_plans"):
-                return False
-
             rollout = self._rollout_plans.get(rollout_id)
             if not rollout:
                 return False
