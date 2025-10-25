@@ -613,6 +613,9 @@ def bootstrap_datasets(
             json_registry._save_registry(immediate=True)
             print(f"    → Added contract (mode: {contract.enforcement_mode})")
 
+    # Flush registry to ensure all changes are persisted (especially during tests)
+    registry.flush()
+
     print(f"\n✅ Bootstrap complete! Registered {len(manifests)} datasets.")
     print(f"   Backend: {backend.value}")
     if backend == BackendType.JSON:

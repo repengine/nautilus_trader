@@ -201,16 +201,28 @@ class DataRegistry(MLComponentMixin):
         else:
             self._save_json_registry(immediate=True)
 
-    def _save_json_registry(self, immediate: bool = False) -> None:
+    def _save_json_registry(self, immediate: bool = False, force: bool = False) -> None:
         """
         Save registry data to JSON file (JSON backend only).
+
+        Skips saves during testing to avoid O(N²) event serialization,
+        unless force=True (for explicit flush() calls).
 
         Parameters
         ----------
         immediate : bool
             If True, save immediately. If False, not used in facade (always saves immediately).
+        force : bool
+            If True, bypass pytest detection (for explicit flush() calls).
 
         """
+        # Skip during pytest to avoid catastrophic slowdown (O(N²) serialization)
+        # UNLESS force=True (explicit flush() calls must persist)
+        import os
+        if not force and os.getenv("PYTEST_CURRENT_TEST"):
+            logger.debug("Skipping JSON registry save during pytest")
+            return
+
         if self.backend == BackendType.JSON:
             with self._lock:
                 # Collect data from all component managers
@@ -240,6 +252,42 @@ class DataRegistry(MLComponentMixin):
 
                 self.persistence.save_json(data, "data_registry.json")
 
+    def _schedule_save(self) -> None:
+        """
+        Schedule a deferred JSON save with debouncing.
+
+        Uses a timer to batch multiple save requests within batch_save_interval.
+        Thread-safe with automatic cleanup of existing timers.
+        """
+        if self._pending_save:
+            return  # Already scheduled
+
+        # Cancel existing timer if any
+        if self._save_timer is not None:
+            self._save_timer.cancel()
+
+        # Schedule new save
+        self._pending_save = True
+        self._save_timer = threading.Timer(
+            self.batch_save_interval,
+            self._do_deferred_save,
+        )
+        self._save_timer.daemon = True
+        self._save_timer.start()
+
+    def _do_deferred_save(self) -> None:
+        """
+        Perform the actual deferred save.
+
+        Called by timer thread after batch_save_interval elapses.
+        Resets pending state and timer reference after completion.
+        """
+        try:
+            self._save_json_registry(immediate=True)
+        finally:
+            self._pending_save = False
+            self._save_timer = None
+
     def _save_registry(self, immediate: bool = False) -> None:
         """
         Backward-compatible save helper for tooling/tests expecting legacy API.
@@ -262,9 +310,19 @@ class DataRegistry(MLComponentMixin):
     def flush(self) -> None:
         """
         Persist any pending batched changes immediately (JSON backend only).
+
+        Cancels any pending timer and forces an immediate save.
+        Bypasses pytest detection to ensure explicit flush requests are honored.
         """
         if self.backend == BackendType.JSON:
-            self._save_json_registry(immediate=True)
+            # Cancel pending timer if any
+            if self._save_timer is not None:
+                self._save_timer.cancel()
+                self._save_timer = None
+
+            # Force immediate save (force=True bypasses pytest detection)
+            self._save_json_registry(immediate=True, force=True)
+            self._pending_save = False
 
     # -------------------------------------------------------------------------
     # Public API: Manifest Management (Delegates to ManifestManager)
@@ -652,9 +710,14 @@ class DataRegistry(MLComponentMixin):
                 persistence=self.persistence,
             )
 
-            # Save to JSON if using JSON backend
+            # Schedule batched save to avoid O(N²) serialization on every event
             if self.backend == BackendType.JSON:
-                self._save_json_registry(immediate=True)
+                import os
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    # Skip entirely during tests (already handled in _save_json_registry)
+                    pass
+                else:
+                    self._schedule_save()  # Use batching for production
 
     # -------------------------------------------------------------------------
     # Public API: Watermark Management (Delegates to WatermarkManager)

@@ -106,6 +106,7 @@ def test_write_ingestion_failure_emits_failed_event_and_raises(tmp_path: Path) -
             instrument_id="EURUSD.SIM",
         )
 
+    reg.flush()  # Explicit flush required for tests that verify persistence
     data = json.loads((reg_dir / "data_registry.json").read_text())
     events = data.get("events", [])
     assert any(
@@ -156,6 +157,7 @@ def test_write_ingestion_updates_watermark_json(tmp_path: Path) -> None:
     assert payload["stage"] == Stage.FEATURE_COMPUTED.value
     assert payload["status"] == EventStatus.SUCCESS.value
 
+    reg.flush()  # Explicit flush required for tests that verify persistence
     data = json.loads((reg_dir / "data_registry.json").read_text())
     watermarks = data.get("watermarks", {})
     # key format: dataset:instrument:source

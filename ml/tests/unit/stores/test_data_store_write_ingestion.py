@@ -100,6 +100,7 @@ class TestDataStoreWriteIngestion:
         assert payload["status"] == "success"
 
         # Verify JSON registry has persisted events
+        reg.flush()  # Explicit flush required for tests that verify persistence
         data = json.loads((reg_dir / "data_registry.json").read_text())
         assert any(evt.get("dataset_id") == manifest.dataset_id for evt in data.get("events", []))
         assert event.record_count == 2

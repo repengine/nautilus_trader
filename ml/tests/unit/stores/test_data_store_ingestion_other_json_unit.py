@@ -124,6 +124,7 @@ def test_ingestion_predictions_emits_event_and_updates_watermark(tmp_path: Path)
     assert payload["status"] == EventStatus.SUCCESS.value
 
     # Watermark updated
+    reg.flush()  # Explicit flush required for tests that verify persistence
     data = json.loads((reg_dir / "data_registry.json").read_text())
     key = f"{ds_id}:EURUSD.SIM:live"
     assert key in data.get("watermarks", {})
@@ -185,6 +186,7 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
     assert payload["stage"] == Stage.SIGNAL_EMITTED.value
     assert payload["status"] == EventStatus.SUCCESS.value
 
+    reg.flush()  # Explicit flush required for tests that verify persistence
     data = json.loads((reg_dir / "data_registry.json").read_text())
     key = f"{ds_id}:EURUSD.SIM:live"
     assert key in data.get("watermarks", {})

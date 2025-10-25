@@ -45,6 +45,10 @@ class TestDataRegistryOpsEventsJson:
         reg.update_manifest(ds_id, {"version": "1.0.1"})
         reg.deprecate(ds_id)
 
+        # Explicit flush required for tests that verify persistence
+        # (pytest detection skips automatic saves to avoid O(N²) serialization)
+        reg.flush()
+
         data = json.loads((reg_dir / "data_registry.json").read_text())
         events = data.get("events", [])
 

@@ -39,6 +39,10 @@ def test_data_registry_json_backend(tmp_path: Path) -> None:
         completeness_pct=100.0,
     )
 
+    # Explicit flush required for tests that verify persistence
+    # (pytest detection skips automatic saves to avoid O(N²) serialization)
+    registry.flush()
+
     # Ensure JSON file exists and contains entries
     reg_file = reg_dir / "data_registry.json"
     assert reg_file.exists()

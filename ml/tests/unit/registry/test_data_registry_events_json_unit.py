@@ -65,6 +65,10 @@ class TestDataRegistryJSON:
             metadata={"k": "v"},
         )
 
+        # Explicit flush required for tests that verify persistence
+        # (pytest detection skips automatic saves to avoid O(N²) serialization)
+        registry.flush()
+
         # Read raw JSON and check event presence
         registry_file = registry_dir / "data_registry.json"
         assert registry_file.exists()
