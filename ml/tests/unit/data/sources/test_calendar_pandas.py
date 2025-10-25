@@ -44,20 +44,20 @@ class TestPandasCalendarSource:
         """
         Test initialization when pandas_market_calendars is unavailable.
         """
-        with patch("ml.data.sources.calendar.HAS_PANDAS_MARKET_CALENDARS", False):
-            source = PandasCalendarSource()
-            assert source._use_fallback is True
-            assert isinstance(source._fallback, SimpleCalendarSource)
+        # No patching needed - use force_fallback parameter
+        source = PandasCalendarSource(force_fallback=True)
+        assert source._use_fallback is True
+        assert isinstance(source._fallback, SimpleCalendarSource)
 
     def test_init_with_custom_fallback(self) -> None:
         """
         Test initialization with custom fallback source.
         """
         mock_fallback = MockCalendarSource()
-        with patch("ml.data.sources.calendar.HAS_PANDAS_MARKET_CALENDARS", False):
-            source = PandasCalendarSource(fallback_source=mock_fallback)
-            assert source._use_fallback is True
-            assert source._fallback is mock_fallback
+        # No patching needed - use force_fallback parameter
+        source = PandasCalendarSource(fallback_source=mock_fallback, force_fallback=True)
+        assert source._use_fallback is True
+        assert source._fallback is mock_fallback
 
     def test_init_with_custom_cache_ttl(self) -> None:
         """
@@ -71,15 +71,15 @@ class TestPandasCalendarSource:
         """
         Test that get_schedule uses fallback when pandas_market_calendars is disabled.
         """
-        with patch("ml.data.sources.calendar.HAS_PANDAS_MARKET_CALENDARS", False):
-            source = PandasCalendarSource()
-            dt = datetime(2024, 1, 15, 10, 30)  # Monday
-            schedule = source.get_schedule(dt, "NYSE")
+        # No patching needed - use force_fallback parameter
+        source = PandasCalendarSource(force_fallback=True)
+        dt = datetime(2024, 1, 15, 10, 30)  # Monday
+        schedule = source.get_schedule(dt, "NYSE")
 
-            # Should return SimpleCalendarSource results
-            assert isinstance(schedule, MarketSchedule)
-            assert schedule.is_trading_day is True
-            assert schedule.is_holiday is False
+        # Should return SimpleCalendarSource results
+        assert isinstance(schedule, MarketSchedule)
+        assert schedule.is_trading_day is True
+        assert schedule.is_holiday is False
 
     def test_exchange_mapping(self) -> None:
         """
@@ -230,15 +230,15 @@ class TestPandasCalendarSource:
         """
         Test getting holidays when using fallback source.
         """
-        with patch("ml.data.sources.calendar.HAS_PANDAS_MARKET_CALENDARS", False):
-            source = PandasCalendarSource()
+        # No patching needed - use force_fallback parameter
+        source = PandasCalendarSource(force_fallback=True)
 
-            start_date = datetime(2024, 1, 1)
-            end_date = datetime(2024, 1, 31)
-            holidays = source.get_holidays("NYSE", start_date, end_date)
+        start_date = datetime(2024, 1, 1)
+        end_date = datetime(2024, 1, 31)
+        holidays = source.get_holidays("NYSE", start_date, end_date)
 
-            # Fallback doesn't support holiday lists
-            assert holidays == []
+        # Fallback doesn't support holiday lists
+        assert holidays == []
 
     def test_extended_hours_settings(self) -> None:
         """
