@@ -217,6 +217,7 @@ from ml.data.l2_cache import L2MinuteCache
 
 # Data loaders
 from ml.data.micro_cache import MicroMinuteCache
+from ml.data.phase_one_signals import derive_phase_one_signals
 from ml.data.providers.base import CacheableProvider
 
 # Provider base classes and protocols
@@ -393,6 +394,10 @@ class DatasetBuildConfig:
     include_calendar: bool = False
     include_earnings: bool = False
     earnings_lag_days: int = 1
+    include_macro_deltas: bool = False
+    include_calendar_lags: bool = False
+    include_clustering_tags: bool = False
+    include_context_features: bool = False
     micro_base_dir: Path | None = None
     l2_base_dir: Path | None = None
     fred_vintage_dir: Path | None = None
@@ -471,6 +476,7 @@ class DatasetMetadata:
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
     capability_flags: dict[str, bool] = field(default_factory=dict)
     publication_lags: dict[str, int] = field(default_factory=dict)
+    phase_one_signals: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -617,6 +623,24 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         for key, value in capability_raw.items()
         if isinstance(key, str)
     }
+    publication_raw = raw.get("publication_lags") or {}
+    publication_lags = {}
+    for key, value in publication_raw.items():
+        if key is None:
+            continue
+        try:
+            publication_lags[str(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    phase_one_raw = raw.get("phase_one_signals") or {}
+    phase_one_signals: dict[str, tuple[str, ...]] = {}
+    if isinstance(phase_one_raw, Mapping):
+        for key, value in phase_one_raw.items():
+            if not isinstance(key, str):
+                continue
+            if isinstance(value, (list, tuple)):
+                entries = tuple(str(item) for item in value if isinstance(item, str))
+                phase_one_signals[key] = entries
 
     return DatasetMetadata(
         dataset_id=str(raw.get("dataset_id")) if raw.get("dataset_id") else None,
@@ -632,6 +656,8 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         macro_observation_counts=macro_counts,
         market_bindings=market_bindings,
         capability_flags=capability_flags,
+        publication_lags=publication_lags,
+        phase_one_signals=phase_one_signals,
     )
 
 
@@ -1223,6 +1249,7 @@ def _build_dataset_chunked(
             test_window=None,
             macro_observation_counts={},
             market_bindings=binding_metadata,
+            phase_one_signals={},
         )
         metadata_path = cfg.out_dir / "dataset_metadata.json"
         metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
@@ -1539,6 +1566,23 @@ def _compute_dataset_metadata(
             except (TypeError, ValueError):
                 continue
 
+    column_candidates: list[str] = []
+    if hasattr(df_pd_sorted, "columns"):
+        try:
+            column_candidates = [str(name) for name in df_pd_sorted.columns]
+        except Exception:  # pragma: no cover - defensive
+            column_candidates = []
+    phase_one_map = derive_phase_one_signals(column_candidates)
+    # Only add capability flags when corresponding columns are detected
+    if phase_one_map["macro_delta_columns"]:
+        capabilities["include_macro_deltas"] = True
+    if phase_one_map["calendar_lag_columns"]:
+        capabilities["include_calendar_lags"] = True
+    if phase_one_map["clustering_tag_columns"]:
+        capabilities["include_clustering_tags"] = True
+    if phase_one_map["context_feature_columns"]:
+        capabilities["include_context_features"] = True
+
     metadata = DatasetMetadata(
         dataset_id=dataset_id,
         vintage_policy=vintage_policy,
@@ -1553,6 +1597,7 @@ def _compute_dataset_metadata(
         macro_observation_counts=macro_counts,
         capability_flags=capabilities,
         publication_lags=lag_map,
+        phase_one_signals=phase_one_map,
     )
     return metadata
 
@@ -1595,6 +1640,9 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         payload["market_bindings"] = None
     payload["capability_flags"] = dict(metadata.capability_flags)
     payload["publication_lags"] = dict(metadata.publication_lags)
+    payload["phase_one_signals"] = {
+        key: list(values) for key, values in metadata.phase_one_signals.items()
+    }
     return payload
 
 
@@ -1729,6 +1777,10 @@ def build_tft_dataset(
         include_l2=cfg.include_l2,
         include_events=cfg.include_events,
         include_calendar=cfg.include_calendar,
+        include_macro_deltas=cfg.include_macro_deltas,
+        include_calendar_lags=cfg.include_calendar_lags,
+        include_clustering_tags=cfg.include_clustering_tags,
+        include_context_features=cfg.include_context_features,
         include_earnings=cfg.include_earnings,
         earnings_lag_days=cfg.earnings_lag_days,
         fred_path=fred_path_str,
@@ -1840,6 +1892,18 @@ def build_tft_dataset(
         "include_earnings": bool(getattr(builder, "include_earnings", cfg.include_earnings)),
         "include_micro": bool(getattr(builder, "include_micro", cfg.include_micro)),
         "include_l2": bool(getattr(builder, "include_l2", cfg.include_l2)),
+        "include_macro_deltas": bool(
+            getattr(builder, "include_macro_deltas", cfg.include_macro_deltas),
+        ),
+        "include_calendar_lags": bool(
+            getattr(builder, "include_calendar_lags", cfg.include_calendar_lags),
+        ),
+        "include_clustering_tags": bool(
+            getattr(builder, "include_clustering_tags", cfg.include_clustering_tags),
+        ),
+        "include_context_features": bool(
+            getattr(builder, "include_context_features", cfg.include_context_features),
+        ),
         "student_mode": bool(getattr(builder, "student_mode", cfg.student_mode)),
     }
     publication_lags = {
