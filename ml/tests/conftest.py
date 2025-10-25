@@ -188,6 +188,7 @@ DataStoreModuleFactory = Callable[[bool], ContextManager[ModuleType]]
 # Module reloading creates new Enum instances, breaking equality checks
 # Use mocking or factory patterns instead of environment-based reloading
 
+
 def _reload_data_store_module() -> ModuleType:
     """DEPRECATED: Do not use - causes enum identity issues.
 
@@ -268,8 +269,9 @@ def datastore_module(
     """
     Provide DataStore module for both component and legacy implementations.
 
-    Yields the dynamically reloaded module while toggling the appropriate
-    feature flags to ensure parity checks across tests.
+    Yields the dynamically reloaded module while toggling the appropriate feature flags
+    to ensure parity checks across tests.
+
     """
     with component_data_store_factory(use_component=datastore_variant) as module:
         yield module
@@ -333,23 +335,53 @@ def database_engine() -> Generator[Engine, None, None]:
     This prevents connection exhaustion by reusing the same engine
     across all tests. The engine is properly disposed at session end.
 
+    Pool Configuration:
+    - pool_size=5: Persistent connections for common operations
+    - max_overflow=10: Burst capacity for parallel fixture setup
+    - Total: 15 connections (sufficient for 61+ database tests)
+
+    Notes:
+    - pytest-xdist groups all database tests to single worker (xdist_group="db")
+    - Without xdist, tests run serially sharing this pool
+    - Pool tuned for both serial and parallel execution scenarios
+
     Following Martin Fowler's Test Pyramid principle:
     - Use a single shared connection for fast tests
     - Only integration tests get separate connections
 
     """
-    # Use conservative pooling for tests (prevents exhaustion)
+    import logging
+
     from ml.core.db_engine import EngineManager as _EM
+
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+        "Creating session-scoped database engine with pool_size=5, max_overflow=10",
+    )
 
     engine = _EM.get_engine(
         DATABASE_URL,
-        pool_size=2,  # Small pool for tests
-        max_overflow=3,  # Limited overflow
+        pool_size=5,  # Increased from 2 to accommodate serial test execution
+        max_overflow=10,  # Increased from 3 for burst capacity
         pool_pre_ping=True,  # Test connections before use
         pool_recycle=300,  # Recycle connections every 5 minutes
     )
 
     yield engine
+
+    # Log pool statistics before cleanup
+    try:
+        pool = engine.pool
+        logger.info(
+            f"Database engine pool stats before disposal: "
+            f"size={pool.size()}, "
+            f"checked_in={pool.checkedin()}, "
+            f"checked_out={pool.checkedout()}, "
+            f"overflow={pool.overflow()}",
+        )
+    except Exception:
+        pass  # Pool stats unavailable
 
     # Clean up at session end
     _EM.dispose_all()
@@ -1056,11 +1088,32 @@ def test_database() -> Generator[TestDatabase, None, None]:
     Provides a connection string and engine consistent with production usage while
     ensuring each test starts from a clean state and has required tables.
 
+    Cleanup behavior:
+        - Disposes all EngineManager cached engines BEFORE test to prevent singleton pollution
+        - Truncates ML tables before test for clean state
+        - Disposes all EngineManager cached engines AFTER test in finally block
+        - Calls db.cleanup() to close connections properly
+
     """
+    import logging as _logging
+
+    _logger = _logging.getLogger(__name__)
+
     if not is_postgresql_running():
         pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
 
     from ml.core.db_engine import EngineManager as _EM
+
+    # CRITICAL: Clear EngineManager cache before test to prevent singleton pollution
+    try:
+        _EM.dispose_all()
+        _logger.debug("EngineManager cache cleared before test")
+    except Exception as e:
+        _logger.warning(
+            "Failed to dispose EngineManager engines before test: %s",
+            e,
+            exc_info=True,
+        )
 
     engine = _EM.get_engine(
         DATABASE_URL,
@@ -1129,7 +1182,25 @@ def test_database() -> Generator[TestDatabase, None, None]:
     try:
         yield db
     finally:
-        db.cleanup()
+        try:
+            db.cleanup()
+        except Exception as e:
+            _logger.warning(
+                "TestDatabase cleanup failed: %s",
+                e,
+                exc_info=True,
+            )
+
+        # CRITICAL: Clear EngineManager cache after test to prevent singleton pollution
+        try:
+            _EM.dispose_all()
+            _logger.debug("EngineManager cache cleared after test")
+        except Exception as e:
+            _logger.warning(
+                "Failed to dispose EngineManager engines after test: %s",
+                e,
+                exc_info=True,
+            )
 
 
 @pytest.fixture
