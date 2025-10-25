@@ -565,14 +565,24 @@ def clean_postgres_db() -> Generator[None, None, None]:
     def _set_timeout(connection: Any) -> None:
         try:
             connection.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
-        except Exception:
-            pass
+        except Exception as e:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                f"Set statement timeout failed: {e}",
+                exc_info=True,
+            )
 
     def _truncate_and_verify(connection: Any) -> None:
         try:
             connection.rollback()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                f"Transaction rollback failed: {e}",
+                exc_info=True,
+            )
 
         result = connection.execute(
             text(
@@ -592,8 +602,13 @@ def clean_postgres_db() -> Generator[None, None, None]:
                 print(f"Warning during cleanup of {table}: {exc}")
                 try:
                     connection.rollback()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Transaction rollback failed: {e}",
+                        exc_info=True,
+                    )
 
         # Verify core tables are empty; retry once if necessary
         core_tables = ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values")
@@ -614,8 +629,13 @@ def clean_postgres_db() -> Generator[None, None, None]:
                     print(f"Retry cleanup warning for {table}: {exc}")
                     try:
                         connection.rollback()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        import logging as _logging
+
+                        _logging.getLogger(__name__).debug(
+                            f"Transaction rollback failed: {e}",
+                            exc_info=True,
+                        )
 
     try:
         with engine.connect() as conn:
@@ -675,13 +695,23 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
             with engine.connect() as conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Transaction rollback failed: {e}",
+                        exc_info=True,
+                    )
                 conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
                 try:
                     conn.execute(_text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Set statement timeout failed: {e}",
+                        exc_info=True,
+                    )
                 result = conn.execute(
                     _text(
                         """
@@ -773,8 +803,13 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                 conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
                 try:
                     conn.execute(_text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Set statement timeout failed: {e}",
+                        exc_info=True,
+                    )
                 result = conn.execute(
                     _text(
                         """
@@ -792,8 +827,13 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                         print(f"Warning during module-scope cleanup of {table}: {exc}")
                         try:
                             conn.rollback()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging as _logging
+
+                            _logging.getLogger(__name__).debug(
+                                f"Transaction rollback failed: {e}",
+                                exc_info=True,
+                            )
                 for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
                     try:
                         count = conn.execute(_text(f"SELECT COUNT(*) FROM {table}"))
@@ -807,8 +847,13 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                             print(f"Retry cleanup warning for {table}: {exc}")
                             try:
                                 conn.rollback()
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                import logging as _logging
+
+                                _logging.getLogger(__name__).debug(
+                                    f"Transaction rollback failed: {e}",
+                                    exc_info=True,
+                                )
                 conn.commit()
         except Exception as exc:
             print(f"clean_postgres_db_module cleanup skipped: {exc}")
@@ -869,8 +914,13 @@ def _truncate_store_tables(engine: Engine) -> None:
         for table in tables:
             try:
                 conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
-            except Exception:
-                pass
+            except Exception as e:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    f"Table truncation failed: {e}",
+                    exc_info=True,
+                )
 
 
 @pytest.fixture(scope="session")
@@ -957,8 +1007,13 @@ $$ LANGUAGE plpgsql;
                     """,
                 ),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                f"Operation failed: {e}",
+                exc_info=True,
+            )
 
     feature_store = _FeatureStore(**store_kwargs)
     model_store = _ModelStore(**store_kwargs)
@@ -979,26 +1034,46 @@ $$ LANGUAGE plpgsql;
         for store in (feature_store, model_store, strategy_store):
             try:
                 store.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    f"Store flush failed: {e}",
+                    exc_info=True,
+                )
             timer = getattr(store, "_timer", None)
             if timer is not None:
                 try:
                     timer.cancel()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Timer cancellation failed: {e}",
+                        exc_info=True,
+                    )
             # Reset internal state (buffers, caches) if method exists
             if hasattr(store, "reset"):
                 try:
                     store.reset()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Store reset failed: {e}",
+                        exc_info=True,
+                    )
             # Close connections if method exists
             if hasattr(store, "close"):
                 try:
                     store.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Store close failed: {e}",
+                        exc_info=True,
+                    )
 
         # Reset shared MagicMock call history to prevent pollution
         persistence_manager.reset_mock()
@@ -1010,6 +1085,8 @@ def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
     Reset shared stores before each test and return the bundle.
     """
 
+    import logging as _logging
+
     for store in (
         module_store_bundle.feature_store,
         module_store_bundle.model_store,
@@ -1017,10 +1094,185 @@ def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
     ):
         try:
             store.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            _logging.getLogger(__name__).debug(
+                f"Failed to flush store before test: {e}",
+                exc_info=True,
+            )
     _truncate_store_tables(module_store_bundle.engine)
     return module_store_bundle
+
+
+@pytest.fixture(scope="function")
+def fresh_store_bundle(
+    test_database: TestDatabase,
+) -> Generator[ModuleStoreBundle, None, None]:
+    """Provides fresh store instances per test with complete isolation.
+
+    Unlike `store_bundle` which wraps module-scoped stores, this fixture
+    creates NEW store instances for each test function, ensuring no shared
+    state (connections, caches, timers, buffers, registry) between tests.
+
+    Use Case:
+        - Unit tests requiring guaranteed isolation
+        - Tests sensitive to in-memory cache state
+        - Tests that fail intermittently due to execution order
+        - Debugging cross-test pollution issues
+
+    Performance:
+        ~10-30% slower than `store_bundle` due to per-test instantiation,
+        but provides complete isolation and prevents flaky failures.
+
+    Migration Guide:
+        Replace `store_bundle` with `fresh_store_bundle` in test signature:
+
+        # BEFORE (module-scoped sharing)
+        def test_my_feature(store_bundle):
+            store_bundle.feature_store.write_features(...)
+
+        # AFTER (function-scoped isolation)
+        def test_my_feature(fresh_store_bundle):
+            fresh_store_bundle.feature_store.write_features(...)
+
+    Cleanup:
+        Performs 5-step cleanup to prevent resource leaks:
+        1. Flush pending writes
+        2. Cancel background timers
+        3. Reset internal state
+        4. Close connections
+        5. Truncate tables
+
+    Args:
+        test_database: Function-scoped database fixture (NOT module-scoped)
+
+    Yields:
+        ModuleStoreBundle: Fresh store instances with guaranteed isolation
+
+    Example:
+        >>> def test_isolated_feature(fresh_store_bundle):
+        ...     # This test gets its own clean stores
+        ...     fresh_store_bundle.feature_store.write_features(...)
+        ...     # No pollution from previous tests
+    """
+    import logging
+
+    from ml.stores.feature_store import FeatureStore as _FeatureStore
+    from ml.stores.model_store import ModelStore as _ModelStore
+    from ml.stores.strategy_store import StrategyStore as _StrategyStore
+
+    logger = logging.getLogger(__name__)
+
+    # Create fresh mock persistence manager (no shared call history)
+    persistence_manager = MagicMock()
+    persistence_manager.connection_string = test_database.connection_string
+    persistence_manager.session = MagicMock()
+
+    # Setup partition function (same as module_store_bundle)
+    try:
+        with test_database.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE OR REPLACE FUNCTION create_partitions_if_needed()
+                    RETURNS trigger AS $$
+                    BEGIN RETURN NEW; END;
+                    $$ LANGUAGE plpgsql;
+                    """,
+                ),
+            )
+    except Exception as e:
+        logger.debug(
+            f"fresh_store_bundle: partition function setup failed: {e}",
+            exc_info=True,
+        )
+
+    # Store configuration (same as module_store_bundle for consistency)
+    store_kwargs: dict[str, Any] = {
+        "connection_string": test_database.connection_string,
+        "batch_size": 1,
+        "flush_interval_seconds": 1.0,
+        "persistence_manager": persistence_manager,
+    }
+
+    # Create fresh store instances (function-scoped, NOT module-scoped)
+    feature_store = _FeatureStore(**store_kwargs)
+    model_store = _ModelStore(**store_kwargs)
+    strategy_store = _StrategyStore(**store_kwargs)
+
+    bundle = ModuleStoreBundle(
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
+        persistence_manager=persistence_manager,
+        engine=test_database.engine,
+    )
+
+    try:
+        yield bundle
+    finally:
+        # 5-step cleanup for complete resource release
+
+        # Step 1: Flush pending writes
+        try:
+            bundle.feature_store.flush()
+            bundle.model_store.flush()
+            bundle.strategy_store.flush()
+        except Exception as e:
+            logger.debug(
+                f"fresh_store_bundle: flush failed during cleanup: {e}",
+                exc_info=True,
+            )
+
+        # Step 2: Cancel background timers (prevent thread leaks)
+        try:
+            if hasattr(bundle.feature_store, "_timer"):
+                bundle.feature_store._timer.cancel()
+            if hasattr(bundle.model_store, "_timer"):
+                bundle.model_store._timer.cancel()
+            if hasattr(bundle.strategy_store, "_timer"):
+                bundle.strategy_store._timer.cancel()
+        except Exception as e:
+            logger.debug(
+                f"fresh_store_bundle: timer cancellation failed: {e}",
+                exc_info=True,
+            )
+
+        # Step 3: Reset internal state (clears caches/buffers)
+        try:
+            if hasattr(bundle.feature_store, "reset"):
+                bundle.feature_store.reset()
+            if hasattr(bundle.model_store, "reset"):
+                bundle.model_store.reset()
+            if hasattr(bundle.strategy_store, "reset"):
+                bundle.strategy_store.reset()
+        except Exception as e:
+            logger.debug(
+                f"fresh_store_bundle: state reset failed: {e}",
+                exc_info=True,
+            )
+
+        # Step 4: Close connections (releases resources)
+        try:
+            if hasattr(bundle.feature_store, "close"):
+                bundle.feature_store.close()
+            if hasattr(bundle.model_store, "close"):
+                bundle.model_store.close()
+            if hasattr(bundle.strategy_store, "close"):
+                bundle.strategy_store.close()
+        except Exception as e:
+            logger.debug(
+                f"fresh_store_bundle: connection close failed: {e}",
+                exc_info=True,
+            )
+
+        # Step 5: Truncate tables (belt-and-suspenders cleanup)
+        try:
+            _truncate_store_tables(test_database.engine)
+        except Exception as e:
+            logger.debug(
+                f"fresh_store_bundle: table truncation failed: {e}",
+                exc_info=True,
+            )
 
 
 @pytest.fixture
@@ -1478,8 +1730,13 @@ def pytest_configure(config: pytest.Config) -> None:
 
         _os.environ.setdefault("ML_DISABLE_METRICS_SERVER", "1")
         _os.environ.setdefault("TEST_DB_SKIP_TRUNCATE", "1")
-    except Exception:
-        pass
+    except Exception as e:
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            f"Table truncation failed: {e}",
+            exc_info=True,
+        )
 
     # Check if xdist is available
     try:
@@ -1578,8 +1835,13 @@ def _acquire_db_lock(name: str = "db") -> Any:
     lock_dir = _Path.home() / ".nautilus" / "ml"
     try:
         lock_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            f"Operation failed: {e}",
+            exc_info=True,
+        )
     lock_path = lock_dir / f"pytest_{name}.lock"
     fh = open(lock_path, "a+")
     # Attempt non-blocking acquisition with timeout to avoid indefinite hangs
@@ -1614,8 +1876,13 @@ def _acquire_db_lock(name: str = "db") -> Any:
                 fh.truncate()
                 fh.write(str(_os.getpid()))
                 fh.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    f"Store flush failed: {e}",
+                    exc_info=True,
+                )
             return fh
         except OSError as e:  # pragma: no cover - contention path
             if e.errno not in (errno.EAGAIN, errno.EACCES):
@@ -1632,14 +1899,24 @@ def _acquire_db_lock(name: str = "db") -> Any:
                     fh.seek(0)
                     fh.truncate()
                     fh.flush()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Store flush failed: {e}",
+                        exc_info=True,
+                    )
 
             if _time.monotonic() >= deadline:
                 try:
                     fh.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Store close failed: {e}",
+                        exc_info=True,
+                    )
                 return None
 
             _time.sleep(0.1)
@@ -1651,8 +1928,13 @@ def _release_db_lock(fh: Any) -> None:
     finally:
         try:
             fh.close()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                f"Store close failed: {e}",
+                exc_info=True,
+            )
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
@@ -1760,8 +2042,13 @@ def pytest_sessionstart(session):
                     _eng = _EM.get_engine(DATABASE_URL)
                     with _eng.begin() as _conn:
                         _conn.execute(_text("SELECT auto_create_partitions()"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        f"Partition function creation failed: {e}",
+                        exc_info=True,
+                    )
                 # Re-run preflight to surface final status
                 status = check_db_prereqs(DATABASE_URL)
                 print(f"Warning: DB preflight failed: {status}")
@@ -1878,6 +2165,7 @@ __all__ = [
     "database_session",
     "database_session_factory",
     "database_snapshot",
+    "fresh_store_bundle",
     "hypothesis_database_session",
     "isolated_engine",
     "postgres_connection",
