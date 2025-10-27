@@ -20,6 +20,7 @@ from sqlalchemy import cast as sa_cast
 from sqlalchemy import column as sa_column
 from sqlalchemy import distinct
 from sqlalchemy import func
+from sqlalchemy import literal
 from sqlalchemy import select
 from sqlalchemy import table as sa_table
 from sqlalchemy.sql.elements import ColumnElement
@@ -428,16 +429,18 @@ class StrategySignalStatsService:
             func.count().label("total_signals"),
             func.count(distinct(signals_table.c.strategy_id)).label("unique_strategies"),
             func.count(distinct(signals_table.c.instrument_id)).label("unique_instruments"),
-            func.sum(case((signals_table.c.signal_type == "BUY", 1), else_=0)).label("buy_signals"),
-            func.sum(case((signals_table.c.signal_type == "SELL", 1), else_=0)).label("sell_signals"),
-            func.sum(case((signals_table.c.signal_type == "HOLD", 1), else_=0)).label("hold_signals"),
+            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_signals"),
+            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_signals"),
+            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_signals"),
             func.avg(signals_table.c.strength).label("avg_strength"),
             func.min(signals_table.c.ts_event).label("min_ts"),
             func.max(signals_table.c.ts_event).label("max_ts"),
         )
         for condition in conditions:
             query = query.where(condition)
-        row = self.deps._fetch_one(query, params)
+        # Execute SQLAlchemy query directly to preserve bind parameter values
+        with self.deps.engine.connect() as conn:
+            row = conn.execute(query, params).fetchone()
         if row:
             return {
                 "total_signals": row[0] or 0,
@@ -530,9 +533,9 @@ class StrategySignalStatsService:
         params2["strategy_id"] = strategy_id
         query: Select[Any] = select(
             func.count().label("signal_count"),
-            func.sum(case((signals_table.c.signal_type == "BUY", 1), else_=0)).label("buy_count"),
-            func.sum(case((signals_table.c.signal_type == "SELL", 1), else_=0)).label("sell_count"),
-            func.sum(case((signals_table.c.signal_type == "HOLD", 1), else_=0)).label("hold_count"),
+            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_count"),
+            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_count"),
+            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_count"),
             func.avg(signals_table.c.strength).label("avg_strength"),
             func.stddev(signals_table.c.strength).label("std_strength"),
             func.min(signals_table.c.strength).label("min_strength"),
@@ -540,7 +543,9 @@ class StrategySignalStatsService:
         ).where(signals_table.c.strategy_id == bindparam("strategy_id"))
         for condition in time_conditions:
             query = query.where(condition)
-        row = self.deps._fetch_one(query, params2)
+        # Execute SQLAlchemy query directly to preserve bind parameter values
+        with self.deps.engine.connect() as conn:
+            row = conn.execute(query, params2).fetchone()
         if row:
             return {
                 "signal_count": row[0] or 0,
@@ -590,9 +595,9 @@ class StrategySignalStatsService:
             query: Select[Any] = (
                 select(
                     func.count().label("signal_count"),
-                    func.sum(case((signals_table.c.signal_type == "BUY", 1), else_=0)).label("buy_count"),
-                    func.sum(case((signals_table.c.signal_type == "SELL", 1), else_=0)).label("sell_count"),
-                    func.sum(case((signals_table.c.signal_type == "HOLD", 1), else_=0)).label("hold_count"),
+                    func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_count"),
+                    func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_count"),
+                    func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_count"),
                     func.avg(signals_table.c.strength).label("avg_strength"),
                     func.avg(risk_score_expr).label("avg_risk_score"),
                 )
