@@ -43,6 +43,9 @@ def test_bootstrap_datasets_postgres_registers_earnings(monkeypatch: pytest.Monk
             self.registered.append(manifest.dataset_id)
             return manifest.dataset_id
 
+        def flush(self) -> None:  # pragma: no cover - simple stub
+            """Flush stub - no-op for test stub."""
+
     monkeypatch.setenv("NAUTILUS_REGISTRY_DB_URL", "postgresql://registry")
     monkeypatch.setattr("ml.registry.bootstrap_datasets.DataRegistry", _StubRegistry)
     monkeypatch.setattr("ml.registry.data_registry.DataRegistry", _StubRegistry)
