@@ -6,6 +6,7 @@ preserving the public API and behavior. Services are dependency-injected with a 
 protocol that the facade already satisfies via existing mixins.
 
 Phase 1 scope: internal refactor only — no public API changes.
+
 """
 
 from __future__ import annotations
@@ -40,7 +41,9 @@ from ml.stores.services.common_stats import resolve_table_name as _resolve_table
 
 
 def _strategy_signals_table(table_name: str) -> TableClause:
-    """Return a lightweight SQLAlchemy table clause for strategy signals."""
+    """
+    Return a lightweight SQLAlchemy table clause for strategy signals.
+    """
     schema: str | None = None
     table_id = table_name
     if "." in table_name:
@@ -66,7 +69,9 @@ def _time_filter_conditions(
     start_ns: int | None,
     end_ns: int | None,
 ) -> tuple[list[ColumnElement[bool]], dict[str, int]]:
-    """Build SQLAlchemy conditions and params for timestamp bounds."""
+    """
+    Build SQLAlchemy conditions and params for timestamp bounds.
+    """
     conditions: list[ColumnElement[bool]] = []
     params: dict[str, int] = {}
     if start_ns is not None:
@@ -83,7 +88,9 @@ def _time_filter_conditions(
 
 @dataclass(slots=True)
 class StrategySignalWriteService:
-    """Pure persistence for strategy signals."""
+    """
+    Pure persistence for strategy signals.
+    """
 
     deps: StrategyWriteDepsStrict
     logger: LoggerLike
@@ -106,7 +113,7 @@ class StrategySignalWriteService:
                     "risk_metrics": item.risk_metrics if item.risk_metrics else None,
                     "execution_params": item.execution_params if item.execution_params else None,
                     "is_live": getattr(item, "is_live", False),
-                }
+                },
             )
 
         # Preserve historical patch point used by tests: if the deps object
@@ -154,7 +161,9 @@ class StrategySignalWriteService:
 
 @dataclass(slots=True)
 class StrategySignalQueryService:
-    """Read/query operations for strategy signals."""
+    """
+    Read/query operations for strategy signals.
+    """
 
     deps: StrategyReadDepsStrict
 
@@ -313,20 +322,17 @@ class StrategySignalQueryService:
             allowed={"ml_strategy_signals"},
         )
         signals_table = _strategy_signals_table(table_name)
-        sql: Select[Any] = (
-            select(
-                signals_table.c.strategy_id,
-                signals_table.c.instrument_id,
-                signals_table.c.signal_type,
-                signals_table.c.strength,
-                signals_table.c.model_predictions,
-                signals_table.c.risk_metrics,
-                signals_table.c.execution_params,
-                signals_table.c.ts_event,
-                signals_table.c.ts_init,
-            )
-            .where(signals_table.c.ts_event >= bindparam("start_ns"))
-        )
+        sql: Select[Any] = select(
+            signals_table.c.strategy_id,
+            signals_table.c.instrument_id,
+            signals_table.c.signal_type,
+            signals_table.c.strength,
+            signals_table.c.model_predictions,
+            signals_table.c.risk_metrics,
+            signals_table.c.execution_params,
+            signals_table.c.ts_event,
+            signals_table.c.ts_init,
+        ).where(signals_table.c.ts_event >= bindparam("start_ns"))
         if strategy_id is not None:
             sql = sql.where(signals_table.c.strategy_id == bindparam("strategy_id"))
         if instrument_id is not None:
@@ -408,11 +414,15 @@ class StrategySignalQueryService:
 
 @dataclass(slots=True)
 class StrategySignalStatsService:
-    """Aggregate/statistical read operations for strategy signals."""
+    """
+    Aggregate/statistical read operations for strategy signals.
+    """
 
     deps: StrategyReadDepsStrict
 
-    def get_statistics(self, *, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, object]:
+    def get_statistics(
+        self, *, start_ns: int | None = None, end_ns: int | None = None
+    ) -> dict[str, object]:
         table_name = _resolve_table_name(
             self.deps,
             attr="strategy_signals_table",
@@ -429,18 +439,30 @@ class StrategySignalStatsService:
             func.count().label("total_signals"),
             func.count(distinct(signals_table.c.strategy_id)).label("unique_strategies"),
             func.count(distinct(signals_table.c.instrument_id)).label("unique_instruments"),
-            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_signals"),
-            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_signals"),
-            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_signals"),
+            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label(
+                "buy_signals"
+            ),
+            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label(
+                "sell_signals"
+            ),
+            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label(
+                "hold_signals"
+            ),
             func.avg(signals_table.c.strength).label("avg_strength"),
             func.min(signals_table.c.ts_event).label("min_ts"),
             func.max(signals_table.c.ts_event).label("max_ts"),
         )
         for condition in conditions:
             query = query.where(condition)
-        # Execute SQLAlchemy query directly to preserve bind parameter values
-        with self.deps.engine.connect() as conn:
-            row = conn.execute(query, params).fetchone()
+        # Protocol-first pattern: use engine if available (preserves bind params from literal()),
+        # otherwise fall back to _fetch_one (for test stubs/NoOp stores)
+        engine = getattr(self.deps, "engine", None)
+        if engine is not None:
+            with engine.connect() as conn:
+                row = conn.execute(query, params).fetchone()
+        else:
+            # Test stub path - _fetch_one will handle query conversion
+            row = self.deps._fetch_one(query, params)
         if row:
             return {
                 "total_signals": row[0] or 0,
@@ -533,9 +555,15 @@ class StrategySignalStatsService:
         params2["strategy_id"] = strategy_id
         query: Select[Any] = select(
             func.count().label("signal_count"),
-            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_count"),
-            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_count"),
-            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_count"),
+            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label(
+                "buy_count"
+            ),
+            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label(
+                "sell_count"
+            ),
+            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label(
+                "hold_count"
+            ),
             func.avg(signals_table.c.strength).label("avg_strength"),
             func.stddev(signals_table.c.strength).label("std_strength"),
             func.min(signals_table.c.strength).label("min_strength"),
@@ -543,9 +571,15 @@ class StrategySignalStatsService:
         ).where(signals_table.c.strategy_id == bindparam("strategy_id"))
         for condition in time_conditions:
             query = query.where(condition)
-        # Execute SQLAlchemy query directly to preserve bind parameter values
-        with self.deps.engine.connect() as conn:
-            row = conn.execute(query, params2).fetchone()
+        # Protocol-first pattern: use engine if available (preserves bind params from literal()),
+        # otherwise fall back to _fetch_one (for test stubs/NoOp stores)
+        engine = getattr(self.deps, "engine", None)
+        if engine is not None:
+            with engine.connect() as conn:
+                row = conn.execute(query, params2).fetchone()
+        else:
+            # Test stub path - _fetch_one will handle query conversion
+            row = self.deps._fetch_one(query, params2)
         if row:
             return {
                 "signal_count": row[0] or 0,
@@ -595,9 +629,15 @@ class StrategySignalStatsService:
             query: Select[Any] = (
                 select(
                     func.count().label("signal_count"),
-                    func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label("buy_count"),
-                    func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label("sell_count"),
-                    func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label("hold_count"),
+                    func.sum(
+                        case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)
+                    ).label("buy_count"),
+                    func.sum(
+                        case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)
+                    ).label("sell_count"),
+                    func.sum(
+                        case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)
+                    ).label("hold_count"),
                     func.avg(signals_table.c.strength).label("avg_strength"),
                     func.avg(risk_score_expr).label("avg_risk_score"),
                 )
@@ -648,7 +688,9 @@ class StrategySignalStatsService:
 
 @dataclass(slots=True)
 class StrategySignalEventService:
-    """Event emission service for strategy signals (registry/metrics)."""
+    """
+    Event emission service for strategy signals (registry/metrics).
+    """
 
     deps: StrategyEventDepsStrict
     logger: LoggerLike
@@ -859,7 +901,9 @@ class StrategySignalEventService:
 
 @dataclass(slots=True)
 class StrategySignalClearService:
-    """Deletion/cleanup operations for strategy signals."""
+    """
+    Deletion/cleanup operations for strategy signals.
+    """
 
     deps: StrategyClearDepsStrict
 
