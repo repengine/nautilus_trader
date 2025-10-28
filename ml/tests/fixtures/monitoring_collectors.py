@@ -92,10 +92,21 @@ def mock_prometheus_when_unavailable() -> Any:
         yield None
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 def prometheus_registry_cleanup() -> Any:
-    """
-    Clean up Prometheus registry after each test to prevent conflicts.
+    """Clean up Prometheus registry after each test (opt-in only).
+
+    This fixture unregisters metrics created during a test to prevent
+    registry conflicts. Only use this fixture in tests that explicitly
+    need registry isolation.
+
+    WARNING: This fixture was changed from autouse=True to opt-in
+    to prevent destructive cleanup of metrics needed by subsequent tests.
+    Most tests should use unique metric names instead of relying on cleanup.
+
+    Usage:
+        def test_something(prometheus_registry_cleanup):
+            # Your test code here
     """
 
     names_before: set[str] = set()

@@ -164,6 +164,21 @@ def get_gauge(
 _DEFAULT_METRICS_IMPORTED = False
 
 
+def reset_metrics_cache() -> None:
+    """
+    Reset module-level metrics cache for test isolation.
+
+    This function clears the metrics cache and reset flags to ensure
+    tests start with a clean metrics state. Only intended for test use.
+
+    WARNING: This does not unregister collectors from the Prometheus registry.
+    For complete isolation, tests should use fresh registry fixtures.
+    """
+    global _METRICS, _DEFAULT_METRICS_IMPORTED
+    _METRICS.clear()
+    _DEFAULT_METRICS_IMPORTED = False
+
+
 def _truthy(value: str | None) -> bool:
     if value is None:
         return False
@@ -190,4 +205,4 @@ def ensure_default_metrics_registered() -> None:
 
 ensure_default_metrics_registered()
 
-__all__ = ["HAS_METRICS_BACKEND", "ensure_default_metrics_registered", "get_counter", "get_gauge", "get_histogram"]
+__all__ = ["HAS_METRICS_BACKEND", "ensure_default_metrics_registered", "get_counter", "get_gauge", "get_histogram", "reset_metrics_cache"]

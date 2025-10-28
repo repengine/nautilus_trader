@@ -933,6 +933,10 @@ def module_test_database() -> Generator[TestDatabase, None, None]:
         pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
 
     from ml.core.db_engine import EngineManager as _EM
+    from ml.tests.fixtures.database_fixtures import _SCHEMA_INITIALIZED
+
+    # Clear schema initialization tracking to prevent stale state
+    _SCHEMA_INITIALIZED.clear()
 
     engine = _EM.get_engine(
         DATABASE_URL,
@@ -966,9 +970,13 @@ def module_store_bundle(
     Create shared Feature/Model/Strategy stores backed by PostgreSQL.
     """
 
+    from ml.core.db_engine import EngineManager as _EM
     from ml.stores.feature_store import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
+
+    # Clear singleton engine cache before creating stores
+    _EM.dispose_all()
 
     persistence_manager = MagicMock()
     persistence_manager.connection_string = module_test_database.connection_string
@@ -1077,6 +1085,9 @@ $$ LANGUAGE plpgsql;
 
         # Reset shared MagicMock call history to prevent pollution
         persistence_manager.reset_mock()
+
+        # Clear singleton engine cache after destroying stores
+        _EM.dispose_all()
 
 
 @pytest.fixture
@@ -1366,6 +1377,11 @@ def test_database() -> Generator[TestDatabase, None, None]:
             e,
             exc_info=True,
         )
+
+    # CRITICAL: Clear schema initialization tracking to prevent state poisoning
+    from ml.tests.fixtures.database_fixtures import _SCHEMA_INITIALIZED
+    _SCHEMA_INITIALIZED.clear()
+    _logger.debug("Schema initialization tracking cleared")
 
     engine = _EM.get_engine(
         DATABASE_URL,
