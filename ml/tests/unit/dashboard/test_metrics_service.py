@@ -256,29 +256,28 @@ class TestIngestionSnapshot:
             mock_engine.connect.return_value.__enter__.return_value = mock_conn
 
             # Mock ingestion query results
-            mock_rows = [
-                MagicMock(
-                    _mapping={
-                        "dataset_id": "bars_1min",
-                        "total_count": 3000,
-                        "success_count": 2950,
-                    },
-                ),
-                MagicMock(
-                    _mapping={
-                        "dataset_id": "quotes_tick",
-                        "total_count": 15000,
-                        "success_count": 14800,
-                    },
-                ),
-                MagicMock(
-                    _mapping={
-                        "dataset_id": "l2_updates",
-                        "total_count": 9000,
-                        "success_count": 8900,
-                    },
-                ),
-            ]
+            mock_bar_row = MagicMock()
+            mock_bar_row._mapping = {
+                "dataset_id": "bars_1min",
+                "total_count": 3000,
+                "success_count": 2950,
+            }
+
+            mock_quote_row = MagicMock()
+            mock_quote_row._mapping = {
+                "dataset_id": "quotes_tick",
+                "total_count": 15000,
+                "success_count": 14800,
+            }
+
+            mock_l2_row = MagicMock()
+            mock_l2_row._mapping = {
+                "dataset_id": "l2_updates",
+                "total_count": 9000,
+                "success_count": 8900,
+            }
+
+            mock_rows = [mock_bar_row, mock_quote_row, mock_l2_row]
 
             mock_conn.execute.return_value.fetchall.return_value = mock_rows
             mock_get_engine.return_value = mock_engine
