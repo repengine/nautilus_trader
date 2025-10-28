@@ -1053,6 +1053,7 @@ $$ LANGUAGE plpgsql;
             if timer is not None:
                 try:
                     timer.cancel()
+                    timer.join()  # Wait for thread to actually finish to prevent hangs
                 except Exception as e:
                     import logging as _logging
 
@@ -1234,14 +1235,17 @@ def fresh_store_bundle(
                 exc_info=True,
             )
 
-        # Step 2: Cancel background timers (prevent thread leaks)
+        # Step 2: Cancel background timers and wait for threads to finish (prevent thread leaks and hangs)
         try:
             if hasattr(bundle.feature_store, "_timer"):
                 bundle.feature_store._timer.cancel()
+                bundle.feature_store._timer.join()  # Wait for thread to actually finish
             if hasattr(bundle.model_store, "_timer"):
                 bundle.model_store._timer.cancel()
+                bundle.model_store._timer.join()  # Wait for thread to actually finish
             if hasattr(bundle.strategy_store, "_timer"):
                 bundle.strategy_store._timer.cancel()
+                bundle.strategy_store._timer.join()  # Wait for thread to actually finish
         except Exception as e:
             logger.debug(
                 f"fresh_store_bundle: timer cancellation failed: {e}",
