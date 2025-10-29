@@ -1119,7 +1119,8 @@ def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
 def fresh_store_bundle(
     test_database: TestDatabase,
 ) -> Generator[ModuleStoreBundle, None, None]:
-    """Provides fresh store instances per test with complete isolation.
+    """
+    Provides fresh store instances per test with complete isolation.
 
     Unlike `store_bundle` which wraps module-scoped stores, this fixture
     creates NEW store instances for each test function, ensuring no shared
@@ -1165,6 +1166,7 @@ def fresh_store_bundle(
         ...     # This test gets its own clean stores
         ...     fresh_store_bundle.feature_store.write_features(...)
         ...     # No pollution from previous tests
+
     """
     import logging
 
@@ -1384,6 +1386,7 @@ def test_database() -> Generator[TestDatabase, None, None]:
 
     # CRITICAL: Clear schema initialization tracking to prevent state poisoning
     from ml.tests.fixtures.database_fixtures import _SCHEMA_INITIALIZED
+
     _SCHEMA_INITIALIZED.clear()
     _logger.debug("Schema initialization tracking cleared")
 
@@ -1743,6 +1746,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "database: requires PostgreSQL; may run serially")
     config.addinivalue_line("markers", "serial: run test in isolation (no xdist)")
     config.addinivalue_line("markers", "integration: integration test category")
+    config.addinivalue_line(
+        "markers", "pollution_detection: tests that detect test isolation pollution"
+    )
 
     # Ensure key env defaults for deterministic, DB-safe unit runs
     try:
@@ -1977,9 +1983,34 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 
 def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:
+    """
+    Clean up test isolation pollution and release DB locks after each test.
+
+    This hook runs after each test to:
+    1. Release database locks (existing behavior)
+    2. Clean up EngineManager cache to prevent accumulation (new)
+    3. Clear schema initialization tracking to prevent unbounded growth (new)
+
+    The cleanup is conditional - only runs for pollution_detection tests or
+    when TEST_AGGRESSIVE_CLEANUP environment variable is set.
+
+    """
+    # Existing DB lock cleanup
     if item.nodeid in _DB_LOCK_FH:
         fh = _DB_LOCK_FH.pop(item.nodeid)
         _release_db_lock(fh)
+
+    # New: Pollution detection cleanup
+    # Only perform cleanup for pollution_detection tests or when explicitly requested
+    if "pollution_detection" in item.nodeid or os.getenv("TEST_AGGRESSIVE_CLEANUP"):
+        from ml.core.db_engine import EngineManager as _EM
+        from ml.tests.fixtures.database_fixtures import _SCHEMA_INITIALIZED
+
+        # Dispose engines created during this test
+        _EM.dispose_all()
+
+        # Clear schema tracking to prevent unbounded growth
+        _SCHEMA_INITIALIZED.clear()
 
 
 def pytest_sessionstart(session):
@@ -2093,8 +2124,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     # Final cleanup of all database connections.
     from ml.core.db_engine import EngineManager as _EM
+    from ml.tests.fixtures.database_fixtures import _SCHEMA_INITIALIZED
 
     _EM.dispose_all()
+
+    # Clear schema initialization tracking to prevent accumulation across test sessions
+    _SCHEMA_INITIALIZED.clear()
 
     # Log session summary, tolerating closed logging streams during shutdown.
     import logging
