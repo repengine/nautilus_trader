@@ -262,10 +262,9 @@ class DataRegistry(MLComponentMixin):
         if self._pending_save:
             return  # Already scheduled
 
-        # Cancel existing timer if any
+        # Cancel existing timer if any (no join - hot path optimization)
         if self._save_timer is not None:
             self._save_timer.cancel()
-            self._save_timer.join()  # Wait for thread to actually finish
 
         # Schedule new save
         self._pending_save = True

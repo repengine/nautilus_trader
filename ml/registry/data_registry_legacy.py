@@ -479,10 +479,9 @@ class DataRegistryLegacy(MLComponentMixin):
         with self._lock:
             # For very small batch intervals (e.g., tests), flush immediately
             if immediate or (self.backend == BackendType.JSON and self.batch_save_interval <= 0.02):
-                # Cancel any pending batch save
+                # Cancel any pending batch save (no join - hot path optimization)
                 if self._save_timer is not None:
                     self._save_timer.cancel()
-                    self._save_timer.join()  # Wait for thread to actually finish
                     self._save_timer = None
                 self._pending_save = False
 
@@ -493,10 +492,9 @@ class DataRegistryLegacy(MLComponentMixin):
                 if not self._pending_save:
                     self._pending_save = True
 
-                    # Cancel existing timer if any
+                    # Cancel existing timer if any (no join - hot path optimization)
                     if self._save_timer is not None:
                         self._save_timer.cancel()
-                        self._save_timer.join()  # Wait for thread to actually finish
 
                     # Schedule new save
                     self._save_timer = threading.Timer(
