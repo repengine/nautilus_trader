@@ -226,11 +226,11 @@ class ModelQueryService:
             )
             .where(predictions_table.c.model_id == bindparam("model_id"))
         )
-        params: dict[str, object] = {"model_id": model_id}
+        params: dict[str, object] = {"model_id": model_id, "limit_val": int(limit)}
         if instrument_id is not None:
             sql = sql.where(predictions_table.c.instrument_id == bindparam("instrument_id"))
             params["instrument_id"] = instrument_id
-        sql = sql.order_by(predictions_table.c.ts_event.desc()).limit(int(limit))
+        sql = sql.order_by(predictions_table.c.ts_event.desc()).limit(bindparam("limit_val"))
         return self.deps._execute_read(
             sql,
             params,
@@ -308,9 +308,9 @@ class ModelQueryService:
             )
             .where(predictions_table.c.instrument_id == bindparam("instrument_id"))
             .order_by(predictions_table.c.ts_event.desc())
-            .limit(int(limit))
+            .limit(bindparam("limit_val"))
         )
-        params: dict[str, object] = {"instrument_id": instrument_id}
+        params: dict[str, object] = {"instrument_id": instrument_id, "limit_val": int(limit)}
         return self.deps._execute_read(
             sql,
             params,

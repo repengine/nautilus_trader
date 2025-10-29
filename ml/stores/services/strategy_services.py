@@ -282,8 +282,8 @@ class StrategySignalQueryService:
         ).where(
             signals_table.c.instrument_id == bindparam("instrument_id"),
         )
-        stmt = stmt.order_by(signals_table.c.ts_event.desc()).limit(int(limit))
-        params: dict[str, object] = {"instrument_id": instrument_id}
+        stmt = stmt.order_by(signals_table.c.ts_event.desc()).limit(bindparam("limit_val"))
+        params: dict[str, object] = {"instrument_id": instrument_id, "limit_val": int(limit)}
         return self.deps._execute_read(
             stmt,
             params,
@@ -309,7 +309,7 @@ class StrategySignalQueryService:
         now_ns: int = int(_time.time() * 1e9)
         start_ns: int = int(now_ns - hours_back * 3600 * 1e9)
 
-        params: dict[str, Any] = {"start_ns": start_ns}
+        params: dict[str, Any] = {"start_ns": start_ns, "limit_val": int(limit)}
         if strategy_id is not None:
             params["strategy_id"] = strategy_id
         if instrument_id is not None:
@@ -337,7 +337,7 @@ class StrategySignalQueryService:
             sql = sql.where(signals_table.c.strategy_id == bindparam("strategy_id"))
         if instrument_id is not None:
             sql = sql.where(signals_table.c.instrument_id == bindparam("instrument_id"))
-        sql = sql.order_by(signals_table.c.ts_event.desc()).limit(int(limit))
+        sql = sql.order_by(signals_table.c.ts_event.desc()).limit(bindparam("limit_val"))
         return self.deps._execute_read(
             sql,
             params,
@@ -439,13 +439,13 @@ class StrategySignalStatsService:
             func.count().label("total_signals"),
             func.count(distinct(signals_table.c.strategy_id)).label("unique_strategies"),
             func.count(distinct(signals_table.c.instrument_id)).label("unique_instruments"),
-            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label(
+            func.sum(case((signals_table.c.signal_type == "BUY", 1), else_=0)).label(
                 "buy_signals"
             ),
-            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label(
+            func.sum(case((signals_table.c.signal_type == "SELL", 1), else_=0)).label(
                 "sell_signals"
             ),
-            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label(
+            func.sum(case((signals_table.c.signal_type == "HOLD", 1), else_=0)).label(
                 "hold_signals"
             ),
             func.avg(signals_table.c.strength).label("avg_strength"),
@@ -454,7 +454,7 @@ class StrategySignalStatsService:
         )
         for condition in conditions:
             query = query.where(condition)
-        # Protocol-first pattern: use engine if available (preserves bind params from literal()),
+        # Protocol-first pattern: use engine if available,
         # otherwise fall back to _fetch_one (for test stubs/NoOp stores)
         engine = getattr(self.deps, "engine", None)
         if engine is not None:
@@ -511,12 +511,22 @@ class StrategySignalStatsService:
             time_conditions.append(signals_table.c.strategy_id == bindparam("strategy_id"))
             params2["strategy_id"] = strategy_id
         elif not time_conditions:
-            latest_row = self.deps._fetch_one(
-                select(signals_table.c.strategy_id)
-                .order_by(signals_table.c.ts_event.desc())
-                .limit(1),
-                {},
-            )
+            # Use engine directly to avoid bind param issues with limit()
+            engine = getattr(self.deps, "engine", None)
+            if engine is not None:
+                with engine.connect() as conn:
+                    latest_row = conn.execute(
+                        select(signals_table.c.strategy_id)
+                        .order_by(signals_table.c.ts_event.desc())
+                        .limit(1)
+                    ).fetchone()
+            else:
+                # Fallback for test stubs: fetch all and take first in Python
+                all_rows = self.deps._fetch_all(
+                    select(signals_table.c.strategy_id).order_by(signals_table.c.ts_event.desc()),
+                    {},
+                )
+                latest_row = all_rows[0] if all_rows else None
             if latest_row and latest_row[0] is not None:
                 time_conditions.append(signals_table.c.strategy_id == bindparam("strategy_id"))
                 params2["strategy_id"] = str(latest_row[0])
