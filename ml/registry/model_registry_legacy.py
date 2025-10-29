@@ -218,6 +218,7 @@ class ModelRegistry(AbstractRegistry):
                 # Cancel any pending batch save
                 if self._save_timer is not None:
                     self._save_timer.cancel()
+                    self._save_timer.join()  # Wait for thread to actually finish
                     self._save_timer = None
                 self._pending_save = False
 
@@ -231,6 +232,7 @@ class ModelRegistry(AbstractRegistry):
                     # Cancel existing timer if any
                     if self._save_timer is not None:
                         self._save_timer.cancel()
+                        self._save_timer.join()  # Wait for thread to actually finish
 
                     # Schedule new save
                     self._save_timer = threading.Timer(
@@ -1370,6 +1372,7 @@ class ModelRegistry(AbstractRegistry):
             if self._pending_save:
                 if self._save_timer is not None:
                     self._save_timer.cancel()
+                    self._save_timer.join()  # Wait for thread to actually finish
                     self._save_timer = None
                 self._do_save()
                 self._pending_save = False

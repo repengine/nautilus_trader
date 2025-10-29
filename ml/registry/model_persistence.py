@@ -266,6 +266,7 @@ class ModelPersistence:
                 # Cancel any pending batch save
                 if self._save_timer is not None:
                     self._save_timer.cancel()
+                    self._save_timer.join()  # Wait for thread to actually finish
                     self._save_timer = None
                 self._pending_save = False
 
@@ -282,6 +283,7 @@ class ModelPersistence:
                     # Cancel existing timer if any
                     if self._save_timer is not None:
                         self._save_timer.cancel()
+                        self._save_timer.join()  # Wait for thread to actually finish
 
                     # Schedule new save
                     self._save_timer = threading.Timer(
@@ -821,6 +823,7 @@ class ModelPersistence:
             if self._pending_save and self._pending_data is not None:
                 if self._save_timer is not None:
                     self._save_timer.cancel()
+                    self._save_timer.join()  # Wait for thread to actually finish
                     self._save_timer = None
 
                 # Execute the pending save

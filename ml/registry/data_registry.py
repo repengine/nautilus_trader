@@ -265,6 +265,7 @@ class DataRegistry(MLComponentMixin):
         # Cancel existing timer if any
         if self._save_timer is not None:
             self._save_timer.cancel()
+            self._save_timer.join()  # Wait for thread to actually finish
 
         # Schedule new save
         self._pending_save = True
@@ -318,6 +319,7 @@ class DataRegistry(MLComponentMixin):
             # Cancel pending timer if any
             if self._save_timer is not None:
                 self._save_timer.cancel()
+                self._save_timer.join()  # Wait for thread to actually finish
                 self._save_timer = None
 
             # Force immediate save (force=True bypasses pytest detection)
