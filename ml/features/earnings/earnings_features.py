@@ -19,7 +19,9 @@ from __future__ import annotations
 import math
 import os
 import time
+from collections.abc import Mapping
 from collections.abc import MutableMapping
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -91,10 +93,34 @@ def _init_module_metrics() -> None:
     _metrics_init = True
 
 
-ENABLE_EARNINGS_METRICS = os.getenv("ML_EARNINGS_ENABLE_METRICS", "0").lower() in {"1", "true", "yes"}
+@lru_cache(maxsize=1)
+def _default_earnings_metrics_enabled() -> bool:
+    raw = os.getenv("ML_EARNINGS_ENABLE_METRICS", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
-if ENABLE_EARNINGS_METRICS:
-    _init_module_metrics()
+
+def earnings_metrics_enabled(*, env: Mapping[str, str] | None = None) -> bool:
+    """
+    Determine whether earnings metrics are enabled.
+
+    Uses a cached lookup for process-wide defaults while still permitting explicit
+    mappings during tests.
+    """
+    if env is None:
+        return _default_earnings_metrics_enabled()
+    source = env
+    raw = source.get("ML_EARNINGS_ENABLE_METRICS", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _metrics_enabled() -> bool:
+    """
+    Return True when metrics instrumentation is enabled and ensure initialization.
+    """
+    if earnings_metrics_enabled():
+        _init_module_metrics()
+        return True
+    return False
 
 
 EPS_EPSILON = 1e-12
@@ -123,6 +149,7 @@ __all__ = [
     "compute_earnings_momentum_incremental",
     "compute_earnings_surprise_batch",
     "compute_earnings_surprise_incremental",
+    "earnings_metrics_enabled",
 ]
 
 
@@ -175,7 +202,7 @@ def compute_earnings_surprise_incremental(
     2.857142857142857
     """
     metrics_enabled = (
-        ENABLE_EARNINGS_METRICS
+        _metrics_enabled()
         and _surprise_latency_seconds is not None
         and _surprise_updates_total is not None
     )
@@ -260,7 +287,12 @@ def compute_earnings_surprise_batch(
     >>> surprises['eps_surprise_q0']
     array([0.07, 0.05, 0.03, 0.02])
     """
-    start = time.perf_counter()
+    metrics_enabled = (
+        _metrics_enabled()
+        and _surprise_latency_seconds is not None
+        and _surprise_updates_total is not None
+    )
+    start: float | None = time.perf_counter() if metrics_enabled else None
 
     # Validation
     if actuals.shape != estimates.shape:
@@ -287,7 +319,7 @@ def compute_earnings_surprise_batch(
     ) * 100.0
 
     # Record metrics
-    if ENABLE_EARNINGS_METRICS and _surprise_latency_seconds is not None and _surprise_updates_total is not None:
+    if metrics_enabled and start is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _surprise_latency_seconds)
         updates_counter = cast(Any, _surprise_updates_total)
@@ -345,7 +377,7 @@ def compute_earnings_growth_incremental(
     14.545454545454545
     """
     metrics_enabled = (
-        ENABLE_EARNINGS_METRICS
+        _metrics_enabled()
         and _growth_latency_seconds is not None
         and _growth_updates_total is not None
     )
@@ -424,7 +456,12 @@ def compute_earnings_growth_batch(
     >>> growth['eps_growth_yoy'][-1]
     14.545454545454545
     """
-    start = time.perf_counter()
+    metrics_enabled = (
+        _metrics_enabled()
+        and _growth_latency_seconds is not None
+        and _growth_updates_total is not None
+    )
+    start: float | None = time.perf_counter() if metrics_enabled else None
 
     n = len(eps_series)
     if n == 0:
@@ -454,7 +491,7 @@ def compute_earnings_growth_batch(
             eps_growth_qoq[i] = ((eps_q0 - eps_q1) / eps_q1) * 100.0
 
     # Record metrics
-    if ENABLE_EARNINGS_METRICS and _growth_latency_seconds is not None and _growth_updates_total is not None:
+    if metrics_enabled and start is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _growth_latency_seconds)
         updates_counter = cast(Any, _growth_updates_total)
@@ -515,7 +552,7 @@ def compute_earnings_momentum_incremental(
     3
     """
     metrics_enabled = (
-        ENABLE_EARNINGS_METRICS
+        _metrics_enabled()
         and _momentum_latency_seconds is not None
         and _momentum_updates_total is not None
     )
@@ -608,7 +645,12 @@ def compute_earnings_momentum_batch(
     >>> eps_series = np.array([2.52, 2.45, 2.38, 2.30, 2.20])
     >>> momentum = compute_earnings_momentum_batch(surprises, eps_series)
     """
-    start = time.perf_counter()
+    metrics_enabled = (
+        _metrics_enabled()
+        and _momentum_latency_seconds is not None
+        and _momentum_updates_total is not None
+    )
+    start: float | None = time.perf_counter() if metrics_enabled else None
 
     # Validation
     if surprises_series.shape != eps_series.shape:
@@ -647,7 +689,7 @@ def compute_earnings_momentum_batch(
             eps_volatility_4q[i] = eps_std / eps_mean
 
     # Record metrics
-    if ENABLE_EARNINGS_METRICS and _momentum_latency_seconds is not None and _momentum_updates_total is not None:
+    if metrics_enabled and start is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _momentum_latency_seconds)
         updates_counter = cast(Any, _momentum_updates_total)

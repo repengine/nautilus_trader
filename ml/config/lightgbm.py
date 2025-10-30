@@ -9,10 +9,16 @@ optimization, MLflow tracking, and feature monitoring.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import msgspec
 
+from ml.config._env_utils import ensure_env as _ensure_env
+from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
+from ml.config._env_utils import env_positive_float as _env_positive_float
+from ml.config._env_utils import env_positive_int as _env_positive_int
+from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
 from ml.config.shared import LightGBMGPUConfig
@@ -63,6 +69,21 @@ class GOSSConfig(msgspec.Struct, kw_only=True, frozen=True):
             msg = f"top_rate + other_rate must be < 1.0, got {self.top_rate + self.other_rate}"
             raise ValueError(msg)
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> GOSSConfig:
+        """
+        Build GOSS configuration from environment variables (``ML_LGBM_GOSS_*``).
+        """
+        source = _ensure_env(env)
+        enabled = _env_truthy(source, "ML_LGBM_GOSS_ENABLED", False)
+        top_rate = _env_positive_float(source, "ML_LGBM_GOSS_TOP_RATE", 0.2)
+        other_rate = _env_positive_float(source, "ML_LGBM_GOSS_OTHER_RATE", 0.1)
+        return cls(enabled=enabled, top_rate=top_rate, other_rate=other_rate)
+
 
 class DARTConfig(msgspec.Struct, kw_only=True, frozen=True):
     """
@@ -111,6 +132,31 @@ class DARTConfig(msgspec.Struct, kw_only=True, frozen=True):
             msg = f"skip_drop must be in [0.0, 1.0], got {self.skip_drop}"
             raise ValueError(msg)
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> DARTConfig:
+        """
+        Build DART configuration from environment variables (``ML_LGBM_DART_*``).
+        """
+        source = _ensure_env(env)
+        enabled = _env_truthy(source, "ML_LGBM_DART_ENABLED", False)
+        drop_rate = _env_positive_float(source, "ML_LGBM_DART_DROP_RATE", 0.1)
+        max_drop = _env_positive_int(source, "ML_LGBM_DART_MAX_DROP", 50)
+        skip_drop = _env_positive_float(source, "ML_LGBM_DART_SKIP_DROP", 0.5)
+        uniform_drop = _env_truthy(source, "ML_LGBM_DART_UNIFORM_DROP", False)
+        xgboost_mode = _env_truthy(source, "ML_LGBM_DART_XGB_MODE", False)
+        return cls(
+            enabled=enabled,
+            drop_rate=drop_rate,
+            max_drop=max_drop,
+            skip_drop=skip_drop,
+            uniform_drop=uniform_drop,
+            xgboost_dart_mode=xgboost_mode,
+        )
+
 
 class EFBConfig(msgspec.Struct, kw_only=True, frozen=True):
     """
@@ -146,6 +192,25 @@ class EFBConfig(msgspec.Struct, kw_only=True, frozen=True):
         if self.bundle_size < 0:
             msg = f"bundle_size must be non-negative, got {self.bundle_size}"
             raise ValueError(msg)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> EFBConfig:
+        """
+        Build EFB configuration from environment variables (``ML_LGBM_EFB_*``).
+        """
+        source = _ensure_env(env)
+        enabled = _env_truthy(source, "ML_LGBM_EFB_ENABLED", True)
+        max_conflict_rate = _env_positive_float(source, "ML_LGBM_EFB_MAX_CONFLICT_RATE", 0.0)
+        bundle_size = _env_non_negative_int(source, "ML_LGBM_EFB_BUNDLE_SIZE", 0)
+        return cls(
+            enabled=enabled,
+            max_conflict_rate=max_conflict_rate,
+            bundle_size=bundle_size,
+        )
 
 
 class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
@@ -277,6 +342,151 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     mlflow_config: None = None  # deprecated
     advanced_config: AdvancedTrainingConfig | None = None
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> LightGBMTrainingConfig:
+        """
+        Build LightGBM training configuration from environment variables.
+        """
+        source = _ensure_env(env)
+
+        def _first_key(*candidates: str) -> str | None:
+            for candidate in candidates:
+                if candidate in source:
+                    return candidate
+            return None
+
+        data_source_value = source.get("ML_LGBM_DATA_SOURCE") or source.get("ML_TRAIN_DATA_SOURCE")
+        if not data_source_value:
+            raise ValueError("ML_LGBM_DATA_SOURCE or ML_TRAIN_DATA_SOURCE must be set")
+
+        target_column = (
+            source.get("ML_LGBM_TARGET_COLUMN")
+            or source.get("ML_TRAIN_TARGET_COLUMN")
+            or "target"
+        )
+
+        kwargs: dict[str, Any] = {
+            "data_source": data_source_value,
+            "target_column": target_column,
+        }
+
+        split_key = _first_key("ML_LGBM_TRAIN_TEST_SPLIT", "ML_TRAIN_TRAIN_TEST_SPLIT")
+        if split_key:
+            split_val = _env_positive_float(source, split_key, 0.8)
+            if not (0.0 < split_val < 1.0):
+                split_val = 0.8
+            kwargs["train_test_split"] = split_val
+
+        seed_key = _first_key("ML_LGBM_RANDOM_SEED", "ML_TRAIN_RANDOM_SEED")
+        if seed_key:
+            kwargs["random_seed"] = _env_non_negative_int(source, seed_key, 42)
+
+        es_key = _first_key("ML_LGBM_EARLY_STOPPING_BASE", "ML_TRAIN_EARLY_STOPPING_ROUNDS")
+        if es_key:
+            kwargs["early_stopping_rounds"] = _env_positive_int(source, es_key, 50)
+
+        val_metric = source.get("ML_LGBM_VALIDATION_METRIC") or source.get("ML_TRAIN_VALIDATION_METRIC")
+        if val_metric:
+            kwargs["validation_metric"] = val_metric.strip()
+
+        save_model = source.get("ML_LGBM_SAVE_MODEL_PATH") or source.get("ML_TRAIN_SAVE_MODEL_PATH")
+        if save_model:
+            kwargs["save_model_path"] = save_model.strip()
+
+        def _set_positive_int(env_key: str, attr: str, default: int) -> None:
+            if env_key in source:
+                kwargs[attr] = _env_positive_int(source, env_key, default)
+
+        def _set_positive_float(env_key: str, attr: str, default: float) -> None:
+            if env_key in source:
+                kwargs[attr] = _env_positive_float(source, env_key, default)
+
+        def _set_non_negative_int(env_key: str, attr: str, default: int) -> None:
+            if env_key in source:
+                kwargs[attr] = _env_non_negative_int(source, env_key, default)
+
+        # Core parameters
+        _set_positive_int("ML_LGBM_N_ESTIMATORS", "n_estimators", cls.n_estimators)
+        _set_positive_int("ML_LGBM_MAX_DEPTH", "max_depth", cls.max_depth)
+        _set_positive_float("ML_LGBM_LEARNING_RATE", "learning_rate", cls.learning_rate)
+        _set_positive_int("ML_LGBM_NUM_LEAVES", "num_leaves", cls.num_leaves)
+        _set_positive_int("ML_LGBM_MIN_CHILD_SAMPLES", "min_child_samples", cls.min_child_samples)
+        _set_positive_float("ML_LGBM_MIN_CHILD_WEIGHT", "min_child_weight", cls.min_child_weight)
+        _set_positive_float("ML_LGBM_MIN_SPLIT_GAIN", "min_split_gain", cls.min_split_gain)
+
+        # Sampling + regularization
+        _set_positive_float("ML_LGBM_SUBSAMPLE", "subsample", cls.subsample)
+        _set_non_negative_int("ML_LGBM_SUBSAMPLE_FREQ", "subsample_freq", cls.subsample_freq)
+        _set_positive_float("ML_LGBM_COLSAMPLE_BYTREE", "colsample_bytree", cls.colsample_bytree)
+        _set_positive_float("ML_LGBM_FEATURE_FRACTION", "feature_fraction", cls.feature_fraction)
+        _set_positive_float("ML_LGBM_BAGGING_FRACTION", "bagging_fraction", cls.bagging_fraction)
+        _set_non_negative_int("ML_LGBM_BAGGING_FREQ", "bagging_freq", cls.bagging_freq)
+        _set_non_negative_int("ML_LGBM_BAGGING_SEED", "bagging_seed", cls.bagging_seed)
+        _set_positive_float("ML_LGBM_REG_ALPHA", "reg_alpha", cls.reg_alpha)
+        _set_positive_float("ML_LGBM_REG_LAMBDA", "reg_lambda", cls.reg_lambda)
+        _set_positive_float("ML_LGBM_SCALE_POS_WEIGHT", "scale_pos_weight", cls.scale_pos_weight)
+
+        # Objectives and control
+        if "ML_LGBM_OBJECTIVE" in source:
+            kwargs["objective"] = source["ML_LGBM_OBJECTIVE"].strip()
+        if "ML_LGBM_METRIC" in source:
+            kwargs["metric"] = source["ML_LGBM_METRIC"].strip()
+        if "ML_LGBM_BOOSTING_TYPE" in source:
+            kwargs["boosting_type"] = source["ML_LGBM_BOOSTING_TYPE"].strip()
+
+        _set_non_negative_int("ML_LGBM_EARLY_STOPPING_ROUNDS", "early_stopping_rounds", cls.early_stopping_rounds)
+        if "ML_LGBM_N_JOBS" in source:
+            kwargs["n_jobs"] = int(source["ML_LGBM_N_JOBS"])
+        _set_non_negative_int("ML_LGBM_RANDOM_STATE", "random_state", cls.random_state)
+        if "ML_LGBM_VERBOSITY" in source:
+            kwargs["verbosity"] = int(source["ML_LGBM_VERBOSITY"])
+
+        # Flags
+        if "ML_LGBM_FORCE_COL_WISE" in source:
+            kwargs["force_col_wise"] = _env_truthy(source, "ML_LGBM_FORCE_COL_WISE", False)
+        if "ML_LGBM_FORCE_ROW_WISE" in source:
+            kwargs["force_row_wise"] = _env_truthy(source, "ML_LGBM_FORCE_ROW_WISE", False)
+
+        cat_features_raw = source.get("ML_LGBM_CATEGORICAL_FEATURES")
+        if cat_features_raw:
+            kwargs["categorical_features"] = [
+                token.strip()
+                for token in cat_features_raw.split(",")
+                if token.strip()
+            ]
+
+        # Optional sub-configurations
+        if any(key.startswith("ML_LGBM_GOSS_") for key in source):
+            kwargs["goss_config"] = GOSSConfig.from_env(env=source)
+        if any(key.startswith("ML_LGBM_DART_") for key in source):
+            kwargs["dart_config"] = DARTConfig.from_env(env=source)
+        if any(key.startswith("ML_LGBM_EFB_") for key in source):
+            kwargs["efb_config"] = EFBConfig.from_env(env=source)
+        if any(key.startswith("ML_LGBM_GPU_") for key in source):
+            kwargs["gpu_config"] = LightGBMGPUConfig.from_env(env=source)
+        if any(key.startswith("ML_OPTUNA_") for key in source):
+            kwargs["optuna_config"] = OptunaConfig.from_env(env=source)
+
+        advanced_keys = (
+            "ML_TRAIN_TRACK_FEATURE_DECAY",
+            "ML_TRAIN_FEATURE_DECAY_THRESHOLD",
+            "ML_TRAIN_FEATURE_HISTORY_WINDOW",
+            "ML_TRAIN_CV_STRATEGY",
+            "ML_TRAIN_CV_FOLDS",
+            "ML_TRAIN_PURGE_GAP",
+            "ML_TRAIN_EXPORT_ONNX",
+            "ML_TRAIN_ONNX_OUTPUT_PATH",
+            "ML_TRAIN_ENABLE_MONITORING",
+        )
+        if any(key in source for key in advanced_keys):
+            kwargs["advanced_config"] = AdvancedTrainingConfig.from_env(env=source)
+
+        return cls(**kwargs)
+
     # Convenience properties for backward compatibility
     @property
     def track_feature_decay(self) -> bool:
@@ -386,12 +596,6 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         ):
             msg = "GOSS and DART cannot be enabled simultaneously"
             raise ValueError(msg)
-
-        # Handle boosting type from configs
-        if self.goss_config and self.goss_config.enabled:
-            object.__setattr__(self, "boosting_type", "goss")
-        elif self.dart_config and self.dart_config.enabled:
-            object.__setattr__(self, "boosting_type", "dart")
 
         # Ensure force_col_wise and force_row_wise are not both True
         if self.force_col_wise and self.force_row_wise:

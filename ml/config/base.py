@@ -8,6 +8,9 @@ and training components, following Nautilus conventions.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
@@ -15,6 +18,12 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import ComponentId
 from nautilus_trader.model.identifiers import InstrumentId
 
+from ml.config._env_utils import ensure_env as _ensure_env
+from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
+from ml.config._env_utils import env_positive_float as _env_positive_float
+from ml.config._env_utils import env_positive_int as _env_positive_int
+from ml.config._env_utils import env_truthy as _env_truthy
+from ml.config._env_utils import resolve_db_connection as _resolve_db_connection
 from ml.config.registry import ModelRegistryConfig as ModelRegistryConfig
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
@@ -22,6 +31,9 @@ from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -108,6 +120,91 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("registry_path is required when using model_id")
         if self.model_path and self.model_id:
             raise ValidationError("Cannot specify both model_path and model_id")
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> MLInferenceConfig:
+        """
+        Build :class:`MLInferenceConfig` from environment variables.
+
+        Environment overrides
+        ---------------------
+        MODEL_PATH / ML_MODEL_PATH
+            Path to the on-disk model artifact.
+        MODEL_ID / ML_MODEL_ID
+            Registry model identifier; inferred from MODEL_PATH stem when unset.
+        MODEL_REGISTRY_DIR / ML_MODEL_REGISTRY_DIR
+            Path to registry root when using ``model_id``.
+        ML_PREDICTION_THRESHOLD
+            Prediction threshold within [0, 1].
+        ML_MAX_INFERENCE_LATENCY_MS
+            Maximum inference latency in milliseconds.
+        ML_INFERENCE_BATCH_SIZE
+            Batch size for inference.
+        ML_WARM_UP_PERIOD
+            Warm-up period in bars.
+        ML_USE_MANIFEST_FEATURES
+            Toggle manifest feature usage.
+        USE_DUMMY_STORES / ML_USE_DUMMY_STORES
+            Toggle dummy store usage (testing only).
+        """
+        source = _ensure_env(env)
+
+        model_path_env = source.get("MODEL_PATH") or source.get("ML_MODEL_PATH")
+        model_id_env = source.get("MODEL_ID") or source.get("ML_MODEL_ID")
+
+        if not model_path_env and not model_id_env:
+            raise ValueError("MODEL_PATH or MODEL_ID environment variables are required")
+
+        registry_path = source.get("MODEL_REGISTRY_DIR") or source.get("ML_MODEL_REGISTRY_DIR")
+        if model_id_env and not registry_path:
+            raise ValueError("MODEL_REGISTRY_DIR environment variable is required when MODEL_ID is set")
+
+        prediction_threshold = _env_positive_float(
+            source,
+            "ML_PREDICTION_THRESHOLD",
+            0.5,
+        )
+        if prediction_threshold > 1.0:
+            LOGGER.debug(
+                "prediction_threshold_out_of_bounds",
+                extra={"value": prediction_threshold},
+            )
+            prediction_threshold = 0.5
+
+        max_latency_ms = _env_positive_float(
+            source,
+            "ML_MAX_INFERENCE_LATENCY_MS",
+            5.0,
+        )
+        batch_size = _env_positive_int(source, "ML_INFERENCE_BATCH_SIZE", 1)
+        warm_up_period = _env_non_negative_int(source, "ML_WARM_UP_PERIOD", 50)
+
+        use_manifest = _env_truthy(source, "ML_USE_MANIFEST_FEATURES", True)
+        use_dummy = _env_truthy(source, "ML_USE_DUMMY_STORES", False) or _env_truthy(
+            source,
+            "USE_DUMMY_STORES",
+            False,
+        )
+
+        model_path_value = model_path_env if model_id_env is None else None
+        inferred_model_id = model_id_env
+
+        return cls(
+            model_path=model_path_value,
+            model_id=inferred_model_id,
+            registry_path=registry_path,
+            prediction_threshold=prediction_threshold,
+            max_inference_latency_ms=max_latency_ms,
+            feature_config=None,
+            batch_size=batch_size,
+            warm_up_period=warm_up_period,
+            use_manifest_features=use_manifest,
+            use_dummy_stores=use_dummy,
+        )
 
 
 class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -227,6 +324,142 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     persistence_flush_interval: PositiveFloat = 1.0
     persistence_batch_size: PositiveInt = 100
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> MLActorConfig:
+        """
+        Build :class:`MLActorConfig` from environment variables.
+
+        Environment overrides
+        ---------------------
+        MODEL_PATH / ML_MODEL_PATH
+            Model artifact path (required when MODEL_ID absent).
+        MODEL_ID / ML_MODEL_ID
+            Registry identifier; inferred from MODEL_PATH when missing.
+        INSTRUMENT_ID
+            Instrument identifier string (required).
+        BAR_TYPE / ML_BAR_TYPE
+            Subscription bar type for inference (required).
+        DB_CONNECTION / ML_DB_CONNECTION / DATABASE_URL / NAUTILUS_DB
+            Connection string overrides for persistence stores.
+        SIGNAL_DATA_TYPE / ML_SIGNAL_DATA_TYPE
+            Published signal data type (default ``"MLSignal"``).
+        USE_DUMMY_STORES / ML_USE_DUMMY_STORES
+            Toggle dummy store usage.
+        ML_PUBLISH_SIGNALS, ML_LOG_PREDICTIONS, ML_ENABLE_HOT_RELOAD,
+        ML_MODEL_CHECK_INTERVAL, ML_PRESERVE_STATE_ON_RELOAD,
+        ML_ENABLE_HEALTH_MONITORING, ML_MAX_FEATURE_LATENCY_MS,
+        ML_LOG_EVENTS, ML_LOG_COMMANDS, ML_ALLOW_NON_ONNX_IN_DEV,
+        ML_ENABLE_ASYNC_PERSISTENCE, ML_PERSISTENCE_QUEUE_SIZE,
+        ML_PERSISTENCE_FLUSH_INTERVAL_S, ML_PERSISTENCE_BATCH_SIZE
+            Optional runtime tunables aligned with config fields.
+        COMPONENT_ID / ML_COMPONENT_ID
+            Optional component identifier.
+        """
+        source = _ensure_env(env)
+
+        inference_cfg = MLInferenceConfig.from_env(env=source)
+
+        instrument_str = source.get("INSTRUMENT_ID")
+        if not instrument_str:
+            raise ValueError("INSTRUMENT_ID environment variable is required")
+        try:
+            instrument_id = InstrumentId.from_str(instrument_str)
+        except ValueError as exc:
+            raise ValueError(f"Invalid INSTRUMENT_ID: {instrument_str}") from exc
+
+        bar_type_str = source.get("BAR_TYPE") or source.get("ML_BAR_TYPE")
+        if not bar_type_str:
+            raise ValueError("BAR_TYPE environment variable is required")
+        try:
+            bar_type = BarType.from_str(bar_type_str)
+        except ValueError as exc:
+            raise ValueError(f"Invalid BAR_TYPE: {bar_type_str}") from exc
+
+        signal_data_type = source.get("SIGNAL_DATA_TYPE") or source.get("ML_SIGNAL_DATA_TYPE")
+        component_id_str = source.get("COMPONENT_ID") or source.get("ML_COMPONENT_ID")
+        component_id: ComponentId | None = None
+        if component_id_str:
+            try:
+                component_id = ComponentId(component_id_str)
+            except Exception:
+                LOGGER.debug(
+                    "invalid_component_id_env_override",
+                    extra={"value": component_id_str},
+                )
+
+        db_connection = _resolve_db_connection(source)
+
+        publish_signals = _env_truthy(source, "ML_PUBLISH_SIGNALS", True)
+        log_predictions = _env_truthy(source, "ML_LOG_PREDICTIONS", False)
+        enable_hot_reload = _env_truthy(source, "ML_ENABLE_HOT_RELOAD", False)
+        model_check_interval = _env_positive_int(source, "ML_MODEL_CHECK_INTERVAL", 300)
+        preserve_state = _env_truthy(source, "ML_PRESERVE_STATE_ON_RELOAD", True)
+        enable_health = _env_truthy(source, "ML_ENABLE_HEALTH_MONITORING", True)
+        max_feature_latency = _env_positive_float(source, "ML_MAX_FEATURE_LATENCY_MS", 0.5)
+        log_events = _env_truthy(source, "ML_LOG_EVENTS", True)
+        log_commands = _env_truthy(source, "ML_LOG_COMMANDS", True)
+        allow_non_onnx = _env_truthy(source, "ML_ALLOW_NON_ONNX_IN_DEV", False) or _env_truthy(
+            source,
+            "ALLOW_NON_ONNX_IN_DEV",
+            False,
+        )
+        enable_async_persistence = _env_truthy(source, "ML_ENABLE_ASYNC_PERSISTENCE", True)
+        persistence_queue_size = _env_positive_int(
+            source,
+            "ML_PERSISTENCE_QUEUE_SIZE",
+            10000,
+        )
+        persistence_flush_interval = _env_positive_float(
+            source,
+            "ML_PERSISTENCE_FLUSH_INTERVAL_S",
+            1.0,
+        )
+        persistence_batch_size = _env_positive_int(
+            source,
+            "ML_PERSISTENCE_BATCH_SIZE",
+            100,
+        )
+
+        actor_model_id = inference_cfg.model_id
+        if not actor_model_id:
+            actor_model_id = Path(inference_cfg.model_path or "").stem or "ml_actor_model"
+
+        return cls(
+            model_path=inference_cfg.model_path or "",
+            model_id=actor_model_id,
+            bar_type=bar_type,
+            instrument_id=instrument_id,
+            prediction_threshold=inference_cfg.prediction_threshold,
+            max_inference_latency_ms=inference_cfg.max_inference_latency_ms,
+            feature_config=inference_cfg.feature_config,
+            batch_size=inference_cfg.batch_size,
+            warm_up_period=inference_cfg.warm_up_period,
+            publish_signals=publish_signals,
+            signal_data_type=signal_data_type or "MLSignal",
+            log_predictions=log_predictions,
+            enable_hot_reload=enable_hot_reload,
+            model_check_interval=model_check_interval,
+            preserve_state_on_reload=preserve_state,
+            circuit_breaker_config=None,
+            enable_health_monitoring=enable_health,
+            health_config=None,
+            max_feature_latency_ms=max_feature_latency,
+            component_id=component_id,
+            log_events=log_events,
+            log_commands=log_commands,
+            allow_non_onnx_in_dev=allow_non_onnx,
+            db_connection=db_connection,
+            use_dummy_stores=inference_cfg.use_dummy_stores,
+            enable_async_persistence=enable_async_persistence,
+            persistence_queue_size=persistence_queue_size,
+            persistence_flush_interval=persistence_flush_interval,
+            persistence_batch_size=persistence_batch_size,
+        )
+
 
 class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):
     """
@@ -312,6 +545,10 @@ class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
     degraded_consecutive_failures: PositiveInt = 3
     degraded_latency_violations: PositiveInt = 100
 
+    def __post_init__(self) -> None:
+        if not (0.0 <= float(self.degraded_success_rate_threshold) <= 1.0):
+            raise ValidationError("degraded_success_rate_threshold must be within [0, 1]")
+
 
 class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
     """
@@ -383,6 +620,109 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     analytics_config: _AnalyticsConfig | None = None
     # Optional circuit breaker for strategy-level operations (store writes/orders)
     circuit_breaker_config: CircuitBreakerConfig | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            super().__post_init__()  # type: ignore[misc]
+        except AttributeError:  # pragma: no cover - upstream variant without super
+            pass
+
+        if not (0.0 < float(self.position_size_pct) <= 1.0):
+            raise ValidationError("position_size_pct must be within (0, 1]")
+        if not (0.0 <= float(self.min_confidence) <= 1.0):
+            raise ValidationError("min_confidence must be within [0, 1]")
+        if self.stop_loss_pct < 0.0:
+            raise ValidationError("stop_loss_pct must be non-negative")
+        if self.take_profit_pct < 0.0:
+            raise ValidationError("take_profit_pct must be non-negative")
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> MLStrategyConfig:
+        """
+        Build :class:`MLStrategyConfig` from environment variables.
+
+        Environment overrides
+        ---------------------
+        STRATEGY_INSTRUMENT_ID / INSTRUMENT_ID
+            Instrument identifier (required).
+        ML_SIGNAL_SOURCE
+            Upstream actor identifier (required).
+        ML_POSITION_SIZE_PCT
+            Fractional position sizing within (0, 1].
+        ML_MIN_CONFIDENCE
+            Minimum confidence threshold within [0, 1].
+        ML_MAX_POSITIONS
+            Maximum concurrent positions (> 0).
+        ML_STOP_LOSS_PCT / ML_TAKE_PROFIT_PCT
+            Stop loss / take profit percentages (>= 0).
+        ML_USE_STRATEGY_STORE
+            Toggle strategy store persistence.
+        ML_PERSIST_ALL_SIGNALS
+            Toggle persistence of HOLD/neutral signals.
+        ML_EXECUTE_TRADES
+            Toggle live order submission.
+        """
+        source = _ensure_env(env)
+
+        instrument_str = source.get("STRATEGY_INSTRUMENT_ID") or source.get("INSTRUMENT_ID")
+        if not instrument_str:
+            raise ValueError("STRATEGY_INSTRUMENT_ID or INSTRUMENT_ID env variable is required")
+        try:
+            instrument_id = InstrumentId.from_str(instrument_str)
+        except ValueError as exc:
+            raise ValueError(f"Invalid strategy instrument identifier: {instrument_str}") from exc
+
+        signal_source = source.get("ML_SIGNAL_SOURCE")
+        if not signal_source:
+            raise ValueError("ML_SIGNAL_SOURCE environment variable is required")
+
+        position_size_pct = _env_positive_float(source, "ML_POSITION_SIZE_PCT", 0.1)
+        if position_size_pct > 1.0:
+            LOGGER.debug(
+                "position_size_pct_clamped",
+                extra={"value": position_size_pct},
+            )
+            position_size_pct = 1.0
+
+        min_confidence = _env_positive_float(source, "ML_MIN_CONFIDENCE", 0.7)
+        if min_confidence > 1.0:
+            LOGGER.debug(
+                "min_confidence_clamped",
+                extra={"value": min_confidence},
+            )
+            min_confidence = 1.0
+
+        max_positions = _env_positive_int(source, "ML_MAX_POSITIONS", 1)
+        stop_loss_pct = _env_positive_float(source, "ML_STOP_LOSS_PCT", 0.02)
+        take_profit_pct = _env_positive_float(source, "ML_TAKE_PROFIT_PCT", 0.04)
+
+        use_strategy_store = _env_truthy(source, "ML_USE_STRATEGY_STORE", True)
+        persist_all_signals = _env_truthy(source, "ML_PERSIST_ALL_SIGNALS", False)
+        execute_trades = _env_truthy(source, "ML_EXECUTE_TRADES", False)
+
+        return cls(
+            instrument_id=instrument_id,
+            ml_signal_source=signal_source,
+            position_size_pct=position_size_pct,
+            min_confidence=min_confidence,
+            max_positions=max_positions,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            use_strategy_store=use_strategy_store,
+            strategy_store_config=None,
+            persist_all_signals=persist_all_signals,
+            execute_trades=execute_trades,
+            sizing_config=None,
+            risk_config=None,
+            execution_config=None,
+            portfolio_config=None,
+            analytics_config=None,
+            circuit_breaker_config=None,
+        )
 
 
 class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -578,6 +918,8 @@ class StatsConfig(NautilusConfig, kw_only=True, frozen=True):
     small_sample_df_threshold: PositiveInt = 30
     conservative_critical_value: PositiveFloat = 2.0
     z_alpha_default: PositiveFloat = 1.96
+
+
 if TYPE_CHECKING:  # typing-only to avoid runtime import cycles
     from ml.strategies.analytics import AnalyticsConfig as _AnalyticsConfig
     from ml.strategies.execution import ExecutionConfig as _ExecutionConfig

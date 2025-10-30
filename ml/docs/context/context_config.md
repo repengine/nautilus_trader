@@ -199,7 +199,7 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
 
 ### MLActorConfig (base.py lines 146-229)
 
-**Status**: ⚠️ **Partially Implemented** - Core structure complete, missing enforcement
+**Status**: ✅ **Configurable via Environment** – runtime builder + validation helpers
 
 ```python
 class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -239,7 +239,13 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     persistence_batch_size: PositiveInt = 100
 ```
 
-**Missing**: No `__post_init__()` validation despite complex interactions.
+**Environment overrides**: `MLActorConfig.from_env()` now maps runtime settings (MODEL_PATH/ID,
+INSTRUMENT_ID, BAR_TYPE, persistence toggles, logging flags) with PostgreSQL resolution delegated
+to `collect_postgres_candidates`. Hot-path safety options (`ML_ENABLE_ASYNC_PERSISTENCE`,
+`ML_PUBLISH_SIGNALS`, `ML_ALLOW_NON_ONNX_IN_DEV`) align with actor entrypoint semantics.
+
+**Validation**: Health monitor thresholds remain delegated to `HealthMonitorConfig`; additional
+validation occurs in downstream actors.
 
 **HealthMonitorConfig** (base.py lines 293-314):
 
@@ -252,7 +258,7 @@ class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
     degraded_latency_violations: PositiveInt = 100
 ```
 
-**Status**: ✅ **Now Defined** (previously missing in Sep 19 doc)
+**Status**: ✅ **Validated** – `__post_init__()` clamps thresholds within [0, 1].
 
 ### MLStrategyConfig (base.py lines 334-386)
 
@@ -492,6 +498,8 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
 **Convenience Properties** (lines 141-160): Delegate to advanced_config for backward compat.
 
+**Environment overrides**: `XGBoostTrainingConfig.from_env()` hydrates training, GPU, Optuna, and advanced settings from `ML_XGB_*`, `ML_OPTUNA_*`, and `ML_TRAIN_*` variables (e.g., `ML_XGB_DATA_SOURCE`, `ML_XGB_TREE_METHOD`, `ML_OPTUNA_TRIALS`), enabling twelve-factor tuning without editing manifests.
+
 ### LightGBMTrainingConfig (lightgbm.py)
 
 **Status**: ✅ **Fully Implemented** - Advanced boosting strategies
@@ -542,6 +550,8 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     gpu_config: LightGBMGPUConfig | None = None
 ```
 
+**Environment overrides**: `LightGBMTrainingConfig.from_env()` maps environment variables into the full configuration surface, including boosting (`ML_LGBM_*`), Optuna (`ML_OPTUNA_*`), GPU (`ML_LGBM_GPU_*`), and shared advanced training knobs (`ML_TRAIN_*`). Sub-configs (GOSS/DART/EFB, GPU, Optuna, AdvancedTrainingConfig) are instantiated automatically when their prefixed variables are present.
+
 ### Shared Training Configs (shared.py)
 
 #### OptunaConfig (shared.py lines 15-83)
@@ -561,20 +571,7 @@ class OptunaConfig(msgspec.Struct, kw_only=True, frozen=True):
     study_name: str | None = None
     storage_url: str | None = None
 
-    def __post_init__(self) -> None:
-        """Validate Optuna configuration."""
-        if self.n_trials <= 0:
-            raise ValueError(f"n_trials must be positive, got {self.n_trials}")
-
-        valid_directions = ["maximize", "minimize"]
-        if self.direction not in valid_directions:
-            raise ValueError(f"direction must be one of {valid_directions}, got {self.direction}")
-
-        valid_metrics = ["sharpe_ratio", "accuracy", "auc", "rmse", "mae", "r2"]
-        if self.metric not in valid_metrics:
-            raise ValueError(f"metric must be one of {valid_metrics}, got {self.metric}")
-
-        # ... additional validation for pruner, sampler, timeout
+**Environment overrides**: `OptunaConfig.from_env()` now consumes `ML_OPTUNA_*` keys (enabled, trials, direction, sampler/pruner, timeout, storage), providing parity with CLI flags.
 ```
 
 #### GPU Configuration Hierarchy (shared.py lines 88-163)
@@ -596,6 +593,8 @@ class LightGBMGPUConfig(BaseGPUConfig, kw_only=True, frozen=True):
     platform_id: int = -1                      # -1 = auto-detect
     gpu_use_dp: bool = False                   # Double precision
 ```
+
+**Environment overrides**: All GPU configs expose `from_env()`—`BaseGPUConfig` consumes `{prefix}_ENABLED`, `{prefix}_DEVICE_ID`, `{prefix}_VALIDATE`, while framework-specific configs add `{prefix}_PREDICTOR`, `{prefix}_MAX_BIN`, and `{prefix}_USE_DP`/`{prefix}_PLATFORM_ID`.
 
 #### AdvancedTrainingConfig (shared.py lines 165-228)
 
@@ -619,16 +618,7 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
     # Monitoring
     enable_monitoring: bool = True
 
-    def __post_init__(self) -> None:
-        """Validate advanced training configuration."""
-        if not (0.0 < self.feature_decay_threshold <= 1.0):
-            raise ValueError(f"feature_decay_threshold must be in (0.0, 1.0], got {self.feature_decay_threshold}")
-
-        valid_strategies = ["time_series", "blocked", "purged", "standard"]
-        if self.cv_strategy not in valid_strategies:
-            raise ValueError(f"cv_strategy must be one of {valid_strategies}, got {self.cv_strategy}")
-
-        # ... additional validation
+**Environment overrides**: `AdvancedTrainingConfig.from_env()` accepts `ML_TRAIN_*` variables (`TRACK_FEATURE_DECAY`, `CV_STRATEGY`, `PURGE_GAP`, `EXPORT_ONNX`, etc.) so cross-validation and monitoring can be tuned without touching Python.
 ```
 
 ## Runtime and System Configurations

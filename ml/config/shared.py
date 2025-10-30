@@ -9,7 +9,15 @@ experiment tracking.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import msgspec
+
+from ml.config._env_utils import ensure_env as _ensure_env
+from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
+from ml.config._env_utils import env_positive_float as _env_positive_float
+from ml.config._env_utils import env_positive_int as _env_positive_int
+from ml.config._env_utils import env_truthy as _env_truthy
 
 
 class OptunaConfig(msgspec.Struct, kw_only=True, frozen=True):
@@ -81,6 +89,65 @@ class OptunaConfig(msgspec.Struct, kw_only=True, frozen=True):
             msg = f"timeout must be positive or None, got {self.timeout}"
             raise ValueError(msg)
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> OptunaConfig:
+        """
+        Build configuration from environment variables.
+
+        Recognised variables:
+            ML_OPTUNA_ENABLED
+            ML_OPTUNA_TRIALS
+            ML_OPTUNA_DIRECTION
+            ML_OPTUNA_METRIC
+            ML_OPTUNA_PRUNER
+            ML_OPTUNA_SAMPLER
+            ML_OPTUNA_TIMEOUT
+            ML_OPTUNA_STUDY_NAME
+            ML_OPTUNA_STORAGE_URL
+        """
+        source = _ensure_env(env)
+
+        enabled = _env_truthy(source, "ML_OPTUNA_ENABLED", False)
+        n_trials = _env_positive_int(source, "ML_OPTUNA_TRIALS", 100)
+        direction = source.get("ML_OPTUNA_DIRECTION", "maximize").strip().lower()
+        metric = source.get("ML_OPTUNA_METRIC", "sharpe_ratio").strip().lower()
+        pruner = source.get("ML_OPTUNA_PRUNER", "median").strip().lower()
+        sampler = source.get("ML_OPTUNA_SAMPLER", "tpe").strip().lower()
+
+        timeout_raw = source.get("ML_OPTUNA_TIMEOUT")
+        timeout_val: int | None
+        if timeout_raw is None or not timeout_raw.strip():
+            timeout_val = None
+        else:
+            try:
+                parsed = int(timeout_raw)
+            except ValueError:
+                parsed = -1
+            timeout_val = parsed if parsed > 0 else None
+
+        study_name = source.get("ML_OPTUNA_STUDY_NAME")
+        if study_name is not None and not study_name.strip():
+            study_name = None
+        storage_url = source.get("ML_OPTUNA_STORAGE_URL")
+        if storage_url is not None and not storage_url.strip():
+            storage_url = None
+
+        return cls(
+            enabled=enabled,
+            n_trials=n_trials,
+            direction=direction,
+            metric=metric,
+            pruner=pruner,
+            sampler=sampler,
+            timeout=timeout_val,
+            study_name=study_name,
+            storage_url=storage_url,
+        )
+
 
 # MLflowConfig removed - deprecated in favor of ModelRegistry
 
@@ -111,6 +178,31 @@ class BaseGPUConfig(msgspec.Struct, kw_only=True, frozen=True):
         if self.device_id < 0:
             msg = f"device_id must be non-negative, got {self.device_id}"
             raise ValueError(msg)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+        prefix: str = "ML_GPU",
+    ) -> BaseGPUConfig:
+        """
+        Build GPU configuration from environment variables.
+
+        Args:
+            env: Optional environment mapping; defaults to ``os.environ``.
+            prefix: Namespace for variable names (defaults to ``ML_GPU``).
+        """
+        source = _ensure_env(env)
+        enabled = _env_truthy(source, f"{prefix}_ENABLED", False)
+        device_id = _env_non_negative_int(source, f"{prefix}_DEVICE_ID", 0)
+        validate_gpu = _env_truthy(source, f"{prefix}_VALIDATE", True)
+
+        return cls(
+            enabled=enabled,
+            device_id=device_id,
+            validate_gpu=validate_gpu,
+        )
 
 
 class XGBoostGPUConfig(BaseGPUConfig, kw_only=True, frozen=True):
@@ -144,6 +236,29 @@ class XGBoostGPUConfig(BaseGPUConfig, kw_only=True, frozen=True):
             msg = f"max_bin must be positive, got {self.max_bin}"
             raise ValueError(msg)
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+        prefix: str = "ML_XGB_GPU",
+    ) -> XGBoostGPUConfig:
+        """
+        Build XGBoost GPU configuration from environment variables.
+        """
+        source = _ensure_env(env)
+        base = BaseGPUConfig.from_env(env=source, prefix=prefix)
+        max_bin = _env_positive_int(source, f"{prefix}_MAX_BIN", 256)
+        predictor = source.get(f"{prefix}_PREDICTOR", "gpu_predictor").strip() or "gpu_predictor"
+
+        return cls(
+            enabled=base.enabled,
+            device_id=base.device_id,
+            validate_gpu=base.validate_gpu,
+            max_bin=max_bin,
+            predictor=predictor,
+        )
+
 
 class LightGBMGPUConfig(BaseGPUConfig, kw_only=True, frozen=True):
     """
@@ -160,6 +275,29 @@ class LightGBMGPUConfig(BaseGPUConfig, kw_only=True, frozen=True):
 
     platform_id: int = -1
     gpu_use_dp: bool = False
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+        prefix: str = "ML_LGBM_GPU",
+    ) -> LightGBMGPUConfig:
+        """
+        Build LightGBM GPU configuration from environment variables.
+        """
+        source = _ensure_env(env)
+        base = BaseGPUConfig.from_env(env=source, prefix=prefix)
+        platform_id = _env_non_negative_int(source, f"{prefix}_PLATFORM_ID", -1)
+        gpu_use_dp = _env_truthy(source, f"{prefix}_USE_DP", False)
+
+        return cls(
+            enabled=base.enabled,
+            device_id=base.device_id,
+            validate_gpu=base.validate_gpu,
+            platform_id=platform_id,
+            gpu_use_dp=gpu_use_dp,
+        )
 
 
 class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
@@ -198,6 +336,54 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
     export_onnx: bool = False
     onnx_output_path: str | None = None
     enable_monitoring: bool = True
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+        prefix: str = "ML_TRAIN",
+    ) -> AdvancedTrainingConfig:
+        """
+        Build advanced training configuration from environment variables.
+        """
+        source = _ensure_env(env)
+
+        track_feature_decay = _env_truthy(source, f"{prefix}_TRACK_FEATURE_DECAY", True)
+        feature_decay_threshold = _env_positive_float(
+            source,
+            f"{prefix}_FEATURE_DECAY_THRESHOLD",
+            0.3,
+        )
+        feature_history_window = _env_positive_int(
+            source,
+            f"{prefix}_FEATURE_HISTORY_WINDOW",
+            10,
+        )
+        cv_strategy = (
+            source.get(f"{prefix}_CV_STRATEGY", "time_series").strip().lower()
+        )
+        cv_folds = _env_positive_int(source, f"{prefix}_CV_FOLDS", 5)
+        purge_gap = _env_non_negative_int(source, f"{prefix}_PURGE_GAP", 10)
+        export_onnx = _env_truthy(source, f"{prefix}_EXPORT_ONNX", False)
+
+        onnx_output_path = source.get(f"{prefix}_ONNX_OUTPUT_PATH")
+        if onnx_output_path is not None and not onnx_output_path.strip():
+            onnx_output_path = None
+
+        enable_monitoring = _env_truthy(source, f"{prefix}_ENABLE_MONITORING", True)
+
+        return cls(
+            track_feature_decay=track_feature_decay,
+            feature_decay_threshold=feature_decay_threshold,
+            feature_history_window=feature_history_window,
+            cv_strategy=cv_strategy,
+            cv_folds=cv_folds,
+            purge_gap=purge_gap,
+            export_onnx=export_onnx,
+            onnx_output_path=onnx_output_path,
+            enable_monitoring=enable_monitoring,
+        )
 
     def __post_init__(self) -> None:
         """

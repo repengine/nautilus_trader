@@ -9,8 +9,15 @@ tracking, and feature monitoring.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any
 
+from ml.config._env_utils import ensure_env as _ensure_env
+from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
+from ml.config._env_utils import env_positive_float as _env_positive_float
+from ml.config._env_utils import env_positive_int as _env_positive_int
+from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
 
@@ -136,6 +143,163 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     optuna_config: OptunaConfig | None = None
     mlflow_config: None = None  # deprecated
     advanced_config: AdvancedTrainingConfig | None = None
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> XGBoostTrainingConfig:
+        """
+        Build XGBoost training configuration from environment variables.
+        """
+        source = _ensure_env(env)
+
+        data_source_value = source.get("ML_XGB_DATA_SOURCE") or source.get("ML_TRAIN_DATA_SOURCE")
+        if not data_source_value:
+            raise ValueError("ML_XGB_DATA_SOURCE or ML_TRAIN_DATA_SOURCE must be set")
+
+        target_column = (
+            source.get("ML_XGB_TARGET_COLUMN")
+            or source.get("ML_TRAIN_TARGET_COLUMN")
+            or "target"
+        )
+
+        kwargs: dict[str, Any] = {
+            "data_source": data_source_value,
+            "target_column": target_column,
+        }
+
+        if "ML_TRAIN_TRAIN_TEST_SPLIT" in source or "ML_XGB_TRAIN_TEST_SPLIT" in source:
+            split = _env_positive_float(
+                source,
+                "ML_XGB_TRAIN_TEST_SPLIT"
+                if "ML_XGB_TRAIN_TEST_SPLIT" in source
+                else "ML_TRAIN_TRAIN_TEST_SPLIT",
+                0.8,
+            )
+            if not (0.0 < split < 1.0):
+                split = 0.8
+            kwargs["train_test_split"] = split
+
+        if "ML_TRAIN_RANDOM_SEED" in source or "ML_XGB_RANDOM_SEED" in source:
+            kwargs["random_seed"] = _env_non_negative_int(
+                source,
+                "ML_XGB_RANDOM_SEED"
+                if "ML_XGB_RANDOM_SEED" in source
+                else "ML_TRAIN_RANDOM_SEED",
+                42,
+            )
+
+        if "ML_TRAIN_EARLY_STOPPING_ROUNDS" in source or "ML_XGB_EARLY_STOPPING_ROUNDS" in source:
+            kwargs["early_stopping_rounds"] = _env_positive_int(
+                source,
+                "ML_XGB_EARLY_STOPPING_ROUNDS"
+                if "ML_XGB_EARLY_STOPPING_ROUNDS" in source
+                else "ML_TRAIN_EARLY_STOPPING_ROUNDS",
+                50,
+            )
+
+        if "ML_TRAIN_VALIDATION_METRIC" in source or "ML_XGB_VALIDATION_METRIC" in source:
+            kwargs["validation_metric"] = (
+                source.get("ML_XGB_VALIDATION_METRIC")
+                or source.get("ML_TRAIN_VALIDATION_METRIC")
+                or "accuracy"
+            ).strip()
+
+        save_model = source.get("ML_XGB_SAVE_MODEL_PATH") or source.get("ML_TRAIN_SAVE_MODEL_PATH")
+        if save_model:
+            kwargs["save_model_path"] = save_model.strip()
+
+        def _set_pos_int(env_key: str, attr: str, default: int) -> None:
+            if env_key in source:
+                kwargs[attr] = _env_positive_int(source, env_key, default)
+
+        def _set_pos_float(env_key: str, attr: str, default: float) -> None:
+            if env_key in source:
+                kwargs[attr] = _env_positive_float(source, env_key, default)
+
+        _set_pos_int("ML_XGB_N_ESTIMATORS", "n_estimators", cls.n_estimators)
+        _set_pos_int("ML_XGB_MAX_DEPTH", "max_depth", cls.max_depth)
+        _set_pos_float("ML_XGB_LEARNING_RATE", "learning_rate", cls.learning_rate)
+        _set_pos_float("ML_XGB_MIN_CHILD_WEIGHT", "min_child_weight", cls.min_child_weight)
+        _set_pos_float("ML_XGB_SUBSAMPLE", "subsample", cls.subsample)
+        _set_pos_float("ML_XGB_COLSAMPLE_BYTREE", "colsample_bytree", cls.colsample_bytree)
+        _set_pos_float("ML_XGB_COLSAMPLE_BYLEVEL", "colsample_bylevel", cls.colsample_bylevel)
+        _set_pos_float("ML_XGB_GAMMA", "gamma", cls.gamma)
+        _set_pos_float("ML_XGB_REG_ALPHA", "reg_alpha", cls.reg_alpha)
+        _set_pos_float("ML_XGB_REG_LAMBDA", "reg_lambda", cls.reg_lambda)
+
+        if "ML_XGB_TREE_METHOD" in source:
+            kwargs["tree_method"] = source["ML_XGB_TREE_METHOD"].strip()
+        if "ML_XGB_GPU_ID" in source:
+            kwargs["gpu_id"] = _env_non_negative_int(source, "ML_XGB_GPU_ID", cls.gpu_id)
+        if "ML_XGB_OBJECTIVE" in source:
+            kwargs["objective"] = source["ML_XGB_OBJECTIVE"].strip()
+        if "ML_XGB_EVAL_METRIC" in source:
+            kwargs["eval_metric"] = source["ML_XGB_EVAL_METRIC"].strip()
+        if "ML_XGB_ENABLE_SHAP" in source:
+            kwargs["enable_shap"] = _env_truthy(source, "ML_XGB_ENABLE_SHAP", False)
+        if "ML_XGB_MULTI_ASSET" in source:
+            kwargs["multi_asset"] = _env_truthy(source, "ML_XGB_MULTI_ASSET", False)
+        if "ML_XGB_CROSS_SECTIONAL_FEATURES" in source:
+            kwargs["cross_sectional_features"] = _env_truthy(
+                source,
+                "ML_XGB_CROSS_SECTIONAL_FEATURES",
+                True,
+            )
+
+        sector_map_raw = source.get("ML_XGB_SECTOR_MAP")
+        if sector_map_raw:
+            try:
+                kwargs["sector_map"] = json.loads(sector_map_raw)
+            except json.JSONDecodeError:
+                # Leave unset on invalid JSON
+                pass
+
+        monotonic_raw = source.get("ML_XGB_MONOTONIC_CONSTRAINTS")
+        if monotonic_raw:
+            try:
+                parsed_constraints = json.loads(monotonic_raw)
+            except json.JSONDecodeError:
+                parsed_constraints = None
+            if isinstance(parsed_constraints, dict):
+                kwargs["monotonic_constraints"] = {
+                    str(feature): int(direction)
+                    for feature, direction in parsed_constraints.items()
+                }
+
+        if "ML_XGB_OPTIMIZE_HYPERPARAMS" in source:
+            kwargs["optimize_hyperparams"] = _env_truthy(
+                source,
+                "ML_XGB_OPTIMIZE_HYPERPARAMS",
+                False,
+            )
+        if "ML_XGB_N_TRIALS" in source:
+            kwargs["n_trials"] = _env_positive_int(source, "ML_XGB_N_TRIALS", cls.n_trials)
+        if "ML_XGB_OPTIMIZATION_METRIC" in source:
+            kwargs["optimization_metric"] = source["ML_XGB_OPTIMIZATION_METRIC"].strip()
+
+        if any(key.startswith("ML_XGB_GPU_") for key in source):
+            kwargs["gpu_config"] = XGBoostGPUConfig.from_env(env=source)
+        if any(key.startswith("ML_OPTUNA_") for key in source):
+            kwargs["optuna_config"] = OptunaConfig.from_env(env=source)
+
+        advanced_keys = (
+            "ML_TRAIN_TRACK_FEATURE_DECAY",
+            "ML_TRAIN_FEATURE_DECAY_THRESHOLD",
+            "ML_TRAIN_FEATURE_HISTORY_WINDOW",
+            "ML_TRAIN_CV_STRATEGY",
+            "ML_TRAIN_CV_FOLDS",
+            "ML_TRAIN_PURGE_GAP",
+            "ML_TRAIN_EXPORT_ONNX",
+            "ML_TRAIN_ONNX_OUTPUT_PATH",
+            "ML_TRAIN_ENABLE_MONITORING",
+        )
+        if any(key in source for key in advanced_keys):
+            kwargs["advanced_config"] = AdvancedTrainingConfig.from_env(env=source)
+
+        return cls(**kwargs)
 
     # Convenience properties for backward compatibility
     @property
