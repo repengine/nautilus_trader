@@ -491,12 +491,18 @@ class TestMultiSignalActorIntegration:
         assert actor._feature_dim == 32
         assert actor._universe.size() == 2
 
+    @pytest.mark.serial
     @given(batch_size=st.integers(min_value=1, max_value=256))
     def test_batch_size_property_preservation(self, batch_size: int) -> None:
         """
         Test that batch size configuration is preserved and enforced.
 
         Property: Configured batch size is the maximum processed in one batch.
+
+        Note: Marked as @pytest.mark.serial to prevent Hypothesis example database
+        pollution from affecting test determinism. Property tests in classes can
+        experience flakiness when Hypothesis cached examples are replayed with
+        polluted actor/metrics state from previous test methods.
         """
         from nautilus_trader.model.data import BarType
         from nautilus_trader.model.data import BarSpecification
