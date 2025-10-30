@@ -206,7 +206,8 @@ class TestCreateModelManifestStub:
                 architecture=None,  # Should auto-detect
             )
 
-            assert manifest_data["architecture"] == "xgboost"
+            # Compare by value to handle potential module reload issues
+            assert manifest_data["architecture"] == mock_detect.return_value.value
             mock_detect.assert_called_once_with(mock_model)
 
 

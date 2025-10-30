@@ -78,7 +78,7 @@ class TestBusPublishingStandardization:
 
         # Create minimal DataStore instance for testing
         with patch("ml.stores.data_store.EngineManager.get_engine"):
-            store = DataStore(connection_string="postgresql://test")
+            store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             store._enable_publishing = enable_flag
             store.publisher = mock_publisher
             store._topic_scheme = "domain_op"
@@ -124,7 +124,7 @@ class TestBusPublishingStandardization:
         # Create minimal FeatureStore instance for testing
         with patch("ml.stores.feature_store.EngineManager.get_engine"):
             store = FeatureStore(
-                connection_string="postgresql://test",
+                connection_string="postgresql://mock:mock@localhost:5432/mock",
                 enable_publishing=enable_flag,
                 publisher=mock_publisher,
             )
@@ -227,7 +227,7 @@ class TestBusPublishingStandardization:
             ):
                 # Test DataStore
                 with patch("ml.stores.data_store.EngineManager.get_engine"):
-                    data_store = DataStore(connection_string="postgresql://test")
+                    data_store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
                     data_store._init_bus_publishing(
                         enable_publishing=True,
                         publisher=Mock(),
@@ -239,7 +239,7 @@ class TestBusPublishingStandardization:
                 # Test FeatureStore
                 with patch("ml.stores.feature_store.EngineManager.get_engine"):
                     feature_store = FeatureStore(
-                        connection_string="postgresql://test",
+                        connection_string="postgresql://mock:mock@localhost:5432/mock",
                         enable_publishing=True,
                         publisher=Mock(),
                     )
@@ -254,7 +254,7 @@ class TestBusPublishingStandardization:
         mock_publisher = Mock()
 
         with patch("ml.stores.data_store.EngineManager.get_engine"):
-            store = DataStore(connection_string="postgresql://test")
+            store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             store._enable_publishing = True
             store.publisher = mock_publisher
 
@@ -301,7 +301,7 @@ class TestBusPublishingStandardization:
 
         # DataStore
         with patch("ml.stores.data_store.EngineManager.get_engine"):
-            data_store = DataStore(connection_string="postgresql://test")
+            data_store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             data_store._enable_publishing = True
             data_store.publisher = Mock()
             data_store.publisher.publish.side_effect = Exception("Test error")
@@ -310,7 +310,7 @@ class TestBusPublishingStandardization:
         # FeatureStore
         with patch("ml.stores.feature_store.EngineManager.get_engine"):
             feature_store = FeatureStore(
-                connection_string="postgresql://test",
+                connection_string="postgresql://mock:mock@localhost:5432/mock",
                 enable_publishing=True,
                 publisher=Mock(),
             )

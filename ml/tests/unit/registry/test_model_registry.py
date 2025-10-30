@@ -63,7 +63,8 @@ def test_model_registry_register_load_deploy_lineage() -> None:
         info = registry.get_model(mid)
         assert info is not None
         assert info.manifest.role == ModelRole.STUDENT
-        assert info.deployment_status.name.lower() in {"active", "testing"}
+        # Compare by value to handle potential module reload issues
+        assert info.deployment_status.value in {"active", "testing"}
 
         # Load
         session = registry.load_model(mid)

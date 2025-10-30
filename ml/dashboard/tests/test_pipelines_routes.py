@@ -7,6 +7,7 @@ run-hpo), progress tracking, and job cancellation.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -22,16 +23,17 @@ from ml.dashboard.config import DashboardConfig
 # ============================================================================
 
 
-@pytest.fixture
-def app() -> Flask:
-    """Provide Flask test application."""
+@pytest.fixture(scope="module")
+def app() -> Iterator[Flask]:
+    """Provide Flask test application with shared service instance."""
     from ml.dashboard.config import DashboardToken
 
     config = DashboardConfig(
         auth_tokens=(DashboardToken(value="test-token-123"),),
         db_connection="postgresql://test:test@localhost:5432/test",
     )
-    return create_app(config)
+    app = create_app(config)
+    yield app
 
 
 @pytest.fixture

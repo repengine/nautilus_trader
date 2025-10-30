@@ -22,7 +22,8 @@ class TestMacroPipelineIntegration:
         assert "macro" in _CATALOG
         transform = _CATALOG["macro"]
         assert transform.name == "macro"
-        assert transform.requires() == DataRequirements.L1_ONLY
+        # Compare by value to handle potential module reload issues
+        assert transform.requires().value == "l1_only"
 
     def test_macro_feature_names_minimal_mode(self) -> None:
         """Test feature name generation for minimal mode."""

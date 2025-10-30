@@ -217,7 +217,8 @@ def test_dual_write_invokes_both_sinks() -> None:
     assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_init"])
     assert sql_writer.last_df["ts_event"].equals(sql_writer.last_df["ts_init"])
     assert raw.calls == 1
-    assert raw.last_type == DatasetType.BARS
+    # Compare by value to handle potential module reload issues
+    assert raw.last_type.value == "bars"
     assert reg.events and reg.events[0][1] == Stage.DATA_INGESTED
     assert sql_writer.last_df is not None
     assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_init"])

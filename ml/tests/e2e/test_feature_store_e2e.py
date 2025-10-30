@@ -31,6 +31,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
+# Mark entire module for serial execution due to test dependencies
+pytestmark = pytest.mark.serial
+
 from ml.features.engineering import FeatureConfig
 
 
