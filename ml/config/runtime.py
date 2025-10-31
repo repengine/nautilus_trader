@@ -27,6 +27,16 @@ class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
     intra_threads: int | None = None
     inter_threads: int | None = None
 
+    def __post_init__(self) -> None:
+        if not self.providers:
+            raise msgspec.ValidationError("providers must contain at least one backend")
+        if any(not provider for provider in self.providers):
+            raise msgspec.ValidationError("providers entries must be non-empty strings")
+        if self.intra_threads is not None and int(self.intra_threads) <= 0:
+            raise msgspec.ValidationError("intra_threads must be > 0 when specified")
+        if self.inter_threads is not None and int(self.inter_threads) <= 0:
+            raise msgspec.ValidationError("inter_threads must be > 0 when specified")
+
 
 def to_session_options(cfg: OnnxRuntimeConfig) -> tuple[object, list[str]]:
     """

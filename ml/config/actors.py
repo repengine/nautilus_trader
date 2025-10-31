@@ -61,6 +61,18 @@ class StrategyConfig(NautilusConfig, kw_only=True, frozen=True):
     threshold_long: float | None = None
     threshold_short: float | None = None
 
+    def __post_init__(self) -> None:
+        if not (0.0 < float(self.extremes_top_pct) <= 1.0):
+            raise msgspec.ValidationError("extremes_top_pct must be within (0, 1]")
+        if self.adaptive_volatility_factor <= 0.0:
+            raise msgspec.ValidationError("adaptive_volatility_factor must be > 0")
+        if not (0.0 <= float(self.min_threshold) <= 1.0):
+            raise msgspec.ValidationError("min_threshold must be within [0, 1]")
+        if not (0.0 <= float(self.max_threshold) <= 1.0):
+            raise msgspec.ValidationError("max_threshold must be within [0, 1]")
+        if self.min_threshold > self.max_threshold:
+            raise msgspec.ValidationError("min_threshold must be <= max_threshold")
+
 
 def _default_actor_db_connection() -> str | None:
     """

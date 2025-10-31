@@ -68,7 +68,11 @@ def validate_config(config_path: Path) -> bool:
         # Check integration
         if run_cfg.integration and run_cfg.integration.enabled:
             print("✓ Integration enabled")
-            print(f"  Database: {run_cfg.integration.db_connection}")
+            if run_cfg.integration.db_connection:
+                print(f"  Database: {run_cfg.integration.db_connection}")
+                print(
+                    "  ⚠ Hardcoded db_connection detected — prefer ML_DB_CONNECTION / NAUTILUS_DB env overrides.",
+                )
             print(f"  Auto-migrate: {run_cfg.integration.auto_migrate}")
 
         # Try to compose orchestrator config

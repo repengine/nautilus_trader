@@ -147,6 +147,6 @@ gates_json = '{"min_sharpe": 0.5, "min_win_rate": 0.48}'
 # ============================================================================
 [integration]
 enabled = true
-db_connection = "postgresql://postgres:postgres@localhost:5433/nautilus"
 auto_migrate = true
 ensure_healthy = true
+# Runtime database connection is resolved via ML_DB_CONNECTION / NAUTILUS_DB env vars.
