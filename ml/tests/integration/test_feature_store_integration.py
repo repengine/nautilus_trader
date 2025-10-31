@@ -278,8 +278,13 @@ class TestFeatureStoreIntegration:
             assert (
                 cast(Any, actor._feature_store).connection_string == test_database.connection_string
             )
-            # Access attribute via Any to satisfy protocol-typed attribute access under mypy
-            assert cast(Any, actor._feature_store).feature_config == feature_config
+            # Compare config values, not object identity (prevents pollution from other tests)
+            import msgspec
+
+            actual_config = cast(Any, actor._feature_store).feature_config
+            expected_config = feature_config
+            assert msgspec.to_builtins(actual_config) == msgspec.to_builtins(expected_config), \
+                f"FeatureConfig mismatch: {msgspec.to_builtins(actual_config)} != {msgspec.to_builtins(expected_config)}"
 
     @pytest.mark.database
     @pytest.mark.serial
