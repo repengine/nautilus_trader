@@ -9,6 +9,7 @@ provides flags for feature availability.
 from __future__ import annotations
 
 import os
+import sys
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -235,16 +236,35 @@ except ImportError as e:
     fredapi = None  # type: ignore[assignment,unused-ignore]
 
 
+def _purge_module(module_name: str) -> None:
+    """Remove a module and its submodules from ``sys.modules``."""
+    to_remove = [
+        name
+        for name in tuple(sys.modules.keys())
+        if name == module_name or name.startswith(f"{module_name}.")
+    ]
+    for name in to_remove:
+        sys.modules.pop(name, None)
+
+
 # Nautilus core (Cython/Rust extensions)
+_NAUTILUS_CORE_MODULE = "nautilus_trader.backtest.engine"
+HAS_NAUTILUS_CORE = False
+NAUTILUS_CORE_IMPORT_ERROR: Exception | None = None
 try:  # pragma: no cover - optional native extension
     from nautilus_trader.backtest.engine import BacktestEngine as _BacktestEngine
-
-    HAS_NAUTILUS_CORE = True
-    NAUTILUS_CORE_IMPORT_ERROR: Exception | None = None
-    del _BacktestEngine
-except Exception as exc:  # pragma: no cover - optional native extension missing
-    HAS_NAUTILUS_CORE = False
+except ImportError as exc:  # pragma: no cover - optional native extension missing
+    _purge_module(_NAUTILUS_CORE_MODULE)
     NAUTILUS_CORE_IMPORT_ERROR = exc
+except Exception:
+    _purge_module(_NAUTILUS_CORE_MODULE)
+    # Re-raise unexpected import errors so test runs fail fast and we do not leave
+    # partially initialised native modules in sys.modules.
+    raise
+else:
+    HAS_NAUTILUS_CORE = True
+    NAUTILUS_CORE_IMPORT_ERROR = None
+    del _BacktestEngine
 
 
 # Databento (data collection)
