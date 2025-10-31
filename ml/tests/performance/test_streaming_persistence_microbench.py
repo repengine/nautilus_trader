@@ -32,6 +32,8 @@ class _BatchConsumer:
     ) -> None:
         self._service_handler = service_handler
         self._batches = list(batches)
+        self._last_entry_id: str | None = None
+        self._cursor_counter = 0
 
     def poll_once(self, *, count: int, block_ms: int, last_id: str = "$") -> int:  # noqa: ARG002
         if not self._batches:
@@ -41,7 +43,14 @@ class _BatchConsumer:
         for topic, payload in batch:
             self._service_handler(topic, payload)
             processed += 1
+        if processed > 0:
+            self._cursor_counter += processed
+            self._last_entry_id = f"{self._cursor_counter}-0"
         return processed
+
+    @property
+    def last_entry_id(self) -> str | None:
+        return self._last_entry_id
 
 
 def _build_consumer_factory(
@@ -164,10 +173,11 @@ def _heartbeat_entry(
 @pytest.mark.performance
 def test_streaming_scaling_regression(tmp_path: Path) -> None:
     """Validate multi-worker scenarios produce expected dashboard summaries."""
-    snapshot: dict[str, dict[str, Any]] = {
+    snapshot: dict[str, Any] = {
         "plans": {},
         "results": {},
         "heartbeats": {},
+        "stream_cursor": None,
     }
 
     def _register_plan(dataset: str, plan_id: str, created_minutes: int, status: str = "success") -> None:

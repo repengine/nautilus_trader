@@ -18,6 +18,7 @@ from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_bus import publisher_from_config
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
 from ml.config.bus import MessageBusConfig
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -41,6 +42,21 @@ _BUS_PUBLISH_ATTEMPTS = get_counter(
     "ml_tft_streaming_bus_publish_attempts_total",
     "Total streaming bus publish attempts grouped by outcome.",
     labelnames=("outcome",),
+)
+_BACKLOG_GAUGE = get_gauge(
+    "ml_tft_streaming_training_backlog",
+    "Outstanding streaming training plans per dataset.",
+    labelnames=("dataset_id",),
+)
+_ADAPTIVE_DEFERRALS = get_counter(
+    "ml_tft_streaming_orchestrator_adaptive_deferrals_total",
+    "Adaptive scheduling deferrals grouped by reason.",
+    labelnames=("reason",),
+)
+_ADAPTIVE_COOLDOWN_SECONDS = get_gauge(
+    "ml_tft_streaming_orchestrator_adaptive_cooldown_seconds",
+    "Current adaptive cooldown window per dataset (seconds).",
+    labelnames=("dataset_id",),
 )
 
 def _parse_iso_datetime(value: str) -> datetime:
@@ -72,6 +88,10 @@ class PublishedHeartbeatEvent:
 
     topic: str
     event: TrainingHeartbeatEvent
+
+
+class AdaptiveSchedulingDeferred(RuntimeError):
+    """Raised when adaptive scheduling defers plan publication."""
 
 
 class InMemoryOrchestratorBus(OrchestratorBus):
@@ -304,11 +324,16 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
         self._plans: dict[str, _PlanState] = {}
         self._worker = worker
         self._bus_config = cfg
+        self._known_datasets: set[str] = set()
+        self._adaptive_next_allowed: dict[str, datetime] = {}
+        self._adaptive_deferral_counts: dict[str, int] = {}
+        self._dataset_gpu_mb: dict[str, float] = {}
         self._plan_state_store: _PlanStateStore | None = None
         if self.config.enable_state_persistence:
             path = state_path or Path("ml_out/streaming_orchestrator_state.json")
             self._plan_state_store = _FileBackedPlanStateStore(path)
             self._load_plan_states()
+        self._refresh_backlog_gauge()
 
     def _load_plan_states(self) -> None:
         if self._plan_state_store is None:
@@ -338,6 +363,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
                     saturated=record.saturated,
                 ),
             )
+            self._known_datasets.add(self._normalize_dataset_id(record.dataset_id))
 
     def _persist_plan_states(self) -> None:
         if self._plan_state_store is None:
@@ -352,6 +378,67 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
     def attach_worker(self, worker: TrainingWorker) -> None:
         """Register a worker instance for automatic execution."""
         self._worker = worker
+
+    def _normalize_dataset_id(self, dataset_id: str | None) -> str:
+        value = (dataset_id or "UNKNOWN").strip()
+        return value or "UNKNOWN"
+
+    def _schedule_adaptive_deferral(self, dataset_id: str, reason: str, *, now: datetime) -> tuple[bool, str]:
+        base_cooldown = float(self.config.adaptive_cooldown_seconds)
+        multiplier = float(self.config.adaptive_interval_multiplier)
+        count = self._adaptive_deferral_counts.get(dataset_id, 0)
+        cooldown_seconds = base_cooldown * (multiplier**count)
+        self._adaptive_deferral_counts[dataset_id] = count + 1
+        self._adaptive_next_allowed[dataset_id] = now + timedelta(seconds=cooldown_seconds)
+        _ADAPTIVE_DEFERRALS.labels(reason=reason).inc()
+        _ADAPTIVE_COOLDOWN_SECONDS.labels(dataset_id=dataset_id).set(cooldown_seconds)
+        logger.info(
+            "adaptive scheduling deferred dataset",
+            extra={
+                "dataset_id": dataset_id,
+                "reason": reason,
+                "cooldown_seconds": cooldown_seconds,
+                "deferral_count": count + 1,
+                "next_allowed_at": self._adaptive_next_allowed[dataset_id].isoformat(),
+            },
+        )
+        return True, reason
+
+    def _should_defer_dataset(self, dataset_id: str) -> tuple[bool, str | None]:
+        now = datetime.utcnow()
+        next_allowed = self._adaptive_next_allowed.get(dataset_id)
+        if next_allowed is not None and now < next_allowed:
+            _ADAPTIVE_DEFERRALS.labels(reason="cooldown").inc()
+            return True, "cooldown"
+        backlog_threshold = self.config.adaptive_backlog_threshold
+        if backlog_threshold is not None:
+            outstanding = sum(
+                1
+                for state in self._plans.values()
+                if not state.completed and self._normalize_dataset_id(state.dataset_id) == dataset_id
+            )
+            if outstanding >= int(backlog_threshold):
+                return self._schedule_adaptive_deferral(dataset_id, "backlog", now=now)
+        gpu_threshold = self.config.adaptive_gpu_threshold_mb
+        if gpu_threshold is not None:
+            observed_gpu = self._dataset_gpu_mb.get(dataset_id)
+            if observed_gpu is not None and observed_gpu >= float(gpu_threshold):
+                return self._schedule_adaptive_deferral(dataset_id, "gpu", now=now)
+        return False, None
+
+    def _refresh_backlog_gauge(self) -> None:
+        counts: dict[str, int] = {}
+        for state in self._plans.values():
+            if state.completed:
+                continue
+            key = self._normalize_dataset_id(state.dataset_id)
+            counts[key] = counts.get(key, 0) + 1
+        for dataset_id, count in counts.items():
+            _BACKLOG_GAUGE.labels(dataset_id=dataset_id).set(float(count))
+        stale_datasets = self._known_datasets - counts.keys()
+        for dataset_id in stale_datasets:
+            _BACKLOG_GAUGE.labels(dataset_id=dataset_id).set(0.0)
+        self._known_datasets.update(counts.keys())
 
     def inflight_plan_ids(self) -> tuple[str, ...]:
         """Return identifiers of currently active plans."""
@@ -382,6 +469,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
             self._plans.pop(plan_id, None)
         if removed:
             self._persist_plan_states()
+            self._refresh_backlog_gauge()
         return tuple(removed)
 
     def resume_plan(self, plan_id: str) -> bool:
@@ -403,20 +491,45 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
         """Generate a plan and publish it when within concurrency limits."""
         if len(self._plans) >= self.config.max_in_flight_plans:
             raise RuntimeError("Max in-flight plans reached")
+        dataset_key = self._normalize_dataset_id(request.dataset_id)
+        should_defer, reason = self._should_defer_dataset(dataset_key)
+        if should_defer:
+            if reason == "cooldown":
+                remaining = self._adaptive_next_allowed.get(dataset_key)
+                seconds_remaining = 0.0
+                if remaining is not None:
+                    delta = (remaining - datetime.utcnow()).total_seconds()
+                    seconds_remaining = max(0.0, float(delta))
+                logger.info(
+                    "adaptive scheduling cooldown active; skipping enqueue",
+                    extra={
+                        "dataset_id": dataset_key,
+                        "cooldown_remaining_seconds": seconds_remaining,
+                    },
+                )
+            raise AdaptiveSchedulingDeferred(
+                f"adaptive scheduling deferred dataset {dataset_key} due to {reason}",
+            )
         max_pending = max(1, int(self.config.dataset_retry_limit))
         outstanding = sum(
             1
             for state in self._plans.values()
-            if not state.completed and state.dataset_id == request.dataset_id
+            if not state.completed and self._normalize_dataset_id(state.dataset_id) == dataset_key
         )
         if outstanding >= max_pending:
             raise RuntimeError("Dataset backlog exceeded")
         plan_event = self._planner.plan(request)
+        self._adaptive_deferral_counts.pop(dataset_key, None)
+        if dataset_key in self._adaptive_next_allowed:
+            self._adaptive_next_allowed.pop(dataset_key, None)
+            _ADAPTIVE_COOLDOWN_SECONDS.labels(dataset_id=dataset_key).set(0.0)
         self._plans[plan_event.plan_id] = _PlanState(
             event=plan_event,
             dataset_id=plan_event.dataset_id,
         )
+        self._known_datasets.add(self._normalize_dataset_id(plan_event.dataset_id))
         self._persist_plan_states()
+        self._refresh_backlog_gauge()
         plan_topic = self._resolve_topic(
             Stage.DATASET_PLANNED,
             fallback=self.config.command_topic,
@@ -455,6 +568,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
                 state.next_retry_at = None
             if heartbeat.dataset_id:
                 state.dataset_id = heartbeat.dataset_id
+            self._known_datasets.add(self._normalize_dataset_id(state.dataset_id))
             dataset_id = state.dataset_id or dataset_id
             self._persist_plan_states()
         entity_id = (dataset_id or heartbeat.plan_id or "UNKNOWN").strip() or "UNKNOWN"
@@ -474,11 +588,16 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
     def handle_result(self, result: TrainingResultEvent) -> None:
         """Handle worker results and update orchestrator lifecycle."""
         dataset_id = result.dataset_id
+        telemetry = result.telemetry
+        dataset_key = self._normalize_dataset_id(dataset_id)
+        if telemetry.max_gpu_memory_mb is not None:
+            self._dataset_gpu_mb[dataset_key] = float(telemetry.max_gpu_memory_mb)
         if result.plan_id in self._plans:
             state = self._plans.pop(result.plan_id)
             state.completed = True
             dataset_id = state.dataset_id or dataset_id
             self._persist_plan_states()
+            self._refresh_backlog_gauge()
         result_topic = self._resolve_topic(
             Stage.MODEL_TRAINING_COMPLETED,
             fallback=self.config.result_topic,
@@ -523,6 +642,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
             changed = True
         if changed:
             self._persist_plan_states()
+            self._refresh_backlog_gauge()
         return expired
 
     def _resolve_topic(self, stage: Stage, *, fallback: str, entity_id: str) -> str:
@@ -544,6 +664,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
 
 
 __all__ = [
+    "AdaptiveSchedulingDeferred",
     "InMemoryOrchestratorBus",
     "InMemoryStreamingOrchestrator",
     "PublishedHeartbeatEvent",

@@ -33,8 +33,9 @@ COPY python ./python
 COPY tools ./tools
 COPY crates ./crates
 
-# Install project (builds Rust/Cython extensions)
-RUN pip install --no-cache-dir .[ml]
+# Install redis client (message bus) and project (builds Rust/Cython extensions)
+RUN pip install --no-cache-dir redis \
+    && pip install --no-cache-dir .[ml]
 
 # Default command (overridden by docker-compose service)
 CMD ["python", "-m", "ml.cli.streaming_training_runner", "--help"]

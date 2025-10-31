@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import DatasetServiceConfig
+from ml.training.event_driven.guardrails import enforce_dataset_guardrails
 from ml.training.event_driven.services import DatasetPlanEvent
 from ml.training.event_driven.services import DatasetPlanner
 from ml.training.event_driven.services import DatasetPlanRequest
@@ -57,6 +58,14 @@ def _apply_service_caps(
         merged = replace(merged, include_l2=True)
     if service_config.include_macro_revisions:
         merged = replace(merged, include_macro_revisions=True)
+    if service_config.include_macro_deltas:
+        merged = replace(merged, include_macro_deltas=True)
+    if service_config.include_calendar_lags:
+        merged = replace(merged, include_calendar_lags=True)
+    if service_config.include_clustering_tags:
+        merged = replace(merged, include_clustering_tags=True)
+    if service_config.include_context_features:
+        merged = replace(merged, include_context_features=True)
     if merged.include_l2 and not merged.include_micro:
         merged = replace(merged, include_micro=True)
     return merged
@@ -94,6 +103,7 @@ class StreamingDatasetPlanner(DatasetPlanner):
             group_id_col=request.streaming_config.group_id_col,
             time_index_col=request.streaming_config.time_idx_col,
             shard_row_budget=int(self.config.shard_row_budget),
+            phase_one_signals=request.phase_one_signals,
         )
         planner_config = _apply_service_caps(self.config, request.streaming_config)
         limited_metadata, limits = stream.apply_streaming_limits(metadata, planner_config)
@@ -107,6 +117,8 @@ class StreamingDatasetPlanner(DatasetPlanner):
             "max_total_rows": planner_config.max_total_rows,
             "max_total_sequences": planner_config.max_total_sequences,
         }
+        if planner_config.seed is not None:
+            caps["dataset_seed"] = int(planner_config.seed)
 
         logger.info(
             "dataset plan ready",
@@ -120,7 +132,7 @@ class StreamingDatasetPlanner(DatasetPlanner):
                 "skipped_rows": limits.skipped_rows,
             },
         )
-        return DatasetPlanEvent(
+        plan_event = DatasetPlanEvent(
             plan_id=plan_id,
             dataset_id=request.dataset_id,
             parquet_path=parquet_path,
@@ -129,8 +141,15 @@ class StreamingDatasetPlanner(DatasetPlanner):
             limits=limits,
             streaming_config=planner_config,
             caps=caps,
+            phase_one_signals=limited_metadata.phase_one_signals,
             status=status,
         )
+        enforce_dataset_guardrails(
+            plan_event,
+            request=request,
+            service_config=self.config,
+        )
+        return plan_event
 
     def _resolve_parquet_path(self, request: DatasetPlanRequest) -> Path:
         if request.parquet_path is not None:

@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import time
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
+from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -74,8 +76,30 @@ if TYPE_CHECKING:
     from ml.observability.ml_async_persistence import MLPersistenceWorker
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
-    from ml.stores.protocols import ModelStoreStrictProtocol
-    from ml.stores.protocols import StrategyStoreStrictProtocol
+from ml.stores.protocols import ModelStoreStrictProtocol
+from ml.stores.protocols import StrategyStoreStrictProtocol
+
+
+def _allows_non_onnx_formats(env: Mapping[str, str] | None = None) -> bool:
+    """
+    Determine whether non-ONNX models are explicitly permitted via environment flags.
+    """
+    source = env if env is not None else os.environ
+    for key in ("ML_TEST_ALLOW_NON_ONNX", "ML_ALLOW_NON_ONNX_IN_TESTS"):
+        raw = source.get(key)
+        if raw is not None and raw.strip().lower() in {"1", "true", "yes", "y", "on"}:
+            return True
+    return False
+
+
+def _is_test_environment(env: Mapping[str, str] | None = None) -> bool:
+    """
+    Detect whether the actor is running in a test-like environment.
+    """
+    source = env if env is not None else os.environ
+    if source.get("PYTEST_CURRENT_TEST") is not None:
+        return True
+    return _allows_non_onnx_formats(source)
 
 
 class HealthStatus(Enum):
@@ -1458,20 +1482,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                     )
 
                 # Enforce ONNX-only in production unless explicitly allowed
-                import os as _os
-                from pathlib import Path as _Path
-
-                model_ext = _Path(self._config.model_path).suffix.lower()
-                # Detect test/dev environments where non-ONNX may be acceptable
-                # Allow non-ONNX formats strictly for tests when explicitly enabled.
-                # Accepted env flags (either):
-                # - ML_TEST_ALLOW_NON_ONNX
-                # - ML_ALLOW_NON_ONNX_IN_TESTS (back-compat)
-                is_test_env = (
-                    _os.getenv("PYTEST_CURRENT_TEST") is not None
-                    or _os.getenv("ML_TEST_ALLOW_NON_ONNX", "").lower() in {"1", "true", "yes"}
-                    or _os.getenv("ML_ALLOW_NON_ONNX_IN_TESTS", "").lower() in {"1", "true", "yes"}
-                )
+                model_ext = Path(self._config.model_path).suffix.lower()
+                is_test_env = _is_test_environment()
                 allow_dev = getattr(self._config, "allow_non_onnx_in_dev", False)
                 if model_ext != ".onnx" and not (is_test_env or allow_dev):
                     raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")

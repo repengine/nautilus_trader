@@ -418,9 +418,16 @@ class ModelPersistence:
                 feature_schema_hash=cast(str, manifest_data["feature_schema_hash"]),
                 parent_id=cast(str | None, manifest_data.get("parent_id")),
                 children_ids=cast(list[str], manifest_data.get("children_ids", [])) or [],
-                training_config=cast(dict[str, Any], manifest_data.get("training_config", {})) or {},
-                performance_metrics=cast(dict[str, float], manifest_data.get("performance_metrics", {})) or {},
-                deployment_constraints=cast(dict[str, Any], manifest_data.get("deployment_constraints", {})) or {},
+                training_config=cast(dict[str, Any], manifest_data.get("training_config", {}))
+                or {},
+                performance_metrics=cast(
+                    dict[str, float], manifest_data.get("performance_metrics", {})
+                )
+                or {},
+                deployment_constraints=cast(
+                    dict[str, Any], manifest_data.get("deployment_constraints", {})
+                )
+                or {},
                 version=cast(str, manifest_data["version"]),
                 created_at=float(manifest_data["created_at"]),
                 last_modified=float(manifest_data["last_modified"]),
@@ -430,8 +437,11 @@ class ModelPersistence:
                 pipeline_signature=cast(str | None, manifest_data.get("pipeline_signature")),
                 pipeline_version=cast(str | None, manifest_data.get("pipeline_version")),
                 decision_policy=cast(str | None, manifest_data.get("decision_policy")),
-                decision_config=cast(dict[str, Any], manifest_data.get("decision_config", {})) or {},
-                artifact_sha256_digest=cast(str | None, manifest_data.get("artifact_sha256_digest")),
+                decision_config=cast(dict[str, Any], manifest_data.get("decision_config", {}))
+                or {},
+                artifact_sha256_digest=cast(
+                    str | None, manifest_data.get("artifact_sha256_digest")
+                ),
             )
         else:
             # Legacy format - use defaults
@@ -454,7 +464,8 @@ class ModelPersistence:
             model_path=Path(str(data.get("model_path", ""))),
             deployment_status=DeploymentStatus(str(status_value)),
             deployed_to=cast(list[str], data.get("deployed_to", [])) or [],
-            performance_history=cast(list[dict[str, Any]], data.get("performance_history", [])) or [],
+            performance_history=cast(list[dict[str, Any]], data.get("performance_history", []))
+            or [],
             metadata=cast(dict[str, Any], data.get("metadata", {})) or {},
         )
 
@@ -521,7 +532,9 @@ class ModelPersistence:
                 existing.children_ids = cast(Any, model_info.manifest.children_ids)
                 existing.training_config = cast(Any, model_info.manifest.training_config)
                 existing.performance_metrics = cast(Any, model_info.manifest.performance_metrics)
-                existing.deployment_constraints = cast(Any, model_info.manifest.deployment_constraints)
+                existing.deployment_constraints = cast(
+                    Any, model_info.manifest.deployment_constraints
+                )
                 existing.deployment_status = cast(Any, model_info.deployment_status.value)
                 existing.deployed_to = cast(Any, model_info.deployed_to)
                 existing.version = model_info.manifest.version
@@ -666,7 +679,9 @@ class ModelPersistence:
             )
 
         logger.debug(
-            "Artifact integrity verified for %s: %s...", file_path.name, actual_digest[:16]
+            "Artifact integrity verified for %s: %s...",
+            file_path.name,
+            actual_digest[:16],
         )
 
     def load_model(self, model_id: str, model_info: ModelInfo) -> object | None:

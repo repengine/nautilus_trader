@@ -1,0 +1,49 @@
+name: Phase 3 Monitoring Automation
+
+on:
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  publish-phase3-monitoring:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: pip install uv
+      - name: Install dependencies (no package build)
+        run: make install-just-deps
+      - name: Generate monitoring snapshot
+        run: |
+          uv run --active --no-sync python playground/scripts/run_phase3_walk_forward.py \
+            --phase3-battery \
+            --monitoring-export
+      - name: Publish monitoring integrations
+        run: |
+          uv run --active --no-sync python playground/scripts/publish_phase3_monitoring_integrations.py \
+            --simulate-escalation
+      - name: Verify monitoring artefacts
+        run: |
+          SNAPSHOT=playground/reports/backtesting/phase3_monitoring_snapshot.json
+          MANIFEST=playground/reports/backtesting/monitoring/automation_manifest.json
+          GRAFANA=playground/reports/backtesting/monitoring/grafana_dashboard_payload.json
+          PAGERDUTY=playground/reports/backtesting/monitoring/pagerduty_alert_payload.json
+          REHEARSAL=playground/reports/backtesting/monitoring/pagerduty_escalation_dry_run.json
+          for path in "$SNAPSHOT" "$MANIFEST" "$GRAFANA" "$PAGERDUTY" "$REHEARSAL"; do
+            if [ ! -f "$path" ]; then
+              echo "Missing monitoring artefact: $path" >&2
+              exit 1
+            fi
+          done
+      - name: Upload monitoring artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-monitoring-artefacts
+          path: |
+            playground/reports/backtesting/phase3_monitoring_snapshot.json
+            playground/reports/backtesting/monitoring/
+          if-no-files-found: error

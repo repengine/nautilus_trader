@@ -219,6 +219,10 @@ class DatasetBuilder:
                 include_l2=cfg.include_l2,
                 include_events=cfg.include_events,
                 include_calendar=cfg.include_calendar,
+                include_macro_deltas=cfg.include_macro_deltas,
+                include_calendar_lags=cfg.include_calendar_lags,
+                include_clustering_tags=cfg.include_clustering_tags,
+                include_context_features=cfg.include_context_features,
                 fred_vintage_dir=(
                     Path(cfg.fred_vintage_dir).expanduser() if cfg.fred_vintage_dir else None
                 ),
@@ -468,6 +472,14 @@ class DatasetBuilder:
             args += ["--include_events"]
         if getattr(cfg, "include_calendar", False):
             args += ["--include_calendar"]
+        if getattr(cfg, "include_macro_deltas", False):
+            args += ["--include_macro_deltas"]
+        if getattr(cfg, "include_calendar_lags", False):
+            args += ["--include_calendar_lags"]
+        if getattr(cfg, "include_clustering_tags", False):
+            args += ["--include_clustering_tags"]
+        if getattr(cfg, "include_context_features", False):
+            args += ["--include_context_features"]
         if cfg.fred_vintage_dir:
             args += ["--fred_vintage_dir", cfg.fred_vintage_dir]
         if cfg.events_dir:

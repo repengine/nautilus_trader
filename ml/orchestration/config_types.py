@@ -64,6 +64,10 @@ class DatasetBuildConfig:
     include_calendar: bool = False
     include_earnings: bool = False
     earnings_lag_days: int = 1
+    include_macro_deltas: bool = False
+    include_calendar_lags: bool = False
+    include_clustering_tags: bool = False
+    include_context_features: bool = False
     fred_vintage_dir: str | None = None
     events_dir: str | None = None
     student_mode: bool = False

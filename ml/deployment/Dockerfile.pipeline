@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir \
     pyarrow \
     msgspec \
     prometheus-client \
+    redis \
     databento \
     scikit-learn \
     rich

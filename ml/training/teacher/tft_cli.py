@@ -140,18 +140,35 @@ def _run_streaming_training(
     scan_features.add(args.target_col)
 
     shard_row_budget = args.streaming_shard_budget
-    metadata_kwargs: dict[str, int] = {}
     if shard_row_budget is not None:
-        metadata_kwargs["shard_row_budget"] = shard_row_budget
-    metadata_stream = stream.collect_streaming_metadata(
-        parquet_path,
-        feature_names=tuple(sorted(scan_features)),
-        categorical_columns=tuple(base_static_cats),
-        numeric_columns=tuple({args.target_col, *static_reals_seq, *known_future_seq, *time_varying_unknown_reals}),
-        group_id_col=args.group_id_col,
-        time_index_col=args.time_index_col,
-        **metadata_kwargs,
-    )
+        metadata_stream = stream.collect_streaming_metadata(
+            parquet_path,
+            feature_names=tuple(sorted(scan_features)),
+            categorical_columns=tuple(base_static_cats),
+            numeric_columns=tuple({
+                args.target_col,
+                *static_reals_seq,
+                *known_future_seq,
+                *time_varying_unknown_reals,
+            }),
+            group_id_col=args.group_id_col,
+            time_index_col=args.time_index_col,
+            shard_row_budget=int(shard_row_budget),
+        )
+    else:
+        metadata_stream = stream.collect_streaming_metadata(
+            parquet_path,
+            feature_names=tuple(sorted(scan_features)),
+            categorical_columns=tuple(base_static_cats),
+            numeric_columns=tuple({
+                args.target_col,
+                *static_reals_seq,
+                *known_future_seq,
+                *time_varying_unknown_reals,
+            }),
+            group_id_col=args.group_id_col,
+            time_index_col=args.time_index_col,
+        )
     if int(args.limit_groups or 0) > 0:
         counts = stream.instrument_row_counts(metadata_stream)
         top_instruments = [

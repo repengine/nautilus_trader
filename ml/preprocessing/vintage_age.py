@@ -31,6 +31,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from ml.data.phase_one_signals import derive_phase_one_signals
+
 
 _TIMESTAMP_SUFFIX = "__value_vintage_ts"
 _AGE_SUFFIX = "__vintage_age_minutes"
@@ -216,6 +218,13 @@ def update_metadata_with_vintage_age(
     column_info["vintage_age_columns"] = list(age_columns)
 
     cloned["column_info"] = column_info
+    column_names: list[str] = []
+    for key in ("static_reals", "time_varying_known_reals", "time_varying_unknown_reals"):
+        values = column_info.get(key, [])
+        if isinstance(values, list | tuple):
+            column_names.extend(str(name) for name in values if isinstance(name, str))
+    phase_one = derive_phase_one_signals(column_names)
+    cloned["phase_one_signals"] = {key: list(values) for key, values in phase_one.items()}
     return cloned
 
 

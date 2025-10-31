@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from ml.config.bus import MessageBusConfig
-from ml.consumers.streaming_training_service import StreamingTrainingPersistenceService
+from ml.consumers.streaming_training_service import (
+    StreamingEventGate,
+    StreamingTrainingPersistenceService,
+)
 from ml.training.event_driven.payloads import (
     build_heartbeat_message,
     build_plan_message,
@@ -158,3 +161,26 @@ def test_streaming_training_persistence_service_creates_stream_consumer(tmp_path
     )
     snapshot = service.snapshot()
     assert isinstance(snapshot, dict)
+
+
+def test_streaming_event_gate_deduplicates_on_correlation() -> None:
+    gate = StreamingEventGate()
+    payload = {
+        "stage": "MODEL_TRAINING_COMPLETED",
+        "dataset_id": "full_tft_95",
+        "plan_id": "plan-1",
+        "correlation_id": "abc123",
+    }
+    assert gate.process(payload) is True
+    assert gate.process(payload) is False
+
+
+def test_streaming_event_gate_falls_back_to_plan_stage() -> None:
+    gate = StreamingEventGate()
+    payload = {
+        "stage": "DATASET_PLANNED",
+        "dataset_id": "full_tft_95",
+        "plan_id": "plan-1",
+    }
+    assert gate.process(payload) is True
+    assert gate.process(payload) is False

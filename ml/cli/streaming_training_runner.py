@@ -13,6 +13,7 @@ import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -25,9 +26,18 @@ from ml.common.subprocess_utils import SubprocessExecutionError
 from ml.common.subprocess_utils import run_command
 from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
+from ml.config.streaming_pipeline import CurriculumGuardRule
+from ml.config.streaming_pipeline import CurriculumScheduleConfig
+from ml.config.streaming_pipeline import CurriculumStageConfig
 from ml.config.streaming_pipeline import DatasetServiceConfig
+from ml.config.streaming_pipeline import EnsembleMemberConfig
+from ml.config.streaming_pipeline import StreamingEnsembleConfig
+from ml.config.streaming_pipeline import StreamingPromotionConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
+from ml.config.streaming_pipeline import parse_curriculum_guard_spec
+from ml.config.streaming_pipeline import parse_curriculum_stage_spec
+from ml.config.streaming_pipeline import parse_ensemble_member_spec
 from ml.consumers.streaming_training_service import StreamingTrainingPersistenceService
 from ml.evaluation.metrics import binary_logloss
 from ml.evaluation.metrics import expected_calibration_error
@@ -40,6 +50,7 @@ from ml.registry import ModelRole
 from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.model_registry import USE_LEGACY as REGISTRY_USE_LEGACY
 from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
+from ml.training.event_driven.orchestrator import AdaptiveSchedulingDeferred
 from ml.training.event_driven.orchestrator import InMemoryStreamingOrchestrator
 from ml.training.event_driven.payloads import build_plan_message
 from ml.training.event_driven.payloads import build_result_message
@@ -47,6 +58,7 @@ from ml.training.event_driven.services import DatasetPlanEvent
 from ml.training.event_driven.services import DatasetPlanRequest
 from ml.training.event_driven.services import TrainingResultEvent
 from ml.training.event_driven.worker import LightningStreamingWorker
+from ml.training.teacher.streaming_loader import PhaseOneFeatureSignals
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
 
 
@@ -76,6 +88,7 @@ class FeatureLayout:
     numeric_columns: tuple[str, ...]
     categorical_columns: tuple[str, ...]
     feature_schema: Mapping[str, str]
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
 
 
 @dataclass(slots=True, frozen=True)
@@ -88,6 +101,7 @@ class DatasetSpecification:
     report: Mapping[str, Any]
     streaming_config: TFTStreamingConfig
     feature_layout: FeatureLayout
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
 
 
 @dataclass(slots=True)
@@ -119,17 +133,37 @@ class PromotionMetricCheck:
     metric: str
     comparator: str
     threshold: float
+    absolute: bool = False
 
     def evaluate(self, metrics: Mapping[str, float]) -> bool:
         """Return True when the metric satisfies the comparator."""
         value = metrics.get(self.metric)
         if value is None:
             return False
+        try:
+            observed = float(abs(value) if self.absolute else value)
+        except (TypeError, ValueError):
+            return False
         if self.comparator == "ge":
-            return value >= self.threshold
+            return observed >= self.threshold
         if self.comparator == "le":
-            return value <= self.threshold
+            return observed <= self.threshold
         raise ValueError(f"Unsupported comparator {self.comparator!r}")
+
+
+def _observed_metric_value(
+    check: PromotionMetricCheck,
+    metrics: Mapping[str, float],
+) -> float | None:
+    """Return the metric value used for evaluation, applying absolute when requested."""
+    value = metrics.get(check.metric)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return abs(numeric) if check.absolute else numeric
 
 
 REQUIRED_MANIFEST_METRICS: tuple[str, ...] = (
@@ -162,6 +196,29 @@ def _coerce_limit(value: int | None) -> int | None:
     return int(value) if int(value) > 0 else None
 
 
+def _coerce_positive_float(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0.0 else None
+
+
+def _promotion_checks_from_config(config: StreamingPromotionConfig) -> tuple[PromotionMetricCheck, ...]:
+    """Translate promotion configuration into metric checks."""
+    return tuple(
+        PromotionMetricCheck(
+            metric=metric,
+            comparator=comparator,
+            threshold=threshold,
+            absolute=absolute,
+        )
+        for metric, comparator, threshold, absolute in config.metric_rules()
+    )
+
+
 def _parse_metric_check(raw: str) -> PromotionMetricCheck:
     """Parse promotion metric checks of the form ``metric>=value`` or ``metric<=value``."""
     text = raw.strip()
@@ -174,14 +231,27 @@ def _parse_metric_check(raw: str) -> PromotionMetricCheck:
         comparator = "le"
     else:
         raise argparse.ArgumentTypeError("Expected comparator '>=' or '<=' in promotion metric check.")
-    metric_name = metric.strip().lower()
+    metric_token = metric.strip()
+    absolute = False
+    if "|" in metric_token:
+        name_part, modifier = metric_token.split("|", 1)
+        if modifier.strip().lower() != "abs":
+            raise argparse.ArgumentTypeError("Unsupported promotion metric modifier; only '|abs' is allowed.")
+        absolute = True
+        metric_token = name_part
+    metric_name = metric_token.strip().lower()
     if not metric_name:
         raise argparse.ArgumentTypeError("Metric name cannot be empty in promotion metric check.")
     try:
         threshold_value = float(threshold.strip())
     except ValueError as exc:  # pragma: no cover - argparse surfaces error
         raise argparse.ArgumentTypeError(f"Invalid threshold '{threshold}' for promotion metric check.") from exc
-    return PromotionMetricCheck(metric=metric_name, comparator=comparator, threshold=threshold_value)
+    return PromotionMetricCheck(
+        metric=metric_name,
+        comparator=comparator,
+        threshold=threshold_value,
+        absolute=absolute,
+    )
 
 
 def _normalize_metric_value(value: Any) -> float | None:
@@ -261,6 +331,13 @@ def _normalize_metrics(result_metrics: Mapping[str, Any], artifact_path: Path) -
                         },
                     )
 
+    drift = metrics.get("stability_calibration_drift")
+    if drift is not None and "stability_calibration_drift_abs" not in metrics:
+        try:
+            metrics["stability_calibration_drift_abs"] = abs(float(drift))
+        except (TypeError, ValueError):
+            pass
+
     return {name: float(value) for name, value in metrics.items()}
 
 
@@ -271,6 +348,87 @@ def _env_flag(name: str, default: bool) -> bool:
         return default
     normalized = raw.strip().lower()
     return normalized in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_optional_seed(name: str) -> int | None:
+    """Return non-negative seed parsed from environment or ``None`` when unset."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _as_str_tuple(value: object) -> tuple[str, ...]:
+    """Return a tuple of strings derived from ``value`` when sequence-like."""
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        result: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            result.append(str(item))
+        return tuple(result)
+    return ()
+
+
+def _extract_phase_one_signals(metadata: Mapping[str, Any]) -> PhaseOneFeatureSignals:
+    """Extract Phase 1 feature families from dataset metadata annotations."""
+    candidate_mappings: list[Mapping[str, Any]] = []
+    for key in ("phase_one_signals", "phase_one_features"):
+        raw = metadata.get(key)
+        if isinstance(raw, Mapping):
+            candidate_mappings.append(raw)
+
+    column_info = metadata.get("column_info")
+    if isinstance(column_info, Mapping):
+        for key in ("phase_one_signals", "phase_one_features"):
+            raw = column_info.get(key)
+            if isinstance(raw, Mapping):
+                candidate_mappings.append(raw)
+
+    def _resolve(key: str, *aliases: str) -> tuple[str, ...]:
+        keys = (key,) + aliases
+        for mapping in candidate_mappings:
+            for lookup in keys:
+                if lookup in mapping:
+                    return _as_str_tuple(mapping.get(lookup))
+        for lookup in keys:
+            if lookup in metadata:
+                return _as_str_tuple(metadata.get(lookup))
+        return ()
+
+    return PhaseOneFeatureSignals(
+        macro_delta_columns=_resolve("macro_delta_columns", "macro_deltas"),
+        calendar_lag_columns=_resolve("calendar_lag_columns", "calendar_lag_windows"),
+        clustering_tag_columns=_resolve("clustering_tag_columns", "clustering_tags"),
+        context_feature_columns=_resolve("context_feature_columns", "context_signals", "context_features"),
+    )
 
 
 def _build_feature_layout(metadata: Mapping[str, Any]) -> FeatureLayout:
@@ -297,11 +455,13 @@ def _build_feature_layout(metadata: Mapping[str, Any]) -> FeatureLayout:
     schema: dict[str, str] = {}
     for name in feature_names:
         schema[name] = "categorical" if name in categorical else "float32"
+    phase_one_signals = _extract_phase_one_signals(metadata)
     return FeatureLayout(
         feature_names=feature_names,
         numeric_columns=numeric,
         categorical_columns=categorical,
         feature_schema=schema,
+        phase_one_signals=phase_one_signals,
     )
 
 
@@ -322,6 +482,12 @@ def _build_streaming_config(
     include_micro: bool,
     include_l2: bool,
     include_macro_revisions: bool,
+    include_macro_deltas: bool,
+    include_calendar_lags: bool,
+    include_clustering_tags: bool,
+    include_context_features: bool,
+    dataset_seed: int | None,
+    layout: FeatureLayout | None = None,
 ) -> TFTStreamingConfig:
     columns = metadata.get("column_info", {})
     if not isinstance(columns, Mapping):
@@ -340,7 +506,8 @@ def _build_streaming_config(
     earnings_lag_days = _lag_value("earnings_lag_days", 1 if include_earnings else 0)
     events_notice_minutes = _lag_value("events_notice_minutes", 0)
 
-    layout = _build_feature_layout(metadata)
+    if layout is None:
+        layout = _build_feature_layout(metadata)
     return TFTStreamingConfig(
         time_idx_col=str(columns.get("time_idx_col", "time_index")),
         group_id_col=str(columns.get("group_id_col", "instrument_id")),
@@ -358,7 +525,7 @@ def _build_streaming_config(
         batch_size=batch_size,
         drop_last=False,
         shuffle_shards=False,
-        seed=7,
+        seed=dataset_seed if dataset_seed is not None else 7,
         num_workers=dataloader_workers,
         max_total_rows=_coerce_limit(max_total_rows),
         max_total_sequences=_coerce_limit(max_total_sequences),
@@ -370,9 +537,14 @@ def _build_streaming_config(
         include_micro=include_micro,
         include_l2=include_l2,
         include_macro_revisions=include_macro_revisions,
+        include_macro_deltas=include_macro_deltas,
+        include_calendar_lags=include_calendar_lags,
+        include_clustering_tags=include_clustering_tags,
+        include_context_features=include_context_features,
         macro_lag_days=macro_lag_days,
         earnings_lag_days=earnings_lag_days,
         events_notice_minutes=events_notice_minutes,
+        phase_one_signals=layout.phase_one_signals,
     )
 
 
@@ -393,6 +565,11 @@ def _resolve_dataset_spec(
     include_micro: bool,
     include_l2: bool,
     include_macro_revisions: bool,
+    include_macro_deltas: bool,
+    include_calendar_lags: bool,
+    include_clustering_tags: bool,
+    include_context_features: bool,
+    dataset_seed: int | None,
 ) -> DatasetSpecification:
     metadata_path = dataset_dir / "dataset_metadata.json"
     report_path = dataset_dir / "report.json"
@@ -403,6 +580,7 @@ def _resolve_dataset_spec(
 
     metadata = _load_json(metadata_path, description="dataset metadata")
     report = _load_json(report_path, description="dataset report")
+    layout = _build_feature_layout(metadata)
     streaming_config = _build_streaming_config(
         metadata,
         batch_size=batch_size,
@@ -419,8 +597,13 @@ def _resolve_dataset_spec(
         include_micro=include_micro,
         include_l2=include_l2,
         include_macro_revisions=include_macro_revisions,
+        include_macro_deltas=include_macro_deltas,
+        include_calendar_lags=include_calendar_lags,
+        include_clustering_tags=include_clustering_tags,
+        include_context_features=include_context_features,
+        dataset_seed=dataset_seed,
+        layout=layout,
     )
-    layout = _build_feature_layout(metadata)
     dataset_id = str(metadata.get("dataset_id", dataset_dir.name))
     return DatasetSpecification(
         dataset_id=dataset_id,
@@ -429,6 +612,7 @@ def _resolve_dataset_spec(
         report=report,
         streaming_config=streaming_config,
         feature_layout=layout,
+        phase_one_signals=layout.phase_one_signals,
     )
 
 
@@ -466,6 +650,7 @@ def _make_dataset_plan_request(spec: DatasetSpecification) -> DatasetPlanRequest
         feature_names=layout.feature_names,
         categorical_columns=layout.categorical_columns,
         numeric_columns=layout.numeric_columns,
+        phase_one_signals=spec.phase_one_signals,
         parquet_path=parquet_path,
     )
 
@@ -545,7 +730,42 @@ def _build_manifest_payload(
         "max_shards": worker_config.max_shards,
         "train_fraction": worker_config.train_fraction,
         "max_epochs": worker_config.max_epochs,
+        "loss_name": worker_config.loss_name,
     }
+    if spec.streaming_config.seed is not None:
+        training_config["dataset_seed"] = int(spec.streaming_config.seed)
+    if worker_config.worker_seed is not None:
+        training_config["worker_seed"] = int(worker_config.worker_seed)
+    if worker_config.loss_pos_weight is not None:
+        training_config["loss_pos_weight"] = float(worker_config.loss_pos_weight)
+
+    telemetry_caps = cast(Mapping[str, Any], telemetry.get("caps", {}))
+    caps_payload: dict[str, Any] = dict(plan.caps)
+    caps_payload.update(telemetry_caps)
+    telemetry_block: dict[str, Any] = {
+        "caps": caps_payload,
+        "selected_rows": {
+            "total": plan.metadata_summary.total_rows,
+            "train": train_stats.get("selected_rows"),
+            "validation": validation_stats.get("selected_rows"),
+        },
+        "selected_sequences": {
+            "train": train_stats.get("selected_sequences"),
+            "validation": validation_stats.get("selected_sequences"),
+        },
+        "shards": {
+            "total": plan.metadata_summary.total_shards,
+            "max_rows": plan.metadata_summary.max_shard_rows,
+        },
+        "resources": dict(resources),
+    }
+    validation_returns_payload = telemetry.get("validation_returns")
+    if isinstance(validation_returns_payload, Mapping):
+        telemetry_block["validation_returns"] = {
+            "fallback_join": bool(validation_returns_payload.get("fallback_join")),
+            "mismatch_count": int(validation_returns_payload.get("mismatch_count", 0)),
+            "missing_count": int(validation_returns_payload.get("missing_count", 0)),
+        }
 
     cohort_block = {
         "plan_id": plan.plan_id,
@@ -563,23 +783,7 @@ def _build_manifest_payload(
             "artifact_sha256": artifact_digest,
         },
         "training_config": training_config,
-        "telemetry": {
-            "caps": plan.caps,
-            "selected_rows": {
-                "total": plan.metadata_summary.total_rows,
-                "train": train_stats.get("selected_rows"),
-                "validation": validation_stats.get("selected_rows"),
-            },
-            "selected_sequences": {
-                "train": train_stats.get("selected_sequences"),
-                "validation": validation_stats.get("selected_sequences"),
-            },
-            "shards": {
-                "total": plan.metadata_summary.total_shards,
-                "max_rows": plan.metadata_summary.max_shard_rows,
-            },
-            "resources": dict(resources),
-        },
+        "telemetry": telemetry_block,
     }
 
     return {
@@ -625,6 +829,12 @@ def _register_model(
             "selected_rows_validation": result.telemetry.validation.selected_rows,
             "max_gpu_memory_mb": result.telemetry.max_gpu_memory_mb,
             "max_epochs": worker_config.max_epochs,
+            "loss_name": worker_config.loss_name,
+            **(
+                {"loss_pos_weight": float(worker_config.loss_pos_weight)}
+                if worker_config.loss_pos_weight is not None
+                else {}
+            ),
         },
         performance_metrics=dict(result.metrics),
         deployment_constraints={
@@ -680,6 +890,65 @@ class StreamingTrainingRunner:
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)
 
+    def _should_defer_due_to_backlog(
+        self,
+        orchestrator: InMemoryStreamingOrchestrator,
+    ) -> bool:
+        """Return True when adaptive backlog guard should delay the next plan."""
+        threshold = self._config.orchestrator.adaptive_backlog_threshold
+        if threshold is None:
+            return False
+        active_plans = len(orchestrator.inflight_plan_ids())
+        if active_plans < threshold:
+            return False
+        logger.info(
+            "adaptive_backlog_guard_engaged",
+            extra={
+                "active_plans": active_plans,
+                "threshold": threshold,
+                "cooldown_seconds": float(self._config.orchestrator.adaptive_cooldown_seconds),
+            },
+        )
+        return True
+
+    def _next_plan_interval(self, result: TrainingResultEvent) -> float:
+        """Return the interval before scheduling the next plan."""
+        base_interval = float(self._config.plan_interval_seconds)
+        if base_interval <= 0.0:
+            return 0.0
+        threshold = self._config.orchestrator.adaptive_gpu_threshold_mb
+        peak_gpu = result.telemetry.max_gpu_memory_mb
+        if threshold is None or peak_gpu is None:
+            return base_interval
+        if peak_gpu < threshold:
+            return base_interval
+        multiplier = float(self._config.orchestrator.adaptive_interval_multiplier)
+        interval = base_interval * multiplier
+        cooldown = float(self._config.orchestrator.adaptive_cooldown_seconds)
+        adjusted = max(interval, cooldown)
+        logger.info(
+            "adaptive_gpu_guard_engaged",
+            extra={
+                "peak_gpu_mb": peak_gpu,
+                "threshold": threshold,
+                "base_interval": base_interval,
+                "adjusted_interval": adjusted,
+                "multiplier": multiplier,
+            },
+        )
+        return adjusted
+
+    def _sleep_with_stop_check(self, seconds: float) -> None:
+        """Sleep while honouring stop requests."""
+        if seconds <= 0.0:
+            return
+        deadline = time.monotonic() + seconds
+        while not self._stop_requested:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                break
+            time.sleep(min(remaining, 1.0))
+
     def run(self) -> None:
         """Execute streaming cohorts according to configuration."""
         config = self._config
@@ -700,8 +969,22 @@ class StreamingTrainingRunner:
         while not self._stop_requested:
             if config.max_plans is not None and plans_run >= config.max_plans:
                 break
+            if self._should_defer_due_to_backlog(orchestrator):
+                self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
+                continue
             plan_request = _make_dataset_plan_request(config.dataset)
-            plan_event = orchestrator.enqueue_training(plan_request)
+            try:
+                plan_event = orchestrator.enqueue_training(plan_request)
+            except AdaptiveSchedulingDeferred as exc:
+                logger.info(
+                    "adaptive_deferral_skipped_plan",
+                    extra={
+                        "dataset_id": config.dataset.dataset_id,
+                        "reason": str(exc),
+                    },
+                )
+                self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
+                continue
             result_event = worker.last_result
             if result_event is None:
                 RUN_COUNTER.labels(status=EventStatus.FAILED.value).inc()
@@ -710,11 +993,11 @@ class StreamingTrainingRunner:
             self._handle_result(plan_event, result_event)
             plans_run += 1
 
-            interval = config.plan_interval_seconds
+            interval = self._next_plan_interval(result_event)
             if interval <= 0.0:
                 break
             logger.info("sleeping before next plan", extra={"seconds": interval})
-            time.sleep(interval)
+            self._sleep_with_stop_check(interval)
 
     def _handle_result(self, plan: DatasetPlanEvent, result: TrainingResultEvent) -> None:
         config = self._config
@@ -820,13 +1103,14 @@ class StreamingTrainingRunner:
             if failed_checks:
                 threshold_met = False
                 for check in failed_checks:
+                    observed_value = _observed_metric_value(check, metrics)
                     logger.info(
                         "promotion_secondary_metric_not_met",
                         extra={
                             "metric": check.metric,
                             "comparator": check.comparator,
                             "threshold": check.threshold,
-                            "observed": metrics.get(check.metric),
+                            "observed": observed_value,
                             "plan_id": plan.plan_id,
                         },
                     )
@@ -840,7 +1124,7 @@ class StreamingTrainingRunner:
                                 "metric": check.metric,
                                 "comparator": check.comparator,
                                 "threshold": check.threshold,
-                                "observed": metrics.get(check.metric),
+                                "observed": _observed_metric_value(check, metrics),
                             }
                             for check in config.promotion_checks
                         ],
@@ -1002,7 +1286,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Additional promotion constraint (repeatable). "
-            "Specify as metric>=value for minima or metric<=value for maxima."
+            "Specify as metric>=value for minima or metric<=value for maxima; append '|abs' to apply absolute value."
         ),
     )
     parser.add_argument(
@@ -1075,6 +1359,13 @@ def _add_streaming_config_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=24,
         help="Prediction horizon for streaming dataset.",
+    )
+    dataset_seed_default = _env_optional_seed("ML_STREAMING_DATASET_SEED")
+    parser.add_argument(
+        "--dataset-seed",
+        type=int,
+        default=dataset_seed_default,
+        help="Seed applied to streaming dataset iteration (default derives from ML_STREAMING_DATASET_SEED).",
     )
 
     include_macro_default = _env_flag("ML_STREAMING_INCLUDE_MACRO", False)
@@ -1184,6 +1475,66 @@ def _add_streaming_config_args(parser: argparse.ArgumentParser) -> None:
         help="Disable macro revision augmentation.",
     )
 
+    include_macro_deltas_default = _env_flag("ML_STREAMING_INCLUDE_MACRO_DELTAS", False)
+    parser.add_argument(
+        "--include-macro-deltas",
+        dest="include_macro_deltas",
+        action="store_true",
+        default=include_macro_deltas_default,
+        help="Enable macro delta feature families (default derives from ML_STREAMING_INCLUDE_MACRO_DELTAS).",
+    )
+    parser.add_argument(
+        "--no-include-macro-deltas",
+        dest="include_macro_deltas",
+        action="store_false",
+        help="Disable macro delta feature families.",
+    )
+
+    include_calendar_lags_default = _env_flag("ML_STREAMING_INCLUDE_CALENDAR_LAGS", False)
+    parser.add_argument(
+        "--include-calendar-lags",
+        dest="include_calendar_lags",
+        action="store_true",
+        default=include_calendar_lags_default,
+        help="Enable calendar lag window features (default derives from ML_STREAMING_INCLUDE_CALENDAR_LAGS).",
+    )
+    parser.add_argument(
+        "--no-include-calendar-lags",
+        dest="include_calendar_lags",
+        action="store_false",
+        help="Disable calendar lag window features.",
+    )
+
+    include_clustering_tags_default = _env_flag("ML_STREAMING_INCLUDE_CLUSTERING_TAGS", False)
+    parser.add_argument(
+        "--include-clustering-tags",
+        dest="include_clustering_tags",
+        action="store_true",
+        default=include_clustering_tags_default,
+        help="Enable clustering tag enrichment (default derives from ML_STREAMING_INCLUDE_CLUSTERING_TAGS).",
+    )
+    parser.add_argument(
+        "--no-include-clustering-tags",
+        dest="include_clustering_tags",
+        action="store_false",
+        help="Disable clustering tag enrichment.",
+    )
+
+    include_context_features_default = _env_flag("ML_STREAMING_INCLUDE_CONTEXT_FEATURES", False)
+    parser.add_argument(
+        "--include-context-features",
+        dest="include_context_features",
+        action="store_true",
+        default=include_context_features_default,
+        help="Enable additional context feature families (default derives from ML_STREAMING_INCLUDE_CONTEXT_FEATURES).",
+    )
+    parser.add_argument(
+        "--no-include-context-features",
+        dest="include_context_features",
+        action="store_false",
+        help="Disable additional context feature families.",
+    )
+
 
 def _add_worker_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -1228,6 +1579,13 @@ def _add_worker_args(parser: argparse.ArgumentParser) -> None:
         default=1,
         help="Number of devices passed to the Lightning trainer.",
     )
+    worker_seed_default = _env_optional_seed("ML_STREAMING_WORKER_SEED")
+    parser.add_argument(
+        "--worker-seed",
+        type=int,
+        default=worker_seed_default,
+        help="Seed applied to trainer/dataloader randomness (default derives from ML_STREAMING_WORKER_SEED).",
+    )
     parser.add_argument(
         "--gpu-monitor-interval",
         type=float,
@@ -1246,6 +1604,135 @@ def _add_worker_args(parser: argparse.ArgumentParser) -> None:
         default="roc_auc",
         help="Validation metric recorded in result events.",
     )
+    parser.add_argument(
+        "--loss",
+        type=str,
+        choices=("bce", "poisson"),
+        default="bce",
+        help="Loss function for the TFT teacher (default: bce).",
+    )
+    parser.add_argument(
+        "--loss-pos-weight",
+        type=float,
+        default=None,
+        help="Positive class weight applied when --loss=bce (>0 disables when <=0).",
+    )
+    parser.add_argument(
+        "--validation-return-column",
+        type=str,
+        default="forward_return",
+        help="Column containing forward returns used for economic metrics (empty string disables).",
+    )
+    parser.add_argument(
+        "--enable-temperature-calibration",
+        action="store_true",
+        help="Enable temperature scaling calibration during evaluation.",
+    )
+    parser.add_argument(
+        "--disable-temperature-calibration",
+        action="store_false",
+        dest="enable_temperature_calibration",
+        help="Disable temperature scaling calibration during evaluation.",
+    )
+    parser.set_defaults(enable_temperature_calibration=True)
+    parser.add_argument(
+        "--temperature-calibration-min",
+        type=float,
+        default=0.25,
+        help="Minimum temperature considered when calibrating (must be >0).",
+    )
+    parser.add_argument(
+        "--temperature-calibration-max",
+        type=float,
+        default=5.0,
+        help="Maximum temperature considered when calibrating (must exceed min).",
+    )
+    parser.add_argument(
+        "--temperature-calibration-steps",
+        type=int,
+        default=25,
+        help="Number of evaluation steps across the temperature range (>=1).",
+    )
+    parser.add_argument(
+        "--enable-platt-calibration",
+        action="store_true",
+        help="Enable Platt scaling using logistic regression for calibrated probabilities.",
+    )
+    parser.add_argument(
+        "--enable-isotonic-calibration",
+        action="store_true",
+        help="Enable isotonic regression calibration for probabilities.",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="32",
+        help="Lightning precision argument (e.g., 32, 16, 16-mixed, bf16).",
+    )
+    parser.add_argument(
+        "--enable-amp",
+        action="store_true",
+        help="Enable automatic mixed precision using --amp-precision.",
+    )
+    parser.add_argument(
+        "--amp-precision",
+        type=str,
+        default="16-mixed",
+        help="Precision string used when --enable-amp is supplied (default: 16-mixed).",
+    )
+    parser.add_argument(
+        "--amp-guard-threshold-mb",
+        type=float,
+        default=None,
+        help="Disable AMP when recent peak GPU usage exceeds this threshold (MiB).",
+    )
+    parser.add_argument(
+        "--enable-curriculum",
+        action="store_true",
+        help="Enable curriculum-aware train fraction scheduling.",
+    )
+    parser.add_argument(
+        "--curriculum-default-train-fraction",
+        type=float,
+        default=None,
+        help="Fallback train fraction when curriculum stages do not match (defaults to --train-fraction).",
+    )
+    parser.add_argument(
+        "--curriculum-stage",
+        action="append",
+        metavar="MAX_ROWS:TRAIN_FRACTION",
+        help="Curriculum stage definition (repeatable). Use '*' for unlimited rows.",
+    )
+    parser.add_argument(
+        "--curriculum-guard",
+        action="append",
+        metavar="LABEL:key=value,...",
+        help="Guard definition tied to a curriculum stage label (repeatable).",
+    )
+    parser.add_argument(
+        "--enable-ensemble",
+        action="store_true",
+        help="Blend freshly trained logits with external artefacts before computing metrics.",
+    )
+    parser.add_argument(
+        "--ensemble-member",
+        action="append",
+        metavar="PATH[:WEIGHT[:required|optional]]",
+        help="External logits artefact to blend (repeatable). Paths may reference {plan_id}/{dataset_id}.",
+    )
+    parser.add_argument(
+        "--ensemble-blend-mode",
+        choices=("weighted", "mean"),
+        default="weighted",
+        help="Blending strategy for ensemble logits (weighted or mean).",
+    )
+    parser.add_argument(
+        "--no-ensemble-normalize-weights",
+        dest="ensemble_normalize_weights",
+        action="store_false",
+        help="Disable weight normalisation when blending ensemble members.",
+    )
+    parser.set_defaults(ensemble_normalize_weights=True)
 
 
 def _add_orchestrator_args(parser: argparse.ArgumentParser) -> None:
@@ -1321,6 +1808,34 @@ def _add_orchestrator_args(parser: argparse.ArgumentParser) -> None:
         default=0.5,
         help="Delay (seconds) between message-bus publish retries.",
     )
+    adaptive_backlog_default = _env_int("ML_STREAMING_ADAPTIVE_BACKLOG_THRESHOLD", 0)
+    parser.add_argument(
+        "--adaptive-backlog-threshold",
+        type=int,
+        default=adaptive_backlog_default,
+        help="Outstanding plan count that triggers adaptive cooldown (<=0 disables).",
+    )
+    adaptive_gpu_default = _env_float("ML_STREAMING_ADAPTIVE_GPU_THRESHOLD_MB", 0.0)
+    parser.add_argument(
+        "--adaptive-gpu-threshold-mb",
+        type=float,
+        default=adaptive_gpu_default,
+        help="Peak GPU memory (MB) that triggers adaptive interval scaling (<=0 disables).",
+    )
+    adaptive_cooldown_default = _env_float("ML_STREAMING_ADAPTIVE_COOLDOWN_SECONDS", 120.0)
+    parser.add_argument(
+        "--adaptive-cooldown-seconds",
+        type=float,
+        default=adaptive_cooldown_default,
+        help="Cooldown applied when adaptive backlog guard engages.",
+    )
+    adaptive_multiplier_default = _env_float("ML_STREAMING_ADAPTIVE_INTERVAL_MULTIPLIER", 2.0)
+    parser.add_argument(
+        "--adaptive-interval-multiplier",
+        type=float,
+        default=adaptive_multiplier_default,
+        help="Multiplier applied to plan interval when GPU threshold is exceeded (>=1.0).",
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -1344,6 +1859,7 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
     state_path = args.state_path.expanduser().resolve()
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
+    dataset_seed = args.dataset_seed if args.dataset_seed is None or args.dataset_seed >= 0 else None
     dataset_spec = _resolve_dataset_spec(
         dataset_dir,
         batch_size=args.batch_size,
@@ -1360,6 +1876,11 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         include_micro=args.include_micro,
         include_l2=args.include_l2,
         include_macro_revisions=args.include_macro_revisions,
+        include_macro_deltas=args.include_macro_deltas,
+        include_calendar_lags=args.include_calendar_lags,
+        include_clustering_tags=args.include_clustering_tags,
+        include_context_features=args.include_context_features,
+        dataset_seed=dataset_seed,
     )
 
     planner_config = DatasetServiceConfig(
@@ -1375,7 +1896,51 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         include_micro=bool(args.include_micro),
         include_l2=bool(args.include_l2),
         include_macro_revisions=bool(args.include_macro_revisions),
+        include_macro_deltas=bool(args.include_macro_deltas),
+        include_calendar_lags=bool(args.include_calendar_lags),
+        include_clustering_tags=bool(args.include_clustering_tags),
+        include_context_features=bool(args.include_context_features),
     )
+
+    curriculum_stages: tuple[CurriculumStageConfig, ...] = ()
+    if args.curriculum_stage:
+        curriculum_stages = tuple(
+            parse_curriculum_stage_spec(spec)
+            for spec in args.curriculum_stage
+        )
+    curriculum_guards: tuple[CurriculumGuardRule, ...] = ()
+    if args.curriculum_guard:
+        curriculum_guards = tuple(
+            parse_curriculum_guard_spec(spec)
+            for spec in args.curriculum_guard
+        )
+    curriculum_default_fraction = (
+        float(args.curriculum_default_train_fraction)
+        if args.curriculum_default_train_fraction is not None
+        else float(args.train_fraction)
+    )
+    curriculum_config = CurriculumScheduleConfig(
+        enabled=bool(args.enable_curriculum),
+        stages=curriculum_stages,
+        default_train_fraction=curriculum_default_fraction,
+        guards=curriculum_guards,
+    )
+
+    ensemble_members: tuple[EnsembleMemberConfig, ...] = ()
+    if args.ensemble_member:
+        ensemble_members = tuple(parse_ensemble_member_spec(spec) for spec in args.ensemble_member)
+    ensemble_config = StreamingEnsembleConfig(
+        enabled=bool(args.enable_ensemble),
+        blend_mode=str(args.ensemble_blend_mode),
+        normalize_weights=bool(args.ensemble_normalize_weights),
+        members=ensemble_members,
+    )
+
+    validation_return_column = str(args.validation_return_column or "").strip()
+    if not validation_return_column:
+        validation_return_column_param: str | None = None
+    else:
+        validation_return_column_param = validation_return_column
 
     worker_config = StreamingWorkerConfig(
         max_total_rows=_coerce_limit(args.max_total_rows),
@@ -1391,11 +1956,40 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         train_fraction=float(args.train_fraction),
         logits_artifact_key=str(args.logits_key),
         validation_metric=str(args.validation_metric).lower(),
+        loss_name=str(args.loss).strip().lower(),
+        loss_pos_weight=(
+            None
+            if args.loss_pos_weight is None or float(args.loss_pos_weight) <= 0.0
+            else float(args.loss_pos_weight)
+        ),
         gpu_memory_monitor_interval_seconds=(
             None if float(args.gpu_monitor_interval) <= 0.0 else float(args.gpu_monitor_interval)
         ),
+        enable_temperature_calibration=bool(args.enable_temperature_calibration),
+        temperature_calibration_min=float(args.temperature_calibration_min),
+        temperature_calibration_max=float(args.temperature_calibration_max),
+        temperature_calibration_steps=max(1, int(args.temperature_calibration_steps)),
+        enable_platt_calibration=bool(args.enable_platt_calibration),
+        enable_isotonic_calibration=bool(args.enable_isotonic_calibration),
+        precision=str(args.precision),
+        enable_amp=bool(args.enable_amp),
+        amp_precision=str(args.amp_precision),
+        amp_guard_threshold_mb=(
+            None
+            if args.amp_guard_threshold_mb is None
+            else max(float(args.amp_guard_threshold_mb), 0.0) or None
+        ),
+        curriculum=curriculum_config,
+        ensemble=ensemble_config,
+        validation_return_column=validation_return_column_param,
+        dataset_seed=dataset_spec.streaming_config.seed,
+        worker_seed=args.worker_seed if args.worker_seed is None or args.worker_seed >= 0 else None,
     )
 
+    adaptive_backlog_threshold = _coerce_limit(getattr(args, "adaptive_backlog_threshold", None))
+    adaptive_gpu_threshold = _coerce_positive_float(getattr(args, "adaptive_gpu_threshold_mb", None))
+    adaptive_cooldown = max(0.0, float(getattr(args, "adaptive_cooldown_seconds", 120.0)))
+    adaptive_interval_multiplier = max(1.0, float(getattr(args, "adaptive_interval_multiplier", 2.0)))
     orchestrator_config = TrainingOrchestratorConfig(
         command_topic=str(args.command_topic),
         result_topic=str(args.result_topic),
@@ -1409,6 +2003,10 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         backlog_warning_threshold=max(0, int(args.backlog_warning_threshold)),
         publish_retry_attempts=max(1, int(args.publish_retry_attempts)),
         publish_retry_delay_seconds=max(0.0, float(args.publish_retry_delay_seconds)),
+        adaptive_backlog_threshold=adaptive_backlog_threshold,
+        adaptive_gpu_threshold_mb=adaptive_gpu_threshold,
+        adaptive_cooldown_seconds=max(1.0, adaptive_cooldown),
+        adaptive_interval_multiplier=adaptive_interval_multiplier,
     )
 
     max_plans_value: int | None
@@ -1424,9 +2022,30 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         if tokens:
             promotion_command = tokens
 
-    promotion_checks: tuple[PromotionMetricCheck, ...] = ()
+    promotion_config = StreamingPromotionConfig.from_env()
+    if args.promotion_threshold is not None:
+        promotion_threshold_value: float | None = float(args.promotion_threshold)
+    else:
+        promotion_threshold_value = (
+            float(promotion_config.min_roc_auc)
+            if promotion_config.min_roc_auc is not None
+            else None
+        )
+
+    promotion_checks_from_args: tuple[PromotionMetricCheck, ...] = ()
     if args.promotion_metric_check:
-        promotion_checks = tuple(args.promotion_metric_check)
+        promotion_checks_from_args = tuple(args.promotion_metric_check)
+    combined_checks: list[PromotionMetricCheck] = list(promotion_checks_from_args)
+    seen_signatures: set[tuple[str, str, float, bool]] = {
+        (check.metric, check.comparator, check.threshold, check.absolute)
+        for check in combined_checks
+    }
+    for check in _promotion_checks_from_config(promotion_config):
+        signature = (check.metric, check.comparator, check.threshold, check.absolute)
+        if signature not in seen_signatures:
+            combined_checks.append(check)
+            seen_signatures.add(signature)
+    promotion_checks = tuple(combined_checks)
 
     return RunnerConfig(
         dataset=dataset_spec,
@@ -1439,7 +2058,7 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         logits_key=str(args.logits_key),
         plan_interval_seconds=float(args.plan_interval_seconds),
         max_plans=max_plans_value,
-        promotion_threshold=float(args.promotion_threshold) if args.promotion_threshold is not None else None,
+        promotion_threshold=promotion_threshold_value,
         promotion_command=promotion_command,
         promotion_checks=promotion_checks,
         pipeline_signature=str(args.pipeline_signature),

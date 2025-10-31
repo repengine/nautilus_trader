@@ -199,12 +199,17 @@ def test_streaming_training_consumer_reports_metrics() -> None:
     assert "ml_tft_streaming_worker_progress_pct" in metric_names
     assert "ml_tft_streaming_worker_rss_mb" in metric_names
     assert "ml_tft_streaming_workers_active" in metric_names
+    assert "ml_tft_streaming_validation_metric" in metric_names
     progress_labels = next(labels for name, _, labels in observability.metrics if name == "ml_tft_streaming_worker_progress_pct")
     rss_labels = next(labels for name, _, labels in observability.metrics if name == "ml_tft_streaming_worker_rss_mb")
     active_labels = next(labels for name, _, labels in observability.metrics if name == "ml_tft_streaming_workers_active")
+    validation_labels = next(labels for name, _, labels in observability.metrics if name == "ml_tft_streaming_validation_metric")
     assert progress_labels["dataset_id"] == plan.dataset_id
     assert rss_labels["dataset_id"] == plan.dataset_id
     assert active_labels["dataset_id"] == plan.dataset_id
+    assert validation_labels["dataset_id"] == plan.dataset_id
+    assert validation_labels["plan_id"] == plan.plan_id
+    assert validation_labels["metric"] == "roc_auc"
 
 
 def test_streaming_training_state_store_snapshot_roundtrip() -> None:
@@ -267,12 +272,15 @@ def test_streaming_training_state_store_snapshot_roundtrip() -> None:
     store.record_heartbeat(heartbeat_record)
 
     snapshot = store.snapshot()
+    assert snapshot["stream_cursor"] is None
     restored = InMemoryStreamingTrainingStateStore()
     restored.restore(snapshot)
 
     assert restored.get_plan(plan.plan_id) is not None
     assert restored.get_result(plan.plan_id) is not None
     assert restored.latest_heartbeat(heartbeat.worker_id) is not None
+    restored.update_stream_cursor("5-1")
+    assert restored.snapshot()["stream_cursor"] == "5-1"
 
 
 def test_file_backed_state_store_persists_snapshot(tmp_path: Path) -> None:

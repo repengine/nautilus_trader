@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pytest
 
-from ml._imports import HAS_PANDAS, HAS_TORCH, check_ml_dependencies, pd
+from ml._imports import HAS_PANDAS, HAS_POLARS, HAS_SKLEARN, HAS_TORCH, check_ml_dependencies, pd, pl
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import (
+    CurriculumGuardRule,
+    CurriculumScheduleConfig,
+    CurriculumStageConfig,
     DatasetServiceConfig,
+    EnsembleMemberConfig,
+    StreamingEnsembleConfig,
     StreamingWorkerConfig,
     TrainingOrchestratorConfig,
 )
@@ -19,7 +25,7 @@ from ml.training.event_driven.services import DatasetPlanEvent, DatasetPlanReque
 from ml.training.event_driven.worker import LightningStreamingWorker
 from ml.training.teacher import streaming_loader as stream
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
-from ml.training.teacher.tft_teacher import StreamingFitResult
+from ml.training.teacher.tft_teacher import StreamingFitResult, StreamingRowMetadata, TFTTeacher
 
 try:  # Optional dependency gate for PyTorch Forecasting
     from pytorch_forecasting import TemporalFusionTransformer  # noqa: F401
@@ -86,6 +92,61 @@ def _planner_and_request(tmp_path: Path) -> tuple[StreamingDatasetPlanner, Datas
     return planner, request
 
 
+def _build_row_metadata(prefix: str, length: int) -> StreamingRowMetadata:
+    instruments = np.array([f"{prefix}_instrument"] * length, dtype=np.str_)
+    time_indices = np.arange(length, dtype=np.int64)
+    row_ids = np.asarray(
+        [f"{instrument}::{time_idx}" for instrument, time_idx in zip(instruments, time_indices, strict=False)],
+        dtype=np.str_,
+    )
+    return StreamingRowMetadata(
+        row_ids=row_ids,
+        instrument_ids=instruments,
+        time_indices=time_indices,
+    )
+
+
+def _reverse_metadata(meta: StreamingRowMetadata) -> StreamingRowMetadata:
+    order = slice(None, None, -1)
+    return StreamingRowMetadata(
+        row_ids=meta.row_ids[order].copy(),
+        instrument_ids=meta.instrument_ids[order].copy(),
+        time_indices=meta.time_indices[order].copy(),
+    )
+
+
+def _save_peer_logits(
+    path: Path,
+    fit_result: StreamingFitResult,
+    *,
+    delta: float = 1.0,
+    mutate_train: Callable[[StreamingRowMetadata], StreamingRowMetadata] | None = None,
+    mutate_val: Callable[[StreamingRowMetadata], StreamingRowMetadata] | None = None,
+) -> None:
+    payload: dict[str, np.ndarray] = {
+        "z_train": fit_result.z_train + delta,
+        "z_val": fit_result.z_val + delta,
+        "y_val": fit_result.y_val,
+    }
+    if fit_result.val_returns is not None:
+        payload["val_returns"] = fit_result.val_returns
+    train_rows = fit_result.train_rows
+    val_rows = fit_result.val_rows
+    if train_rows is not None:
+        if mutate_train is not None:
+            train_rows = mutate_train(train_rows)
+        payload["train_row_ids"] = train_rows.row_ids
+        payload["train_instrument_ids"] = train_rows.instrument_ids
+        payload["train_time_indices"] = train_rows.time_indices
+    if val_rows is not None:
+        if mutate_val is not None:
+            val_rows = mutate_val(val_rows)
+        payload["val_row_ids"] = val_rows.row_ids
+        payload["val_instrument_ids"] = val_rows.instrument_ids
+        payload["val_time_indices"] = val_rows.time_indices
+    np.savez_compressed(path, **payload)
+
+
 class _DeterministicTeacher:
     def __init__(self, cfg: TFTStreamingConfig) -> None:
         self._cfg = cfg
@@ -107,7 +168,16 @@ class _DeterministicTeacher:
         z_train = np.linspace(-0.2, 0.2, num=train_sequences, dtype=np.float64)
         z_val = np.linspace(-1.0, 1.0, num=val_sequences, dtype=np.float64)
         labels = np.tile(np.array([0.0, 1.0], dtype=np.float64), val_sequences // 2 + 1)[:val_sequences]
-        return StreamingFitResult(z_train=z_train, z_val=z_val, y_val=labels)
+        train_rows = _build_row_metadata("train", z_train.size)
+        val_rows = _build_row_metadata("val", z_val.size)
+        return StreamingFitResult(
+            z_train=z_train,
+            z_val=z_val,
+            y_val=labels,
+            train_rows=train_rows,
+            val_rows=val_rows,
+            val_returns=np.linspace(-0.001, 0.001, num=z_val.size, dtype=np.float64),
+        )
 
 
 def _teacher_factory(_plan: DatasetPlanEvent, cfg: TFTStreamingConfig) -> _DeterministicTeacher:
@@ -224,6 +294,10 @@ def test_lightning_worker_runs_with_real_teacher(tmp_path: Path) -> None:
     metric = result.metrics.get(worker_config.validation_metric)
     if metric is not None:
         assert 0.0 <= metric <= 1.0
+    validation_diag = result.telemetry.validation_returns
+    if validation_diag is not None:
+        assert validation_diag.fallback_join is False
+        assert validation_diag.mismatch_count == 0
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
@@ -257,6 +331,253 @@ def test_lightning_worker_emits_artifact(tmp_path: Path) -> None:
     assert "calibration_ece_20" in result.metrics
     assert result.telemetry.train.selected_shards > 0
     assert result.dataset_id == plan.dataset_id
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_lightning_worker_temperature_calibration_metrics(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+
+    worker_config = StreamingWorkerConfig(
+        enable_temperature_calibration=True,
+        temperature_calibration_steps=5,
+    )
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "calibration",
+        teacher_factory=_teacher_factory,
+    )
+
+    result = worker.run(plan)
+
+    assert "temperature_calibration_log_loss" in result.metrics
+    assert "temperature_calibration_ece_20" in result.metrics
+    assert "temperature_calibration_brier_score" in result.metrics
+    assert "temperature_calibration_log_loss_delta" in result.metrics
+    assert "temperature_calibration_ece_20_delta" in result.metrics
+    assert "temperature_calibration_brier_score_delta" in result.metrics
+    assert result.metrics["temperature_calibration_temperature"] > 0.0
+
+
+@pytest.mark.skipif(not HAS_TORCH or not HAS_SKLEARN, reason="torch + scikit-learn dependencies required for platt calibration")
+def test_lightning_worker_platt_calibration_metrics(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+
+    worker_config = StreamingWorkerConfig(enable_platt_calibration=True)
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "platt",
+        teacher_factory=_teacher_factory,
+    )
+
+    result = worker.run(plan)
+
+    assert "platt_calibration_log_loss" in result.metrics
+    assert "platt_calibration_ece_20" in result.metrics
+    assert "platt_calibration_brier_score" in result.metrics
+    assert "platt_calibration_log_loss_delta" in result.metrics
+    assert "platt_calibration_ece_20_delta" in result.metrics
+    assert "platt_calibration_brier_score_delta" in result.metrics
+
+
+@pytest.mark.skipif(
+    not HAS_TORCH or not HAS_SKLEARN,
+    reason="torch + scikit-learn dependencies required for isotonic calibration",
+)
+def test_lightning_worker_isotonic_calibration_metrics(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+
+    worker_config = StreamingWorkerConfig(enable_isotonic_calibration=True)
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "isotonic",
+        teacher_factory=_teacher_factory,
+    )
+
+    result = worker.run(plan)
+
+    assert "isotonic_calibration_log_loss" in result.metrics
+    assert "isotonic_calibration_ece_20" in result.metrics
+    assert "isotonic_calibration_brier_score" in result.metrics
+    assert "isotonic_calibration_log_loss_delta" in result.metrics
+    assert "isotonic_calibration_ece_20_delta" in result.metrics
+    assert "isotonic_calibration_brier_score_delta" in result.metrics
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars dependency required for forward returns")
+def test_worker_loads_validation_returns_from_parquet(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset_forward.parquet"
+    pl.DataFrame(
+        {
+            "instrument_id": ["IWM", "IWM", "QQQ"],
+            "time_index": [0, 1, 0],
+            "forward_return": [0.01, -0.02, 0.05],
+            "y": [1.0, 0.0, 1.0],
+        },
+    ).write_parquet(dataset_path)
+
+    val_rows = StreamingRowMetadata(
+        row_ids=np.array(["IWM::0", "IWM::1"], dtype=np.str_),
+        instrument_ids=np.array(["IWM", "IWM"], dtype=np.str_),
+        time_indices=np.array([0, 1], dtype=np.int64),
+    )
+    fit_result = StreamingFitResult(
+        z_train=np.array([0.0], dtype=np.float64),
+        z_val=np.array([0.5, -0.5], dtype=np.float64),
+        y_val=np.array([1.0, 0.0], dtype=np.float64),
+        train_rows=None,
+        val_rows=val_rows,
+        val_returns=None,
+    )
+
+    worker_config = StreamingWorkerConfig(validation_return_column="forward_return")
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "returns")
+
+    metadata = stream.TFTStreamingMetadata(
+        shard_indices=(),
+        numeric_stats={},
+        categorical_vocab={},
+        instrument_row_counts={},
+    )
+    plan = DatasetPlanEvent(
+        plan_id="plan_returns",
+        dataset_id="dataset_forward",
+        parquet_path=dataset_path,
+        metadata=metadata,
+        metadata_summary=stream.TFTStreamingSummary(total_shards=0, total_rows=0, max_shard_rows=0),
+        limits=stream.StreamingLimitSummary(),
+        streaming_config=_build_streaming_config(),
+        caps={},
+    )
+
+    enriched = worker._maybe_attach_validation_returns(plan, fit_result)
+    assert enriched.val_returns is not None
+    np.testing.assert_allclose(
+        enriched.val_returns,
+        np.array([0.01, -0.02], dtype=np.float64),
+    )
+    diag = getattr(worker, "_validation_returns_telemetry")
+    assert diag is not None
+    assert diag.fallback_join is False
+    assert diag.mismatch_count == 0
+    assert diag.missing_count == 0
+
+
+@pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
+def test_worker_defers_when_validation_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan_event = planner.plan(request)
+    worker_config = StreamingWorkerConfig()
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "deferred_artifacts")
+
+    def _fake_execute_training_attempt(
+        plan: DatasetPlanEvent,
+        context: Any,
+    ) -> StreamingFitResult:
+        return StreamingFitResult(
+            z_train=np.array([0.0], dtype=np.float64),
+            z_val=np.array([], dtype=np.float64),
+            y_val=np.array([], dtype=np.float64),
+            train_rows=StreamingRowMetadata.empty(),
+            val_rows=StreamingRowMetadata.empty(),
+            val_returns=np.array([], dtype=np.float64),
+        )
+
+    monkeypatch.setattr(
+        worker,
+        "_execute_training_attempt",
+        _fake_execute_training_attempt,
+        raising=True,
+    )
+    monkeypatch.setattr(
+        worker,
+        "_maybe_attach_validation_returns",
+        lambda plan, result: result,
+        raising=True,
+    )
+    monkeypatch.setattr(
+        worker,
+        "_apply_ensemble",
+        lambda plan, result: (result, {}, None),
+        raising=True,
+    )
+
+    result_event = worker.run(plan_event)
+    assert result_event.status is EventStatus.DEFERRED
+    assert result_event.metrics == {}
+    telemetry_caps = result_event.telemetry.caps
+    assert telemetry_caps["validation_failure_reason"] == "validation_data_empty"
+    assert telemetry_caps["validation_failure_y_val_size"] == 0
+    assert telemetry_caps["validation_failure_logit_size"] == 0
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars dependency required for forward returns")
+def test_worker_validation_returns_join_handles_instrument_mismatch(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    dataset_path = tmp_path / "dataset_mismatch.parquet"
+    pl.DataFrame(
+        {
+            "instrument_id": ["VNQ", "VTI"],
+            "time_index": [10, 20],
+            "forward_return": [0.12, -0.34],
+            "y": [1.0, 0.0],
+        },
+    ).write_parquet(dataset_path)
+
+    val_rows = StreamingRowMetadata(
+        row_ids=np.array(["VNQI::10", "VNQI::20"], dtype=np.str_),
+        instrument_ids=np.array(["VNQI", "VNQI"], dtype=np.str_),
+        time_indices=np.array([10, 20], dtype=np.int64),
+    )
+    fit_result = StreamingFitResult(
+        z_train=np.array([0.0], dtype=np.float64),
+        z_val=np.array([0.0, 0.0], dtype=np.float64),
+        y_val=np.array([1.0, 0.0], dtype=np.float64),
+        train_rows=None,
+        val_rows=val_rows,
+        val_returns=None,
+    )
+
+    worker_config = StreamingWorkerConfig(validation_return_column="forward_return")
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "returns_mismatch")
+
+    metadata = stream.TFTStreamingMetadata(
+        shard_indices=(),
+        numeric_stats={},
+        categorical_vocab={},
+        instrument_row_counts={},
+    )
+    plan = DatasetPlanEvent(
+        plan_id="plan_returns_mismatch",
+        dataset_id="dataset_forward",
+        parquet_path=dataset_path,
+        metadata=metadata,
+        metadata_summary=stream.TFTStreamingSummary(total_shards=0, total_rows=0, max_shard_rows=0),
+        limits=stream.StreamingLimitSummary(),
+        streaming_config=_build_streaming_config(),
+        caps={},
+    )
+
+    enriched = worker._maybe_attach_validation_returns(plan, fit_result)
+    assert enriched.val_returns is not None
+    np.testing.assert_allclose(
+        enriched.val_returns,
+        np.zeros(2, dtype=np.float64),
+    )
+    assert enriched.val_rows is not None
+    assert list(enriched.val_rows.instrument_ids.tolist()) == ["VNQI", "VNQI"]
+    assert list(enriched.val_rows.row_ids.tolist()) == ["VNQI::10", "VNQI::20"]
+    diag = getattr(worker, "_validation_returns_telemetry")
+    assert diag is not None
+    assert diag.fallback_join is False
+    assert diag.mismatch_count == 2
+    assert diag.missing_count == 2
+    assert any("retaining original instruments" in record.message for record in caplog.records)
+    assert not any("validation_returns_instrument_mismatch" in record.message for record in caplog.records)
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
@@ -295,3 +616,275 @@ def test_lightning_worker_integration_with_orchestrator(tmp_path: Path) -> None:
     assert latest_result.status in {EventStatus.SUCCESS, EventStatus.PARTIAL}
     assert latest_result.metrics.get(worker_config.validation_metric) is not None
     assert latest_result.dataset_id == plan.dataset_id
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_curriculum_schedule_adjusts_train_fraction(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    curriculum = CurriculumScheduleConfig(
+        enabled=True,
+        stages=(CurriculumStageConfig(max_total_rows=20, train_fraction=0.5),),
+        default_train_fraction=0.7,
+    )
+    worker_config = StreamingWorkerConfig(
+        max_total_rows=20,
+        max_total_sequences=20,
+        max_shards=4,
+        train_fraction=0.9,
+        curriculum=curriculum,
+    )
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = worker._prepare_context(plan)
+    assert context.train_fraction == pytest.approx(0.5)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_curriculum_guard_and_amp_guard_annotations(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    guarded_plan = replace(
+        plan,
+        caps={**plan.caps, "recent_peak_gpu_mb": 2_500.0},
+    )
+    curriculum = CurriculumScheduleConfig(
+        enabled=True,
+        stages=(CurriculumStageConfig(max_total_rows=20, train_fraction=0.5, label="phase-a"),),
+        default_train_fraction=0.8,
+        guards=(
+            CurriculumGuardRule(
+                stage_label="phase-a",
+                max_gpu_mb=2_400.0,
+                fallback_train_fraction=0.65,
+                reason="gpu guard",
+            ),
+        ),
+    )
+    worker_config = StreamingWorkerConfig(
+        max_total_rows=20,
+        max_total_sequences=20,
+        max_shards=4,
+        train_fraction=0.9,
+        loss_pos_weight=2.5,
+        enable_amp=True,
+        amp_guard_threshold_mb=2_400.0,
+        curriculum=curriculum,
+    )
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = worker._prepare_context(guarded_plan)
+    assert context.train_fraction == pytest.approx(0.65)
+    assert context.curriculum_stage_label == "phase-a"
+    assert context.curriculum_guard_reason == "gpu guard"
+    assert context.amp_enabled is False
+    assert context.amp_guard_reason is not None
+    telemetry_caps = context.telemetry.caps
+    assert telemetry_caps["dataset_seed"] == 5
+    assert telemetry_caps["worker_curriculum_stage"] == "phase-a"
+    assert telemetry_caps["worker_amp_enabled"] is False
+    assert telemetry_caps["worker_loss_name"] == "bce"
+    assert telemetry_caps["worker_loss_pos_weight"] == pytest.approx(2.5)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_build_teacher_uses_loss_configuration(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    worker_config = StreamingWorkerConfig(loss_name="poisson", loss_pos_weight=None)
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "artifacts")
+    context = worker._prepare_context(plan)
+    teacher = worker._build_teacher(plan, context.worker_streaming_cfg, amp_enabled=False)
+    assert isinstance(teacher, TFTTeacher)
+    assert teacher.config.loss_name == "poisson"
+    assert teacher.config.pos_weight is None
+
+    weighted_config = StreamingWorkerConfig(loss_name="bce", loss_pos_weight=1.75)
+    weighted_worker = LightningStreamingWorker(weighted_config, output_dir=tmp_path / "artifacts_weighted")
+    weighted_context = weighted_worker._prepare_context(plan)
+    weighted_teacher = weighted_worker._build_teacher(plan, weighted_context.worker_streaming_cfg, amp_enabled=False)
+    assert isinstance(weighted_teacher, TFTTeacher)
+    assert weighted_teacher.config.loss_name == "bce"
+    assert weighted_teacher.config.pos_weight == pytest.approx(1.75)
+
+
+def test_worker_seed_application(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    worker_config = StreamingWorkerConfig(worker_seed=123)
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path)
+    recorded: dict[str, int] = {}
+
+    def _record_random(value: int) -> None:
+        recorded["random"] = value
+
+    def _record_numpy(value: int) -> None:
+        recorded["numpy"] = value
+
+    monkeypatch.setattr("ml.training.event_driven.worker.random.seed", _record_random)
+    monkeypatch.setattr("ml.training.event_driven.worker.np.random.seed", _record_numpy)
+    worker._apply_worker_seed()
+    assert recorded["random"] == 123
+    assert recorded["numpy"] == 123
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_ensemble_blending_merges_logits(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    base_config = StreamingWorkerConfig(
+        max_total_rows=20,
+        max_total_sequences=20,
+        max_shards=4,
+    )
+    base_worker = LightningStreamingWorker(
+        base_config,
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = base_worker._prepare_context(plan)
+    fit_result = base_worker._execute_training_attempt(plan, context)
+    peer_path = tmp_path / "peer_logits.npz"
+    _save_peer_logits(peer_path, fit_result, delta=1.0)
+    ensemble_cfg = StreamingEnsembleConfig(
+        enabled=True,
+        blend_mode="weighted",
+        normalize_weights=True,
+        members=(EnsembleMemberConfig(artifact_path=str(peer_path), weight=1.0, required=True),),
+    )
+    ensemble_config = StreamingWorkerConfig(
+        max_total_rows=20,
+        max_total_sequences=20,
+        max_shards=4,
+        ensemble=ensemble_cfg,
+    )
+    ensemble_worker = LightningStreamingWorker(
+        ensemble_config,
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    blended, metrics_info, ensemble_telemetry = ensemble_worker._apply_ensemble(plan, fit_result)
+    assert metrics_info.get("ensemble_members_used") == pytest.approx(1.0)
+    assert metrics_info.get("ensemble_members_misaligned", 0.0) == pytest.approx(0.0)
+    assert blended.z_train.shape == fit_result.z_train.shape
+    assert blended.z_val.shape == fit_result.z_val.shape
+    assert np.allclose(
+        blended.z_train[:2],
+        np.mean([fit_result.z_train[:2], (fit_result.z_train + 1.0)[:2]], axis=0),
+    )
+    assert ensemble_telemetry.members_used == 1
+    assert ensemble_telemetry.optional_members_skipped == 0
+    assert ensemble_telemetry.misaligned_members == 0
+    assert len(ensemble_telemetry.members) == 2
+    assert ensemble_telemetry.members[0].artifact_path == "__primary__"
+    assert ensemble_telemetry.members[1].used is True
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_optional_ensemble_member_misalignment_skips(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    worker = LightningStreamingWorker(
+        StreamingWorkerConfig(max_total_rows=20, max_total_sequences=20, max_shards=4),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = worker._prepare_context(plan)
+    fit_result = worker._execute_training_attempt(plan, context)
+    peer_path = tmp_path / "peer_mismatch.npz"
+    _save_peer_logits(
+        peer_path,
+        fit_result,
+        delta=0.5,
+        mutate_val=_reverse_metadata,
+    )
+    ensemble_cfg = StreamingEnsembleConfig(
+        enabled=True,
+        members=(EnsembleMemberConfig(artifact_path=str(peer_path), weight=1.0, required=False),),
+    )
+    ensemble_worker = LightningStreamingWorker(
+        StreamingWorkerConfig(
+            max_total_rows=20,
+            max_total_sequences=20,
+            max_shards=4,
+            ensemble=ensemble_cfg,
+        ),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    blended, metrics, ensemble_telemetry = ensemble_worker._apply_ensemble(plan, fit_result)
+    assert np.array_equal(blended.z_train, fit_result.z_train)
+    assert np.array_equal(blended.z_val, fit_result.z_val)
+    assert metrics.get("ensemble_members_used") == pytest.approx(0.0)
+    assert metrics.get("ensemble_optional_members_skipped") == pytest.approx(1.0)
+    assert metrics.get("ensemble_members_misaligned") == pytest.approx(1.0)
+    assert ensemble_telemetry.members_used == 0
+    assert ensemble_telemetry.optional_members_skipped == 1
+    assert ensemble_telemetry.misaligned_members == 1
+    assert any(member.skipped_reason for member in ensemble_telemetry.members if member.artifact_path != "__primary__")
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_required_ensemble_member_misalignment_raises(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    worker = LightningStreamingWorker(
+        StreamingWorkerConfig(max_total_rows=20, max_total_sequences=20, max_shards=4),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = worker._prepare_context(plan)
+    fit_result = worker._execute_training_attempt(plan, context)
+    peer_path = tmp_path / "peer_mismatch_required.npz"
+    _save_peer_logits(
+        peer_path,
+        fit_result,
+        delta=0.25,
+        mutate_val=_reverse_metadata,
+    )
+    ensemble_cfg = StreamingEnsembleConfig(
+        enabled=True,
+        members=(EnsembleMemberConfig(artifact_path=str(peer_path), weight=1.0, required=True),),
+    )
+    ensemble_worker = LightningStreamingWorker(
+        StreamingWorkerConfig(
+            max_total_rows=20,
+            max_total_sequences=20,
+            max_shards=4,
+            ensemble=ensemble_cfg,
+        ),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    with pytest.raises(ValueError):
+        ensemble_worker._apply_ensemble(plan, fit_result)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_worker_emits_economic_and_stability_metrics(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    worker = LightningStreamingWorker(
+        StreamingWorkerConfig(
+            max_total_rows=20,
+            max_total_sequences=20,
+            max_shards=4,
+        ),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    result = worker.run(plan)
+    metrics = result.metrics
+    assert "economic_slippage_adjusted_sharpe" in metrics
+    assert "economic_hit_rate" in metrics
+    assert "economic_turnover" in metrics
+    assert "economic_max_drawdown" in metrics
+    assert "stability_ks_statistic" in metrics
+    telemetry = result.telemetry
+    assert telemetry.economic is not None
+    assert telemetry.economic.hit_rate is not None
+    assert telemetry.stability is not None

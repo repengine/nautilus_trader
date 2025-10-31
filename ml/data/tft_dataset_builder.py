@@ -232,6 +232,10 @@ class TFTDatasetBuilder:
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
         include_events: bool = False,
+        include_macro_deltas: bool = False,
+        include_calendar_lags: bool = False,
+        include_clustering_tags: bool = False,
+        include_context_features: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
         include_l2: bool = False,
@@ -297,6 +301,14 @@ class TFTDatasetBuilder:
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
         self.include_events = include_events
+        if include_macro_deltas and not include_macro:
+            logger.debug(
+                "include_macro_deltas requested but include_macro is False; disabling delta enrichment",
+            )
+        self.include_macro_deltas = include_macro and include_macro_deltas
+        self.include_calendar_lags = include_calendar_lags
+        self.include_clustering_tags = include_clustering_tags
+        self.include_context_features = include_context_features
         if earnings_lag_days < 0:
             raise ValueError("earnings_lag_days must be >= 0")
         if include_earnings and data_store is None:
@@ -327,7 +339,11 @@ class TFTDatasetBuilder:
 
         if self.student_mode:
             self.include_macro = False
+            self.include_macro_deltas = False
             self.include_events = False
+            self.include_calendar_lags = False
+            self.include_clustering_tags = False
+            self.include_context_features = False
             self.include_l2 = False
             self.include_earnings = False
 
@@ -357,6 +373,15 @@ class TFTDatasetBuilder:
             self._binding_index.setdefault(binding.symbol.upper(), binding)
             base_symbol = binding.symbol.split(".")[0]
             self._binding_index.setdefault(base_symbol.upper(), binding)
+
+        self._event_feature_required = any(
+            (
+                self.include_events,
+                self.include_calendar_lags,
+                self.include_clustering_tags,
+                self.include_context_features,
+            ),
+        )
 
         # Backwards-compatible helper components (used by tests & CLI)
         self._dataset_serializer = _DatasetSerializer()
@@ -957,29 +982,26 @@ class TFTDatasetBuilder:
         final_df = pl.concat(all_data, how="vertical")
         # Optionally join macro features (as-of with lag)
         if self.include_macro:
-            from typing import cast
-
             from ml.data.fred_join import join_fred_asof
 
-            final_df = cast(
-                "_pl.DataFrame",
-                join_fred_asof(
-                    final_df,
-                    timestamp_col="ts_event",
-                    lag_days=self.macro_lag_days,
-                    fred_path=self.fred_path,
-                    vintage_base_dir=self.vintage_base_dir,
-                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
-                    vintage_policy=self.vintage_policy,
-                    vintage_cutoff=self.vintage_as_of,
-                ),
+            final_df = join_fred_asof(
+                final_df,
+                timestamp_col="ts_event",
+                lag_days=self.macro_lag_days,
+                fred_path=self.fred_path,
+                vintage_base_dir=self.vintage_base_dir,
+                series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                vintage_policy=self.vintage_policy,
+                vintage_cutoff=self.vintage_as_of,
             )
+        final_df_polars = cast("_pl.DataFrame", final_df)
+        final_df_polars = self._append_macro_delta_features_polars(final_df_polars)
         logger.info(
-            f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
+            "Loaded %d rows from FeatureStore with %d columns",
+            len(final_df_polars),
+            len(final_df_polars.columns),
         )
-        from typing import cast as _cast
-
-        return _cast("_pl.DataFrame", final_df)
+        return final_df_polars
 
     def prepare_training_data(
         self,
@@ -1127,6 +1149,10 @@ class TFTDatasetBuilder:
                             ],
                         )
                         direct_df = direct_df_pl2
+                direct_df_polars = self._append_macro_delta_features_polars(
+                    cast("_pl.DataFrame", direct_df),
+                )
+                direct_df = direct_df_polars
             else:
                 # Pandas path — apply join and compute mask with pandas ops
                 direct_df = join_fred_asof(
@@ -1152,6 +1178,7 @@ class TFTDatasetBuilder:
                         direct_df["is_macro_available"] = (
                             direct_df[macro_cols].notna().any(axis=1).astype("int32")
                         )
+                        direct_df = self._append_macro_delta_features_pandas(direct_df)
                 except Exception:  # pragma: no cover - defensive
                     logger.debug(
                         "Macro pandas join post-processing failed",
@@ -1246,7 +1273,7 @@ class TFTDatasetBuilder:
         """
         Lazily initialize the event schedule provider.
         """
-        if not self.include_events:
+        if not self._event_feature_required:
             return None
         if self._event_provider is not None:
             return self._event_provider
@@ -1525,9 +1552,9 @@ class TFTDatasetBuilder:
                     df_pandas = df.to_pandas()
                 else:
                     # Assume already pandas
-                    from typing import cast
+                    from typing import cast as _cast
 
-                    df_pandas = cast("_pd.DataFrame", df)
+                    df_pandas = _cast("_pd.DataFrame", df)
                 processed = self._process_symbol_pandas(
                     df_pandas,
                     symbol,
@@ -1617,6 +1644,10 @@ class TFTDatasetBuilder:
                 else:
                     joined = joined.with_columns(pl.lit(0).alias("is_macro_available"))
                 final_df = joined
+            final_df_polars = self._append_macro_delta_features_polars(
+                cast("_pl.DataFrame", final_df),
+            )
+            final_df = final_df_polars
         else:
             # all_data_pd contains Pandas DataFrames
             final_df = pd.concat(all_data_pd, ignore_index=True)
@@ -1654,6 +1685,9 @@ class TFTDatasetBuilder:
                         final_df_pd[macro_cols].notna().any(axis=1).astype("int32")
                     )
                 final_df = final_df_pd
+            final_df_pd_cast = cast(PandasDataFrame, final_df)
+            final_df_pd_cast = self._append_macro_delta_features_pandas(final_df_pd_cast)
+            final_df = final_df_pd_cast
 
         logger.info(f"Built dataset with shape: {final_df.shape}")
 
@@ -1941,7 +1975,7 @@ class TFTDatasetBuilder:
                 )
 
         # Optionally add event-based known-future features
-        if self.include_events:
+        if self._event_feature_required:
             provider = self._get_event_provider()
             if provider is not None:
                 try:
@@ -1951,12 +1985,128 @@ class TFTDatasetBuilder:
                         ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
                         dataset = dataset.join(ev, on="timestamp", how="left")
                 except Exception as exc:  # pragma: no cover
-                    logger.debug(f"Event feature join failed for {symbol}: {exc}")
+                    logger.debug(
+                        "Event feature join failed for %s",
+                        symbol,
+                        exc_info=True,
+                        extra={"reason": str(exc)},
+                    )
 
         return dataset
 
     def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:
         return tuple(self._binding_stats.values())
+
+    def _candidate_macro_series(self, columns: Iterable[str]) -> list[str]:
+        """
+        Return macro series identifiers inferred from the configured series or dataset columns.
+
+        Args:
+            columns: Column names present in the dataset.
+
+        Returns:
+            Sorted list of candidate macro series identifiers.
+        """
+        candidates: set[str] = set()
+        if self.macro_series_ids:
+            candidates.update(self.macro_series_ids)
+        else:
+            for name in columns:
+                if "__" not in name:
+                    continue
+                prefix = name.split("__", 1)[0]
+                if prefix and prefix.isupper():
+                    candidates.add(prefix)
+        return sorted(candidates)
+
+    def _append_macro_delta_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
+        """
+        Append macro delta enrichment columns to a Polars DataFrame when enabled.
+        """
+        if not self.include_macro_deltas:
+            return df
+        candidates = self._candidate_macro_series(df.columns)
+        if not candidates:
+            logger.debug(
+                "Macro delta enrichment requested but no candidate macro series detected",
+            )
+            return df
+        has_instrument = "instrument_id" in df.columns
+        expressions: list[_pl.Expr] = []
+        delta_names: list[str] = []
+        for series in candidates:
+            source_col = None
+            for candidate_name in (
+                series,
+                f"{series}__value_real_time",
+                f"{series}__value_final",
+            ):
+                if candidate_name in df.columns:
+                    source_col = candidate_name
+                    break
+            if source_col is None:
+                continue
+            expr = _pl.col(source_col) - _pl.col(source_col).shift(1)
+            if has_instrument:
+                expr = expr.over("instrument_id")
+            delta_name = f"{series}_delta_1d"
+            expressions.append(expr.cast(_pl.Float32).fill_null(0.0).alias(delta_name))
+            delta_names.append(delta_name)
+        if not expressions:
+            logger.debug(
+                "Macro delta enrichment skipped; no source macro columns located",
+                extra={"macro_candidates": candidates},
+            )
+            return df
+        enriched = df.with_columns(expressions)
+        # Ensure any remaining nulls are zeroed for deterministic behaviour
+        return enriched.with_columns([_pl.col(name).fill_null(0.0) for name in delta_names])
+
+    def _append_macro_delta_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
+        """
+        Append macro delta enrichment columns to a Pandas DataFrame when enabled.
+        """
+        if not self.include_macro_deltas:
+            return df
+        candidates = self._candidate_macro_series(df.columns)
+        if not candidates:
+            logger.debug(
+                "Macro delta enrichment requested but no candidate macro series detected",
+            )
+            return df
+        has_instrument = "instrument_id" in df.columns
+        for series in candidates:
+            source_col = None
+            for candidate_name in (
+                series,
+                f"{series}__value_real_time",
+                f"{series}__value_final",
+            ):
+                if candidate_name in df.columns:
+                    source_col = candidate_name
+                    break
+            if source_col is None:
+                continue
+            try:
+                if has_instrument:
+                    delta_series = (
+                        df.groupby("instrument_id")[source_col]
+                        .diff()
+                        .fillna(0.0)
+                        .astype("float32")
+                    )
+                else:
+                    delta_series = df[source_col].diff().fillna(0.0).astype("float32")
+            except Exception as exc:  # pragma: no cover - defensive branch
+                logger.debug(
+                    "Failed to compute macro delta for %s",
+                    series,
+                    exc_info=True,
+                    extra={"source_column": source_col, "reason": str(exc)},
+                )
+                continue
+            df[f"{series}_delta_1d"] = delta_series
+        return df
 
     def _process_symbol_pandas(
         self,
@@ -2082,23 +2232,21 @@ class TFTDatasetBuilder:
                     )
 
         # Optionally add event-based known-future features
-        if self.include_events:
-            try:
-                from ml.data.providers.events import EventScheduleProvider
-                from ml.data.sources.events import SimpleEventSource
-
-                provider = EventScheduleProvider(SimpleEventSource())
-                if "timestamp" in dataset.columns:
+        if self._event_feature_required:
+            provider = self._get_event_provider()
+            if provider is not None and "timestamp" in dataset.columns:
+                try:
                     ts_series = pl.Series(
                         "timestamp",
                         dataset["timestamp"].astype("datetime64[ns]"),
                     ).cast(pl.Int64)
                     ev_pl = provider.compute_features(ts_series, [symbol])
-                    ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
-                    ev_pd = ev_pl.to_pandas()
-                    dataset = dataset.merge(ev_pd, on="timestamp", how="left")
-            except Exception as exc:  # pragma: no cover
-                logger.debug(f"Event feature join failed for {symbol}: {exc}")
+                    if ev_pl.shape[0] > 0:
+                        ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                        ev_pd = ev_pl.to_pandas()
+                        dataset = dataset.merge(ev_pd, on="timestamp", how="left")
+                except Exception as exc:  # pragma: no cover
+                    logger.debug("Event feature join failed for %s", symbol, exc_info=True, extra={"reason": str(exc)})
 
         return dataset
 

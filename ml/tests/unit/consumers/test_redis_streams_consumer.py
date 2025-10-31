@@ -90,6 +90,7 @@ def test_redis_streams_consumer_gates_and_handles(monkeypatch: Any) -> None:
     processed = consumer.poll_once()
     assert processed == 1
     assert len(received) == 1 and received[0][0].startswith("events.ml.FEATURE_COMPUTED")
+    assert consumer.last_entry_id == "3-0"
 
 
 def test_redis_streams_consumer_no_dependency(monkeypatch: Any) -> None:
@@ -105,3 +106,4 @@ def test_redis_streams_consumer_no_dependency(monkeypatch: Any) -> None:
     processed = consumer.poll_once()
     assert processed == 0
     assert events == []
+    assert consumer.last_entry_id is None

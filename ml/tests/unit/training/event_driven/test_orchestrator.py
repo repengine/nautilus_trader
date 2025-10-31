@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from ml.config.streaming_pipeline import (
     TrainingOrchestratorConfig,
 )
 from ml.training.event_driven.orchestrator import (
+    AdaptiveSchedulingDeferred,
     InMemoryOrchestratorBus,
     InMemoryStreamingOrchestrator,
     PublisherOrchestratorBus,
@@ -197,6 +199,52 @@ def test_orchestrator_enqueue_publishes_plan() -> None:
     published_result = bus.result_events[-1]
     assert published_result.event.plan_id == plan.plan_id
     assert published_result.topic == build_topic_for_stage(Stage.MODEL_TRAINING_COMPLETED, plan.dataset_id)
+
+
+def test_adaptive_backlog_defers_enqueue() -> None:
+    planner = _FixedPlanner()
+    orchestrator = InMemoryStreamingOrchestrator(
+        TrainingOrchestratorConfig(
+            command_topic="",
+            result_topic="",
+            heartbeat_topic="",
+            worker_timeout_seconds=60,
+            adaptive_backlog_threshold=1,
+        ),
+        planner,
+        InMemoryOrchestratorBus(),
+    )
+    orchestrator.enqueue_training(_request())
+    with pytest.raises(AdaptiveSchedulingDeferred):
+        orchestrator.enqueue_training(_request())
+
+
+def test_adaptive_gpu_deferral() -> None:
+    planner = _FixedPlanner()
+    orchestrator = InMemoryStreamingOrchestrator(
+        TrainingOrchestratorConfig(
+            command_topic="",
+            result_topic="",
+            heartbeat_topic="",
+            worker_timeout_seconds=60,
+            adaptive_gpu_threshold_mb=128.0,
+        ),
+        planner,
+        InMemoryOrchestratorBus(),
+    )
+    plan = orchestrator.enqueue_training(_request())
+    result = TrainingResultEvent(
+        plan_id=plan.plan_id,
+        dataset_id=plan.dataset_id,
+        model_id="stub",
+        telemetry=replace(_telemetry(), max_gpu_memory_mb=256.0),
+        artifact_paths={},
+        metrics={},
+        status=EventStatus.SUCCESS,
+    )
+    orchestrator.handle_result(result)
+    with pytest.raises(AdaptiveSchedulingDeferred):
+        orchestrator.enqueue_training(_request())
 
 
 def test_orchestrator_detects_expired_plan() -> None:

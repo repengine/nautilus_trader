@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import msgspec
 import pytest
 
 from ml._imports import HAS_PROMETHEUS
@@ -39,7 +40,8 @@ class TestResourceUtilizationCollector:
         config = MonitoringConfig(enabled=False)
         collector = ResourceUtilizationCollector(config)
 
-        assert collector.config == config
+        assert msgspec.to_builtins(collector.config) == msgspec.to_builtins(config), \
+            f"Config mismatch: {msgspec.to_builtins(collector.config)} != {msgspec.to_builtins(config)}"
         assert not collector.enabled
         assert collector.get_metric_count() == 0
         assert collector._monitoring_thread is None
@@ -51,7 +53,8 @@ class TestResourceUtilizationCollector:
         """
         collector = ResourceUtilizationCollector(self.config)
 
-        assert collector.config == self.config
+        assert msgspec.to_builtins(collector.config) == msgspec.to_builtins(self.config), \
+            f"Config mismatch: {msgspec.to_builtins(collector.config)} != {msgspec.to_builtins(self.config)}"
         assert collector.enabled
         # Should have initialized multiple metrics
         assert collector.get_metric_count() > 0

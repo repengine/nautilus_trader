@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from ml import _imports as ml_imports
 from ml.consumers.idempotent import IdempotentConsumer
@@ -28,6 +29,13 @@ else:
 OnEvent = Callable[[str, dict[str, Any]], None]
 
 
+class Gate(Protocol):
+    """Protocol describing the gating interface for Redis stream consumers."""
+
+    def process(self, payload: Mapping[str, Any]) -> bool:
+        """Return True when the payload should be processed."""
+
+
 class RedisStreamsConsumer:
     """
     Minimal Redis Streams consumer that gates events and invokes a handler.
@@ -39,13 +47,14 @@ class RedisStreamsConsumer:
         url: str,
         stream: str,
         handler: OnEvent,
-        gate: IdempotentConsumer | None = None,
+        gate: Gate | None = None,
     ) -> None:
         self._url = url
         self._stream = stream
         self._handler = handler
         self._gate = gate or IdempotentConsumer()
         self._client: _RedisClient | None = None
+        self._last_entry_id: str | None = None
         self._logger = logging.getLogger(__name__)
         redis_module = ml_imports.redis
         if redis_module is None:
@@ -69,6 +78,11 @@ class RedisStreamsConsumer:
         except Exception:  # pragma: no cover - import failure path
             self._client = None
 
+    @property
+    def last_entry_id(self) -> str | None:
+        """Return the last processed Redis stream ID."""
+        return self._last_entry_id
+
     def poll_once(self, *, count: int = 100, block_ms: int = 0, last_id: str = "$") -> int:
         """
         Read a batch via XREAD and process accepted events. Returns processed count.
@@ -89,8 +103,10 @@ class RedisStreamsConsumer:
         )
 
         processed = 0
+        last_processed: str | None = None
         for _stream_name, entries in results:
-            for _entry_id, fields in entries:
+            for entry_id, fields in entries:
+                last_processed = entry_id
                 topic = fields.get("topic", "")
                 payload_raw = fields.get("payload", "{}")
                 try:
@@ -106,7 +122,9 @@ class RedisStreamsConsumer:
                         # Log and continue to keep the loop resilient in example code.
                         self._logger.debug("consumer handler error: %s", exc, exc_info=True)
                         continue
+        if last_processed is not None:
+            self._last_entry_id = last_processed
         return processed
 
 
-__all__: Final[list[str]] = ["OnEvent", "RedisStreamsConsumer"]
+__all__: Final[list[str]] = ["Gate", "OnEvent", "RedisStreamsConsumer"]

@@ -39,6 +39,11 @@ _WORKER_COUNT_GAUGE = get_gauge(
     "Current number of active streaming workers per dataset.",
     labelnames=("dataset_id",),
 )
+_RESULT_METRIC_GAUGE = get_gauge(
+    "ml_tft_streaming_validation_metric",
+    "Validation metrics emitted by streaming training results.",
+    labelnames=("dataset_id", "plan_id", "metric"),
+)
 
 
 class ObservabilitySink(Protocol):
@@ -72,7 +77,7 @@ class StreamingPlanRecord:
     status: EventStatus
     created_at: datetime
     caps: Mapping[str, float | int | None]
-    limits: Mapping[str, int]
+    limits: Mapping[str, Any]
     metadata_summary: Mapping[str, int]
     streaming_config: Mapping[str, Any]
     correlation_id: str
@@ -237,6 +242,12 @@ class StreamingTrainingStateStore(Protocol):
     def restore(self, snapshot: Mapping[str, Any]) -> None:
         """Restore state from a serialized snapshot."""
 
+    def get_stream_cursor(self) -> str | None:
+        """Return the last processed Redis stream ID, if any."""
+
+    def update_stream_cursor(self, cursor: str) -> None:
+        """Persist the latest processed Redis stream ID."""
+
 
 class InMemoryStreamingTrainingStateStore(StreamingTrainingStateStore):
     """In-memory implementation of :class:`StreamingTrainingStateStore`."""
@@ -245,6 +256,7 @@ class InMemoryStreamingTrainingStateStore(StreamingTrainingStateStore):
         self._plans: dict[str, StreamingPlanRecord] = {}
         self._results: dict[str, StreamingResultRecord] = {}
         self._heartbeats: dict[str, StreamingHeartbeatRecord] = {}
+        self._stream_cursor: str | None = None
 
     def record_plan(self, record: StreamingPlanRecord) -> None:
         self._plans[record.plan_id] = record
@@ -287,12 +299,14 @@ class InMemoryStreamingTrainingStateStore(StreamingTrainingStateStore):
             "plans": {pid: record.as_dict() for pid, record in self._plans.items()},
             "results": {pid: record.as_dict() for pid, record in self._results.items()},
             "heartbeats": {key: record.as_dict() for key, record in self._heartbeats.items()},
+            "stream_cursor": self._stream_cursor,
         }
 
     def restore(self, snapshot: Mapping[str, Any]) -> None:
         plans_snapshot = snapshot.get("plans", {})
         results_snapshot = snapshot.get("results", {})
         heartbeats_snapshot = snapshot.get("heartbeats", {})
+        cursor_snapshot = snapshot.get("stream_cursor")
 
         self._plans = {
             plan_id: StreamingPlanRecord.from_dict(data)
@@ -306,6 +320,16 @@ class InMemoryStreamingTrainingStateStore(StreamingTrainingStateStore):
             key: StreamingHeartbeatRecord.from_dict(data)
             for key, data in heartbeats_snapshot.items()
         }
+        if isinstance(cursor_snapshot, str):
+            self._stream_cursor = cursor_snapshot
+        else:
+            self._stream_cursor = None
+
+    def get_stream_cursor(self) -> str | None:
+        return self._stream_cursor
+
+    def update_stream_cursor(self, cursor: str) -> None:
+        self._stream_cursor = cursor.strip() or None
 
 
 class FileBackedStreamingTrainingStateStore(StreamingTrainingStateStore):
@@ -365,6 +389,13 @@ class FileBackedStreamingTrainingStateStore(StreamingTrainingStateStore):
 
     def restore(self, snapshot: Mapping[str, Any]) -> None:
         self._delegate.restore(snapshot)
+        self._persist()
+
+    def get_stream_cursor(self) -> str | None:
+        return self._delegate.get_stream_cursor()
+
+    def update_stream_cursor(self, cursor: str) -> None:
+        self._delegate.update_stream_cursor(cursor)
         self._persist()
 
     def _persist(self) -> None:
@@ -429,6 +460,7 @@ class StreamingTrainingConsumer:
             elif payload_type == "streaming_result":
                 result_record = self._parse_result(topic, payload)
                 self._state_store.record_result(result_record)
+                self._record_result_metrics(result_record)
                 self._update_backlog_metric(result_record.dataset_id)
             elif payload_type == "streaming_heartbeat":
                 heartbeat_record = self._parse_heartbeat(topic, payload)
@@ -553,6 +585,36 @@ class StreamingTrainingConsumer:
                 timestamp=timestamp_ns,
                 labels={"dataset_id": dataset_key},
             )
+
+    def _record_result_metrics(self, record: StreamingResultRecord) -> None:
+        if not record.metrics:
+            return
+        dataset_key = record.dataset_id or "UNKNOWN"
+        plan_key = record.plan_id or "UNKNOWN"
+        completed_at = record.completed_at if isinstance(record.completed_at, datetime) else datetime.utcnow()
+        timestamp_ns = int(completed_at.timestamp() * 1_000_000_000)
+        for metric_name, value in record.metrics.items():
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                continue
+            _RESULT_METRIC_GAUGE.labels(
+                dataset_id=dataset_key,
+                plan_id=plan_key,
+                metric=metric_name,
+            ).set(numeric_value)
+            if self._observability is not None:
+                self._observability.add_metric(
+                    metric_name="ml_tft_streaming_validation_metric",
+                    metric_type="gauge",
+                    value=numeric_value,
+                    timestamp=timestamp_ns,
+                    labels={
+                        "dataset_id": dataset_key,
+                        "plan_id": plan_key,
+                        "metric": metric_name,
+                    },
+                )
 
 
 class SubscriptionBus(Protocol):

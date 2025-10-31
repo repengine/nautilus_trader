@@ -54,6 +54,7 @@ from typing import Any
 from unittest.mock import Mock
 from unittest.mock import patch
 
+import msgspec
 import pytest
 
 from ml.config.scheduler_config import DatabentoConfig
@@ -216,7 +217,8 @@ def test_01_scheduler_component_initialization_e2e(
     assert scheduler._retention_mgr is not None
 
     # Verify config is set
-    assert scheduler.config == scheduler_config
+    assert msgspec.to_builtins(scheduler.config) == msgspec.to_builtins(scheduler_config), \
+        f"Config mismatch: {msgspec.to_builtins(scheduler.config)} != {msgspec.to_builtins(scheduler_config)}"
     assert len(scheduler.config.symbols) == 3
 
 

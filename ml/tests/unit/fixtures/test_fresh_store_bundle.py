@@ -1,4 +1,6 @@
-"""Test fresh_store_bundle fixture provides complete isolation."""
+"""
+Test fresh_store_bundle fixture provides complete isolation.
+"""
 
 import pytest
 
@@ -6,7 +8,9 @@ import pytest
 @pytest.mark.database
 @pytest.mark.serial
 def test_fresh_store_bundle_isolation(fresh_store_bundle):
-    """Verify fresh_store_bundle provides isolated stores per test."""
+    """
+    Verify fresh_store_bundle provides isolated stores per test.
+    """
     # Write data to feature store
     fresh_store_bundle.feature_store.write_features(
         feature_set_id="test_isolation",
@@ -32,7 +36,9 @@ def test_fresh_store_bundle_isolation(fresh_store_bundle):
 @pytest.mark.database
 @pytest.mark.serial
 def test_fresh_store_bundle_no_pollution(fresh_store_bundle):
-    """Verify previous test's data does NOT pollute this test."""
+    """
+    Verify previous test's data does NOT pollute this test.
+    """
     # This test should NOT see data from previous test
     from sqlalchemy import text
 
@@ -50,7 +56,9 @@ def test_fresh_store_bundle_no_pollution(fresh_store_bundle):
 @pytest.mark.serial
 @pytest.mark.parametrize("run", [1, 2, 3])
 def test_fresh_store_bundle_consistency(fresh_store_bundle, run):
-    """Verify consistent behavior across multiple runs."""
+    """
+    Verify consistent behavior across multiple runs.
+    """
     # Each parameterized run should see clean state
     from sqlalchemy import text
 
@@ -67,7 +75,9 @@ def test_fresh_store_bundle_consistency(fresh_store_bundle, run):
 @pytest.mark.database
 @pytest.mark.serial
 def test_fresh_store_bundle_attributes(fresh_store_bundle):
-    """Verify fresh_store_bundle has all expected attributes."""
+    """
+    Verify fresh_store_bundle has all expected attributes.
+    """
     assert hasattr(fresh_store_bundle, "feature_store"), "Should have feature_store"
     assert hasattr(fresh_store_bundle, "model_store"), "Should have model_store"
     assert hasattr(fresh_store_bundle, "strategy_store"), "Should have strategy_store"

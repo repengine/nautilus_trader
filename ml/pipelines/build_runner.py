@@ -96,6 +96,10 @@ class BuildConfig:
     macro_lag_days: int = 1
     include_micro: bool = False
     include_l2: bool = False
+    include_macro_deltas: bool = False
+    include_calendar_lags: bool = False
+    include_clustering_tags: bool = False
+    include_context_features: bool = False
     horizon_minutes: int = 15
     threshold: float = 0.001
     lookback_periods: int = 60
@@ -135,6 +139,10 @@ class BuildConfig:
             macro_lag_days=int(_p("macro_lag_days", 1)),
             include_micro=bool(_p("include_micro", False)),
             include_l2=bool(_p("include_l2", False)),
+            include_macro_deltas=bool(_p("include_macro_deltas", False)),
+            include_calendar_lags=bool(_p("include_calendar_lags", False)),
+            include_clustering_tags=bool(_p("include_clustering_tags", False)),
+            include_context_features=bool(_p("include_context_features", False)),
             horizon_minutes=int(_p("horizon_minutes", 15)),
             threshold=float(_p("threshold", 0.001)),
             lookback_periods=int(_p("lookback_periods", 60)),
@@ -254,6 +262,14 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
         args += ["--include_micro"]
     if cfg.include_l2:
         args += ["--include_l2"]
+    if cfg.include_macro_deltas:
+        args += ["--include_macro_deltas"]
+    if cfg.include_calendar_lags:
+        args += ["--include_calendar_lags"]
+    if cfg.include_clustering_tags:
+        args += ["--include_clustering_tags"]
+    if cfg.include_context_features:
+        args += ["--include_context_features"]
     if cfg.register_features:
         args += ["--register_features"]
         if cfg.feature_registry_dir:
@@ -326,6 +342,10 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                     macro_lag_days=cfg.macro_lag_days,
                     include_micro=cfg.include_micro,
                     include_l2=cfg.include_l2,
+                    include_macro_deltas=cfg.include_macro_deltas,
+                    include_calendar_lags=cfg.include_calendar_lags,
+                    include_clustering_tags=cfg.include_clustering_tags,
+                    include_context_features=cfg.include_context_features,
                     horizon_minutes=cfg.horizon_minutes,
                     threshold=cfg.threshold,
                     lookback_periods=cfg.lookback_periods,

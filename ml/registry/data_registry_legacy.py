@@ -187,7 +187,9 @@ class DataRegistryLegacy(MLComponentMixin):
         )
 
     def _get_registry_table(self, session: Session) -> Table:
-        """Return reflected dataset registry table for the session bind."""
+        """
+        Return reflected dataset registry table for the session bind.
+        """
         bind = session.get_bind()
         if bind is None:
             raise RuntimeError("Failed to resolve database bind for manifests")
@@ -201,7 +203,9 @@ class DataRegistryLegacy(MLComponentMixin):
         return table
 
     def _get_lineage_table(self, session: Session) -> Table:
-        """Return reflected lineage table for the session bind."""
+        """
+        Return reflected lineage table for the session bind.
+        """
         bind = session.get_bind()
         if bind is None:
             raise RuntimeError("Failed to resolve database bind for lineage")
@@ -949,26 +953,25 @@ class DataRegistryLegacy(MLComponentMixin):
 
             try:
                 table = self._get_registry_table(session)
-                stmt = (
-                    select(
-                        table.c.dataset_id,
-                        table.c.dataset_type,
-                        table.c.storage_kind,
-                        table.c.location,
-                        table.c.partitioning,
-                        table.c.retention_days,
-                        table.c.schema,
-                        table.c.schema_hash,
-                        table.c.constraints,
-                        table.c.parents.label("lineage"),
-                        table.c.pipeline_signature,
-                        table.c.version,
-                        (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
-                        (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
-                        table.c.metadata,
-                    )
-                    .order_by(table.c.dataset_id)
-                )
+                stmt = select(
+                    table.c.dataset_id,
+                    table.c.dataset_type,
+                    table.c.storage_kind,
+                    table.c.location,
+                    table.c.partitioning,
+                    table.c.retention_days,
+                    table.c.schema,
+                    table.c.schema_hash,
+                    table.c.constraints,
+                    table.c.parents.label("lineage"),
+                    table.c.pipeline_signature,
+                    table.c.version,
+                    (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
+                    (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label(
+                        "last_modified"
+                    ),
+                    table.c.metadata,
+                ).order_by(table.c.dataset_id)
                 rows = session.execute(stmt).all()
             finally:
                 session.close()
@@ -1038,8 +1041,12 @@ class DataRegistryLegacy(MLComponentMixin):
                             table.c.parents.label("lineage"),
                             table.c.pipeline_signature,
                             table.c.version,
-                            (func.extract("epoch", table.c.created_at) * 1_000_000_000).label("created_at"),
-                            (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label("last_modified"),
+                            (func.extract("epoch", table.c.created_at) * 1_000_000_000).label(
+                                "created_at"
+                            ),
+                            (func.extract("epoch", table.c.last_modified) * 1_000_000_000).label(
+                                "last_modified"
+                            ),
                             table.c.metadata,
                         )
                         .where(table.c.dataset_id == dataset_id)

@@ -60,13 +60,37 @@ def _telemetry_dict(telemetry: StreamingRunTelemetry) -> dict[str, Any]:
                 return dict(items)
         return {}
 
-    return {
+    result: dict[str, Any] = {
         "caps": _coerce_mapping(payload.get("caps")),
         "metadata": _coerce_mapping(payload.get("metadata")),
         "train": _coerce_mapping(payload.get("train")),
         "validation": _coerce_mapping(payload.get("validation")),
         "resources": _coerce_mapping(payload.get("resources")),
     }
+    ensemble_payload = payload.get("ensemble")
+    if isinstance(ensemble_payload, Mapping):
+        members = ensemble_payload.get("members")
+        result["ensemble"] = {
+            **{
+                key: value
+                for key, value in ensemble_payload.items()
+                if key != "members"
+            },
+            "members": list(members) if isinstance(members, Sequence) else [],
+        }
+    economic_payload = payload.get("economic")
+    if isinstance(economic_payload, Mapping):
+        result["economic"] = {str(key): economic_payload[key] for key in economic_payload}
+    stability_payload = payload.get("stability")
+    if isinstance(stability_payload, Mapping):
+        result["stability"] = {str(key): stability_payload[key] for key in stability_payload}
+    validation_returns_payload = payload.get("validation_returns")
+    if isinstance(validation_returns_payload, Mapping):
+        result["validation_returns"] = {
+            str(key): validation_returns_payload[key]
+            for key in validation_returns_payload
+        }
+    return result
 
 
 def _capability_flags_from_config(config: TFTStreamingConfig) -> dict[str, bool]:
@@ -78,6 +102,10 @@ def _capability_flags_from_config(config: TFTStreamingConfig) -> dict[str, bool]
         "include_micro": bool(getattr(config, "include_micro", False)),
         "include_l2": bool(getattr(config, "include_l2", False)),
         "include_macro_revisions": bool(getattr(config, "include_macro_revisions", False)),
+        "include_macro_deltas": bool(getattr(config, "include_macro_deltas", False)),
+        "include_calendar_lags": bool(getattr(config, "include_calendar_lags", False)),
+        "include_clustering_tags": bool(getattr(config, "include_clustering_tags", False)),
+        "include_context_features": bool(getattr(config, "include_context_features", False)),
     }
 
 
@@ -110,11 +138,12 @@ class StreamingPlanMessage:
     created_at: str
     parquet_path: str
     caps: Mapping[str, float | int | None]
-    limits: Mapping[str, int]
+    limits: Mapping[str, Any]
     metadata_summary: Mapping[str, int]
     streaming_config: Mapping[str, Any]
     capability_flags: Mapping[str, bool]
     publication_lags: Mapping[str, int]
+    phase_one_signals: Mapping[str, Sequence[str]]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -135,6 +164,9 @@ class StreamingPlanMessage:
                 "streaming_config": dict(self.streaming_config),
                 "capability_flags": dict(self.capability_flags),
                 "publication_lags": dict(self.publication_lags),
+                "phase_one_signals": {
+                    key: list(values) for key, values in self.phase_one_signals.items()
+                },
             },
         }
 
@@ -219,6 +251,7 @@ def build_plan_message(plan: DatasetPlanEvent, *, source: Source = _DEFAULT_SOUR
     limits = plan.limits
     config = plan.streaming_config
     capability_flags = _capability_flags_from_config(config)
+    phase_one_payload = plan.phase_one_signals.as_payload()
     streaming_config = {
         "time_idx_col": config.time_idx_col,
         "group_id_col": config.group_id_col,
@@ -244,9 +277,14 @@ def build_plan_message(plan: DatasetPlanEvent, *, source: Source = _DEFAULT_SOUR
         "include_micro": config.include_micro,
         "include_l2": config.include_l2,
         "include_macro_revisions": config.include_macro_revisions,
+        "include_macro_deltas": config.include_macro_deltas,
+        "include_calendar_lags": config.include_calendar_lags,
+        "include_clustering_tags": config.include_clustering_tags,
+        "include_context_features": config.include_context_features,
         "macro_lag_days": config.macro_lag_days,
         "earnings_lag_days": config.earnings_lag_days,
         "events_notice_minutes": config.events_notice_minutes,
+        "phase_one_signals": phase_one_payload,
     }
     return StreamingPlanMessage(
         schema_version=SCHEMA_VERSION,
@@ -263,6 +301,12 @@ def build_plan_message(plan: DatasetPlanEvent, *, source: Source = _DEFAULT_SOUR
             "skipped_shards": limits.skipped_shards,
             "skipped_rows": limits.skipped_rows,
             "skipped_sequences": limits.skipped_sequences,
+            "instrument_rows_total": dict(limits.total_instrument_rows),
+            "instrument_rows_selected": dict(limits.selected_instrument_rows),
+            "instrument_rows_skipped": dict(limits.skipped_instrument_rows),
+            "instrument_sequences_total": dict(limits.total_instrument_sequences),
+            "instrument_sequences_selected": dict(limits.selected_instrument_sequences),
+            "instrument_sequences_skipped": dict(limits.skipped_instrument_sequences),
         },
         metadata_summary={
             "total_shards": summary.total_shards,
@@ -272,6 +316,7 @@ def build_plan_message(plan: DatasetPlanEvent, *, source: Source = _DEFAULT_SOUR
         streaming_config=streaming_config,
         capability_flags=capability_flags,
         publication_lags=_publication_lags_from_config(config),
+        phase_one_signals=phase_one_payload,
     )
 
 

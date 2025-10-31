@@ -11,6 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import msgspec
 import numpy as np
 import pandas as pd
 import pytest
@@ -100,7 +101,8 @@ class TestFeatureParityValidator:
 
         validator = FeatureParityValidator(config=config, tolerance=tolerance)
 
-        assert validator.config == config
+        assert msgspec.to_builtins(validator.config) == msgspec.to_builtins(config), \
+            f"Config mismatch: {msgspec.to_builtins(validator.config)} != {msgspec.to_builtins(config)}"
         assert validator.tolerance == tolerance
 
     def test_validate_parity_success(self) -> None:

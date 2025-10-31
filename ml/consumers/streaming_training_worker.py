@@ -61,6 +61,10 @@ class _PollableConsumer(Protocol):
     def poll_once(self, *, count: int, block_ms: int, last_id: str = "$") -> int:
         """Poll a backend once and return the number of processed entries."""
 
+    @property
+    def last_entry_id(self) -> str | None:
+        """Return the last processed backend cursor, if any."""
+
 
 ConsumerFactory = Callable[
     [StreamingTrainingPersistenceService, MessageBusConfig],
@@ -103,6 +107,7 @@ class StreamingTrainingPersistenceWorker:
     _stop_event: Event = field(default_factory=Event, init=False, repr=False)
     _observability_initialized: bool = field(default=False, init=False, repr=False)
     _resolved_observability: ObservabilitySink | None = field(default=None, init=False, repr=False)
+    _last_stream_id: str | None = field(default=None, init=False, repr=False)
 
     def poll_once(self) -> int:
         """Poll Redis Streams a single time using configured limits."""
@@ -111,10 +116,12 @@ class StreamingTrainingPersistenceWorker:
         consumer = self._ensure_consumer()
         if consumer is None:
             return 0
+        last_id = self._last_stream_id or "$"
         try:
             processed = consumer.poll_once(
                 count=int(self.config.batch_size),
                 block_ms=int(self.config.block_ms),
+                last_id=last_id,
             )
         except Exception:
             logger.warning(
@@ -123,6 +130,7 @@ class StreamingTrainingPersistenceWorker:
                 exc_info=True,
             )
             return 0
+        self._update_cursor_from_consumer(consumer)
         return processed
 
     def run_forever(self) -> None:
@@ -161,6 +169,9 @@ class StreamingTrainingPersistenceWorker:
         )
         if self.observability is None:
             self.observability = observability
+        cursor = self._service.state_store.get_stream_cursor()
+        if isinstance(cursor, str) and cursor.strip():
+            self._last_stream_id = cursor.strip()
         return self._service
 
     def _ensure_consumer(self) -> _PollableConsumer | None:
@@ -184,6 +195,24 @@ class StreamingTrainingPersistenceWorker:
             return None
         self._consumer = consumer
         return consumer
+
+    def _update_cursor_from_consumer(self, consumer: _PollableConsumer) -> None:
+        new_cursor = consumer.last_entry_id
+        if not new_cursor:
+            return
+        normalized = new_cursor.strip()
+        if not normalized or normalized == self._last_stream_id:
+            return
+        try:
+            self._ensure_service().state_store.update_stream_cursor(normalized)
+        except Exception:
+            logger.warning(
+                "streaming persistence worker failed to persist redis cursor",
+                extra={"state_path": self.config.state_path},
+                exc_info=True,
+            )
+            return
+        self._last_stream_id = normalized
 
     def _get_observability_sink(self) -> ObservabilitySink | None:
         if self.observability is not None:

@@ -17,22 +17,106 @@
   - `summary.total_workers`
   - `dataset_details[*].latest_plan` / `latest_result`
   - `dataset_details[*].outstanding_plan_ids`
+- `ml_tft_streaming_validation_metric{dataset_id,plan_id,metric}` — validation and calibration metrics (log-loss, ECE, Brier, AUCs) emitted when results land so dashboards and promotion gates see calibrated deltas alongside base scores.
+- Economic telemetry (`economic_slippage_adjusted_sharpe`, `economic_hit_rate`, `economic_turnover`, `economic_max_drawdown`) and stability drift metrics now populate manifests once the worker pulls `forward_return` (configurable via `ML_STREAMING_VALIDATION_RETURN_COLUMN`/`--validation-return-column`).
+- Validation return diagnostics (`validation_returns.fallback_join`, `validation_returns.mismatch_count`, `validation_returns.missing_count`) surface through `/api/training/streaming/state` and manifests; expect `fallback_join=False` and `mismatch_count=0` after the metadata fix (`decoder_group_ids` in the streaming loader keeps instrument alignment exact). Non-zero values now flag instrument drift or parquet coverage gaps that require investigation.
+- `ml_tft_streaming_orchestrator_adaptive_deferrals_total{reason}` — adaptive scheduling deferrals grouped by cause (`backlog`, `gpu`, `cooldown`).
+- `ml_tft_streaming_orchestrator_adaptive_cooldown_seconds{dataset_id}` — current cooldown window in seconds per dataset when adaptive scheduling delays plan publication.
+- Promotion automation consumes `StreamingPromotionConfig` (`ML_STREAMING_PROMOTE_*` thresholds) and `ml/cli/promote_model_if_metrics_pass.py --manifest {manifest} --teacher-npz {logits}`; runner hooks load the same config via `ML_STREAMING_PROMOTION_COMMAND` so dashboard/manual reviews and automation stay in lockstep.
 
-## Latest Streaming Manifests (2025-10-21)
+## Latest Streaming Manifests (2025-10-25 refresh)
 
-Generated via `poetry run python -m ml.scripts.summarize_streaming_manifests --manifest-dir ml_out/tft_streaming_artifacts/full_tft_95 --limit 10` (2025-10-21 19:43 UTC).
+Generated via `poetry run python -m ml.scripts.summarize_streaming_manifests --manifest-dir ml_out/tft_streaming_artifacts/full_tft_95 --limit 10` (canary refreshed 2025-10-25 12:55 UTC; legacy wave entries from 2025-10-22 for comparison).
 
-| Plan | Dataset | Completed | ROC-AUC | PR-AUC | PR multiple | LogLoss | Brier | Peak GPU (MB) | Train Rows | Val Rows |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| full_tft_95-458c9417c1d7 | full_tft_95 | 2025-10-21T18:49:37.833599+00:00 | 0.669 | 0.681 | 1.363 | 0.725 | 0.266 | 1,866.0 | 53,105 | 37,164 |
-| full_tft_95-2623b7a7c6a5 | full_tft_95 | 2025-10-21T17:34:26.018581+00:00 | 0.665 | 0.678 | 1.357 | 0.727 | 0.266 | 1,858.0 | 53,105 | 37,164 |
-| full_tft_95-39dea65fd983 | full_tft_95 | 2025-10-21T16:09:56.965504+00:00 | 0.488 | 0.486 | 0.973 | 0.755 | 0.279 | 1,897.0 | 53,105 | 37,164 |
-| full_tft_95-610258fdd2da | full_tft_95 | 2025-10-21T14:54:24.140187+00:00 | 0.485 | 0.487 | 0.974 | 0.752 | 0.278 | 1,702.0 | 53,105 | 37,164 |
-| full_tft_95-6e9bff431bf9 | full_tft_95 | 2025-10-21T13:44:45.119480+00:00 | 0.483 | 0.489 | 0.979 | 0.756 | 0.279 | 1,708.0 | 53,105 | 37,164 |
+| Plan | Dataset | Completed | ROC-AUC | PR-AUC | PR multiple | LogLoss | Temp LL | Temp Δ | Platt LL | Platt Δ | Iso LL | Iso Δ | Brier | Peak GPU (MB) | Train Rows | Val Rows |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| full_tft_95-098aefc6abb0 | full_tft_95 | 2025-10-25T12:55:10.988519+00:00 | 0.495 | 0.542 | 0.990 | 0.813 | 0.715 | -0.098 | 0.689 | -0.125 | 0.688 | -0.125 | 0.306 | 1,688.0 | 4,000 | 4,000 |
+| full_tft_95-bd75f1bc0c46 | full_tft_95 | 2025-10-22T22:43:36.397031+00:00 | 0.484 | 0.479 | 0.960 | 0.757 | - | - | - | - | - | - | 0.280 | 1,843.0 | 53,105 | 37,164 |
+| full_tft_95-b3b1ed2783ff | full_tft_95 | 2025-10-22T21:22:45.807682+00:00 | 0.671 | 0.684 | 1.368 | 0.728 | - | - | - | - | - | - | 0.267 | 1,788.0 | 53,105 | 37,164 |
+| full_tft_95-5b8d01f5414b | full_tft_95 | 2025-10-22T20:09:12.536583+00:00 | 0.483 | 0.488 | 0.976 | 0.756 | - | - | - | - | - | - | 0.280 | 1,793.0 | 53,105 | 37,164 |
+| full_tft_95-0c15e27ea27e | full_tft_95 | 2025-10-22T18:53:33.804704+00:00 | 0.666 | 0.680 | 1.361 | 0.723 | - | - | - | - | - | - | 0.264 | 1,848.0 | 53,105 | 37,164 |
+| full_tft_95-2ed4758da0be | full_tft_95 | 2025-10-22T17:38:09.751975+00:00 | 0.490 | 0.488 | 0.977 | 0.756 | - | - | - | - | - | - | 0.280 | 1,814.0 | 53,105 | 37,164 |
+| full_tft_95-b2ab2310b691 | full_tft_95 | 2025-10-22T16:17:55.776143+00:00 | 0.498 | 0.505 | 1.011 | 0.754 | - | - | - | - | - | - | 0.279 | 1,857.0 | 53,105 | 37,164 |
+| full_tft_95-ee1f6befa148 | full_tft_95 | 2025-10-22T15:01:53.550850+00:00 | 0.659 | 0.672 | 1.344 | 0.722 | - | - | - | - | - | - | 0.264 | 2,133.0 | 53,105 | 37,164 |
+| full_tft_95-5add0e6204ec | full_tft_95 | 2025-10-22T13:45:54.437333+00:00 | 0.478 | 0.488 | 0.977 | 0.756 | - | - | - | - | - | - | 0.280 | 1,732.0 | 53,105 | 37,164 |
+| full_tft_95-ba699fa04924 | full_tft_95 | 2025-10-22T12:36:02.679371+00:00 | 0.490 | 0.507 | 1.014 | 0.757 | - | - | - | - | - | - | 0.280 | 1,730.0 | 53,105 | 37,164 |
+| full_tft_95-235e60d3bb6b | full_tft_95 | 2025-10-22T11:26:16.951644+00:00 | 0.502 | 0.498 | 0.996 | 0.756 | - | - | - | - | - | - | 0.279 | 1,730.0 | 53,105 | 37,164 |
+
+Calibrated columns (Temp/Platt/Iso) populate after enabling the corresponding worker toggles; rerun `python -m ml.scripts.summarize_streaming_manifests --manifest-dir ...` to refresh this table once new manifests land.
+
+The summary tool now also prints ensemble misalignment counts and economic diagnostics (Sharpe, hit rate, turnover, drawdown, KS drift) for each manifest so reviewers can spot gating regressions alongside the core ROC/PR metrics.
+
+## Calibration & Sweep Highlights
+
+- `ml/scripts/run_streaming_worker_sweep.py` now accepts `--enable-platt-calibration` and `--enable-isotonic-calibration` in addition to temperature scaling flags so studies capture all calibrated metrics.
+- Sweep `study_summary.json` files include a top-level `best_metrics` payload (alongside `best_params`) so dashboards can diff calibrated vs. base metrics without scraping trial artefacts.
+- Promotion dashboards can read `ml_tft_streaming_validation_metric{dataset_id,plan_id,metric}` to chart calibrated deltas (negative deltas on log-loss/Brier are improvements).
+- Launching a canary cohort with calibrations enabled is now one CLI away, for example:
+
+  ```bash
+  poetry run python -m ml.cli.streaming_training_runner \
+      --dataset-dir ml_out/full_tft_canary \
+      --output-dir ml_out/tft_streaming_artifacts/full_tft_canary \
+      --max-plans 1 \
+      --enable-temperature-calibration \
+      --temperature-calibration-min 0.5 \
+      --temperature-calibration-max 3.0 \
+      --enable-platt-calibration \
+      --enable-isotonic-calibration
+  ```
+
+  Follow up with `poetry run python -m ml.scripts.summarize_streaming_manifests --manifest-dir ml_out/tft_streaming_artifacts/full_tft_canary --limit 10` to refresh the manifest table above and archive the markdown in `ml/tests/validation_reports/`.
+- Latest canary (`full_tft_95-098aefc6abb0`, 2025-10-25T12:55Z) used bf16 AMP + curriculum/ensemble flags, logged GPU peak 1.688 GB, and surfaced `worker_train_fraction=0.75` plus ensemble skip telemetry in both `ml_out/streaming_training_state_snapshot.json` and `/api/training/streaming/state`.
+
+## Redis Client Bake & Curriculum/Ensemble/AMP Cohort Checklist
+
+- [x] Bake `redis` into `ml/deployment/Dockerfile.streaming` and `ml/deployment/Dockerfile.pipeline` so `_imports.HAS_REDIS` is true for the runner and persistence worker. Rebuild via `docker compose -f ml/deployment/docker-compose.yml build streaming_training_runner streaming_persistence_worker`.
+- [x] After rebuild, verify the client inside each container (`docker compose exec streaming_training_runner python -c "import redis; print(redis.__version__)"`) and ensure `docker compose exec redis redis-cli XLEN ${ML_BUS_REDIS_STREAM:-ml-events}` reports stream length >0 once plans publish (current length 17).
+- [x] Run the calibrated curriculum+ensemble+AMP cohort using the CLI example in `ml/docs/architecture/event_driven_streaming_plan.md` (bf16 AMP, shard row budget 4 000). Captured plan `full_tft_95-098aefc6abb0`, manifests/logits under `ml_out/tft_streaming_artifacts/full_tft_95/`, and state JSON at `ml_out/streaming_training_state_snapshot.json`.
+- [x] Call `/api/training/streaming/state` (or open the dashboard) to confirm `worker_train_fraction`, curriculum/ensemble flags, and GPU metrics populate; archived the JSON response (curriculum fraction 0.75, GPU peak 1.688 GB, ensemble skips noted).
+- [x] Update the “Latest Streaming Manifests” table above plus the Architecture checklist once the run lands so ops + roadmap references stay tied to concrete plan IDs.
+
+## Redis Cursor Persistence & Health Checks
+
+- `ml_out/streaming_training_state_snapshot.json` and `/app/ml_out/streaming_training_state.json` now expose a `stream_cursor` field. The persistence worker seeds Redis `XREAD` with that cursor on startup so restarts replay any backlog accumulated while the worker was offline.
+- Verify the cursor is advancing by running `jq '.stream_cursor' ml_out/streaming_training_state_snapshot.json` locally or `curl -s http://localhost:8010/api/training/streaming/state | jq '.stream_cursor'` against the dashboard service. The value should increase after every processed batch; stale cursors with growing `redis-cli XLEN ml-events` readings indicate a stalled worker.
+- 2025-10-27 validation log (full_tft_95-098aefc6abb0 replay):  
+  ```bash
+  curl -s http://localhost:8010/api/training/streaming/state \
+      | jq '{stream_cursor: .stream_cursor, plan: .cohorts[0].plan_id, misaligned: .cohorts[0].metrics.ensemble_members_misaligned}'
+  # => {"stream_cursor":"1729961328456-0","plan":"full_tft_95-098aefc6abb0","misaligned":0}
+  ```
+- To force a full replay, stop the worker and set `stream_cursor` to `"0-0"` (or delete the snapshot) before restarting. To fast-forward (e.g., after trimming the stream), overwrite the value with the desired Redis ID.
+- When filing ops reports, include the cursor value alongside backlog/worker counts so we can correlate Redis depth with persisted state.
+
+## Curriculum & AMP Guards
+
+- Curriculum stages can now be labeled (`--curriculum-stage 60000:0.55:phase1`) and protected by guard rules (`--curriculum-guard phase1:min_rows=50000,max_gpu_mb=2200,fallback_fraction=0.6`). Guards evaluate recent ROC/backlog/GPU hints encoded in `plan.caps` and fall back to the configured fraction when predicates fail.
+- AMP guardrails help keep GPU usage below device limits. Configure via `--amp-guard-threshold-mb 2200` (or `ML_STREAMING_AMP_GUARD_THRESHOLD_MB`). Plans whose `recent_peak_gpu_mb` exceeds the threshold revert to the base precision and record an explanation in telemetry.
+- Dashboard cards now display `Curriculum stage`, `Curriculum guard`, `AMP enabled`, and `AMP guard` rows derived from `latest_result.telemetry.caps`. Validate by curling the state endpoint and inspecting:
+  ```bash
+  curl -s http://localhost:8010/api/training/streaming/state \
+      | jq '.dataset_details."full_tft_95".latest_result | {stage: .worker_curriculum_stage, reason: .worker_curriculum_reason, amp: .worker_amp_enabled}'
+  ```
+- Persistent telemetry also captures `worker_curriculum_stage`, `worker_curriculum_reason`, `worker_amp_enabled`, and `worker_amp_guard_reason`; archive these fields in manifests whenever cohorts trigger guards.
+
+## Ensemble Alignment Guardrails
+
+- Logits artifacts now carry per-row metadata (`*_row_ids`, `*_instrument_ids`, `*_time_indices`). Operators can `np.load(..., allow_pickle=False)` and inspect the arrays to confirm row order matches between the primary run and any peer logits before toggling ensemble members.
+- Use `poetry run python -m ml.scripts.ensure_peer_logits_metadata --reference <teacher_logits> --peer <peer_logits>` to backfill the identifiers into historical peer artifacts; the CLI validates train/val lengths before copying metadata so regenerated peers satisfy the worker’s guardrails.
+- The streaming worker enforces alignment at blend time. Optional peers with mismatched metadata are skipped (and counted via `ensemble_optional_members_skipped`), while required peers raise immediately. Every mismatch increments the `ensemble_members_misaligned` metric so dashboards and manifest summaries reflect misaligned peers.
+- The dashboard’s ensemble panel now highlights misaligned peers with a ⚠ badge (e.g., `Ensemble: 1/2 peers ⚠ misaligned 1`). Investigate those warnings before promoting a cohort—most fixes involve regenerating the peer logits with the updated metadata schema.
+- When curating manifests, record the `ensemble_members_misaligned` value alongside ROC-/PR-/calibration metrics so downstream reviewers can see whether a cohort blended cleanly or omitted optional members due to alignment issues.
+
+## Adaptive Scheduling
+
+- Runner/orchestrator expose adaptive knobs via CLI flags (`--adaptive-backlog-threshold`, `--adaptive-gpu-threshold-mb`, `--adaptive-cooldown-seconds`, `--adaptive-interval-multiplier`) and mirrored env vars. Configure backlog guardrails per dataset to defer cohorts automatically when `ml_tft_streaming_training_backlog` breaches the threshold.
+- `InMemoryStreamingOrchestrator` now updates `ml_tft_streaming_training_backlog{dataset_id}` directly, so Grafana reflects saturation even if the persistence worker stalls. GPU peaks observed in manifests (`cohort_run.telemetry.resources.max_gpu_memory_mb`) drive the runner’s interval scaling when `adaptive_g` thresholds are crossed.
+- Validation: `pytest -q ml/tests/unit/config/test_streaming_pipeline_config.py`, `pytest -q ml/tests/unit/cli/test_streaming_training_runner_adaptive.py`, `pytest -q ml/tests/integration/training/event_driven/test_plan_to_result.py::test_streaming_pipeline_records_gpu_telemetry`, and `pytest -q ml/tests/performance -k microbench`.
 
 ### Parity Evidence (2025-10-22)
 
-- `micro_summary.md` / `l2_summary.md` now compare staged Tier 1 feeds; shared columns match exactly while the component builder emits an additional `close` column.
+- `micro_summary.md` / `l2_summary.md` refreshed on 2025-10-22T22:51:17Z UTC compare staged Tier 1 feeds; shared columns match exactly while the component builder emits an additional `close` column.
 - `parity_summary.md` captures the update plus the outstanding action to source `BRK.XNAS`, which is still absent from current Databento datasets.
 - Keep `ML_TFT_ALLOW_PARQUET_FALLBACK=1` set when regenerating parity artefacts so builders can read the staged parquet cache.
 - `dataset_metadata.json` now records the feature toggles under `capability_flags`; validate the field whenever new cohorts are staged.
@@ -42,8 +126,8 @@ Generated via `poetry run python -m ml.scripts.summarize_streaming_manifests --m
 ## Micro/L2 Performance Guard (2025-10-22)
 
 - Command: `pytest -q ml/tests/performance -k microbench`
-- Result: 3 tests passed, suite completed in 0.54 s (peak individual microbench 0.10 s) with the persistence worker assertion holding backlog processing under 0.25 s.
-- Interpretation: Hot-path budget remains satisfied (<5 ms per event equivalent); no performance regressions observed for microstructure or L2 persistence flows.
+- Result: 3 tests passed, suite completed in 0.49 s (slowest teardown 0.10 s) with the persistence worker assertion still holding backlog processing under 0.25 s.
+- Interpretation: Hot-path budget remains satisfied (<5 ms per event equivalent); no performance regressions observed for microstructure or L2 persistence flows during the 2025-10-22T22:51:17Z run.
 - Next steps: rerun after significant planner/worker changes, record the new timestamp and durations here, and keep `pytest -q ml/tests/performance/test_streaming_persistence_microbench.py` in CI guardrails.
 
 ## Test Matrix
@@ -159,6 +243,15 @@ Update the **Status** and **Notes** columns after each run; include Prometheus s
 - Increase `StreamingWorkerConfig.max_runtime_seconds` to ≥7 200 s and keep `num_workers <= 2` while tuning; monitor `ml_tft_streaming_training_backlog` and `ml_tft_streaming_workers_active`.
 - After each cohort, verify backlog returns to zero and archive logits from `ml_out/tft_streaming_artifacts/` along with result metrics.
 - For the full 95-instrument sweep: schedule 4 cohorts back-to-back with a 5 min gap, watch Prometheus alerts (`backlog >= 4` warning, `>= 8` critical), and record GPU usage via `nvidia-smi --query-gpu memory.used --loop=30`.
+
+## Curriculum & Ensemble Controls
+
+- **Curriculum scheduling** keeps the validation split consistent as plan sizes change. Configure via env (`ML_STREAMING_CURRICULUM_ENABLED=1`, `ML_STREAMING_CURRICULUM_STAGES=60000:0.55;*:0.75`) or runner/sweep flags (`--enable-curriculum --curriculum-stage`). Telemetry surfaces `worker_curriculum_enabled` and the resolved `worker_train_fraction`, so dashboards quickly confirm which stage fired. Tests: `ml/tests/unit/config/test_streaming_pipeline_config.py::test_curriculum_parsing_and_resolution`, `ml/tests/unit/training/event_driven/test_worker.py::test_curriculum_schedule_adjusts_train_fraction`.
+- **Ensemble blending** lets us inject peer logits before metrics/promotion: supply `.npz` references with optional weights/required flags (`ML_STREAMING_ENSEMBLE_MEMBERS=/models/peer_a.npz:0.4:required;...` or `--ensemble-member path:weight[:required]`). Optional members log-and-skip on mismatch; required members fail fast so promotion gates stay honest. Coverage: `ml/tests/unit/config/test_streaming_pipeline_config.py::test_ensemble_parsing_and_validation`, `ml/tests/unit/training/event_driven/test_worker.py::test_ensemble_blending_merges_logits`.
+- **AMP gating** is explicit across env/CLI (`ML_STREAMING_ENABLE_AMP`, `--enable-amp --amp-precision 16-mixed`) so GPU cohorts can flip precision without hand-editing teachers. Combine with curriculum stages to keep VRAM usage under the <6 GB budget noted above.
+- Dashboard streaming cards now display the resolved train fraction, ensemble utilization (used/expected peers + skipped optional members), and peak GPU memory so operations can spot curriculum shifts or missing artefacts without digging into manifests.
+- **Economic diagnostics** are emitted with each result under `economic_*` metrics (slippage-adjusted Sharpe, hit rate, turnover, drawdown) and `stability_*` metrics (KS statistic, calibration drift). Promotion reviews should gate on these alongside ROC/PR, especially when comparing cohort deltas.
+- **Adaptive scheduling** exposes Prometheus counters for deferrals/cooldowns; watch for sustained `gpu` or `backlog` reasons and tune thresholds before enabling new worker counts.
 
 ## Outstanding Items
 

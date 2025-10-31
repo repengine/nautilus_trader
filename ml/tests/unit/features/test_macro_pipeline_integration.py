@@ -13,10 +13,14 @@ from ml.registry.base import DataRequirements
 
 
 class TestMacroPipelineIntegration:
-    """Test macro features in declarative pipeline."""
+    """
+    Test macro features in declarative pipeline.
+    """
 
     def test_macro_transform_registered(self) -> None:
-        """Test that macro transform is registered in catalog."""
+        """
+        Test that macro transform is registered in catalog.
+        """
         from ml.features.pipeline import _CATALOG
 
         assert "macro" in _CATALOG
@@ -26,7 +30,9 @@ class TestMacroPipelineIntegration:
         assert transform.requires().value == "l1_only"
 
     def test_macro_feature_names_minimal_mode(self) -> None:
-        """Test feature name generation for minimal mode."""
+        """
+        Test feature name generation for minimal mode.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -56,7 +62,9 @@ class TestMacroPipelineIntegration:
         assert feature_names == expected
 
     def test_macro_feature_names_core_mode(self) -> None:
-        """Test feature name generation for core mode."""
+        """
+        Test feature name generation for core mode.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -86,7 +94,9 @@ class TestMacroPipelineIntegration:
         assert feature_names == expected
 
     def test_macro_feature_names_full_mode(self) -> None:
-        """Test feature name generation for full mode."""
+        """
+        Test feature name generation for full mode.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -122,7 +132,9 @@ class TestMacroPipelineIntegration:
         assert feature_names == expected
 
     def test_macro_without_revisions(self) -> None:
-        """Test feature names when revisions disabled."""
+        """
+        Test feature names when revisions disabled.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -147,7 +159,9 @@ class TestMacroPipelineIntegration:
         assert feature_names == expected
 
     def test_macro_combined_with_technical(self) -> None:
-        """Test macro features combined with technical indicators."""
+        """
+        Test macro features combined with technical indicators.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(name="returns", params={"periods": [1, 5]}),
@@ -176,7 +190,9 @@ class TestMacroPipelineIntegration:
         assert "PAYEMS_revision_1m" in feature_names
 
     def test_pipeline_signature_includes_macro(self) -> None:
-        """Test that pipeline signature changes with macro params."""
+        """
+        Test that pipeline signature changes with macro params.
+        """
         spec1 = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -212,7 +228,9 @@ class TestMacroPipelineIntegration:
         assert sig1 != sig2
 
     def test_empty_series_ids(self) -> None:
-        """Test that empty series_ids produces no features."""
+        """
+        Test that empty series_ids produces no features.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(
@@ -231,7 +249,9 @@ class TestMacroPipelineIntegration:
         assert feature_names == []
 
     def test_macro_data_requirements(self) -> None:
-        """Test that macro features only require L1 data."""
+        """
+        Test that macro features only require L1 data.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(

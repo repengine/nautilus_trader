@@ -1,5 +1,6 @@
 """Minimal smoke tests - if these pass, the core system works."""
 
+import msgspec
 import numpy as np
 import pytest
 
@@ -32,7 +33,8 @@ def test_can_create_feature_engineer():
     config = FeatureConfig()
     engineer = FeatureEngineer(config)
     assert engineer is not None
-    assert engineer.config == config
+    assert msgspec.to_builtins(engineer.config) == msgspec.to_builtins(config), \
+        f"Config mismatch: {msgspec.to_builtins(engineer.config)} != {msgspec.to_builtins(config)}"
 
 
 @pytest.mark.database

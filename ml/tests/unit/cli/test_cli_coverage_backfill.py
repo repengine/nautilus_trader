@@ -354,7 +354,7 @@ def test_plan_backfill_dataset_shortcuts() -> None:
             plan_backfill(
                 from_dataset="L1",
                 to_dataset="L2",
-                date="2024-01-15",
+                date="2025-10-15",
                 registry_path=registry_path,
                 persistence_config=persistence_config,
                 output_file=output_file,

@@ -36,6 +36,8 @@ class _DummyConsumer:
         self._handler = handler
         self._events = events
         self.polls: int = 0
+        self._last_entry_id: str | None = None
+        self._cursor_counter = 0
 
     def poll_once(
         self,
@@ -50,7 +52,13 @@ class _DummyConsumer:
         topic, payload = self._events.popleft()
         self._handler(topic, payload)
         self.polls += 1
+        self._cursor_counter += 1
+        self._last_entry_id = f"{self._cursor_counter}-0"
         return 1
+
+    @property
+    def last_entry_id(self) -> str | None:
+        return self._last_entry_id
 
 
 def _plan_event(tmp_path: Path) -> DatasetPlanEvent:
@@ -265,3 +273,66 @@ def test_streaming_persistence_worker_initializes_observability(
     assert len(records) == 1
     assert records[0][0] == "test_metric"
     assert records[0][2]["kind"] == "demo"
+
+
+def test_streaming_persistence_worker_persists_stream_cursor(tmp_path: Path) -> None:
+    plan = _plan_event(tmp_path)
+    messages = deque(
+        [
+            ("events.ml.DATASET_PLANNED.dataset", build_plan_message(plan).as_dict()),
+        ],
+    )
+    store = InMemoryStreamingTrainingStateStore()
+    store.update_stream_cursor("7-0")
+    config = StreamingPersistenceConfig(
+        state_path=str(tmp_path / "state.json"),
+        batch_size=1,
+        block_ms=0,
+        poll_interval_seconds=0.0,
+    )
+    bus_config = MessageBusConfig(
+        enabled=True,
+        backend="redis",
+        redis_url="redis://localhost:6379/0",
+        redis_stream="ml-events",
+    )
+
+    class _CursorAwareConsumer:
+        def __init__(self, handler: Any) -> None:
+            self._handler = handler
+            self._last_entry_id: str | None = None
+            self.received_last_ids: list[str] = []
+            self._cursor_counter = 10
+
+        def poll_once(self, *, count: int, block_ms: int, last_id: str = "$") -> int:  # noqa: ARG002
+            self.received_last_ids.append(last_id)
+            if not messages:
+                return 0
+            topic, payload = messages.popleft()
+            self._handler(topic, payload)
+            self._cursor_counter += 1
+            self._last_entry_id = f"{self._cursor_counter}-0"
+            return 1
+
+        @property
+        def last_entry_id(self) -> str | None:
+            return self._last_entry_id
+
+    constructed: _CursorAwareConsumer | None = None
+
+    def factory(service: Any, _config: MessageBusConfig) -> _CursorAwareConsumer:
+        nonlocal constructed
+        constructed = _CursorAwareConsumer(service.handle)
+        return constructed
+
+    worker = StreamingTrainingPersistenceWorker(
+        config=config,
+        message_bus_config=bus_config,
+        state_store=store,
+        consumer_factory=factory,
+    )
+
+    assert worker.poll_once() == 1
+    assert constructed is not None
+    assert constructed.received_last_ids[0] == "7-0"
+    assert store.get_stream_cursor() == constructed.last_entry_id

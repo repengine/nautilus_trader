@@ -15,6 +15,32 @@ from ml.consumers.streaming_training import StreamingTrainingConsumer
 from ml.consumers.streaming_training import StreamingTrainingStateStore
 
 
+class StreamingEventGate:
+    """Idempotent gate tailored to streaming plan/result payloads."""
+
+    __slots__ = ("_seen_ids",)
+
+    def __init__(self) -> None:
+        self._seen_ids: set[str] = set()
+
+    def process(self, payload: Mapping[str, Any]) -> bool:
+        """Return True for unseen correlation or plan identifiers."""
+        correlation_id = str(payload.get("correlation_id", "")).strip()
+        dataset_id = str(payload.get("dataset_id", "")).strip()
+        plan_id = str(payload.get("plan_id", "")).strip()
+        stage = str(payload.get("stage", "")).strip()
+
+        dedupe_key = correlation_id or ":".join(
+            value for value in (dataset_id, plan_id, stage) if value
+        )
+        if not dedupe_key:
+            return True
+        if dedupe_key in self._seen_ids:
+            return False
+        self._seen_ids.add(dedupe_key)
+        return True
+
+
 @dataclass(slots=True)
 class StreamingTrainingPersistenceService:
     """Persist streaming training events to a durable state store."""
@@ -65,7 +91,8 @@ class StreamingTrainingPersistenceService:
             url=cfg.redis_url,
             stream=cfg.redis_stream,
             handler=_handler,
+            gate=StreamingEventGate(),
         )
 
 
-__all__ = ["StreamingTrainingPersistenceService"]
+__all__ = ["StreamingEventGate", "StreamingTrainingPersistenceService"]

@@ -16,7 +16,12 @@ from ml.registry.protocols import RegistryProtocol
 from ml.ml_types import DataFrameLike
 from ml.stores.protocols import CoverageProviderProtocol, MarketDataWriterProtocol
 from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.data.ingest.service import DatabentoIngestionService, IngestionChunk, IngestionRequest, IngestionWindow
+from ml.data.ingest.service import (
+    DatabentoIngestionService,
+    IngestionChunk,
+    IngestionRequest,
+    IngestionWindow,
+)
 from ml.tests.utils.stubs import DatabentoServiceStub
 
 
@@ -223,6 +228,7 @@ def test_dual_write_invokes_both_sinks() -> None:
     assert sql_writer.last_df is not None
     assert pd.api.types.is_integer_dtype(sql_writer.last_df["ts_init"])
 
+
 def test_backfill_handles_timestamp_ts_event() -> None:
     try:
         from ml.data.ingest.orchestrator import IngestionOrchestrator
@@ -290,7 +296,7 @@ def test_backfill_clamps_window_to_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     reg = _FakeRegistry()
     ing = _make_fake_ingestor()
 
-    planned_start = (base_now - DAY_NS)
+    planned_start = base_now - DAY_NS
     planned_end = planned_start + DAY_NS
     meta_start = planned_start + 600_000_000_000
     meta_end = planned_end - 300_000_000_000

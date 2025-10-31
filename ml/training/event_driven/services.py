@@ -14,6 +14,7 @@ from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import DatasetServiceConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
+from ml.training.teacher.streaming_loader import PhaseOneFeatureSignals
 from ml.training.teacher.streaming_loader import StreamingLimitSummary
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
 from ml.training.teacher.streaming_loader import TFTStreamingMetadata
@@ -33,6 +34,7 @@ class DatasetPlanEvent:
     limits: StreamingLimitSummary
     streaming_config: TFTStreamingConfig
     caps: dict[str, float | int | None]
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
     created_at: datetime = field(default_factory=datetime.utcnow)
     status: EventStatus = EventStatus.SUCCESS
 
@@ -73,6 +75,7 @@ class DatasetPlanRequest:
     feature_names: tuple[str, ...]
     categorical_columns: tuple[str, ...]
     numeric_columns: tuple[str, ...]
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
     parquet_path: Path | None = None
 
 

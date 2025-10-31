@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from types import ModuleType
 from typing import Any, cast
 
+from ml import _imports
 from ml.cli.events_consumer import main
 
 
@@ -63,10 +64,9 @@ def test_events_consumer_cli_prints_filtered_events() -> None:
                 ],
             ),
         ]
-        # Monkeypatch by attaching to Dummy instance used after construction
+        # First call primes the redis module lookup
         out = io.StringIO()
         with redirect_stdout(out):
-            # Call CLI main with one iteration and a pattern filter that matches
             rc = main(
                 [
                     "--redis-url",
@@ -81,10 +81,12 @@ def test_events_consumer_cli_prints_filtered_events() -> None:
                     "100",
                 ],
             )
-            # Attach primed client after consumer construction inside main
-            # Not applicable here: main() constructs its own consumer and immediately polls.
-            # Instead, we simulate the redis module returning a client with primed batches
-            # by setting Redis.from_url to return our client instance.
+
+        # Clear ml._imports.redis cache so the second call re-reads from sys.modules.
+        # The first main() call caches ml._imports.redis, so we must reset it before
+        # the second call to force a fresh lookup.
+        _imports.redis = None
+
         # Re-run with patched constructor
         redis_mod = cast(Any, sys.modules["redis"])
         redis_mod.Redis.from_url = lambda *args, **kwargs: client
@@ -113,3 +115,5 @@ def test_events_consumer_cli_prints_filtered_events() -> None:
         assert doc["payload"]["metadata"]["correlation_id"] == "CID-1"
     finally:
         sys.modules.pop("redis", None)
+        # Clean up cached import
+        _imports.redis = None

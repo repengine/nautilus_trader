@@ -70,6 +70,7 @@ def test_dashboard_streaming_state_snapshot(monkeypatch: pytest.MonkeyPatch, tmp
                 "topic": "events.ml.WORKER_HEARTBEAT.dataset",
             },
         },
+        "stream_cursor": "9-0",
     }
     snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
 
@@ -99,3 +100,4 @@ def test_dashboard_streaming_state_snapshot(monkeypatch: pytest.MonkeyPatch, tmp
     latest_result = details["latest_result"]
     assert latest_result is not None
     assert latest_result["plan_id"] == "plan-1"
+    assert state["stream_cursor"] == "9-0"

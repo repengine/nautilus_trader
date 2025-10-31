@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import types
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,14 @@ else:  # pragma: no cover - optional dependency fallback
     StreamingBatch = Any
 
 
+def _to_int_time_indices(values: np.ndarray) -> np.ndarray:
+    """Return integer time indices while preserving exact parquet values."""
+    if np.issubdtype(values.dtype, np.floating):
+        floored = np.rint(values.astype(np.float64, copy=False))
+        return floored.astype(np.int64, copy=False)
+    return values.astype(np.int64, copy=False)
+
+
 @dataclass(frozen=True)
 class TFTTeacherConfig(TeacherConfig):
     architecture: str = "TFT"
@@ -40,6 +49,29 @@ class TFTTeacherConfig(TeacherConfig):
     loss_name: str = "poisson"
     #: Optional positive class weight for BCE to handle class imbalance.
     pos_weight: float | None = None
+
+
+@dataclass(frozen=True)
+class StreamingRowMetadata:
+    """Row-level identifiers used to align logits across ensemble members."""
+
+    row_ids: npt.NDArray[np.str_]
+    instrument_ids: npt.NDArray[np.str_]
+    time_indices: npt.NDArray[np.int64]
+
+    @property
+    def size(self) -> int:
+        return int(self.row_ids.size)
+
+    @classmethod
+    def empty(cls) -> StreamingRowMetadata:
+        empty_str = np.empty(0, dtype=np.str_)
+        empty_int = np.empty(0, dtype=np.int64)
+        return cls(
+            row_ids=empty_str,
+            instrument_ids=empty_str,
+            time_indices=empty_int,
+        )
 
 
 @dataclass(frozen=True)
@@ -51,11 +83,17 @@ class StreamingFitResult:
         z_train: Logits for the training shard set, flattened to 1-D.
         z_val: Logits for the validation shard set, flattened to 1-D.
         y_val: Validation targets aligned with ``z_val``.
+        train_rows: Row metadata describing the training logits order (optional).
+        val_rows: Row metadata describing the validation logits order (optional).
+        val_returns: Optional forward returns aligned with ``z_val``.
     """
 
     z_train: npt.NDArray[np.float64]
     z_val: npt.NDArray[np.float64]
     y_val: npt.NDArray[np.float64]
+    train_rows: StreamingRowMetadata | None = None
+    val_rows: StreamingRowMetadata | None = None
+    val_returns: npt.NDArray[np.float64] | None = None
 
 
 @dataclass(slots=True)
@@ -102,6 +140,8 @@ class TFTTeacher(BaseTeacher):
         accelerator: str = "auto",
         devices: int = 1,
         precision: str = "32",
+        optimizer: str | None = None,
+        lr_scheduler: str | None = None,
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -126,12 +166,17 @@ class TFTTeacher(BaseTeacher):
         self._devices = int(devices)
         self._precision = str(precision)
         self._logger = logging.getLogger(__name__)
+        self.optimizer = optimizer.strip().lower() if optimizer else None
+        self.lr_scheduler = lr_scheduler.strip().lower() if lr_scheduler else None
 
         # Runtime state
         self._training_dataset: Any | None = None
         self._tft: Any | None = None
         self._trainer: Any | None = None
         self._streaming_state: _StreamingState | None = None
+        self._decoder_group_ids_seen: bool = False
+        self._decoder_group_shape_mismatch: bool = False
+        self._decoder_group_debug_logged: bool = False
 
     # --- public API ---
     def fit(self, df: Any) -> TFTTeacher:
@@ -399,18 +444,40 @@ class TFTTeacher(BaseTeacher):
             dataset_cls=TimeSeriesDataSet,
         )
 
-        model = TemporalFusionTransformer.from_dataset(
-            template_dataset,
-            hidden_size=self.hidden_size,
-            lstm_layers=self.lstm_layers,
-            dropout=self.dropout,
-            output_size=1,
-            loss=loss_obj,
-            attention_head_size=self.attention_head_size,
-            learning_rate=self.learning_rate,
-            log_interval=100,
-            embedding_sizes=embedding_sizes,
-        )
+        model_kwargs: dict[str, Any] = {
+            "hidden_size": self.hidden_size,
+            "lstm_layers": self.lstm_layers,
+            "dropout": self.dropout,
+            "output_size": 1,
+            "loss": loss_obj,
+            "attention_head_size": self.attention_head_size,
+            "learning_rate": self.learning_rate,
+            "log_interval": 100,
+            "embedding_sizes": embedding_sizes,
+        }
+        if self.optimizer:
+            model_kwargs["optimizer"] = self.optimizer
+        if self.lr_scheduler:
+            model_kwargs["lr_scheduler"] = self.lr_scheduler
+        try:
+            model = TemporalFusionTransformer.from_dataset(
+                template_dataset,
+                **model_kwargs,
+            )
+        except TypeError:
+            fallback_kwargs = {
+                key: value for key, value in model_kwargs.items() if key not in {"optimizer", "lr_scheduler"}
+            }
+            if len(fallback_kwargs) == len(model_kwargs):
+                raise
+            self._logger.debug(
+                "TemporalFusionTransformer.from_dataset rejected optimizer or scheduler arguments; retrying without extras",
+                exc_info=True,
+            )
+            model = TemporalFusionTransformer.from_dataset(
+                template_dataset,
+                **fallback_kwargs,
+            )
 
         precision_arg: Any = self._precision
         trainer_cls: Any
@@ -444,8 +511,17 @@ class TFTTeacher(BaseTeacher):
 
         trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-        train_logits, _ = self._collect_streaming_logits(train_loader, torch)
-        val_logits, val_targets = self._collect_streaming_logits(val_loader, torch)
+        group_inverse_map = self._build_group_inverse_map(full_metadata, streaming_config)
+        train_logits, _, train_rows = self._collect_streaming_logits(
+            train_loader,
+            torch,
+            group_inverse_map=group_inverse_map,
+        )
+        val_logits, val_targets, val_rows = self._collect_streaming_logits(
+            val_loader,
+            torch,
+            group_inverse_map=group_inverse_map,
+        )
 
         self._streaming_state = _StreamingState(
             parquet_path=parquet_path,
@@ -455,22 +531,80 @@ class TFTTeacher(BaseTeacher):
             config=streaming_config,
         )
         self._is_fitted = True
-        return StreamingFitResult(z_train=train_logits, z_val=val_logits, y_val=val_targets)
+        return StreamingFitResult(
+            z_train=train_logits,
+            z_val=val_logits,
+            y_val=val_targets,
+            train_rows=train_rows,
+            val_rows=val_rows,
+        )
 
     def _collect_streaming_logits(
         self,
         loader: TorchDataLoader[StreamingBatch],
         torch_mod: Any,
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        *,
+        group_inverse_map: Mapping[int, str],
+    ) -> tuple[
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        StreamingRowMetadata | None,
+    ]:
         """Return concatenated logits and targets from a streaming DataLoader."""
         if self._tft is None:
             raise RuntimeError("Streaming model not initialised")
 
+        model_device: Any | None = None
+        parameters_method = getattr(self._tft, "parameters", None)
+        if callable(parameters_method):
+            try:
+                first_param = next(parameters_method())
+                model_device = getattr(first_param, "device", None)
+            except StopIteration:
+                model_device = None
+            except TypeError:
+                model_device = None
+        if model_device is None and hasattr(torch_mod, "device"):
+            try:
+                model_device = torch_mod.device("cpu")
+            except Exception:  # pragma: no cover - defensive guard
+                model_device = None
+        device_type = getattr(model_device, "type", "cpu") if model_device is not None else "cpu"
+        non_blocking = device_type != "cpu"
+
         preds: list[np.ndarray] = []
         targets: list[np.ndarray] = []
+        row_instruments: list[str] = []
+        row_times: list[int] = []
+        metadata_enabled = True
+        self._decoder_group_ids_seen = False
+        self._decoder_group_shape_mismatch = False
+        self._decoder_group_debug_logged = False
         self._tft.eval()
         with torch_mod.no_grad():
             for batch_inputs, (decoder_target, _) in loader:
+                metadata_payload: tuple[list[str], list[int]] | None = None
+                if metadata_enabled:
+                    metadata_payload = self._extract_row_metadata(
+                        batch_inputs,
+                        group_inverse_map=group_inverse_map,
+                    )
+                    if metadata_payload is None:
+                        logger.debug(
+                            "streaming worker could not extract row metadata from batch",
+                            extra={"available_keys": tuple(batch_inputs.keys())},
+                        )
+                if model_device is not None:
+                    batch_inputs = {
+                        key: (
+                            tensor.to(model_device, non_blocking=non_blocking)
+                            if hasattr(tensor, "to") and getattr(tensor, "device", None) != model_device
+                            else tensor
+                        )
+                        for key, tensor in batch_inputs.items()
+                    }
+                    if hasattr(decoder_target, "to") and getattr(decoder_target, "device", None) != model_device:
+                        decoder_target = decoder_target.to(model_device, non_blocking=non_blocking)
                 output = self._tft(batch_inputs)
                 prediction = output["prediction"]
                 preds.append(
@@ -479,6 +613,22 @@ class TFTTeacher(BaseTeacher):
                 targets.append(
                     decoder_target.detach().cpu().numpy().reshape(-1),
                 )
+                if metadata_enabled and metadata_payload is not None:
+                    instruments, times = metadata_payload
+                    if instruments and times and len(instruments) == len(times):
+                        row_instruments.extend(instruments)
+                        row_times.extend(times)
+                    else:
+                        metadata_enabled = False
+                        logger.debug(
+                            "streaming worker received empty or mismatched row metadata payload",
+                            extra={
+                                "instrument_count": len(instruments),
+                                "time_count": len(times),
+                            },
+                        )
+                elif metadata_payload is None:
+                    metadata_enabled = False
 
         if preds:
             logits = np.concatenate(preds, axis=0).astype(np.float64, copy=False)
@@ -486,7 +636,252 @@ class TFTTeacher(BaseTeacher):
         else:
             logits = np.empty(0, dtype=np.float64)
             y = np.empty(0, dtype=np.float64)
-        return logits, y
+        row_metadata: StreamingRowMetadata | None
+        if logits.size == 0:
+            row_metadata = StreamingRowMetadata.empty()
+        elif metadata_enabled and len(row_instruments) == logits.size:
+            row_metadata = self._build_row_metadata(row_instruments, row_times)
+        else:
+            logger.debug(
+                "streaming worker falling back to metadata-derived alignment",
+                extra={
+                    "metadata_enabled": metadata_enabled,
+                    "collected_instruments": len(row_instruments),
+                    "logit_count": logits.size,
+                },
+            )
+            row_metadata = self._fallback_row_metadata(loader, group_inverse_map, logits.size)
+        if not self._decoder_group_ids_seen:
+            logger.info(
+                "streaming worker decoder group ids unavailable; reverting to legacy metadata extraction",
+                extra={
+                    "collected_rows": len(row_instruments),
+                    "logit_count": logits.size,
+                    "shape_mismatch_detected": self._decoder_group_shape_mismatch,
+                },
+            )
+        return logits, y, row_metadata
+
+    def _extract_row_metadata(
+        self,
+        batch_inputs: dict[str, Any],
+        *,
+        group_inverse_map: Mapping[int, str],
+    ) -> tuple[list[str], list[int]] | None:
+        time_tensor = batch_inputs.get("decoder_time_idx")
+        if time_tensor is None:
+            logger.debug("streaming worker batch missing decoder time metadata")
+            return None
+        decoder_group_tensor = batch_inputs.get("decoder_group_ids")
+        group_tensor = batch_inputs.get("groups") if decoder_group_tensor is None else None
+        try:
+            detached_times = time_tensor.detach().cpu().numpy()
+        except Exception:
+            logger.debug(
+                "streaming worker failed to detach decoder metadata tensors",
+                exc_info=True,
+            )
+            return None
+        if detached_times.ndim != 2:
+            detached_times = np.reshape(detached_times, (detached_times.shape[0], -1))
+        time_values = _to_int_time_indices(detached_times)
+        instruments: list[str] = []
+        times: list[int] = []
+        if decoder_group_tensor is not None:
+            try:
+                decoder_group_values = decoder_group_tensor.detach().cpu().numpy()
+            except Exception:
+                logger.debug(
+                    "streaming worker failed to detach decoder group ids",
+                    exc_info=True,
+                )
+                return None
+            if decoder_group_values.ndim != 2:
+                decoder_group_values = np.reshape(decoder_group_values, (decoder_group_values.shape[0], -1))
+            if decoder_group_values.shape != time_values.shape:
+                self._decoder_group_shape_mismatch = True
+                logger.debug(
+                    "streaming worker decoder group ids shape mismatch",
+                    extra={
+                        "group_shape": tuple(decoder_group_values.shape),
+                        "time_shape": tuple(time_values.shape),
+                    },
+                )
+                return None
+            self._decoder_group_ids_seen = True
+            if not self._decoder_group_debug_logged:
+                sample_codes = decoder_group_values[0][: min(5, decoder_group_values.shape[1])].astype(int, copy=False).tolist()
+                sample_instruments = [group_inverse_map.get(int(code), "__UNK__") for code in sample_codes]
+                sample_raw_times = time_values[0][: min(5, time_values.shape[1])].astype(int, copy=False).tolist()
+                logger.info(
+                    "streaming worker decoder group id sample (codes=%s, mapped=%s, raw_times=%s)",
+                    sample_codes,
+                    sample_instruments,
+                    sample_raw_times,
+                    extra={
+                        "group_codes": sample_codes,
+                        "mapped_instruments": sample_instruments,
+                        "raw_times": sample_raw_times,
+                    },
+                )
+                self._decoder_group_debug_logged = True
+            for row_codes, row_times in zip(decoder_group_values, time_values, strict=False):
+                seq_codes = np.asarray(row_codes, dtype=np.int64)
+                seq_times = np.asarray(row_times, dtype=np.int64)
+                if seq_codes.size != seq_times.size:
+                    self._decoder_group_shape_mismatch = True
+                    logger.debug(
+                        "streaming worker decoder group ids length mismatch",
+                        extra={
+                            "codes": int(seq_codes.size),
+                            "times": int(seq_times.size),
+                        },
+                    )
+                    return None
+                instruments.extend(
+                    [group_inverse_map.get(int(code), "__UNK__") for code in seq_codes.tolist()]
+                )
+                times.extend(seq_times.tolist())
+        else:
+            if group_tensor is None:
+                logger.debug("streaming worker batch missing group metadata")
+                return None
+            try:
+                group_values = group_tensor.detach().cpu().numpy()
+            except Exception:
+                logger.debug(
+                    "streaming worker failed to detach group metadata tensor",
+                    exc_info=True,
+                )
+                return None
+            group_flat = np.reshape(group_values, (group_values.shape[0], -1))
+            if group_flat.shape[1] == 0:
+                logger.debug("streaming worker received empty group metadata payload")
+                return None
+            group_codes = group_flat[:, 0]
+            for code, row_times in zip(group_codes, time_values, strict=False):
+                instrument = group_inverse_map.get(int(code), "__UNK__")
+                seq_times = np.asarray(row_times, dtype=np.int64)
+                instruments.extend([instrument] * seq_times.size)
+                times.extend(seq_times.tolist())
+        if len(instruments) != len(times):
+            logger.debug(
+                "streaming worker produced mismatched instrument/time metadata counts",
+                extra={
+                    "instrument_count": len(instruments),
+                    "time_count": len(times),
+                },
+            )
+            return None
+        return instruments, times
+
+    def _build_row_metadata(
+        self,
+        instruments: list[str],
+        times: list[int],
+    ) -> StreamingRowMetadata:
+        instrument_array = np.asarray(instruments, dtype=np.str_)
+        time_array = np.asarray(times, dtype=np.int64)
+        row_ids = np.asarray(
+            [f"{instrument}::{time_value}" for instrument, time_value in zip(instruments, times, strict=False)],
+            dtype=np.str_,
+        )
+        return StreamingRowMetadata(
+            row_ids=row_ids,
+            instrument_ids=instrument_array,
+            time_indices=time_array,
+        )
+
+    def _fallback_row_metadata(
+        self,
+        loader: TorchDataLoader[StreamingBatch],
+        group_inverse_map: Mapping[int, str],
+        expected_size: int,
+    ) -> StreamingRowMetadata | None:
+        """
+        Derive row ordering from shard metadata when batches omit decoder metadata.
+        """
+        instruments: list[str] = []
+        times: list[int] = []
+        for batch_inputs, _ in loader:
+            time_tensor = batch_inputs.get("decoder_time_idx")
+            decoder_group_tensor = batch_inputs.get("decoder_group_ids")
+            if time_tensor is None:
+                continue
+            try:
+                detached_times = time_tensor.detach().cpu().numpy()
+            except Exception:
+                logger.debug("fallback metadata extraction failed to detach time tensor", exc_info=True)
+                return None
+            if detached_times.ndim != 2:
+                detached_times = np.reshape(detached_times, (detached_times.shape[0], -1))
+            time_values = _to_int_time_indices(detached_times)
+            if decoder_group_tensor is not None:
+                try:
+                    decoder_group_values = decoder_group_tensor.detach().cpu().numpy()
+                except Exception:
+                    logger.debug("fallback metadata extraction failed to detach decoder group ids", exc_info=True)
+                    return None
+                if decoder_group_values.ndim != 2:
+                    decoder_group_values = np.reshape(decoder_group_values, (decoder_group_values.shape[0], -1))
+            else:
+                group_tensor = batch_inputs.get("groups")
+                if group_tensor is None:
+                    continue
+                try:
+                    base_group_values = group_tensor.detach().cpu().numpy()
+                except Exception:
+                    logger.debug("fallback metadata extraction failed to detach group tensor", exc_info=True)
+                    return None
+                base_group_values = np.reshape(base_group_values, (base_group_values.shape[0], -1))
+                if base_group_values.shape[1] == 0:
+                    continue
+                first_codes = base_group_values[:, 0]
+                decoder_group_values = np.tile(first_codes[:, None], (1, time_values.shape[1]))
+            time_flat = np.reshape(time_values, (time_values.shape[0], -1))
+            if decoder_group_values.shape != time_flat.shape:
+                logger.debug(
+                    "fallback metadata extraction decoder ids shape mismatch",
+                    extra={
+                        "group_shape": tuple(decoder_group_values.shape),
+                        "time_shape": tuple(time_flat.shape),
+                    },
+                )
+                return None
+            for row_codes, row_times in zip(decoder_group_values, time_flat, strict=False):
+                seq_times = np.asarray(row_times, dtype=np.int64)
+                instruments.extend(
+                    [group_inverse_map.get(int(code), "__UNK__") for code in np.asarray(row_codes, dtype=np.int64)]
+                )
+                times.extend(seq_times.tolist())
+        if len(instruments) != expected_size or len(times) != expected_size:
+            logger.debug(
+                "fallback metadata size mismatch",
+                extra={
+                    "instrument_count": len(instruments),
+                    "time_count": len(times),
+                    "expected": expected_size,
+                },
+            )
+            return None
+        return self._build_row_metadata(instruments, times)
+
+    def _build_group_inverse_map(
+        self,
+        metadata: TFTStreamingMetadata,
+        config: TFTStreamingConfig,
+    ) -> dict[int, str]:
+        vocab = metadata.categorical_vocab.get(config.group_id_col)
+        if not vocab:
+            return {}
+        mapping: dict[str, int] = {}
+        for idx, raw_value in enumerate(vocab):
+            mapping[str(raw_value)] = idx
+        if "__UNK__" not in mapping:
+            mapping["__UNK__"] = len(mapping)
+        inverse: dict[int, str] = {code: value for value, code in mapping.items()}
+        inverse.setdefault(mapping["__UNK__"], "__UNK__")
+        return inverse
 
     def _build_streaming_template_dataset(
         self,

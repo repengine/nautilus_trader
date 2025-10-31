@@ -820,11 +820,12 @@
                     <th>Workers</th>
                     <th>Latest Plan</th>
                     <th>Latest Result</th>
+                    <th>Metrics</th>
                   </tr>
                 </thead>
                 <tbody id="streamingDatasetTableBody">
                   <tr>
-                    <td colspan="5" class="text-subtle">Streaming state not yet available.</td>
+                    <td colspan="6" class="text-subtle">Streaming state not yet available.</td>
                   </tr>
                 </tbody>
               </table>
@@ -1524,7 +1525,7 @@
           updateSummaryValue(datasetsValue, 0, 'ok');
           updateSummaryValue(backlogValue, 0, 'ok');
           updateSummaryValue(workersValue, 0, 'critical');
-          tableBody.innerHTML = '<tr><td colspan="5" class="text-subtle">Streaming persistence disabled or no snapshot available.</td></tr>';
+          tableBody.innerHTML = '<tr><td colspan="6" class="text-subtle">Streaming persistence disabled or no snapshot available.</td></tr>';
           return;
         }
 
@@ -1567,9 +1568,83 @@
         }
 
         if (datasetEntries.length === 0) {
-          tableBody.innerHTML = '<tr><td colspan="5" class="text-subtle">No streaming datasets observed yet.</td></tr>';
+          tableBody.innerHTML = '<tr><td colspan="6" class="text-subtle">No streaming datasets observed yet.</td></tr>';
           return;
         }
+
+        const formatMetricValue = (value, digits = 3) => {
+          if (typeof value !== 'number' || Number.isNaN(value)) {
+            return '—';
+          }
+          if (!Number.isFinite(value)) {
+            return value.toString();
+          }
+          if (Math.abs(value) >= 1_000 || Math.abs(value) < 0.001) {
+            return value.toExponential(Math.max(0, digits - 1));
+          }
+          return value.toFixed(Math.max(0, digits));
+        };
+
+        const formatPercentage = (value, digits = 1) => {
+          if (typeof value !== 'number' || Number.isNaN(value)) {
+            return '—';
+          }
+          return `${(value * 100).toFixed(digits)}%`;
+        };
+        const summarizeInstrumentCoverage = (loaderPayload) => {
+          if (!loaderPayload || typeof loaderPayload !== 'object') {
+            return '';
+          }
+          const selectedRows = loaderPayload.instrument_rows_selected || {};
+          const totalRows = loaderPayload.instrument_rows_total || {};
+          const skippedRows = loaderPayload.instrument_rows_skipped || {};
+          const entries = Object.entries(selectedRows).filter(([, value]) => typeof value === 'number' && value > 0);
+          if (entries.length === 0) {
+            return '';
+          }
+          entries.sort((a, b) => b[1] - a[1]);
+          const topEntries = entries.slice(0, 3).map(([instrument, rows]) => {
+            const total = typeof totalRows[instrument] === 'number' ? totalRows[instrument] : rows;
+            if (total > rows) {
+              const pct = total > 0 ? (rows / total) * 100 : 0;
+              return `${instrument}: ${formatMetricValue(rows, 0)}/${formatMetricValue(total, 0)} (${formatMetricValue(pct, 1)}%)`;
+            }
+            return `${instrument}: ${formatMetricValue(rows, 0)}`;
+          });
+          const remaining = entries.length - topEntries.length;
+          if (remaining > 0) {
+            topEntries.push(`+${remaining} more`);
+          }
+          const skippedEntries = Object.entries(skippedRows).filter(([, value]) => typeof value === 'number' && value > 0);
+          if (skippedEntries.length > 0) {
+            const skippedSummary = skippedEntries
+              .map(([instrument, value]) => `${instrument}: ${formatMetricValue(value, 0)}`)
+              .join(', ');
+            topEntries.push(`skipped ${skippedSummary}`);
+          }
+          return topEntries.join(' • ');
+        };
+
+        const renderCalibrationSummary = (summary) => {
+          if (!Array.isArray(summary) || summary.length === 0) {
+            return '';
+          }
+          return summary.map(entry => {
+            const label = entry.kind || 'Calibration';
+            const logLoss = formatMetricValue(entry.log_loss);
+            let deltaMarkup = '';
+            if (typeof entry.log_loss_delta === 'number' && !Number.isNaN(entry.log_loss_delta)) {
+              const deltaValue = entry.log_loss_delta;
+              const deltaColor = deltaValue < 0 ? 'var(--success)' : deltaValue > 0 ? 'var(--warning)' : 'var(--text-secondary)';
+              const deltaSign = deltaValue > 0 ? '+' : '';
+              deltaMarkup = `<span style="color: ${deltaColor}; margin-left: 0.25rem;">${deltaSign}${formatMetricValue(deltaValue)}</span>`;
+            }
+            const temperature = typeof entry.temperature === 'number' && !Number.isNaN(entry.temperature)
+              ? ` @T=${formatMetricValue(entry.temperature, 2)}`
+              : '';
+            return `<div>${label}: LL ${logLoss}${deltaMarkup}${temperature}</div>`;
+          }).join('');
+        };
 
         tableBody.innerHTML = datasetEntries.map(([datasetId, detail]) => {
           const outstanding = Number(detail.outstanding_count ?? 0);
@@ -1617,6 +1692,207 @@
             ? `<div><span class="status-pill">${workerCount} active</span></div>${renderWorkerDetails(detail.workers)}`
             : '<span class="text-subtle">None</span>';
 
+          const metricsDict = latestResult && typeof latestResult.metrics === 'object'
+            ? latestResult.metrics
+            : {};
+          const telemetryCaps = latestResult
+            && latestResult.telemetry
+            && typeof latestResult.telemetry === 'object'
+            && typeof latestResult.telemetry.caps === 'object'
+              ? latestResult.telemetry.caps
+              : {};
+          const resourcesPayload = latestResult && typeof latestResult.resources === 'object'
+            ? latestResult.resources
+            : {};
+          const calibrationSummary = latestResult && Array.isArray(latestResult.calibration_summary)
+            ? latestResult.calibration_summary
+            : [];
+          const metricRows = [];
+          if (typeof metricsDict.roc_auc === 'number') {
+            metricRows.push(`<div>ROC-AUC: ${formatMetricValue(metricsDict.roc_auc)}</div>`);
+          }
+          if (typeof metricsDict.pr_auc === 'number') {
+            metricRows.push(`<div>PR-AUC: ${formatMetricValue(metricsDict.pr_auc)}</div>`);
+          }
+          if (typeof metricsDict.log_loss === 'number') {
+            metricRows.push(`<div>LogLoss: ${formatMetricValue(metricsDict.log_loss)}</div>`);
+          }
+
+          const trainFractionValue = typeof telemetryCaps.worker_train_fraction === 'number'
+            ? telemetryCaps.worker_train_fraction
+            : null;
+          if (trainFractionValue !== null) {
+            const curriculumEnabled = Boolean(telemetryCaps.worker_curriculum_enabled);
+            const label = curriculumEnabled ? 'Curriculum train %' : 'Train %';
+            metricRows.push(`<div>${label}: ${formatPercentage(trainFractionValue)}</div>`);
+          }
+          const lossName = typeof latestResult.worker_loss_name === 'string'
+            ? latestResult.worker_loss_name
+            : (typeof telemetryCaps.worker_loss_name === 'string' ? telemetryCaps.worker_loss_name : null);
+          if (lossName) {
+            let lossText = `Loss: ${lossName}`;
+            const posWeight = typeof latestResult.worker_loss_pos_weight === 'number'
+              ? latestResult.worker_loss_pos_weight
+              : telemetryCaps.worker_loss_pos_weight;
+            if (typeof posWeight === 'number' && Number.isFinite(posWeight)) {
+              lossText += ` (pos_weight=${formatMetricValue(posWeight, 2)})`;
+            }
+            metricRows.push(`<div>${lossText}</div>`);
+          }
+          const curriculumStage = telemetryCaps.worker_curriculum_stage;
+          if (typeof curriculumStage === 'string' && curriculumStage.length > 0) {
+            metricRows.push(`<div>Curriculum stage: ${curriculumStage}</div>`);
+          }
+          const curriculumReason = telemetryCaps.worker_curriculum_reason;
+          if (typeof curriculumReason === 'string' && curriculumReason.length > 0) {
+            metricRows.push(`<div>Curriculum guard: ${curriculumReason}</div>`);
+          }
+          if (typeof telemetryCaps.worker_amp_enabled === 'boolean') {
+            const ampStatus = telemetryCaps.worker_amp_enabled ? 'AMP enabled' : 'AMP disabled';
+            metricRows.push(`<div>${ampStatus}</div>`);
+            const ampReason = telemetryCaps.worker_amp_guard_reason;
+            if (!telemetryCaps.worker_amp_enabled && typeof ampReason === 'string' && ampReason.length > 0) {
+              metricRows.push(`<div>AMP guard: ${ampReason}</div>`);
+            }
+          }
+
+          const ensembleEnabled = Boolean(telemetryCaps.worker_ensemble_enabled);
+          const ensembleConfigured = Number(telemetryCaps.worker_ensemble_members_configured ?? 0);
+          const ensembleUsed = typeof metricsDict.ensemble_members_used === 'number'
+            ? metricsDict.ensemble_members_used
+            : null;
+          const ensembleSkipped = typeof metricsDict.ensemble_optional_members_skipped === 'number'
+            ? metricsDict.ensemble_optional_members_skipped
+            : null;
+          const ensembleMisaligned = typeof metricsDict.ensemble_members_misaligned === 'number'
+            ? metricsDict.ensemble_members_misaligned
+            : null;
+          if (ensembleEnabled || (ensembleUsed !== null && ensembleUsed > 0)) {
+            let text = 'Ensemble: ';
+            if (ensembleUsed !== null) {
+              text += `${formatMetricValue(ensembleUsed, 0)}`;
+            } else {
+              text += '0';
+            }
+            if (Number.isFinite(ensembleConfigured) && ensembleConfigured > 0) {
+              text += `/${ensembleConfigured}`;
+            }
+            text += ' peers';
+            if (ensembleSkipped && ensembleSkipped > 0) {
+              text += ` (skipped ${formatMetricValue(ensembleSkipped, 0)})`;
+            }
+            if (ensembleMisaligned && ensembleMisaligned > 0) {
+              text += ` ⚠ misaligned ${formatMetricValue(ensembleMisaligned, 0)}`;
+            }
+            metricRows.push(`<div>${text}</div>`);
+          }
+
+          const validationReturnsPayload = latestResult && typeof latestResult.validation_returns === 'object'
+            ? latestResult.validation_returns
+            : null;
+          if (validationReturnsPayload) {
+            const fallback = Boolean(validationReturnsPayload.fallback_join);
+            const mismatchCount = Number(validationReturnsPayload.mismatch_count ?? 0);
+            const missingCount = Number(validationReturnsPayload.missing_count ?? 0);
+            let text = `Validation returns: ${fallback ? 'fallback join' : 'direct join'}`;
+            if (mismatchCount > 0) {
+              text += ` • mismatched ${formatMetricValue(mismatchCount, 0)}`;
+            }
+            if (missingCount > 0) {
+              text += ` • missing ${formatMetricValue(missingCount, 0)}`;
+            }
+            metricRows.push(`<div>${text}</div>`);
+          }
+          const trainLoader = latestResult && typeof latestResult.train_loader === 'object'
+            ? latestResult.train_loader
+            : null;
+          const trainCoverage = summarizeInstrumentCoverage(trainLoader);
+          if (trainCoverage) {
+            metricRows.push(`<div>Train coverage: ${trainCoverage}</div>`);
+          }
+          const validationLoader = latestResult && typeof latestResult.validation_loader === 'object'
+            ? latestResult.validation_loader
+            : null;
+          const validationCoverage = summarizeInstrumentCoverage(validationLoader);
+          if (validationCoverage) {
+            metricRows.push(`<div>Val coverage: ${validationCoverage}</div>`);
+          }
+          const validationFailureReason = typeof latestResult.validation_failure_reason === 'string'
+            ? latestResult.validation_failure_reason
+            : (typeof telemetryCaps.validation_failure_reason === 'string' ? telemetryCaps.validation_failure_reason : null);
+          if (validationFailureReason) {
+            const failureDetails = latestResult && typeof latestResult.validation_failure_details === 'object'
+              ? latestResult.validation_failure_details
+              : null;
+            let detailsText = '';
+            if (failureDetails) {
+              const detailParts = Object.entries(failureDetails)
+                .filter(([, value]) => typeof value === 'number')
+                .map(([key, value]) => `${key}=${formatMetricValue(value, 0)}`);
+              if (detailParts.length > 0) {
+                detailsText = ` (${detailParts.join(', ')})`;
+              }
+            }
+            metricRows.push(`<div style="color: var(--danger);">Validation failure: ${validationFailureReason}${detailsText}</div>`);
+          }
+
+          const ensembleInventory = latestResult.ensemble;
+          if (ensembleInventory && Array.isArray(ensembleInventory.members) && ensembleInventory.members.length > 0) {
+            const rows = ensembleInventory.members.map((member) => {
+              const status = member.used ? 'used' : (member.skipped_reason ? `skipped (${member.skipped_reason})` : 'skipped');
+              const weight = typeof member.weight === 'number' ? `w=${formatMetricValue(member.weight, 2)}` : '';
+              const rowCounts = typeof member.validation_row_count === 'number' ? `${member.validation_row_count}` : '-';
+              const label = member.artifact_path === '__primary__' ? 'primary' : member.artifact_path;
+              return `<div class="metric-subrow">${label} • ${status} ${weight} • val rows ${rowCounts}</div>`;
+            }).join('');
+            metricRows.push(`<div>Ensemble inventory:${rows}</div>`);
+          }
+
+          const economicPayload = latestResult.economic || {};
+          const economicItems = [];
+          if (typeof economicPayload.slippage_adjusted_sharpe === 'number') {
+            economicItems.push(`Sharpeₛ ${formatMetricValue(economicPayload.slippage_adjusted_sharpe, 2)}`);
+          }
+          if (typeof economicPayload.hit_rate === 'number') {
+            economicItems.push(`Hit ${formatPercentage(economicPayload.hit_rate)}`);
+          }
+          if (typeof economicPayload.turnover === 'number') {
+            economicItems.push(`Turnover ${formatPercentage(economicPayload.turnover)}`);
+          }
+          if (typeof economicPayload.max_drawdown === 'number') {
+            economicItems.push(`Drawdown ${formatMetricValue(economicPayload.max_drawdown, 2)}`);
+          }
+          if (economicItems.length > 0) {
+            metricRows.push(`<div>Economic: ${economicItems.join(' · ')}</div>`);
+          }
+
+          const stabilityPayload = latestResult.stability || {};
+          const stabilityItems = [];
+          if (typeof stabilityPayload.ks_statistic === 'number') {
+            stabilityItems.push(`KS ${formatMetricValue(stabilityPayload.ks_statistic, 3)}`);
+          }
+          if (typeof stabilityPayload.calibration_drift === 'number') {
+            stabilityItems.push(`Cal drift ${formatMetricValue(stabilityPayload.calibration_drift, 3)}`);
+          }
+          if (stabilityItems.length > 0) {
+            metricRows.push(`<div>Stability: ${stabilityItems.join(' · ')}</div>`);
+          }
+
+          const peakGpu = typeof resourcesPayload.max_gpu_memory_mb === 'number'
+            ? resourcesPayload.max_gpu_memory_mb
+            : null;
+          if (peakGpu !== null) {
+            metricRows.push(`<div>GPU Peak: ${formatMetricValue(peakGpu, 1)} MB</div>`);
+          }
+
+          const calibrationMarkup = renderCalibrationSummary(calibrationSummary);
+          if (calibrationMarkup) {
+            metricRows.push(`<div class="text-subtle" style="margin-top: 0.25rem;">${calibrationMarkup}</div>`);
+          }
+          const metricsContent = metricRows.length > 0
+            ? metricRows.join('')
+            : '<span class="text-subtle">—</span>';
+
           return `
             <tr${rowClass}>
               <td>
@@ -1627,6 +1903,7 @@
               <td>${workersContent}</td>
               <td>${latestPlanContent}</td>
               <td>${latestResultContent}</td>
+              <td>${metricsContent}</td>
             </tr>
           `;
         }).join('');

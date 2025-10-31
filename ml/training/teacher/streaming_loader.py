@@ -18,9 +18,12 @@ numeric scaling rely on metadata statistics captured during the first pass.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from collections import deque
 from collections.abc import Iterable
 from collections.abc import Iterator
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -99,6 +102,7 @@ else:
 
 
 __all__ = [
+    "PhaseOneFeatureSignals",
     "RunningStats",
     "StreamingLimitSummary",
     "TFTShardIndex",
@@ -365,6 +369,34 @@ class _InstrumentShardState:
 
 
 @dataclass(slots=True, frozen=True)
+class PhaseOneFeatureSignals:
+    """Categorised Phase 1 feature families derived from metadata annotations."""
+
+    macro_delta_columns: tuple[str, ...] = ()
+    calendar_lag_columns: tuple[str, ...] = ()
+    clustering_tag_columns: tuple[str, ...] = ()
+    context_feature_columns: tuple[str, ...] = ()
+
+    def as_payload(self) -> dict[str, list[str]]:
+        """Return a JSON-serialisable representation of the feature signals."""
+        return {
+            "macro_delta_columns": [str(value) for value in self.macro_delta_columns],
+            "calendar_lag_columns": [str(value) for value in self.calendar_lag_columns],
+            "clustering_tag_columns": [str(value) for value in self.clustering_tag_columns],
+            "context_feature_columns": [str(value) for value in self.context_feature_columns],
+        }
+
+    def is_empty(self) -> bool:
+        """Return ``True`` when no feature families were supplied."""
+        return not (
+            self.macro_delta_columns
+            or self.calendar_lag_columns
+            or self.clustering_tag_columns
+            or self.context_feature_columns
+        )
+
+
+@dataclass(slots=True, frozen=True)
 class TFTStreamingMetadata:
     """Aggregated metadata derived from the parquet scan."""
 
@@ -372,6 +404,7 @@ class TFTStreamingMetadata:
     numeric_stats: dict[str, RunningStats]
     categorical_vocab: dict[str, tuple[str, ...]]
     instrument_row_counts: dict[str, int]
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
 
 
 @dataclass(slots=True, frozen=True)
@@ -548,6 +581,7 @@ class TFTStreamingPreprocessor:
             numeric_stats=numeric_stats,
             categorical_vocab=vocab_final,
             instrument_row_counts=instrument_row_counts,
+            phase_one_signals=PhaseOneFeatureSignals(),
         )
         summary = summarize_metadata(metadata)
         _METADATA_SHARDS_COUNTER.inc(summary.total_shards)
@@ -576,6 +610,7 @@ def collect_streaming_metadata(
     group_id_col: str,
     time_index_col: str,
     shard_row_budget: int = _DEFAULT_SHARD_ROW_BUDGET,
+    phase_one_signals: PhaseOneFeatureSignals | None = None,
 ) -> TFTStreamingMetadata:
     """Return metadata derived from a parquet dataset scan."""
     preprocessor = TFTStreamingPreprocessor(
@@ -587,7 +622,10 @@ def collect_streaming_metadata(
         time_index_col=time_index_col,
         shard_row_budget=shard_row_budget,
     )
-    return preprocessor.build_metadata()
+    metadata = preprocessor.build_metadata()
+    if phase_one_signals is None:
+        return metadata
+    return replace(metadata, phase_one_signals=phase_one_signals)
 
 
 @dataclass(slots=True, frozen=True)
@@ -618,9 +656,14 @@ class TFTStreamingConfig:
     include_micro: bool = False
     include_l2: bool = False
     include_macro_revisions: bool = False
+    include_macro_deltas: bool = False
+    include_calendar_lags: bool = False
+    include_clustering_tags: bool = False
+    include_context_features: bool = False
     macro_lag_days: int = 1
     earnings_lag_days: int = 1
     events_notice_minutes: int = 0
+    phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -640,6 +683,12 @@ class StreamingLimitSummary:
     skipped_shards: int = 0
     skipped_rows: int = 0
     skipped_sequences: int = 0
+    total_instrument_rows: dict[str, int] = field(default_factory=dict)
+    selected_instrument_rows: dict[str, int] = field(default_factory=dict)
+    skipped_instrument_rows: dict[str, int] = field(default_factory=dict)
+    total_instrument_sequences: dict[str, int] = field(default_factory=dict)
+    selected_instrument_sequences: dict[str, int] = field(default_factory=dict)
+    skipped_instrument_sequences: dict[str, int] = field(default_factory=dict)
 
 
 def _estimate_sequences_for_shard(
@@ -678,18 +727,77 @@ def _limit_metadata_for_streaming(
     config: TFTStreamingConfig,
 ) -> tuple[TFTStreamingMetadata, StreamingLimitSummary]:
     """Return metadata trimmed to respect global limits on shard/row/sequence counts."""
+    encoder_len = config.max_encoder_length
+    decoder_len = config.max_prediction_length
+    total_row_counts: dict[str, int] = {}
+    total_sequence_counts: dict[str, int] = {}
+    instruments_in_metadata: set[str] = set()
+    for shard in metadata.shard_indices:
+        instrument = shard.instrument_id
+        instruments_in_metadata.add(instrument)
+        total_row_counts[instrument] = total_row_counts.get(instrument, 0) + shard.row_count
+        if instrument not in total_sequence_counts:
+            total_sequence_counts[instrument] = 0
+        total_sequence_counts[instrument] += _estimate_sequences_for_shard(
+            shard,
+            encoder_len,
+            decoder_len,
+        )
+    for instrument, count in metadata.instrument_row_counts.items():
+        instruments_in_metadata.add(instrument)
+        total_row_counts.setdefault(instrument, int(count))
+        total_sequence_counts.setdefault(instrument, 0)
+
     limits_active = any(
         value is not None
         for value in (config.max_total_rows, config.max_total_sequences, config.max_shards)
     )
     if not limits_active:
-        return metadata, StreamingLimitSummary()
+        selected_rows_map = dict(metadata.instrument_row_counts)
+        if not selected_rows_map and total_row_counts:
+            selected_rows_map = dict(total_row_counts)
+        selected_rows_filtered = {
+            instrument: count for instrument, count in selected_rows_map.items() if count > 0
+        }
+        selected_sequences_filtered = {
+            instrument: count for instrument, count in total_sequence_counts.items() if count > 0
+        }
+        summary = StreamingLimitSummary(
+            skipped_shards=0,
+            skipped_rows=0,
+            skipped_sequences=0,
+            total_instrument_rows=dict(sorted(total_row_counts.items())),
+            selected_instrument_rows=dict(sorted(selected_rows_filtered.items())),
+            skipped_instrument_rows={},
+            total_instrument_sequences=dict(sorted(total_sequence_counts.items())),
+            selected_instrument_sequences=dict(sorted(selected_sequences_filtered.items())),
+            skipped_instrument_sequences={},
+        )
+        return metadata, summary
 
+    instrument_ids = sorted(instruments_in_metadata)
     max_rows = config.max_total_rows
     max_sequences = config.max_total_sequences
     max_shards = config.max_shards
-    encoder_len = config.max_encoder_length
-    decoder_len = config.max_prediction_length
+
+    shards_by_instrument: dict[str, deque[TFTShardIndex]] = {}
+    for instrument in instrument_ids:
+        shards_by_instrument[instrument] = deque()
+    for shard in metadata.shard_indices:
+        instrument = shard.instrument_id
+        shards_by_instrument.setdefault(instrument, deque()).append(shard)
+
+    for instrument, shard_queue in list(shards_by_instrument.items()):
+        sorted_queue = deque(sorted(shard_queue, key=lambda s: (s.time_start, s.row_start, s.shard_id)))
+        shards_by_instrument[instrument] = sorted_queue
+
+    instrument_order = sorted(
+        shards_by_instrument.keys(),
+        key=lambda inst: (
+            shards_by_instrument[inst][0].time_start if shards_by_instrument[inst] else float("inf"),
+            inst,
+        ),
+    )
 
     selected: list[TFTShardIndex] = []
     rows_accum = 0
@@ -699,67 +807,106 @@ def _limit_metadata_for_streaming(
     skipped_sequences = 0
     skipped_shards = 0
 
-    for shard in metadata.shard_indices:
-        shard_sequences = _estimate_sequences_for_shard(shard, encoder_len, decoder_len)
-        projected_shards = shards_accum + 1
-        projected_rows = rows_accum + shard.row_count
-        projected_sequences = sequences_accum + shard_sequences
+    selected_rows_by_instrument = dict.fromkeys(instrument_ids, 0)
+    skipped_rows_by_instrument = dict.fromkeys(instrument_ids, 0)
+    selected_sequences_by_instrument = dict.fromkeys(instrument_ids, 0)
+    skipped_sequences_by_instrument = dict.fromkeys(instrument_ids, 0)
 
-        limit_exceeded = (
-            (max_shards is not None and projected_shards > max_shards)
-            or (max_rows is not None and projected_rows > max_rows)
-            or (max_sequences is not None and projected_sequences > max_sequences)
+    def _pop_and_skip(instrument: str, shard: TFTShardIndex, shard_sequences: int) -> None:
+        nonlocal skipped_shards, skipped_rows, skipped_sequences
+        skipped_shards += 1
+        skipped_rows += shard.row_count
+        skipped_sequences += shard_sequences
+        skipped_rows_by_instrument[instrument] += shard.row_count
+        skipped_sequences_by_instrument[instrument] += shard_sequences
+
+    while True:
+        progress = False
+        for instrument in instrument_order:
+            queue = shards_by_instrument.get(instrument)
+            if not queue:
+                continue
+
+            while queue:
+                shard = queue[0]
+                shard_sequences = _estimate_sequences_for_shard(shard, encoder_len, decoder_len)
+                if shard_sequences <= 0:
+                    queue.popleft()
+                    _pop_and_skip(instrument, shard, shard_sequences)
+                    continue
+                projected_shards = shards_accum + 1
+                projected_rows = rows_accum + shard.row_count
+                projected_sequences = sequences_accum + shard_sequences
+                limit_exceeded = (
+                    (max_shards is not None and projected_shards > max_shards)
+                    or (max_rows is not None and projected_rows > max_rows)
+                    or (max_sequences is not None and projected_sequences > max_sequences)
+                )
+                if limit_exceeded:
+                    queue.popleft()
+                    _pop_and_skip(instrument, shard, shard_sequences)
+                    continue
+
+                queue.popleft()
+                selected.append(shard)
+                shards_accum = projected_shards
+                rows_accum = projected_rows
+                sequences_accum = projected_sequences
+                selected_rows_by_instrument[instrument] += shard.row_count
+                selected_sequences_by_instrument[instrument] += shard_sequences
+                progress = True
+                break
+
+        if all(not queue for queue in shards_by_instrument.values()):
+            break
+        if not progress:
+            break
+
+    for instrument, queue in shards_by_instrument.items():
+        while queue:
+            shard = queue.popleft()
+            shard_sequences = _estimate_sequences_for_shard(shard, encoder_len, decoder_len)
+            _pop_and_skip(instrument, shard, shard_sequences)
+
+    selected_rows_filtered = {
+        instrument: count for instrument, count in selected_rows_by_instrument.items() if count > 0
+    }
+    selected_sequences_filtered = {
+        instrument: count for instrument, count in selected_sequences_by_instrument.items() if count > 0
+    }
+    skipped_rows_filtered = {
+        instrument: total_row_counts.get(instrument, 0) - selected_rows_by_instrument.get(instrument, 0)
+        for instrument in instrument_ids
+        if (total_row_counts.get(instrument, 0) - selected_rows_by_instrument.get(instrument, 0)) > 0
+    }
+    skipped_sequences_filtered = {
+        instrument: total_sequence_counts.get(instrument, 0)
+        - selected_sequences_by_instrument.get(instrument, 0)
+        for instrument in instrument_ids
+        if (
+            total_sequence_counts.get(instrument, 0)
+            - selected_sequences_by_instrument.get(instrument, 0)
         )
-        if limit_exceeded:
-            skipped_shards += 1
-            skipped_rows += shard.row_count
-            skipped_sequences += shard_sequences
-            continue
-
-        if shard_sequences <= 0:
-            # Keep metadata consistent but this shard yields no sequences anyway.
-            skipped_shards += 1
-            skipped_rows += shard.row_count
-            continue
-
-        selected.append(shard)
-        shards_accum = projected_shards
-        rows_accum = projected_rows
-        sequences_accum = projected_sequences
-
-    if not selected:
-        summary = StreamingLimitSummary(
-            skipped_shards=skipped_shards,
-            skipped_rows=skipped_rows,
-            skipped_sequences=skipped_sequences,
-        )
-        empty_counts: dict[str, int] = {}
-        return (
-            TFTStreamingMetadata(
-                shard_indices=(),
-                numeric_stats=metadata.numeric_stats,
-                categorical_vocab=metadata.categorical_vocab,
-                instrument_row_counts=empty_counts,
-            ),
-            summary,
-        )
-
-    instrument_counts: dict[str, int] = {}
-    for shard in selected:
-        instrument_counts[shard.instrument_id] = (
-            instrument_counts.get(shard.instrument_id, 0) + shard.row_count
-        )
+        > 0
+    }
 
     limited_metadata = TFTStreamingMetadata(
         shard_indices=tuple(selected),
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
-        instrument_row_counts=instrument_counts,
+        instrument_row_counts=selected_rows_filtered,
+        phase_one_signals=metadata.phase_one_signals,
     )
     summary = StreamingLimitSummary(
         skipped_shards=skipped_shards,
         skipped_rows=skipped_rows,
         skipped_sequences=skipped_sequences,
+        total_instrument_rows=dict(sorted(total_row_counts.items())),
+        selected_instrument_rows=dict(sorted(selected_rows_filtered.items())),
+        skipped_instrument_rows=dict(sorted(skipped_rows_filtered.items())),
+        total_instrument_sequences=dict(sorted(total_sequence_counts.items())),
+        selected_instrument_sequences=dict(sorted(selected_sequences_filtered.items())),
+        skipped_instrument_sequences=dict(sorted(skipped_sequences_filtered.items())),
     )
     return limited_metadata, summary
 
@@ -782,12 +929,24 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         self._parquet_path = Path(parquet_path)
         self._metadata = metadata
         self._config = config
+        self._shard_log_counter = 0
 
         self._categorical_maps: dict[str, dict[str, int]] = {}
         for name, vocab in metadata.categorical_vocab.items():
             mapping = {value: idx for idx, value in enumerate(vocab)}
             mapping.setdefault("__UNK__", len(mapping))
             self._categorical_maps[name] = mapping
+        if config.group_id_col in self._categorical_maps:
+            sample_mapping = [(str(key), int(value)) for key, value in list(self._categorical_maps[config.group_id_col].items())[:5]]
+            logger.info(
+                "streaming dataset group mapping sample (column=%s, entries=%s)",
+                config.group_id_col,
+                sample_mapping,
+                extra={
+                    "group_column": config.group_id_col,
+                    "mapping_sample": sample_mapping,
+                },
+            )
 
         self._numeric_stats = metadata.numeric_stats
         target_stats = metadata.numeric_stats.get(config.target_col)
@@ -889,6 +1048,21 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
             return
 
         for shard in shards:
+            if self._shard_log_counter < 5:
+                logger.info(
+                    "streaming dataset iterating shard (instrument=%s, time_start=%s, time_end=%s, rows=%s)",
+                    shard.instrument_id,
+                    shard.time_start,
+                    shard.time_end,
+                    shard.row_count,
+                    extra={
+                        "instrument_id": shard.instrument_id,
+                        "time_start": shard.time_start,
+                        "time_end": shard.time_end,
+                        "row_count": shard.row_count,
+                    },
+                )
+                self._shard_log_counter += 1
             yield from self._iter_shard_batches(dataset_obj, shard)
 
     def _iter_shard_batches(
@@ -1020,6 +1194,14 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
 
         group_mapping = self._categorical_maps.get(self._config.group_id_col, {})
         group_code = group_mapping.get(shard.instrument_id, group_mapping.get("__UNK__", 0))
+        if shard.instrument_id not in group_mapping:
+            logger.info(
+                "streaming dataset instrument missing from categorical mapping; using fallback",
+                extra={
+                    "instrument_id": shard.instrument_id,
+                    "fallback_code": int(group_code),
+                },
+            )
 
         batch_encoder_cont: list[np.ndarray] = []
         batch_decoder_cont: list[np.ndarray] = []
@@ -1032,6 +1214,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         batch_groups: list[np.ndarray] = []
         batch_target_scale: list[np.ndarray] = []
         batch_decoder_time: list[np.ndarray] = []
+        batch_decoder_group_ids: list[np.ndarray] = []
 
         batch_size = max(1, self._config.batch_size)
         encoder_len = self._config.max_encoder_length
@@ -1096,7 +1279,10 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
             batch_decoder_lengths.append(decoder_len)
             batch_groups.append(np.array([[group_code]], dtype=np.int64))
             batch_target_scale.append(np.array([target_mean, target_std], dtype=np.float32))
-            batch_decoder_time.append(time_array[dec_start:dec_end].astype(np.float32, copy=False))
+            batch_decoder_time.append(time_array[dec_start:dec_end].astype(np.int64, copy=False))
+            batch_decoder_group_ids.append(
+                np.full((decoder_len,), group_code, dtype=np.int64)
+            )
 
             if len(batch_encoder_cont) == batch_size:
                 yield self._build_batch(
@@ -1111,6 +1297,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                     batch_groups,
                     batch_target_scale,
                     batch_decoder_time,
+                    batch_decoder_group_ids,
                 )
                 batch_encoder_cont.clear()
                 batch_decoder_cont.clear()
@@ -1123,6 +1310,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                 batch_groups.clear()
                 batch_target_scale.clear()
                 batch_decoder_time.clear()
+                batch_decoder_group_ids.clear()
 
         if not self._config.drop_last and batch_encoder_cont:
             yield self._build_batch(
@@ -1137,6 +1325,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                 batch_groups,
                 batch_target_scale,
                 batch_decoder_time,
+                batch_decoder_group_ids,
             )
 
     def _build_batch(
@@ -1152,6 +1341,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         groups: list[np.ndarray],
         target_scales: list[np.ndarray],
         decoder_time: list[np.ndarray],
+        decoder_group_ids: list[np.ndarray],
     ) -> BatchItem:
         batch_inputs: dict[str, TorchTensor] = {}
         batch_inputs["encoder_cont"] = torch.from_numpy(np.stack(encoder_cont, axis=0))
@@ -1181,7 +1371,10 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         batch_inputs["decoder_lengths"] = torch.tensor(decoder_lengths, dtype=torch.int64)
         batch_inputs["groups"] = torch.from_numpy(np.vstack(groups))
         batch_inputs["target_scale"] = torch.from_numpy(np.stack(target_scales, axis=0))
-        batch_inputs["decoder_time_idx"] = torch.from_numpy(np.stack(decoder_time, axis=0))
+        batch_inputs["decoder_time_idx"] = torch.from_numpy(
+            np.stack(decoder_time, axis=0).astype(np.int64, copy=False)
+        )
+        batch_inputs["decoder_group_ids"] = torch.from_numpy(np.stack(decoder_group_ids, axis=0))
 
         outputs = (decoder_target_tensor, None)
         return batch_inputs, outputs
@@ -1297,11 +1490,13 @@ def split_metadata_by_row_fraction(
     train_fraction: float,
 ) -> tuple[TFTStreamingMetadata, TFTStreamingMetadata]:
     """
-    Split shards by cumulative row count fraction.
+    Split shards by cumulative row count fraction while preserving per-instrument coverage.
 
-    The function keeps shard ordering (sorted by ``row_start``) and allocates
-    entire shards to the training split until the running total exceeds the
-    requested fraction. Remaining shards are assigned to validation.
+    Shards are grouped by instrument and sorted chronologically. Each instrument
+    receives training shards up to the requested fraction (clipped to [0, 1]) and
+    retains at least one validation shard when possible. Instruments with a single
+    shard are duplicated across splits so the worker observes them during both
+    training and validation.
     """
     if not metadata.shard_indices:
         empty = TFTStreamingMetadata(
@@ -1312,36 +1507,49 @@ def split_metadata_by_row_fraction(
         )
         return empty, empty
 
-    total_rows = sum(shard.row_count for shard in metadata.shard_indices)
-    if total_rows <= 0:
-        return metadata, TFTStreamingMetadata(
-            shard_indices=(),
-            numeric_stats=metadata.numeric_stats,
-            categorical_vocab=metadata.categorical_vocab,
-            instrument_row_counts=metadata.instrument_row_counts,
-        )
+    grouped_shards: dict[str, list[TFTShardIndex]] = defaultdict(list)
+    for shard in metadata.shard_indices:
+        grouped_shards[shard.instrument_id].append(shard)
 
-    train_target = max(0, min(1.0, train_fraction)) * total_rows
-    cumulative = 0
     train_shards: list[TFTShardIndex] = []
     val_shards: list[TFTShardIndex] = []
+    clamped_fraction = max(0.0, min(1.0, float(train_fraction)))
 
-    for shard in sorted(metadata.shard_indices, key=lambda s: (s.instrument_id, s.row_start)):
-        shard_rows = shard.row_count
-        if cumulative < train_target:
-            train_shards.append(shard)
-        else:
-            val_shards.append(shard)
-        cumulative += shard_rows
+    for instrument, shards in grouped_shards.items():
+        instrument_shards = sorted(shards, key=lambda shard: shard.time_start)
+        instrument_rows = sum(shard.row_count for shard in instrument_shards)
+        if instrument_rows <= 0:
+            val_shards.extend(instrument_shards)
+            continue
+        target_rows = round(clamped_fraction * instrument_rows)
+        target_rows = max(0, min(target_rows, instrument_rows))
 
-    if not train_shards:
-        train_shards, val_shards = val_shards[:1], val_shards[1:]
-    if not val_shards:
-        if len(train_shards) <= 1:
-            val_shards = train_shards[-1:]
-        else:
-            val_shards = train_shards[-1:]
-            train_shards = train_shards[:-1]
+        cumulative = 0
+        instrument_train: list[TFTShardIndex] = []
+        instrument_val: list[TFTShardIndex] = []
+
+        for shard in instrument_shards:
+            if cumulative < target_rows:
+                instrument_train.append(shard)
+            else:
+                instrument_val.append(shard)
+            cumulative += shard.row_count
+
+        if not instrument_train and instrument_val:
+            instrument_train.append(instrument_val[0])
+        if not instrument_val and instrument_train:
+            if len(instrument_train) > 1:
+                instrument_val.append(instrument_train.pop())
+            else:
+                instrument_val.append(instrument_train[0])
+
+        train_shards.extend(instrument_train)
+        val_shards.extend(instrument_val)
+
+    if not train_shards and val_shards:
+        train_shards.append(val_shards[0])
+    if not val_shards and train_shards:
+        val_shards.append(train_shards[-1])
 
     train_metadata = TFTStreamingMetadata(
         shard_indices=tuple(train_shards),

@@ -694,11 +694,14 @@ class DashboardService:
                 "results": {},
                 "heartbeats": {},
                 "datasets": {},
+                "stream_cursor": None,
             }
         snapshot = store.snapshot()
         plans = snapshot.get("plans", {})
         results = snapshot.get("results", {})
         heartbeats = snapshot.get("heartbeats", {})
+        raw_cursor = snapshot.get("stream_cursor")
+        cursor_value = str(raw_cursor).strip() if isinstance(raw_cursor, str) and raw_cursor.strip() else None
 
         def _maybe_parse_iso(value: object) -> datetime | None:
             if not isinstance(value, str):
@@ -830,6 +833,41 @@ class DashboardService:
             worker_entries.sort(key=lambda entry: entry["timestamp"], reverse=True)
             return worker_entries, len({wid for wid in worker_ids if wid})
 
+        def _to_float(value: Any) -> float | None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _build_calibration_summary(metrics_dict: Mapping[str, Any]) -> list[dict[str, Any]]:
+            summary: list[dict[str, Any]] = []
+            base_log_loss = _to_float(metrics_dict.get("log_loss"))
+            variants = (
+                ("temperature_calibration", "Temperature"),
+                ("platt_calibration", "Platt"),
+                ("isotonic_calibration", "Isotonic"),
+            )
+            for key, label in variants:
+                log_loss = _to_float(metrics_dict.get(f"{key}_log_loss"))
+                ece_20 = _to_float(metrics_dict.get(f"{key}_ece_20"))
+                brier = _to_float(metrics_dict.get(f"{key}_brier_score"))
+                if log_loss is None and ece_20 is None and brier is None:
+                    continue
+                delta = _to_float(metrics_dict.get(f"{key}_log_loss_delta"))
+                if delta is None and log_loss is not None and base_log_loss is not None:
+                    delta = log_loss - base_log_loss
+                entry: dict[str, Any] = {
+                    "kind": label,
+                    "log_loss": log_loss,
+                    "log_loss_delta": delta,
+                    "ece_20": ece_20,
+                    "brier_score": brier,
+                }
+                if key == "temperature_calibration":
+                    entry["temperature"] = _to_float(metrics_dict.get("temperature_calibration_temperature"))
+                summary.append(entry)
+            return summary
+
         for dataset_id in dataset_ids:
             plan_ids = datasets_map.get(dataset_id, [])
             outstanding_for_dataset = [
@@ -838,6 +876,53 @@ class DashboardService:
             latest_plan = _latest_plan(dataset_id, plan_ids)
             latest_result = _latest_result(dataset_id)
             workers, worker_count = _workers_for_dataset(dataset_id)
+            calibration_summary: list[dict[str, Any]] = []
+            if latest_result is not None:
+                metrics_payload = latest_result.get("metrics", {})
+                if isinstance(metrics_payload, Mapping):
+                    calibration_summary = _build_calibration_summary(metrics_payload)
+                latest_result["calibration_summary"] = calibration_summary
+                telemetry = latest_result.get("telemetry", {})
+                caps_payload = telemetry.get("caps", {}) if isinstance(telemetry, Mapping) else {}
+                if isinstance(caps_payload, Mapping):
+                    latest_result["worker_curriculum_stage"] = caps_payload.get("worker_curriculum_stage")
+                    latest_result["worker_curriculum_reason"] = caps_payload.get("worker_curriculum_reason")
+                    latest_result["worker_amp_enabled"] = caps_payload.get("worker_amp_enabled")
+                    latest_result["worker_amp_guard_reason"] = caps_payload.get("worker_amp_guard_reason")
+                    if caps_payload.get("worker_loss_name"):
+                        latest_result["worker_loss_name"] = caps_payload.get("worker_loss_name")
+                    if "worker_loss_pos_weight" in caps_payload:
+                        latest_result["worker_loss_pos_weight"] = caps_payload.get("worker_loss_pos_weight")
+                    failure_reason = caps_payload.get("validation_failure_reason")
+                    if failure_reason:
+                        latest_result["validation_failure_reason"] = failure_reason
+                        failure_details: dict[str, Any] = {}
+                        for key, value in caps_payload.items():
+                            if key.startswith("validation_failure_") and key != "validation_failure_reason":
+                                suffix = key[len("validation_failure_") :]
+                                failure_details[suffix] = value
+                        if failure_details:
+                            latest_result["validation_failure_details"] = failure_details
+                ensemble_payload = telemetry.get("ensemble") if isinstance(telemetry, Mapping) else None
+                if isinstance(ensemble_payload, Mapping):
+                    latest_result["ensemble"] = ensemble_payload
+                economic_payload = telemetry.get("economic") if isinstance(telemetry, Mapping) else None
+                if isinstance(economic_payload, Mapping) and economic_payload:
+                    latest_result["economic"] = economic_payload
+                stability_payload = telemetry.get("stability") if isinstance(telemetry, Mapping) else None
+                if isinstance(stability_payload, Mapping) and stability_payload:
+                    latest_result["stability"] = stability_payload
+                validation_returns_payload = (
+                    telemetry.get("validation_returns") if isinstance(telemetry, Mapping) else None
+                )
+                if isinstance(validation_returns_payload, Mapping):
+                    latest_result["validation_returns"] = dict(validation_returns_payload)
+                train_loader_payload = telemetry.get("train") if isinstance(telemetry, Mapping) else None
+                if isinstance(train_loader_payload, Mapping):
+                    latest_result["train_loader"] = dict(train_loader_payload)
+                validation_loader_payload = telemetry.get("validation") if isinstance(telemetry, Mapping) else None
+                if isinstance(validation_loader_payload, Mapping):
+                    latest_result["validation_loader"] = dict(validation_loader_payload)
             dataset_details[dataset_id] = {
                 "plan_ids": list(plan_ids),
                 "plan_count": len(plan_ids),
@@ -873,6 +958,7 @@ class DashboardService:
             "datasets": datasets_simple,
             "dataset_details": dataset_details,
             "summary": summary,
+            "stream_cursor": cursor_value,
         }
 
     @staticmethod

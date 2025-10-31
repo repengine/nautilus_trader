@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
+import msgspec
 import pytest
 
 from ml.actors.base import BaseMLInferenceActor, HealthStatus
@@ -100,7 +101,10 @@ class TestBaseMLInferenceActorInitialization:
         actor = ConcreteTestActor(config)
 
         # Verify actor is properly initialized
-        assert actor._config == config
+        # Compare specific fields due to complex Nautilus types (BarType) that msgspec can't serialize
+        assert actor._config.component_id == config.component_id
+        assert actor._config.bar_type == config.bar_type
+        assert actor._config.instrument_id == config.instrument_id
         assert actor.id == test_component_id
 
     def test_config_validation_rejects_invalid_model_path(
@@ -362,7 +366,8 @@ class TestBaseMLInferenceActorInitialization:
         actor = ConcreteTestActor(config)
 
         # Assert
-        assert actor._feature_config == custom_feature_config
+        assert msgspec.to_builtins(actor._feature_config) == msgspec.to_builtins(custom_feature_config), \
+            f"Feature config mismatch: {msgspec.to_builtins(actor._feature_config)} != {msgspec.to_builtins(custom_feature_config)}"
         assert actor._feature_config.lookback_window == 50
         assert actor._feature_config.normalize_features is False
 

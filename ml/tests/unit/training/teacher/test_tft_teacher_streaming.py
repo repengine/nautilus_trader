@@ -9,6 +9,7 @@ from ml._imports import HAS_PANDAS
 from ml._imports import HAS_TORCH
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
+from ml._imports import torch as _torch
 from ml.training.teacher import streaming_loader as stream
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
 from ml.training.teacher.streaming_loader import split_metadata_by_row_fraction
@@ -107,3 +108,71 @@ def test_fit_streaming_returns_logits(tmp_path: Path) -> None:
     assert result.z_train.size > 0
     assert result.z_val.size > 0
     assert result.y_val.size == result.z_val.size
+    assert result.val_rows is not None
+    assert set(result.val_rows.instrument_ids.tolist()) == {"AAPL"}
+
+
+@pytest.mark.skipif(
+    not (HAS_TORCH and _torch is not None and hasattr(_torch, "cuda") and _torch.cuda.is_available()),
+    reason="CUDA device required to verify device alignment",
+)
+def test_collect_streaming_logits_aligns_with_model_device() -> None:
+    torch = pytest.importorskip("torch")
+
+    class _CudaStub:
+        def __init__(self, device: torch.device) -> None:
+            self._device = device
+            self._param = torch.nn.Parameter(torch.zeros(1, device=device))
+            self.seen_devices: set[str] = set()
+
+        def parameters(self):
+            yield self._param
+
+        def eval(self) -> _CudaStub:
+            return self
+
+        def __call__(self, batch_inputs):
+            for tensor in batch_inputs.values():
+                if hasattr(tensor, "device"):
+                    self.seen_devices.add(str(tensor.device))
+            prediction = batch_inputs["decoder_target"].detach().clone().to(self._device)
+            return {"prediction": prediction}
+
+    teacher = TFTTeacher(
+        TFTTeacherConfig(loss_name="bce"),
+        max_encoder_length=1,
+        max_prediction_length=1,
+        dataloader_workers=0,
+        batch_size=1,
+    )
+    device = torch.device("cuda:0")
+    stub = _CudaStub(device)
+    teacher._tft = stub  # type: ignore[attribute-defined-outside-init]
+
+    batch_inputs = {
+        "encoder_cont": torch.zeros((1, 1, 1), dtype=torch.float32),
+        "decoder_cont": torch.zeros((1, 1, 1), dtype=torch.float32),
+        "encoder_cat": torch.zeros((1, 1, 0), dtype=torch.int64),
+        "decoder_cat": torch.zeros((1, 1, 0), dtype=torch.int64),
+        "encoder_target": torch.zeros((1, 1), dtype=torch.float32),
+        "decoder_target": torch.zeros((1, 1), dtype=torch.float32),
+        "encoder_lengths": torch.ones((1,), dtype=torch.int64),
+        "decoder_lengths": torch.ones((1,), dtype=torch.int64),
+        "groups": torch.tensor([[0]], dtype=torch.int64),
+        "target_scale": torch.ones((1, 2), dtype=torch.float32),
+        "decoder_time_idx": torch.tensor([[123]], dtype=torch.int64),
+        "decoder_group_ids": torch.tensor([[0]], dtype=torch.int64),
+    }
+    decoder_target = torch.zeros((1, 1), dtype=torch.float32)
+    loader = [
+        (
+            batch_inputs,
+            (decoder_target, None),
+        ),
+    ]
+    group_inverse_map = {0: "AAPL"}
+    logits, y, rows = teacher._collect_streaming_logits(loader, torch, group_inverse_map=group_inverse_map)
+    assert logits.shape == (1,)
+    assert y.shape == (1,)
+    assert rows is not None
+    assert stub.seen_devices == {str(device)}

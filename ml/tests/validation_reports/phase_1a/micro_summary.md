@@ -1,6 +1,6 @@
 # Micro Parity
 
-Rows compared: 1113133
+Rows compared: 1113763
 
 ## Columns only in component output
 

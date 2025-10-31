@@ -85,6 +85,13 @@ _ROLE_ENV_KEYS: dict[ConnectionRole, tuple[str, ...]] = {
 }
 
 
+def connection_env_priority(role: ConnectionRole) -> tuple[str, ...]:
+    """
+    Return the ordered environment variable precedence for ``role``.
+    """
+    return _ROLE_ENV_KEYS.get(role, ())
+
+
 @dataclass(slots=True, frozen=True)
 class ConnectionCandidates:
     """

@@ -18,6 +18,8 @@ from ml.training.teacher.streaming_loader import (
     TFTStreamingDataModule,
     TFTStreamingDataset,
     TFTStreamingSummary,
+    TFTStreamingMetadata,
+    TFTShardIndex,
     apply_streaming_limits,
     build_streaming_dataloader,
     collect_streaming_metadata,
@@ -90,6 +92,8 @@ def test_collect_streaming_metadata_counts_and_vocab(tmp_path: Path) -> None:
     frac_train, frac_val = split_metadata_by_row_fraction(metadata, train_fraction=0.5)
     assert frac_train.shard_indices
     assert frac_val.shard_indices
+    assert {shard.instrument_id for shard in frac_train.shard_indices} == {"AAPL", "MSFT"}
+    assert {shard.instrument_id for shard in frac_val.shard_indices} == {"AAPL", "MSFT"}
 
     filtered = filter_metadata_by_instruments(metadata, ["AAPL"])
     assert all(shard.instrument_id == "AAPL" for shard in filtered.shard_indices)
@@ -156,8 +160,14 @@ def test_streaming_dataloader_emits_expected_batch(tmp_path: Path) -> None:
     assert batch_inputs["encoder_target"].shape == (2, 3)
     assert batch_inputs["decoder_target"].shape == (2, 1)
     assert batch_inputs["decoder_time_idx"].shape == (2, 1)
+    decoder_times = batch_inputs["decoder_time_idx"].detach().cpu().numpy()
+    assert decoder_times.dtype == np.int64
     assert batch_inputs["target_scale"].shape == (2, 2)
     assert batch_inputs["groups"].shape == (2, 1)
+    decoder_group_ids = batch_inputs["decoder_group_ids"].detach().cpu().numpy()
+    group_ids = batch_inputs["groups"].detach().cpu().numpy()
+    assert decoder_group_ids.shape == (2, 1)
+    assert np.array_equal(decoder_group_ids[:, 0], group_ids[:, 0])
     assert targets.shape == (2, 1)
 
     data_module = TFTStreamingDataModule(
@@ -173,15 +183,78 @@ def test_streaming_dataloader_emits_expected_batch(tmp_path: Path) -> None:
 
     module_batch_inputs, (module_targets, _) = next(iter(module_train_loader))
     assert module_batch_inputs["encoder_cont"].shape == (2, 3, 1)
+    decoder_group_ids_train = module_batch_inputs["decoder_group_ids"].detach().cpu().numpy()
+    group_ids_train = module_batch_inputs["groups"].detach().cpu().numpy()
+    assert decoder_group_ids_train.shape[0] == group_ids_train.shape[0]
+    assert np.array_equal(decoder_group_ids_train[:, 0], group_ids_train[:, 0])
     assert module_targets.shape == (2, 1)
 
     if module_val_loader is not None:
         module_val_batch_inputs, (module_val_targets, _) = next(iter(module_val_loader))
         assert module_val_batch_inputs["decoder_cont"].shape[0] >= 1
-        assert module_val_targets.ndim == 2
+        decoder_group_ids_val = module_val_batch_inputs["decoder_group_ids"].detach().cpu().numpy()
+        group_ids_val = module_val_batch_inputs["groups"].detach().cpu().numpy()
+        assert decoder_group_ids_val.shape[0] == group_ids_val.shape[0]
+        assert np.array_equal(decoder_group_ids_val[:, 0], group_ids_val[:, 0])
+    assert module_val_targets.ndim == 2
 
     metric_keys = metrics_bootstrap._METRICS.keys()
     assert "ml_tft_streaming_iterated_shards_total||()" in metric_keys
+
+
+@pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
+def test_streaming_dataset_preserves_large_time_indices(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+
+    base_time = 23_668_320
+    total_rows = 12
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(base_time, base_time + total_rows, dtype=np.int64),
+            "instrument_id": np.array(["WFC"] * total_rows, dtype=object),
+            "y": np.linspace(0.0, 1.0, num=total_rows, dtype=np.float32),
+            "feature": np.linspace(1.0, 2.0, num=total_rows, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "large_times.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        shard_row_budget=64,
+    )
+    config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=3,
+        max_prediction_length=2,
+        batch_size=2,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=0,
+        num_workers=0,
+    )
+    loader = build_streaming_dataloader(parquet_path, metadata, config)
+    observed_times: list[int] = []
+    for batch_inputs, _ in loader:
+        decoder_times = batch_inputs["decoder_time_idx"].detach().cpu().numpy()
+        assert decoder_times.dtype == np.int64
+        observed_times.extend(decoder_times.reshape(-1).astype(int, copy=False).tolist())
+    expected_times = frame["time_index"].to_numpy(dtype=np.int64)
+    expected_window = set(expected_times[config.max_encoder_length :].tolist())
+    assert set(observed_times) == expected_window
 
 
 @pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
@@ -244,6 +317,58 @@ def test_streaming_dataset_shard_partitioning(tmp_path: Path) -> None:
 
     assert worker0_ids.isdisjoint(worker1_ids)
     assert worker0_ids.union(worker1_ids) == all_ids
+
+
+def test_split_metadata_by_row_fraction_preserves_instrument_coverage_manual() -> None:
+    shards = (
+        TFTShardIndex(
+            shard_id="aapl-0",
+            instrument_id="AAPL",
+            row_start=0,
+            row_end=10,
+            row_count=10,
+            time_start=100,
+            time_end=109,
+        ),
+        TFTShardIndex(
+            shard_id="aapl-1",
+            instrument_id="AAPL",
+            row_start=10,
+            row_end=20,
+            row_count=10,
+            time_start=110,
+            time_end=119,
+        ),
+        TFTShardIndex(
+            shard_id="msft-0",
+            instrument_id="MSFT",
+            row_start=0,
+            row_end=12,
+            row_count=12,
+            time_start=200,
+            time_end=211,
+        ),
+        TFTShardIndex(
+            shard_id="msft-1",
+            instrument_id="MSFT",
+            row_start=12,
+            row_end=24,
+            row_count=12,
+            time_start=212,
+            time_end=223,
+        ),
+    )
+    metadata = TFTStreamingMetadata(
+        shard_indices=shards,
+        numeric_stats={},
+        categorical_vocab={},
+        instrument_row_counts={"AAPL": 20, "MSFT": 24},
+    )
+    train_meta, val_meta = split_metadata_by_row_fraction(metadata, train_fraction=0.3)
+    train_instruments = {shard.instrument_id for shard in train_meta.shard_indices}
+    val_instruments = {shard.instrument_id for shard in val_meta.shard_indices}
+    assert train_instruments == {"AAPL", "MSFT"}
+    assert val_instruments == {"AAPL", "MSFT"}
 
 
 @pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
@@ -365,6 +490,17 @@ def test_apply_streaming_limits_and_count_sequences(tmp_path: Path) -> None:
 
     selected_sequences = count_sequences(limited, config)
     assert selected_sequences >= 0
+    assert summary.total_instrument_rows == dict(metadata.instrument_row_counts)
+    assert summary.selected_instrument_rows == dict(limited.instrument_row_counts)
+    expected_skipped_rows = {
+        instrument: count - limited.instrument_row_counts.get(instrument, 0)
+        for instrument, count in metadata.instrument_row_counts.items()
+        if count != limited.instrument_row_counts.get(instrument, 0)
+    }
+    assert summary.skipped_instrument_rows == expected_skipped_rows
+    assert sum(summary.selected_instrument_rows.values()) + sum(summary.skipped_instrument_rows.values()) == sum(
+        summary.total_instrument_rows.values(),
+    )
 
     loader = build_streaming_dataloader(
         parquet_path,
@@ -376,6 +512,64 @@ def test_apply_streaming_limits_and_count_sequences(tmp_path: Path) -> None:
     batch_inputs, (targets, _) = next(iter(loader))
     assert "encoder_cont" in batch_inputs
     assert targets.shape[0] > 0
+
+
+@pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
+def test_streaming_limits_round_robin_instrument_mix(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(18, dtype=np.int64),
+            "instrument_id": ["AAPL"] * 6 + ["MSFT"] * 6 + ["GOOG"] * 6,
+            "y": np.linspace(0.0, 17.0, num=18, dtype=np.float32),
+            "feature": np.linspace(5.0, 23.0, num=18, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "round_robin.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        shard_row_budget=3,
+    )
+
+    config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=2,
+        max_prediction_length=1,
+        batch_size=2,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=0,
+        num_workers=0,
+        max_shards=4,
+        max_total_rows=None,
+        max_total_sequences=None,
+    )
+
+    limited, summary = apply_streaming_limits(metadata, config)
+    assert len(limited.shard_indices) == 4
+    assert set(limited.instrument_row_counts) == {"AAPL", "MSFT", "GOOG"}
+    assert summary.total_instrument_rows == dict(metadata.instrument_row_counts)
+    assert summary.selected_instrument_rows == dict(limited.instrument_row_counts)
+    assert summary.skipped_instrument_rows
+    assert sum(summary.selected_instrument_rows.values()) + sum(summary.skipped_instrument_rows.values()) == sum(
+        summary.total_instrument_rows.values(),
+    )
 
 
 def test_is_within_shard_budget_guard() -> None:

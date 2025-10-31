@@ -227,7 +227,9 @@ class TestBusPublishingStandardization:
             ):
                 # Test DataStore
                 with patch("ml.stores.data_store.EngineManager.get_engine"):
-                    data_store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
+                    data_store = DataStore(
+                        connection_string="postgresql://mock:mock@localhost:5432/mock"
+                    )
                     data_store._init_bus_publishing(
                         enable_publishing=True,
                         publisher=Mock(),

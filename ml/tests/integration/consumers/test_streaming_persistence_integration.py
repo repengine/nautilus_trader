@@ -42,6 +42,8 @@ def test_streaming_persistence_worker_persists_redis_batch(
     dummy_module.Redis = _DummyRedis
     dummy_module._batches = []
     monkeypatch.setitem(sys.modules, "redis", dummy_module)
+    monkeypatch.setattr("ml._imports.redis", None, raising=False)
+    monkeypatch.setattr("ml._imports.HAS_REDIS", True, raising=False)
     monkeypatch.setattr(
         "ml.consumers.redis_streams_consumer.IdempotentConsumer.process",
         lambda self, payload: True,
@@ -89,3 +91,4 @@ def test_streaming_persistence_worker_persists_redis_batch(
     assert payloads.plan_event.plan_id in snapshot["results"]
     assert snapshot["heartbeats"]
     assert Path(worker.config.state_path).exists()
+    assert worker.service.state_store.get_stream_cursor() == "3-0"

@@ -1,8 +1,9 @@
 """
 Tests for Pipeline Orchestration API Routes.
 
-Comprehensive test coverage for pipeline triggering (build-dataset, train-model,
-run-hpo), progress tracking, and job cancellation.
+Comprehensive test coverage for pipeline triggering (build-dataset, train-model, run-
+hpo), progress tracking, and job cancellation.
+
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ from ml.dashboard.config import DashboardConfig
 
 @pytest.fixture(scope="module")
 def app() -> Iterator[Flask]:
-    """Provide Flask test application with shared service instance."""
+    """
+    Provide Flask test application with shared service instance.
+    """
     from ml.dashboard.config import DashboardToken
 
     config = DashboardConfig(
@@ -38,13 +41,17 @@ def app() -> Iterator[Flask]:
 
 @pytest.fixture
 def client(app: Flask) -> FlaskClient:
-    """Provide Flask test client."""
+    """
+    Provide Flask test client.
+    """
     return app.test_client()
 
 
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
-    """Provide authentication headers."""
+    """
+    Provide authentication headers.
+    """
     return {"X-ML-DASHBOARD-TOKEN": "test-token-123"}
 
 
@@ -54,14 +61,18 @@ def auth_headers() -> dict[str, str]:
 
 
 class TestPipelinesBuildDatasetEndpoint:
-    """Test /api/pipeline/build-dataset endpoint."""
+    """
+    Test /api/pipeline/build-dataset endpoint.
+    """
 
     def test_build_dataset_success(
         self,
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test successful dataset building pipeline trigger."""
+        """
+        Test successful dataset building pipeline trigger.
+        """
         with patch("ml.dashboard.service.DashboardService.build_dataset_pipeline") as mock_build:
             mock_build.return_value = {
                 "success": True,
@@ -94,7 +105,9 @@ class TestPipelinesBuildDatasetEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test dataset building when pipeline service unavailable."""
+        """
+        Test dataset building when pipeline service unavailable.
+        """
         with patch("ml.dashboard.service.DashboardService.build_dataset_pipeline") as mock_build:
             mock_build.return_value = {
                 "success": False,
@@ -118,7 +131,9 @@ class TestPipelinesBuildDatasetEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test dataset building with invalid configuration."""
+        """
+        Test dataset building with invalid configuration.
+        """
         with patch("ml.dashboard.service.DashboardService.build_dataset_pipeline") as mock_build:
             mock_build.return_value = {
                 "success": False,
@@ -138,7 +153,9 @@ class TestPipelinesBuildDatasetEndpoint:
             assert data["status"] == "INVALID"
 
     def test_build_dataset_unauthorized(self, client: FlaskClient) -> None:
-        """Test dataset building without authentication."""
+        """
+        Test dataset building without authentication.
+        """
         response = client.post(
             "/api/pipeline/build-dataset",
             json={"symbols": "SPY"},
@@ -155,14 +172,18 @@ class TestPipelinesBuildDatasetEndpoint:
 
 
 class TestPipelinesTrainModelEndpoint:
-    """Test /api/pipeline/train-model endpoint."""
+    """
+    Test /api/pipeline/train-model endpoint.
+    """
 
     def test_train_model_success(
         self,
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test successful model training pipeline trigger."""
+        """
+        Test successful model training pipeline trigger.
+        """
         with patch("ml.dashboard.service.DashboardService.train_model_pipeline") as mock_train:
             mock_train.return_value = {
                 "success": True,
@@ -195,7 +216,9 @@ class TestPipelinesTrainModelEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test model training when pipeline service unavailable."""
+        """
+        Test model training when pipeline service unavailable.
+        """
         with patch("ml.dashboard.service.DashboardService.train_model_pipeline") as mock_train:
             mock_train.return_value = {
                 "success": False,
@@ -215,7 +238,9 @@ class TestPipelinesTrainModelEndpoint:
             assert data["status"] == "UNAVAILABLE"
 
     def test_train_model_unauthorized(self, client: FlaskClient) -> None:
-        """Test model training without authentication."""
+        """
+        Test model training without authentication.
+        """
         response = client.post(
             "/api/pipeline/train-model",
             json={"model_type": "Teacher"},
@@ -232,14 +257,18 @@ class TestPipelinesTrainModelEndpoint:
 
 
 class TestPipelinesRunHpoEndpoint:
-    """Test /api/pipeline/run-hpo endpoint."""
+    """
+    Test /api/pipeline/run-hpo endpoint.
+    """
 
     def test_run_hpo_success(
         self,
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test successful HPO pipeline trigger."""
+        """
+        Test successful HPO pipeline trigger.
+        """
         with patch("ml.dashboard.service.DashboardService.run_hpo_pipeline") as mock_hpo:
             mock_hpo.return_value = {
                 "success": True,
@@ -272,7 +301,9 @@ class TestPipelinesRunHpoEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test HPO when pipeline service unavailable."""
+        """
+        Test HPO when pipeline service unavailable.
+        """
         with patch("ml.dashboard.service.DashboardService.run_hpo_pipeline") as mock_hpo:
             mock_hpo.return_value = {
                 "success": False,
@@ -292,7 +323,9 @@ class TestPipelinesRunHpoEndpoint:
             assert data["status"] == "UNAVAILABLE"
 
     def test_run_hpo_unauthorized(self, client: FlaskClient) -> None:
-        """Test HPO without authentication."""
+        """
+        Test HPO without authentication.
+        """
         response = client.post(
             "/api/pipeline/run-hpo",
             json={"search_method": "Optuna"},
@@ -309,14 +342,18 @@ class TestPipelinesRunHpoEndpoint:
 
 
 class TestPipelinesProgressEndpoint:
-    """Test /api/pipeline/jobs/<job_id>/progress endpoint."""
+    """
+    Test /api/pipeline/jobs/<job_id>/progress endpoint.
+    """
 
     def test_get_progress_success(
         self,
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test successful progress retrieval."""
+        """
+        Test successful progress retrieval.
+        """
         with patch("ml.dashboard.service.DashboardService.get_pipeline_progress") as mock_progress:
             mock_progress.return_value = {
                 "status": "success",
@@ -353,7 +390,9 @@ class TestPipelinesProgressEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test progress retrieval for non-existent job."""
+        """
+        Test progress retrieval for non-existent job.
+        """
         with patch("ml.dashboard.service.DashboardService.get_pipeline_progress") as mock_progress:
             mock_progress.return_value = {
                 "status": "not_found",
@@ -375,7 +414,9 @@ class TestPipelinesProgressEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test progress retrieval when service unavailable."""
+        """
+        Test progress retrieval when service unavailable.
+        """
         with patch("ml.dashboard.service.DashboardService.get_pipeline_progress") as mock_progress:
             mock_progress.return_value = {
                 "status": "unavailable",
@@ -392,7 +433,9 @@ class TestPipelinesProgressEndpoint:
             assert data["status"] == "unavailable"
 
     def test_get_progress_unauthorized(self, client: FlaskClient) -> None:
-        """Test progress retrieval without authentication."""
+        """
+        Test progress retrieval without authentication.
+        """
         response = client.get("/api/pipeline/jobs/some_job/progress")
 
         assert response.status_code == 401
@@ -406,14 +449,18 @@ class TestPipelinesProgressEndpoint:
 
 
 class TestPipelinesCancelEndpoint:
-    """Test /api/pipeline/jobs/<job_id>/cancel endpoint."""
+    """
+    Test /api/pipeline/jobs/<job_id>/cancel endpoint.
+    """
 
     def test_cancel_job_success(
         self,
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test successful job cancellation."""
+        """
+        Test successful job cancellation.
+        """
         with patch("ml.dashboard.service.DashboardService.cancel_pipeline_job") as mock_cancel:
             mock_cancel.return_value = {
                 "success": True,
@@ -440,7 +487,9 @@ class TestPipelinesCancelEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test cancellation of non-existent job."""
+        """
+        Test cancellation of non-existent job.
+        """
         with patch("ml.dashboard.service.DashboardService.cancel_pipeline_job") as mock_cancel:
             mock_cancel.return_value = {
                 "success": False,
@@ -465,7 +514,9 @@ class TestPipelinesCancelEndpoint:
         client: FlaskClient,
         auth_headers: dict[str, str],
     ) -> None:
-        """Test cancellation when service unavailable."""
+        """
+        Test cancellation when service unavailable.
+        """
         with patch("ml.dashboard.service.DashboardService.cancel_pipeline_job") as mock_cancel:
             mock_cancel.return_value = {
                 "success": False,
@@ -484,7 +535,9 @@ class TestPipelinesCancelEndpoint:
             assert data["status"] == "unavailable"
 
     def test_cancel_job_unauthorized(self, client: FlaskClient) -> None:
-        """Test job cancellation without authentication."""
+        """
+        Test job cancellation without authentication.
+        """
         response = client.post("/api/pipeline/jobs/some_job/cancel")
 
         assert response.status_code == 401
@@ -498,7 +551,9 @@ class TestPipelinesCancelEndpoint:
 
 
 class TestPipelinesIntegration:
-    """Integration tests for pipeline routes."""
+    """
+    Integration tests for pipeline routes.
+    """
 
     def test_full_pipeline_workflow(
         self,
@@ -506,9 +561,11 @@ class TestPipelinesIntegration:
         auth_headers: dict[str, str],
     ) -> None:
         """Test complete workflow: trigger -> progress -> cancel."""
-        with patch("ml.dashboard.service.DashboardService.build_dataset_pipeline") as mock_build, \
-             patch("ml.dashboard.service.DashboardService.get_pipeline_progress") as mock_progress, \
-             patch("ml.dashboard.service.DashboardService.cancel_pipeline_job") as mock_cancel:
+        with (
+            patch("ml.dashboard.service.DashboardService.build_dataset_pipeline") as mock_build,
+            patch("ml.dashboard.service.DashboardService.get_pipeline_progress") as mock_progress,
+            patch("ml.dashboard.service.DashboardService.cancel_pipeline_job") as mock_cancel,
+        ):
 
             # Step 1: Trigger pipeline
             mock_build.return_value = {

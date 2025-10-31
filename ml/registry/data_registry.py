@@ -172,6 +172,7 @@ class DataRegistry(MLComponentMixin):
         Load registry data from JSON file for JSON backend.
 
         For PostgreSQL backend, data is loaded on-demand from the database.
+
         """
         if self.registry_file.exists():
             data = self.persistence.load_json("data_registry.json")
@@ -219,6 +220,7 @@ class DataRegistry(MLComponentMixin):
         # Skip during pytest to avoid catastrophic slowdown (O(N²) serialization)
         # UNLESS force=True (explicit flush() calls must persist)
         import os
+
         if not force and os.getenv("PYTEST_CURRENT_TEST"):
             logger.debug("Skipping JSON registry save during pytest")
             return
@@ -256,8 +258,9 @@ class DataRegistry(MLComponentMixin):
         """
         Schedule a deferred JSON save with debouncing.
 
-        Uses a timer to batch multiple save requests within batch_save_interval.
-        Thread-safe with automatic cleanup of existing timers.
+        Uses a timer to batch multiple save requests within batch_save_interval. Thread-
+        safe with automatic cleanup of existing timers.
+
         """
         if self._pending_save:
             return  # Already scheduled
@@ -279,8 +282,9 @@ class DataRegistry(MLComponentMixin):
         """
         Perform the actual deferred save.
 
-        Called by timer thread after batch_save_interval elapses.
-        Resets pending state and timer reference after completion.
+        Called by timer thread after batch_save_interval elapses. Resets pending state
+        and timer reference after completion.
+
         """
         try:
             self._save_json_registry(immediate=True)
@@ -311,8 +315,9 @@ class DataRegistry(MLComponentMixin):
         """
         Persist any pending batched changes immediately (JSON backend only).
 
-        Cancels any pending timer and forces an immediate save.
-        Bypasses pytest detection to ensure explicit flush requests are honored.
+        Cancels any pending timer and forces an immediate save. Bypasses pytest
+        detection to ensure explicit flush requests are honored.
+
         """
         if self.backend == BackendType.JSON:
             # Cancel pending timer if any
@@ -415,6 +420,7 @@ class DataRegistry(MLComponentMixin):
         -------
         str
             Dataset identifier of the registered manifest.
+
         """
         return self.register_dataset(manifest)
 
@@ -714,6 +720,7 @@ class DataRegistry(MLComponentMixin):
             # Schedule batched save to avoid O(N²) serialization on every event
             if self.backend == BackendType.JSON:
                 import os
+
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     # Skip entirely during tests (already handled in _save_json_registry)
                     pass
