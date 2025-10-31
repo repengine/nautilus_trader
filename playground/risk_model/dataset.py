@@ -30,7 +30,7 @@ class SectorDataRequest:
     start: datetime
     end: datetime
     frequency: str = "1d"
-    price_column: str = "close"
+    price_column: str = "adj_close"
     calendar: str = "XNYS"
 
     def __post_init__(self) -> None:
@@ -139,6 +139,66 @@ class SectorDatasetAssembler:
         self._factor_fetcher = factor_fetcher
         self._metrics = metrics or MetricsManager.default()
 
+    def _enforce_time_bounds(
+        self,
+        frame: pl.DataFrame,
+        *,
+        start: datetime,
+        end: datetime,
+        kind: str,
+    ) -> pl.DataFrame:
+        if frame.is_empty():
+            return frame
+        total = frame.height
+        future_rows = frame.filter(pl.col("timestamp") > end).height
+        past_rows = frame.filter(pl.col("timestamp") < start).height
+        self._record_trim_metric(
+            kind=kind,
+            reason="future",
+            trimmed=future_rows,
+            total=total,
+            start=start,
+            end=end,
+        )
+        self._record_trim_metric(
+            kind=kind,
+            reason="past",
+            trimmed=past_rows,
+            total=total,
+            start=start,
+            end=end,
+        )
+        return _clip_time_range(frame, start=start, end=end)
+
+    def _record_trim_metric(
+        self,
+        *,
+        kind: str,
+        reason: str,
+        trimmed: int,
+        total: int,
+        start: datetime,
+        end: datetime,
+    ) -> None:
+        if trimmed <= 0 or total <= 0:
+            return
+        ratio = float(trimmed) / float(total)
+        self._metrics.observe(
+            "playground_dataset_trim_ratio",
+            "Fraction of dataset rows removed when enforcing time bounds.",
+            ratio,
+            labels={"kind": kind, "reason": reason},
+        )
+        LOGGER.warning(
+            "Dropped observations outside requested range",
+            kind=kind,
+            reason=reason,
+            trimmed=trimmed,
+            total=total,
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
+
     def build(
         self,
         sector_request: SectorDataRequest,
@@ -158,15 +218,17 @@ class SectorDatasetAssembler:
             sector_returns = self._sector_fetcher(sector_request)
             factor_returns = self._factor_fetcher(factor_request)
 
-            aligned_sector = _clip_time_range(
+            aligned_sector = self._enforce_time_bounds(
                 sector_returns,
                 start=sector_request.start,
                 end=sector_request.end,
+                kind="sector",
             )
-            aligned_factors = _clip_time_range(
+            aligned_factors = self._enforce_time_bounds(
                 factor_returns,
                 start=factor_request.start,
                 end=factor_request.end,
+                kind="factor",
             )
 
             dataset = _align_on_common_timestamps(

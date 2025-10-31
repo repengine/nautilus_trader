@@ -524,10 +524,10 @@ def generate_pca_validation_report(
 
             # Find best alignment for each PC
             for pc_name in component_labels:
-                factor_corrs = valid_corrs.get(pc_name)
-                if not factor_corrs:
+                pc_factor_corrs: dict[str, float] | None = valid_corrs.get(pc_name)
+                if not pc_factor_corrs:
                     continue
-                best_factor = max(factor_corrs.items(), key=lambda x: abs(x[1]))
+                best_factor = max(pc_factor_corrs.items(), key=lambda x: abs(x[1]))
                 lines.append(
                     f"- **{pc_name}**: Strongest correlation with **{best_factor[0]}** "
                     f"(r = {best_factor[1]:.3f})"

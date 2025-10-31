@@ -10,9 +10,11 @@ This test suite validates the backtest suite orchestration, including:
 
 All tests use mock datasets to enable fast, deterministic testing.
 """
+# ruff: noqa: E402
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import types
@@ -26,7 +28,12 @@ import polars as pl
 import pytest
 
 
-if "nautilus_trader" not in sys.modules:
+def _should_stub_nautilus_trader() -> bool:
+    spec = importlib.util.find_spec("nautilus_trader")
+    return spec is None
+
+
+if "nautilus_trader" not in sys.modules and _should_stub_nautilus_trader():
     nt_module = types.ModuleType("nautilus_trader")
     core_module = types.ModuleType("nautilus_trader.core")
     core_module.nautilus_pyo3 = object()
@@ -71,6 +78,7 @@ from ml.config.playground import MonteCarloShockOverlayDefaults
 from ml.config.playground import MonteCarloStressDefaults
 from ml.config.playground import NestedWalkForwardDefaults
 from ml.config.playground import ParameterHeatmapSpecDefaults
+from ml.config.playground import ParameterSensitivitySpecDefaults
 from ml.config.playground import ProxyDatasetSpecDefaults
 from ml.config.playground import ProxyDatasetSuiteDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
@@ -80,6 +88,7 @@ from playground.backtest.engine import BacktestConfig
 from playground.backtest.engine import BacktestResult
 from playground.backtest.liquidity_controls import LiquidityScalingConfig
 from playground.backtest.performance_metrics import PerformanceMetrics
+from playground.backtest.regime_analysis import define_market_regimes
 from playground.backtest.runner import BacktestSuite
 from playground.backtest.runner import LiquidityMitigationScenario
 from playground.backtest.runner import MonteCarloOverlayActivation
@@ -92,9 +101,11 @@ from playground.backtest.runner import run_liquidity_mitigation_experiments
 from playground.backtest.runner import run_monte_carlo_stress_suite
 from playground.backtest.runner import run_multi_horizon_walk_forward_analysis
 from playground.backtest.runner import run_parameter_heatmap_suite
+from playground.backtest.runner import run_parameter_sensitivity_suite
 from playground.backtest.runner import run_proxy_dataset_validation
 from playground.backtest.runner import run_vintage_simulation_suite
 from playground.backtest.runner import run_walk_forward_backtest_suite
+from playground.backtest.runner import PHASE3_TARGET_SHARPE
 from playground.backtest.splits import TrainTestSplit
 from playground.backtest.splits import WalkForwardConfig
 from playground.scripts.run_phase3_walk_forward import _parse_comma_separated
@@ -230,6 +241,62 @@ def test_backtest_suite_benchmark_summary_matches_baselines(
     assert statuses.issubset({"available", "missing"})
 
 
+def test_run_full_backtest_suite_writes_benchmark_exports(
+    mock_dataset_path: Path,
+    mock_split: TrainTestSplit,
+    tmp_path: Path,
+) -> None:
+    """Benchmark artefacts should be mirrored under the canonical benchmarks directory."""
+    output_dir = tmp_path / "reports" / "backtesting" / "suite"
+    suite = run_full_backtest_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=output_dir,
+        split=mock_split,
+    )
+    rolling_metrics = suite.metrics["3D Factor (Rolling Betas)"]
+    assert rolling_metrics.sharpe_ratio >= PHASE3_TARGET_SHARPE
+
+    benchmark_root = tmp_path / "reports" / "backtesting" / "benchmarks"
+    slug = (
+        f"train_{mock_split.train_start.date().isoformat()}_{mock_split.train_end.date().isoformat()}__"
+        f"test_{mock_split.test_start.date().isoformat()}_{mock_split.test_end.date().isoformat()}"
+    )
+    run_dir = benchmark_root / slug
+    summary_path = run_dir / "benchmark_summary.csv"
+    metrics_path = run_dir / "baseline_metrics.csv"
+    comparison_path = run_dir / "performance_comparison_table.csv"
+    metadata_path = run_dir / "metadata.json"
+    audit_path = run_dir / "benchmark_audit.csv"
+
+    assert summary_path.exists()
+    assert metrics_path.exists()
+    assert comparison_path.exists()
+    assert metadata_path.exists()
+    assert audit_path.exists()
+
+    summary = pl.read_csv(summary_path)
+    assert summary.height == len(suite.baseline_strategies)
+    assert set(summary.get_column("strategy").to_list()) == set(suite.baseline_strategies)
+
+    metrics = pl.read_csv(metrics_path)
+    assert set(metrics.get_column("strategy").to_list()) == set(suite.baseline_strategies)
+
+    comparison = pl.read_csv(comparison_path)
+    assert not comparison.is_empty()
+    assert set(comparison.get_column("strategy").to_list()).issubset(set(suite.baseline_strategies))
+    audit = pl.read_csv(audit_path)
+    assert not audit.is_empty()
+    assert {"sharpe_ratio", "transaction_costs_total", "turnover_rate"}.issubset(
+        set(audit.get_column("metric").to_list()),
+    )
+    assert audit.select(pl.col("delta").abs().max()).item() == pytest.approx(0.0, abs=1e-9)
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["phase3_sharpe_strategy"] == "3D Factor (Rolling Betas)"
+    assert metadata["phase3_sharpe_threshold"] == pytest.approx(PHASE3_TARGET_SHARPE)
+    assert metadata["phase3_sharpe_ok"] is True
+    assert metadata["phase3_sharpe_value"] >= metadata["phase3_sharpe_threshold"]
+
+
 def test_run_full_backtest_suite_default_split(
     mock_dataset_path: Path,
     tmp_path: Path,
@@ -249,10 +316,16 @@ def test_run_full_backtest_suite_default_split(
     assert suite.split.test_start.year == 2019
 
     regime_summary_path = output_dir / "regime_summary.csv"
-    if suite.regime_results:
-        assert regime_summary_path.exists()
-    else:
-        assert not regime_summary_path.exists()
+    regimes = define_market_regimes()
+    assert suite.regime_results
+    assert regime_summary_path.exists()
+    regime_summary = pl.read_csv(regime_summary_path)
+    assert regime_summary.height == len(regimes) * len(suite.regime_results)
+    expected_regimes = {regime.name for regime in regimes}
+    assert set(regime_summary.get_column("regime_name").to_list()) == expected_regimes
+    rolling_analysis = suite.regime_results.get("3D Factor (Rolling Betas)")
+    assert rolling_analysis is not None
+    assert set(rolling_analysis.regime_performances) == expected_regimes
     assert (output_dir / "full_period_metrics.csv").exists()
 
     report_file = output_dir / "backtest_results_2010_2024.md"
@@ -493,6 +566,151 @@ def test_run_parameter_heatmap_suite_raises_on_unknown_slug(
         )
 
 
+def test_run_parameter_sensitivity_suite_generates_outputs(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parameter sensitivity suite should persist results and metadata."""
+    spec = ParameterSensitivitySpecDefaults(
+        name="Transaction Cost Sensitivity",
+        description="Validate cost assumptions.",
+        target_strategy="3D Factor (Rolling Betas)",
+        parameter_grid={
+            "config.transaction_cost_bps": (5.0, 10.0),
+            "strategy_params.3d_factor_rolling.turnover_smoothing": (0.30, 0.40),
+        },
+    )
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        metrics = {
+            "3D Factor (Rolling Betas)": SimpleNamespace(
+                sharpe_ratio=1.2,
+                calmar_ratio=0.6,
+                annualized_return=0.14,
+                annualized_volatility=0.12,
+                maximum_drawdown=-0.18,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    result = run_parameter_sensitivity_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        specs=(spec,),
+    )
+
+    sensitivity_root = tmp_path / "sensitivity" / spec.slug
+    assert sensitivity_root.exists()
+    assert (sensitivity_root / "results.csv").exists()
+    assert (sensitivity_root / "metadata.json").exists()
+    summary = result.summary_frame()
+    assert not summary.is_empty()
+    assert summary.get_column("slug").to_list() == [spec.slug]
+
+
+def test_parameter_sensitivity_suite_filters_by_slug(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sensitivity execution should honour slug filters."""
+    spec_a = ParameterSensitivitySpecDefaults(
+        name="Spec Alpha",
+        description="Alpha sensitivity.",
+        target_strategy="3D Factor (Rolling Betas)",
+        parameter_grid={"config.transaction_cost_bps": (5.0, 10.0)},
+    )
+    spec_b = ParameterSensitivitySpecDefaults(
+        name="Spec Beta",
+        description="Beta sensitivity.",
+        target_strategy="3D Factor (Rolling Betas)",
+        parameter_grid={"config.transaction_cost_bps": (10.0, 20.0)},
+    )
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        metrics = {
+            "3D Factor (Rolling Betas)": SimpleNamespace(
+                sharpe_ratio=1.0,
+                calmar_ratio=0.5,
+                annualized_return=0.10,
+                annualized_volatility=0.11,
+                maximum_drawdown=-0.20,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    result = run_parameter_sensitivity_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        specs=(spec_a, spec_b),
+        spec_slugs=(spec_b.slug,),
+    )
+    assert len(result.runs) == 1
+    assert result.runs[0].spec.slug == spec_b.slug
+
+    with pytest.raises(ValueError):
+        run_parameter_sensitivity_suite(
+            dataset_path=mock_dataset_path,
+            output_dir=tmp_path,
+            specs=(spec_a,),
+            spec_slugs=("missing-spec",),
+        )
+
+
+def test_parameter_sensitivity_suite_flags_sharpe_delta_breaches(
+    mock_dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sharpe tolerance breaches should flip the metadata flag."""
+    spec = ParameterSensitivitySpecDefaults(
+        name="Sharpe Delta",
+        description="Ensure tolerance enforcement.",
+        target_strategy="3D Factor (Rolling Betas)",
+        parameter_grid={"config.transaction_cost_bps": (5.0, 10.0)},
+    )
+    sharpe_values = iter([0.95, 0.70])
+
+    def _fake_execute(*args: object, **kwargs: object) -> SimpleNamespace:
+        value = next(sharpe_values)
+        metrics = {
+            "3D Factor (Rolling Betas)": SimpleNamespace(
+                sharpe_ratio=value,
+                calmar_ratio=0.5,
+                annualized_return=0.12,
+                annualized_volatility=0.10,
+                maximum_drawdown=-0.18,
+            ),
+        }
+        return SimpleNamespace(metrics=metrics)
+
+    monkeypatch.setattr(
+        "playground.backtest.runner._execute_backtest_suite",
+        _fake_execute,
+    )
+
+    result = run_parameter_sensitivity_suite(
+        dataset_path=mock_dataset_path,
+        output_dir=tmp_path,
+        specs=(spec,),
+    )
+    metadata = result.runs[0].metadata
+    assert metadata.get("metric_spread_ok") is False
+    assert pytest.approx(metadata.get("metric_spread")) == 0.25
+    assert metadata.get("metric_spread_tolerance") == pytest.approx(0.15)
+
+
 def test_run_extended_diagnostics_produces_reports(
     mock_dataset_path: Path,
     tmp_path: Path,
@@ -663,6 +881,45 @@ def test_export_phase3_monitoring_snapshot_compiles_paths(tmp_path: Path) -> Non
     vintage_dir.mkdir(parents=True, exist_ok=True)
     (vintage_dir / "summary.csv").write_text("", encoding="utf-8")
 
+    sensitivity_dir = tmp_path / "sensitivity"
+    sensitivity_dir.mkdir(parents=True, exist_ok=True)
+    (sensitivity_dir / "summary.csv").write_text(
+        "spec,slug,strategy,metric,metric_value,evaluated_combinations,best_config\n"
+        "Rolling Window Sensitivity,rolling-window-sensitivity,3D Factor (Rolling Betas),sharpe_ratio,0.94,3,\"{'rolling_window': 252}\"\n",
+        encoding="utf-8",
+    )
+    (sensitivity_dir / "sensitivity_analysis.pdf").write_text("%PDF-test", encoding="utf-8")
+
+    data_quality_dir = tmp_path / "data_quality"
+    data_quality_dir.mkdir(parents=True, exist_ok=True)
+    (data_quality_dir / "missing_data_audit.json").write_text(
+        json.dumps(
+            {
+                "dataset_path": str(tmp_path / "data" / "sector_returns.parquet"),
+                "missing_ratio": 0.004,
+                "missing_by_column": {"factor_duration": 0.0},
+                "imputation_summaries": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    outlier_dir = tmp_path / "outliers"
+    outlier_dir.mkdir(parents=True, exist_ok=True)
+    (outlier_dir / "factor_outlier_report.json").write_text(
+        json.dumps(
+            {
+                "outlier_ratio": 0.01,
+                "factor_summaries": [{"factor": "factor_duration", "outlier_count": 2}],
+                "treatment_impacts": [],
+                "recommended_treatment": "winsorize",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     walk_forward_stub = SimpleNamespace(base_directory=tmp_path)
 
     class _MonteCarloStub:
@@ -799,6 +1056,14 @@ def test_export_phase3_monitoring_snapshot_compiles_paths(tmp_path: Path) -> Non
     vintage_windows = data["sections"]["vintage_simulations"]["windows"]
     assert vintage_windows[0]["status"] == "success"
     assert data["vintage_metadata"][0]["slug"] == "vintage-fixture"
+    assert data["sections"]["phase4_sensitivity"]["summary_path"] is not None
+    assert data["sections"]["phase4_sensitivity"]["report_path"] is not None
+    assert data["sections"]["phase4_data_quality"]["audit_path"] is not None
+    assert data["sections"]["phase4_outliers"]["report_path"] is not None
+    sensitivity_meta = data["phase4_sensitivity_metadata"]
+    assert sensitivity_meta[0]["slug"] == "rolling-window-sensitivity"
+    assert data["phase4_data_quality"]["missing_ratio"] == pytest.approx(0.004)
+    assert data["phase4_outlier_summary"]["recommended_treatment"] == "winsorize"
     assert "summary" in data["sections"]["extended_diagnostics"]
     diagnostics_metadata = data.get("diagnostics_metadata")
     assert diagnostics_metadata is not None
@@ -1091,7 +1356,8 @@ def test_benchmark_summary_marks_missing_baselines(tmp_path: Path) -> None:
     summary = suite.benchmark_summary()
     assert summary.height == len(suite.baseline_strategies)
     missing = summary.filter(pl.col("status") == "missing")
-    assert set(missing.get_column("strategy").to_list()) == {"60/40 Portfolio", "Risk Parity"}
+    expected_missing = set(suite.baseline_strategies) - {"Equal Weight"}
+    assert set(missing.get_column("strategy").to_list()) == expected_missing
 
     report_path = tmp_path / "benchmarks.md"
     suite.to_markdown_report(report_path)

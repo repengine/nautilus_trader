@@ -151,10 +151,12 @@ We considered and rejected several alternative designs:
 #### Option A: 50/50 Split (7 years / 7 years)
 
 **Pros:**
+
 - Balanced test set size
 - More out-of-sample data for evaluation
 
 **Cons:**
+
 - Training period ends in 2016 (misses 2017-2018 tightening)
 - Less training data for stable factor estimation
 - **Rejected** due to insufficient training coverage
@@ -162,10 +164,12 @@ We considered and rejected several alternative designs:
 #### Option B: 70/30 Split (10 years / 4 years)
 
 **Pros:**
+
 - Very stable factor estimates
 - Covers post-crisis decade comprehensively
 
 **Cons:**
+
 - Training extends to 2019 (includes start of COVID setup)
 - Testing period too short (only 4 years)
 - Misses testing on 2019-2020 transition
@@ -174,10 +178,12 @@ We considered and rejected several alternative designs:
 #### Option C: Gap Between Train/Test
 
 **Pros:**
+
 - Additional protection against look-ahead
 - Mimics real-world deployment lag
 
 **Cons:**
+
 - Wastes valuable data (especially problematic with limited history)
 - No theoretical benefit if rolling windows properly implemented
 - Makes timeline interpretation more complex
@@ -194,11 +200,13 @@ Look-ahead bias occurs when information from the future inadvertently influences
 ### 3.1 What Constitutes Look-Ahead Bias?
 
 **Valid (No Bias):**
+
 - Using data from 2010-2018 to estimate factor parameters
 - Testing those parameters on 2019-2024 data
 - Updating beta estimates using rolling 252-day windows that end on rebalance date
 
 **Invalid (Contains Bias):**
+
 - Using 2019-2024 data to select factors or tune parameters
 - Computing factor covariance over full 2010-2024 period
 - Using forward-looking information in beta estimation windows
@@ -209,6 +217,7 @@ Look-ahead bias occurs when information from the future inadvertently influences
 #### Rule 1: Strict Chronological Separation
 
 **Implementation:**
+
 ```python
 split = TrainTestSplit(
     train_start=datetime(2010, 1, 1, tzinfo=UTC),
@@ -223,6 +232,7 @@ if split.test_start <= split.train_end:
 ```
 
 **Validation:**
+
 - `validate_no_lookahead(split)` checks test_start > train_end
 - Automated tests ensure no overlap
 - Code review checklist includes temporal verification
@@ -245,6 +255,7 @@ if split.test_start <= split.train_end:
    - Never updated using test period data
 
 **Implementation:**
+
 ```python
 # Training phase (2010-2018)
 factor_params = estimate_factor_parameters(
@@ -265,6 +276,7 @@ for rebalance_date in test_dates:
 Beta estimates use rolling 252-day windows, but these windows must respect temporal boundaries:
 
 **Training Period (2010-2018):**
+
 ```python
 # Example: Estimating beta on 2015-06-30
 beta_window_start = date(2014, 7, 1)   # 252 days before
@@ -276,6 +288,7 @@ assert beta_window_end <= train_end
 ```
 
 **Testing Period (2019-2024):**
+
 ```python
 # Example: Estimating beta on 2020-03-31
 beta_window_start = date(2019, 4, 1)   # 252 days before
@@ -287,12 +300,19 @@ assert beta_window_end <= test_end
 ```
 
 **Forbidden: Cross-Boundary Windows**
+
 ```python
 # BAD: Window spans training and testing periods
 beta_window_start = date(2018, 4, 1)   # In training period
 beta_window_end = date(2019, 3, 31)    # In testing period
 # This would leak test information into training phase ✗
 ```
+
+#### Rule 4: Dataset Window Enforcement
+
+- The `SectorDatasetAssembler` now clips sector and factor frames to the requested `[start, end]` bounds before alignment, ensuring that corporate-action adjustments or API quirks cannot inject forward-looking rows.
+- Every trim event records the Prometheus histogram `playground_dataset_trim_ratio{kind="sector"|"factor", reason="past"|"future"}` plus a structured warning so we can trace exactly when look-ahead candidates were removed.
+- Unit test `test_dataset_assembler_clips_future_observations` asserts both the clipping behaviour and the metric emission, preventing regressions that might silently reintroduce look-ahead bias.
 
 ### 3.3 Rebalancing Point-in-Time Constraints
 
@@ -303,16 +323,19 @@ Every rebalancing decision must use **only information available at the decision
 **Scenario:** Rebalancing on January 31, 2020 (last trading day of month)
 
 **Available Data:**
+
 - All market data through January 31, 2020
 - Rolling beta estimates using [February 1, 2019 to January 31, 2020] window
 - Factor parameters from training period (frozen since 2018-12-31)
 
 **Unavailable Data:**
+
 - February 2020 returns (haven't happened yet)
 - Realized volatility from February 2020 onward
 - Any data after January 31, 2020
 
 **Implementation:**
+
 ```python
 def compute_target_weights(
     rebalance_date: datetime,
@@ -349,6 +372,7 @@ def compute_target_weights(
 To prevent accidental look-ahead bias, we implement multiple validation layers:
 
 #### Check 1: Timestamp Validation
+
 ```python
 def validate_no_future_data(
     rebalance_date: datetime,
@@ -363,7 +387,23 @@ def validate_no_future_data(
         )
 ```
 
+#### Rule 4: Dataset Assembly Guardrails
+
+Even before the backtester sees the data, the dataset assembler now clips any
+observations that extend beyond the requested window. This prevents rogue
+fetchers or cached parquet files from leaking future returns into the sector
+dataset.
+
+- `SectorDatasetAssembler.build(...)` enforces the requested `start/end` range
+  for both sector and factor series.
+- Regression test: `test_dataset_assembler_clips_future_observations` ensures
+  records with timestamps after `SectorDataRequest.end` or
+  `FactorDataRequest.end` are dropped before persistence. This is the first gate
+  in the look-ahead defense chain and ties directly into the safeguards in
+  `TrainTestSplit`.
+
 #### Check 2: Split Overlap Validation
+
 ```python
 def validate_no_overlap(split: TrainTestSplit) -> None:
     """Ensure test period doesn't overlap with training."""
@@ -375,6 +415,7 @@ def validate_no_overlap(split: TrainTestSplit) -> None:
 ```
 
 #### Check 3: Parameter Provenance Tracking
+
 ```python
 @dataclass
 class FactorParameters:
@@ -416,21 +457,25 @@ Factor parameters must be estimated exclusively from training data and frozen du
 #### A. Factor Definitions (PCA-Based)
 
 **Duration Factor:**
+
 - First principal component of bond sector returns (TLT, LQD, HYG)
 - Captures interest rate sensitivity
 - Estimated using covariance matrix from 2010-2018
 
 **Credit Factor:**
+
 - Second principal component of bond sector returns
 - Captures credit spread movements
 - Orthogonal to duration factor by construction
 
 **Liquidity Factor:**
+
 - Third principal component of equity sector returns
 - Captures market liquidity conditions
 - Independent of duration and credit factors
 
 **Estimation Procedure:**
+
 ```python
 # Use ONLY training data (2010-2018)
 train_data = dataset.sector_returns.filter(
@@ -456,6 +501,7 @@ credit_factor = eigenvectors[:, -2]    # Second PC
 #### B. Factor Means & Volatilities
 
 **Historical Averages:**
+
 ```python
 factor_means = {
     "duration": train_factor_returns["duration"].mean(),
@@ -471,11 +517,13 @@ factor_vols = {
 ```
 
 **Why Estimate Means?**
+
 - Used in mean-variance optimization
 - Required for expected return calculations
 - Assumption: Historical average approximates future expected return
 
 **Why Estimate Volatilities?**
+
 - Used in risk targeting and position sizing
 - Required for Sharpe ratio maximization
 - More stable than return means over long periods
@@ -483,11 +531,13 @@ factor_vols = {
 #### C. Factor Covariance Matrix
 
 **Purpose:**
+
 - Captures correlations between factors
 - Used in portfolio risk calculations
 - Critical for mean-variance optimization
 
 **Estimation:**
+
 ```python
 # Compute 3×3 covariance matrix
 factor_cov = np.cov(
@@ -514,11 +564,13 @@ factor_params = FactorParameters(
 Sector betas are **not** part of the frozen parameters. They are re-estimated at each rebalance using rolling 252-day windows.
 
 **Rationale:**
+
 - Sector factor exposures drift over time
 - Rolling estimation captures changing relationships
 - Still respects temporal constraints (only uses historical data)
 
 **Example:**
+
 ```python
 # On each rebalance date in testing period
 for rebalance_date in test_rebalance_dates:
@@ -601,12 +653,14 @@ Walk-forward analysis provides a more robust validation than a single train/test
 **Concept:** Progressively roll training and testing windows forward through time
 
 **Standard Configuration:**
+
 - Training window: 5 years
 - Testing window: 1 year
 - Step size: 1 year (roll forward)
 - Total folds: 10 (for 2010-2024 data)
 
 **Timeline:**
+
 ```
 Fold 1:  Train [2010-2014] → Test [2015]
 Fold 2:  Train [2011-2015] → Test [2016]
@@ -623,6 +677,7 @@ Fold 10: Train [2019-2023] → Test [2024]
 ### 5.2 Implementation
 
 **Python Implementation:**
+
 ```python
 config = WalkForwardConfig(
     start_date=datetime(2010, 1, 1, tzinfo=UTC),
@@ -709,10 +764,12 @@ walk_forward.write_summaries(Path("playground/reports/backtesting/walk_forward")
 ```
 
 **Pros:**
+
 - Uses all available historical data
 - Parameters more stable (larger training sets)
 
 **Cons:**
+
 - Early data may be less relevant
 - Training data becomes stale over time
 - Computationally expensive (large training sets)
@@ -727,10 +784,12 @@ walk_forward.write_summaries(Path("playground/reports/backtesting/walk_forward")
 ```
 
 **Pros:**
+
 - Additional protection against look-ahead
 - Mimics model deployment lag
 
 **Cons:**
+
 - Wastes valuable test data
 - May not be necessary with proper rolling windows
 
@@ -745,12 +804,14 @@ Sector betas are estimated using rolling 252-day (1-year) windows and updated at
 ### 6.1 Why Rolling Windows?
 
 **Problem with Static Betas:**
+
 - Sector factor exposures change over time
 - Technology sector became less cyclical (2010 → 2024)
 - Energy sector credit quality deteriorated (2015-2020)
 - Static betas miss these structural shifts
 
 **Solution:**
+
 - Re-estimate betas every month using past 252 trading days
 - Captures recent relationship between sectors and factors
 - Adapts to changing market structure
@@ -760,22 +821,26 @@ Sector betas are estimated using rolling 252-day (1-year) windows and updated at
 **252 Trading Days (≈ 1 Year):**
 
 **Why Not Shorter? (e.g., 126 days = 6 months)**
+
 - Estimation noise increases with smaller samples
 - Beta standard errors: σ(β) ∝ 1/√n
 - 126 days: σ(β) ≈ 0.08
 - 252 days: σ(β) ≈ 0.06 (25% improvement)
 
 **Why Not Longer? (e.g., 504 days = 2 years)**
+
 - Captures outdated relationships
 - Less responsive to regime changes
 - May miss recent structural breaks
 
 **Empirical Evidence:**
+
 - Academic literature supports 1-year windows for beta estimation
 - Fama-French use 2-5 year windows (but for academic research, not trading)
 - Practitioner consensus: 6-12 months for tactical strategies
 
 **Compromise:**
+
 - 252 days balances estimation precision and adaptiveness
 - Sufficient data for stable regression (n=252 > 10×k where k=3 factors)
 - Responsive enough to capture regime shifts within 2-3 quarters
@@ -855,6 +920,7 @@ assert window_end > test_start      # March 31, 2019 > Jan 1, 2019
 **Problem:** Early rebalances in testing period may lack sufficient history
 
 **Solution 1: Skip Early Rebalances**
+
 ```python
 # Only rebalance after sufficient data available
 min_rebalance_date = test_start + timedelta(days=365)
@@ -868,6 +934,7 @@ for rebalance_date in test_rebalance_dates:
 ```
 
 **Solution 2: Use Shorter Windows Initially**
+
 ```python
 # Use adaptive window length
 days_since_test_start = (rebalance_date - test_start).days
@@ -895,6 +962,7 @@ betas = estimate_betas(
 **Step-by-Step Algorithm:**
 
 1. **Extract Rolling Window Data**
+
    ```python
    window_data = sector_returns.filter(
        (pl.col("timestamp") > window_start) &
@@ -903,6 +971,7 @@ betas = estimate_betas(
    ```
 
 2. **Compute Factor Returns**
+
    ```python
    # Apply frozen factor definitions to rolling window data
    factor_returns = compute_factor_returns(
@@ -912,6 +981,7 @@ betas = estimate_betas(
    ```
 
 3. **Run Cross-Sectional Regression**
+
    ```python
    # For each sector, regress returns on factor returns
    betas = {}
@@ -928,11 +998,13 @@ betas = estimate_betas(
    ```
 
 4. **Store Beta Estimates**
+
    ```python
    beta_estimates[rebalance_date] = betas
    ```
 
 **Regression Diagnostics:**
+
 - Check R² > 0.3 (factors explain >30% of sector variance)
 - Verify residuals are not serially correlated (Durbin-Watson test)
 - Monitor beta stability (shouldn't jump dramatically month-to-month)
@@ -946,6 +1018,7 @@ This section provides practical guidance for implementing the backtesting method
 ### 7.1 Code Organization
 
 **File Structure:**
+
 ```
 playground/
 ├── backtest/
@@ -966,6 +1039,7 @@ playground/
 ### 7.2 Configuration Management
 
 **BacktestConfig Class:**
+
 ```python
 @dataclass(slots=True)
 class BacktestConfig:
@@ -1095,9 +1169,35 @@ print(f"  Min Sharpe:  {np.min([r.sharpe_ratio for r in results]):.3f}")
 print(f"  Max Sharpe:  {np.max([r.sharpe_ratio for r in results]):.3f}")
 ```
 
-### 7.4 Logging and Monitoring
+### 7.4 Corporate Action Handling
+
+- `SectorDataRequest.price_column` defaults to `"adj_close"` to ensure splits and
+  dividends are neutralized before return calculations. The yfinance fetcher now
+  falls back to adjusted closes (and logs the fallback) whenever the requested
+  column is missing.
+- Regression test `test_sector_fetcher_adjusts_for_corporate_actions` simulates
+  a 2-for-1 split (close drops from 100 → 50 while adjusted close stays flat) and
+  asserts the computed return is zero. The test also verifies that the yfinance
+  ingest path requests `auto_adjust=True` so upstream data sources remain
+  consistent.
+
+### 7.5 Benchmark Artefacts
+
+- `run_full_backtest_suite` now mirrors baseline metrics beneath
+  `playground/reports/backtesting/benchmarks/<train/test slug>/` for every run.
+- Each directory contains:
+  - `benchmark_summary.csv` (Sharpe/return/drawdown snapshot for Equal Weight,
+    60/40, Risk Parity, Minimum Variance, and 3D Factor (Rolling Betas))
+  - `baseline_metrics.csv` (full `PerformanceMetrics` dump per baseline)
+  - `performance_comparison_table.csv` filtered to the baseline strategies
+  - `metadata.json` with the train/test dates and generation timestamp
+- Contract test `test_run_full_backtest_suite_writes_benchmark_exports` verifies
+  the files exist and contain every baseline strategy.
+
+### 7.6 Logging and Monitoring
 
 **Structured Logging:**
+
 ```python
 LOGGER = structlog.get_logger(__name__)
 
@@ -1126,11 +1226,12 @@ LOGGER.info(
 )
 ```
 
-### 7.5 Error Handling
+### 7.7 Error Handling
 
 **Common Failure Modes:**
 
 1. **Insufficient Training Data**
+
    ```python
    if split.train_days < 252:
        raise ValueError(
@@ -1140,6 +1241,7 @@ LOGGER.info(
    ```
 
 2. **Missing Data in Rolling Window**
+
    ```python
    if len(window_data) < min_beta_observations:
        LOGGER.warning(
@@ -1152,6 +1254,7 @@ LOGGER.info(
    ```
 
 3. **Look-Ahead Bias Detection**
+
    ```python
    max_timestamp = data_used["timestamp"].max()
    if max_timestamp > rebalance_date:
@@ -1170,6 +1273,7 @@ This section defines procedures for validating backtest correctness.
 ### 8.1 Unit Tests
 
 **Test Coverage Requirements:**
+
 - ✅ Split creation and validation (test_splits.py)
 - ✅ Look-ahead bias detection
 - ✅ Rolling window computation
@@ -1179,6 +1283,7 @@ This section defines procedures for validating backtest correctness.
 - ✅ Transaction cost calculation
 
 **Example Test:**
+
 ```python
 def test_no_lookahead_bias():
     """Test that test period never precedes training period."""
@@ -1267,7 +1372,38 @@ disruptions. Overlay activations are exported both at the event level and in
 category aggregates (`overlay_category_summary.csv`), and baseline metrics are
 persisted in `baseline_metrics.csv` for dashboard parity.
 
-### 8.4 Parameter Response Heatmaps
+### 8.4 Benchmark Artefact Validation
+
+- Canonical baselines (Equal Weight, 60/40, Risk Parity, Minimum Variance, and
+  3D Factor Rolling) are mirrored under
+  `playground/reports/backtesting/benchmarks/<train/test slug>/` for every
+  `run_full_backtest_suite` execution.
+- Artefacts include `benchmark_summary.csv`, `baseline_metrics.csv`, the
+  ordered `performance_comparison_table.csv`, `benchmark_audit.csv`, and a
+  `metadata.json` capturing the train/test dates plus generation timestamp.
+- Automated guard: `test_run_full_backtest_suite_writes_benchmark_exports`
+  asserts the files exist and include all baseline strategies, and
+  `benchmark_audit.csv` records per-strategy deltas (Sharpe, Sortino, Calmar,
+  turnover, transaction costs) between the main comparison table and the mirror.
+- Manual audit: review `benchmark_audit.csv` before publishing—non-zero deltas
+  indicate the comparison table and mirror diverge and should block release.
+- Sharpe evidence: `metadata.json` records the `phase3_sharpe_threshold`
+  (default 0.50), the realised `phase3_sharpe_value` for the 3D Factor Rolling
+  strategy, and a `phase3_sharpe_ok` flag. The corresponding test enforces
+  `Sharpe >= 0.50` on the synthetic fixture, and the benchmark mirror becomes
+  the canonical evidence for production sign-off.
+- Regime summary coverage: every default-split run now emits
+  `regime_summary.csv` with one row per regime returned by
+  `define_market_regimes()`. The data is also exposed via
+  `BacktestSuite.regime_results`, and the regression tests verify all seven
+  regimes are present before exporting visuals.
+- Attribution reconciliation: factor attribution exports include both
+  aggregate totals and per-regime breakdowns; the core dataclasses now enforce a
+  1 bp tolerance between portfolio return and the sum of factor contributions,
+  alpha, and residual. `test_attribution_result_enforces_total_return_identity`
+  raises immediately if any new code path violates this balance.
+
+### 8.5 Parameter Response Heatmaps
 
 Use the parameter heatmap suite to visualise stability across combinations of
 transaction costs, turnover smoothing, liquidity multipliers, and related inputs.
@@ -1288,7 +1424,7 @@ spec slugs are provided. Suite summaries capture evaluation counts and the
 best-performing configuration for each specification so dashboards can surface
 preferred parameters directly.
 
-### 8.5 Extended Diagnostics & Proxy Datasets
+### 8.6 Extended Diagnostics & Proxy Datasets
 
 Running the ``--extended-diagnostics`` flag captures tail risk statistics,
 turnover histograms, and benchmark deltas for the baseline suite, persisting under
@@ -1318,6 +1454,30 @@ integration-ready payloads under ``playground/reports/backtesting/monitoring/``:
 - ``pagerduty_alert_payload.json`` captures alert rules, automation targets,
   diagnostics metadata, and proxy/vintage health for escalation workflows.
 
+Regenerate the integration artefacts after producing a monitoring snapshot:
+
+.. code-block:: bash
+
+    poetry run python playground/scripts/publish_phase3_monitoring_integrations.py \
+        --snapshot-path playground/reports/backtesting/phase3_monitoring_snapshot.json \
+        --simulate-escalation
+
+The command creates ``monitoring/automation_manifest.json`` and a
+``pagerduty_escalation_dry_run.json`` rehearsal payload that can be shared with
+on-call responders when walking through pager workflows.
+The automation manifest now includes a dedicated ``benchmarks`` block capturing
+the latest mirror slug plus the summary, baseline metrics, comparison table, and
+``benchmark_audit.csv`` paths so Grafana and PagerDuty payloads can deep-link to
+the canonical artefacts without additional filesystem inspection.
+
+Makefile integration is available for automation pipelines:
+
+.. code-block:: bash
+
+    make publish-phase3-monitoring SNAPSHOT=playground/reports/backtesting/phase3_monitoring_snapshot.json SIMULATE_ESCALATION=1
+
+Continuous automation is handled by ``.github/workflows/phase3-monitoring.yml``, which runs the Phase 3 battery, publishes integration payloads with rehearsal artefacts, and uploads the resulting manifests for Grafana and PagerDuty ingestion on a nightly schedule.
+
 ### 8.7 Phase 3 Validation Battery
 
 Use ``--phase3-battery`` to execute the entire Phase 3 validation stack in a
@@ -1326,6 +1486,51 @@ sweep, parameter heatmaps (respecting any ``--heatmap-specs`` overrides), extend
 diagnostics, proxy validation, vintage simulations, and emits the monitoring
 snapshot. This is the preferred option for nightly CI smoke runs and offline
 pre-deployment rehearsals.
+
+For performance hardening, combine ``--phase3-battery`` with:
+
+- ``--stress-runs <n>`` to repeat the battery multiple times under heavier load.
+- ``--profile-output <path>`` to persist cProfile statistics per run. When
+  multiple runs are requested the profiler emits suffixed files (``*_run1.prof``,
+  ``*_run2.prof``) without overwriting earlier stats.
+
+Each run records its runtime in the ``phase3_validation_battery_runtime_seconds``
+histogram (labelled by mode), enabling Grafana dashboards to track regressions.
+
+### 8.8 Phase 4 Sensitivity and Data Quality Harness
+
+Phase 4 robustness sweeps extend the automation stack beyond the Phase 3
+validation battery:
+
+- Run parameter sensitivity sweeps via
+  ``uv run --active --no-sync python playground/scripts/run_phase4_sensitivity.py``.
+  Results land in ``playground/reports/backtesting/sensitivity`` with per-spec
+  artefacts and ``summary.csv`` capturing optimal configurations.
+  The shipped specification set spans rolling-window length, rebalance cadence,
+  transaction-cost assumptions, weight bounds, turnover smoothing, and
+  blend-to-equal controls—well above the five-parameter minimum.
+- Each spec records ``metric_spread`` and a boolean ``metric_spread_ok`` flag in
+  ``summary.csv``. Sharpe-based sweeps enforce ``|ΔSharpe| < 0.15``; violations
+  emit warnings, increment ``phase4_sensitivity_sharpe_delta_breach_total``, and
+  are surfaced in the CLI log so the robustness review can halt deployments.
+- Audit missing data and imputation drift with
+  ``uv run --active --no-sync python playground/scripts/run_phase4_data_quality.py``.
+  The CLI emits ``missing_data_audit.json`` alongside Prometheus metrics for
+  dashboard integration and compliance evidence.
+- Factor outlier coverage mirrors the data-quality flow—run
+  ``uv run --active --no-sync python playground/scripts/run_phase4_outlier_detection.py``
+  to persist ``factor_outlier_report.json`` plus Prometheus hooks for treatment
+  deltas. Both the missing-data and outlier reports roll into the monitoring
+  snapshot (`phase4_data_quality` / `phase4_outliers` sections) so Grafana and
+  PagerDuty payloads include the latest dataset health snapshot.
+- Detailed narratives for the missing-data audit live in
+  ``playground/docs/data_quality_report.md``. The report records the <1% global
+  gap rate, per-column coverage, and that forward-fill/linear interpolations
+  shift Sharpe by <5%, which satisfies the Phase 4 requirement.
+
+Both CLIs accept optional filters (``--spec-slugs`` and ``--methods``
+respectively) to target specific robustness checks without re-running the full
+suite.
 
 ### 8.3 Manual Validation Checklist
 
@@ -1590,6 +1795,7 @@ When reviewing backtest code:
 **Maintenance:**
 
 This document should be updated when:
+
 - Backtesting methodology changes
 - New validation procedures are added
 - Issues or edge cases are discovered
@@ -1599,6 +1805,7 @@ This document should be updated when:
 **Contact:**
 
 For questions or clarifications regarding this methodology:
+
 - Review Phase 3.2.1 section of 3D_Risk_Model_Roadmap.md
 - Consult playground/backtest/splits.py implementation
 - Examine playground/tests/backtest/test_splits.py for validation examples

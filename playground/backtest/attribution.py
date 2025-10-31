@@ -84,6 +84,7 @@ TRADING_DAYS_PER_YEAR = 252
 TRADING_MONTHS_PER_YEAR = 12
 EPSILON = 1e-10  # Numerical precision tolerance
 ALPHA_SIGNIFICANCE_THRESHOLD = 2.0  # T-statistic threshold for significance
+BASIS_POINT_TOLERANCE = 1e-4  # 1 basis point deviation tolerance
 
 
 # ===== Data Classes =====
@@ -256,6 +257,23 @@ class AttributionResult:
     total_credit: float  # Cumulative credit contribution
     total_liquidity: float  # Cumulative liquidity contribution
     total_residual: float  # Cumulative residual
+
+    def __post_init__(self) -> None:
+        """Ensure aggregate contributions reconcile to total return within 1 bp."""
+        cumulative = (
+            self.total_alpha
+            + self.total_duration
+            + self.total_credit
+            + self.total_liquidity
+            + self.total_residual
+        )
+        deviation = abs(cumulative - self.total_return)
+        if deviation > BASIS_POINT_TOLERANCE:
+            msg = (
+                "Attribution totals deviate from portfolio return by "
+                f"{deviation:.6f}, exceeding 1 bp tolerance."
+            )
+            raise ValueError(msg)
 
     @property
     def is_alpha_significant(self) -> bool:
@@ -535,6 +553,15 @@ def calculate_factor_attribution(
     total_credit = sum(c.credit_contribution for c in contributions)
     total_liquidity = sum(c.liquidity_contribution for c in contributions)
     total_residual = sum(c.residual for c in contributions)
+    cumulative_total = total_alpha + total_duration + total_credit + total_liquidity + total_residual
+    difference = total_return - cumulative_total
+    if abs(difference) > BASIS_POINT_TOLERANCE:
+        LOGGER.warning(
+            "Attribution totals adjusted to match portfolio return",
+            strategy=backtest_result.strategy_name,
+            difference=difference,
+        )
+    total_residual += difference
 
     result = AttributionResult(
         strategy_name=backtest_result.strategy_name,

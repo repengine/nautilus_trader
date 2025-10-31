@@ -16,6 +16,7 @@ from playground.backtest.regime_analysis import compare_strategies_across_regime
 from playground.backtest.regime_analysis import define_market_regimes
 from playground.backtest.regime_analysis import generate_regime_report
 from playground.backtest.regime_analysis import identify_failure_modes
+from playground.backtest.reporting import generate_sensitivity_summary_pdf
 from playground.backtest.strategies import EqualWeightStrategy
 from playground.backtest.strategies import FactorTiltStrategy
 
@@ -36,5 +37,6 @@ __all__ = [
     "compare_strategies_across_regimes",
     "define_market_regimes",
     "generate_regime_report",
+    "generate_sensitivity_summary_pdf",
     "identify_failure_modes",
 ]

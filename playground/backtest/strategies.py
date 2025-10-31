@@ -14,9 +14,9 @@ Performance Notes:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from collections.abc import Iterable
-from typing import Callable
-from typing import Mapping
+from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 

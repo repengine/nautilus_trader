@@ -1,6 +1,6 @@
 # Nautilus Strategy Specification – Accepted Parameters
 
-**Version:** 1.0  
+**Version:** 1.0
 **Date:** 2025-10-17
 
 This specification captures the parameter values approved for the Phase 3 3D
@@ -40,6 +40,12 @@ walk-forward CLI, and documentation) stay aligned.
 | Equal Weight | Canonical baseline for all comparisons. |
 | 60/40 Portfolio | Core benchmark representing traditional allocation. |
 | Risk Parity | Captures diversified risk contribution benchmark. |
+| Minimum Variance | Low-volatility baseline to stress downside protection. |
+| 3D Factor (Rolling Betas) | Approved Phase 3 live candidate used as the fifth benchmark. |
+
+Benchmark summaries and baseline metrics are mirrored under
+`playground/reports/backtesting/benchmarks/` for every suite execution, allowing
+Grafana/PagerDuty automation to ingest consistent CSV/JSON artefacts.
 
 ## Walk-Forward & Stress Scenario Notes
 
@@ -110,3 +116,52 @@ monitoring and telemetry.
 - Monitoring exports also persist ``monitoring/grafana_dashboard_payload.json``
   and ``monitoring/pagerduty_alert_payload.json`` to streamline dashboard and
   escalation automation.
+- Use ``poetry run python playground/scripts/publish_phase3_monitoring_integrations.py``
+  after refreshing the snapshot to update manifests and generate optional PagerDuty
+  rehearsal payloads for on-call drills.
+- CI/cron jobs can call ``make publish-phase3-monitoring`` with
+  ``SIMULATE_ESCALATION=1`` to refresh payloads and rehearsal artefacts.
+- ``--stress-runs`` repeats the chosen suites to simulate heavier nightly load,
+  and ``--profile-output`` captures cProfile stats per execution for regression
+  tracking alongside the runtime histogram metric.
+- Phase 4 harnesses:
+  - ``uv run --active --no-sync python playground/scripts/run_phase4_sensitivity.py``
+    sweeps the robustness grids defined in ``ThreeDRiskBacktestDefaults.parameter_sensitivity``.
+  - ``uv run --active --no-sync python playground/scripts/run_phase4_data_quality.py``
+    audits missing data coverage and emits JSON artefacts plus Prometheus
+    telemetry.
+  - ``uv run --active --no-sync python playground/scripts/run_phase4_outlier_detection.py``
+    evaluates >3σ factor outliers, compares winsorisation versus exclusion, and
+    updates ``reports/backtesting/outliers/factor_outlier_report.json``.
+  - ``uv run --active --no-sync python playground/scripts/generate_phase4_sensitivity_report.py``
+    transforms the consolidated sensitivity summary into ``reports/backtesting/sensitivity/sensitivity_analysis.pdf`` for
+    executive review packets.
+
+### PagerDuty Rehearsal Playbook
+
+1. Refresh the monitoring snapshot with the full validation battery:
+
+   .. code-block:: bash
+
+       uv run --active --no-sync python playground/scripts/run_phase3_walk_forward.py \
+           --phase3-battery \
+           --monitoring-export
+
+2. Publish the integration payloads with rehearsal output enabled:
+
+   .. code-block:: bash
+
+       uv run --active --no-sync python playground/scripts/publish_phase3_monitoring_integrations.py \
+           --simulate-escalation
+
+3. The step above writes ``playground/reports/backtesting/monitoring/pagerduty_escalation_dry_run.json``.
+   Load this file in the PagerDuty developer console as a custom event to walk through the escalation
+   path without paging production responders. The payload includes proxy dataset status, vintage coverage,
+   and diagnostics metadata so responders can validate context during the rehearsal.
+
+4. Document the rehearsal outcome (success/follow-ups) alongside the timestamp and service rule name in
+   the on-call runbook. The ``generated_at`` field within the rehearsal payload must match the recorded
+   dry-run entry to maintain auditability.
+
+5. Remove rehearsal artefacts once the drill completes to avoid accidental reuse, or regenerate via the
+   same commands for subsequent walk-throughs.

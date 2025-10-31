@@ -10,11 +10,13 @@ with a 1y stride) alongside additional validation permutations defined in
 from __future__ import annotations
 
 import argparse
+import cProfile
 import sys
 from collections.abc import Sequence
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 import structlog
 
@@ -23,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from ml.common.metrics_bootstrap import get_histogram  # noqa: E402
 from ml.config.playground import ThreeDRiskBacktestDefaults  # noqa: E402
 from ml.config.playground import WalkForwardPermutationDefaults  # noqa: E402
 from playground.backtest.runner import MultiHorizonWalkForwardResult  # noqa: E402
@@ -44,6 +47,12 @@ DEFAULT_DATASET_PATH = Path("playground/data/sector_dataset")
 DEFAULT_OUTPUT_DIR = Path("playground/reports/backtesting")
 PLAYGROUND_DEFAULTS = ThreeDRiskBacktestDefaults()
 LOGGER = structlog.get_logger(__name__)
+BATTERY_RUNTIME_HIST = get_histogram(
+    "phase3_validation_battery_runtime_seconds",
+    "Runtime distribution for the Phase 3 validation battery executions.",
+    labelnames=("mode",),
+    buckets=(600.0, 900.0, 1200.0, 1500.0, 1800.0, 2400.0),
+)
 
 
 def _parse_comma_separated(value: str) -> tuple[str, ...]:
@@ -57,6 +66,14 @@ def _parse_comma_separated(value: str) -> tuple[str, ...]:
         seen.add(normalized)
         entries.append(normalized)
     return tuple(entries)
+
+
+def _positive_int(value: str) -> int:
+    """Argparse helper to ensure integer options remain positive."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be >= 1")
+    return parsed
 
 
 def refresh_phase3_walk_forward(
@@ -117,97 +134,36 @@ def refresh_phase3_walk_forward(
     return result
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Refresh Phase 3 walk-forward outputs.")
-    parser.add_argument(
-        "--dataset-path",
-        type=Path,
-        default=DEFAULT_DATASET_PATH,
-        help="Path to the sector dataset root (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Directory to store walk-forward artefacts (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--liquidity-experiments",
-        action="store_true",
-        help="Also regenerate liquidity mitigation scenarios with walk-forward summaries.",
-    )
-    parser.add_argument(
-        "--scenarios",
-        type=str,
-        default="",
-        help="Comma separated liquidity scenario names (defaults to all).",
-    )
-    parser.add_argument(
-        "--monte-carlo-stress",
-        action="store_true",
-        help="Execute Monte Carlo regime stress sweep using default configuration.",
-    )
-    parser.add_argument(
-        "--parameter-heatmaps",
-        action="store_true",
-        help="Generate parameter heatmaps using configured defaults.",
-    )
-    parser.add_argument(
-        "--heatmap-specs",
-        type=str,
-        default="",
-        help="Comma separated heatmap spec slugs to execute (default: all configured).",
-    )
-    parser.add_argument(
-        "--extended-diagnostics",
-        action="store_true",
-        help="Run extended diagnostics on the baseline backtest suite.",
-    )
-    parser.add_argument(
-        "--proxy-validation",
-        action="store_true",
-        help="Validate proxy datasets specified in configuration defaults.",
-    )
-    parser.add_argument(
-        "--vintage-simulations",
-        action="store_true",
-        help="Execute vintage walk-forward simulations across configured windows.",
-    )
-    parser.add_argument(
-        "--monitoring-export",
-        action="store_true",
-        help="Emit consolidated monitoring snapshot referencing generated artefacts.",
-    )
-    parser.add_argument(
-        "--phase3-battery",
-        action="store_true",
-        help="Execute the full Phase 3 validation battery (enables all suite toggles).",
-    )
-    return parser.parse_args(argv)
+def execute_phase3_suite(
+    *,
+    dataset_path: Path,
+    output_dir: Path,
+    heatmap_slugs: tuple[str, ...],
+    scenario_names: tuple[str, ...],
+    run_liquidity_experiments: bool,
+    run_monte_carlo: bool,
+    run_heatmaps: bool,
+    run_diagnostics: bool,
+    run_proxy: bool,
+    run_vintage: bool,
+    run_monitoring: bool,
+) -> None:
+    """
+    Execute the configured Phase 3 validation suites.
 
-
-def main() -> None:
-    """CLI entrypoint for walk-forward refresh routines."""
-    args = parse_args()
-    dataset_path = args.dataset_path
-    output_dir = args.output_dir
-    heatmap_slugs = _parse_comma_separated(args.heatmap_specs)
-    scenario_names = _parse_comma_separated(args.scenarios)
-
-    if args.phase3_battery:
-        LOGGER.info("phase3_battery_enabled")
-
-    run_liquidity_experiments = args.liquidity_experiments or args.phase3_battery
-    run_monte_carlo = args.monte_carlo_stress or args.phase3_battery
-    run_heatmaps = args.parameter_heatmaps or args.phase3_battery or bool(heatmap_slugs)
-    if heatmap_slugs and not args.parameter_heatmaps:
-        LOGGER.info("parameter_heatmaps_auto_enabled", spec_slugs=heatmap_slugs)
-    run_diagnostics = args.extended_diagnostics or args.phase3_battery
-    run_proxy = args.proxy_validation or args.phase3_battery
-    run_vintage = args.vintage_simulations or args.phase3_battery
-    run_monitoring = args.monitoring_export or args.phase3_battery
-
+    Args:
+        dataset_path: Root path containing the canonical Phase 3 dataset.
+        output_dir: Directory receiving all generated artefacts.
+        heatmap_slugs: Optional heatmap specifications to target.
+        scenario_names: Optional liquidity mitigation scenarios to run.
+        run_liquidity_experiments: Whether liquidity mitigation experiments should run.
+        run_monte_carlo: Whether to execute the Monte Carlo stress suite.
+        run_heatmaps: Whether parameter heatmaps should run.
+        run_diagnostics: Whether to execute extended diagnostics.
+        run_proxy: Whether proxy dataset validation should run.
+        run_vintage: Whether vintage simulations should run.
+        run_monitoring: Whether to emit the monitoring snapshot and integration payloads.
+    """
     walk_forward_config = WalkForwardConfig(
         start_date=datetime(2010, 1, 1, tzinfo=UTC),
         end_date=datetime(2024, 12, 31, tzinfo=UTC),
@@ -329,6 +285,178 @@ def main() -> None:
             path=str(snapshot.path.resolve()),
             grafana_payload=str(integration_artifacts.grafana_payload_path.resolve()),
             pagerduty_payload=str(integration_artifacts.pagerduty_payload_path.resolve()),
+        )
+
+
+def _resolve_profile_path(base: Path, run_index: int, total_runs: int) -> Path:
+    """Return a per-run profile path to avoid overwriting stats when stressing the battery."""
+    if total_runs <= 1:
+        return base
+    suffix = base.suffix or ".prof"
+    stem = base.stem or "phase3_battery"
+    return base.with_name(f"{stem}_run{run_index + 1}{suffix}")
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Refresh Phase 3 walk-forward outputs.")
+    parser.add_argument(
+        "--dataset-path",
+        type=Path,
+        default=DEFAULT_DATASET_PATH,
+        help="Path to the sector dataset root (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory to store walk-forward artefacts (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--liquidity-experiments",
+        action="store_true",
+        help="Also regenerate liquidity mitigation scenarios with walk-forward summaries.",
+    )
+    parser.add_argument(
+        "--scenarios",
+        type=str,
+        default="",
+        help="Comma separated liquidity scenario names (defaults to all).",
+    )
+    parser.add_argument(
+        "--monte-carlo-stress",
+        action="store_true",
+        help="Execute Monte Carlo regime stress sweep using default configuration.",
+    )
+    parser.add_argument(
+        "--parameter-heatmaps",
+        action="store_true",
+        help="Generate parameter heatmaps using configured defaults.",
+    )
+    parser.add_argument(
+        "--heatmap-specs",
+        type=str,
+        default="",
+        help="Comma separated heatmap spec slugs to execute (default: all configured).",
+    )
+    parser.add_argument(
+        "--extended-diagnostics",
+        action="store_true",
+        help="Run extended diagnostics on the baseline backtest suite.",
+    )
+    parser.add_argument(
+        "--proxy-validation",
+        action="store_true",
+        help="Validate proxy datasets specified in configuration defaults.",
+    )
+    parser.add_argument(
+        "--vintage-simulations",
+        action="store_true",
+        help="Execute vintage walk-forward simulations across configured windows.",
+    )
+    parser.add_argument(
+        "--monitoring-export",
+        action="store_true",
+        help="Emit consolidated monitoring snapshot referencing generated artefacts.",
+    )
+    parser.add_argument(
+        "--phase3-battery",
+        action="store_true",
+        help="Execute the full Phase 3 validation battery (enables all suite toggles).",
+    )
+    parser.add_argument(
+        "--stress-runs",
+        type=_positive_int,
+        default=1,
+        help="Repeat the selected suites multiple times to stress runtime limits (default: 1).",
+    )
+    parser.add_argument(
+        "--profile-output",
+        type=Path,
+        default=None,
+        help="Optional path to write cProfile data for Phase 3 battery runs.",
+    )
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    """CLI entrypoint for walk-forward refresh routines."""
+    args = parse_args()
+    dataset_path = args.dataset_path
+    output_dir = args.output_dir
+    heatmap_slugs = _parse_comma_separated(args.heatmap_specs)
+    scenario_names = _parse_comma_separated(args.scenarios)
+
+    if args.phase3_battery:
+        LOGGER.info("phase3_battery_enabled")
+
+    stress_runs = args.stress_runs
+    profile_output: Path | None = args.profile_output
+
+    run_liquidity_experiments = args.liquidity_experiments or args.phase3_battery
+    run_monte_carlo = args.monte_carlo_stress or args.phase3_battery
+    run_heatmaps = args.parameter_heatmaps or args.phase3_battery or bool(heatmap_slugs)
+    if heatmap_slugs and not args.parameter_heatmaps:
+        LOGGER.info("parameter_heatmaps_auto_enabled", spec_slugs=heatmap_slugs)
+    run_diagnostics = args.extended_diagnostics or args.phase3_battery
+    run_proxy = args.proxy_validation or args.phase3_battery
+    run_vintage = args.vintage_simulations or args.phase3_battery
+    run_monitoring = args.monitoring_export or args.phase3_battery
+
+    mode_label = "full" if args.phase3_battery else "custom"
+    run_durations: list[float] = []
+
+    for run_index in range(stress_runs):
+        profiler: cProfile.Profile | None = None
+        profile_path: Path | None = None
+        start_time = perf_counter()
+
+        if profile_output is not None:
+            profile_path = _resolve_profile_path(profile_output, run_index, stress_runs)
+            profiler = cProfile.Profile()
+            profiler.enable()
+
+        try:
+            execute_phase3_suite(
+                dataset_path=dataset_path,
+                output_dir=output_dir,
+                heatmap_slugs=heatmap_slugs,
+                scenario_names=scenario_names,
+                run_liquidity_experiments=run_liquidity_experiments,
+                run_monte_carlo=run_monte_carlo,
+                run_heatmaps=run_heatmaps,
+                run_diagnostics=run_diagnostics,
+                run_proxy=run_proxy,
+                run_vintage=run_vintage,
+                run_monitoring=run_monitoring,
+            )
+        finally:
+            if profiler is not None and profile_path is not None:
+                profiler.disable()
+                profile_path.parent.mkdir(parents=True, exist_ok=True)
+                profiler.dump_stats(str(profile_path))
+
+        runtime_seconds = perf_counter() - start_time
+        BATTERY_RUNTIME_HIST.labels(mode=mode_label).observe(runtime_seconds)
+        LOGGER.info(
+            "phase3_suite_run_completed",
+            run_index=run_index + 1,
+            total_runs=stress_runs,
+            runtime_seconds=round(runtime_seconds, 3),
+            profile_path=str(profile_path.resolve()) if profile_path is not None else None,
+            profiling_enabled=profile_path is not None,
+        )
+        run_durations.append(runtime_seconds)
+
+    if stress_runs > 1:
+        total_runtime = sum(run_durations)
+        LOGGER.info(
+            "phase3_suite_stress_summary",
+            total_runs=stress_runs,
+            total_runtime_seconds=round(total_runtime, 3),
+            average_runtime_seconds=round(total_runtime / stress_runs, 3),
+            max_runtime_seconds=round(max(run_durations), 3),
+            min_runtime_seconds=round(min(run_durations), 3),
         )
 
 

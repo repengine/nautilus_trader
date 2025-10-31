@@ -481,6 +481,9 @@ def create_diagnostics_summary(
     vif_threshold: float = 5.0,
     dw_lower: float = 1.5,
     dw_upper: float = 2.5,
+    r2_pass_rate: float = 0.70,
+    significant_beta_pass_rate: float = 0.70,
+    dw_pass_rate: float = 0.70,
 ) -> SectorDiagnosticsReport:
     """
     Create summary report across all sectors.
@@ -499,6 +502,12 @@ def create_diagnostics_summary(
         Lower bound for acceptable Durbin-Watson statistic (default: 1.5).
     dw_upper : float
         Upper bound for acceptable Durbin-Watson statistic (default: 2.5).
+    r2_pass_rate : float
+        Fraction of sectors that must exceed ``r2_threshold`` (0-1, default 0.70).
+    significant_beta_pass_rate : float
+        Fraction of sectors that must have ≥2 significant betas (0-1, default 0.70).
+    dw_pass_rate : float
+        Fraction of sectors that must fall within Durbin-Watson bounds (0-1, default 0.70).
 
     Returns
     -------
@@ -523,6 +532,14 @@ def create_diagnostics_summary(
     if not diagnostics:
         msg = "Cannot create summary from empty diagnostics"
         raise ValueError(msg)
+    for name, value in (
+        ("r2_pass_rate", r2_pass_rate),
+        ("significant_beta_pass_rate", significant_beta_pass_rate),
+        ("dw_pass_rate", dw_pass_rate),
+    ):
+        if not 0.0 < value <= 1.0:
+            msg = f"{name} must be within (0, 1], received {value}"
+            raise ValueError(msg)
 
     # R² statistics
     r2_values = [d.r_squared for d in diagnostics.values()]
@@ -531,7 +548,8 @@ def create_diagnostics_summary(
     std_r2 = float(np.std(r2_values))
     min_r2 = float(np.min(r2_values))
     max_r2 = float(np.max(r2_values))
-    pct_above_r2_threshold = float(sum(r2 > r2_threshold for r2 in r2_values) / len(r2_values) * 100)
+    r2_pass_ratio = float(sum(r2 > r2_threshold for r2 in r2_values) / len(r2_values))
+    pct_above_r2_threshold = float(r2_pass_ratio * 100)
 
     # Significant betas (2/3 rule)
     sectors_with_2_3_sig_betas = 0
@@ -546,7 +564,8 @@ def create_diagnostics_summary(
         if sig_count >= 2:
             sectors_with_2_3_sig_betas += 1
 
-    pct_2_3_sig_betas = float(sectors_with_2_3_sig_betas / len(diagnostics) * 100)
+    sig_pass_ratio = float(sectors_with_2_3_sig_betas / len(diagnostics))
+    pct_2_3_sig_betas = float(sig_pass_ratio * 100)
 
     # VIF statistics
     all_vifs: list[float] = []
@@ -559,7 +578,8 @@ def create_diagnostics_summary(
     # Durbin-Watson statistics
     dw_values = [d.durbin_watson for d in diagnostics.values()]
     dw_in_range = sum(dw_lower <= dw <= dw_upper for dw in dw_values)
-    pct_dw_acceptable = float(dw_in_range / len(dw_values) * 100)
+    dw_pass_ratio = float(dw_in_range / len(dw_values))
+    pct_dw_acceptable = float(dw_pass_ratio * 100)
     mean_dw = float(np.mean(dw_values))
 
     # F-statistic
@@ -580,14 +600,17 @@ def create_diagnostics_summary(
         "pct_dw_acceptable": pct_dw_acceptable,
         "pct_significant_f": pct_significant_f,
         "n_sectors": float(len(diagnostics)),
+        "r2_pass_rate_target": float(r2_pass_rate * 100),
+        "significant_beta_pass_rate_target": float(significant_beta_pass_rate * 100),
+        "durbin_watson_pass_rate_target": float(dw_pass_rate * 100),
     }
 
     # Acceptance status
     acceptance_status = {
-        "r2_criterion": pct_above_r2_threshold >= 70.0,
-        "significant_betas": pct_2_3_sig_betas >= 70.0,
+        "r2_criterion": r2_pass_ratio >= r2_pass_rate,
+        "significant_betas": sig_pass_ratio >= significant_beta_pass_rate,
         "multicollinearity": max_vif < vif_threshold,
-        "autocorrelation": pct_dw_acceptable >= 70.0,
+        "autocorrelation": dw_pass_ratio >= dw_pass_rate,
     }
 
     overall_pass = all(acceptance_status.values())

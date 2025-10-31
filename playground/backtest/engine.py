@@ -53,7 +53,7 @@ class BacktestConfig:
     start_date: datetime
     end_date: datetime
     initial_capital: float = 1_000_000.0  # $1M default
-    rebalance_frequency: str = "monthly"  # "daily", "weekly", "monthly"
+    rebalance_frequency: str = "monthly"  # "daily", "weekly", "monthly", "quarterly", "semi_annual"
     transaction_cost_bps: float = 10.0  # 10 basis points
     slippage_bps: float = 0.0  # Optional market impact
     position_limits: dict[str, tuple[float, float]] | None = None  # (min, max) weights per sector
@@ -78,7 +78,7 @@ class BacktestConfig:
             msg = "Slippage must be non-negative"
             raise ValueError(msg)
 
-        if self.rebalance_frequency not in {"daily", "weekly", "monthly"}:
+        if self.rebalance_frequency not in {"daily", "weekly", "monthly", "quarterly", "semi_annual"}:
             msg = f"Invalid rebalance frequency: {self.rebalance_frequency}"
             raise ValueError(msg)
 
@@ -425,24 +425,62 @@ class FactorBacktester:
             # Rebalance on last trading day of each month
             rebalance_dates = []
             current_month = None
-            last_date = None
+            last_month_date = None
             for date in trading_dates:
                 month_key = (date.year, date.month)
                 if current_month is None:
                     current_month = month_key
-                    last_date = date
+                    last_month_date = date
                 elif month_key != current_month:
-                    if last_date is not None:
-                        rebalance_dates.append(last_date)
+                    if last_month_date is not None:
+                        rebalance_dates.append(last_month_date)
                     current_month = month_key
-                    last_date = date
+                    last_month_date = date
                 else:
-                    last_date = date
+                    last_month_date = date
 
             # Add final month
-            if last_date is not None:
-                rebalance_dates.append(last_date)
+            if last_month_date is not None:
+                rebalance_dates.append(last_month_date)
 
+            return rebalance_dates
+
+        if frequency == "quarterly":
+            rebalance_dates = []
+            current_quarter: tuple[int, int] | None = None
+            last_quarter_date: datetime | None = None
+            for date in trading_dates:
+                quarter_index = (date.year, (date.month - 1) // 3)
+                if current_quarter is None:
+                    current_quarter = quarter_index
+                    last_quarter_date = date
+                    continue
+                if quarter_index != current_quarter:
+                    if last_quarter_date is not None:
+                        rebalance_dates.append(last_quarter_date)
+                    current_quarter = quarter_index
+                last_quarter_date = date
+            if last_quarter_date is not None:
+                rebalance_dates.append(last_quarter_date)
+            return rebalance_dates
+
+        if frequency == "semi_annual":
+            rebalance_dates = []
+            current_half: tuple[int, int] | None = None
+            last_half_date: datetime | None = None
+            for date in trading_dates:
+                half_index = (date.year, 1 if date.month <= 6 else 2)
+                if current_half is None:
+                    current_half = half_index
+                    last_half_date = date
+                    continue
+                if half_index != current_half:
+                    if last_half_date is not None:
+                        rebalance_dates.append(last_half_date)
+                    current_half = half_index
+                last_half_date = date
+            if last_half_date is not None:
+                rebalance_dates.append(last_half_date)
             return rebalance_dates
 
         msg = f"Invalid rebalance frequency: {frequency}"

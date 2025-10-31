@@ -222,7 +222,7 @@ def run_risk_pipeline(
     weights_by_year = {profile.year: profile.weights for profile in profiles}
     if weights_by_year:
         try:
-            portfolio_trajectory = compute_portfolio_trajectory(
+            compute_portfolio_trajectory(
                 weights_by_year,
                 stable_positions,
                 factor_columns=config.factor_columns,

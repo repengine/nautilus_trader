@@ -87,6 +87,27 @@ class YFinanceSectorFetcher(SectorReturnFetcher):
             1,
             int(pd.date_range(start=request.start.date(), end=request.end.date(), freq="B").size),
         )
+        price_column = request.price_column
+        if price_column not in prices.columns:
+            fallback = None
+            if "adj_close" in prices.columns:
+                fallback = "adj_close"
+            elif "close" in prices.columns:
+                fallback = "close"
+            if fallback is None:
+                available = ", ".join(sorted(prices.columns))
+                msg = (
+                    f"Requested price column '{price_column}' not available in fetched data. "
+                    f"Available columns: {available}"
+                )
+                raise ValueError(msg)
+            LOGGER.warning(
+                "price_column_missing_falling_back",
+                requested=price_column,
+                fallback=fallback,
+            )
+            price_column = fallback
+
         coverage_counts = _coverage_by_ticker(prices)
 
         selected = _select_tickers(
@@ -110,7 +131,7 @@ class YFinanceSectorFetcher(SectorReturnFetcher):
                     ratio=selection.coverage_ratio,
                 )
 
-        returns = compute_returns(prices, price_column=request.price_column)
+        returns = compute_returns(prices, price_column=price_column)
         selected_tickers = tuple(choice.ticker for choice in selected.values())
         mapping = {choice.ticker: sector for sector, choice in selected.items()}
         frame = (

@@ -227,6 +227,34 @@ def test_rebalance_dates_monthly(simple_config: BacktestConfig) -> None:
     assert rebalance_dates[2].month == 3
 
 
+def test_rebalance_dates_quarterly(simple_config: BacktestConfig) -> None:
+    """Quarterly cadence should rebalance on the last trading day of each quarter."""
+    backtester = FactorBacktester(simple_config)
+    trading_dates = [datetime(2020, month, 28, tzinfo=UTC) for month in range(1, 13)]
+    rebalance_dates = backtester._get_rebalance_dates(
+        start=datetime(2020, 1, 1, tzinfo=UTC),
+        end=datetime(2020, 12, 31, tzinfo=UTC),
+        frequency="quarterly",
+        trading_dates=trading_dates,
+    )
+    assert len(rebalance_dates) == 4
+    assert [date.month for date in rebalance_dates] == [3, 6, 9, 12]
+
+
+def test_rebalance_dates_semi_annual(simple_config: BacktestConfig) -> None:
+    """Semi-annual cadence should rebalance twice per year."""
+    backtester = FactorBacktester(simple_config)
+    trading_dates = [datetime(2020, month, 28, tzinfo=UTC) for month in range(1, 13)]
+    rebalance_dates = backtester._get_rebalance_dates(
+        start=datetime(2020, 1, 1, tzinfo=UTC),
+        end=datetime(2020, 12, 31, tzinfo=UTC),
+        frequency="semi_annual",
+        trading_dates=trading_dates,
+    )
+    assert len(rebalance_dates) == 2
+    assert [date.month for date in rebalance_dates] == [6, 12]
+
+
 def test_rebalance_dates_daily(simple_config: BacktestConfig) -> None:
     """Test daily rebalance schedule returns all trading dates."""
     backtester = FactorBacktester(simple_config)

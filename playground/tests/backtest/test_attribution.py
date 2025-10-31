@@ -26,6 +26,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from playground.backtest.attribution import AttributionResult
 from playground.backtest.attribution import FactorContribution
 from playground.backtest.attribution import calculate_factor_attribution
 from playground.backtest.attribution import compare_attribution_across_strategies
@@ -182,6 +183,45 @@ def test_attribution_identity_holds(
         # Should match portfolio return within numerical tolerance
         assert np.isclose(total_attribution, contrib.portfolio_return, atol=1e-6), (
             f"Attribution identity violated: {total_attribution:.6f} != {contrib.portfolio_return:.6f}"
+        )
+
+
+def test_attribution_result_enforces_total_return_identity() -> None:
+    """Aggregate contributions must reconcile to portfolio return within 1 bp."""
+    contribution = FactorContribution(
+        date=datetime(2024, 1, 1, tzinfo=UTC),
+        duration_return=0.0,
+        credit_return=0.0,
+        liquidity_return=0.0,
+        duration_beta=0.0,
+        credit_beta=0.0,
+        liquidity_beta=0.0,
+        duration_contribution=0.0,
+        credit_contribution=0.0,
+        liquidity_contribution=0.0,
+        alpha=0.01,
+        residual=0.0,
+        portfolio_return=0.01,
+    )
+    with pytest.raises(ValueError, match="1 bp tolerance"):
+        AttributionResult(
+            strategy_name="Test Strategy",
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 31, tzinfo=UTC),
+            contributions=[contribution],
+            average_alpha=0.01,
+            alpha_t_stat=0.0,
+            alpha_p_value=1.0,
+            avg_duration_contribution=0.0,
+            avg_credit_contribution=0.0,
+            avg_liquidity_contribution=0.0,
+            avg_residual=0.0,
+            total_return=0.011,
+            total_alpha=0.01,
+            total_duration=0.0,
+            total_credit=0.0,
+            total_liquidity=0.0,
+            total_residual=0.0,
         )
 
 

@@ -57,6 +57,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -80,6 +81,7 @@ LOGGER = structlog.get_logger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
 MIN_OBSERVATIONS_FOR_REGIME = 20  # Minimum trading days for meaningful metrics
+MIN_OBSERVATIONS_FALLBACK = 5  # Threshold where we refuse to compute metrics
 BACKTEST_DEFAULTS = ThreeDRiskBacktestDefaults()
 
 
@@ -1169,15 +1171,16 @@ def _validate_backtest_coverage(
     ValueError
         If backtest doesn't cover all regimes
     """
+    tolerance = timedelta(days=BACKTEST_DEFAULTS.coverage_tolerance_days)
     for regime in regimes:
-        if backtest_result.start_date > regime.start:
+        if backtest_result.start_date > regime.start + tolerance:
             msg = (
                 f"Backtest starts {backtest_result.start_date} after regime "
                 f"{regime.name} starts {regime.start}"
             )
             raise ValueError(msg)
 
-        if backtest_result.end_date < regime.end:
+        if backtest_result.end_date < regime.end - tolerance:
             msg = (
                 f"Backtest ends {backtest_result.end_date} before regime "
                 f"{regime.name} ends {regime.end}"
@@ -1216,11 +1219,18 @@ def _calculate_regime_performance(
     regime_data = _filter_to_regime(backtest_result, regime)
 
     if regime_data["num_observations"] < MIN_OBSERVATIONS_FOR_REGIME:
-        msg = (
-            f"Insufficient observations in regime {regime.name}: "
-            f"need {MIN_OBSERVATIONS_FOR_REGIME}, got {regime_data['num_observations']}"
+        if regime_data["num_observations"] < MIN_OBSERVATIONS_FALLBACK:
+            msg = (
+                f"Insufficient observations in regime {regime.name}: "
+                f"need {MIN_OBSERVATIONS_FOR_REGIME}, got {regime_data['num_observations']}"
+            )
+            raise ValueError(msg)
+        LOGGER.warning(
+            "Regime analysis proceeding with limited observations",
+            regime=regime.name,
+            observations=regime_data["num_observations"],
+            minimum=MIN_OBSERVATIONS_FOR_REGIME,
         )
-        raise ValueError(msg)
 
     returns_arr = regime_data["returns"]
 

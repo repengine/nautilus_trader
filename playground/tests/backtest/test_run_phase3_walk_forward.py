@@ -4,9 +4,11 @@ Tests for the Phase 3 walk-forward CLI helpers.
 These tests focus on verifying that the script wires shared configuration
 defaults through to the backtest harness so all entrypoints stay consistent.
 """
+# ruff: noqa: E402
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import types
 from datetime import datetime
@@ -15,7 +17,12 @@ from pathlib import Path
 import pytest
 
 
-if "nautilus_trader" not in sys.modules:
+def _should_stub_nautilus_trader() -> bool:
+    spec = importlib.util.find_spec("nautilus_trader")
+    return spec is None
+
+
+if "nautilus_trader" not in sys.modules and _should_stub_nautilus_trader():
     nt_module = types.ModuleType("nautilus_trader")
     core_module = types.ModuleType("nautilus_trader.core")
     core_module.nautilus_pyo3 = object()
@@ -227,3 +234,67 @@ def test_main_runs_heatmaps_when_specs_requested(
     assert calls["refresh_dataset_path"] == dataset_path
     assert calls["refresh_output_dir"] == output_dir
     assert calls["heatmap_spec_slugs"] == ("turnover-vs-liquidity-multipliers",)
+
+
+def test_main_supports_stress_runs_and_profiling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Stress runs should execute multiple passes and emit profile artefacts."""
+    dataset_path = tmp_path / "dataset"
+    dataset_path.mkdir()
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    profile_path = profile_dir / "battery.prof"
+
+    calls: list[dict[str, object]] = []
+
+    def fake_execute_phase3_suite(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    class _FakeHistogram:
+        def __init__(self) -> None:
+            self.observations: list[dict[str, object]] = []
+
+        def labels(self, **labels: object) -> _FakeHistogram:
+            self._current_labels = labels
+            return self
+
+        def observe(self, value: float) -> None:
+            self.observations.append({"labels": getattr(self, "_current_labels", {}), "value": value})
+
+    fake_histogram = _FakeHistogram()
+
+    monkeypatch.setattr(
+        "playground.scripts.run_phase3_walk_forward.execute_phase3_suite",
+        fake_execute_phase3_suite,
+    )
+    monkeypatch.setattr(
+        "playground.scripts.run_phase3_walk_forward.BATTERY_RUNTIME_HIST",
+        fake_histogram,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_phase3_walk_forward.py",
+            "--dataset-path",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--stress-runs",
+            "2",
+            "--profile-output",
+            str(profile_path),
+        ],
+    )
+
+    run_phase3_main()
+
+    assert len(calls) == 2
+    profiled_files = sorted(profile_dir.glob("battery_run*.prof"))
+    assert len(profiled_files) == 2
+    assert fake_histogram.observations and len(fake_histogram.observations) == 2

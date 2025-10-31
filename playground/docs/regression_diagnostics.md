@@ -338,6 +338,26 @@ Compare diagnostics across market regimes:
 - Validate predictions on test period (2019-2024)
 - Check if R² holds out-of-sample
 
+## CLI Automation and Reports
+
+Use the `playground/scripts/run_phase2_regression_diagnostics.py` CLI to regenerate diagnostics whenever the dataset is refreshed. The runner enforces the acceptance criteria defined in `ml.config.playground.PhaseTwoValidationDefaults` (R² ≥ 0.30 with ≥6/9 sectors passing, ≥2/3 significant betas, VIF < 5, Durbin–Watson within 1.5–2.5).
+
+### Usage
+
+```bash
+poetry run python playground/scripts/run_phase2_regression_diagnostics.py \
+  --dataset-path playground/data/sector_dataset \
+  --output-dir playground/reports/phase2/diagnostics \
+  --run-tag 20241024_phase2
+```
+
+### Outputs
+
+- `sector_regression_diagnostics.csv` / `.parquet`: Per-sector metrics (R², adj-R², t/F statistics, p-values, Durbin–Watson, Breusch–Pagan, VIF).
+- `phase2_regression_summary.json`: Aggregated pass/fail status plus summary statistics and the config snapshot for governance and Grafana ingestion.
+
+Each run creates a timestamped (or user-tagged) subdirectory under `playground/reports/phase2/diagnostics`, ensuring reproducible artefacts for audits and nightly monitoring.
+
 ## References
 
 ### Statistical Methodology

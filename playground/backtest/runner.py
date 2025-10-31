@@ -75,6 +75,8 @@ from ml.config.playground import MonteCarloStressDefaults
 from ml.config.playground import NestedWalkForwardDefaults
 from ml.config.playground import ParameterHeatmapSpecDefaults
 from ml.config.playground import ParameterHeatmapSuiteDefaults
+from ml.config.playground import ParameterSensitivitySpecDefaults
+from ml.config.playground import ParameterSensitivitySuiteDefaults
 from ml.config.playground import ParameterValue
 from ml.config.playground import ProxyDatasetSpecDefaults
 from ml.config.playground import ProxyDatasetSuiteDefaults
@@ -112,10 +114,28 @@ if TYPE_CHECKING:
 LOGGER = structlog.get_logger(__name__)
 
 
+_COMPARISON_SCHEMA = {
+    "strategy": pl.Utf8,
+    "annualized_return": pl.Float64,
+    "annualized_volatility": pl.Float64,
+    "sharpe_ratio": pl.Float64,
+    "sortino_ratio": pl.Float64,
+    "calmar_ratio": pl.Float64,
+    "max_drawdown": pl.Float64,
+    "information_ratio": pl.Float64,
+    "num_rebalances": pl.Float64,
+    "transaction_costs": pl.Float64,
+    "transaction_costs_pct": pl.Float64,
+    "turnover_rate": pl.Float64,
+}
+
+
 LIQUIDITY_ATTRIBUTION_DIR = Path("playground/reports/backtesting/attribution/regime")
 LIQUIDITY_STRATEGY_SLUG = "3d_factor_rolling_betas"
 BACKTEST_DEFAULTS = ThreeDRiskBacktestDefaults()
 TRADING_DAY_RATIO = 252 / 365.25
+THREE_D_ROLLING_STRATEGY = "3D Factor (Rolling Betas)"
+PHASE3_TARGET_SHARPE = 0.50
 MONTE_CARLO_SHARPE_HIST = get_histogram(
     "phase3_monte_carlo_sharpe",
     "Sharpe ratio distribution from Phase 3 Monte Carlo stress sweeps",
@@ -138,6 +158,17 @@ HEATMAP_METRIC_HIST = get_histogram(
     "Performance metric distribution captured during Phase 3 parameter heatmaps",
     labelnames=("strategy", "spec"),
     buckets=(-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0),
+)
+SENSITIVITY_METRIC_HIST = get_histogram(
+    "phase4_parameter_sensitivity_metric",
+    "Performance metric distribution captured during Phase 4 parameter sensitivity sweeps",
+    labelnames=("strategy", "spec", "metric"),
+    buckets=(-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0),
+)
+SENSITIVITY_DELTA_COUNTER = get_counter(
+    "phase4_sensitivity_sharpe_delta_breach_total",
+    "Count of Phase 4 sensitivity specs exceeding Sharpe delta tolerance.",
+    labelnames=("spec",),
 )
 DIAGNOSTIC_TAIL_HIST = get_histogram(
     "phase3_tail_risk_metric",
@@ -283,12 +314,17 @@ class BacktestSuite:
                 "calmar_ratio": metrics.calmar_ratio,
                 "max_drawdown": metrics.maximum_drawdown * 100,
                 "information_ratio": metrics.information_ratio if metrics.information_ratio is not None else float("nan"),
-                "num_rebalances": metrics.num_rebalances,
+                "num_rebalances": float(metrics.num_rebalances),
                 "transaction_costs": metrics.transaction_costs_total,
+                "transaction_costs_pct": metrics.transaction_costs_pct,
+                "turnover_rate": metrics.turnover_rate,
             }
             rows.append(row)
 
-        df = pl.DataFrame(rows)
+        if not rows:
+            return pl.DataFrame(schema=_COMPARISON_SCHEMA)
+
+        df = pl.DataFrame(rows).select(list(_COMPARISON_SCHEMA.keys()))
 
         # Sort by Sharpe ratio descending
         df = df.sort("sharpe_ratio", descending=True)
@@ -1734,6 +1770,68 @@ class ParameterHeatmapSuiteResult:
         summary_frame.write_csv(root / "summary.csv")
 
 
+@dataclass(slots=True)
+class ParameterSensitivityRunResult:
+    """
+    Result of executing a parameter sensitivity specification.
+    """
+
+    spec: ParameterSensitivitySpecDefaults
+    results_frame: pl.DataFrame
+    output_directory: Path
+    metadata: Mapping[str, object]
+
+    def write_summary(self) -> None:
+        """Persist sensitivity artefacts to disk."""
+        self.output_directory.mkdir(parents=True, exist_ok=True)
+        if not self.results_frame.is_empty():
+            self.results_frame.write_csv(self.output_directory / "results.csv")
+        metadata_path = self.output_directory / "metadata.json"
+        metadata_path.write_text(json.dumps(self.metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+
+@dataclass(slots=True)
+class ParameterSensitivitySuiteResult:
+    """
+    Aggregated results for parameter sensitivity sweeps.
+    """
+
+    base_directory: Path
+    output_dirname: str
+    runs: tuple[ParameterSensitivityRunResult, ...]
+
+    def summary_frame(self) -> pl.DataFrame:
+        """Return summary dataframe capturing best metric per specification."""
+        if not self.runs:
+            return pl.DataFrame()
+        rows: list[dict[str, object]] = []
+        for run in self.runs:
+            metadata = run.metadata
+            best_config_json = json.dumps(metadata.get("best_config", {}), sort_keys=True)
+            rows.append({
+                "spec": run.spec.name,
+                "slug": run.spec.slug,
+                "strategy": metadata.get("target_strategy"),
+                "metric": metadata.get("metric_name"),
+                "metric_value": metadata.get("best_metric"),
+                 "metric_spread": metadata.get("metric_spread"),
+                 "metric_spread_tolerance": metadata.get("metric_spread_tolerance"),
+                 "metric_spread_ok": metadata.get("metric_spread_ok"),
+                "evaluated_combinations": metadata.get("evaluated_combinations"),
+                "best_config": best_config_json,
+            })
+        return pl.DataFrame(rows)
+
+    def write_summary(self) -> None:
+        """Persist suite-level summary table."""
+        summary_frame = self.summary_frame()
+        if summary_frame.is_empty():
+            return
+        root = self.base_directory / self.output_dirname
+        root.mkdir(parents=True, exist_ok=True)
+        summary_frame.write_csv(root / "summary.csv")
+
+
 def _apply_heatmap_override(
     key: str,
     value: ParameterValue,
@@ -2003,6 +2101,231 @@ def run_parameter_heatmap_suite(
 
 
 # ===== Extended Diagnostics =====
+
+
+def run_parameter_sensitivity_suite(
+    dataset_path: Path,
+    output_dir: Path,
+    *,
+    specs: Sequence[ParameterSensitivitySpecDefaults] | None = None,
+    split: TrainTestSplit | None = None,
+    spec_slugs: Sequence[str] | None = None,
+) -> ParameterSensitivitySuiteResult:
+    """
+    Execute configured parameter sensitivity sweeps and persist artefacts.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Location of the sector dataset (directory or standalone Parquet file).
+    output_dir : Path
+        Directory for persisted artefacts.
+    specs : Sequence[ParameterSensitivitySpecDefaults] | None, optional
+        Explicit specification list overriding defaults.
+    split : TrainTestSplit | None, optional
+        Custom train/test split; defaults to canonical split when omitted.
+    spec_slugs : Sequence[str] | None, optional
+        When provided, restrict execution to specifications whose slugs match
+        the supplied values. Slugs are matched case-sensitively after trimming.
+    """
+    defaults = BACKTEST_DEFAULTS
+    suite_defaults: ParameterSensitivitySuiteDefaults = defaults.parameter_sensitivity
+    resolved_specs = tuple(specs or suite_defaults.specs)
+    if not resolved_specs:
+        raise ValueError("No parameter sensitivity specifications provided")
+    if spec_slugs:
+        normalized_slugs: list[str] = []
+        seen_slugs: set[str] = set()
+        for slug in spec_slugs:
+            trimmed = slug.strip()
+            if not trimmed or trimmed in seen_slugs:
+                continue
+            normalized_slugs.append(trimmed)
+            seen_slugs.add(trimmed)
+        if normalized_slugs:
+            slug_to_spec = {spec.slug: spec for spec in resolved_specs}
+            filtered_specs: list[ParameterSensitivitySpecDefaults] = []
+            missing: list[str] = []
+            for slug in normalized_slugs:
+                candidate = slug_to_spec.get(slug)
+                if candidate is None:
+                    missing.append(slug)
+                else:
+                    filtered_specs.append(candidate)
+            if missing:
+                missing_joined = ", ".join(sorted(missing))
+                msg = f"No parameter sensitivity specifications matched requested slugs: {missing_joined}"
+                raise ValueError(msg)
+            resolved_specs = tuple(filtered_specs)
+
+    dataset = _load_sector_dataset(dataset_path)
+    resolved_split = split or define_train_test_split()
+    _validate_split_against_dataset(dataset, resolved_split, defaults)
+
+    runs: list[ParameterSensitivityRunResult] = []
+    for spec in resolved_specs:
+        run_base_dir = output_dir / suite_defaults.output_dirname / spec.slug
+        combination_rows: list[dict[str, object]] = []
+        best_metric_value = float("-inf")
+        best_configuration: dict[str, ParameterValue] | None = None
+        metric_values: list[float] = []
+
+        grid_keys = tuple(spec.parameter_grid.keys())
+        grid_values = [spec.parameter_grid[key] for key in grid_keys]
+        combinations = list(itertools.product(*grid_values))
+        if not combinations:
+            LOGGER.warning("Sensitivity spec has no parameter combinations", spec=spec.name)
+            run = ParameterSensitivityRunResult(
+                spec=spec,
+                results_frame=pl.DataFrame(),
+                output_directory=run_base_dir,
+                metadata={
+                    "target_strategy": spec.target_strategy,
+                    "metric_name": spec.metric,
+                    "best_metric": None,
+                    "best_config": {},
+                    "evaluated_combinations": 0,
+                    "comment": "No parameter combinations evaluated.",
+                },
+            )
+            run.write_summary()
+            runs.append(run)
+            continue
+
+        for index, combo in enumerate(combinations, start=1):
+            config_overrides: dict[str, Any] = {}
+            turnover_overrides: dict[str, float] = {}
+            strategy_override_map: dict[str, dict[str, Any]] = {}
+            liquidity_override_map: dict[str, float] = {}
+            applied_values: dict[str, ParameterValue] = {}
+
+            for base_key, base_value in spec.base_overrides.items():
+                _apply_heatmap_override(
+                    base_key,
+                    base_value,
+                    config_overrides=config_overrides,
+                    turnover_overrides=turnover_overrides,
+                    strategy_overrides=strategy_override_map,
+                    liquidity_overrides=liquidity_override_map,
+                    applied_values=applied_values,
+                )
+
+            for key, value in zip(grid_keys, combo):
+                _apply_heatmap_override(
+                    key,
+                    value,
+                    config_overrides=config_overrides,
+                    turnover_overrides=turnover_overrides,
+                    strategy_overrides=strategy_override_map,
+                    liquidity_overrides=liquidity_override_map,
+                    applied_values=applied_values,
+                )
+
+            liquidity_config = _build_liquidity_config_from_overrides(
+                base_defaults=defaults,
+                overrides=liquidity_override_map,
+            )
+
+            combination_dir = run_base_dir / "suites" / f"combination_{index:02d}"
+            suite = _execute_backtest_suite(
+                dataset=dataset,
+                output_dir=combination_dir,
+                split=resolved_split,
+                config_overrides=config_overrides or None,
+                liquidity_config=liquidity_config,
+                turnover_overrides=turnover_overrides or None,
+                strategy_overrides=strategy_override_map or None,
+            )
+            metrics = suite.metrics.get(spec.target_strategy)
+            if metrics is None:
+                LOGGER.warning(
+                    "Target strategy metrics missing in sensitivity sweep",
+                    strategy=spec.target_strategy,
+                    spec=spec.name,
+                )
+                continue
+            if not hasattr(metrics, spec.metric):
+                msg = (
+                    f"PerformanceMetrics lacks attribute '{spec.metric}' "
+                    f"for sensitivity specification '{spec.name}'"
+                )
+                raise AttributeError(msg)
+            metric_value = float(getattr(metrics, spec.metric))
+            SENSITIVITY_METRIC_HIST.labels(
+                strategy=spec.target_strategy,
+                spec=spec.slug,
+                metric=spec.metric,
+            ).observe(metric_value)
+            row_payload: dict[str, object] = {
+                "combination_index": index,
+                "strategy": spec.target_strategy,
+                "metric_name": spec.metric,
+                "metric_value": metric_value,
+                "annualized_return": metrics.annualized_return,
+                "annualized_volatility": metrics.annualized_volatility,
+                "calmar_ratio": metrics.calmar_ratio,
+                "max_drawdown": metrics.maximum_drawdown,
+                "sharpe_ratio": metrics.sharpe_ratio,
+            }
+            metric_values.append(metric_value)
+            for key in grid_keys:
+                row_payload[key] = applied_values.get(key)
+            for key in spec.base_overrides:
+                if key not in row_payload:
+                    row_payload[key] = applied_values.get(key)
+
+            combination_rows.append(row_payload)
+            if metric_value > best_metric_value:
+                best_metric_value = metric_value
+                best_configuration = dict(sorted(applied_values.items()))
+
+        if combination_rows:
+            results_frame = pl.DataFrame(combination_rows)
+        else:
+            results_frame = pl.DataFrame()
+
+        metadata: dict[str, object] = {
+            "target_strategy": spec.target_strategy,
+            "metric_name": spec.metric,
+            "best_metric": best_metric_value if combination_rows else None,
+            "evaluated_combinations": len(combination_rows),
+            "best_config": cast(object, best_configuration or {}),
+        }
+        metric_spread: float | None = None
+        if metric_values:
+            metric_spread = max(metric_values) - min(metric_values)
+        tolerance: float | None = None
+        spread_ok = True
+        if metric_spread is not None and spec.metric == "sharpe_ratio":
+            tolerance = suite_defaults.sharpe_delta_tolerance
+            spread_ok = metric_spread <= tolerance
+            if not spread_ok:
+                LOGGER.warning(
+                    "phase4_sensitivity_sharpe_delta_violation",
+                    spec=spec.slug,
+                    spread=metric_spread,
+                    tolerance=tolerance,
+                )
+                SENSITIVITY_DELTA_COUNTER.labels(spec=spec.slug).inc()
+        metadata["metric_spread"] = metric_spread
+        metadata["metric_spread_tolerance"] = tolerance
+        metadata["metric_spread_ok"] = spread_ok
+        run_result = ParameterSensitivityRunResult(
+            spec=spec,
+            results_frame=results_frame,
+            output_directory=run_base_dir,
+            metadata=metadata,
+        )
+        run_result.write_summary()
+        runs.append(run_result)
+
+    suite_result = ParameterSensitivitySuiteResult(
+        base_directory=output_dir,
+        output_dirname=suite_defaults.output_dirname,
+        runs=tuple(runs),
+    )
+    suite_result.write_summary()
+    return suite_result
 
 
 @dataclass(slots=True)
@@ -2516,6 +2839,9 @@ def export_phase3_monitoring_snapshot(
     overlay_category_stats: list[dict[str, object]] | None = None
     baseline_metrics_payload: dict[str, object] | None = None
     heatmap_metadata: list[dict[str, object]] | None = None
+    sensitivity_metadata: list[dict[str, object]] | None = None
+    data_quality_summary: dict[str, object] | None = None
+    outlier_summary: dict[str, object] | None = None
 
     def _rel_path(path: Path) -> str | None:
         return str(path) if path.exists() else None
@@ -2644,6 +2970,88 @@ def export_phase3_monitoring_snapshot(
             for run in heatmaps.runs
         ]
 
+    if "phase4_sensitivity" in resolved_defaults.include_sections:
+        sensitivity_defaults = BACKTEST_DEFAULTS.parameter_sensitivity
+        sensitivity_root = snapshot_dir / sensitivity_defaults.output_dirname
+        summary_path = _rel_path(sensitivity_root / "summary.csv")
+        pdf_candidates = (
+            sensitivity_root / "sensitivity_analysis.pdf",
+            snapshot_dir / "sensitivity_analysis.pdf",
+            snapshot_dir.parent / "sensitivity_analysis.pdf",
+        )
+        pdf_path: str | None = None
+        for candidate in pdf_candidates:
+            candidate_path = _rel_path(candidate)
+            if candidate_path is not None:
+                pdf_path = candidate_path
+                break
+        sections["phase4_sensitivity"] = {
+            "summary_path": summary_path,
+            "report_path": pdf_path,
+        }
+        if summary_path is not None:
+            summary_file = Path(summary_path)
+            try:
+                summary_frame = pl.read_csv(summary_file)
+            except Exception:
+                LOGGER.warning("Failed to load sensitivity summary for monitoring snapshot", path=summary_path, exc_info=True)
+            else:
+                sensitivity_metadata = [
+                    {
+                        "spec": str(row.get("spec", "")),
+                        "slug": str(row.get("slug", "")),
+                        "metric": row.get("metric"),
+                        "metric_value": row.get("metric_value"),
+                        "evaluated_combinations": row.get("evaluated_combinations"),
+                        "best_config": row.get("best_config"),
+                    }
+                    for row in summary_frame.to_dicts()
+                ]
+
+    if "phase4_data_quality" in resolved_defaults.include_sections:
+        data_quality_root = snapshot_dir / "data_quality"
+        audit_path = _rel_path(data_quality_root / "missing_data_audit.json")
+        sections["phase4_data_quality"] = {
+            "audit_path": audit_path,
+        }
+        if audit_path is not None:
+            audit_file = Path(audit_path)
+            try:
+                data_quality_summary = json.loads(audit_file.read_text(encoding="utf-8"))
+            except Exception:
+                LOGGER.warning("Failed to parse data quality audit for monitoring snapshot", path=audit_path, exc_info=True)
+
+    if "phase4_outliers" in resolved_defaults.include_sections:
+        outlier_root = snapshot_dir / "outliers"
+        report_path = _rel_path(outlier_root / "factor_outlier_report.json")
+        sections["phase4_outliers"] = {
+            "report_path": report_path,
+        }
+        if report_path is not None:
+            report_file = Path(report_path)
+            try:
+                outlier_summary = json.loads(report_file.read_text(encoding="utf-8"))
+            except Exception:
+                LOGGER.warning("Failed to parse outlier report for monitoring snapshot", path=report_path, exc_info=True)
+
+    if "benchmarks" in resolved_defaults.include_sections:
+        benchmark_root = snapshot_dir / "benchmarks"
+        latest_run: Path | None = None
+        if benchmark_root.exists():
+            run_dirs = [path for path in benchmark_root.iterdir() if path.is_dir()]
+            if run_dirs:
+                latest_run = max(run_dirs, key=lambda candidate: candidate.stat().st_mtime)
+        if latest_run is not None:
+            sections["benchmarks"] = {
+                "root": _rel_path(benchmark_root),
+                "latest_slug": latest_run.name,
+                "summary_path": _rel_path(latest_run / "benchmark_summary.csv"),
+                "baseline_metrics_path": _rel_path(latest_run / "baseline_metrics.csv"),
+                "comparison_path": _rel_path(latest_run / "performance_comparison_table.csv"),
+                "audit_path": _rel_path(latest_run / "benchmark_audit.csv"),
+                "metadata_path": _rel_path(latest_run / "metadata.json"),
+            }
+
     if "extended_diagnostics" in resolved_defaults.include_sections and diagnostics is not None:
         diagnostics_section: dict[str, object] = {
             "tail_metrics_path": _rel_path(diagnostics.output_directory / "tail_metrics.csv"),
@@ -2716,6 +3124,12 @@ def export_phase3_monitoring_snapshot(
         payload["proxy_dataset_metadata"] = proxy_metadata
     if vintage_windows_metadata is not None:
         payload["vintage_metadata"] = vintage_windows_metadata
+    if sensitivity_metadata is not None:
+        payload["phase4_sensitivity_metadata"] = sensitivity_metadata
+    if data_quality_summary is not None:
+        payload["phase4_data_quality"] = data_quality_summary
+    if outlier_summary is not None:
+        payload["phase4_outlier_summary"] = outlier_summary
     snapshot_path = snapshot_dir / resolved_defaults.filename
     snapshot_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     MONITORING_EXPORT_COUNTER.labels(status="success").inc()
@@ -2890,6 +3304,219 @@ class LiquidityMitigationResult:
                 else None
             ),
         }
+
+
+# ===== Benchmark Export Helpers =====
+
+
+def _resolve_benchmark_root(output_dir: Path) -> Path:
+    for candidate in (output_dir, *output_dir.parents):
+        if candidate.name == "backtesting":
+            return candidate / "benchmarks"
+    return output_dir / "benchmarks"
+
+
+def _benchmark_run_slug(split: TrainTestSplit) -> str:
+    return (
+        f"train_{split.train_start.date().isoformat()}_{split.train_end.date().isoformat()}__"
+        f"test_{split.test_start.date().isoformat()}_{split.test_end.date().isoformat()}"
+    )
+
+
+def _serialize_metrics(strategy: str, metrics: PerformanceMetrics) -> dict[str, object]:
+    return {
+        "strategy": strategy,
+        "annualized_return": metrics.annualized_return,
+        "cumulative_return": metrics.cumulative_return,
+        "annualized_volatility": metrics.annualized_volatility,
+        "maximum_drawdown": metrics.maximum_drawdown,
+        "sharpe_ratio": metrics.sharpe_ratio,
+        "sortino_ratio": metrics.sortino_ratio,
+        "calmar_ratio": metrics.calmar_ratio,
+        "information_ratio": metrics.information_ratio,
+        "turnover_rate": metrics.turnover_rate,
+        "transaction_costs_total": metrics.transaction_costs_total,
+        "transaction_costs_pct": metrics.transaction_costs_pct,
+        "num_rebalances": metrics.num_rebalances,
+        "var_95": metrics.var_95,
+        "var_99": metrics.var_99,
+        "cvar_95": metrics.cvar_95,
+        "cvar_99": metrics.cvar_99,
+        "monthly_return_mean": metrics.monthly_return_mean,
+        "monthly_return_std": metrics.monthly_return_std,
+        "start_date": metrics.start_date.isoformat(),
+        "end_date": metrics.end_date.isoformat(),
+        "total_days": metrics.total_days,
+    }
+
+
+def _build_ordered_baseline_comparison(
+    strategies: Sequence[str],
+    comparison_df: pl.DataFrame,
+) -> pl.DataFrame:
+    if not strategies:
+        return comparison_df
+    if not comparison_df.columns:
+        return comparison_df
+    strategy_rows = {str(row.get("strategy")): row for row in comparison_df.to_dicts()}
+    ordered_rows: list[dict[str, object]] = []
+    columns = comparison_df.columns
+    for strategy in strategies:
+        record = strategy_rows.get(strategy)
+        if record is None:
+            placeholder: dict[str, object] = {}
+            for column in columns:
+                placeholder[column] = float("nan")
+            placeholder["strategy"] = strategy
+            ordered_rows.append(placeholder)
+        else:
+            ordered_rows.append(record)
+    return pl.DataFrame(ordered_rows, schema=comparison_df.schema)
+
+
+def _to_float(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return float("nan")
+    if value is None:
+        return float("nan")
+    if isinstance(value, (np.floating, np.integer)):
+        return float(value)
+    return float("nan")
+
+
+def _build_benchmark_metric_audit(
+    strategies: Sequence[str],
+    comparison_df: pl.DataFrame,
+    metrics_df: pl.DataFrame,
+) -> pl.DataFrame:
+    if not strategies or comparison_df.is_empty() or metrics_df.is_empty():
+        return pl.DataFrame()
+    comparison_rows = {str(row.get("strategy")): row for row in comparison_df.to_dicts()}
+    metrics_rows = {str(row.get("strategy")): row for row in metrics_df.to_dicts()}
+    metric_pairs = (
+        ("sharpe_ratio", "sharpe_ratio"),
+        ("sortino_ratio", "sortino_ratio"),
+        ("calmar_ratio", "calmar_ratio"),
+        ("turnover_rate", "turnover_rate"),
+        ("transaction_costs", "transaction_costs_total"),
+    )
+    audit_rows: list[dict[str, object]] = []
+    for strategy in strategies:
+        comparison_row = comparison_rows.get(strategy, {})
+        metrics_row = metrics_rows.get(strategy, {})
+        for comparison_field, metrics_field in metric_pairs:
+            comparison_value = _to_float(comparison_row.get(comparison_field))
+            baseline_value = _to_float(metrics_row.get(metrics_field))
+            delta = (
+                comparison_value - baseline_value
+                if not math.isnan(comparison_value) and not math.isnan(baseline_value)
+                else float("nan")
+            )
+            audit_rows.append({
+                "strategy": strategy,
+                "metric": metrics_field,
+                "comparison_value": comparison_value,
+                "mirror_value": baseline_value,
+                "delta": delta,
+            })
+    return pl.DataFrame(audit_rows)
+
+
+def _export_benchmark_tables(
+    suite: BacktestSuite,
+    comparison_df: pl.DataFrame,
+    output_dir: Path,
+) -> None:
+    if not suite.baseline_strategies:
+        return
+    summary = suite.benchmark_summary()
+    if summary.is_empty():
+        return
+
+    root = _resolve_benchmark_root(output_dir)
+    run_dir = root / _benchmark_run_slug(suite.split)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    summary.write_csv(run_dir / "benchmark_summary.csv")
+
+    metrics_rows: list[dict[str, object]] = []
+    for strategy in suite.baseline_strategies:
+        metrics = suite.metrics.get(strategy)
+        if metrics is None:
+            metrics_rows.append({
+                "strategy": strategy,
+                "annualized_return": float("nan"),
+                "cumulative_return": float("nan"),
+                "annualized_volatility": float("nan"),
+                "maximum_drawdown": float("nan"),
+                "sharpe_ratio": float("nan"),
+                "sortino_ratio": float("nan"),
+                "calmar_ratio": float("nan"),
+                "information_ratio": float("nan"),
+                "turnover_rate": float("nan"),
+                "transaction_costs_total": float("nan"),
+                "transaction_costs_pct": float("nan"),
+                "num_rebalances": 0,
+                "var_95": float("nan"),
+                "var_99": float("nan"),
+                "cvar_95": float("nan"),
+                "cvar_99": float("nan"),
+                "monthly_return_mean": float("nan"),
+                "monthly_return_std": float("nan"),
+                "start_date": None,
+                "end_date": None,
+                "total_days": 0,
+            })
+        else:
+            metrics_rows.append(_serialize_metrics(strategy, metrics))
+    metrics_frame = pl.DataFrame(metrics_rows)
+    metrics_frame.write_csv(run_dir / "baseline_metrics.csv")
+
+    baseline_comparison = comparison_df.filter(
+        pl.col("strategy").is_in(list(suite.baseline_strategies)),
+    )
+    ordered_comparison = _build_ordered_baseline_comparison(
+        suite.baseline_strategies,
+        baseline_comparison,
+    )
+    if not ordered_comparison.is_empty():
+        ordered_comparison.write_csv(run_dir / "performance_comparison_table.csv")
+
+    metadata: dict[str, object] = {
+        "train_start": suite.split.train_start.isoformat(),
+        "train_end": suite.split.train_end.isoformat(),
+        "test_start": suite.split.test_start.isoformat(),
+        "test_end": suite.split.test_end.isoformat(),
+        "strategies": list(suite.baseline_strategies),
+        "generated_at": datetime.now(tz=UTC).isoformat(),
+    }
+    rolling_metrics = suite.metrics.get(THREE_D_ROLLING_STRATEGY)
+    metadata.update({
+        "phase3_sharpe_strategy": THREE_D_ROLLING_STRATEGY,
+        "phase3_sharpe_threshold": PHASE3_TARGET_SHARPE,
+        "phase3_sharpe_value": rolling_metrics.sharpe_ratio if rolling_metrics is not None else None,
+        "phase3_sharpe_ok": (
+            rolling_metrics.sharpe_ratio >= PHASE3_TARGET_SHARPE
+            if rolling_metrics is not None
+            else False
+        ),
+    })
+    (run_dir / "metadata.json").write_text(
+        json.dumps(metadata, indent=2),
+        encoding="utf-8",
+    )
+    audit_frame = _build_benchmark_metric_audit(
+        suite.baseline_strategies,
+        ordered_comparison,
+        metrics_frame,
+    )
+    if not audit_frame.is_empty():
+        audit_frame.write_csv(run_dir / "benchmark_audit.csv")
 
 
 # ===== Main Orchestrator Function =====
@@ -3752,6 +4379,7 @@ def _execute_backtest_suite(
     train_config = _create_backtest_config(split, config_overrides, period="train")
     test_config = _create_backtest_config(split, config_overrides, period="test")
     full_config = _create_backtest_config(split, config_overrides, period="full")
+    coverage_tolerance = timedelta(days=defaults.coverage_tolerance_days)
 
     regimes = define_market_regimes()
     regime_resolver = _build_regime_resolver(regimes)
@@ -3874,7 +4502,10 @@ def _execute_backtest_suite(
     for strategy_name, result in full_results.items():
         if not regimes:
             continue
-        if result.start_date > regimes[0].start or result.end_date < regimes[-1].end:
+        if (
+            result.start_date > regimes[0].start + coverage_tolerance
+            or result.end_date < regimes[-1].end - coverage_tolerance
+        ):
             LOGGER.info("Skipping regime analysis due to insufficient coverage", strategy=strategy_name)
             continue
         try:
@@ -3947,6 +4578,8 @@ def _execute_backtest_suite(
         regime_summary_path = output_dir / "regime_summary.csv"
         regime_summary_df.write_csv(regime_summary_path)
         LOGGER.info("Regime summary saved", path=str(regime_summary_path))
+
+    _export_benchmark_tables(suite, comparison_df, output_dir)
 
     if suite.attribution or suite.regime_attribution:
         attribution_dir = output_dir / "attribution"
@@ -4869,6 +5502,8 @@ def _build_regime_resolver(
 # ===== Public API =====
 
 __all__ = [
+    "PHASE3_TARGET_SHARPE",
+    "THREE_D_ROLLING_STRATEGY",
     "BacktestSuite",
     "DiagnosticsResult",
     "LiquidityMitigationResult",

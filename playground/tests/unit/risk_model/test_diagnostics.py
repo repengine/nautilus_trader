@@ -421,6 +421,41 @@ class TestDiagnosticsSummary:
         expected_max_vif = np.max(all_vifs)
         assert abs(summary.summary_stats["max_vif"] - expected_max_vif) < 1e-6
 
+    def test_summary_custom_pass_rates(
+        self, multi_sector_data: tuple[pl.DataFrame, pl.DataFrame]
+    ) -> None:
+        """Ensure configurable pass rates influence acceptance status."""
+        sector_returns, factor_returns = multi_sector_data
+        diagnostics = compute_regression_diagnostics(
+            sector_returns,
+            factor_returns,
+            factor_columns=["factor_duration", "factor_credit", "factor_liquidity"],
+        )
+
+        summary = create_diagnostics_summary(
+            diagnostics,
+            r2_pass_rate=0.5,
+            significant_beta_pass_rate=0.5,
+            dw_pass_rate=0.5,
+        )
+        assert summary.acceptance_status["r2_criterion"] is True
+        assert summary.acceptance_status["significant_betas"] is True
+        assert summary.acceptance_status["autocorrelation"] is True
+
+    def test_summary_invalid_pass_rate(
+        self, multi_sector_data: tuple[pl.DataFrame, pl.DataFrame]
+    ) -> None:
+        """Invalid pass rates should raise a clear error."""
+        sector_returns, factor_returns = multi_sector_data
+        diagnostics = compute_regression_diagnostics(
+            sector_returns,
+            factor_returns,
+            factor_columns=["factor_duration", "factor_credit", "factor_liquidity"],
+        )
+
+        with pytest.raises(ValueError, match="r2_pass_rate"):
+            create_diagnostics_summary(diagnostics, r2_pass_rate=0.0)
+
 
 class TestDiagnosticsDataclass:
     """Tests for RegressionDiagnostics dataclass."""

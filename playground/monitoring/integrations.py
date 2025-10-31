@@ -53,9 +53,16 @@ def build_grafana_payload(snapshot_payload: Mapping[str, object]) -> dict[str, o
     diagnostics_section = _as_mapping(sections.get("extended_diagnostics"))
     proxy_section = _as_mapping(sections.get("proxy_datasets"))
     vintage_section = _as_mapping(sections.get("vintage_simulations"))
+    benchmark_section = _as_mapping(sections.get("benchmarks"))
+    sensitivity_section = _as_mapping(sections.get("phase4_sensitivity"))
+    data_quality_section = _as_mapping(sections.get("phase4_data_quality"))
+    outlier_section = _as_mapping(sections.get("phase4_outliers"))
 
     monte_carlo_metadata = _as_mapping(snapshot_payload.get("monte_carlo_metadata"))
     heatmap_metadata = _as_sequence_of_mappings(snapshot_payload.get("parameter_heatmap_metadata"))
+    sensitivity_metadata = _as_sequence_of_mappings(snapshot_payload.get("phase4_sensitivity_metadata"))
+    data_quality_metadata = _as_mapping(snapshot_payload.get("phase4_data_quality"))
+    outlier_metadata = _as_mapping(snapshot_payload.get("phase4_outlier_summary"))
 
     dashboard_targets = _as_mapping(snapshot_payload.get("dashboard_targets"))
     alert_rules = _as_mapping(snapshot_payload.get("alert_rules"))
@@ -97,6 +104,28 @@ def build_grafana_payload(snapshot_payload: Mapping[str, object]) -> dict[str, o
             "windows": vintage_section.get("windows", []),
         },
     }
+    grafana_payload["benchmarks"] = {
+        "summary_path": benchmark_section.get("summary_path"),
+        "baseline_metrics_path": benchmark_section.get("baseline_metrics_path"),
+        "comparison_path": benchmark_section.get("comparison_path"),
+        "audit_path": benchmark_section.get("audit_path"),
+        "latest_slug": benchmark_section.get("latest_slug"),
+    }
+    grafana_payload["phase4"] = {
+        "sensitivity": {
+            "summary_path": sensitivity_section.get("summary_path"),
+            "report_path": sensitivity_section.get("report_path"),
+            "metadata": sensitivity_metadata,
+        },
+        "data_quality": {
+            "audit_path": data_quality_section.get("audit_path"),
+            "summary": data_quality_metadata,
+        },
+        "outliers": {
+            "report_path": outlier_section.get("report_path"),
+            "summary": outlier_metadata,
+        },
+    }
     return grafana_payload
 
 
@@ -107,6 +136,10 @@ def build_pagerduty_payload(snapshot_payload: Mapping[str, object]) -> dict[str,
     sections = _as_mapping(snapshot_payload.get("sections"))
     proxy_section = _as_mapping(sections.get("proxy_datasets"))
     vintage_section = _as_mapping(sections.get("vintage_simulations"))
+    benchmark_section = _as_mapping(sections.get("benchmarks"))
+    sensitivity_section = _as_mapping(sections.get("phase4_sensitivity"))
+    data_quality_section = _as_mapping(sections.get("phase4_data_quality"))
+    outlier_section = _as_mapping(sections.get("phase4_outliers"))
 
     alert_rules = _as_mapping(snapshot_payload.get("alert_rules"))
     automation_targets = _as_mapping(snapshot_payload.get("automation_targets"))
@@ -115,6 +148,9 @@ def build_pagerduty_payload(snapshot_payload: Mapping[str, object]) -> dict[str,
     vintage_metadata = snapshot_payload.get("vintage_metadata")
     if not isinstance(vintage_metadata, list):
         vintage_metadata = []
+    sensitivity_metadata = _as_sequence_of_mappings(snapshot_payload.get("phase4_sensitivity_metadata"))
+    data_quality_metadata = _as_mapping(snapshot_payload.get("phase4_data_quality"))
+    outlier_metadata = _as_mapping(snapshot_payload.get("phase4_outlier_summary"))
 
     pagerduty_payload = {
         "service_rule": alert_rules.get("pagerduty"),
@@ -130,7 +166,29 @@ def build_pagerduty_payload(snapshot_payload: Mapping[str, object]) -> dict[str,
             "summary_path": vintage_section.get("summary_path"),
             "windows": vintage_section.get("windows", []),
         },
+        "benchmark_artifacts": {
+            "summary_path": benchmark_section.get("summary_path"),
+            "baseline_metrics_path": benchmark_section.get("baseline_metrics_path"),
+            "comparison_path": benchmark_section.get("comparison_path"),
+            "audit_path": benchmark_section.get("audit_path"),
+            "latest_slug": benchmark_section.get("latest_slug"),
+        },
         "vintage_metadata": vintage_metadata,
+        "phase4": {
+            "sensitivity": {
+                "summary_path": sensitivity_section.get("summary_path"),
+                "report_path": sensitivity_section.get("report_path"),
+                "metadata": sensitivity_metadata,
+            },
+            "data_quality": {
+                "audit_path": data_quality_section.get("audit_path"),
+                "summary": data_quality_metadata,
+            },
+            "outliers": {
+                "report_path": outlier_section.get("report_path"),
+                "summary": outlier_metadata,
+            },
+        },
     }
     return pagerduty_payload
 
