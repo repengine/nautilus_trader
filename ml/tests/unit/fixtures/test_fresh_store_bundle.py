@@ -3,6 +3,8 @@
 import pytest
 
 
+@pytest.mark.database
+@pytest.mark.serial
 def test_fresh_store_bundle_isolation(fresh_store_bundle):
     """Verify fresh_store_bundle provides isolated stores per test."""
     # Write data to feature store
@@ -27,6 +29,8 @@ def test_fresh_store_bundle_isolation(fresh_store_bundle):
     assert count == 1, "Data should exist in this test's store"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 def test_fresh_store_bundle_no_pollution(fresh_store_bundle):
     """Verify previous test's data does NOT pollute this test."""
     # This test should NOT see data from previous test
@@ -42,6 +46,8 @@ def test_fresh_store_bundle_no_pollution(fresh_store_bundle):
     assert count == 0, "fresh_store_bundle should provide isolated stores with no cross-test data"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.parametrize("run", [1, 2, 3])
 def test_fresh_store_bundle_consistency(fresh_store_bundle, run):
     """Verify consistent behavior across multiple runs."""
@@ -58,6 +64,8 @@ def test_fresh_store_bundle_consistency(fresh_store_bundle, run):
     assert count == 0, f"Run {run}: fresh_store_bundle should provide clean state"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 def test_fresh_store_bundle_attributes(fresh_store_bundle):
     """Verify fresh_store_bundle has all expected attributes."""
     assert hasattr(fresh_store_bundle, "feature_store"), "Should have feature_store"
