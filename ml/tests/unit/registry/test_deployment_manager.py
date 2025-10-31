@@ -76,7 +76,7 @@ class TestRegistryDeployment:
             # Check deployment status
             model_info = registry.get_model(model_id)
             assert model_info is not None
-            assert model_info.deployment_status == DeploymentStatus.ACTIVE
+            assert model_info.deployment_status.value == "active"
             assert "ml_signal_actor" in model_info.deployed_to
             assert model_info.metadata.get("deployment_config") == deployment_config
 
@@ -141,12 +141,12 @@ class TestRegistryDeployment:
             # Check v2 is active and v1 is retired
             model_v2_info = registry.get_model(model_v2)
             assert model_v2_info is not None
-            assert model_v2_info.deployment_status == DeploymentStatus.ACTIVE
+            assert model_v2_info.deployment_status.value == "active"
             assert "ml_signal_actor" in model_v2_info.deployed_to
 
             model_v1_info = registry.get_model(model_v1)
             assert model_v1_info is not None
-            assert model_v1_info.deployment_status == DeploymentStatus.RETIRED
+            assert model_v1_info.deployment_status.value == "retired"
 
     def test_registry_gradual_rollout(self) -> None:
         """
