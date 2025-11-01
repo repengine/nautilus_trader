@@ -1,4 +1,6 @@
-"""Tests for store integration service metrics aggregation."""
+"""
+Tests for store integration service metrics aggregation.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +17,9 @@ from ml.tests.conftest import TestDatabase
 
 @dataclass(slots=True)
 class _StubIntegrationManager:
-    """Minimal integration manager providing a database connection."""
+    """
+    Minimal integration manager providing a database connection.
+    """
 
     db_connection: str
 
@@ -27,13 +31,17 @@ class _StubIntegrationManager:
 
 
 def _ns_timestamp(offset_seconds: int = 0) -> int:
-    """Return a timestamp in nanoseconds relative to now."""
+    """
+    Return a timestamp in nanoseconds relative to now.
+    """
 
     return time.time_ns() + offset_seconds * 1_000_000_000
 
 
 def _seed_metrics_data(database: TestDatabase) -> None:
-    """Populate the database with deterministic metrics fixtures."""
+    """
+    Populate the database with deterministic metrics fixtures.
+    """
 
     now_ns = _ns_timestamp()
     five_minutes_ns = 300 * 1_000_000_000
@@ -68,7 +76,7 @@ def _seed_metrics_data(database: TestDatabase) -> None:
                     ('strat-alpha', 'EUR/USD', :ts1, :ts1, 'BUY', 0.6, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
                     ('strat-alpha', 'EUR/USD', :ts2, :ts2, 'SELL', -0.3, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
                     ('strat-beta', 'AAPL', :ts3, :ts3, 'BUY', 0.4, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE)
-                """
+                """,
             ),
             {
                 "ts1": now_ns - 2_000_000_000,
@@ -94,7 +102,7 @@ def _seed_metrics_data(database: TestDatabase) -> None:
                 ) VALUES
                     ('model-alpha', 'EUR/USD', :ts1, :ts1, 0.45, 0.9, '{}'::jsonb, 5.0, TRUE),
                     ('model-beta', 'AAPL', :ts2, :ts2, -0.12, 0.7, '{}'::jsonb, 8.0, FALSE)
-                """
+                """,
             ),
             {"ts1": now_ns - 2_000_000_000, "ts2": now_ns - 1_500_000_000},
         )
@@ -120,7 +128,7 @@ def _seed_metrics_data(database: TestDatabase) -> None:
                 ) VALUES
                     ('strat-alpha', 'EUR/USD', 1.0, 'LONG', 100.0, 110.0, 25.0, 15.0, 10000.0, 5000.0, 100.0, :ts1, :ts1),
                     ('strat-beta', 'AAPL', 2.0, 'LONG', 200.0, 195.0, -5.0, 20.0, 15000.0, 8000.0, 200.0, :ts2, :ts2)
-                """
+                """,
             ),
             {"ts1": now_ns - 2_000_000_000, "ts2": now_ns - 1_500_000_000},
         )
@@ -142,8 +150,8 @@ def _seed_metrics_data(database: TestDatabase) -> None:
                     is_active
                 ) VALUES ('strat-alpha', 100000.0, 50000.0, 10, 0.15, 20000.0, 5.0, 50, 10000.0, TRUE)
                 ON CONFLICT (strategy_id) DO UPDATE SET max_drawdown = EXCLUDED.max_drawdown
-                """
-            )
+                """,
+            ),
         )
 
         # Data events for ingestion metrics (window = 5 minutes)
@@ -167,12 +175,14 @@ def _seed_metrics_data(database: TestDatabase) -> None:
                     ('EQUS.MINI.BARS', 'AAPL', 'INGESTED', 'live', 'run-bars', :ts_base, :ts_base, :ts_now, 600, NULL, NULL, 'success'),
                     ('EQUS.MINI.QUOTES', 'AAPL', 'INGESTED', 'live', 'run-quotes', :ts_base, :ts_base, :ts_now, 300, NULL, NULL, 'success'),
                     ('EQUS.MINI.BOOK', 'AAPL', 'INGESTED', 'live', 'run-book', :ts_base, :ts_base, :ts_now, 150, NULL, NULL, 'failed')
-                """
+                """,
             ),
             {"ts_base": now_ns - five_minutes_ns, "ts_now": now_ns - 1_000_000_000},
         )
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_store_metrics_snapshot_aggregates_real_data(test_database: TestDatabase) -> None:
     _seed_metrics_data(test_database)

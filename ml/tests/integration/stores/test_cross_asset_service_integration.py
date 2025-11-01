@@ -12,6 +12,7 @@ Integration Points:
 
 Design: These tests require a real PostgreSQL database and verify that the service
 integrates correctly with the existing FeatureStore infrastructure.
+
 """
 
 from __future__ import annotations
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def feature_store(test_database: TestDatabase) -> ComponentFeatureStore:
-    """Provide initialized ComponentFeatureStore for integration tests."""
+    """
+    Provide initialized ComponentFeatureStore for integration tests.
+    """
     from ml.stores.feature_store import ComponentFeatureStore
 
     return ComponentFeatureStore(connection_string=test_database.connection_string)
@@ -48,8 +51,9 @@ def feature_store(test_database: TestDatabase) -> ComponentFeatureStore:
 # ============================================================================
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_cross_asset_property_returns_service_instance(
     feature_store: ComponentFeatureStore,
@@ -61,20 +65,25 @@ def test_cross_asset_property_returns_service_instance(
     - Property returns CrossAssetFeatureService instance
     - Service is properly initialized with deps=self
     - Service has access to engine and feature_values_table
+
     """
     from ml.stores.services.feature_services import CrossAssetFeatureService
 
     service = feature_store.cross_asset
 
     assert service is not None, "cross_asset property should return service instance"
-    assert isinstance(service, CrossAssetFeatureService), "Should return CrossAssetFeatureService instance"
+    assert isinstance(
+        service,
+        CrossAssetFeatureService,
+    ), "Should return CrossAssetFeatureService instance"
     assert hasattr(service, "deps"), "Service should have deps attribute"
     assert hasattr(service.deps, "engine"), "Deps should have engine"
     assert hasattr(service.deps, "feature_values_table"), "Deps should have feature_values_table"
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_facade_reuses_service_instance(
     feature_store: ComponentFeatureStore,
@@ -86,6 +95,7 @@ def test_facade_reuses_service_instance(
     - First access creates service instance
     - Subsequent accesses return same instance (cached)
     - No redundant initialization
+
     """
     service1 = feature_store.cross_asset
     service2 = feature_store.cross_asset
@@ -93,8 +103,9 @@ def test_facade_reuses_service_instance(
     assert service1 is service2, "Should return same service instance (cached)"
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_beta_compute_persist_retrieve(
     feature_store: ComponentFeatureStore,
@@ -148,8 +159,9 @@ def test_end_to_end_beta_compute_persist_retrieve(
     assert results2[0]["beta"] == 1.25
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_spread_workflow(
     feature_store: ComponentFeatureStore,
@@ -202,8 +214,9 @@ def test_end_to_end_spread_workflow(
     assert result[2]["lookback_periods"] == 60
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_correlation_workflow(
     feature_store: ComponentFeatureStore,
@@ -254,8 +267,9 @@ def test_end_to_end_correlation_workflow(
     assert result[2]["lookback_periods"] == 30
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_service_shares_engine_with_facade(
     feature_store: ComponentFeatureStore,
@@ -267,6 +281,7 @@ def test_service_shares_engine_with_facade(
     - Service uses facade's engine (no new connections)
     - Engine is same instance (not copied)
     - Connection pooling is shared
+
     """
     service = feature_store.cross_asset
 
@@ -274,8 +289,9 @@ def test_service_shares_engine_with_facade(
     assert service.deps.engine is feature_store.engine, "Service should share facade's engine"
 
 
-
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_service_shares_table_with_facade(
     feature_store: ComponentFeatureStore,
@@ -287,16 +303,19 @@ def test_service_shares_table_with_facade(
     - Service uses facade's feature_values_table
     - No duplicate table objects created
     - Schema is consistent
+
     """
     service = feature_store.cross_asset
 
     # Verify service uses facade's table
-    assert service.deps.feature_values_table is feature_store.feature_values_table, \
-        "Service should share facade's feature_values_table"
-
+    assert (
+        service.deps.feature_values_table is feature_store.feature_values_table
+    ), "Service should share facade's feature_values_table"
 
 
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_multiple_asset_pairs_coexist(
     feature_store: ComponentFeatureStore,
@@ -308,6 +327,7 @@ def test_multiple_asset_pairs_coexist(
     - Multiple beta pairs stored independently
     - No cross-contamination of data
     - Queries return correct pair-specific results
+
     """
     # Write betas for multiple pairs
     pairs = [
@@ -339,11 +359,14 @@ def test_multiple_asset_pairs_coexist(
         )
 
         assert len(results) == 1, f"Should retrieve beta for {asset}:{benchmark}"
-        assert results[0]["beta"] == 1.0 + i * 0.1, f"Should retrieve correct beta for {asset}:{benchmark}"
-
+        assert (
+            results[0]["beta"] == 1.0 + i * 0.1
+        ), f"Should retrieve correct beta for {asset}:{benchmark}"
 
 
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_time_series_retrieval_performance(
     feature_store: ComponentFeatureStore,
@@ -355,6 +378,7 @@ def test_time_series_retrieval_performance(
     - Handles large time series (100+ points)
     - Results returned in reasonable time
     - Memory usage is acceptable
+
     """
     # Write 100 beta values
     base_ts = 1234567890000000000

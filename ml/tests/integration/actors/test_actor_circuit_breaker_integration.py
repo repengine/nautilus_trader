@@ -82,16 +82,16 @@ def test_circuit_breaker_transitions(
 
     cb_inst = getattr(actor, "_circuit_breaker", None)
     assert cb_inst is not None
-    assert cb_inst.state == CircuitBreakerState.OPEN
+    assert cb_inst.state.value == CircuitBreakerState.OPEN.value
 
     # Ensure next attempt is allowed immediately and transition to HALF_OPEN
     setattr(cb_inst, "_next_attempt", 0.0)
     assert cb_inst.can_execute() is True
-    assert cb_inst.state == CircuitBreakerState.HALF_OPEN
+    assert cb_inst.state.value == CircuitBreakerState.HALF_OPEN.value
 
     # Manually record a success to reach CLOSED
     cb_inst.record_success()
-    assert cb_inst.state == CircuitBreakerState.CLOSED
+    assert cb_inst.state.value == CircuitBreakerState.CLOSED.value
 
 
 @pytest.mark.integration
@@ -128,6 +128,7 @@ def test_actor_bus_scheme_prefix_integration(
         )
 
         actor = MLSignalActor(base_signal_config)
+
         # Bypass Nautilus actor registration requirements for publish_data.
         def _noop_publish_data(self: MLSignalActor, data_type: Any, data: Any) -> None:
             return None

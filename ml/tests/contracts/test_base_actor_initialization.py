@@ -38,8 +38,9 @@ class ConcreteTestActor(BaseMLInferenceActor):
     """
     Concrete implementation of BaseMLInferenceActor for testing.
 
-    This minimal implementation provides the required abstract methods
-    for contract testing purposes.
+    This minimal implementation provides the required abstract methods for contract
+    testing purposes.
+
     """
 
     def __init__(self, config: MLActorConfig) -> None:
@@ -48,30 +49,41 @@ class ConcreteTestActor(BaseMLInferenceActor):
         super().__init__(config)
 
     def _load_model(self) -> None:
-        """Load a test model."""
+        """
+        Load a test model.
+        """
         self._model = Mock()
         self._test_model_loaded = True
 
     def _initialize_features(self) -> None:
-        """Initialize test features."""
+        """
+        Initialize test features.
+        """
         self._test_features_initialized = True
 
     def _compute_features(self, bar: Any) -> None:
-        """Compute test features."""
+        """
+        Compute test features.
+        """
         return None  # Not testing feature computation
 
     def _predict(self, features: Any) -> tuple[float, float]:
-        """Generate test prediction."""
+        """
+        Generate test prediction.
+        """
         return 0.5, 0.8
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestBaseMLInferenceActorInitialization:
     """
     Contract tests for BaseMLInferenceActor initialization behavior.
 
-    These tests validate that all BaseMLInferenceActor implementations
-    properly initialize required components and handle error conditions.
+    These tests validate that all BaseMLInferenceActor implementations properly
+    initialize required components and handle error conditions.
+
     """
 
     def test_config_validation_on_init_with_minimal_config(
@@ -87,6 +99,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: A minimal valid MLActorConfig
         When: BaseMLInferenceActor is initialized
         Then: Initialization succeeds without errors
+
         """
         # Arrange
         config = MLActorConfig(
@@ -119,6 +132,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: MLActorConfig with non-existent model path
         When: BaseMLInferenceActor is initialized
         Then: Initialization fails with appropriate error during on_start
+
         """
         # Arrange
         config = MLActorConfig(
@@ -147,6 +161,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: All stores are initialized and accessible via properties
+
         """
         # Arrange
         config = MLActorConfig(
@@ -171,7 +186,10 @@ class TestBaseMLInferenceActorInitialization:
         assert hasattr(actor.model_store, "write_prediction")
         assert hasattr(actor.strategy_store, "write_signals")
         # DataStore is a facade with specific methods for unified access
-        assert hasattr(actor.data_store, "write_features") or hasattr(actor.data_store, "get_features_at_or_before")
+        assert hasattr(actor.data_store, "write_features") or hasattr(
+            actor.data_store,
+            "get_features_at_or_before",
+        )
 
     def test_registries_initialization_order_and_completeness(
         self,
@@ -186,6 +204,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: All registries are initialized and accessible via properties
+
         """
         # Arrange
         config = MLActorConfig(
@@ -218,6 +237,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with enable_health_monitoring=True
         When: BaseMLInferenceActor is initialized
         Then: Health monitor is properly initialized with correct status
+
         """
         # Arrange
         config = MLActorConfig(
@@ -253,6 +273,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with enable_health_monitoring=False (default)
         When: BaseMLInferenceActor is initialized
         Then: Health monitor is None
+
         """
         # Arrange
         config = MLActorConfig(
@@ -283,6 +304,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with circuit_breaker_config provided
         When: BaseMLInferenceActor is initialized
         Then: Circuit breaker is properly initialized
+
         """
         # Arrange
         from ml.config.base import CircuitBreakerConfig
@@ -316,6 +338,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration without explicit feature_config
         When: BaseMLInferenceActor is initialized
         Then: Default MLFeatureConfig is used
+
         """
         # Arrange
         config = MLActorConfig(
@@ -347,6 +370,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with custom feature_config
         When: BaseMLInferenceActor is initialized
         Then: Custom feature config is used
+
         """
         # Arrange
         custom_feature_config = MLFeatureConfig(
@@ -366,8 +390,9 @@ class TestBaseMLInferenceActorInitialization:
         actor = ConcreteTestActor(config)
 
         # Assert
-        assert msgspec.to_builtins(actor._feature_config) == msgspec.to_builtins(custom_feature_config), \
-            f"Feature config mismatch: {msgspec.to_builtins(actor._feature_config)} != {msgspec.to_builtins(custom_feature_config)}"
+        assert msgspec.to_builtins(actor._feature_config) == msgspec.to_builtins(
+            custom_feature_config,
+        ), f"Feature config mismatch: {msgspec.to_builtins(actor._feature_config)} != {msgspec.to_builtins(custom_feature_config)}"
         assert actor._feature_config.lookback_window == 50
         assert actor._feature_config.normalize_features is False
 
@@ -386,6 +411,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Store initialization that raises an exception
         When: BaseMLInferenceActor is initialized
         Then: Exception is propagated with meaningful error message
+
         """
         # Arrange
         mock_init_services.side_effect = RuntimeError("Database connection failed")
@@ -415,6 +441,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Standard configuration
         When: BaseMLInferenceActor is initialized
         Then: ProductionModelLoader is used as model loader
+
         """
         # Arrange
         config = MLActorConfig(
@@ -430,6 +457,7 @@ class TestBaseMLInferenceActorInitialization:
 
         # Assert
         from ml.actors.base import ProductionModelLoader
+
         assert isinstance(actor._model_loader, ProductionModelLoader)
 
     def test_feature_buffer_initialization(
@@ -445,6 +473,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with specific lookback_window
         When: BaseMLInferenceActor is initialized
         Then: Feature window is initialized with correct maxlen
+
         """
         # Arrange
         feature_config = MLFeatureConfig(lookback_window=25)
@@ -477,6 +506,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: All performance tracking variables are initialized to zero
+
         """
         # Arrange
         config = MLActorConfig(
@@ -511,6 +541,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration with warm_up_period > 0
         When: BaseMLInferenceActor is initialized
         Then: Actor is not warmed up initially
+
         """
         # Arrange
         config = MLActorConfig(
@@ -542,6 +573,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: Model metadata variables have safe default values
+
         """
         # Arrange
         config = MLActorConfig(
@@ -574,6 +606,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: All required metrics are accessible
+
         """
         # Arrange
         config = MLActorConfig(
@@ -604,6 +637,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration that will cause on_start to fail
         When: BaseMLInferenceActor on_start fails
         Then: No resources are leaked and error is properly propagated
+
         """
         # Arrange - Invalid model path to force failure during on_start
         config = MLActorConfig(
@@ -635,6 +669,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Attempt to instantiate BaseMLInferenceActor directly
         When: Creating instance without implementing abstract methods
         Then: TypeError is raised
+
         """
         # Arrange
         config = MLActorConfig(
@@ -662,6 +697,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Environment where PostgreSQL is not available
         When: BaseMLInferenceActor is initialized
         Then: Dummy stores are used and warnings are logged
+
         """
         # Arrange
         config = MLActorConfig(
@@ -709,6 +745,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with circuit breaker enabled
         When: BaseMLInferenceActor is initialized
         Then: Circuit breaker is propagated to stores for write gating
+
         """
         # Arrange
         from ml.config.base import CircuitBreakerConfig
@@ -743,6 +780,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration missing either model_path or model_id
         When: MLActorConfig is created
         Then: TypeError is raised for missing required fields
+
         """
         # Test missing model_path - this should fail at config creation
         try:
@@ -782,6 +820,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration with component_id
         When: BaseMLInferenceActor is initialized
         Then: Actor ID matches the provided component_id
+
         """
         # Arrange
         component_id = ComponentId("MLActor-TEST-001")
@@ -865,6 +904,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Valid configuration
         When: BaseMLInferenceActor is initialized
         Then: All registries are accessible and properly initialized
+
         """
         # Arrange
         config = MLActorConfig(
@@ -902,6 +942,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration that will cause failure during on_start
         When: BaseMLInferenceActor on_start fails
         Then: No resources are leaked and proper cleanup occurs
+
         """
         # Arrange - Use invalid model path to trigger failure during on_start
         config = MLActorConfig(
@@ -933,6 +974,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with constraint violations
         When: MLActorConfig is created or actor is initialized
         Then: Appropriate validation occurs
+
         """
         # Test that config accepts string component_id but actor creation may validate further
         config_with_string_id = MLActorConfig(
@@ -948,6 +990,7 @@ class TestBaseMLInferenceActorInitialization:
         # Test invalid prediction_threshold (negative) - msgspec validation
         try:
             from msgspec import ValidationError
+
             MLActorConfig(
                 component_id=ComponentId("MLActor-TEST-001"),
                 model_path=str(dummy_onnx_model),
@@ -963,6 +1006,7 @@ class TestBaseMLInferenceActorInitialization:
         # Test invalid max_inference_latency_ms (zero) - should fail for PositiveFloat
         try:
             from msgspec import ValidationError
+
             MLActorConfig(
                 component_id=ComponentId("MLActor-TEST-001"),
                 model_path=str(dummy_onnx_model),
@@ -990,6 +1034,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with non-ONNX model in production mode
         When: BaseMLInferenceActor model loading is attempted
         Then: Security error is raised for unsafe formats
+
         """
         # Create a temporary pickle file (unsafe format)
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp_file:
@@ -1028,6 +1073,7 @@ class TestBaseMLInferenceActorInitialization:
         Given: Configuration with custom health monitoring settings
         When: BaseMLInferenceActor is initialized
         Then: Health monitor respects all configuration parameters
+
         """
         # Arrange
         from ml.config.base import HealthMonitorConfig
