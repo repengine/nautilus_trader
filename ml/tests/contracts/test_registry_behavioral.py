@@ -193,12 +193,12 @@ class TestRegistryBehaviors:
             active_models = registry.get_active_models()
             assert len(active_models) == 1
             assert active_models[0].manifest.model_id == model_id_v1
-            assert active_models[0].deployment_status == DeploymentStatus.ACTIVE
+            assert active_models[0].deployment_status.value == DeploymentStatus.ACTIVE.value
 
             # Verify v2 is no longer active
             v2_info = registry.get_model(model_id_v2)
             assert v2_info is not None
-            assert v2_info.deployment_status == DeploymentStatus.INACTIVE
+            assert v2_info.deployment_status.value == DeploymentStatus.INACTIVE.value
 
             # Verify performance history is preserved
             v1_history = registry.get_performance_history(model_id_v1)
@@ -263,7 +263,7 @@ class TestRegistryBehaviors:
             # Both models should be in TESTING status
             all_models = registry.get_all_models()
             testing_models = [
-                m for m in all_models if m.deployment_status == DeploymentStatus.TESTING
+                m for m in all_models if m.deployment_status.value == DeploymentStatus.TESTING.value
             ]
             assert len(testing_models) == 2
 
@@ -357,7 +357,7 @@ class TestRegistryBehaviors:
             v2_info = registry.get_model(model_id_v2)
             assert v2_info is not None
             assert "live_trading" in v2_info.deployed_to
-            assert v2_info.deployment_status == DeploymentStatus.ACTIVE
+            assert v2_info.deployment_status.value == DeploymentStatus.ACTIVE.value
 
             # Old model is still available for rollback if needed
             v1_info = registry.get_model(model_id_v1)
@@ -437,4 +437,4 @@ class TestRegistryBehaviors:
             # Check it wasn't deployed
             bad_model_info = registry.get_model(bad_student_model_id)
             assert bad_model_info is not None
-            assert bad_model_info.deployment_status == DeploymentStatus.INACTIVE
+            assert bad_model_info.deployment_status.value == DeploymentStatus.INACTIVE.value

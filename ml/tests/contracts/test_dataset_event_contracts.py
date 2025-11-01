@@ -129,7 +129,7 @@ class TestDatasetEventContracts:
         # Verify enum values
         assert call_args.kwargs["stage"] == Stage.PREDICTION_EMITTED
         assert call_args.kwargs["source"] == Source.HISTORICAL
-        assert call_args.kwargs["status"] == EventStatus.PARTIAL
+        assert call_args.kwargs["status"] == EventStatus.PARTIAL.value
 
     def test_emit_dataset_event_correlation_id_attachment(self, mock_registry: MagicMock) -> None:
         """
@@ -311,7 +311,7 @@ class TestDatasetEventContracts:
         call_args = data_store.registry.emit_event.call_args
 
         # Verify PARTIAL status
-        assert call_args.kwargs["status"] == EventStatus.PARTIAL
+        assert call_args.kwargs["status"] == EventStatus.PARTIAL.value
 
         # Verify reason in metadata
         metadata = call_args.kwargs.get("metadata", {})
@@ -341,7 +341,7 @@ class TestDatasetEventContracts:
         call_args = data_store.registry.emit_event.call_args
 
         # Verify FAILED status
-        assert call_args.kwargs["status"] == EventStatus.FAILED
+        assert call_args.kwargs["status"] == EventStatus.FAILED.value
 
         # Verify error message
         assert call_args.kwargs.get("error") == "model_loading_failed"

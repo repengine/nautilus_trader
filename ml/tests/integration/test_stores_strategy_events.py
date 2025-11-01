@@ -72,7 +72,7 @@ def test_strategy_store_emits_signal_events(test_database):
         # is_live=False -> historical source
         assert call_args["source"] == Source.HISTORICAL
         assert call_args["count"] == 3
-        assert call_args["status"] == EventStatus.SUCCESS
+        assert call_args["status"] == EventStatus.SUCCESS.value
         assert call_args["ts_min"] == 1700000000000000000
         assert call_args["ts_max"] == 1700000002000000000
 

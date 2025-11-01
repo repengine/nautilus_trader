@@ -235,7 +235,7 @@ class TestBaseMLInferenceActorInitialization:
 
         # Assert
         assert actor._health_monitor is not None, "Health monitor must be initialized"
-        assert actor._health_monitor.status == HealthStatus.HEALTHY
+        assert actor._health_monitor.status.value == HealthStatus.HEALTHY.value
         health_status = actor.get_health_status()
         assert "status" in health_status
         assert health_status["actor_id"] == str(test_component_id)

@@ -56,7 +56,7 @@ def test_backfill_recent_creates_parquet(tmp_path: Path) -> None:
     assert len(result.summaries) == 1
     summary = result.summaries[0]
     assert summary.symbol == "SPY"
-    assert summary.status == SymbolBackfillStatus.SUCCESS
+    assert summary.status.value == SymbolBackfillStatus.SUCCESS.value
     parquet_path = tmp_path / "SPY" / "l0" / "SPY_ohlcv.parquet"
     assert parquet_path.exists()
 
@@ -80,4 +80,4 @@ def test_backfill_recent_skips_disallowed_symbol(tmp_path: Path) -> None:
 
     assert len(result.summaries) == 1
     summary = result.summaries[0]
-    assert summary.status == SymbolBackfillStatus.SKIPPED
+    assert summary.status.value == SymbolBackfillStatus.SKIPPED.value

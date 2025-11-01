@@ -298,7 +298,7 @@ class TestUnifiedRegistry:
         # Check deployment
         student_info = self.registry.get_model(student_id)
         assert student_info is not None
-        assert student_info.deployment_status == DeploymentStatus.ACTIVE
+        assert student_info.deployment_status.value == DeploymentStatus.ACTIVE.value
         assert "ml_signal_actor" in student_info.deployed_to
 
         # Invalid student should not auto-deploy
@@ -316,7 +316,7 @@ class TestUnifiedRegistry:
 
         bad_info = self.registry.get_model(bad_id)
         assert bad_info is not None
-        assert bad_info.deployment_status == DeploymentStatus.INACTIVE
+        assert bad_info.deployment_status.value == DeploymentStatus.INACTIVE.value
         assert len(bad_info.deployed_to) == 0
 
     def test_performance_tracking(self) -> None:

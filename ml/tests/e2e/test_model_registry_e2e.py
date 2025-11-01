@@ -28,6 +28,7 @@ Success Criteria:
 - Canary deployment state management works
 - Legacy and component modes produce identical results
 - No model corruption or data loss
+
 """
 
 import os
@@ -165,7 +166,12 @@ def create_test_manifest(
         role=role,
         data_requirements=data_requirements,
         architecture="LogisticRegression",
-        feature_schema={"feature1": "float", "feature2": "float", "feature3": "float", "feature4": "float"},
+        feature_schema={
+            "feature1": "float",
+            "feature2": "float",
+            "feature3": "float",
+            "feature4": "float",
+        },
         feature_schema_hash=feature_schema_hash,
         version="1.0.0",
         created_at=time.time(),
@@ -284,7 +290,7 @@ class TestE2EModelRegistrationAndLoading:
                 DeploymentStatus.__module__,
                 type(model_info.deployment_status).__module__,
             )
-        assert model_info.deployment_status == DeploymentStatus.INACTIVE
+        assert model_info.deployment_status.value == DeploymentStatus.INACTIVE.value
         assert model_info.manifest.architecture == "LogisticRegression"
         assert model_info.manifest.version == "1.0.0"
 
@@ -514,7 +520,7 @@ class TestE2EDeploymentLifecycle:
 
         # Verify initial status
         model_info = registry.get_model(model_id)
-        assert model_info.deployment_status == DeploymentStatus.INACTIVE
+        assert model_info.deployment_status.value == DeploymentStatus.INACTIVE.value
         assert len(model_info.deployed_to) == 0
 
         # Deploy model
@@ -527,7 +533,7 @@ class TestE2EDeploymentLifecycle:
 
         # Verify deployment status
         model_info = registry.get_model(model_id)
-        assert model_info.deployment_status == DeploymentStatus.ACTIVE
+        assert model_info.deployment_status.value == DeploymentStatus.ACTIVE.value
         assert "production" in model_info.deployed_to
 
         # Verify in active models list
@@ -541,7 +547,7 @@ class TestE2EDeploymentLifecycle:
 
         # Verify retired status
         model_info = registry.get_model(model_id)
-        assert model_info.deployment_status == DeploymentStatus.RETIRED
+        assert model_info.deployment_status.value == DeploymentStatus.RETIRED.value
         assert len(model_info.deployed_to) == 0
 
         # Verify not in active models list
@@ -582,12 +588,12 @@ class TestE2EDeploymentLifecycle:
 
         # Verify v1 is active
         model_info_v1 = registry.get_model(model_id_v1)
-        assert model_info_v1.deployment_status == DeploymentStatus.ACTIVE
+        assert model_info_v1.deployment_status.value == DeploymentStatus.ACTIVE.value
         assert "production" in model_info_v1.deployed_to
 
         # Verify v2 is inactive
         model_info_v2 = registry.get_model(model_id_v2)
-        assert model_info_v2.deployment_status == DeploymentStatus.INACTIVE
+        assert model_info_v2.deployment_status.value == DeploymentStatus.INACTIVE.value
         assert "production" not in model_info_v2.deployed_to
 
     def test_e2e_hot_reload_model(
@@ -623,11 +629,11 @@ class TestE2EDeploymentLifecycle:
 
         # Verify new model is active
         model_info_new = registry.get_model(model_id_new)
-        assert model_info_new.deployment_status == DeploymentStatus.ACTIVE
+        assert model_info_new.deployment_status.value == DeploymentStatus.ACTIVE.value
 
         # Verify old model is retired
         model_info_old = registry.get_model(model_id_old)
-        assert model_info_old.deployment_status == DeploymentStatus.RETIRED
+        assert model_info_old.deployment_status.value == DeploymentStatus.RETIRED.value
 
 
 # ============================================================================
@@ -691,8 +697,8 @@ class TestE2EABTesting:
         # Verify both models in testing status
         model_info_a = registry.get_model(model_id_a)
         model_info_b = registry.get_model(model_id_b)
-        assert model_info_a.deployment_status == DeploymentStatus.TESTING
-        assert model_info_b.deployment_status == DeploymentStatus.TESTING
+        assert model_info_a.deployment_status.value == DeploymentStatus.TESTING.value
+        assert model_info_b.deployment_status.value == DeploymentStatus.TESTING.value
 
     def test_e2e_ab_test_metric_tracking(
         self,
@@ -931,7 +937,7 @@ class TestE2ECanaryDeployment:
         # Verify promotion
         if success:
             model_info_canary = registry.get_model(model_id_canary)
-            assert model_info_canary.deployment_status == DeploymentStatus.ACTIVE
+            assert model_info_canary.deployment_status.value == DeploymentStatus.ACTIVE.value
 
     def test_e2e_gradual_rollout(
         self,

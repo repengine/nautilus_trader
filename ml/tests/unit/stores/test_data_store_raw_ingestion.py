@@ -248,7 +248,7 @@ def test_raw_write_without_writer_emits_partial_and_no_watermark(
     # Event object reports partial and no watermark updates
     assert event.status == EventStatus.PARTIAL.value
     # Registry recorded PARTIAL event and zero watermarks
-    assert any(e.status == EventStatus.PARTIAL for e in reg.emitted)
+    assert any(e.status.value == EventStatus.PARTIAL.value for e in reg.emitted)
     assert reg.watermarks == []
 
 
@@ -283,7 +283,7 @@ def test_raw_write_with_writer_emits_success_and_watermark(
     )
 
     assert event.status == EventStatus.SUCCESS.value
-    assert any(e.status == EventStatus.SUCCESS for e in reg.emitted)
+    assert any(e.status.value == EventStatus.SUCCESS.value for e in reg.emitted)
     assert len(reg.watermarks) == 1
 
 

@@ -256,7 +256,7 @@ def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: A
         parquet_path=dataset_path,
     )
     plan_event = planner.plan(plan_request)
-    assert plan_event.status == EventStatus.SUCCESS
+    assert plan_event.status.value == EventStatus.SUCCESS.value
     assert plan_event.metadata_summary.total_rows == rows
 
     peak_gpu_mb = 512.0

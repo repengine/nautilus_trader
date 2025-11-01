@@ -488,7 +488,7 @@ def test_dict_to_model_info_legacy_format(model_persistence_json):
 
     assert result.manifest.model_id == "legacy_model"
     assert result.manifest.role == ModelRole.INFERENCE
-    assert result.deployment_status == DeploymentStatus.INACTIVE
+    assert result.deployment_status.value == DeploymentStatus.INACTIVE.value
 
 
 # ========== Threading Tests ==========

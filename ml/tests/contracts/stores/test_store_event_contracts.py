@@ -149,7 +149,7 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
     assert spy_evt["dataset_id"] == "signals"
     assert spy_evt["stage"] == Stage.SIGNAL_EMITTED
     assert spy_evt["source"] == Source.HISTORICAL
-    assert spy_evt["status"] == EventStatus.SUCCESS
+    assert spy_evt["status"] == EventStatus.SUCCESS.value
     assert spy_evt["count"] == 2
     assert spy_evt["ts_min"] == now
     assert spy_evt["ts_max"] == now + 1
@@ -158,7 +158,7 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
     assert qqq_evt["dataset_id"] == "signals"
     assert qqq_evt["stage"] == Stage.SIGNAL_EMITTED
     assert qqq_evt["source"] == Source.LIVE
-    assert qqq_evt["status"] == EventStatus.SUCCESS
+    assert qqq_evt["status"] == EventStatus.SUCCESS.value
     assert qqq_evt["count"] == 2
     assert qqq_evt["ts_min"] == now + 2
     assert qqq_evt["ts_max"] == now + 3
@@ -246,7 +246,7 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
     assert spy_evt["dataset_id"] == "predictions"
     assert spy_evt["stage"] == Stage.PREDICTION_EMITTED
     assert spy_evt["source"] == Source.HISTORICAL
-    assert spy_evt["status"] == EventStatus.SUCCESS
+    assert spy_evt["status"] == EventStatus.SUCCESS.value
     assert spy_evt["count"] == 2
     assert spy_evt.get("metadata", {}).get("model_id") == "m1"
     assert spy_evt["ts_min"] == now
@@ -256,7 +256,7 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
     assert qqq_evt["dataset_id"] == "predictions"
     assert qqq_evt["stage"] == Stage.PREDICTION_EMITTED
     assert qqq_evt["source"] == Source.LIVE
-    assert qqq_evt["status"] == EventStatus.SUCCESS
+    assert qqq_evt["status"] == EventStatus.SUCCESS.value
     assert qqq_evt["count"] == 2
     assert qqq_evt.get("metadata", {}).get("model_id") == "m2"
     assert qqq_evt["ts_min"] == now + 2
