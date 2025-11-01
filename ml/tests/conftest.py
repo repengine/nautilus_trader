@@ -198,8 +198,8 @@ def _reload_data_store_module() -> ModuleType:
 
     Use mocking patterns instead:
         @patch.dict(os.environ, {"ML_USE_LEGACY_DATA_STORE": "1"})
-        @patch("ml.stores.data_store.get_store_impl")
         def test_with_mock(mock_get_impl):
+            with patch("ml.stores.data_store.get_store_impl") as mock_get_store_impl:
             mock_get_impl.return_value = MockStore()
     """
     module = import_module("ml.stores.data_store")
@@ -217,8 +217,8 @@ def _component_data_store_context(use_component: bool) -> Generator[ModuleType, 
 
     Use mocking patterns instead:
         @patch.dict(os.environ, {"ML_USE_COMPONENT_DATA_STORE": "1"})
-        @patch("ml.stores.data_store.DataStore")
         def test_component_mode(mock_store):
+            with patch("ml.stores.data_store.DataStore") as mock_DataStore:
             # Test with mocked component implementation
     """
     prev_component = os.environ.get("ML_USE_COMPONENT_DATA_STORE")
@@ -1747,7 +1747,8 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "serial: run test in isolation (no xdist)")
     config.addinivalue_line("markers", "integration: integration test category")
     config.addinivalue_line(
-        "markers", "pollution_detection: tests that detect test isolation pollution"
+        "markers",
+        "pollution_detection: tests that detect test isolation pollution",
     )
 
     # Ensure key env defaults for deterministic, DB-safe unit runs

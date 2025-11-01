@@ -465,31 +465,30 @@ class TestDeploymentIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @patch("ml.common.metrics.PREDICTION_COUNTER")
-    @patch("ml.common.metrics.FEATURE_CALCULATION_TIMER")
-    @patch("ml.common.metrics.MODEL_INFERENCE_TIMER")
     def test_prometheus_metrics_exposure(
         self,
-        mock_inference_timer,
-        mock_feature_timer,
-        mock_prediction_counter,
         deployment_env,
     ):
         """
         Test Prometheus metrics are properly exposed.
         """
-        # Test actor metrics
-        actor_node = MLSignalActorNode()
-        with patch("ml.deployment.entrypoint_actor.TradingNode"):
-            with patch("ml.deployment.entrypoint_actor.MLSignalActor") as mock_actor_class:
-                mock_actor = Mock()
-                mock_actor_class.return_value = mock_actor
+        with (
+            patch("ml.common.metrics.MODEL_INFERENCE_TIMER") as mock_MODEL_INFERENCE_TIMER,
+            patch("ml.common.metrics.FEATURE_CALCULATION_TIMER") as mock_FEATURE_CALCULATION_TIMER,
+            patch("ml.common.metrics.PREDICTION_COUNTER") as mock_PREDICTION_COUNTER,
+        ):
+            # Test actor metrics
+            actor_node = MLSignalActorNode()
+            with patch("ml.deployment.entrypoint_actor.TradingNode"):
+                with patch("ml.deployment.entrypoint_actor.MLSignalActor") as mock_actor_class:
+                    mock_actor = Mock()
+                    mock_actor_class.return_value = mock_actor
 
-                actor_node.setup()
+                    actor_node.setup()
 
-                # Verify actor configuration enables metrics
-                actor_config = mock_actor_class.call_args[1]["config"]
-                assert actor_config.enable_health_monitoring is True
+                    # Verify actor configuration enables metrics
+                    actor_config = mock_actor_class.call_args[1]["config"]
+                    assert actor_config.enable_health_monitoring is True
 
     @pytest.mark.database
     @pytest.mark.serial

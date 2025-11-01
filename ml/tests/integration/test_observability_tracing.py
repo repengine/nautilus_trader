@@ -160,119 +160,125 @@ class TestTracingWithOpenTelemetry:
         # Result depends on OpenTelemetry availability
         assert isinstance(enabled, bool)
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_context_with_mocked_otel(self):
         """
         Test trace context with mocked OpenTelemetry.
         """
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._propagate") as mock_propagate:
-                mock_propagate.inject.return_value = None
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._propagate") as mock_propagate:
+                    mock_propagate.inject.return_value = None
 
-                # Mock carrier to return test context
-                def mock_inject(carrier):
-                    carrier["traceparent"] = (
-                        "00-12345678901234567890123456789012-1234567890123456-01"
-                    )
+                    # Mock carrier to return test context
+                    def mock_inject(carrier):
+                        carrier["traceparent"] = (
+                            "00-12345678901234567890123456789012-1234567890123456-01"
+                        )
 
-                mock_propagate.inject.side_effect = mock_inject
+                    mock_propagate.inject.side_effect = mock_inject
 
-                context = get_trace_context()
-                assert "traceparent" in context
+                    context = get_trace_context()
+                    assert "traceparent" in context
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_inject_trace_context_with_mocked_otel(self):
         """
         Test inject_trace_context with mocked OpenTelemetry.
         """
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._propagate") as mock_propagate:
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._propagate") as mock_propagate:
 
-                def mock_inject(carrier):
-                    carrier["traceparent"] = (
-                        "00-abcdef1234567890abcdef1234567890-abcdef1234567890-01"
-                    )
+                    def mock_inject(carrier):
+                        carrier["traceparent"] = (
+                            "00-abcdef1234567890abcdef1234567890-abcdef1234567890-01"
+                        )
 
-                mock_propagate.inject.side_effect = mock_inject
+                    mock_propagate.inject.side_effect = mock_inject
 
-                metadata = {"correlation_id": "test123"}
-                result = inject_trace_context(metadata)
+                    metadata = {"correlation_id": "test123"}
+                    result = inject_trace_context(metadata)
 
-                assert "correlation_id" in result
-                assert "trace_context" in result
-                assert "traceparent" in result["trace_context"]
+                    assert "correlation_id" in result
+                    assert "trace_context" in result
+                    assert "traceparent" in result["trace_context"]
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_cold_path_with_mocked_otel(self):
         """
         Test trace_cold_path with mocked OpenTelemetry.
         """
-        mock_span = Mock()
-        mock_span.set_attribute = Mock()
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            mock_span = Mock()
+            mock_span.set_attribute = Mock()
 
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._tracer") as mock_tracer:
-                mock_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
-                mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._tracer") as mock_tracer:
+                    mock_tracer.start_as_current_span.return_value.__enter__.return_value = (
+                        mock_span
+                    )
+                    mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
 
-                with trace_cold_path("test_operation", correlation_id="test123") as span:
-                    assert span is mock_span
-                    span.set_attribute("test_attr", "test_value")
+                    with trace_cold_path("test_operation", correlation_id="test123") as span:
+                        assert span is mock_span
+                        span.set_attribute("test_attr", "test_value")
 
-                # Verify span attributes were set
-                mock_span.set_attribute.assert_any_call("correlation_id", "test123")
-                mock_span.set_attribute.assert_any_call("operation_type", "cold_path")
+                    # Verify span attributes were set
+                    mock_span.set_attribute.assert_any_call("correlation_id", "test123")
+                    mock_span.set_attribute.assert_any_call("operation_type", "cold_path")
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_cold_path_decorator_with_mocked_otel(self):
         """
         Test trace_cold_path_decorator with mocked OpenTelemetry.
         """
-        mock_span = Mock()
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            mock_span = Mock()
 
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._tracer") as mock_tracer:
-                mock_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
-                mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._tracer") as mock_tracer:
+                    mock_tracer.start_as_current_span.return_value.__enter__.return_value = (
+                        mock_span
+                    )
+                    mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
 
-                @trace_cold_path_decorator("test_function")  # type: ignore[misc]
-                def test_func(x: int) -> int:
-                    return x * 2
+                    @trace_cold_path_decorator("test_function")  # type: ignore[misc]
+                    def test_func(x: int) -> int:
+                        return x * 2
 
-                result = test_func(5)
-                assert result == 10
+                    result = test_func(5)
+                    assert result == 10
 
-                # Verify tracer was called
-                mock_tracer.start_as_current_span.assert_called()
+                    # Verify tracer was called
+                    mock_tracer.start_as_current_span.assert_called()
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_inference_decorator_with_mocked_otel(self):
         """
         Test trace_inference decorator with mocked OpenTelemetry.
         """
-        mock_span = Mock()
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            mock_span = Mock()
 
-        with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-            with patch("ml.observability.tracing._tracer") as mock_tracer:
-                mock_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
-                mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
+            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                with patch("ml.observability.tracing._tracer") as mock_tracer:
+                    mock_tracer.start_as_current_span.return_value.__enter__.return_value = (
+                        mock_span
+                    )
+                    mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
 
-                # Mock actor with bar containing instrument_id
-                class MockBar:
-                    def __init__(self):
-                        self.instrument_id = "EUR/USD.SIM"
+                    # Mock actor with bar containing instrument_id
+                    class MockBar:
+                        def __init__(self):
+                            self.instrument_id = "EUR/USD.SIM"
 
-                class MockActor:
-                    @trace_inference("signal_generation")
-                    def on_bar(self, bar):
-                        return f"processed_{bar.instrument_id}"
+                    class MockActor:
+                        @trace_inference("signal_generation")
+                        def on_bar(self, bar):
+                            return f"processed_{bar.instrument_id}"
 
-                actor = MockActor()
-                bar = MockBar()
-                result = actor.on_bar(bar)
+                    actor = MockActor()
+                    bar = MockBar()
+                    result = actor.on_bar(bar)
 
-                assert result == "processed_EUR/USD.SIM"
-                mock_tracer.start_as_current_span.assert_called()
+                    assert result == "processed_EUR/USD.SIM"
+                    mock_tracer.start_as_current_span.assert_called()
 
 
 @pytest.mark.integration
@@ -348,47 +354,47 @@ class TestEventTracingIntegration:
         metadata = call_args.kwargs["metadata"]
         assert "correlation_id" in metadata
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_event_trace_context_propagation_with_mocked_otel(self):
         """
         Test trace context propagation through events with mocked OpenTelemetry.
         """
-        with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
-            with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
-                with patch("ml.observability.tracing._propagate") as mock_propagate:
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", True):
+            with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
+                with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
+                    with patch("ml.observability.tracing._propagate") as mock_propagate:
 
-                    def mock_inject(carrier):
-                        carrier["traceparent"] = (
-                            "00-trace123456789012345678901234567890-span123456789012-01"
+                        def mock_inject(carrier):
+                            carrier["traceparent"] = (
+                                "00-trace123456789012345678901234567890-span123456789012-01"
+                            )
+
+                        mock_propagate.inject.side_effect = mock_inject
+
+                        # Mock registry
+                        mock_registry = Mock()
+                        mock_registry.emit_event = Mock()
+                        mock_registry.update_watermark = Mock()
+
+                        emit_dataset_event_and_watermark(
+                            registry=mock_registry,
+                            dataset_id="features",
+                            instrument_id="EUR/USD",
+                            stage=Stage.FEATURE_COMPUTED,
+                            source=Source.HISTORICAL,
+                            run_id="test_run",
+                            ts_min=1000000000,
+                            ts_max=2000000000,
+                            count=100,
+                            status=EventStatus.SUCCESS,
                         )
 
-                    mock_propagate.inject.side_effect = mock_inject
+                        # Verify event contains trace context
+                        call_args = mock_registry.emit_event.call_args
+                        metadata = call_args.kwargs["metadata"]
 
-                    # Mock registry
-                    mock_registry = Mock()
-                    mock_registry.emit_event = Mock()
-                    mock_registry.update_watermark = Mock()
-
-                    emit_dataset_event_and_watermark(
-                        registry=mock_registry,
-                        dataset_id="features",
-                        instrument_id="EUR/USD",
-                        stage=Stage.FEATURE_COMPUTED,
-                        source=Source.HISTORICAL,
-                        run_id="test_run",
-                        ts_min=1000000000,
-                        ts_max=2000000000,
-                        count=100,
-                        status=EventStatus.SUCCESS,
-                    )
-
-                    # Verify event contains trace context
-                    call_args = mock_registry.emit_event.call_args
-                    metadata = call_args.kwargs["metadata"]
-
-                    assert "correlation_id" in metadata
-                    assert "trace_context" in metadata
-                    assert "traceparent" in metadata["trace_context"]
+                        assert "correlation_id" in metadata
+                        assert "trace_context" in metadata
+                        assert "traceparent" in metadata["trace_context"]
 
 
 @pytest.mark.integration
@@ -397,23 +403,23 @@ class TestTracingGracefulFallback:
     Test graceful fallback behavior when OpenTelemetry unavailable.
     """
 
-    @patch("ml.observability.tracing.HAS_OPENTELEMETRY", False)
     def test_graceful_fallback_when_otel_unavailable(self):
         """
         Test graceful fallback when OpenTelemetry not available.
         """
-        with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
-            # All functions should work without errors
-            assert not is_tracing_enabled()
-            assert get_trace_context() == {}
+        with patch("ml.observability.tracing.HAS_OPENTELEMETRY", False):
+            with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
+                # All functions should work without errors
+                assert not is_tracing_enabled()
+                assert get_trace_context() == {}
 
-            metadata = {"test": "value"}
-            assert inject_trace_context(metadata) == metadata
+                metadata = {"test": "value"}
+                assert inject_trace_context(metadata) == metadata
 
-            extract_and_link_trace_context({"trace_context": {"test": "value"}})
+                extract_and_link_trace_context({"trace_context": {"test": "value"}})
 
-            with trace_cold_path("test") as span:
-                assert span is None
+                with trace_cold_path("test") as span:
+                    assert span is None
 
     def test_exception_handling_in_tracing_functions(self):
         """

@@ -17,6 +17,7 @@ Contract areas tested:
 
 Following the testing strategy guidelines for contract tests that validate
 component boundaries and data quality enforcement.
+
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from ml.registry.dataclasses import (
 from ml.registry.utils import compute_dataset_schema_hash
 
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
+
 if TYPE_CHECKING:
     from ml.stores.data_store import DataStore
 else:
@@ -56,8 +58,11 @@ def _configure_datastore_symbols(
     datastore_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure tests run against both legacy and component DataStore implementations."""
+    """
+    Ensure tests run against both legacy and component DataStore implementations.
+    """
     monkeypatch.setattr(sys.modules[__name__], "DataStore", getattr(datastore_module, "DataStore"))
+
 
 if HAS_POLARS:
     import polars as pl
@@ -67,14 +72,15 @@ if HAS_POLARS:
 # ============================================================================
 
 
-
 def _make_test_registry(
     dataset_id: str,
     dataset_type: DatasetType,
     validation_rules: list[ValidationRule] | None = None,
     fail_validation: bool = False,
 ) -> MagicMock:
-    """Create mock registry with proper contract for testing."""
+    """
+    Create mock registry with proper contract for testing.
+    """
     # Dataset-specific schemas with required Nautilus fields
     schemas = {
         DatasetType.FEATURES: {
@@ -158,22 +164,24 @@ def _make_test_registry(
 
     # Add dataset-specific validation rules
     if dataset_type == DatasetType.PREDICTIONS:
-        default_rules.extend([
-            ValidationRule(
-                rule_type=ValidationRuleType.RANGE,
-                field_name="prediction",
-                parameters={"min": -1.0, "max": 1.0},
-                severity=QualityFlag.FAIL,
-                description="Predictions must be in [-1, 1] range",
-            ),
-            ValidationRule(
-                rule_type=ValidationRuleType.RANGE,
-                field_name="confidence",
-                parameters={"min": 0.0, "max": 1.0},
-                severity=QualityFlag.FAIL,
-                description="Confidence must be in [0, 1] range",
-            ),
-        ])
+        default_rules.extend(
+            [
+                ValidationRule(
+                    rule_type=ValidationRuleType.RANGE,
+                    field_name="prediction",
+                    parameters={"min": -1.0, "max": 1.0},
+                    severity=QualityFlag.FAIL,
+                    description="Predictions must be in [-1, 1] range",
+                ),
+                ValidationRule(
+                    rule_type=ValidationRuleType.RANGE,
+                    field_name="confidence",
+                    parameters={"min": 0.0, "max": 1.0},
+                    severity=QualityFlag.FAIL,
+                    description="Confidence must be in [0, 1] range",
+                ),
+            ]
+        )
     elif dataset_type == DatasetType.SIGNALS:
         default_rules.append(
             ValidationRule(
@@ -182,7 +190,7 @@ def _make_test_registry(
                 parameters={"min": 0.0, "max": 1.0},
                 severity=QualityFlag.FAIL,
                 description="Signal strength must be in [0, 1] range",
-            )
+            ),
         )
 
     rules = validation_rules or default_rules
@@ -214,7 +222,9 @@ def _create_test_datastore(
     fail_validation: bool = False,
     enable_publishing: bool = False,
 ) -> tuple[DataStore, MagicMock, MagicMock, MagicMock, MagicMock | None]:
-    """Create test DataStore with mocked dependencies."""
+    """
+    Create test DataStore with mocked dependencies.
+    """
     registry = _make_test_registry(dataset_id, dataset_type, validation_rules, fail_validation)
 
     # Create mock stores
@@ -274,7 +284,7 @@ class TestDataStoreRouting:
                 "ts_init": 1000000000,
                 "rsi": 0.5,
                 "ma": 1.234,
-            }
+            },
         ]
 
         # Execute write
@@ -309,7 +319,7 @@ class TestDataStoreRouting:
                 "ts_init": 1000000000,
                 "prediction": 0.75,
                 "confidence": 0.85,
-            }
+            },
         ]
 
         event = datastore.write_ingestion(
@@ -344,7 +354,7 @@ class TestDataStoreRouting:
                 "ts_init": 1000000000,
                 "signal_type": "BUY",
                 "strength": 0.9,
-            }
+            },
         ]
 
         event = datastore.write_ingestion(
@@ -368,8 +378,8 @@ class TestDataStoreRouting:
         """Contract: Read operations route correctly by dataset type."""
         # Test predictions read routing
         pred_dataset_id = "predictions_model_x"
-        pred_datastore, _, mock_model_store, mock_strategy_store, _ = (
-            _create_test_datastore(pred_dataset_id, DatasetType.PREDICTIONS)
+        pred_datastore, _, mock_model_store, mock_strategy_store, _ = _create_test_datastore(
+            pred_dataset_id, DatasetType.PREDICTIONS
         )
 
         pred_datastore.read_range(
@@ -392,8 +402,8 @@ class TestDataStoreRouting:
 
         # Test signals read routing
         sig_dataset_id = "signals_strategy_y"
-        sig_datastore, _, mock_model_store2, mock_strategy_store2, _ = (
-            _create_test_datastore(sig_dataset_id, DatasetType.SIGNALS)
+        sig_datastore, _, mock_model_store2, mock_strategy_store2, _ = _create_test_datastore(
+            sig_dataset_id, DatasetType.SIGNALS
         )
 
         sig_datastore.read_range(
@@ -433,11 +443,13 @@ class TestDataStoreValidation:
                 parameters={"min": -0.5, "max": 0.5},  # Stricter than default
                 severity=QualityFlag.FAIL,
                 description="Strict prediction range",
-            )
+            ),
         ]
 
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_strict", DatasetType.PREDICTIONS, validation_rules=strict_rules
+            "predictions_strict",
+            DatasetType.PREDICTIONS,
+            validation_rules=strict_rules,
         )
 
         # Valid data should pass
@@ -449,7 +461,7 @@ class TestDataStoreValidation:
                 "ts_init": 1000000000,
                 "prediction": 0.25,  # Within [-0.5, 0.5]
                 "confidence": 0.8,
-            }
+            },
         ]
 
         event = datastore.write_ingestion(
@@ -470,7 +482,7 @@ class TestDataStoreValidation:
                 "ts_init": 1000000000,
                 "prediction": 0.8,  # Outside [-0.5, 0.5]
                 "confidence": 0.8,
-            }
+            },
         ]
 
         with pytest.raises(Exception):  # Should raise validation error
@@ -485,7 +497,8 @@ class TestDataStoreValidation:
     def test_nullability_validation_contract(self):
         """Contract: Required fields cannot be null."""
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_nullable", DatasetType.PREDICTIONS
+            "predictions_nullable",
+            DatasetType.PREDICTIONS,
         )
 
         # Records with null required fields should fail
@@ -497,7 +510,7 @@ class TestDataStoreValidation:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         with pytest.raises(Exception):  # Should raise validation error
@@ -514,13 +527,14 @@ class TestDataStoreValidation:
             st.floats(min_value=-2.0, max_value=2.0, allow_nan=False),
             min_size=1,
             max_size=10,
-        )
+        ),
     )
     @settings(max_examples=20)
     def test_prediction_bounds_property(self, predictions):
         """Property: All predictions within [-1, 1] should pass validation."""
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_property", DatasetType.PREDICTIONS
+            "predictions_property",
+            DatasetType.PREDICTIONS,
         )
 
         # Filter to valid range
@@ -560,7 +574,7 @@ class TestDataStoreValidation:
                     "ts_init": 2000000000,
                     "prediction": invalid_predictions[0],
                     "confidence": 0.8,
-                }
+                },
             ]
 
             with pytest.raises(Exception):
@@ -584,7 +598,9 @@ class TestDataStoreEvents:
     def test_event_emission_contract(self):
         """Contract: Successful operations emit SUCCESS events with correct stages."""
         datastore, _, _, _, mock_publisher = _create_test_datastore(
-            "predictions_events", DatasetType.PREDICTIONS, enable_publishing=True
+            "predictions_events",
+            DatasetType.PREDICTIONS,
+            enable_publishing=True,
         )
 
         records = [
@@ -595,7 +611,7 @@ class TestDataStoreEvents:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         event = datastore.write_ingestion(
@@ -621,7 +637,9 @@ class TestDataStoreEvents:
         """Contract: Failed operations emit ERROR events with context."""
         # Create datastore that will fail validation
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_error", DatasetType.PREDICTIONS, fail_validation=True
+            "predictions_error",
+            DatasetType.PREDICTIONS,
+            fail_validation=True,
         )
 
         records = [
@@ -632,7 +650,7 @@ class TestDataStoreEvents:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         with pytest.raises(Exception):
@@ -647,7 +665,8 @@ class TestDataStoreEvents:
     def test_batch_event_aggregation_contract(self):
         """Contract: Batch operations emit single aggregated event."""
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_batch", DatasetType.PREDICTIONS
+            "predictions_batch",
+            DatasetType.PREDICTIONS,
         )
 
         # Large batch of records
@@ -687,7 +706,8 @@ class TestDataStoreWatermarks:
     def test_watermark_progression_contract(self):
         """Contract: Watermarks progress monotonically with timestamps."""
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_watermark", DatasetType.PREDICTIONS
+            "predictions_watermark",
+            DatasetType.PREDICTIONS,
         )
 
         # Write records in increasing timestamp order
@@ -702,7 +722,7 @@ class TestDataStoreWatermarks:
                     "ts_init": ts,
                     "prediction": 0.5,
                     "confidence": 0.8,
-                }
+                },
             ]
 
             event = datastore.write_ingestion(
@@ -740,7 +760,7 @@ class TestDataStoreWatermarks:
                         "ts_init": timestamp,
                         "prediction": 0.5,
                         "confidence": 0.8,
-                    }
+                    },
                 ]
             else:  # SIGNALS
                 records = [
@@ -751,7 +771,7 @@ class TestDataStoreWatermarks:
                         "ts_init": timestamp,
                         "signal_type": "BUY",
                         "strength": 0.9,
-                    }
+                    },
                 ]
 
             event = datastore.write_ingestion(
@@ -795,7 +815,7 @@ class TestDataStoreTransactions:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         # Contract: Operation should fail completely
@@ -844,7 +864,8 @@ class TestDataStoreErrorPropagation:
     def test_store_error_context_contract(self):
         """Contract: Store errors include proper context and traceability."""
         datastore, _, mock_model_store, _, _ = _create_test_datastore(
-            "predictions_error_context", DatasetType.PREDICTIONS
+            "predictions_error_context",
+            DatasetType.PREDICTIONS,
         )
 
         # Configure store to fail with specific error
@@ -859,7 +880,7 @@ class TestDataStoreErrorPropagation:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         # Contract: Error should be propagated with context
@@ -874,7 +895,10 @@ class TestDataStoreErrorPropagation:
 
         # Contract: Error context should be preserved
         # (Implementation-specific assertion about error wrapping)
-        assert "Database connection failed" in str(exc_info.value) or store_error in exc_info.value.__cause__
+        assert (
+            "Database connection failed" in str(exc_info.value)
+            or store_error in exc_info.value.__cause__
+        )
 
     def test_validation_error_detail_contract(self):
         """Contract: Validation errors provide detailed field-level information."""
@@ -886,11 +910,13 @@ class TestDataStoreErrorPropagation:
                 parameters={"min": 0.0, "max": 0.5},
                 severity=QualityFlag.FAIL,
                 description="Very strict prediction range",
-            )
+            ),
         ]
 
         datastore, _, _, _, _ = _create_test_datastore(
-            "predictions_strict_error", DatasetType.PREDICTIONS, validation_rules=strict_rules
+            "predictions_strict_error",
+            DatasetType.PREDICTIONS,
+            validation_rules=strict_rules,
         )
 
         invalid_records = [
@@ -901,7 +927,7 @@ class TestDataStoreErrorPropagation:
                 "ts_init": 1000000000,
                 "prediction": 0.8,  # Violates range [0.0, 0.5]
                 "confidence": 0.8,
-            }
+            },
         ]
 
         # Contract: Validation error should include field details
@@ -925,12 +951,15 @@ class TestDataStoreErrorPropagation:
 
 
 class TestDataStoreIntegrationContracts:
-    """Test contracts for integrated DataStore workflows."""
+    """
+    Test contracts for integrated DataStore workflows.
+    """
 
     def test_complete_workflow_contract(self):
         """Contract: Complete write-read workflow maintains data integrity."""
         datastore, _, mock_model_store, _, _ = _create_test_datastore(
-            "predictions_workflow", DatasetType.PREDICTIONS
+            "predictions_workflow",
+            DatasetType.PREDICTIONS,
         )
 
         # Configure read to return what was written
@@ -942,7 +971,7 @@ class TestDataStoreIntegrationContracts:
                 "ts_init": 1000000000,
                 "prediction": 0.5,
                 "confidence": 0.8,
-            }
+            },
         ]
 
         mock_model_store.read_predictions.return_value = original_records
@@ -976,7 +1005,8 @@ class TestDataStoreIntegrationContracts:
         """Contract: Concurrent operations do not interfere with each other."""
         # This is a simplified test; full concurrency testing would require threading
         datastore, _, mock_model_store, _, _ = _create_test_datastore(
-            "predictions_concurrent", DatasetType.PREDICTIONS
+            "predictions_concurrent",
+            DatasetType.PREDICTIONS,
         )
 
         # Simulate multiple rapid operations
@@ -989,7 +1019,7 @@ class TestDataStoreIntegrationContracts:
                     "ts_init": 1000000000 + i,
                     "prediction": 0.5,
                     "confidence": 0.8,
-                }
+                },
             ]
 
             event = datastore.write_ingestion(
@@ -1016,40 +1046,41 @@ class TestDataStoreIntegrationContracts:
 class TestDataStoreCircuitBreaker:
     """Test contract: DataStore circuit breaker functionality."""
 
-    @patch("ml.stores.data_store.time.time")
-    def test_circuit_breaker_activation_contract(self, mock_time):
+    def test_circuit_breaker_activation_contract(self):
         """Contract: Circuit breaker activates after consecutive failures."""
-        mock_time.return_value = 1000.0
+        with patch("ml.stores.data_store.time.time") as mock_time:
+            mock_time.return_value = 1000.0
 
-        datastore, _, mock_model_store, _, _ = _create_test_datastore(
-            "predictions_circuit", DatasetType.PREDICTIONS
-        )
+            datastore, _, mock_model_store, _, _ = _create_test_datastore(
+                "predictions_circuit",
+                DatasetType.PREDICTIONS,
+            )
 
-        # Configure store to fail consistently
-        mock_model_store.write_batch.side_effect = Exception("Persistent failure")
+            # Configure store to fail consistently
+            mock_model_store.write_batch.side_effect = Exception("Persistent failure")
 
-        records = [
-            {
-                "instrument_id": "EUR/USD.SIM",
-                "model_id": "test_model",
-                "ts_event": 1000000000,
-                "ts_init": 1000000000,
-                "prediction": 0.5,
-                "confidence": 0.8,
-            }
-        ]
+            records = [
+                {
+                    "instrument_id": "EUR/USD.SIM",
+                    "model_id": "test_model",
+                    "ts_event": 1000000000,
+                    "ts_init": 1000000000,
+                    "prediction": 0.5,
+                    "confidence": 0.8,
+                },
+            ]
 
-        # Contract: Multiple failures should eventually trigger circuit breaker
-        # (Implementation-specific behavior)
-        for i in range(3):
-            with pytest.raises(Exception):
-                datastore.write_ingestion(
-                    dataset_id="predictions_circuit",
-                    records=records,
-                    source="test",
-                    run_id=f"circuit_test_{i}",
-                    instrument_id="EUR/USD.SIM",
-                )
+            # Contract: Multiple failures should eventually trigger circuit breaker
+            # (Implementation-specific behavior)
+            for i in range(3):
+                with pytest.raises(Exception):
+                    datastore.write_ingestion(
+                        dataset_id="predictions_circuit",
+                        records=records,
+                        source="test",
+                        run_id=f"circuit_test_{i}",
+                        instrument_id="EUR/USD.SIM",
+                    )
 
-        # Note: Actual circuit breaker testing would require access to internal state
-        # This test validates that the interface supports circuit breaker concepts
+            # Note: Actual circuit breaker testing would require access to internal state
+            # This test validates that the interface supports circuit breaker concepts

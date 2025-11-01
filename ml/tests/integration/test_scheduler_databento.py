@@ -148,112 +148,110 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @patch("ml.data.scheduler.db")
     def test_collect_symbol_data_success(
         self,
-        mock_db: MagicMock,
         test_database: Any,
     ) -> None:
         """
         Test successful data collection for a symbol.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            catalog = ParquetDataCatalog(temp_dir)
+        with patch("ml.data.scheduler.db") as mock_db:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                catalog = ParquetDataCatalog(temp_dir)
 
-            config = SchedulerConfig(
-                symbols=["SPY.XNAS"],
-                databento=DatabentoConfig(
-                    use_temporary_files=True,
-                    temp_data_dir=temp_dir,
-                ),
-                connection_string=test_database.connection_string,
-            )
-
-            scheduler = DataScheduler(
-                catalog=catalog,
-                config=config,
-                connection=test_database.connection_string,
-            )
-
-            # Mock Databento client
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.to_file = MagicMock()
-            mock_client.timeseries.get_range.return_value = mock_response
-
-            # Mock loader to return sample data
-            with patch.object(scheduler._databento_loader, "from_dbn_file") as mock_loader:
-                # Create mock bar data
-                mock_bar = MagicMock(spec=Bar)
-                mock_loader.return_value = [mock_bar]
-
-                # Test collection
-                result = scheduler._collect_symbol_data(
-                    client=mock_client,
-                    symbol="SPY.XNAS",
-                    start_date=datetime.now() - timedelta(days=1),
-                    end_date=datetime.now(),
-                    target_date=datetime.now() - timedelta(days=1),
-                    temp_data_dir=Path(temp_dir),
+                config = SchedulerConfig(
+                    symbols=["SPY.XNAS"],
+                    databento=DatabentoConfig(
+                        use_temporary_files=True,
+                        temp_data_dir=temp_dir,
+                    ),
+                    connection_string=test_database.connection_string,
                 )
 
-                assert result is True
-                mock_client.timeseries.get_range.assert_called_once()
-                mock_loader.assert_called_once()
+                scheduler = DataScheduler(
+                    catalog=catalog,
+                    config=config,
+                    connection=test_database.connection_string,
+                )
+
+                # Mock Databento client
+                mock_client = MagicMock()
+                mock_response = MagicMock()
+                mock_response.to_file = MagicMock()
+                mock_client.timeseries.get_range.return_value = mock_response
+
+                # Mock loader to return sample data
+                with patch.object(scheduler._databento_loader, "from_dbn_file") as mock_loader:
+                    # Create mock bar data
+                    mock_bar = MagicMock(spec=Bar)
+                    mock_loader.return_value = [mock_bar]
+
+                    # Test collection
+                    result = scheduler._collect_symbol_data(
+                        client=mock_client,
+                        symbol="SPY.XNAS",
+                        start_date=datetime.now() - timedelta(days=1),
+                        end_date=datetime.now(),
+                        target_date=datetime.now() - timedelta(days=1),
+                        temp_data_dir=Path(temp_dir),
+                    )
+
+                    assert result is True
+                    mock_client.timeseries.get_range.assert_called_once()
+                    mock_loader.assert_called_once()
 
     @pytest.mark.database
     @pytest.mark.serial
-    @patch("ml.data.scheduler.db")
     def test_collect_symbol_data_retry_logic(
         self,
-        mock_db: MagicMock,
         test_database: Any,
     ) -> None:
         """
         Test retry logic on collection failure.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            catalog = ParquetDataCatalog(temp_dir)
+        with patch("ml.data.scheduler.db") as mock_db:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                catalog = ParquetDataCatalog(temp_dir)
 
-            config = SchedulerConfig(
-                symbols=["SPY.XNAS"],
-                max_retries=3,
-                retry_delay_seconds=0.1,
-                databento=DatabentoConfig(
-                    use_temporary_files=True,
-                    temp_data_dir=temp_dir,
-                ),
-                connection_string=test_database.connection_string,
-            )
-
-            scheduler = DataScheduler(
-                catalog=catalog,
-                config=config,
-                connection=test_database.connection_string,
-            )
-
-            # Mock client to fail twice then succeed
-            mock_client = MagicMock()
-            mock_client.timeseries.get_range.side_effect = [
-                Exception("Network error"),
-                Exception("Timeout"),
-                MagicMock(to_file=MagicMock()),  # Success on third try
-            ]
-
-            with patch.object(scheduler._databento_loader, "from_dbn_file") as mock_loader:
-                mock_loader.return_value = [MagicMock(spec=Bar)]
-
-                result = scheduler._collect_symbol_data(
-                    client=mock_client,
-                    symbol="SPY.XNAS",
-                    start_date=datetime.now() - timedelta(days=1),
-                    end_date=datetime.now(),
-                    target_date=datetime.now() - timedelta(days=1),
-                    temp_data_dir=Path(temp_dir),
+                config = SchedulerConfig(
+                    symbols=["SPY.XNAS"],
+                    max_retries=3,
+                    retry_delay_seconds=0.1,
+                    databento=DatabentoConfig(
+                        use_temporary_files=True,
+                        temp_data_dir=temp_dir,
+                    ),
+                    connection_string=test_database.connection_string,
                 )
 
-                assert result is True
-                assert mock_client.timeseries.get_range.call_count == 3
+                scheduler = DataScheduler(
+                    catalog=catalog,
+                    config=config,
+                    connection=test_database.connection_string,
+                )
+
+                # Mock client to fail twice then succeed
+                mock_client = MagicMock()
+                mock_client.timeseries.get_range.side_effect = [
+                    Exception("Network error"),
+                    Exception("Timeout"),
+                    MagicMock(to_file=MagicMock()),  # Success on third try
+                ]
+
+                with patch.object(scheduler._databento_loader, "from_dbn_file") as mock_loader:
+                    mock_loader.return_value = [MagicMock(spec=Bar)]
+
+                    result = scheduler._collect_symbol_data(
+                        client=mock_client,
+                        symbol="SPY.XNAS",
+                        start_date=datetime.now() - timedelta(days=1),
+                        end_date=datetime.now(),
+                        target_date=datetime.now() - timedelta(days=1),
+                        temp_data_dir=Path(temp_dir),
+                    )
+
+                    assert result is True
+                    assert mock_client.timeseries.get_range.call_count == 3
 
     @pytest.mark.database
     @pytest.mark.serial

@@ -396,10 +396,8 @@ class TestBaseMLInferenceActorInitialization:
         assert actor._feature_config.lookback_window == 50
         assert actor._feature_config.normalize_features is False
 
-    @patch("ml.actors.actor_services.init_actor_services")
     def test_error_handling_during_store_initialization_failure(
         self,
-        mock_init_services,
         test_component_id: ComponentId,
         default_bar_type: Any,
         default_instrument_id: InstrumentId,
@@ -413,20 +411,21 @@ class TestBaseMLInferenceActorInitialization:
         Then: Exception is propagated with meaningful error message
 
         """
-        # Arrange
-        mock_init_services.side_effect = RuntimeError("Database connection failed")
+        with patch("ml.actors.actor_services.init_actor_services") as mock_init_actor_services:
+            # Arrange
+            mock_init_actor_services.side_effect = RuntimeError("Database connection failed")
 
-        config = MLActorConfig(
-            component_id=test_component_id,
-            model_path=str(dummy_onnx_model),
-            model_id="test_model_v1",
-            bar_type=default_bar_type,
-            instrument_id=default_instrument_id,
-        )
+            config = MLActorConfig(
+                component_id=test_component_id,
+                model_path=str(dummy_onnx_model),
+                model_id="test_model_v1",
+                bar_type=default_bar_type,
+                instrument_id=default_instrument_id,
+            )
 
-        # Act & Assert
-        with pytest.raises(RuntimeError, match="Database connection failed"):
-            ConcreteTestActor(config)
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="Database connection failed"):
+                ConcreteTestActor(config)
 
     def test_model_loader_initialization_with_default_loader(
         self,
