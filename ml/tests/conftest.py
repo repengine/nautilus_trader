@@ -183,29 +183,6 @@ else:
 DataStoreModuleFactory = Callable[[bool], ContextManager[ModuleType]]
 
 
-# DEPRECATED: Module reloading removed to fix enum identity issues
-# See: reports/investigation/agent_a_enum_patterns.md
-# Module reloading creates new Enum instances, breaking equality checks
-# Use mocking or factory patterns instead of environment-based reloading
-
-
-def _reload_data_store_module() -> ModuleType:
-    """DEPRECATED: Do not use - causes enum identity issues.
-
-    This function previously reloaded ml.stores.data_store to pick up
-    environment variable changes. However, reloading creates new Enum
-    class instances, breaking equality comparisons.
-
-    Use mocking patterns instead:
-        @patch.dict(os.environ, {"ML_USE_LEGACY_DATA_STORE": "1"})
-        def test_with_mock(mock_get_impl):
-            with patch("ml.stores.data_store.get_store_impl") as mock_get_store_impl:
-            mock_get_impl.return_value = MockStore()
-    """
-    module = import_module("ml.stores.data_store")
-    # DO NOT RELOAD - return existing module to preserve enum identity
-    return module
-
 
 @contextmanager
 def _component_data_store_context(use_component: bool) -> Generator[ModuleType, None, None]:
