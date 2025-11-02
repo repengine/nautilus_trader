@@ -33,8 +33,9 @@ def test_can_create_feature_engineer():
     config = FeatureConfig()
     engineer = FeatureEngineer(config)
     assert engineer is not None
-    assert msgspec.to_builtins(engineer.config) == msgspec.to_builtins(config), \
-        f"Config mismatch: {msgspec.to_builtins(engineer.config)} != {msgspec.to_builtins(config)}"
+    assert msgspec.to_builtins(engineer.config) == msgspec.to_builtins(
+        config
+    ), f"Config mismatch: {msgspec.to_builtins(engineer.config)} != {msgspec.to_builtins(config)}"
 
 
 @pytest.mark.database

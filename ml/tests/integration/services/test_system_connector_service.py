@@ -1,4 +1,6 @@
-"""Tests for the system connector integration service."""
+"""
+Tests for the system connector integration service.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +15,9 @@ from ml.dashboard.services.system_service import SystemConnectorService
 
 
 class DummyEngine:
-    """Deterministic engine stub supporting connect/disconnect hooks."""
+    """
+    Deterministic engine stub supporting connect/disconnect hooks.
+    """
 
     def __init__(self, *, delay: float = 0.0, should_fail: bool = False) -> None:
         self.delay = delay
@@ -35,7 +39,9 @@ class DummyEngine:
 
 @dataclass(slots=True)
 class DummyKernel:
-    """Kernel container mirroring TradingNode.kernel attributes used in tests."""
+    """
+    Kernel container mirroring TradingNode.kernel attributes used in tests.
+    """
 
     data_engine: DummyEngine | None
     exec_engine: DummyEngine | None
@@ -43,7 +49,9 @@ class DummyKernel:
 
 
 class DummyTradingNode:
-    """Trading node stub exposing build/stop/dispose lifecycle operations."""
+    """
+    Trading node stub exposing build/stop/dispose lifecycle operations.
+    """
 
     def __init__(
         self,
@@ -72,7 +80,9 @@ class DummyTradingNode:
 
 
 class NodeFactory:
-    """Callable that records every generated trading node stub."""
+    """
+    Callable that records every generated trading node stub.
+    """
 
     def __init__(self, builder: Callable[[], DummyTradingNode]) -> None:
         self._builder = builder
@@ -91,7 +101,7 @@ async def test_connect_system_success() -> None:
             data_engine=DummyEngine(),
             exec_engine=DummyEngine(),
             cache={},
-        )
+        ),
     )
     service = SystemConnectorService(None, node_factory=factory)
 
@@ -99,7 +109,12 @@ async def test_connect_system_success() -> None:
 
     assert result.success is True
     assert result.status == "CONNECTED"
-    assert {status.component for status in result.components} == {"build", "data_engine", "exec_engine", "cache"}
+    assert {status.component for status in result.components} == {
+        "build",
+        "data_engine",
+        "exec_engine",
+        "cache",
+    }
     node = factory.created[-1]
     assert node.built is True
     assert node.kernel.data_engine and node.kernel.data_engine.connected is True
@@ -115,7 +130,7 @@ async def test_force_reconnect_disposes_previous_node() -> None:
             data_engine=DummyEngine(),
             exec_engine=DummyEngine(),
             cache={},
-        )
+        ),
     )
     service = SystemConnectorService(None, node_factory=factory)
 
@@ -138,7 +153,7 @@ async def test_component_failure_results_in_degraded_status() -> None:
             data_engine=DummyEngine(should_fail=True),
             exec_engine=DummyEngine(),
             cache={},
-        )
+        ),
     )
     service = SystemConnectorService(None, node_factory=factory)
 
@@ -161,12 +176,12 @@ async def test_connect_timeout_reports_failed_component() -> None:
             exec_engine=DummyEngine(),
             cache={},
             build_delay=0.2,
-        )
+        ),
     )
     service = SystemConnectorService(None, node_factory=factory)
 
     result = await service.connect_system(
-        SystemConnectRequest(timeout_seconds=0.05, component_timeout_seconds=0.05)
+        SystemConnectRequest(timeout_seconds=0.05, component_timeout_seconds=0.05),
     )
 
     assert result.success is False
@@ -181,11 +196,14 @@ async def test_connect_timeout_reports_failed_component() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_without_connection_is_noop() -> None:
-    service = SystemConnectorService(None, node_factory=lambda: DummyTradingNode(
-        data_engine=DummyEngine(),
-        exec_engine=DummyEngine(),
-        cache={},
-    ))
+    service = SystemConnectorService(
+        None,
+        node_factory=lambda: DummyTradingNode(
+            data_engine=DummyEngine(),
+            exec_engine=DummyEngine(),
+            cache={},
+        ),
+    )
 
     result = await service.disconnect_system()
 
@@ -201,7 +219,7 @@ async def test_disconnect_after_success_clears_status() -> None:
             data_engine=DummyEngine(),
             exec_engine=DummyEngine(),
             cache={},
-        )
+        ),
     )
     service = SystemConnectorService(None, node_factory=factory)
 

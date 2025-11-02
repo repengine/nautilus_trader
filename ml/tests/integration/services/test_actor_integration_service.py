@@ -1,4 +1,6 @@
-"""Tests for the dashboard actor integration service."""
+"""
+Tests for the dashboard actor integration service.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +18,9 @@ from ml.dashboard.services.actors_service import ActorStopRequest
 
 
 class DummyLifecycleActor:
-    """Dummy actor exposing lifecycle hooks for testing."""
+    """
+    Dummy actor exposing lifecycle hooks for testing.
+    """
 
     def __init__(self, config: Mapping[str, Any]) -> None:
         self._config = dict(config)
@@ -50,7 +54,9 @@ class DummyLifecycleActor:
 
 
 class DummyModelRegistry:
-    """Minimal registry verifying model availability."""
+    """
+    Minimal registry verifying model availability.
+    """
 
     def __init__(self, available_models: set[str]) -> None:
         self.available_models = available_models
@@ -62,7 +68,9 @@ class DummyModelRegistry:
 
 
 class DummyIntegrationManager:
-    """Stub integration manager exposing registry attributes."""
+    """
+    Stub integration manager exposing registry attributes.
+    """
 
     def __init__(self, model_registry: object | None = None) -> None:
         self.model_registry = model_registry
@@ -90,6 +98,7 @@ def actor_service() -> ActorIntegrationService:
 
     service._run_async = types.MethodType(fake_run_async, service)
     return service
+
 
 @pytest.mark.asyncio
 async def test_deploy_actor_success(actor_service: ActorIntegrationService) -> None:
@@ -132,10 +141,12 @@ async def test_pause_actor_transitions_state(actor_service: ActorIntegrationServ
         ActorDeploymentRequest(
             actor_type="MLSignalActor",
             config={"actor_id": "actor-1", "model_id": "model_a"},
-        )
+        ),
     )
 
-    result = await actor_service.pause_actor(ActorPauseRequest(actor_id="actor-1", reason="maintenance"))
+    result = await actor_service.pause_actor(
+        ActorPauseRequest(actor_id="actor-1", reason="maintenance")
+    )
 
     assert result.success is True
     assert result.status == "PAUSED"
@@ -151,7 +162,7 @@ async def test_resume_actor_restores_running_state(actor_service: ActorIntegrati
         ActorDeploymentRequest(
             actor_type="MLSignalActor",
             config={"actor_id": "actor-2", "model_id": "model_a"},
-        )
+        ),
     )
     await actor_service.pause_actor(ActorPauseRequest(actor_id="actor-2"))
 
@@ -172,7 +183,7 @@ async def test_stop_actor_removes_instance(actor_service: ActorIntegrationServic
         ActorDeploymentRequest(
             actor_type="MLSignalActor",
             config={"actor_id": "actor-stop", "model_id": "model_a"},
-        )
+        ),
     )
 
     response = await actor_service.stop_actor(ActorStopRequest(actor_id="actor-stop"))
@@ -190,7 +201,7 @@ async def test_stop_actor_force_uses_degrade(actor_service: ActorIntegrationServ
         ActorDeploymentRequest(
             actor_type="MLSignalActor",
             config={"actor_id": "actor-force", "model_id": "model_a", "fail_stop": True},
-        )
+        ),
     )
     actor = actor_service._running_actors["actor-force"]
     assert isinstance(actor, DummyLifecycleActor)
@@ -209,7 +220,7 @@ async def test_stop_actor_failure_returns_error(actor_service: ActorIntegrationS
         ActorDeploymentRequest(
             actor_type="MLSignalActor",
             config={"actor_id": "actor-fail", "model_id": "model_a", "fail_dispose": True},
-        )
+        ),
     )
 
     response = await actor_service.stop_actor(ActorStopRequest(actor_id="actor-fail"))

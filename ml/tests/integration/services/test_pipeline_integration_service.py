@@ -1,4 +1,6 @@
-"""Tests for the pipeline integration service."""
+"""
+Tests for the pipeline integration service.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ from ml.dashboard.services.pipelines_service import (
 
 
 class DummyOrchestrator:
-    """Stub orchestrator capturing run invocations."""
+    """
+    Stub orchestrator capturing run invocations.
+    """
 
     def __init__(self, return_code: int = 0) -> None:
         self.return_code = return_code
@@ -35,7 +39,9 @@ class DummyOrchestrator:
 
 
 class DummyIntegrationManager:
-    """Simple integration manager exposing orchestrator attribute."""
+    """
+    Simple integration manager exposing orchestrator attribute.
+    """
 
     def __init__(self, orchestrator: Any | None, pipeline_job_store: Any | None = None) -> None:
         self.orchestrator = orchestrator
@@ -43,7 +49,9 @@ class DummyIntegrationManager:
 
 
 class InMemoryJobStore:
-    """In-memory implementation of the pipeline job store protocol."""
+    """
+    In-memory implementation of the pipeline job store protocol.
+    """
 
     def __init__(self) -> None:
         self._jobs: dict[str, PipelineJobState] = {}
@@ -63,15 +71,21 @@ class InMemoryJobStore:
 
 
 class FaultyJobStore:
-    """Job store that raises on all operations to exercise failure metrics."""
+    """
+    Job store that raises on all operations to exercise failure metrics.
+    """
 
-    def save(self, job_state: PipelineJobState) -> None:  # pragma: no cover - deterministic in tests
+    def save(
+        self, job_state: PipelineJobState
+    ) -> None:  # pragma: no cover - deterministic in tests
         raise RuntimeError("save failed")
 
     def delete(self, job_id: str) -> None:  # pragma: no cover - deterministic in tests
         raise RuntimeError("delete failed")
 
-    def get(self, job_id: str) -> PipelineJobState | None:  # pragma: no cover - deterministic in tests
+    def get(
+        self, job_id: str
+    ) -> PipelineJobState | None:  # pragma: no cover - deterministic in tests
         raise RuntimeError("get failed")
 
     def list_jobs(self) -> list[PipelineJobState]:  # pragma: no cover - deterministic in tests
@@ -127,7 +141,9 @@ async def test_trigger_pipeline_success(pipeline_service: PipelineIntegrationSer
 
 
 @pytest.mark.asyncio
-async def test_trigger_pipeline_invalid_config(pipeline_service: PipelineIntegrationService) -> None:
+async def test_trigger_pipeline_invalid_config(
+    pipeline_service: PipelineIntegrationService,
+) -> None:
     bad_request = PipelineTriggerRequest(pipeline_type="training", config={})
 
     result = await pipeline_service.trigger_pipeline(bad_request)
@@ -323,7 +339,7 @@ async def test_pipeline_job_store_failure_metrics_increment() -> None:
 async def test_purge_job_removes_state() -> None:
     job_store = InMemoryJobStore()
     service = PipelineIntegrationService(
-        DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store)
+        DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store),
     )
 
     job_state = PipelineJobState(
@@ -352,7 +368,7 @@ async def test_purge_job_removes_state() -> None:
 async def test_purge_job_records_delete_failure_metric() -> None:
     job_store = FaultyJobStore()
     service = PipelineIntegrationService(
-        DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store)
+        DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store),
     )
 
     job_state = PipelineJobState(
@@ -389,7 +405,7 @@ async def test_list_jobs_returns_sorted_history() -> None:
             finished_at=10.0,
             started_at_iso="2025-01-01T00:01:00+00:00",
             finished_at_iso="2025-01-01T00:02:00+00:00",
-        )
+        ),
     )
     job_store.save(
         PipelineJobState(
@@ -404,10 +420,12 @@ async def test_list_jobs_returns_sorted_history() -> None:
             finished_at=20.0,
             started_at_iso="2025-01-01T01:00:00+00:00",
             finished_at_iso="2025-01-01T01:05:00+00:00",
-        )
+        ),
     )
 
-    service = PipelineIntegrationService(DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store))
+    service = PipelineIntegrationService(
+        DummyIntegrationManager(orchestrator=None, pipeline_job_store=job_store)
+    )
     service._jobs["job_running"] = PipelineJobState(
         job_id="job_running",
         pipeline_type="training",

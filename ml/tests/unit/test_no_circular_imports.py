@@ -1,4 +1,5 @@
-"""Test that circular imports are eliminated.
+"""
+Test that circular imports are eliminated.
 
 This module verifies Phase 0.1 of the refactoring plan: ensuring that
 ml.stores and ml.actors can be imported independently without circular
@@ -8,13 +9,16 @@ The circular dependency that was resolved:
 - actors.base imports from ml.stores (for protocols and concrete stores)
 - ml.stores should NOT import from ml.actors at runtime
 - Any actor examples in docstrings should use TYPE_CHECKING pattern
+
 """
 
 import sys
 
 
 def test_stores_import_standalone():
-    """Stores module can be imported without actors."""
+    """
+    Stores module can be imported without actors.
+    """
     # Clean slate - remove any previously imported ml modules
     mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
     for mod in mods_to_remove:
@@ -37,7 +41,9 @@ def test_stores_import_standalone():
 
 
 def test_actors_import_standalone():
-    """Actors module can be imported without stores (tests runtime independence)."""
+    """
+    Actors module can be imported without stores (tests runtime independence).
+    """
     # Clean slate
     mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
     for mod in mods_to_remove:
@@ -57,7 +63,9 @@ def test_actors_import_standalone():
 
 
 def test_import_order_independence():
-    """Imports work in either order without circular dependency errors."""
+    """
+    Imports work in either order without circular dependency errors.
+    """
     # Test order 1: stores then actors
     mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
     for mod in mods_to_remove:
@@ -92,11 +100,14 @@ def test_import_order_independence():
 
 
 def test_no_runtime_actor_import_in_stores():
-    """Verify ml.stores.__init__.py has no runtime import of BaseMLInferenceActor."""
+    """
+    Verify ml.stores.__init__.py has no runtime import of BaseMLInferenceActor.
+    """
     import ast
     from pathlib import Path
 
-    stores_init = Path(__file__).parent.parent / "stores" / "__init__.py"
+    # Navigate from ml/tests/unit/ to ml/stores/
+    stores_init = Path(__file__).parent.parent.parent / "stores" / "__init__.py"
     source = stores_init.read_text()
     tree = ast.parse(source)
 
@@ -106,16 +117,18 @@ def test_no_runtime_actor_import_in_stores():
         if isinstance(node, ast.ImportFrom):
             if node.module and node.module.startswith("ml.actors"):
                 for alias in node.names:
-                    imports.append((node.module, alias.name if hasattr(alias, "name") else str(alias)))
+                    imports.append(
+                        (node.module, alias.name if hasattr(alias, "name") else str(alias))
+                    )
 
     # Should have NO imports from ml.actors
-    assert (
-        not imports
-    ), f"ml/stores/__init__.py should not import from ml.actors, found: {imports}"
+    assert not imports, f"ml/stores/__init__.py should not import from ml.actors, found: {imports}"
 
 
 def test_stores_public_api_has_no_actor_types():
-    """Verify that ml.stores.__all__ does not export any actor types."""
+    """
+    Verify that ml.stores.__all__ does not export any actor types.
+    """
     try:
         import ml.stores
 
@@ -136,27 +149,33 @@ def test_stores_public_api_has_no_actor_types():
 
 
 def test_stores_not_reexported_from_actors():
-    """Store classes should not be importable from actors module at runtime.
+    """
+    Store classes should not be importable from actors module at runtime.
 
     This test verifies Phase 0.3: removal of concrete store re-exports from
-    ml/actors/base.py. The TYPE_CHECKING imports should remain for type hints,
-    but runtime imports of concrete stores should not be accessible.
+    ml/actors/base.py. The TYPE_CHECKING imports should remain for type hints, but
+    runtime imports of concrete stores should not be accessible.
+
     """
     try:
         import ml.actors.base as actors_base
 
         # These should NOT be accessible at runtime
         assert not hasattr(
-            actors_base, "FeatureStore"
+            actors_base,
+            "FeatureStore",
         ), "FeatureStore should not be re-exported from actors.base"
         assert not hasattr(
-            actors_base, "ModelStore"
+            actors_base,
+            "ModelStore",
         ), "ModelStore should not be re-exported from actors.base"
         assert not hasattr(
-            actors_base, "StrategyStore"
+            actors_base,
+            "StrategyStore",
         ), "StrategyStore should not be re-exported from actors.base"
         assert not hasattr(
-            actors_base, "DataStore"
+            actors_base,
+            "DataStore",
         ), "DataStore should not be re-exported from actors.base"
     except ImportError as e:
         # Allow databento import errors (optional dependency)
@@ -165,10 +184,12 @@ def test_stores_not_reexported_from_actors():
 
 
 def test_stores_available_from_stores_module():
-    """Store classes should be imported from ml.stores.
+    """
+    Store classes should be imported from ml.stores.
 
-    Verifies that stores are accessible from their proper module location
-    after removing re-exports from actors.
+    Verifies that stores are accessible from their proper module location after removing
+    re-exports from actors.
+
     """
     try:
         from ml.stores import DataStore

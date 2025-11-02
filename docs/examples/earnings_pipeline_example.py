@@ -72,12 +72,14 @@ def example_2_multi_instrument_pipeline() -> None:
     # Create earnings specs for all instruments
     all_specs = []
     for ticker in tickers:
-        all_specs.extend([
-            EarningsSurpriseTransformSpec(ticker=ticker),
-            EarningsGrowthTransformSpec(ticker=ticker),
-            EarningsMomentumTransformSpec(ticker=ticker),
-            EarningsCalendarTransformSpec(ticker=ticker),
-        ])
+        all_specs.extend(
+            [
+                EarningsSurpriseTransformSpec(ticker=ticker),
+                EarningsGrowthTransformSpec(ticker=ticker),
+                EarningsMomentumTransformSpec(ticker=ticker),
+                EarningsCalendarTransformSpec(ticker=ticker),
+            ]
+        )
 
     # Compute all feature names
     all_feature_names = []
@@ -104,17 +106,20 @@ def example_3_custom_lookback_configuration() -> None:
 
     # Short-term strategy: 4 quarters
     short_term_growth = EarningsGrowthTransformSpec(
-        ticker=ticker, lookback_quarters=4
+        ticker=ticker,
+        lookback_quarters=4,
     )
 
     # Long-term strategy: 8 quarters
     long_term_growth = EarningsGrowthTransformSpec(
-        ticker=ticker, lookback_quarters=8
+        ticker=ticker,
+        lookback_quarters=8,
     )
 
     # Very long-term: 12 quarters (3 years)
     very_long_term_growth = EarningsGrowthTransformSpec(
-        ticker=ticker, lookback_quarters=12
+        ticker=ticker,
+        lookback_quarters=12,
     )
 
     print(f"Strategy configurations for {ticker}:\n")
@@ -170,7 +175,9 @@ def example_4_combined_features_pipeline() -> None:
     print(f"Earnings features: {len(earnings_features)}")
     print(f"Market features: {len(market_features)}")
     print(f"Macro features: {len(macro_features)}")
-    print(f"\nTotal features: {len(earnings_features) + len(market_features) + len(macro_features)}")
+    print(
+        f"\nTotal features: {len(earnings_features) + len(market_features) + len(macro_features)}"
+    )
 
     print("\nEarnings features:")
     for name in earnings_features:
@@ -189,9 +196,7 @@ def example_5_portfolio_factor_analysis() -> None:
     all_stocks = tech_stocks + financial_stocks + healthcare_stocks
 
     # Create earnings surprise specs for all stocks
-    surprise_specs = [
-        EarningsSurpriseTransformSpec(ticker=ticker) for ticker in all_stocks
-    ]
+    surprise_specs = [EarningsSurpriseTransformSpec(ticker=ticker) for ticker in all_stocks]
 
     # Collect all earnings surprise features
     all_surprise_features = []
@@ -210,8 +215,12 @@ def example_5_portfolio_factor_analysis() -> None:
     # Show sample features from each sector
     print("\nSample features by sector:")
     print(f"  Tech (AAPL): {', '.join(surprise_specs[0].compute_feature_names())}")
-    print(f"  Financial (JPM): {', '.join(surprise_specs[len(tech_stocks)].compute_feature_names())}")
-    print(f"  Healthcare (JNJ): {', '.join(surprise_specs[len(tech_stocks) + len(financial_stocks)].compute_feature_names())}")
+    print(
+        f"  Financial (JPM): {', '.join(surprise_specs[len(tech_stocks)].compute_feature_names())}"
+    )
+    print(
+        f"  Healthcare (JNJ): {', '.join(surprise_specs[len(tech_stocks) + len(financial_stocks)].compute_feature_names())}"
+    )
 
 
 def example_6_serialization_and_configuration() -> None:
@@ -247,7 +256,9 @@ def example_6_serialization_and_configuration() -> None:
 
 
 def main() -> None:
-    """Run all examples."""
+    """
+    Run all examples.
+    """
     print("=" * 70)
     print("Earnings Feature Transforms - Example Usage")
     print("=" * 70)

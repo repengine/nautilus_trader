@@ -1,4 +1,6 @@
-"""Tests for the trading integration service."""
+"""
+Tests for the trading integration service.
+"""
 
 from __future__ import annotations
 
@@ -23,14 +25,18 @@ from ml.dashboard.services.trading_service import (
 
 @dataclass(slots=True)
 class DummyIntegrationManager:
-    """Stub integration manager exposing a trading controller."""
+    """
+    Stub integration manager exposing a trading controller.
+    """
 
     trading_controller: Any | None = None
     db_connection: str | None = None
 
 
 class DummyTradingController:
-    """Deterministic trading controller used in service tests."""
+    """
+    Deterministic trading controller used in service tests.
+    """
 
     def __init__(self) -> None:
         self.enabled = False
@@ -110,7 +116,7 @@ async def test_toggle_trading_fails_when_safety_check_fails() -> None:
         TradingToggleRequest(
             enable=True,
             safety_checks={"risk_limits": True, "account_balance": True, "model_health": True},
-        )
+        ),
     )
 
     assert result.success is False
@@ -178,8 +184,8 @@ async def test_health_check_includes_portfolio_metrics(test_database: Any) -> No
                     last_update
                 ) VALUES
                     ('strat-gamma', 'BTC/USD', 0.5, 'LONG', 20000.0, 21000.0, 500.0, 100.0, 10000.0, 5000.0, 50.0, 0, 0)
-                """
-            )
+                """,
+            ),
         )
 
     snapshot = await service.health_check()
@@ -196,7 +202,7 @@ async def test_health_check_includes_portfolio_metrics(test_database: Any) -> No
     assert metrics.strategies and metrics.strategies[0].strategy_id == "strat-gamma"
 
     result = await service.toggle_live_trading(
-        TradingToggleRequest(enable=True, safety_checks={"risk_limits": True})
+        TradingToggleRequest(enable=True, safety_checks={"risk_limits": True}),
     )
 
     assert result.success is True
