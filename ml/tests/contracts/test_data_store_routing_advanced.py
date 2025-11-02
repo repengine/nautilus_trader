@@ -60,8 +60,12 @@ def _configure_datastore_symbols(
 ) -> None:
     """
     Ensure tests run against both legacy and component DataStore implementations.
+
+    Note: Direct import instead of sys.modules[__name__] to avoid KeyError in
+    pytest-xdist parallel execution where module may not be registered yet.
     """
-    monkeypatch.setattr(sys.modules[__name__], "DataStore", getattr(datastore_module, "DataStore"))
+    import ml.tests.contracts.test_data_store_routing_advanced as this_module
+    monkeypatch.setattr(this_module, "DataStore", getattr(datastore_module, "DataStore"))
 
 
 if HAS_POLARS:
