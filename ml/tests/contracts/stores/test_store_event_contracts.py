@@ -147,8 +147,8 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
     # Validate event shapes and enums
     spy_evt = next(e for e in reg.events if e["instrument_id"] == "SPY")
     assert spy_evt["dataset_id"] == "signals"
-    assert spy_evt["stage"] == Stage.SIGNAL_EMITTED
-    assert spy_evt["source"] == Source.HISTORICAL
+    assert spy_evt["stage"].value == "SIGNAL_EMITTED"
+    assert spy_evt["source"].value == "historical"
     assert spy_evt["status"] == EventStatus.SUCCESS.value
     assert spy_evt["count"] == 2
     assert spy_evt["ts_min"] == now
@@ -156,8 +156,8 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
 
     qqq_evt = next(e for e in reg.events if e["instrument_id"] == "QQQ")
     assert qqq_evt["dataset_id"] == "signals"
-    assert qqq_evt["stage"] == Stage.SIGNAL_EMITTED
-    assert qqq_evt["source"] == Source.LIVE
+    assert qqq_evt["stage"].value == "SIGNAL_EMITTED"
+    assert qqq_evt["source"].value == "live"
     assert qqq_evt["status"] == EventStatus.SUCCESS.value
     assert qqq_evt["count"] == 2
     assert qqq_evt["ts_min"] == now + 2
@@ -166,13 +166,13 @@ def test_strategy_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch
     # Watermarks: last_success_ns uses group max timestamp and correct source
     wm_spy = next(w for w in reg.watermarks if w["instrument_id"] == "SPY")
     assert wm_spy["dataset_id"] == "signals"
-    assert wm_spy["source"] == Source.HISTORICAL
+    assert wm_spy["source"].value == "historical"
     assert wm_spy["last_success_ns"] == now + 1
     assert wm_spy["count"] == 2
 
     wm_qqq = next(w for w in reg.watermarks if w["instrument_id"] == "QQQ")
     assert wm_qqq["dataset_id"] == "signals"
-    assert wm_qqq["source"] == Source.LIVE
+    assert wm_qqq["source"].value == "live"
     assert wm_qqq["last_success_ns"] == now + 3
     assert wm_qqq["count"] == 2
 
@@ -244,8 +244,8 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
 
     spy_evt = next(e for e in reg.events if e["instrument_id"] == "SPY")
     assert spy_evt["dataset_id"] == "predictions"
-    assert spy_evt["stage"] == Stage.PREDICTION_EMITTED
-    assert spy_evt["source"] == Source.HISTORICAL
+    assert spy_evt["stage"].value == "PREDICTION_EMITTED"
+    assert spy_evt["source"].value == "historical"
     assert spy_evt["status"] == EventStatus.SUCCESS.value
     assert spy_evt["count"] == 2
     assert spy_evt.get("metadata", {}).get("model_id") == "m1"
@@ -254,8 +254,8 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
 
     qqq_evt = next(e for e in reg.events if e["instrument_id"] == "QQQ")
     assert qqq_evt["dataset_id"] == "predictions"
-    assert qqq_evt["stage"] == Stage.PREDICTION_EMITTED
-    assert qqq_evt["source"] == Source.LIVE
+    assert qqq_evt["stage"].value == "PREDICTION_EMITTED"
+    assert qqq_evt["source"].value == "live"
     assert qqq_evt["status"] == EventStatus.SUCCESS.value
     assert qqq_evt["count"] == 2
     assert qqq_evt.get("metadata", {}).get("model_id") == "m2"
@@ -264,12 +264,12 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
 
     wm_spy = next(w for w in reg.watermarks if w["instrument_id"] == "SPY")
     assert wm_spy["dataset_id"] == "predictions"
-    assert wm_spy["source"] == Source.HISTORICAL
+    assert wm_spy["source"].value == "historical"
     assert wm_spy["last_success_ns"] == now + 1
     assert wm_spy["count"] == 2
 
     wm_qqq = next(w for w in reg.watermarks if w["instrument_id"] == "QQQ")
     assert wm_qqq["dataset_id"] == "predictions"
-    assert wm_qqq["source"] == Source.LIVE
+    assert wm_qqq["source"].value == "live"
     assert wm_qqq["last_success_ns"] == now + 3
     assert wm_qqq["count"] == 2
