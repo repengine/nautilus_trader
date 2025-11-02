@@ -85,6 +85,94 @@ def test_deployment_status(self):
 
 ---
 
+### 2b. Enum isinstance() Checks in Parallel Tests (HIGH SEVERITY - UPDATED)
+
+**Problem:** `isinstance()` checks fail when pytest-xdist workers import enums separately.
+
+**Why it happens:**
+- pytest-xdist runs tests in parallel across multiple worker processes
+- Each worker imports modules independently
+- Python's `isinstance()` checks object identity (memory address), not value
+- Same enum imported in different workers = different identities
+- Result: `isinstance(<Stage.FEATURE_COMPUTED: 'FEATURE_COMPUTED'>, Stage)` returns `False`
+
+**Example of failure:**
+```python
+# WRONG - fails in parallel execution
+def test_event_emission(mock_registry):
+    emit_dataset_event(
+        mock_registry,
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        status=EventStatus.SUCCESS,
+        ...
+    )
+
+    call_args = mock_registry.emit_event.call_args
+
+    # This FAILS in pytest-xdist parallel execution
+    assert isinstance(call_args.kwargs["stage"], Stage)
+```
+
+**Solution - Pattern A: Value Comparison (PREFERRED)**
+```python
+# CORRECT - compare enum values
+def test_event_emission(mock_registry):
+    emit_dataset_event(
+        mock_registry,
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        status=EventStatus.SUCCESS,
+        ...
+    )
+
+    call_args = mock_registry.emit_event.call_args
+
+    # Compare values, not identity
+    assert call_args.kwargs["stage"].value == "FEATURE_COMPUTED"
+    assert call_args.kwargs["source"].value == "live"
+    assert call_args.kwargs["status"].value == "success"
+```
+
+**Solution - Pattern B: String Comparison (BACKUP)**
+```python
+# CORRECT - compare string representation
+assert str(call_args.kwargs["stage"]) == "Stage.FEATURE_COMPUTED"
+```
+
+**Solution - Pattern C: Class Name (RARE)**
+```python
+# CORRECT - type-only check (don't care about value)
+assert call_args.kwargs["stage"].__class__.__name__ == "Stage"
+```
+
+**When to use each pattern:**
+- **Pattern A (90% of cases):** When you know the expected enum value
+- **Pattern B (5% of cases):** When you need to verify both type and value
+- **Pattern C (5% of cases):** When you only care about the type
+
+**Migration guide:**
+1. Search for: `isinstance(.*Stage\|Source\|EventStatus.*)`
+2. Identify the expected enum value from test context
+3. Replace with: `obj.value == "expected_value"`
+4. Run test individually: `pytest path/to/test.py::test_name -xvs` (should pass)
+5. Run test in full suite: `make pytest-ml` (should still pass)
+
+**Verification:**
+```bash
+# Find all isinstance checks on our enum types
+grep -rn "isinstance.*Stage\|isinstance.*Source\|isinstance.*EventStatus" ml/tests/
+
+# After fixes, this should return zero results:
+grep -rn "isinstance.*Stage\|isinstance.*Source\|isinstance.*EventStatus" ml/tests/contracts/
+```
+
+**Affected Files:** Fixed 9 instances in Phase 0.0 (test_dataset_event_contracts.py)
+**Priority:** P0 - CRITICAL
+**Status:** FIXED in Phase 0.0
+
+---
+
 ### 3. Parallel Execution Without Markers (HIGH SEVERITY)
 
 **❌ WRONG - Database Tests Without Serial Marker:**

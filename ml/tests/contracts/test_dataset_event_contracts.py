@@ -121,10 +121,10 @@ class TestDatasetEventContracts:
 
         call_args = mock_registry.emit_event.call_args
 
-        # Verify enum instances are passed correctly
-        assert isinstance(call_args.kwargs["stage"], Stage)
-        assert isinstance(call_args.kwargs["source"], Source)
-        assert isinstance(call_args.kwargs["status"], EventStatus)
+        # Verify enum instances are passed correctly (use .value comparison for pytest-xdist compatibility)
+        assert call_args.kwargs["stage"].value == "PREDICTION_EMITTED"
+        assert call_args.kwargs["source"].value == "historical"
+        assert call_args.kwargs["status"].value == "partial"
 
         # Verify enum values
         assert call_args.kwargs["stage"] == Stage.PREDICTION_EMITTED
@@ -401,13 +401,14 @@ class TestDatasetEventContracts:
         # Verify field types
         assert isinstance(call_args.kwargs["dataset_id"], str)
         assert isinstance(call_args.kwargs["instrument_id"], str)
-        assert isinstance(call_args.kwargs["stage"], Stage)
-        assert isinstance(call_args.kwargs["source"], Source)
+        # Verify enum types using .value comparison (pytest-xdist compatible)
+        assert call_args.kwargs["stage"].value == "FEATURE_COMPUTED"
+        assert call_args.kwargs["source"].value == "live"
         assert isinstance(call_args.kwargs["run_id"], str)
         assert isinstance(call_args.kwargs["ts_min"], int)
         assert isinstance(call_args.kwargs["ts_max"], int)
         assert isinstance(call_args.kwargs["count"], int)
-        assert isinstance(call_args.kwargs["status"], EventStatus)
+        assert call_args.kwargs["status"].value == "success"
 
         # Verify metadata is dict
         metadata = call_args.kwargs.get("metadata")
@@ -489,9 +490,10 @@ class TestDatasetEventContracts:
 
         assert data_store.registry.emit_event.called
         call_args = data_store.registry.emit_event.call_args
-        assert isinstance(call_args.kwargs["stage"], Stage)
-        assert isinstance(call_args.kwargs["source"], Source)
-        assert isinstance(call_args.kwargs["status"], EventStatus)
+        # Verify enum types using .value comparison (pytest-xdist compatible)
+        assert call_args.kwargs["stage"].value == "FEATURE_COMPUTED"
+        assert call_args.kwargs["source"].value == "live"
+        assert call_args.kwargs["status"].value == "success"
 
 
 class TestEventShapeContracts:
