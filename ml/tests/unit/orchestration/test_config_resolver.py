@@ -94,14 +94,18 @@ class TestApplyDefaultMarketInputs:
         base_dataset_config: DatasetBuildConfig,
     ) -> None:
         """Test that config without market_dataset_id is unchanged."""
+        import msgspec
+
         result = resolver.apply_default_market_inputs(base_dataset_config)
-        assert result == base_dataset_config
+        assert msgspec.to_builtins(result) == msgspec.to_builtins(base_dataset_config)
 
     def test_apply_default_market_inputs_when_descriptor_not_found_returns_unchanged(
         self,
         resolver: ConfigResolver,
     ) -> None:
         """Test that unknown descriptor returns unchanged config."""
+        import msgspec
+
         cfg = DatasetBuildConfig(
             data_dir="data/test",
             symbols="SPY",
@@ -111,13 +115,15 @@ class TestApplyDefaultMarketInputs:
         )
 
         result = resolver.apply_default_market_inputs(cfg)
-        assert result == cfg
+        assert msgspec.to_builtins(result) == msgspec.to_builtins(cfg)
 
     def test_apply_default_market_inputs_when_no_symbols_returns_unchanged(
         self,
         resolver: ConfigResolver,
     ) -> None:
         """Test that config without symbols returns unchanged."""
+        import msgspec
+
         cfg = DatasetBuildConfig(
             data_dir="data/test",
             symbols="",
@@ -127,7 +133,7 @@ class TestApplyDefaultMarketInputs:
         )
 
         result = resolver.apply_default_market_inputs(cfg)
-        assert result == cfg
+        assert msgspec.to_builtins(result) == msgspec.to_builtins(cfg)
 
 
 class TestCollectSymbolMap:
