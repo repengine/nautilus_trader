@@ -42,12 +42,13 @@ class TestDatasetEventContracts:
     """
 
     @pytest.fixture
-    def mock_registry(self) -> MagicMock:
+    def mock_registry(self, mock_registry_factory) -> MagicMock:
         """
         Mock registry for testing event emission.
+
+        Uses mock_registry_factory to create a protocol-based mock.
         """
-        registry = MagicMock(spec=RegistryProtocol)
-        return registry
+        return mock_registry_factory("protocol")
 
     @pytest.fixture
     def data_store(

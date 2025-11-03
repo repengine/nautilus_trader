@@ -256,88 +256,11 @@ def model_registry_config() -> ModelRegistryConfig:
 # ============================================================================
 
 
-@pytest.fixture
-def mock_model_registry() -> MagicMock:
-    """
-    Fully configured mock model registry.
-
-    Provides a registry mock with common model metadata pre-configured.
-
-    """
-    mock_registry = MagicMock()
-
-    # Create mock model info
-    mock_model_info = MagicMock()
-    from ml.registry.base import ModelRole, DataRequirements
-    import time
-
-    mock_model_info.manifest = ModelManifest(
-        model_id="test_model_v1",
-        role=ModelRole.INFERENCE,
-        data_requirements=DataRequirements.L1_ONLY,
-        architecture="xgboost",
-        feature_schema={"feature_1": "float", "feature_2": "float", "feature_3": "float"},
-        feature_schema_hash="abc123",
-        version="1.0.0",
-        created_at=time.time(),
-        last_modified=time.time(),
-        performance_metrics={
-            "accuracy": 0.95,
-            "precision": 0.92,
-            "recall": 0.93,
-        },
-        training_config={
-            "n_estimators": 100,
-            "max_depth": 5,
-        },
-    )
-    mock_model_info.path = Path("/tmp/test_model.onnx")
-    mock_model_info.metadata = {"test": True}
-
-    # Configure registry methods
-    mock_registry.get_model = MagicMock(return_value=mock_model_info)
-    mock_registry.list_models = MagicMock(return_value=["test_model_v1"])
-    mock_registry.register_model = MagicMock(return_value="test_model_v1")
-    mock_registry.load_model = MagicMock(return_value=mock_model_info)
-
-    return mock_registry
-
-
-@pytest.fixture
-def mock_feature_registry() -> MagicMock:
-    """
-    Fully configured mock feature registry.
-    """
-    mock_registry = MagicMock()
-
-    # Create mock feature manifest
-    from ml.registry.feature_registry import FeatureRole
-    from ml.registry.base import DataRequirements
-    import time
-
-    mock_feature_info = MagicMock()
-    mock_feature_info.manifest = FeatureManifest(
-        feature_set_id="test_features_v1",
-        name="Test Features",
-        version="1.0.0",
-        role=FeatureRole.INFERENCE_SUPPORT,
-        data_requirements=DataRequirements.L1_ONLY,
-        feature_names=["sma_20", "rsi_14", "volume_ratio"],
-        feature_dtypes=["float32", "float32", "float32"],
-        schema_hash="def456",
-        pipeline_signature="pipeline_sig_123",
-        pipeline_version="1.0.0",
-        created_at=time.time(),
-        last_modified=time.time(),
-    )
-
-    # Configure registry methods
-    mock_registry.get_feature_set = MagicMock(return_value=mock_feature_info)
-    mock_registry.list_feature_sets = MagicMock(return_value=["test_features_v1"])
-    mock_registry.register_feature_set = MagicMock(return_value="test_features_v1")
-
-    return mock_registry
-
+# Note: mock_model_registry and mock_feature_registry have been moved to
+# ml.tests.fixtures.mock_stores as part of the mock_registry_factory consolidation.
+# They are re-exported via conftest.py for global availability.
+# Use mock_registry_factory("model", with_manifest=True) for model registry mocks.
+# Use mock_registry_factory("feature", with_manifest=True) for feature registry mocks.
 
 # Note: mock_data_store (and mock_feature_store, mock_model_store,
 # mock_strategy_store) are now imported from ml.tests.fixtures.mock_stores

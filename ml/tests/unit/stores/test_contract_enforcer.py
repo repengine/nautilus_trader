@@ -27,10 +27,13 @@ from ml.stores.validation_types import ValidationViolation
 
 
 @pytest.fixture
-def mock_registry():
-    """Create mock registry."""
-    registry = Mock()
-    return registry
+def mock_registry(mock_registry_factory):
+    """Create mock registry using factory.
+
+    Uses mock_registry_factory to create a protocol-based mock without spec
+    for maximum flexibility in these unit tests.
+    """
+    return mock_registry_factory("protocol", use_spec=False)
 
 
 @pytest.fixture

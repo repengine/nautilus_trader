@@ -126,11 +126,13 @@ def mock_contract_enforcer(mock_schema_validator: Mock) -> Mock:
 
 
 @pytest.fixture
-def mock_registry() -> Mock:
-    """Create mock registry."""
-    registry = Mock()
-    registry.register_manifest = Mock()
-    return registry
+def mock_registry(mock_registry_factory) -> Mock:
+    """Create mock registry using factory.
+
+    Uses mock_registry_factory to create a protocol-based mock without spec
+    for maximum flexibility in these unit tests.
+    """
+    return mock_registry_factory("protocol", use_spec=False)
 
 
 @pytest.fixture

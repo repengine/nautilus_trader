@@ -42,41 +42,22 @@ def mock_earnings_store():
 
 
 @pytest.fixture
-def mock_registry():
-    """Mock DataRegistry for testing."""
-    from ml.registry.dataclasses import DataContract
-    from ml.registry.dataclasses import DatasetManifest
-    from ml.registry.dataclasses import DatasetType
-    from ml.registry.dataclasses import StorageKind
+def mock_registry(mock_registry_factory):
+    """Mock DataRegistry for testing with custom contract.
 
-    registry = MagicMock()
-
-    # Mock manifest
-    manifest = DatasetManifest(
-        dataset_id="test_dataset",
-        dataset_type=DatasetType.FEATURES,
-        storage_kind=StorageKind.POSTGRES,
-        location="ml.test_dataset",
-        partitioning={},
-        retention_days=90,
-        version="1.0.0",
-        schema={"instrument_id": "str", "ts_event": "int64", "ts_init": "int64"},
-        schema_hash="test_hash",
-        primary_keys=["instrument_id", "ts_event"],
-        ts_field="ts_event",
-        seq_field=None,
-        constraints={},
-        lineage=[],
-        pipeline_signature="test",
-    )
-    registry.get_manifest.return_value = manifest
-
-    # Mock contract
+    Uses mock_registry_factory to create base registry, then adds custom
+    contract configuration needed for these integration tests.
+    """
     import time
+    from ml.registry.dataclasses import DataContract
     from ml.registry.dataclasses import ValidationRule
     from ml.registry.dataclasses import ValidationRuleType
     from ml.registry.dataclasses import QualityFlag
 
+    # Get registry with default manifest
+    registry = mock_registry_factory("data", with_manifest=True)
+
+    # Add custom contract
     contract = DataContract(
         contract_id="test_contract",
         dataset_id="test_dataset",

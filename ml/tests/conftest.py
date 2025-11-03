@@ -44,10 +44,15 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.pool import StaticPool
 
 from ml.tests.fixtures.mock_stores import (
+    mock_data_registry,
     mock_data_store,
+    mock_feature_registry,
     mock_feature_store,
+    mock_model_registry,
     mock_model_store,
+    mock_registry_factory,
     mock_store_factory,
+    mock_strategy_registry,
     mock_strategy_store,
 )
 
@@ -2112,8 +2117,6 @@ from ml.tests.fixtures.common import (  # noqa: E402
     default_venue,
     dummy_onnx_model,
     dummy_xgboost_model,
-    mock_feature_registry,
-    mock_model_registry,
     mock_stores_bundle,
     model_registry_config,
     sample_feature_array,
@@ -2124,7 +2127,8 @@ from ml.tests.fixtures.common import (  # noqa: E402
     test_component_id,
     test_timestamps,
 )
-# Note: mock_data_store and other mock store fixtures are imported from mock_stores above
+# Note: mock_data_store, mock_model_registry, mock_feature_registry and other
+# mock store/registry fixtures are imported from mock_stores above
 
 # Import builder classes for direct use in tests
 # Note: Builder classes are available via ml.tests.fixtures when needed, but are
@@ -2186,12 +2190,16 @@ __all__ = [
     "create_mock_yahoo_client",
     "create_test_database",
     # Mock store fixtures
+    "mock_data_registry",
     "mock_data_store",
     "mock_feature_registry",
     "mock_feature_store",
     "mock_model_registry",
     "mock_model_store",
+    "mock_registry_factory",
+    "mock_store_factory",
     "mock_stores_bundle",
+    "mock_strategy_registry",
     "mock_strategy_store",
     # Common type fixtures
     "alternative_bar_type",

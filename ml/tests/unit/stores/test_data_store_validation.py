@@ -156,11 +156,15 @@ def mock_stores_bundle(
 
 
 @pytest.fixture
-def mock_registry() -> MagicMock:
+def mock_registry(mock_registry_factory) -> MagicMock:
     """
-    Create a mock DataRegistry.
+    Create a mock DataRegistry with custom manifest and contract for validation tests.
+
+    Uses mock_registry_factory to create base registry, then overrides with
+    test-specific manifest and contract configuration.
     """
-    registry = MagicMock()
+    # Start with factory-created registry (no default manifest)
+    registry = mock_registry_factory("data", with_manifest=False)
 
     # Default manifest
     schema = {

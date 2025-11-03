@@ -59,64 +59,12 @@ def timestamp_now() -> int:
     return time.time_ns()
 
 
-@pytest.fixture
-def mock_data_registry() -> Any:
-    """
-    Create mock DataRegistry with sample datasets.
-    """
-    from ml.registry.dataclasses import DatasetManifest
-    from ml.registry.dataclasses import DatasetType
-    from ml.registry.dataclasses import StorageKind
-
-    registry = MagicMock()
-
-    # Create sample manifests
-    manifests = {
-        "test_dataset_1": DatasetManifest(
-            dataset_id="test_dataset_1",
-            dataset_type=DatasetType.BARS,
-            storage_kind=StorageKind.PARQUET,
-            location="/data/test_dataset_1",
-            partitioning={},
-            retention_days=90,
-            version="1.0.0",
-            schema={"instrument_id": "str", "ts_event": "int64", "ts_init": "int64"},
-            schema_hash="hash_1",
-            primary_keys=["instrument_id", "ts_event"],
-            ts_field="ts_event",
-            seq_field=None,
-            constraints={},
-            lineage=[],
-            pipeline_signature="test",
-        ),
-        "test_dataset_2": DatasetManifest(
-            dataset_id="test_dataset_2",
-            dataset_type=DatasetType.FEATURES,
-            storage_kind=StorageKind.POSTGRES,
-            location="ml.test_features",
-            partitioning={},
-            retention_days=90,
-            version="1.0.0",
-            schema={"instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "feature1": "float"},
-            schema_hash="hash_2",
-            primary_keys=["instrument_id", "ts_event"],
-            ts_field="ts_event",
-            seq_field=None,
-            constraints={},
-            lineage=[],
-            pipeline_signature="test",
-        ),
-    }
-
-    registry.get_manifest = lambda dataset_id: manifests.get(dataset_id)
-    registry.list_datasets = lambda: list(manifests.keys())
-    registry.register_dataset = MagicMock()
-    registry.update_manifest = MagicMock()
-
-    return registry
-
-
-# Note: mock_data_store is now imported from conftest.py
+# Note: mock_data_registry and mock_data_store are now imported from conftest.py
+# If you need custom manifest data, use mock_registry_factory directly:
+#   def test_something(mock_registry_factory):
+#       registry = mock_registry_factory("data")
+#       registry.get_manifest.return_value = custom_manifest
+#       ...
 # (which imports from ml.tests.fixtures.mock_stores)
 
 
