@@ -81,6 +81,21 @@ def generate_test_bars(test_bar_type: BarType, test_instrument: CurrencyPair) ->
     """
     Generate realistic test Bar objects with correlated OHLCV data.
 
+    .. deprecated:: 2025-11-03
+        Use test_data_factory.bars() instead for better performance.
+        This fixture now delegates to the test_data_factory internally.
+
+        Old pattern:
+            def test_bars(generate_test_bars):
+                bars = generate_test_bars
+
+        New pattern:
+            def test_bars(test_data_factory):
+                bars = test_data_factory.bars(n=100)
+
+    This fixture is kept for backward compatibility and will be maintained
+    but new tests should use test_data_factory directly.
+
     Parameters
     ----------
     test_bar_type : BarType
@@ -94,50 +109,15 @@ def generate_test_bars(test_bar_type: BarType, test_instrument: CurrencyPair) ->
         List of test bars with realistic price movement
 
     """
+    from ml.tests.fixtures.model_factory import TestDataFactory
 
-    bars: list[Bar] = []
-    base_timestamp = dt_to_unix_nanos(pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)))
-    interval_ns = 60_000_000_000  # 1 minute in nanoseconds
-
-    # Start price around 1.0900 for EURUSD
-    current_price = 1.0900
-
-    for i in range(100):  # Generate 100 bars
-        drift = 0.00001
-        volatility = 0.0001
-        from numpy.random import default_rng
-
-        _rng = default_rng(0)
-        returns = _rng.normal(drift, volatility, 4)
-
-        open_price = current_price
-        high_price = open_price + abs(returns[0]) * 2
-        low_price = open_price - abs(returns[1]) * 2
-        close_price = open_price + returns[2]
-
-        high_price = max(high_price, open_price, close_price)
-        low_price = min(low_price, open_price, close_price)
-
-        from numpy.random import default_rng as _dr
-
-        _rng_vol = _dr(7)
-        volume = float(_rng_vol.uniform(1000, 5000)) * (1 + abs(returns[3]) * 10)
-
-        bar = Bar(
-            bar_type=test_bar_type,
-            open=Price(open_price, precision=5),
-            high=Price(high_price, precision=5),
-            low=Price(low_price, precision=5),
-            close=Price(close_price, precision=5),
-            volume=Quantity(volume, precision=0),
-            ts_event=base_timestamp + i * interval_ns,
-            ts_init=base_timestamp + i * interval_ns + 1000,
-        )
-
-        bars.append(bar)
-        current_price = close_price
-
-    return bars
+    # Delegate to factory (transparent migration)
+    factory = TestDataFactory()
+    return factory.bars(
+        n=100,
+        instrument_id=test_instrument.id,
+        bar_type=test_bar_type,
+    )
 
 
 @pytest.fixture

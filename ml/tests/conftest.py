@@ -2125,6 +2125,7 @@ from ml.tests.fixtures.common import (  # noqa: E402
     sample_model_manifest,
     sample_predictions,
     test_component_id,
+    test_data_factory,
     test_timestamps,
 )
 # Note: mock_data_store, mock_model_registry, mock_feature_registry and other

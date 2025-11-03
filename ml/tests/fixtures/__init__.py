@@ -31,6 +31,7 @@ from ml.tests.fixtures.common import (
     sample_model_manifest,
     sample_predictions,
     test_component_id,
+    test_data_factory,
     test_timestamps,
 )
 
@@ -83,6 +84,7 @@ __all__ = [
     "sample_model_manifest",
     "sample_predictions",
     "test_component_id",
+    "test_data_factory",
     "test_timestamps",
     # Mock store fixtures (centralized)
     "mock_data_store",

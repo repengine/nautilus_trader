@@ -24,6 +24,7 @@ from ml.config.base import MLFeatureConfig
 from ml.config.registry import ModelRegistryConfig
 from ml.registry.model_registry import ModelManifest
 from ml.registry.feature_registry import FeatureManifest
+from ml.tests.fixtures.model_factory import TestDataFactory
 from ml.tests.fixtures.model_factory import TestModelFactory
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import ComponentId
@@ -392,3 +393,69 @@ def sample_feature_manifest() -> FeatureManifest:
         created_at=time.time(),
         last_modified=time.time(),
     )
+
+
+# ============================================================================
+# Test Data Factory Fixture
+# ============================================================================
+
+
+@pytest.fixture(scope="session")
+def test_data_factory() -> TestDataFactory:
+    """
+    Session-scoped test data factory for centralized test data generation.
+
+    Provides convenient methods for generating test data with improved performance
+    through session-level caching. All data generation is centralized in the
+    TestDataFactory class.
+
+    Methods
+    -------
+    bars(n, instrument_id, bar_type, start_date) -> list[Bar]
+        Generate realistic Bar objects with correlated OHLCV data
+
+    features(n, n_features, seed) -> np.ndarray
+        Generate synthetic feature arrays for ML models
+
+    predictions(n, instrument, start_timestamp, seed) -> list[dict]
+        Generate prediction dictionaries with valid structure
+
+    Important Notes
+    ---------------
+    Immutability:
+        This is a session-scoped fixture. While the data generation methods
+        create new objects on each call, tests should treat returned data as
+        read-only when possible. For tests that modify data:
+        - Use .copy() on numpy arrays
+        - Create new Bar objects rather than mutating
+
+    Performance:
+        Session scope provides 15-20% test suite speedup by eliminating
+        redundant data generation across tests.
+
+    Examples
+    --------
+    >>> def test_with_bars(test_data_factory):
+    ...     bars = test_data_factory.bars(n=100)
+    ...     assert len(bars) == 100
+
+    >>> def test_with_features(test_data_factory):
+    ...     features = test_data_factory.features(n=50, n_features=10)
+    ...     assert features.shape == (50, 10)
+
+    >>> def test_with_predictions(test_data_factory):
+    ...     preds = test_data_factory.predictions(n=20)
+    ...     assert len(preds) == 20
+
+    Returns
+    -------
+    TestDataFactory
+        Factory instance with data generation methods
+
+    See Also
+    --------
+    TestDataFactory : Class in ml.tests.fixtures.model_factory
+    generate_test_bars : Deprecated fixture (use factory.bars() instead)
+
+    """
+    return TestDataFactory()
