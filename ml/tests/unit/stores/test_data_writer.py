@@ -33,30 +33,8 @@ from ml.stores.schema_validator import SchemaValidator
 # ========================================================================
 # Fixtures
 # ========================================================================
-
-
-@pytest.fixture
-def mock_feature_store() -> Mock:
-    """Create mock feature store."""
-    store = Mock()
-    store.write_features = Mock()
-    return store
-
-
-@pytest.fixture
-def mock_model_store() -> Mock:
-    """Create mock model store."""
-    store = Mock()
-    store.write_batch = Mock()
-    return store
-
-
-@pytest.fixture
-def mock_strategy_store() -> Mock:
-    """Create mock strategy store."""
-    store = Mock()
-    store.write_batch = Mock()
-    return store
+# Note: mock_feature_store, mock_model_store, and mock_strategy_store
+# are now imported from conftest.py (which imports from ml.tests.fixtures.mock_stores)
 
 
 @pytest.fixture

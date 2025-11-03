@@ -116,14 +116,8 @@ def mock_data_registry() -> Any:
     return registry
 
 
-@pytest.fixture
-def mock_data_store() -> Any:
-    """
-    Create mock DataStore.
-    """
-    from ml.stores.base import DummyStore
-
-    return DummyStore()
+# Note: mock_data_store is now imported from conftest.py
+# (which imports from ml.tests.fixtures.mock_stores)
 
 
 @pytest.fixture

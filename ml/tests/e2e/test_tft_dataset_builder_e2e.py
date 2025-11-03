@@ -178,15 +178,8 @@ def sample_catalog_with_multiple_instruments(temp_catalog_path: Path) -> Parquet
     return catalog
 
 
-@pytest.fixture
-def mock_data_store() -> MagicMock:
-    """
-    Mock DataStore for tests that don't need real data store.
-    """
-    mock_store = MagicMock()
-    mock_store.get_earnings_for_instrument.return_value = []
-    mock_store.get_health_status.return_value = {"status": "healthy"}
-    return mock_store
+# Note: mock_data_store is now imported from conftest.py
+# (which imports from ml.tests.fixtures.mock_stores)
 
 
 # ============================================================================

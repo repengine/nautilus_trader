@@ -130,37 +130,10 @@ class _UnitRawWriter(RawIngestionWriterProtocol):
 # ========================================================================
 # Test Fixtures
 # ========================================================================
-
-
-# Add missing fixtures that are not in conftest but are needed
-@pytest.fixture
-def mock_feature_store() -> MagicMock:
-    """
-    Mock feature store.
-    """
-    from ml.tests.builders import MockBuilder
-
-    return MockBuilder.store_with_data(store_type="feature")
-
-
-@pytest.fixture
-def mock_model_store() -> MagicMock:
-    """
-    Mock model store.
-    """
-    from ml.tests.builders import MockBuilder
-
-    return MockBuilder.store_with_data(store_type="model")
-
-
-@pytest.fixture
-def mock_strategy_store() -> MagicMock:
-    """
-    Mock strategy store.
-    """
-    from ml.tests.builders import MockBuilder
-
-    return MockBuilder.store_with_data(store_type="strategy")
+# Note: mock_feature_store, mock_model_store, and mock_strategy_store
+# are now imported from conftest.py (which imports from ml.tests.fixtures.mock_stores).
+# These tests previously used MockBuilder for pre-populated test data, but the
+# backward-compatible fixtures from mock_stores.py work for these tests.
 
 
 @pytest.fixture

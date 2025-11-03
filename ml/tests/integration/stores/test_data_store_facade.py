@@ -27,33 +27,9 @@ def connection_string():
     return "postgresql://test:test@localhost:5432/test_db"
 
 
-@pytest.fixture
-def mock_feature_store():
-    """Mock FeatureStore for testing."""
-    store = MagicMock()
-    store.get_latest_at_or_before.return_value = {"feature1": 1.0, "feature2": 2.0}
-    store.get_health_status.return_value = {"status": "healthy"}
-    return store
-
-
-@pytest.fixture
-def mock_model_store():
-    """Mock ModelStore for testing."""
-    store = MagicMock()
-    store.model_predictions_table = None
-    store.engine = None
-    store.get_health_status.return_value = {"status": "healthy"}
-    return store
-
-
-@pytest.fixture
-def mock_strategy_store():
-    """Mock StrategyStore for testing."""
-    store = MagicMock()
-    store.strategy_signals_table = None
-    store.engine = None
-    store.get_health_status.return_value = {"status": "healthy"}
-    return store
+# Note: mock_feature_store, mock_model_store, and mock_strategy_store
+# are now imported from conftest.py (which imports from ml.tests.fixtures.mock_stores)
+# Tests that need custom configuration can use mock_store_factory directly.
 
 
 @pytest.fixture
@@ -276,6 +252,9 @@ class TestBackwardCompatibility:
                 strategy_store=mock_strategy_store,
                 earnings_store=mock_earnings_store,
             )
+
+            # Configure mock return value
+            mock_feature_store.get_latest_at_or_before.return_value = {"feature1": 1.0, "feature2": 2.0}
 
             result = store.get_features_at_or_before(
                 instrument_id="EURUSD.SIM",

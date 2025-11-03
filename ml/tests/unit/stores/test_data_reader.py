@@ -20,34 +20,8 @@ from ml.stores.data_reader import DataReader
 # ========================================================================
 # Fixtures
 # ========================================================================
-
-
-@pytest.fixture
-def mock_feature_store() -> Mock:
-    """Create mock feature store."""
-    store = Mock()
-    store.get_latest_at_or_before = Mock(return_value=None)
-    return store
-
-
-@pytest.fixture
-def mock_model_store() -> Mock:
-    """Create mock model store."""
-    store = Mock()
-    # No table/engine - tests will verify None handling
-    store.model_predictions_table = None
-    store.engine = None
-    return store
-
-
-@pytest.fixture
-def mock_strategy_store() -> Mock:
-    """Create mock strategy store."""
-    store = Mock()
-    # No table/engine - tests will verify None handling
-    store.strategy_signals_table = None
-    store.engine = None
-    return store
+# Note: mock_feature_store, mock_model_store, and mock_strategy_store
+# are now imported from conftest.py (which imports from ml.tests.fixtures.mock_stores)
 
 
 @pytest.fixture

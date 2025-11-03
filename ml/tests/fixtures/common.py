@@ -339,33 +339,9 @@ def mock_feature_registry() -> MagicMock:
     return mock_registry
 
 
-@pytest.fixture
-def mock_data_store() -> MagicMock:
-    """
-    Fully configured mock data store.
-
-    Provides a DataStore mock with common operations pre-configured.
-
-    """
-    mock_store = MagicMock()
-
-    # Configure common methods
-    mock_store.write = MagicMock(return_value=True)
-    mock_store.read = MagicMock(return_value={"data": []})
-    mock_store.query = MagicMock(return_value=[])
-    mock_store.get_latest = MagicMock(return_value=None)
-    mock_store.exists = MagicMock(return_value=False)
-
-    # Configure typed read methods
-    mock_store.read_features = MagicMock(return_value={})
-    mock_store.read_predictions = MagicMock(return_value=[])
-    mock_store.read_signals = MagicMock(return_value=[])
-
-    mock_store.get_features_at_or_before = MagicMock(return_value=None)
-    mock_store.get_latest_prediction_at_or_before = MagicMock(return_value=None)
-    mock_store.get_latest_signal_at_or_before = MagicMock(return_value=None)
-
-    return mock_store
+# Note: mock_data_store (and mock_feature_store, mock_model_store,
+# mock_strategy_store) are now imported from ml.tests.fixtures.mock_stores
+# and re-exported via conftest.py for global availability.
 
 
 @pytest.fixture

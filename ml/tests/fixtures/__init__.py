@@ -23,7 +23,6 @@ from ml.tests.fixtures.common import (
     default_venue,
     dummy_onnx_model,
     dummy_xgboost_model,
-    mock_data_store,
     mock_feature_registry,
     mock_model_registry,
     mock_stores_bundle,
@@ -35,6 +34,15 @@ from ml.tests.fixtures.common import (
     sample_predictions,
     test_component_id,
     test_timestamps,
+)
+
+# Import mock store fixtures from centralized location
+from ml.tests.fixtures.mock_stores import (
+    mock_data_store,
+    mock_feature_store,
+    mock_model_store,
+    mock_store_factory,
+    mock_strategy_store,
 )
 
 # Builder classes are imported lazily to avoid circular imports during test discovery
@@ -60,7 +68,6 @@ __all__ = [
     "default_venue",
     "dummy_onnx_model",
     "dummy_xgboost_model",
-    "mock_data_store",
     "mock_feature_registry",
     "mock_model_registry",
     "mock_stores_bundle",
@@ -72,6 +79,12 @@ __all__ = [
     "sample_predictions",
     "test_component_id",
     "test_timestamps",
+    # Mock store fixtures (centralized)
+    "mock_data_store",
+    "mock_feature_store",
+    "mock_model_store",
+    "mock_store_factory",
+    "mock_strategy_store",
 ]
 
 

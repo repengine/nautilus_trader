@@ -43,6 +43,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlalchemy.pool import StaticPool
 
+from ml.tests.fixtures.mock_stores import (
+    mock_data_store,
+    mock_feature_store,
+    mock_model_store,
+    mock_store_factory,
+    mock_strategy_store,
+)
 
 warnings.filterwarnings(
     "ignore",
@@ -1492,45 +1499,10 @@ def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
 # ============================================================================
 # Store Fixtures with Proper Mocking
 # ============================================================================
-
-
-@pytest.fixture
-def mock_feature_store() -> MagicMock:
-    """
-    Create a mock FeatureStore for unit tests.
-
-    This avoids database connections entirely, following the test pyramid principle of
-    using mocks for unit tests.
-
-    """
-    mock_store = MagicMock()
-    mock_store.write_features = MagicMock(return_value=True)
-    mock_store.read_features = MagicMock(return_value={})
-    mock_store.get_latest_features = MagicMock(return_value={})
-    mock_store.compute_features = MagicMock(return_value={"feature_1": 0.5})
-    return mock_store
-
-
-@pytest.fixture
-def mock_model_store() -> MagicMock:
-    """
-    Create a mock ModelStore for unit tests.
-    """
-    mock_store = MagicMock()
-    mock_store.write_predictions = MagicMock(return_value=True)
-    mock_store.get_latest_predictions = MagicMock(return_value=[])
-    return mock_store
-
-
-@pytest.fixture
-def mock_strategy_store() -> MagicMock:
-    """
-    Create a mock StrategyStore for unit tests.
-    """
-    mock_store = MagicMock()
-    mock_store.write_signals = MagicMock(return_value=True)
-    mock_store.get_active_signals = MagicMock(return_value=[])
-    return mock_store
+# Note: Mock store fixtures (mock_feature_store, mock_model_store,
+# mock_strategy_store, mock_data_store) are now imported from
+# ml.tests.fixtures.mock_stores to consolidate duplicate definitions.
+# See import section at top of file.
 
 
 # ============================================================================
@@ -2140,7 +2112,6 @@ from ml.tests.fixtures.common import (  # noqa: E402
     default_venue,
     dummy_onnx_model,
     dummy_xgboost_model,
-    mock_data_store,
     mock_feature_registry,
     mock_model_registry,
     mock_stores_bundle,
@@ -2153,6 +2124,7 @@ from ml.tests.fixtures.common import (  # noqa: E402
     test_component_id,
     test_timestamps,
 )
+# Note: mock_data_store and other mock store fixtures are imported from mock_stores above
 
 # Import builder classes for direct use in tests
 # Note: Builder classes are available via ml.tests.fixtures when needed, but are
