@@ -66,10 +66,18 @@ def disabled_monitoring_config() -> MonitoringConfig:
     return MonitoringConfig(enabled=False)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)
 def mock_prometheus_when_unavailable() -> Any:
     """
     Mock Prometheus imports when not available to prevent import errors.
+
+    This fixture is OPT-IN - tests must explicitly request it in their signature.
+    Use this fixture only in tests that need Prometheus mocking when the package
+    is not installed.
+
+    Usage:
+        def test_something(mock_prometheus_when_unavailable):
+            # Your test code here
     """
 
     if not HAS_PROMETHEUS:

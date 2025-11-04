@@ -52,6 +52,18 @@ class ManifestSummary:
     economic_turnover: float | None
     economic_max_drawdown: float | None
     stability_ks_statistic: float | None
+    validation_instrument_rows_total: dict[str, int] | None = None
+    validation_instrument_rows_selected: dict[str, int] | None = None
+    validation_instrument_sequences_total: dict[str, int] | None = None
+    validation_instrument_sequences_selected: dict[str, int] | None = None
+    validation_failure_reason: str | None = None
+    validation_failure_details: dict[str, Any] | None = None
+    validation_returns_fallback_join: bool | None = None
+    validation_returns_mismatch_count: int | None = None
+    validation_returns_missing_count: int | None = None
+    worker_skipped_rows: int | None = None
+    worker_skipped_sequences: int | None = None
+    worker_skipped_shards: int | None = None
 
 
 def _load_manifest(path: Path) -> ManifestSummary | None:
@@ -59,8 +71,10 @@ def _load_manifest(path: Path) -> ManifestSummary | None:
     cohort = payload.get("cohort_run", {})
     metrics = cohort.get("metrics", {})
     telemetry = cohort.get("telemetry", {})
+    validation_returns = telemetry.get("validation_returns", {}) if isinstance(telemetry, dict) else {}
     selected_rows = telemetry.get("selected_rows", {})
     resources = telemetry.get("resources", {})
+    caps = telemetry.get("caps", {})
 
     completed_raw = cohort.get("completed_at")
     completed_at = _parse_datetime(completed_raw) if isinstance(completed_raw, str) else None
@@ -98,6 +112,38 @@ def _load_manifest(path: Path) -> ManifestSummary | None:
         economic_turnover=_coerce_float(metrics.get("economic_turnover")),
         economic_max_drawdown=_coerce_float(metrics.get("economic_max_drawdown")),
         stability_ks_statistic=_coerce_float(metrics.get("stability_ks_statistic")),
+        validation_instrument_rows_total=_coerce_int_mapping(
+            caps.get("worker_validation_instrument_rows_total"),
+        ),
+        validation_instrument_rows_selected=_coerce_int_mapping(
+            caps.get("worker_validation_instrument_rows_selected"),
+        ),
+        validation_instrument_sequences_total=_coerce_int_mapping(
+            caps.get("worker_validation_instrument_sequences_total"),
+        ),
+        validation_instrument_sequences_selected=_coerce_int_mapping(
+            caps.get("worker_validation_instrument_sequences_selected"),
+        ),
+        validation_failure_reason=_coerce_str(caps.get("validation_failure_reason")),
+        validation_failure_details=_coerce_dict(caps.get("validation_failure_details")),
+        validation_returns_fallback_join=_coerce_bool(validation_returns.get("fallback_join"))
+        if isinstance(validation_returns, dict)
+        else None,
+        validation_returns_mismatch_count=_coerce_int(validation_returns.get("mismatch_count"))
+        if isinstance(validation_returns, dict)
+        else None,
+        validation_returns_missing_count=_coerce_int(validation_returns.get("missing_count"))
+        if isinstance(validation_returns, dict)
+        else None,
+        worker_skipped_rows=_coerce_int(caps.get("worker_skipped_rows"))
+        if isinstance(caps, dict)
+        else None,
+        worker_skipped_sequences=_coerce_int(caps.get("worker_skipped_sequences"))
+        if isinstance(caps, dict)
+        else None,
+        worker_skipped_shards=_coerce_int(caps.get("worker_skipped_shards"))
+        if isinstance(caps, dict)
+        else None,
     )
 
 
@@ -114,6 +160,41 @@ def _coerce_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
 
+
+def _coerce_str(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _coerce_int_mapping(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, int] = {}
+    for key, raw in value.items():
+        coerced = _coerce_int(raw)
+        if coerced is not None:
+            result[str(key)] = coerced
+    return result or None
+
+
+def _coerce_dict(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {str(key): val for key, val in value.items()}
+
+def _coerce_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, str)):
+        string_value = str(value).strip().lower()
+        if string_value in {"1", "true", "yes"}:
+            return True
+        if string_value in {"0", "false", "no"}:
+            return False
+    return None
 
 def _delta(calibrated: Any, base: Any) -> float | None:
     try:

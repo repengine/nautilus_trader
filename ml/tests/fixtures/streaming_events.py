@@ -18,8 +18,11 @@ from ml.training.teacher.streaming_loader import TFTShardIndex
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
 from ml.training.teacher.streaming_loader import TFTStreamingMetadata
 from ml.training.teacher.streaming_loader import TFTStreamingSummary
+from ml.training.teacher.streaming_telemetry import StreamingEconomicTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingLoaderTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingRunTelemetry
+from ml.training.teacher.streaming_telemetry import StreamingStabilityTelemetry
+from ml.training.teacher.streaming_telemetry import ValidationReturnsTelemetry
 
 
 @dataclass(slots=True, frozen=True)
@@ -108,7 +111,19 @@ def build_streaming_test_payloads(
     )
     telemetry = StreamingRunTelemetry(
         metadata_summary=summary,
-        caps=plan_event.caps,
+        caps={
+            **plan_event.caps,
+            "dataset_seed": 7,
+            "worker_seed": 7,
+            "worker_amp_enabled": True,
+            "worker_curriculum_enabled": False,
+            "worker_ensemble_enabled": False,
+            "worker_train_fraction": 0.8,
+            "worker_instrument_share": {"AAPL": 1.0},
+            "worker_peak_instrument_share": 1.0,
+            "worker_unique_instruments_selected": 1,
+            "worker_share_guard_threshold": 0.35,
+        },
         train=StreamingLoaderTelemetry.from_metadata(
             "train",
             metadata,
@@ -121,6 +136,21 @@ def build_streaming_test_payloads(
             limits,
             streaming_cfg,
         ),
+        economic=StreamingEconomicTelemetry(
+            slippage_adjusted_sharpe=0.35,
+            hit_rate=0.55,
+            turnover=0.12,
+            max_drawdown=0.08,
+        ),
+        stability=StreamingStabilityTelemetry(
+            ks_statistic=0.02,
+            calibration_drift=0.01,
+        ),
+        validation_returns=ValidationReturnsTelemetry(
+            fallback_join=False,
+            mismatch_count=1,
+            missing_count=0,
+        ),
     )
     result_event = TrainingResultEvent(
         plan_id=plan_event.plan_id,
@@ -128,7 +158,12 @@ def build_streaming_test_payloads(
         model_id="model",
         telemetry=telemetry,
         artifact_paths={"logits": f"/artifacts/{dataset_id}/tft_cli_logits.npz"},
-        metrics={"roc_auc": 0.5},
+        metrics={
+            "roc_auc": 0.5,
+            "worker_peak_instrument_share": 1.0,
+            "worker_unique_instruments_selected": 1.0,
+            "economic_slippage_adjusted_sharpe": 0.35,
+        },
         status=plan_event.status,
     )
     heartbeat_event = TrainingHeartbeatEvent(

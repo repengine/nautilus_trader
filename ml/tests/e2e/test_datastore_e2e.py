@@ -53,9 +53,12 @@ def timestamp_now() -> int:
 
 
 @pytest.fixture
-def sample_features(timestamp_now: int) -> list[FeatureData]:
+def sample_feature_objects(timestamp_now: int) -> list[FeatureData]:
     """
-    Create sample FeatureData for testing (real objects, not mocks).
+    Create sample FeatureData objects for E2E testing (real objects, not mocks).
+
+    Note: This fixture is E2E-specific and returns list[FeatureData].
+    The canonical sample_features fixture in common.py returns dict[str, float].
     """
     base_ts = timestamp_now
     features = []
@@ -79,9 +82,12 @@ def sample_features(timestamp_now: int) -> list[FeatureData]:
 
 
 @pytest.fixture
-def sample_predictions(timestamp_now: int) -> list[ModelPrediction]:
+def sample_prediction_objects(timestamp_now: int) -> list[ModelPrediction]:
     """
-    Create sample ModelPrediction for testing (real objects, not mocks).
+    Create sample ModelPrediction objects for E2E testing (real objects, not mocks).
+
+    Note: This fixture is E2E-specific and returns list[ModelPrediction].
+    The canonical sample_predictions fixture in common.py returns np.ndarray.
     """
     base_ts = timestamp_now
     predictions = []
@@ -271,7 +277,7 @@ class TestE2EBasicWriteReadCycle:
         self,
         mock_stores: dict[str, Any],
         mock_registry: Any,
-        sample_features: list[FeatureData],
+        sample_feature_objects: list[FeatureData],
     ):
         """
         E2E Test: Write features and verify they can be read back.
@@ -296,22 +302,22 @@ class TestE2EBasicWriteReadCycle:
         # Write features
         event = store.write_features(
             instrument_id="AAPL.NASDAQ",
-            features=sample_features,
+            features=sample_feature_objects,
             source="computed",
             run_id="test_run_001",
         )
 
         # Verify write event created
         assert event is not None
-        assert event.record_count == len(sample_features)
+        assert event.record_count == len(sample_feature_objects)
 
         # Verify features were stored
-        assert len(mock_stores["feature_data"]) == len(sample_features)
+        assert len(mock_stores["feature_data"]) == len(sample_feature_objects)
 
         # Read features back
         result = store.get_features_at_or_before(
             instrument_id="AAPL.NASDAQ",
-            ts_event=sample_features[-1].ts_event,
+            ts_event=sample_feature_objects[-1].ts_event,
         )
 
         # Verify read succeeded
@@ -322,7 +328,7 @@ class TestE2EBasicWriteReadCycle:
         self,
         mock_stores: dict[str, Any],
         mock_registry: Any,
-        sample_predictions: list[ModelPrediction],
+        sample_prediction_objects: list[ModelPrediction],
     ):
         """
         E2E Test: Write predictions and verify data integrity.
@@ -339,24 +345,24 @@ class TestE2EBasicWriteReadCycle:
 
         # Write predictions
         event = store.write_predictions(
-            predictions=sample_predictions,
+            predictions=sample_prediction_objects,
             source="inference",
             run_id="test_run_002",
         )
 
         # Verify write succeeded
         assert event is not None
-        assert event.record_count == len(sample_predictions)
+        assert event.record_count == len(sample_prediction_objects)
 
         # Verify predictions were stored
-        assert len(mock_stores["prediction_data"]) == len(sample_predictions)
+        assert len(mock_stores["prediction_data"]) == len(sample_prediction_objects)
 
         # Verify data integrity
         for i, pred in enumerate(mock_stores["prediction_data"]):
-            assert pred.model_id == sample_predictions[i].model_id
-            assert pred.instrument_id == sample_predictions[i].instrument_id
-            assert pred.prediction == sample_predictions[i].prediction
-            assert pred.confidence == sample_predictions[i].confidence
+            assert pred.model_id == sample_prediction_objects[i].model_id
+            assert pred.instrument_id == sample_prediction_objects[i].instrument_id
+            assert pred.prediction == sample_prediction_objects[i].prediction
+            assert pred.confidence == sample_prediction_objects[i].confidence
 
     def test_e2e_write_and_read_signals(
         self,
@@ -415,8 +421,8 @@ class TestE2EMultipleDataTypes:
         self,
         mock_stores: dict[str, Any],
         mock_registry: Any,
-        sample_features: list[FeatureData],
-        sample_predictions: list[ModelPrediction],
+        sample_feature_objects: list[FeatureData],
+        sample_prediction_objects: list[ModelPrediction],
         sample_signals: list[StrategySignal],
     ):
         """
@@ -435,13 +441,13 @@ class TestE2EMultipleDataTypes:
         # Write features
         feature_event = store.write_features(
             instrument_id="AAPL.NASDAQ",
-            features=sample_features,
+            features=sample_feature_objects,
             source="computed",
         )
 
         # Write predictions
         prediction_event = store.write_predictions(
-            predictions=sample_predictions,
+            predictions=sample_prediction_objects,
             source="inference",
         )
 
@@ -452,13 +458,13 @@ class TestE2EMultipleDataTypes:
         )
 
         # Verify all writes succeeded
-        assert feature_event.record_count == len(sample_features)
-        assert prediction_event.record_count == len(sample_predictions)
+        assert feature_event.record_count == len(sample_feature_objects)
+        assert prediction_event.record_count == len(sample_prediction_objects)
         assert signal_event.record_count == len(sample_signals)
 
         # Verify all data types are stored
-        assert len(mock_stores["feature_data"]) == len(sample_features)
-        assert len(mock_stores["prediction_data"]) == len(sample_predictions)
+        assert len(mock_stores["feature_data"]) == len(sample_feature_objects)
+        assert len(mock_stores["prediction_data"]) == len(sample_prediction_objects)
         assert len(mock_stores["signal_data"]) == len(sample_signals)
 
 
@@ -760,7 +766,7 @@ class TestE2EPerformance:
         self,
         mock_stores: dict[str, Any],
         mock_registry: Any,
-        sample_features: list[FeatureData],
+        sample_feature_objects: list[FeatureData],
     ):
         """
         E2E Test: Establish baseline write performance.
@@ -784,13 +790,13 @@ class TestE2EPerformance:
         start = time.perf_counter()
         event = store.write_features(
             instrument_id="AAPL.NASDAQ",
-            features=sample_features,
+            features=sample_feature_objects,
             source="perf_test",
         )
         end = time.perf_counter()
 
         # Verify succeeded
-        assert event.record_count == len(sample_features)
+        assert event.record_count == len(sample_feature_objects)
 
         # Performance check (should be fast with in-memory storage)
         latency_ms = (end - start) * 1000
