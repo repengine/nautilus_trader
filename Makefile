@@ -838,10 +838,10 @@ sanity:
 
 .PHONY: pytest-ml
 
-pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API/slow), then serial integration (no real API/slow)
-	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api/slow), then serial integration (excl. real_api/slow) ...)
+pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API/slow/property), then serial integration (no real API/slow)
+	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api/slow/property), then serial integration (excl. real_api/slow) ...)
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
-		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api and not slow" -q -n auto --dist=loadscope || exit $$?
+		poetry run pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api and not slow and not property" -q -n 4 --dist=loadscope || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
 		poetry run pytest -c ml/pytest.ini ml -m "integration and not real_api and not slow" -k "not streaming_persistence_worker_cli and not streaming_persistence_integration" -q -n 1 || exit $$?
 	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
