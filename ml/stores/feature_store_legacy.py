@@ -51,9 +51,9 @@ from ml.config.base import MLFeatureConfig
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.stores.mixins import DataRegistryMixin

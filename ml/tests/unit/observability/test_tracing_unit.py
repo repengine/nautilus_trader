@@ -216,6 +216,48 @@ class TestTracingErrorHandling:
             failing_function()
 
 
+class TestTracingFunctionsWhenEnabled:
+    """
+    Validate tracing helpers when tracing is explicitly enabled.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enable_tracing(self, mock_tracing_backend):
+        """
+        Enable tracing and expose the harness for assertions.
+        """
+        self._harness = mock_tracing_backend
+
+    def test_get_trace_context_returns_traceparent(self) -> None:
+        """
+        get_trace_context should include the harness traceparent.
+        """
+        context = get_trace_context()
+        assert context.get("traceparent") == self._harness.traceparent
+
+    def test_inject_trace_context_enriches_metadata(self) -> None:
+        """
+        inject_trace_context should add a traceparent entry.
+        """
+        metadata = {"correlation_id": "abc123"}
+        result = inject_trace_context(metadata)
+        assert result is not metadata  # returns a new dict when mutating
+        assert result["trace_context"]["traceparent"] == self._harness.traceparent
+
+    def test_trace_cold_path_records_span(self) -> None:
+        """
+        trace_cold_path should emit spans via the harness tracer.
+        """
+        with trace_cold_path("enabled_operation", correlation_id="cid-1") as span:
+            assert span is not None
+            span.set_attribute("custom", "value")
+
+        recorded_span = self._harness.tracer.spans[-1]
+        recorded_span.set_attribute.assert_any_call("correlation_id", "cid-1")
+        recorded_span.set_attribute.assert_any_call("operation_type", "cold_path")
+        recorded_span.set_attribute.assert_any_call("custom", "value")
+
+
 class TestTracingModuleImports:
     """
     Test module imports and dependencies.

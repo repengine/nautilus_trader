@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from prometheus_client import CollectorRegistry
+from typing import Any
+
+import pytest
 
 from ml.consumers.aggregator import AggregatingConsumer
 from ml.consumers.protocols import Envelope
@@ -14,6 +16,12 @@ def _has_sample(metric, name: str) -> bool:  # type: ignore[no-untyped-def]
             if s.name == name:
                 return True
     return False
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are isolated for this module."""
+    del isolated_prometheus_registry
 
 
 def test_aggregator_emits_metrics_on_duplicate_and_flush() -> None:

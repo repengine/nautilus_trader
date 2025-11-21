@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ml.common.subprocess_utils import run_command
 
+
 logger = logging.getLogger(__name__)
 
 # Default paths and targets
@@ -26,7 +27,8 @@ DEFAULT_PYTEST_TARGETS = (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser for validation bundle.
+    """
+    Build argument parser for validation bundle.
 
     Returns:
         Configured argument parser
@@ -61,7 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_alerts_only() -> list[str]:
-    """Check for presence of alert files.
+    """
+    Check for presence of alert files.
 
     Returns:
         List of alert rule names that have files present
@@ -73,7 +76,8 @@ def run_alerts_only() -> list[str]:
 
 
 def validate_manifest_coverage(manifest_dir: Path, limit: int | None = None) -> None:
-    """Validate that recent manifests have adequate coverage.
+    """
+    Validate that recent manifests have adequate coverage.
 
     Args:
         manifest_dir: Directory containing manifest files
@@ -89,7 +93,8 @@ def validate_manifest_coverage(manifest_dir: Path, limit: int | None = None) -> 
 
 
 def _check_doc_staleness(max_age_hours: float) -> None:
-    """Check that documentation files are not stale.
+    """
+    Check that documentation files are not stale.
 
     Args:
         max_age_hours: Maximum age in hours
@@ -114,7 +119,8 @@ def _check_doc_staleness(max_age_hours: float) -> None:
 
 
 def run_validation(args: argparse.Namespace) -> None:
-    """Run full validation bundle.
+    """
+    Run full validation bundle.
 
     Args:
         args: Parsed command-line arguments

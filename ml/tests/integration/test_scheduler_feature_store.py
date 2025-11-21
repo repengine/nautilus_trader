@@ -13,6 +13,7 @@ import tempfile
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -21,9 +22,8 @@ import pytest
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.tests.fixtures.database_fixtures import TestDatabase
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
@@ -34,6 +34,15 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 def create_test_bars(

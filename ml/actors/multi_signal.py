@@ -152,7 +152,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
         except Exception as exc:  # pragma: no cover - best-effort metrics
             self.log.debug(
                 f"multi_signal.metrics_init_failed actor={self.id} error={exc!r}",
-                exc_info=True,
             )
 
             class _NoMetric:
@@ -214,7 +213,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
         except Exception as exc:
             self.log.debug(
                 f"multi_signal.universe_metric_set_failed actor={self.id} error={exc!r}",
-                exc_info=True,
             )
 
     # --------------------------------- Hot path ---------------------------------
@@ -350,7 +348,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Never fail startup due to alignment; metrics/parity checks will surface problems
             self.log.debug(
                 f"multi_signal.feature_dim_alignment_failed actor={self.id} error={exc!r}",
-                exc_info=True,
             )
 
         # Advisory: auto-set universe from model registry metadata when not provided
@@ -407,7 +404,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Best-effort behavior; never fail actor startup due to metadata
             self.log.debug(
                 f"multi_signal.universe_metadata_failed actor={self.id} error={exc!r}",
-                exc_info=True,
             )
 
     # ----------------------------- Inference backend -----------------------------
@@ -446,7 +442,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Fall through to per-row inference on any failure
             self.log.debug(
                 f"multi_signal.onnx_batch_run_failed actor={self.id} error={exc!r}",
-                exc_info=True,
             )
 
         # Fallback: per-row predictions using inherited predictor

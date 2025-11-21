@@ -4,11 +4,14 @@ import datetime as dt
 from datetime import datetime
 from typing import Literal, cast
 
+import pytest
 from sqlalchemy.engine import Engine
 
 from ml.dashboard.store_health import StoreHealthSummary
 from ml.dashboard.store_health import summarize_data_store
 from ml.dashboard.store_health import summarize_feature_store
+
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
 
 
 class _FakeCursor:

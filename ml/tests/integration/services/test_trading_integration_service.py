@@ -4,6 +4,8 @@ Tests for the trading integration service.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import asyncio
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +24,13 @@ from ml.dashboard.services.trading_service import (
     TradingMetricsSnapshot,
 )
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+    "real_engine_manager",
+)
 
 @dataclass(slots=True)
 class DummyIntegrationManager:

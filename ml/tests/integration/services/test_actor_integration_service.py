@@ -4,6 +4,8 @@ Tests for the dashboard actor integration service.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import types
 from collections.abc import Mapping
 from typing import Any, Callable
@@ -16,6 +18,12 @@ from ml.dashboard.services.actors_service import ActorPauseRequest
 from ml.dashboard.services.actors_service import ActorResumeRequest
 from ml.dashboard.services.actors_service import ActorStopRequest
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 class DummyLifecycleActor:
     """

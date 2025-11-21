@@ -8,10 +8,12 @@ PARITY REQUIREMENT: 1e-10 tolerance (no fidelity sacrifices).
 
 """
 
+from __future__ import annotations
+
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -22,10 +24,10 @@ from numpy.random import default_rng
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.stores.feature_store import FeatureStore
-from ml.tests.fixtures.database_fixtures import TestDatabase
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -34,6 +36,15 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.fixture
 def feature_config() -> FeatureConfig:
@@ -43,7 +54,7 @@ def feature_config() -> FeatureConfig:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("clean_postgres_db_class", "real_engine_manager")
 class TestFeatureParity:
     """
     Test suite for training/inference feature parity.
@@ -108,9 +119,10 @@ class TestFeatureParity:
         This is the CRITICAL test for training/inference parity.
 
         """
-        # Initialize two separate engineers to simulate training vs inference
+        # Initialize engineer and indicator manager
         batch_engineer = FeatureEngineer(feature_config)
         online_engineer = FeatureEngineer(feature_config)
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Prepare data for batch computation
         import polars as pl
@@ -137,11 +149,24 @@ class TestFeatureParity:
         # Compute features online (inference path)
         online_features: list[npt.NDArray[np.float32]] = []
         for bar in mock_bars:
-            features = online_engineer.calculate_features_online(
-                close_price=float(bar.close),
-                high_price=float(bar.high),
-                low_price=float(bar.low),
+            # Update indicators first
+            indicator_mgr.update_from_values(
+                close=float(bar.close),
+                high=float(bar.high),
+                low=float(bar.low),
                 volume=float(bar.volume),
+            )
+            
+            current_bar = {
+                "close": float(bar.close),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "volume": float(bar.volume),
+            }
+            
+            features = online_engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             # Important: copy to avoid aliasing the engineer's hot-path buffer
             online_features.append(features.copy())
@@ -173,25 +198,39 @@ class TestFeatureParity:
             connection_string=test_database.connection_string,
             feature_config=feature_config,
         )
+        
+        # Setup indicator manager
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Mock the database operations
         cast(Any, store)._store_to_postgres = MagicMock()
 
         # Compute features for same bar multiple times
         bar = mock_bars[50]  # Middle bar with stable indicators
+        
+        # Update indicators state
+        indicator_mgr.update_from_values(
+            close=float(bar.close),
+            high=float(bar.high),
+            low=float(bar.low),
+            volume=float(bar.volume),
+        )
+        
+        current_bar = {
+            "close": float(bar.close),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "volume": float(bar.volume),
+        }
 
         features_1 = store.feature_engineer.calculate_features_online(
-            close_price=float(bar.close),
-            high_price=float(bar.high),
-            low_price=float(bar.low),
-            volume=float(bar.volume),
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         features_2 = store.feature_engineer.calculate_features_online(
-            close_price=float(bar.close),
-            high_price=float(bar.high),
-            low_price=float(bar.low),
-            volume=float(bar.volume),
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         # Features should be identical for same input
@@ -211,64 +250,77 @@ class TestFeatureParity:
 
         """
         engineer = FeatureEngineer(feature_config)
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Process first 50 bars to warm up indicators
         for bar in mock_bars[:50]:
-            engineer.calculate_features_online(
-                close_price=float(bar.close),
-                high_price=float(bar.high),
-                low_price=float(bar.low),
+            indicator_mgr.update_from_values(
+                close=float(bar.close),
+                high=float(bar.high),
+                low=float(bar.low),
                 volume=float(bar.volume),
+            )
+            
+            current_bar = {
+                "close": float(bar.close),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "volume": float(bar.volume),
+            }
+            
+            engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
 
         # Check indicator states
         # Robust init checks across indicator implementations
+        rsi_ind = indicator_mgr.indicators["rsi"]
+        ema_fast_ind = indicator_mgr.indicators["ema_fast"]
+        ema_slow_ind = indicator_mgr.indicators["ema_slow"]
+        
         assert (
-            getattr(
-                engineer.indicators.rsi,
-                "is_initialized",
-                getattr(engineer.indicators.rsi, "initialized", False),
-            )
-            is True
+            getattr(rsi_ind, "is_initialized", getattr(rsi_ind, "initialized", False)) is True
         ), "RSI not initialized after 50 bars"
         assert (
-            getattr(
-                engineer.indicators.ema_fast,
-                "is_initialized",
-                getattr(engineer.indicators.ema_fast, "initialized", False),
-            )
-            is True
+            getattr(ema_fast_ind, "is_initialized", getattr(ema_fast_ind, "initialized", False)) is True
         ), "EMA fast not initialized"
         assert (
-            getattr(
-                engineer.indicators.ema_slow,
-                "is_initialized",
-                getattr(engineer.indicators.ema_slow, "initialized", False),
-            )
-            is True
+            getattr(ema_slow_ind, "is_initialized", getattr(ema_slow_ind, "initialized", False)) is True
         ), "EMA slow not initialized"
 
         # Get current indicator values
-        rsi_value = engineer.indicators.rsi.value
-        ema_fast_value = engineer.indicators.ema_fast.value
-        ema_slow_value = engineer.indicators.ema_slow.value
+        rsi_value = rsi_ind.value
+        ema_fast_value = ema_fast_ind.value
+        ema_slow_value = ema_slow_ind.value
 
         # Process one more bar
         bar = mock_bars[50]
-        features = engineer.calculate_features_online(
-            close_price=float(bar.close),
-            high_price=float(bar.high),
-            low_price=float(bar.low),
+        indicator_mgr.update_from_values(
+            close=float(bar.close),
+            high=float(bar.high),
+            low=float(bar.low),
             volume=float(bar.volume),
+        )
+        current_bar = {
+            "close": float(bar.close),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "volume": float(bar.volume),
+        }
+        
+        engineer.calculate_features_online(
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         # Indicators should have updated
         assert (
-            engineer.indicators.rsi.value != rsi_value
-            or abs(engineer.indicators.rsi.value - rsi_value) < 0.01
+            rsi_ind.value != rsi_value
+            or abs(rsi_ind.value - rsi_value) < 0.01
         )
-        assert engineer.indicators.ema_fast.value != ema_fast_value
-        assert engineer.indicators.ema_slow.value != ema_slow_value
+        assert ema_fast_ind.value != ema_fast_value
+        assert ema_slow_ind.value != ema_slow_value
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -358,6 +410,7 @@ class TestFeatureParity:
 
         """
         engineer = FeatureEngineer(feature_config)
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Test with extreme values
         extreme_cases = [
@@ -367,11 +420,22 @@ class TestFeatureParity:
         ]
 
         for close, high, low, volume in extreme_cases:
+            indicator_mgr.update_from_values(
+                close=float(close),
+                high=float(high),
+                low=float(low),
+                volume=float(volume),
+            )
+            current_bar = {
+                "close": float(close),
+                "high": float(high),
+                "low": float(low),
+                "volume": float(volume),
+            }
+            
             features = engineer.calculate_features_online(
-                close_price=close,
-                high_price=high,
-                low_price=low,
-                volume=volume,
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
 
             # Features should be finite and not NaN
@@ -410,17 +474,28 @@ class TestFeatureParity:
             bars.append(bar)
 
         # Test batch vs online
-        batch_engineer = FeatureEngineer(feature_config)
-        online_engineer = FeatureEngineer(feature_config)
+        # We can reuse the engineer since it's stateless regarding data
+        engineer = FeatureEngineer(feature_config)
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Compute online features
         online_features = []
         for bar in bars:
-            features = online_engineer.calculate_features_online(
-                close_price=float(bar.close),
-                high_price=float(bar.high),
-                low_price=float(bar.low),
+            indicator_mgr.update_from_values(
+                close=float(bar.close),
+                high=float(bar.high),
+                low=float(bar.low),
                 volume=float(bar.volume),
+            )
+            current_bar = {
+                "close": float(bar.close),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "volume": float(bar.volume),
+            }
+            features = engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features)
 
@@ -444,31 +519,39 @@ class TestParityFailureModes:
         """
         Test that we detect when indicators are initialized differently.
         """
-        engineer1 = FeatureEngineer(feature_config)
-        engineer2 = FeatureEngineer(feature_config)
+        engineer = FeatureEngineer(feature_config)
+        mgr1 = IndicatorManager(feature_config)
+        mgr2 = IndicatorManager(feature_config)
 
-        # Warm up engineer1 with different data
+        # Warm up mgr1 with different data
         for i in range(50):
-            engineer1.calculate_features_online(
-                close_price=1.1000 + i * 0.001,
-                high_price=1.1010 + i * 0.001,
-                low_price=1.0990 + i * 0.001,
+            mgr1.update_from_values(
+                close=1.1000 + i * 0.001,
+                high=1.1010 + i * 0.001,
+                low=1.0990 + i * 0.001,
                 volume=1000000,
             )
 
         # Both process same bar
-        features1 = engineer1.calculate_features_online(
-            close_price=1.2000,
-            high_price=1.2010,
-            low_price=1.1990,
-            volume=1000000,
+        current_bar = {
+            "close": 1.2000,
+            "high": 1.2010,
+            "low": 1.1990,
+            "volume": 1000000.0,
+        }
+        
+        # Need to update managers with this bar first
+        mgr1.update_from_values(**current_bar)
+        mgr2.update_from_values(**current_bar)
+
+        features1 = engineer.calculate_features_online(
+            current_bar=current_bar,
+            indicator_manager=mgr1,
         )
 
-        features2 = engineer2.calculate_features_online(
-            close_price=1.2000,
-            high_price=1.2010,
-            low_price=1.1990,
-            volume=1000000,
+        features2 = engineer.calculate_features_online(
+            current_bar=current_bar,
+            indicator_manager=mgr2,
         )
 
         # Features should be different due to different history
@@ -483,23 +566,27 @@ class TestParityFailureModes:
         """
         Test that we maintain numerical precision.
         """
-        engineer = FeatureEngineer(feature_config)
+        # engineer = FeatureEngineer(feature_config) # Not needed for state
+        indicator_mgr = IndicatorManager(feature_config)
 
         # Process many bars to accumulate potential precision errors
         for i in range(10000):
             price = 1.0 + (i % 100) * 1e-10  # Very small variations
-            engineer.calculate_features_online(
-                close_price=price,
-                high_price=price + 1e-10,
-                low_price=price - 1e-10,
+            indicator_mgr.update_from_values(
+                close=price,
+                high=price + 1e-10,
+                low=price - 1e-10,
                 volume=1000000,
             )
 
         # Check that indicators still have reasonable precision
-        assert engineer.indicators.ema_fast.value > 0
-        assert engineer.indicators.ema_slow.value > 0
+        ema_fast = indicator_mgr.indicators["ema_fast"]
+        ema_slow = indicator_mgr.indicators["ema_slow"]
+        
+        assert ema_fast.value > 0
+        assert ema_slow.value > 0
 
         # EMAs should have converged close to the mean price
         expected_price = 1.0 + 50 * 1e-10
-        assert abs(engineer.indicators.ema_fast.value - expected_price) < 0.01
-        assert abs(engineer.indicators.ema_slow.value - expected_price) < 0.01
+        assert abs(ema_fast.value - expected_price) < 0.01
+        assert abs(ema_slow.value - expected_price) < 0.01

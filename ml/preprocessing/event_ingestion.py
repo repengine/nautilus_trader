@@ -113,17 +113,23 @@ class EventIngestionUtility:
         self._cfg = config
         self._start = _normalize_datetime(config.start)
         self._end = _normalize_datetime(config.end)
+        self._latest_frame: PolarsDF | None = None
 
     def ingest(self) -> Path:
         """
         Collect events and persist to ``out_dir/events.parquet``.
         """
         events_df = self._collect_events()
+        self._latest_frame = events_df.clone()
         out_dir = self._cfg.out_dir.expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         target = out_dir / "events.parquet"
         events_df.write_parquet(target)
         return target
+
+    def latest_frame(self) -> PolarsDF | None:
+        """Return the most recent events frame produced by :meth:`ingest`."""
+        return self._latest_frame
 
     # ------------------------------------------------------------------
     # Event collection helpers

@@ -1,3 +1,6 @@
+-- Migration: Create market_data fact tables plus related metadata for ML ingestion.
+-- Rollback: DROP TABLE IF EXISTS market_data CASCADE; DROP TABLE IF EXISTS market_data_metadata CASCADE; DROP TABLE IF EXISTS market_data_statistics CASCADE.
+
 -- Market Data Schema Migration
 -- Creates tables for market data storage and metadata
 -- This integrates with the ML processing pipeline

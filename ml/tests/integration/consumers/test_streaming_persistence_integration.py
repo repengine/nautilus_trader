@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
 from ml.config.bus import MessageBusConfig
 from ml.config.streaming_pipeline import StreamingPersistenceConfig
 from ml.consumers.streaming_training_worker import StreamingTrainingPersistenceWorker
-from ml.tests.fixtures.streaming_events import build_streaming_test_payloads
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.streaming_events import StreamingTestPayloads
+
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 class _DummyRedis:
     def __init__(self, batches: list[list[tuple[str, list[tuple[str, dict[str, str]]]]]]) -> None:
@@ -37,6 +48,7 @@ class _DummyRedis:
 def test_streaming_persistence_worker_persists_redis_batch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    streaming_test_payloads_factory: Callable[..., StreamingTestPayloads],
 ) -> None:
     dummy_module = ModuleType("redis")
     dummy_module.Redis = _DummyRedis
@@ -49,7 +61,7 @@ def test_streaming_persistence_worker_persists_redis_batch(
         lambda self, payload: True,
     )
 
-    payloads = build_streaming_test_payloads(parquet_path=tmp_path / "dataset.parquet")
+    payloads = streaming_test_payloads_factory(parquet_path=tmp_path / "dataset.parquet")
     plan_payload = json.dumps(payloads.plan_message())
     result_payload = json.dumps(payloads.result_message())
     heartbeat_payload = json.dumps(payloads.heartbeat_message())

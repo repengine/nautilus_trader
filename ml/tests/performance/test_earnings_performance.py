@@ -18,6 +18,7 @@ Uses pytest-benchmark or time.perf_counter_ns() for accurate measurements.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import TYPE_CHECKING
 
@@ -32,6 +33,7 @@ from ml.features.earnings import compute_earnings_momentum_batch
 from ml.features.earnings import compute_earnings_momentum_incremental
 from ml.features.earnings import compute_earnings_surprise_batch
 from ml.features.earnings import compute_earnings_surprise_incremental
+from ml.features.earnings import reset_earnings_metrics_state
 from ml.tests.utils.earnings_facade import build_test_earnings_adapter
 
 
@@ -325,6 +327,9 @@ class TestEarningsPerformance:
         Uses tracemalloc to detect memory allocations.
         """
         import tracemalloc
+
+        os.environ.pop("ML_EARNINGS_ENABLE_METRICS", None)
+        reset_earnings_metrics_state()
 
         actual = 2.52
         estimate = 2.45

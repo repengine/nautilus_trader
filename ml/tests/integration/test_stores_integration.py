@@ -11,6 +11,8 @@ Consolidation performed on 2025-08-25.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import json
 import time
 from unittest.mock import patch
@@ -23,6 +25,12 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.data_processor import QualityFlags
 from ml.tests.builders import DataBuilder
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.database
 @pytest.mark.serial

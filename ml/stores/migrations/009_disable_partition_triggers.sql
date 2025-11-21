@@ -1,7 +1,10 @@
+-- Migration: Disable automatic partition triggers in favour of manual scheduling.
+-- Rollback: Recreate ensure_partition_exists() and associated triggers (see 003_auto_partitioning.sql).
+
 -- Disable Automatic Partition Triggers for Testing
 --
 -- This migration disables the automatic partition creation triggers that were
--- created in 002_auto_partitioning.sql. These triggers have race conditions
+-- created in 003_auto_partitioning.sql. These triggers have race conditions
 -- and can cause sub-partition creation attempts that fail during testing.
 --
 -- Instead, we use pre-created partitions managed by PartitionManager.

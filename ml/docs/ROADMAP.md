@@ -147,7 +147,7 @@ Post‑Alpha Backlog (Beta and beyond)
 - Adapter contracts: validate mapping to internal schemas; ordering invariants (monotonic sequence/ts), idempotent replay, watermark progression; backpressure + retry semantics.
 - Live/backfill bridge: resume from offsets/time windows; retry/backoff on rate limits; reconnection semantics; property tests for partial day boundaries and DST.
   - DELIVERED: provider‑agnostic resume/backoff helper with DST‑aware window planning and tests (`DatabentoIngestor`).
-  - DELIVERED: store integration via `SqlMarketDataWriter` + `SqlCoverageProvider` (idempotent writes with ON CONFLICT/OR IGNORE; BRIN guidance) targeting canonical `market_data` (003_market_data.sql); DataStore contracts remain provider‑agnostic.
+  - DELIVERED: store integration via `SqlMarketDataWriter` + `SqlCoverageProvider` (idempotent writes with ON CONFLICT/OR IGNORE; BRIN guidance) targeting canonical `market_data` (004_market_data.sql); DataStore contracts remain provider‑agnostic.
   - DELIVERED: gap backfill orchestrator integrated with DataRegistry (events + watermarks) and canonical storage (`ml/data/ingest/orchestrator.py`).
   - DELIVERED: DatabentoAPIClient adapter (`ml/data/ingest/databento_adapter.py`) with canonical column mapping for bars/quotes/trades and `ts_event` normalization; CLI supports `--client-mode databento` with `DATABENTO_API_KEY`.
   - DELIVERED observability: ingestion metrics helpers, dashboard row, alerts.

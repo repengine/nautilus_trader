@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
-from typing import Any, Iterable
-from collections.abc import Iterator
+from typing import Any, Iterable, Iterator
 
 import pytest
 
@@ -19,44 +18,16 @@ from ml.stores.strategy_store import StrategyStore
 
 
 @contextmanager
-def _patch_engine_manager() -> Iterator[None]:
-    # Patch EngineManager.get_engine to a dummy engine to avoid real DB IO
-    from ml.core import db_engine as _db
-
-    orig_get_engine = _db.EngineManager.get_engine
-
-    class _DummyConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def execute(self, *_args: Any, **_kwargs: Any) -> None:  # pragma: no cover - dummy
-            return None
-
-    class _DummyEngine:
-        def connect(self) -> _DummyConn:  # pragma: no cover - dummy
-            return _DummyConn()
-
-        def begin(self) -> _DummyConn:  # pragma: no cover - dummy
-            return _DummyConn()
-
-    try:
-        setattr(_db.EngineManager, "get_engine", lambda *a, **k: _DummyEngine())
-        yield
-    finally:
-        setattr(_db.EngineManager, "get_engine", orig_get_engine)
-
-
-@contextmanager
-def _capture_model_store_writes(sink: list[dict[str, Any]]) -> Iterator[None]:
+def _capture_model_store_writes(
+    sink: list[dict[str, Any]],
+    patch_engine_manager,
+) -> Iterator[None]:
     orig_setup = ModelStore._setup_tables
     orig_exec = ModelStore._execute_write
     try:
         setattr(ModelStore, "_setup_tables", lambda self: None)
         setattr(ModelStore, "_execute_write", lambda self, values: sink.extend(values))
-        with _patch_engine_manager():
+        with patch_engine_manager():
             yield
     finally:
         setattr(ModelStore, "_setup_tables", orig_setup)
@@ -64,13 +35,16 @@ def _capture_model_store_writes(sink: list[dict[str, Any]]) -> Iterator[None]:
 
 
 @contextmanager
-def _capture_strategy_store_writes(sink: list[dict[str, Any]]) -> Iterator[None]:
+def _capture_strategy_store_writes(
+    sink: list[dict[str, Any]],
+    patch_engine_manager,
+) -> Iterator[None]:
     orig_setup = StrategyStore._setup_tables
     orig_exec = StrategyStore._execute_write
     try:
         setattr(StrategyStore, "_setup_tables", lambda self: None)
         setattr(StrategyStore, "_execute_write", lambda self, values: sink.extend(values))
-        with _patch_engine_manager():
+        with patch_engine_manager():
             yield
     finally:
         setattr(StrategyStore, "_setup_tables", orig_setup)
@@ -87,9 +61,14 @@ def _ts_range(values: Iterable[dict[str, Any]]) -> tuple[int, int]:
     base_ts=st.integers(min_value=0, max_value=1_000_000),
     shift=st.integers(min_value=1, max_value=1_000_000),
 )
-def test_model_store_time_shift_metamorphic(n: int, base_ts: int, shift: int) -> None:
+def test_model_store_time_shift_metamorphic(
+    n: int,
+    base_ts: int,
+    shift: int,
+    patch_engine_manager,
+) -> None:
     sink: list[dict[str, Any]] = []
-    with _capture_model_store_writes(sink):
+    with _capture_model_store_writes(sink, patch_engine_manager):
         store = ModelStore(connection_string="sqlite:///:memory:")
 
         data = [
@@ -145,9 +124,13 @@ def test_model_store_time_shift_metamorphic(n: int, base_ts: int, shift: int) ->
     n=st.integers(min_value=2, max_value=20),
     base_ts=st.integers(min_value=0, max_value=1_000_000),
 )
-def test_model_store_permutation_invariance(n: int, base_ts: int) -> None:
+def test_model_store_permutation_invariance(
+    n: int,
+    base_ts: int,
+    patch_engine_manager,
+) -> None:
     sink: list[dict[str, Any]] = []
-    with _capture_model_store_writes(sink):
+    with _capture_model_store_writes(sink, patch_engine_manager):
         store = ModelStore(connection_string="sqlite:///:memory:")
 
         data = [
@@ -183,9 +166,14 @@ def test_model_store_permutation_invariance(n: int, base_ts: int) -> None:
     base_ts=st.integers(min_value=0, max_value=1_000_000),
     shift=st.integers(min_value=1, max_value=1_000_000),
 )
-def test_strategy_store_time_shift_metamorphic(n: int, base_ts: int, shift: int) -> None:
+def test_strategy_store_time_shift_metamorphic(
+    n: int,
+    base_ts: int,
+    shift: int,
+    patch_engine_manager,
+) -> None:
     sink: list[dict[str, Any]] = []
-    with _capture_strategy_store_writes(sink):
+    with _capture_strategy_store_writes(sink, patch_engine_manager):
         store = StrategyStore(connection_string="sqlite:///:memory:")
 
         data = [
@@ -234,9 +222,13 @@ def test_strategy_store_time_shift_metamorphic(n: int, base_ts: int, shift: int)
     n=st.integers(min_value=2, max_value=20),
     base_ts=st.integers(min_value=0, max_value=1_000_000),
 )
-def test_strategy_store_permutation_invariance(n: int, base_ts: int) -> None:
+def test_strategy_store_permutation_invariance(
+    n: int,
+    base_ts: int,
+    patch_engine_manager,
+) -> None:
     sink: list[dict[str, Any]] = []
-    with _capture_strategy_store_writes(sink):
+    with _capture_strategy_store_writes(sink, patch_engine_manager):
         store = StrategyStore(connection_string="sqlite:///:memory:")
 
         data = [
@@ -270,7 +262,11 @@ def test_strategy_store_permutation_invariance(n: int, base_ts: int) -> None:
     n=st.integers(min_value=2, max_value=30),
     base_ts=st.integers(min_value=0, max_value=1_000_000),
 )
-def test_model_store_duplicate_batch_unique_key_invariance(n: int, base_ts: int) -> None:
+def test_model_store_duplicate_batch_unique_key_invariance(
+    n: int,
+    base_ts: int,
+    patch_engine_manager,
+) -> None:
     """
     Duplicating rows in the batch does not change the set of unique keys.
 
@@ -278,7 +274,7 @@ def test_model_store_duplicate_batch_unique_key_invariance(n: int, base_ts: int)
 
     """
     sink: list[dict[str, Any]] = []
-    with _capture_model_store_writes(sink):
+    with _capture_model_store_writes(sink, patch_engine_manager):
         store = ModelStore(connection_string="sqlite:///:memory:")
 
         base: list[ModelPrediction] = [
@@ -309,12 +305,16 @@ def test_model_store_duplicate_batch_unique_key_invariance(n: int, base_ts: int)
     n=st.integers(min_value=2, max_value=30),
     base_ts=st.integers(min_value=0, max_value=1_000_000),
 )
-def test_strategy_store_duplicate_batch_unique_key_invariance(n: int, base_ts: int) -> None:
+def test_strategy_store_duplicate_batch_unique_key_invariance(
+    n: int,
+    base_ts: int,
+    patch_engine_manager,
+) -> None:
     """
     Duplicating rows in the batch does not change the set of unique keys.
     """
     sink: list[dict[str, Any]] = []
-    with _capture_strategy_store_writes(sink):
+    with _capture_strategy_store_writes(sink, patch_engine_manager):
         store = StrategyStore(connection_string="sqlite:///:memory:")
 
         base: list[StrategySignal] = [

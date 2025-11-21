@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 """
 Test PostgreSQL integration is working properly.
 """
@@ -9,6 +12,12 @@ from urllib.parse import urlparse
 import pytest
 from sqlalchemy import text
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.database
 @pytest.mark.serial
@@ -174,7 +183,9 @@ def test_postgres_specific_features(test_database):
         assert row is not None
         assert row.today is not None
         assert row.epoch > 0
-        assert row.test_array == [1, 2, 3]
+    assert row.test_array == [1, 2, 3]
+
+
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.service import (
     DashboardService,
@@ -11,6 +13,8 @@ from ml.dashboard.service import (
     _REGISTRY_FALLBACK_TOTAL,
 )
 from ml.registry.base import DummyRegistry
+
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
 
 
 def _metric_value(counter: Any, **labels: str) -> float:
@@ -85,6 +89,12 @@ def _make_service() -> DashboardService:
     svc = DashboardService.from_config(cfg)
     svc._registry_cache.clear()
     return svc
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are reset between tests."""
+    del isolated_prometheus_registry
 
 
 def test_list_models_uses_cache() -> None:

@@ -53,6 +53,56 @@ docker run --rm \
 
 ## Important Notes
 
+### Schema migrations & health checks
+- Run the schema audit to confirm the database already matches the partitioned layout expected by the pipeline:
+
+  ```bash
+  poetry run python -m ml.stores.schema_audit inspect \
+    --db-url postgresql://USER:PASS@postgres.nautilus-ml:5432/nautilus_ml
+  ```
+
+  The audit reports whether the feature/model/strategy tables are partitioned by `ts_event`, whether `market_data` retains the generated `spread`/`mid_price` columns, and whether helper functions (e.g., `create_monthly_partitions`) exist.
+- After the audit is clean, run the migrations runner (also executed automatically by the pipeline entrypoint) to apply SQL files and record checksums:
+
+  ```bash
+  poetry run python -m ml.stores.migrations_runner apply \
+    --db-url postgresql://USER:PASS@postgres.nautilus-ml:5432/nautilus_ml
+  ```
+
+- Leave the `ml_schema_migrations` table intact; it prevents redundant DDL on each restart and surfaces checksum mismatches immediately. If any audit/migration check fails the pipeline container exits before Databento ingestion resumes.
+- The entrypoint now also refuses to start unless the instrumentation tables (`ml_data_events`, `ml_data_watermarks`) exist. Run the migrations runner (or seed the tables) before restarting so coverage metrics and scheduler telemetry stay intact.
+
+### Coverage Restoration
+- Set `COVERAGE_RESTORE_ENABLED=1` so the pipeline checks for SQL/parquet gaps before it resumes ingestion. Optional tuning: `COVERAGE_RESTORE_LOOKBACK_DAYS` (default `5`).
+  - Use `COVERAGE_MAX_BUCKETS_PER_RUN` (default `500`) to cap each restoration pass; the pipeline logs skipped counts when residual gaps remain.
+- At startup the coverage manager:
+  1. Runs the schema audit.
+  2. Restores missing buckets from the parquet catalog when possible.
+  3. Invokes `run_targeted_update` so Databento only replays the residual buckets.
+- Manual CLI (same logic as the pipeline):
+
+  ```bash
+  poetry run python -m ml.data.coverage.manager \
+    --db-url postgresql://USER:PASS@postgres.nautilus-ml:5432/nautilus_ml \
+    --catalog-path /data/catalog \
+    --dataset EQUS.MINI:ohlcv-1m:AAPL.XNAS,MSFT.XNAS
+  ```
+
+- Supply multiple `--dataset` arguments for TBBO/MBP datasets and add `--json` to capture machine-readable summaries for runbooks.
+  To run the exact pipeline workflow (build scheduler config from env vars, execute catalog restoration + targeted Databento ingestion) outside the container, use:
+
+  ```bash
+  poetry run python -m ml.cli.coverage_restore --json
+  ```
+
+  The CLI emits the same summary that now appears in the pipeline health payload.
+
+### Databento dependency in runtime images
+- The `ml_signal_actor` and `ml_strategy` Dockerfiles now install the `databento` package so targeted Databento calls never fail at import time. Rebuild the images (`docker compose build ml_signal_actor ml_strategy`) after pulling these changes if you publish custom artifacts.
+
+### MARKET_DATASET_INPUTS validation
+- Supplemental dataset configs (`MARKET_DATASET_INPUTS` env var) are now validated during pipeline bootstrap. Each entry must reference a descriptor listed in `ml/config/market_feed_descriptors.json`, and the resolved dataset/schema pair must match that allowlist. Invalid descriptors (e.g., `DBEQ.MINI`) or mismatched schemas (such as `mbp-10` on `EQUS.MINI`) cause the pipeline and coverage CLI to exit early so ingest jobs cannot run with unsupported Databento settings.
+
 ### Market Hours
 - **EXTERNAL bars** (OHLCV-1m from Databento) are only available during market hours:
   - Monday-Friday: 9:30 AM - 4:00 PM ET
@@ -125,6 +175,7 @@ curl http://localhost:8001/health
 # Pipeline health
 curl http://localhost:8081/health
 ```
+The `/health` response includes a `coverage` block with the last restoration timestamps, bucket counts, and the most recent error (if any).
 
 ### Prometheus Metrics
 Access metrics at http://localhost:9090

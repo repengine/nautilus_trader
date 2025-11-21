@@ -213,3 +213,26 @@ class TestEdgarFetcher:
 
         # Should have slept approximately 0.05s (with tolerance)
         assert 0.03 < elapsed < 0.15
+
+    def test_extract_period_end_prefers_period_of_report(self) -> None:
+        """Ensure mocked report_date attributes do not override real values."""
+        fetcher = EdgarFetcher(rate_limit_delay=0.0)
+        filing = MagicMock()
+        filing.period_of_report = "2024-03-31"
+        filing.filing_date = "2024-04-28"
+
+        period_end = fetcher._extract_period_end(filing)
+
+        assert period_end == date(2024, 3, 31)
+
+    def test_extract_fiscal_period_fallback_to_filing_date(self) -> None:
+        """Extract fiscal period even when period_of_report is missing."""
+        fetcher = EdgarFetcher(rate_limit_delay=0.0)
+        filing = MagicMock()
+        filing.period_of_report = None
+        filing.filing_date = "2024-12-31"
+
+        fiscal_year, fiscal_quarter = fetcher._extract_fiscal_period(filing)
+
+        assert fiscal_year == 2024
+        assert fiscal_quarter == 4

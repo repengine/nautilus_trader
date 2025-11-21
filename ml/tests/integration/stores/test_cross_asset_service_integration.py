@@ -26,24 +26,15 @@ from sqlalchemy import table as _table
 
 from ml.stores.table_factory import get_schema_name
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+    "real_engine_manager",
+)
+
 if TYPE_CHECKING:
     from ml.stores.feature_store import ComponentFeatureStore
-    from ml.tests.conftest import TestDatabase
-
-
-# ============================================================================
-# FIXTURES
-# ============================================================================
-
-
-@pytest.fixture
-def feature_store(test_database: TestDatabase) -> ComponentFeatureStore:
-    """
-    Provide initialized ComponentFeatureStore for integration tests.
-    """
-    from ml.stores.feature_store import ComponentFeatureStore
-
-    return ComponentFeatureStore(connection_string=test_database.connection_string)
 
 
 # ============================================================================
@@ -56,7 +47,7 @@ def feature_store(test_database: TestDatabase) -> ComponentFeatureStore:
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_cross_asset_property_returns_service_instance(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that ComponentFeatureStore.cross_asset property returns service instance.
@@ -69,7 +60,7 @@ def test_cross_asset_property_returns_service_instance(
     """
     from ml.stores.services.feature_services import CrossAssetFeatureService
 
-    service = feature_store.cross_asset
+    service = component_feature_store.cross_asset
 
     assert service is not None, "cross_asset property should return service instance"
     assert isinstance(
@@ -86,7 +77,7 @@ def test_cross_asset_property_returns_service_instance(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_facade_reuses_service_instance(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that ComponentFeatureStore reuses same service instance on repeated access.
@@ -97,8 +88,8 @@ def test_facade_reuses_service_instance(
     - No redundant initialization
 
     """
-    service1 = feature_store.cross_asset
-    service2 = feature_store.cross_asset
+    service1 = component_feature_store.cross_asset
+    service2 = component_feature_store.cross_asset
 
     assert service1 is service2, "Should return same service instance (cached)"
 
@@ -108,7 +99,7 @@ def test_facade_reuses_service_instance(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_beta_compute_persist_retrieve(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify end-to-end workflow: compute beta → persist → retrieve.
@@ -119,7 +110,7 @@ def test_end_to_end_beta_compute_persist_retrieve(
     - Retrieval returns correct values with all metadata
     """
     # Write beta via service
-    feature_store.cross_asset.write_beta(
+    component_feature_store.cross_asset.write_beta(
         asset_id="AAPL",
         benchmark_id="SPY",
         ts_event=1234567890000000000,
@@ -130,7 +121,7 @@ def test_end_to_end_beta_compute_persist_retrieve(
     )
 
     # Retrieve via same service
-    results = feature_store.cross_asset.get_beta_history(
+    results = component_feature_store.cross_asset.get_beta_history(
         asset_id="AAPL",
         benchmark_id="SPY",
         start_ts=1234567890000000000,
@@ -146,7 +137,7 @@ def test_end_to_end_beta_compute_persist_retrieve(
     # Create new feature store instance and verify data persists
     from ml.stores.feature_store import ComponentFeatureStore
 
-    new_store = ComponentFeatureStore(connection_string=feature_store.connection_string)
+    new_store = ComponentFeatureStore(connection_string=component_feature_store.connection_string)
 
     results2 = new_store.cross_asset.get_beta_history(
         asset_id="AAPL",
@@ -164,7 +155,7 @@ def test_end_to_end_beta_compute_persist_retrieve(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_spread_workflow(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify end-to-end spread workflow: write → read via database query.
@@ -175,7 +166,7 @@ def test_end_to_end_spread_workflow(
     - All metadata fields preserved
     """
     # Write spread
-    feature_store.cross_asset.write_spread(
+    component_feature_store.cross_asset.write_spread(
         asset_1_id="AAPL",
         asset_2_id="MSFT",
         ts_event=1234567890000000000,
@@ -191,7 +182,7 @@ def test_end_to_end_spread_workflow(
         _column("instrument_id"),
         _column("values"),
         _column("ts_event"),
-        schema=get_schema_name(feature_store.engine),
+        schema=get_schema_name(component_feature_store.engine),
     )
 
     stmt = select(
@@ -203,7 +194,7 @@ def test_end_to_end_spread_workflow(
         feature_table.c.feature_set_id == "cross_asset:spread:AAPL:MSFT",
     )
 
-    with feature_store.engine.connect() as conn:
+    with component_feature_store.engine.connect() as conn:
         result = conn.execute(stmt).fetchone()
 
     assert result is not None, "Spread should be persisted in database"
@@ -219,7 +210,7 @@ def test_end_to_end_spread_workflow(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_end_to_end_correlation_workflow(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify end-to-end correlation workflow: write → read via database query.
@@ -230,7 +221,7 @@ def test_end_to_end_correlation_workflow(
     - All metadata fields preserved
     """
     # Write correlation
-    feature_store.cross_asset.write_correlation(
+    component_feature_store.cross_asset.write_correlation(
         asset_1_id="GOOGL",
         asset_2_id="AMZN",
         ts_event=1234567890000000000,
@@ -245,7 +236,7 @@ def test_end_to_end_correlation_workflow(
         _column("instrument_id"),
         _column("values"),
         _column("ts_event"),
-        schema=get_schema_name(feature_store.engine),
+        schema=get_schema_name(component_feature_store.engine),
     )
 
     stmt = select(
@@ -257,7 +248,7 @@ def test_end_to_end_correlation_workflow(
         feature_table.c.feature_set_id == "cross_asset:correlation:GOOGL:AMZN",
     )
 
-    with feature_store.engine.connect() as conn:
+    with component_feature_store.engine.connect() as conn:
         result = conn.execute(stmt).fetchone()
 
     assert result is not None, "Correlation should be persisted in database"
@@ -272,7 +263,7 @@ def test_end_to_end_correlation_workflow(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_service_shares_engine_with_facade(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that CrossAssetFeatureService shares engine with ComponentFeatureStore.
@@ -283,10 +274,12 @@ def test_service_shares_engine_with_facade(
     - Connection pooling is shared
 
     """
-    service = feature_store.cross_asset
+    service = component_feature_store.cross_asset
 
     # Verify service uses facade's engine
-    assert service.deps.engine is feature_store.engine, "Service should share facade's engine"
+    assert (
+        service.deps.engine is component_feature_store.engine
+    ), "Service should share facade's engine"
 
 
 @pytest.mark.integration
@@ -294,7 +287,7 @@ def test_service_shares_engine_with_facade(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_service_shares_table_with_facade(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that CrossAssetFeatureService shares feature_values_table with facade.
@@ -305,11 +298,11 @@ def test_service_shares_table_with_facade(
     - Schema is consistent
 
     """
-    service = feature_store.cross_asset
+    service = component_feature_store.cross_asset
 
     # Verify service uses facade's table
     assert (
-        service.deps.feature_values_table is feature_store.feature_values_table
+        service.deps.feature_values_table is component_feature_store.feature_values_table
     ), "Service should share facade's feature_values_table"
 
 
@@ -318,7 +311,7 @@ def test_service_shares_table_with_facade(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_multiple_asset_pairs_coexist(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that multiple asset pairs can coexist without conflicts.
@@ -339,7 +332,7 @@ def test_multiple_asset_pairs_coexist(
     ts_event = 1234567890000000000
 
     for i, (asset, benchmark) in enumerate(pairs):
-        feature_store.cross_asset.write_beta(
+        component_feature_store.cross_asset.write_beta(
             asset_id=asset,
             benchmark_id=benchmark,
             ts_event=ts_event,
@@ -351,7 +344,7 @@ def test_multiple_asset_pairs_coexist(
 
     # Verify each pair returns correct data
     for i, (asset, benchmark) in enumerate(pairs):
-        results = feature_store.cross_asset.get_beta_history(
+        results = component_feature_store.cross_asset.get_beta_history(
             asset_id=asset,
             benchmark_id=benchmark,
             start_ts=ts_event,
@@ -369,7 +362,7 @@ def test_multiple_asset_pairs_coexist(
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_time_series_retrieval_performance(
-    feature_store: ComponentFeatureStore,
+    component_feature_store: ComponentFeatureStore,
 ) -> None:
     """
     Verify that time series retrieval performs well with many timestamps.
@@ -385,7 +378,7 @@ def test_time_series_retrieval_performance(
     timestamps = [base_ts + i * 1_000_000_000 for i in range(100)]
 
     for i, ts in enumerate(timestamps):
-        feature_store.cross_asset.write_beta(
+        component_feature_store.cross_asset.write_beta(
             asset_id="AAPL",
             benchmark_id="SPY",
             ts_event=ts,
@@ -396,7 +389,7 @@ def test_time_series_retrieval_performance(
         )
 
     # Retrieve full history
-    results = feature_store.cross_asset.get_beta_history(
+        results = component_feature_store.cross_asset.get_beta_history(
         asset_id="AAPL",
         benchmark_id="SPY",
         start_ts=base_ts,

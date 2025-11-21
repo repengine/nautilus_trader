@@ -429,10 +429,12 @@ def get_trace_context() -> dict[str, str]:
     >>> emit_dataset_event(..., metadata=metadata)
 
     """
+    if not is_tracing_enabled():
+        return {}
+
     propagate = _propagate
     if propagate is None:
-        if not is_tracing_enabled():
-            return {}
+        # Attempt to initialize lazily if tracing was just enabled
         propagate = _propagate
         if propagate is None:
             return {}

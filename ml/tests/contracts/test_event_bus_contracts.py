@@ -22,24 +22,17 @@ from unittest.mock import MagicMock
 from unittest.mock import Mock
 
 import pandas as pd
-import pandera as pa
 import pytest
-from pandera.typing import DataFrame
-from pandera.typing import Series
-
+from ml.tests.fixtures.pandera import DataFrame
+from ml.tests.fixtures.pandera import Series
+from ml.tests.fixtures.pandera import ensure_pandera_available
 from ml.common.message_topics import build_topic_for_stage
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml._imports import HAS_PANDERA
-from ml._imports import PANDERA_IMPORT_ERROR
 from nautilus_trader.model.identifiers import InstrumentId
 
-if not HAS_PANDERA:  # pragma: no cover - optional dependency
-    pytest.skip(
-        f"Pandera unavailable: {PANDERA_IMPORT_ERROR}",
-        allow_module_level=True,
-    )
+pa = ensure_pandera_available()
 
 
 # ============================================================================

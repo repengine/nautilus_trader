@@ -312,6 +312,7 @@ class StrategyStore(
             execution_params=dict(execution_params) if not isinstance(execution_params, dict) else execution_params,
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
+            is_live=bool(is_live),
         )
 
         self._write_buffer.append(data)

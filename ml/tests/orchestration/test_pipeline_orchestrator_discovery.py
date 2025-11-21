@@ -3,10 +3,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import pandas as pd
+import pytest
 
 from ml.config.market_data import MarketDatasetInput
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 class _CoverageStub:

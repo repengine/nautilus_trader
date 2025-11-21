@@ -17,9 +17,9 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 
 
 @pytest.mark.property

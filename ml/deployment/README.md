@@ -16,6 +16,7 @@ Compose assigns the project name from the first file (`name: ml` / `name: ml-tes
 - Docker Engine with Compose v2 (`docker compose`).
 - Python tooling (`uv`, `make`) for migrations and helper scripts.
 - Databento credentials when running against live market data.
+- Rebuild the ML images after pulling this branch so the updated `ml_signal_actor` and `ml_strategy` containers pick up the new `databento` dependency (`docker compose build ml_signal_actor ml_strategy`).
 
 ## Quick Start (Production Stack)
 
@@ -57,6 +58,12 @@ Monitor the runner with:
 docker compose logs -f streaming_training_runner
 ```
 
+## Azure Spot Checkpointing
+
+- Cloud-init and Terraform snippets live in `ml/deployment/azure/` for mounting Azure Blob/Files storage with managed identities. Render the templates with the appropriate storage account, container, and identity IDs before attaching them to spot VMs.
+- Export `ML_STREAMING_CHECKPOINT_DIR` (the blobfuse mount point) and enable `ML_STREAMING_AZURE_EVENTS_ENABLED=1` so the runner’s scheduled-event watcher triggers `save_checkpoint_now` ahead of spot evictions.
+- Additional operational guidance (VS Code Remote, dashboards, metrics) is tracked in `ml/docs/implementation/azure_spot_checkpointing_plan.md` and the dashboard runbook.
+
 To review recent cohorts, run:
 
 ```bash
@@ -76,6 +83,8 @@ Paste the Markdown summary into `ml/docs/ops/streaming_scaling_experiments.md` t
 | `PIPELINE_MODE` | `daily` | Pipeline schedule (`daily`, `backfill`, `realtime`). | `.env.example`, `ml_pipeline` env |
 | `PIPELINE_SCHEDULE` | `0 17 * * *` | Cron expression used when `PIPELINE_MODE=daily`. | `.env.example`, `ml_pipeline` env |
 | `UNIVERSE_SYMBOLS` | `SPY.XNAS` | Comma-separated symbol universe. | `.env.example`, `ml_pipeline` env |
+| `MARKET_DATASET_INPUTS` | *(empty)* | Optional JSON array or comma-separated descriptor IDs for supplemental feeds (defaults wire `EQUS.MINI_TBBO`, `EQUS.MINI_MBP1`, and `XNAS.ITCH_MBP10`). Entries are validated against `ml/config/market_feed_descriptors.json`; unsupported dataset/schema pairs now raise during pipeline bootstrap. | `.env`, `ml_pipeline` env |
+| `MARKET_BACKFILL_LOOKBACK_DAYS` | `365` | Gap-detection window (days) applied to configured market datasets during orchestrator backfills (clamped to dataset license bounds). | `.env`, `ml_pipeline` env |
 | `LOG_LEVEL` | `INFO` | Default log level for services. | `.env.example`, multiple services |
 | `POSTGRES_HOST_PORT` | `5433` | Host port mapped to Postgres (`5433:5432`). | `.env.example`, compose `postgres.ports` |
 | `REDIS_HOST_PORT` | `6380` | Host port mapped to Redis (`6380:6379`). | `.env.example`, compose `redis.ports` |
@@ -134,10 +143,25 @@ The test stack reserves its own ports via environment overrides (`TEST_POSTGRES_
 | Prometheus TSDB | `/prometheus` | Named volume `prometheus_data` | Supply an override with a host bind to retain metrics beyond container lifecycle. |
 | Grafana data | `/var/lib/grafana` | Named volume `grafana_data` | Use an override to capture dashboards locally when required. |
 | Model artefacts | `/app/models` | `../models` (RO for actors, RW for pipeline) | Keep model artefacts under version control or adjust the bind target via override. |
-| Pipeline data catalog | `/app/data` | Bind `../data` (read/write) | Provide host directory for dataset outputs. |
+| Pipeline data catalog | `/app/data` | Bind `../../data` (read/write) | Provide host directory for dataset outputs. |
 | Pipeline logs | `/app/logs` | Bind `../logs` (read/write) | Rotate or mount elsewhere if desired. |
 
 Test stack volumes (`ml-test_logs-test`, `ml-test_prometheus_test_data`) are created automatically and can be removed with `docker compose -f docker-compose.test.yml down -v` after use.
+
+### Catalog Rehydration
+
+The `ml_pipeline` container can restore the canonical `market_data` table from the on-disk Parquet catalog before contacting external data feeds. Configure this behaviour via environment variables (all optional):
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CATALOG_REHYDRATE_ENABLED` | `0` | Set to `1` to enable catalog → Postgres replay on startup. |
+| `CATALOG_REHYDRATE_LOOKBACK_DAYS` | `5` | Rolling window (in days) to scan for missing coverage. |
+| `CATALOG_REHYDRATE_BATCH_SIZE` | `1000` | Maximum rows inserted per batch write. |
+| `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE` | `{instrument_id}-1-MINUTE-LAST-EXTERNAL` | Template used to resolve catalog identifiers for each instrument. |
+| `CATALOG_REHYDRATE_TABLE` | `market_data` | Target SQL table for restored rows. |
+| `CATALOG_REHYDRATE_RESCAN` | `0` | When `1`, re-run the rehydration pass before each scheduled ingestion cycle. |
+
+When enabled, the pipeline compares catalog coverage with SQL coverage and only replays missing day buckets, preventing redundant Databento downloads during recovery.
 
 ### Cleaning Up Old Volumes
 
@@ -175,15 +199,60 @@ docker compose --env-file ./.env.test -f docker-compose.test.yml down -v
 - **Apply migrations:** `make ml-migrate` or run `uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml`.
 - **Validate prerequisites:**
 
+### Schema Bootstrap & External Databases
+
+- Run the schema audit before applying migrations to legacy databases:  
+  ```bash
+  poetry run python -m ml.stores.schema_audit inspect --db-url postgresql://ml:ml@postgres.nautilus-ml:5432/nautilus_ml
+  ```
+  The CLI reports whether `ml_feature_values`, `ml_model_predictions`, `ml_strategy_signals`, and `market_data` are partitioned, have default partitions, and keep the generated `spread`/`mid_price` columns. It also ensures helper functions (e.g., `create_monthly_partitions`) exist.
+- Once the audit is green, run the migrations runner (automatically executed inside the pipeline container) from the same network boundary:
+  ```bash
+  poetry run python -m ml.stores.migrations_runner apply \
+    --db-url postgresql://ml:ml@postgres.nautilus-ml:5432/nautilus_ml
+  ```
+- The runner records checksums in `ml_schema_migrations` and the pipeline entrypoint refuses to start ingestion if migrations or the schema health check fail. Use `plan` mode for dry runs:  
+  `poetry run python -m ml.stores.migrations_runner plan --db-url …`
+- Instrumentation guardrails: the pipeline now verifies that `ml_data_events` and `ml_data_watermarks` exist immediately after migrations. If either table is missing, the container exits with a `SchemaHealthCheckError` so Databento ingestion never runs against an uninstrumented database. Re-run the migrations runner (or load the missing tables) before restarting the stack.
+
   ```bash
   uv run --active --no-sync python -c "from ml.stores.infrastructure import check_db_prereqs; import os; uri=os.getenv('ML_DB_CONNECTION','postgresql://postgres:postgres@localhost:' + os.getenv('POSTGRES_HOST_PORT','5433') + '/nautilus'); print(check_db_prereqs(uri))"
   ```
 
 - **Backups:** Use `make backup` / `make restore` or `docker exec postgres pg_dump ...` as needed.
 
+### Coverage Restoration
+
+- Enable `COVERAGE_RESTORE_ENABLED=1` so the pipeline automatically inspects SQL vs. parquet coverage before ingestion resumes. Optional tuning knobs:
+  - `COVERAGE_RESTORE_LOOKBACK_DAYS` (default `5`)
+  - `COVERAGE_MAX_BUCKETS_PER_RUN` (default `500`) caps how many buckets are restored or re-ingested per run to prevent runaway recovery jobs.
+- Startup sequence:
+  1. `CoverageManager` runs a schema audit (via `ml.stores.schema_audit`) and classifies gaps per dataset/instrument.
+  2. Missing buckets that exist in the parquet catalog are restored via `ParquetCatalogRehydrator` (the bucket list is passed directly so only the uncovered windows replay).
+  3. Remaining buckets are forwarded to `DataScheduler.run_targeted_update`, which ingests just those windows from Databento.
+- Manual CLI (mirrors the pipeline automation):
+
+  ```bash
+  poetry run python -m ml.data.coverage.manager \
+    --db-url postgresql://ml:ml@postgres.nautilus-ml:5432/nautilus_ml \
+    --catalog-path /data/catalog \
+    --dataset EQUS.MINI:ohlcv-1m:AAPL.XNAS,MSFT.XNAS \
+    --lookback-days 3 --json
+  ```
+
+- Provide multiple `--dataset dataset_id:schema:symbol1,symbol2` arguments to cover TBBO/MBP datasets; the CLI prints bucket classifications (JSON or logs) so you can validate the plan before restarting services.
+  For operator tooling that reuses the deployment environment variables (universe symbols, dataset overrides, etc.), run:
+
+  ```bash
+  poetry run python -m ml.cli.coverage_restore --json
+  ```
+
+  The CLI boots the `PipelineRunner`, executes a single coverage restoration pass (including targeted scheduler updates), and emits the same summary exposed on the pipeline `/health` endpoint.
+
 ## Observability & Interfaces
 
 - Pipeline health: `http://localhost:${ML_PIPELINE_HOST_PORT:-8081}/health`
+  - The JSON payload now includes a `coverage` section with the last run timestamps, bucket counts, and any recent restoration errors.
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000` (default credentials `admin/admin`)
 - Dashboard control plane: `http://localhost:${ML_DASHBOARD_HOST_PORT:-8010}`

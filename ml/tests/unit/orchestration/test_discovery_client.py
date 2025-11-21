@@ -24,11 +24,15 @@ from ml.data.ingest.service import SymbolDatasetDiscovery
 from ml.orchestration.discovery_client import DiscoveryClient
 from ml.registry.dataclasses import StorageKind
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 # ========================================================================
 # Fixtures
 # ========================================================================
-
 
 @pytest.fixture
 def mock_dataset_discovery():
@@ -39,14 +43,12 @@ def mock_dataset_discovery():
     service.policy.coverage.allow_dataset = Mock()
     return service
 
-
 @pytest.fixture
 def mock_ingestion_service():
     """Create mock ingestion service."""
     service = Mock()
     service.discover_symbol_dataset = Mock()
     return service
-
 
 @pytest.fixture
 def discovery_client(mock_dataset_discovery, mock_ingestion_service):
@@ -56,7 +58,6 @@ def discovery_client(mock_dataset_discovery, mock_ingestion_service):
         ingestion_service=mock_ingestion_service,
     )
 
-
 @pytest.fixture
 def discovery_client_no_services():
     """Create discovery client with no services."""
@@ -65,11 +66,9 @@ def discovery_client_no_services():
         ingestion_service=None,
     )
 
-
 # ========================================================================
 # Test Initialization
 # ========================================================================
-
 
 def test_discovery_client_init():
     """Test discovery client initialization."""
@@ -78,7 +77,6 @@ def test_discovery_client_init():
     assert client.service is None
     assert hasattr(client, "discovery_requests_counter")
     assert hasattr(client, "discovery_errors_counter")
-
 
 def test_discovery_client_init_with_services(mock_dataset_discovery, mock_ingestion_service):
     """Test discovery client initialization with services."""
@@ -89,11 +87,9 @@ def test_discovery_client_init_with_services(mock_dataset_discovery, mock_ingest
     assert client.dataset_discovery is mock_dataset_discovery
     assert client.service is mock_ingestion_service
 
-
 # ========================================================================
 # Test ns_to_datetime
 # ========================================================================
-
 
 def test_ns_to_datetime():
     """Test nanoseconds to datetime conversion."""
@@ -104,7 +100,6 @@ def test_ns_to_datetime():
     assert dt.year == 2023
     assert dt.month == 11
 
-
 def test_ns_to_datetime_zero():
     """Test nanoseconds to datetime conversion with zero."""
     ns = 0
@@ -113,11 +108,9 @@ def test_ns_to_datetime_zero():
     assert dt.tzinfo is UTC
     assert dt.year == 1970
 
-
 # ========================================================================
 # Test discover_market_inputs
 # ========================================================================
-
 
 def test_discover_market_inputs_success(discovery_client, mock_dataset_discovery):
     """Test successful market input discovery."""
@@ -154,7 +147,6 @@ def test_discover_market_inputs_success(discovery_client, mock_dataset_discovery
     assert result == mock_inputs
     assert mock_dataset_discovery.discover.called
 
-
 def test_discover_market_inputs_no_service(discovery_client_no_services):
     """Test market input discovery with no service."""
     symbol_map = {"AAPL": ("AAPL.XNAS",)}
@@ -170,7 +162,6 @@ def test_discover_market_inputs_no_service(discovery_client_no_services):
     )
 
     assert result == ()
-
 
 def test_discover_market_inputs_invalid_time_range(discovery_client):
     """Test market input discovery with invalid time range."""
@@ -188,7 +179,6 @@ def test_discover_market_inputs_invalid_time_range(discovery_client):
 
     assert result == ()
 
-
 def test_discover_market_inputs_empty_symbol_map(discovery_client):
     """Test market input discovery with empty symbol map."""
     symbol_map = {}
@@ -204,7 +194,6 @@ def test_discover_market_inputs_empty_symbol_map(discovery_client):
     )
 
     assert result == ()
-
 
 def test_discover_market_inputs_discovery_error(discovery_client, mock_dataset_discovery):
     """Test market input discovery with discovery error."""
@@ -223,7 +212,6 @@ def test_discover_market_inputs_discovery_error(discovery_client, mock_dataset_d
     )
 
     assert result == ()
-
 
 def test_discover_market_inputs_applies_coverage_policy(discovery_client, mock_dataset_discovery):
     """Test market input discovery applies coverage policy."""
@@ -252,7 +240,6 @@ def test_discover_market_inputs_applies_coverage_policy(discovery_client, mock_d
     assert result == mock_inputs
     mock_dataset_discovery.policy.coverage.allow_dataset.assert_called_with("XNAS.ITCH")
 
-
 def test_discover_market_inputs_no_coverage_policy(discovery_client, mock_dataset_discovery):
     """Test market input discovery without coverage policy."""
     symbol_map = {"AAPL": ("AAPL.XNAS",)}
@@ -280,11 +267,9 @@ def test_discover_market_inputs_no_coverage_policy(discovery_client, mock_datase
 
     assert result == mock_inputs
 
-
 # ========================================================================
 # Test discover_binding_for_symbol
 # ========================================================================
-
 
 def test_discover_binding_for_symbol_success(discovery_client, mock_ingestion_service):
     """Test successful binding discovery for symbol."""
@@ -322,7 +307,6 @@ def test_discover_binding_for_symbol_success(discovery_client, mock_ingestion_se
     assert result.schema == "ohlcv-1m"
     assert result.source == "discovered"
 
-
 def test_discover_binding_for_symbol_no_service(discovery_client_no_services):
     """Test binding discovery with no service."""
     result = discovery_client_no_services.discover_binding_for_symbol(
@@ -335,7 +319,6 @@ def test_discover_binding_for_symbol_no_service(discovery_client_no_services):
 
     assert result is None
 
-
 def test_discover_binding_for_symbol_empty_schema(discovery_client):
     """Test binding discovery with empty schema."""
     result = discovery_client.discover_binding_for_symbol(
@@ -347,7 +330,6 @@ def test_discover_binding_for_symbol_empty_schema(discovery_client):
     )
 
     assert result is None
-
 
 def test_discover_binding_for_symbol_discovery_returns_none(discovery_client, mock_ingestion_service):
     """Test binding discovery when discovery returns None."""
@@ -363,7 +345,6 @@ def test_discover_binding_for_symbol_discovery_returns_none(discovery_client, mo
 
     assert result is None
 
-
 def test_discover_binding_for_symbol_discovery_raises(discovery_client, mock_ingestion_service):
     """Test binding discovery when discovery raises exception."""
     mock_ingestion_service.discover_symbol_dataset.side_effect = Exception("Discovery failed")
@@ -377,7 +358,6 @@ def test_discover_binding_for_symbol_discovery_raises(discovery_client, mock_ing
     )
 
     assert result is None
-
 
 def test_discover_binding_for_symbol_uses_dataset_service_fallback(discovery_client, mock_dataset_discovery, mock_ingestion_service):
     """Test binding discovery uses dataset service fallback."""
@@ -409,11 +389,9 @@ def test_discover_binding_for_symbol_uses_dataset_service_fallback(discovery_cli
     assert result.symbol == "AAPL"
     assert result.dataset_id == "XNAS.ITCH"
 
-
 # ========================================================================
 # Test _discover_symbol_via_dataset_service
 # ========================================================================
-
 
 def test_discover_symbol_via_dataset_service_success(discovery_client, mock_dataset_discovery):
     """Test successful symbol discovery via dataset service."""
@@ -442,7 +420,6 @@ def test_discover_symbol_via_dataset_service_success(discovery_client, mock_data
     assert result.symbol == "AAPL"
     assert result.storage_kind == StorageKind.POSTGRES  # Default
 
-
 def test_discover_symbol_via_dataset_service_invalid_time_range(discovery_client, mock_dataset_discovery):
     """Test symbol discovery with invalid time range."""
     result = discovery_client._discover_symbol_via_dataset_service(
@@ -454,7 +431,6 @@ def test_discover_symbol_via_dataset_service_invalid_time_range(discovery_client
     )
 
     assert result is None
-
 
 def test_discover_symbol_via_dataset_service_discovery_error(discovery_client, mock_dataset_discovery):
     """Test symbol discovery with discovery error."""
@@ -470,7 +446,6 @@ def test_discover_symbol_via_dataset_service_discovery_error(discovery_client, m
 
     assert result is None
 
-
 def test_discover_symbol_via_dataset_service_generic_error(discovery_client, mock_dataset_discovery):
     """Test symbol discovery with generic error."""
     mock_dataset_discovery.discover_one.side_effect = Exception("Service error")
@@ -485,11 +460,9 @@ def test_discover_symbol_via_dataset_service_generic_error(discovery_client, moc
 
     assert result is None
 
-
 # ========================================================================
 # Test Protocol Conformance
 # ========================================================================
-
 
 def test_discovery_client_conforms_to_protocol():
     """Test that DiscoveryClient conforms to DiscoveryClientProtocol."""

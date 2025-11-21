@@ -15,12 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import time
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
-from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,8 +32,12 @@ from nautilus_trader.model.identifiers import InstrumentId
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
-from ml.common.logging_utils import KeywordLoggerMixin
-from ml.common.logging_utils import log_best_effort
+from ml.actors.components import FeaturesComponent
+from ml.actors.components import ModelComponent
+from ml.actors.components import RegistryComponent
+
+# Component imports for facade pattern (Phase 2.3.5a)
+from ml.actors.components import StoreOperationsComponent
 from ml.common.metrics_manager import MetricsManager
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
@@ -76,30 +78,8 @@ if TYPE_CHECKING:
     from ml.observability.ml_async_persistence import MLPersistenceWorker
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
-from ml.stores.protocols import ModelStoreStrictProtocol
-from ml.stores.protocols import StrategyStoreStrictProtocol
-
-
-def _allows_non_onnx_formats(env: Mapping[str, str] | None = None) -> bool:
-    """
-    Determine whether non-ONNX models are explicitly permitted via environment flags.
-    """
-    source = env if env is not None else os.environ
-    for key in ("ML_TEST_ALLOW_NON_ONNX", "ML_ALLOW_NON_ONNX_IN_TESTS"):
-        raw = source.get(key)
-        if raw is not None and raw.strip().lower() in {"1", "true", "yes", "y", "on"}:
-            return True
-    return False
-
-
-def _is_test_environment(env: Mapping[str, str] | None = None) -> bool:
-    """
-    Detect whether the actor is running in a test-like environment.
-    """
-    source = env if env is not None else os.environ
-    if source.get("PYTEST_CURRENT_TEST") is not None:
-        return True
-    return _allows_non_onnx_formats(source)
+    from ml.stores.protocols import ModelStoreStrictProtocol
+    from ml.stores.protocols import StrategyStoreStrictProtocol
 
 
 class HealthStatus(Enum):
@@ -753,7 +733,7 @@ ml_signal_confidence = _MM.histogram(
 )
 
 
-class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, ABC):
+class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
     Base class for ML inference actors with production features.
 
@@ -779,16 +759,17 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
 
     """
 
+    # LEGACY CODE - Commented out for Phase 2.3.5a (now provided by @property decorators)
     # Store attributes are initialized in _init_stores_and_registries
-    _feature_store: FeatureStoreStrictProtocol  # Strict adapters wrap underlying stores
-    _model_store: ModelStoreStrictProtocol
-    _strategy_store: StrategyStoreStrictProtocol
-    _data_store: DataStoreFacadeProtocol  # Narrow facade used in actors
-    _feature_registry: Any
-    _model_registry: Any
-    _strategy_registry: Any
-    _data_registry: Any
-    _persistence_worker: MLPersistenceWorker | None
+    # _feature_store: FeatureStoreStrictProtocol  # Strict adapters wrap underlying stores
+    # _model_store: ModelStoreStrictProtocol
+    # _strategy_store: StrategyStoreStrictProtocol
+    # _data_store: DataStoreFacadeProtocol  # Narrow facade used in actors
+    # _feature_registry: Any
+    # _model_registry: Any
+    # _strategy_registry: Any
+    # _data_registry: Any
+    # _persistence_worker: MLPersistenceWorker | None
 
     def __init__(self, config: MLActorConfig) -> None:
         """
@@ -810,17 +791,85 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
         # Initialize with standard ActorConfig
         super().__init__(actor_config)
 
-        # Ensure keyword-safe logger wrapper is initialized
-        _ = self.log
-
         # Store the complete ML configuration
         self._config = config
 
-        # MANDATORY: Initialize stores and registries for data persistence
-        self._init_stores_and_registries()
+        # ========================================================================
+        # FACADE PATTERN: Initialize 4 components for separation of concerns
+        # (Phase 2.3.5a - Component-based architecture)
+        #
+        # Component initialization order matters:
+        # 0. Initialize name-mangled attributes FIRST (properties access these)
+        # 1. StoreOperationsComponent - provides stores (no dependencies)
+        # 2. RegistryComponent - provides registries (no dependencies)
+        # 3. ModelComponent - manages model lifecycle
+        # 4. FeaturesComponent - manages feature computation
+        # ========================================================================
 
-        # Initialize feature configuration
+        # Step 0: Initialize name-mangled instance attributes for internal storage (used by properties)
+        # CRITICAL: These MUST be initialized BEFORE components because properties access them
+        # These allow property methods to remain read-only while supporting assignment in legacy code
+        self.__feature_store_instance: FeatureStoreStrictProtocol | None = None
+        self.__model_store_instance: ModelStoreStrictProtocol | None = None
+        self.__strategy_store_instance: StrategyStoreStrictProtocol | None = None
+        self.__data_store_instance: DataStoreFacadeProtocol | None = None
+        self.__feature_registry_instance: Any | None = None
+        self.__model_registry_instance: Any | None = None
+        self.__strategy_registry_instance: Any | None = None
+        self.__data_registry_instance: Any | None = None
+        self.__persistence_worker_instance: MLPersistenceWorker | None = None
+
+        # Step 0b: Initialize feature configuration (needed by FeaturesComponent)
+        # CRITICAL: Must be initialized BEFORE FeaturesComponent
+        # IMPORTANT: Do NOT mutate config - preserve original config object for contract tests
+        # Use internal _feature_config attribute instead
         self._feature_config = config.feature_config or MLFeatureConfig()
+
+        # Step 0c: Initialize actor services (stores + registries) ONCE
+        # This prevents duplicate init_actor_services calls (contract requirement)
+        from ml.actors.actor_services import init_actor_services
+
+        self._actor_services = init_actor_services(self._config)
+
+        # Step 1: Initialize StoreOperationsComponent (provides all 4 stores)
+        self._store_ops_component = StoreOperationsComponent(
+            config=self._config,
+            actor_id=str(self.id),
+            services=self._actor_services,  # Pass pre-initialized services
+        )
+
+        # Step 2: Initialize RegistryComponent (provides all 4 registries)
+        self._registry_component = RegistryComponent(
+            config=self._config,
+            logger=self.log,
+            services=self._actor_services,  # Pass pre-initialized services
+        )
+
+        # Step 3: Initialize ModelComponent (manages model loading, validation, hot-reload)
+        self._model_component = ModelComponent(
+            config=self._config,
+            logger=self.log,
+        )
+
+        # Step 4: Initialize FeaturesComponent (manages feature computation, buffering, validation)
+        # Note: health_monitor and persistence_worker are initialized later, so we pass None here
+        # All components now share the same config instance (self._config)
+        self._features_component = FeaturesComponent(
+            config=self._config,
+            compute_function=self._compute_features,
+            feature_registry=self._feature_registry,
+            feature_store=self._feature_store,
+            health_monitor=None,  # Initialized later in __init__
+            persistence_worker=None,  # Initialized later in __init__
+            logger=self.log,
+        )
+        # ========================================================================
+
+        # LEGACY CODE - Commented out for Phase 2.3.5a (replaced by StoreOperationsComponent)
+        # MANDATORY: Initialize stores and registries for data persistence
+        # self._init_stores_and_registries()
+
+        # NOTE: _feature_config initialized earlier (before FeaturesComponent) to avoid circular dependency
 
         # Model and inference state
         self._model: Any = None
@@ -864,18 +913,156 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
         self._manifest_feature_dtypes: list[str] = []
         self._manifest_feature_schema_hash: str | None = None
 
-    def _log_message(
-        self,
-        level: str,
-        msg: object,
-        *args: object,
-        **kwargs: object,
-    ) -> None:
+    # ============================================================================
+    # FACADE PATTERN: Property accessors delegate to StoreOperationsComponent
+    # (PUBLIC properties without underscore for backward compatibility)
+    # ============================================================================
+
+    @property
+    def feature_store(self) -> FeatureStoreStrictProtocol:
         """
-        Log via the underlying actor logger without propagating keyword errors.
+        Access feature store via StoreOperationsComponent (public API).
         """
-        target_logger = getattr(self, "_keyword_logger", self.log)
-        log_best_effort(target_logger, level, msg, *args, **kwargs)
+        return self._store_ops_component.feature_store
+
+    @property
+    def model_store(self) -> ModelStoreStrictProtocol:
+        """
+        Access model store via StoreOperationsComponent (public API).
+        """
+        return self._store_ops_component.model_store
+
+    @property
+    def strategy_store(self) -> StrategyStoreStrictProtocol:
+        """
+        Access strategy store via StoreOperationsComponent (public API).
+        """
+        return self._store_ops_component.strategy_store
+
+    @property
+    def data_store(self) -> DataStoreFacadeProtocol:
+        """
+        Access data store via StoreOperationsComponent (public API).
+        """
+        return self._store_ops_component.data_store
+
+    # Keep private aliases for internal use
+    @property
+    def _feature_store(self) -> FeatureStoreStrictProtocol:
+        """
+        Access feature store via StoreOperationsComponent (private).
+        """
+        if self.__feature_store_instance is not None:
+            return self.__feature_store_instance
+        return self._store_ops_component.feature_store
+
+    @property
+    def _model_store(self) -> ModelStoreStrictProtocol:
+        """
+        Access model store via StoreOperationsComponent (private).
+        """
+        if self.__model_store_instance is not None:
+            return self.__model_store_instance
+        return self._store_ops_component.model_store
+
+    @property
+    def _strategy_store(self) -> StrategyStoreStrictProtocol:
+        """
+        Access strategy store via StoreOperationsComponent (private).
+        """
+        if self.__strategy_store_instance is not None:
+            return self.__strategy_store_instance
+        return self._store_ops_component.strategy_store
+
+    @property
+    def _data_store(self) -> DataStoreFacadeProtocol:
+        """
+        Access data store via StoreOperationsComponent (private).
+        """
+        if self.__data_store_instance is not None:
+            return self.__data_store_instance
+        return self._store_ops_component.data_store
+
+    # ============================================================================
+    # FACADE PATTERN: Property accessors delegate to RegistryComponent
+    # (PUBLIC properties without underscore for backward compatibility)
+    # ============================================================================
+
+    @property
+    def feature_registry(self) -> Any:
+        """
+        Access feature registry via RegistryComponent (public API).
+        """
+        return self._registry_component.feature_registry
+
+    @property
+    def model_registry(self) -> Any:
+        """
+        Access model registry via RegistryComponent (public API).
+        """
+        return self._registry_component.model_registry
+
+    @property
+    def strategy_registry(self) -> Any:
+        """
+        Access strategy registry via RegistryComponent (public API).
+        """
+        return self._registry_component.strategy_registry
+
+    @property
+    def data_registry(self) -> Any:
+        """
+        Access data registry via RegistryComponent (public API).
+        """
+        return self._registry_component.data_registry
+
+    # Keep private aliases for internal use
+    @property
+    def _feature_registry(self) -> Any:
+        """
+        Access feature registry via RegistryComponent (private).
+        """
+        if self.__feature_registry_instance is not None:
+            return self.__feature_registry_instance
+        return self._registry_component.feature_registry
+
+    @property
+    def _model_registry(self) -> Any:
+        """
+        Access model registry via RegistryComponent (private).
+        """
+        if self.__model_registry_instance is not None:
+            return self.__model_registry_instance
+        return self._registry_component.model_registry
+
+    @property
+    def _strategy_registry(self) -> Any:
+        """
+        Access strategy registry via RegistryComponent (private).
+        """
+        if self.__strategy_registry_instance is not None:
+            return self.__strategy_registry_instance
+        return self._registry_component.strategy_registry
+
+    @property
+    def _data_registry(self) -> Any:
+        """
+        Access data registry via RegistryComponent (private).
+        """
+        if self.__data_registry_instance is not None:
+            return self.__data_registry_instance
+        return self._registry_component.data_registry
+
+    @property
+    def _persistence_worker(self) -> MLPersistenceWorker | None:
+        """
+        Access persistence worker via StoreOperationsComponent.
+        """
+        if self.__persistence_worker_instance is not None:
+            return self.__persistence_worker_instance
+        return self._store_ops_component.persistence_worker
+
+    # ============================================================================
 
     def _init_stores_and_registries(self) -> None:
         """
@@ -892,27 +1079,27 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
 
         services = init_actor_services(self._config)
 
-        # Attach services; attributes are Protocol-typed for static safety
-        self._feature_store = services.feature_store
-        self._model_store = services.model_store
-        self._strategy_store = services.strategy_store
+        # Attach services; use name-mangled attributes for internal storage
         from typing import Any as _Any
         from typing import cast as _cast
 
-        self._data_store = _cast(_Any, services.data_store)
-        self._feature_registry = services.feature_registry
-        self._model_registry = services.model_registry
-        self._strategy_registry = services.strategy_registry
-        self._data_registry = services.data_registry
+        self.__feature_store_instance = services.feature_store
+        self.__model_store_instance = services.model_store
+        self.__strategy_store_instance = services.strategy_store
+        self.__data_store_instance = _cast(_Any, services.data_store)
+        self.__feature_registry_instance = services.feature_registry
+        self.__model_registry_instance = services.model_registry
+        self.__strategy_registry_instance = services.strategy_registry
+        self.__data_registry_instance = services.data_registry
         self._persistence_manager = None
         self.log.info("Stores and registries initialized (runtime facade)")
 
         # Initialize async persistence worker if enabled
-        self._persistence_worker = None
+        self.__persistence_worker_instance = None
         if self._config.enable_async_persistence:
             from ml.observability.ml_async_persistence import MLPersistenceWorker
 
-            self._persistence_worker = MLPersistenceWorker(
+            self.__persistence_worker_instance = MLPersistenceWorker(
                 feature_store=self._feature_store,
                 model_store=self._model_store,
                 queue_maxsize=self._config.persistence_queue_size,
@@ -937,14 +1124,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                         else:
                             # Fallback: set on adapter (harmless if not consumed)
                             setattr(adapter, "_circuit_breaker", cb)
-                    except Exception as adapter_exc:
-                        adapter_name = type(adapter).__name__
-                        self.log.debug(
-                            "Circuit breaker propagation failed for adapter %s",
-                            adapter_name,
-                            exc_info=True,
-                            extra={"error": repr(adapter_exc)},
-                        )
+                    except Exception:
+                        continue
                 # Data store may also support breaker if underlying implementation honors it
                 try:
                     raw_ds = getattr(self._data_store, "_store", None)
@@ -952,79 +1133,65 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                         setattr(raw_ds, "_circuit_breaker", cb)
                     else:
                         setattr(self._data_store, "_circuit_breaker", cb)
-                except Exception as data_exc:
-                    self.log.debug(
-                        "Circuit breaker propagation failed for data store",
-                        exc_info=True,
-                        extra={"error": repr(data_exc)},
-                    )
-        except Exception as exc:
+                except Exception:
+                    pass
+        except Exception:
             # Never impact actor initialization
-            self.log.debug(
-                "Store circuit breaker propagation failed",
-                exc_info=True,
-                extra={"error": repr(exc)},
-            )
+            self.log.debug("Store circuit breaker propagation failed")
 
-    @property
-    def feature_store(self) -> FeatureStoreStrictProtocol:
-        """
-        Get the feature store instance.
-        """
-        return self._feature_store
-
-    @property
-    def model_store(self) -> ModelStoreStrictProtocol:
-        """
-        Get the model store instance.
-        """
-        return self._model_store
-
-    @property
-    def strategy_store(self) -> StrategyStoreStrictProtocol:
-        """
-        Get the strategy store instance.
-        """
-        return self._strategy_store
-
-    @property
-    def data_store(self) -> DataStoreFacadeProtocol:
-        """
-        Get the data store facade instance.
-        """
-        return self._data_store
-
-    @property
-    def feature_registry(self) -> object:
-        """
-        Get the feature registry instance.
-        """
-        return self._feature_registry
-
-    @property
-    def model_registry(self) -> object:
-        """
-        Get the model registry instance.
-        """
-        return self._model_registry
-
-    @property
-    def strategy_registry(self) -> object:
-        """
-        Get the strategy registry instance.
-        """
-        return self._strategy_registry
-
-    @property
-    def data_registry(self) -> object:
-        """
-        Get the data registry instance.
-        """
-        return self._data_registry
+    # LEGACY CODE - Preserved for Phase 2.3.5c parity tests
+    # Store and registry properties now delegated via facade pattern above
+    # @property
+    # def feature_store(self) -> FeatureStoreStrictProtocol:
+    #     """Get the feature store instance."""
+    #     return self._feature_store
+    #
+    # @property
+    # def model_store(self) -> ModelStoreStrictProtocol:
+    #     """Get the model store instance."""
+    #     return self._model_store
+    #
+    # @property
+    # def strategy_store(self) -> StrategyStoreStrictProtocol:
+    #     """Get the strategy store instance."""
+    #     return self._strategy_store
+    #
+    # @property
+    # def data_store(self) -> DataStoreFacadeProtocol:
+    #     """Get the data store facade instance."""
+    #     return self._data_store
+    #
+    # @property
+    # def feature_registry(self) -> object:
+    #     """Get the feature registry instance."""
+    #     return self._feature_registry
+    #
+    # @property
+    # def model_registry(self) -> object:
+    #     """Get the model registry instance."""
+    #     return self._model_registry
+    #
+    # @property
+    # def strategy_registry(self) -> object:
+    #     """Get the strategy registry instance."""
+    #     return self._strategy_registry
+    #
+    # @property
+    # def data_registry(self) -> object:
+    #     """Get the data registry instance."""
+    #     return self._data_registry
 
     def on_start(self) -> None:
         """
-        Initialize the actor and subscribe to market data.
+        Initialize the actor and subscribe to market data - delegates to all components.
+
+        Lifecycle:
+            1. Initialize stores via StoreOperationsComponent
+            2. Initialize registries via RegistryComponent
+            3. Load model via ModelComponent
+            4. Initialize features via FeaturesComponent
+            5. Subscribe to market data
+            6. Call Actor.on_start() for Nautilus lifecycle
 
         This method is called when the actor starts and handles:
         - Model loading with version tracking
@@ -1034,24 +1201,30 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
         - Health monitoring initialization
 
         """
-        self.log.info(f"Starting enhanced {self.__class__.__name__}")
+        self.log.info(f"Starting enhanced {self.__class__.__name__} (facade pattern)")
 
         try:
-            # Load model during initialization (not in hot path)
-            self._load_model_with_metadata()
+            # FACADE: Delegate to StoreOperationsComponent
+            self._store_ops_component.on_start()
+            self.log.debug("StoreOperationsComponent initialized")
 
-            # Initialize feature buffers
-            self._initialize_features()
+            # FACADE: Components already initialized in __init__()
+            # Just delegate to their lifecycle methods
+
+            # FACADE: Delegate model loading to ModelComponent
+            self._model_component.load_model()
+            self.log.debug(f"Model loaded via ModelComponent: {self._model_component.model_id}")
+
+            # FACADE: FeaturesComponent initialization happens in __init__, no separate step needed
+            self.log.debug("FeaturesComponent initialized")
 
             # Verify training/inference parity requirements (hook for subclasses)
             try:
                 self._verify_parity_requirements()
             except Exception:
                 # Fail fast: parity guarantees are mandatory
-                self._log_message(
-                    "error",
+                self.log.error(
                     "Parity verification failed",
-                    exc_info=True,
                 )
                 raise
 
@@ -1064,18 +1237,19 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
             if self._config.enable_hot_reload:
                 self._schedule_model_checks()
 
-            # Subscribe to market data
-            self.subscribe_bars(self._config.bar_type)
+            # Subscribe to market data (only if actor is registered with trader)
+            if hasattr(self, "trader_id") and self.trader_id is not None:
+                self.subscribe_bars(self._config.bar_type)
 
-            # Start async persistence worker
+            # Start async persistence worker (via StoreOperationsComponent)
             if self._persistence_worker:
                 self._persistence_worker.start()
                 self.log.info("ML persistence worker started")
 
             self.log.info(
                 f"Enhanced ML Actor configured: "
-                f"model={Path(self._config.model_path).name}, "
-                f"version={self._model_version}, "
+                f"model={Path(self._config.model_path).name if self._config.model_path else 'from_registry'}, "
+                f"version={self._model_component.model_version}, "
                 f"threshold={self._config.prediction_threshold}, "
                 f"warm_up={self._config.warm_up_period}, "
                 f"hot_reload={self._config.enable_hot_reload}, "
@@ -1083,14 +1257,18 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
             )
 
         except Exception:
-            self._log_message(
-                "error",
+            self.log.error(
                 "Failed to start ML Actor",
-                exc_info=True,
             )
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(False)
             raise
+
+        # LEGACY CODE - Preserved for Phase 2.3.5c parity tests
+        # def _old_on_start(self) -> None:
+        #     self._load_model_with_metadata()
+        #     self._initialize_features()
+        #     # ... old initialization code ...
 
     # Hook for subclass-specific parity verification (no-op by default)
     def _verify_parity_requirements(self) -> None:  # pragma: no cover - default no-op
@@ -1126,22 +1304,9 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                 if hasattr(self, "log"):
                     self.log.info("Enhanced ML Actor warm-up complete, starting predictions")
 
-        # Update indicators and compute features with timing
-        start_feature_time = time.perf_counter()
-        features = self._compute_features(bar)
-        feature_latency = (time.perf_counter() - start_feature_time) * 1000
-
-        # Track feature computation performance
-        self._total_feature_time += feature_latency
-
-        # Check feature computation latency
-        if feature_latency > self._config.max_feature_latency_ms:
-            if hasattr(self, "log"):
-                self.log.warning(
-                    f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: {feature_latency:.3f}ms",
-                )
-            if self._health_monitor:
-                self._health_monitor.update_latency_violation()
+        # FACADE: Delegate feature computation to FeaturesComponent
+        # This ensures bars are buffered and metrics are tracked
+        features = self._features_component.compute_features(bar)
 
         if features is None:
             return  # Indicators not ready
@@ -1158,40 +1323,31 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
 
     def on_stop(self) -> None:
         """
-        Log final statistics when the actor stops.
+        Stop the actor - clean up all components.
+
+        Cleanup:
+            1. Features component cleanup
+            2. Model component cleanup
+            3. Stores flushed via StoreOperationsComponent
+            4. Call Actor.on_stop() for Nautilus lifecycle
 
         ALWAYS flushes all stores to ensure no data is lost.
 
         """
-        # Stop async persistence worker first (drains queue)
-        if self._persistence_worker is not None:
-            import asyncio
+        self.log.info(f"Stopping {self.__class__.__name__} (facade pattern)")
 
-            try:
-                # Run async stop in sync context
-                asyncio.run(
-                    self._persistence_worker.stop(drain=True, timeout=5.0),
-                )
-                self.log.info(
-                    f"ML persistence worker stopped (final queue: "
-                    f"{self._persistence_worker.queue_size()})",
-                )
-            except Exception:
-                self._log_message(
-                    "warning",
-                    "Error stopping persistence worker",
-                    exc_info=True,
-                )
+        # FACADE: Delegate cleanup to components (always initialized in __init__)
+        self._features_component.cleanup()
+        self.log.debug("FeaturesComponent cleaned up")
 
-        # Fallback: flush stores directly for synchronous writes or after async drain
-        if self._persistence_worker is None:
-            self._feature_store.flush()
-            self._model_store.flush()
-            self._strategy_store.flush()
-            if hasattr(self._data_store, "flush"):
-                self._data_store.flush()
-            self.log.info("All stores flushed on shutdown (synchronous)")
+        self._model_component.cleanup()
+        self.log.debug("ModelComponent cleaned up")
 
+        # FACADE: Delegate store cleanup to StoreOperationsComponent
+        self._store_ops_component.on_stop()
+        self.log.debug("StoreOperationsComponent stopped (all stores flushed)")
+
+        # Legacy stats logging (keep for backward compatibility)
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
 
@@ -1201,13 +1357,22 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
             health_status = str(self._health_monitor.status)
 
         self.log.info(
-            f"Stopping Enhanced {self.__class__.__name__} - "
+            f"Stopped Enhanced {self.__class__.__name__} - "
             f"Predictions: {self._prediction_count}, "
             f"Avg inference time: {avg_inference_time:.3f}ms, "
             f"Avg feature time: {avg_feature_time:.3f}ms, "
             f"Health: {health_status}, "
             f"Circuit breaker: {str(self._circuit_breaker.state) if self._circuit_breaker else 'disabled'}",
         )
+
+        # LEGACY CODE - Preserved for Phase 2.3.5c parity tests
+        # def _old_on_stop(self) -> None:
+        #     if self._persistence_worker is not None:
+        #         asyncio.run(self._persistence_worker.stop(drain=True, timeout=5.0))
+        #     if self._persistence_worker is None:
+        #         self._feature_store.flush()
+        #         self._model_store.flush()
+        #         # ... old cleanup code ...
 
     def _generate_prediction_protected(
         self,
@@ -1360,10 +1525,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                 self._publish_signal(signal)
 
         except Exception:
-            self._log_message(
-                "error",
+            self.log.error(
                 "Prediction failed",
-                exc_info=True,
             )
 
             # Record failure in circuit breaker
@@ -1482,8 +1645,20 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                     )
 
                 # Enforce ONNX-only in production unless explicitly allowed
-                model_ext = Path(self._config.model_path).suffix.lower()
-                is_test_env = _is_test_environment()
+                import os as _os
+                from pathlib import Path as _Path
+
+                model_ext = _Path(self._config.model_path).suffix.lower()
+                # Detect test/dev environments where non-ONNX may be acceptable
+                # Allow non-ONNX formats strictly for tests when explicitly enabled.
+                # Accepted env flags (either):
+                # - ML_TEST_ALLOW_NON_ONNX
+                # - ML_ALLOW_NON_ONNX_IN_TESTS (back-compat)
+                is_test_env = (
+                    _os.getenv("PYTEST_CURRENT_TEST") is not None
+                    or _os.getenv("ML_TEST_ALLOW_NON_ONNX", "").lower() in {"1", "true", "yes"}
+                    or _os.getenv("ML_ALLOW_NON_ONNX_IN_TESTS", "").lower() in {"1", "true", "yes"}
+                )
                 allow_dev = getattr(self._config, "allow_non_onnx_in_dev", False)
                 if model_ext != ".onnx" and not (is_test_env or allow_dev):
                     raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")
@@ -1524,11 +1699,7 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                     maybe_warm_up_model(self._model, True, input_dim)
             except Exception as exc:
                 # Warm-up is a best-effort optimization; never fail startup
-                self.log.debug(
-                    "Model warm-up skipped due to error: %s",
-                    exc,
-                    exc_info=True,
-                )
+                self.log.debug("Model warm-up skipped due to error: %s", exc)
 
             self.log.info(
                 f"Loaded model with metadata: "
@@ -1538,10 +1709,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
                 f"type={self._model_metadata.get('type', 'unknown')}",
             )
         except Exception:
-            self._log_message(
-                "error",
+            self.log.error(
                 "Failed to load model",
-                exc_info=True,
             )
             raise
 
@@ -1700,10 +1869,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
             self._last_model_check = time.time()
 
         except Exception:
-            self._log_message(
-                "error",
+            self.log.error(
                 "Model update check failed",
-                exc_info=True,
             )
             # Metric tracking removed to avoid duplicate registration
 
@@ -1730,10 +1897,8 @@ class BaseMLInferenceActor(KeywordLoggerMixin, MLComponentMixin, NautilusActor, 
             )
 
         except Exception:
-            self._log_message(
-                "error",
+            self.log.error(
                 "Model reload failed",
-                exc_info=True,
             )
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(False)

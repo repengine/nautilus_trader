@@ -1,47 +1,35 @@
 from __future__ import annotations
 
-import os
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine, text
 from sqlalchemy import inspect
+from sqlalchemy import text
 
 from ml.observability.migrations import apply_observability_indices
 
-
-_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5434/nautilus_test"
-
-
-def _pg_available(url: str) -> bool:
-    try:
-        eng = create_engine(url)
-        with eng.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
 
 
-from typing import Any
-
-
-@pytest.mark.skipif(
-    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
-    reason="PostgreSQL not reachable",
-)
 def test_apply_observability_indices_creates_brin_and_composites(
     default_instrument_id: Any,
+    test_database: TestDatabase,
 ) -> None:
-    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
-    eng = create_engine(url)
+    eng = test_database.engine
 
     # Ensure tables exist (empty frames are fine)
     with eng.begin() as conn:

@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from typing import Final, overload
 
+from ml.common.events_util import to_stage_enum
 from ml.config.events import Stage
 
 
@@ -85,7 +86,7 @@ def build_topic(domain: str, operation: str, instrument_id: str) -> str:
     return f"ml.{domain}.{operation}.{instrument_norm}"
 
 
-def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
+def map_stage_to_topic_segments(stage: Stage | str) -> tuple[str, str]:
     """
     Map a pipeline ``Stage`` to (domain, operation) topic segments.
 
@@ -93,23 +94,25 @@ def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
     updated, deprecated, deleted}.
 
     """
-    if stage is Stage.DATA_INGESTED:
+    stage_enum = to_stage_enum(stage)
+
+    if stage_enum is Stage.DATA_INGESTED:
         return ("data", "created")
-    if stage is Stage.CATALOG_WRITTEN:
+    if stage_enum is Stage.CATALOG_WRITTEN:
         return ("data", "updated")
-    if stage is Stage.DATASET_PLANNED:
+    if stage_enum is Stage.DATASET_PLANNED:
         return ("data", "planned")
-    if stage is Stage.FEATURE_COMPUTED:
+    if stage_enum is Stage.FEATURE_COMPUTED:
         return ("features", "updated")
-    if stage is Stage.PREDICTION_EMITTED:
+    if stage_enum is Stage.PREDICTION_EMITTED:
         return ("models", "created")
-    if stage is Stage.SIGNAL_EMITTED:
+    if stage_enum is Stage.SIGNAL_EMITTED:
         return ("strategies", "created")
-    if stage is Stage.MODEL_TRAINING_STARTED:
+    if stage_enum is Stage.MODEL_TRAINING_STARTED:
         return ("models", "training_started")
-    if stage is Stage.MODEL_TRAINING_COMPLETED:
+    if stage_enum is Stage.MODEL_TRAINING_COMPLETED:
         return ("models", "training_completed")
-    if stage is Stage.WORKER_HEARTBEAT:
+    if stage_enum is Stage.WORKER_HEARTBEAT:
         return ("models", "heartbeat")
     # Fallback conservative default
     return ("data", "updated")
@@ -157,7 +160,8 @@ def build_stage_topic(
     'events.ml.CATALOG_WRITTEN'
 
     """
-    stage_value = stage.value if isinstance(stage, Stage) else str(stage)
+    stage_enum = to_stage_enum(stage)
+    stage_value = stage_enum.value
     base = f"{prefix}.{stage_value}"
     if instrument_id is None or instrument_id == "":
         return base
@@ -165,7 +169,7 @@ def build_stage_topic(
 
 
 def build_topic_for_stage(
-    stage: Stage,
+    stage: Stage | str,
     instrument_id: str,
     *,
     scheme: str = "domain_op",
@@ -179,9 +183,10 @@ def build_topic_for_stage(
     - ``stage_first``: Uses ``build_stage_topic`` with the provided ``prefix``.
 
     """
+    stage_enum = to_stage_enum(stage)
     if scheme == "stage_first":
-        return build_stage_topic(stage, instrument_id, prefix=prefix)
-    domain, op = map_stage_to_topic_segments(stage)
+        return build_stage_topic(stage_enum, instrument_id, prefix=prefix)
+    domain, op = map_stage_to_topic_segments(stage_enum)
     return build_topic(domain, op, instrument_id)
 
 

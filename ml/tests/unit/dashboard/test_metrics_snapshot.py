@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from typing import Any
+
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.metrics_snapshot import CacheStats
 from ml.dashboard.metrics_snapshot import DashboardMetricsSnapshot
@@ -9,11 +11,19 @@ from ml.dashboard.metrics_snapshot import RequestStats
 from ml.dashboard.metrics_snapshot import evaluate_success_criteria
 from ml.dashboard.service import DashboardService
 
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
+
 
 def _delta(a: float | None, b: float | None) -> float | None:
     if a is None or b is None:
         return None
     return b - a
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are isolated between tests."""
+    del isolated_prometheus_registry
 
 
 def test_cache_and_request_stats_ratio() -> None:

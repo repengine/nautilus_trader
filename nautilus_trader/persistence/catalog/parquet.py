@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import platform
 import re
@@ -327,6 +328,21 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         start = start if start else data[0].ts_init
         end = end if end else data[-1].ts_init
+        candidate_interval = (start, end)
+        if not skip_disjoint_check:
+            existing_intervals = self._get_directory_intervals(directory)
+            if _interval_overlaps(existing_intervals, candidate_interval):
+                logger.warning(
+                    "Parquet catalog write skipped due to overlapping interval",
+                    extra={
+                        "data_cls": data_cls.__name__,
+                        "identifier": identifier,
+                        "start_ns": start,
+                        "end_ns": end,
+                        "directory": directory,
+                    },
+                )
+                return
         filename = _timestamps_to_filename(start, end)
         parquet_file = f"{directory}/{filename}"
         pq.write_table(
@@ -2330,6 +2346,17 @@ def _are_intervals_disjoint(intervals: list[tuple[int, int]]) -> bool:
     return len(union_interval) == n
 
 
+def _interval_overlaps(
+    intervals: list[tuple[int, int]],
+    candidate: tuple[int, int],
+) -> bool:
+    candidate_start, candidate_end = candidate
+    for start, end in intervals:
+        if start <= candidate_end and candidate_start <= end:
+            return True
+    return False
+
+
 def _are_intervals_contiguous(intervals: list[tuple[int, int]]) -> bool:
     n = len(intervals)
 
@@ -2392,3 +2419,4 @@ def _extract_sql_safe_filename(file_path: str) -> str:
 
     # Remove characters that can pose problems: hyphens, colons, etc.
     return name_without_ext.replace("-", "_").replace(":", "_").replace(".", "_").lower()
+logger = logging.getLogger(__name__)

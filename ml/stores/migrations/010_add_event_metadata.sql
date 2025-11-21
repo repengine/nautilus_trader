@@ -1,3 +1,6 @@
+-- Migration: Add metadata payload support to ml_data_events and emit helper.
+-- Rollback: ALTER TABLE ml_data_events DROP COLUMN metadata; drop emit_data_event_ext() if needed.
+
 -- Add metadata column to ml_data_events and provide extended emit function
 
 -- Add metadata column if it doesn't exist
@@ -63,4 +66,3 @@ BEGIN
     RETURN v_event_id;
 END;
 $$ LANGUAGE plpgsql;
-

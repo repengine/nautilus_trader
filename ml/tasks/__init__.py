@@ -14,6 +14,7 @@ from types import ModuleType
 
 
 __all__ = [
+    "caches",
     "datasets",
     "db",
     "dev",

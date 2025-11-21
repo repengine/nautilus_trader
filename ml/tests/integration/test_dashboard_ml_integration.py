@@ -13,6 +13,14 @@ from unittest.mock import patch
 
 import pytest
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 from ml.dashboard.control_enhanced import EnhancedControlPanel
 from ml.dashboard.control_simple import SimpleControlPanel
 

@@ -226,6 +226,30 @@ class ValidationReturnsTelemetry:
 
 
 @dataclass(slots=True, frozen=True)
+class StreamingCheckpointTelemetry:
+    """Telemetry describing checkpoint and resume behaviour."""
+
+    resumed: bool
+    resume_global_step: int | None = None
+    resume_epoch: int | None = None
+    resume_checkpoint_path: str | None = None
+    latest_checkpoint_path: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        """Return checkpoint telemetry as a serializable mapping."""
+        payload: dict[str, object] = {"resumed": bool(self.resumed)}
+        if self.resume_global_step is not None:
+            payload["resume_global_step"] = int(self.resume_global_step)
+        if self.resume_epoch is not None:
+            payload["resume_epoch"] = int(self.resume_epoch)
+        if self.resume_checkpoint_path is not None:
+            payload["resume_checkpoint_path"] = str(self.resume_checkpoint_path)
+        if self.latest_checkpoint_path is not None:
+            payload["latest_checkpoint_path"] = str(self.latest_checkpoint_path)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
 class StreamingRunTelemetry:
     """Telemetry describing a full streaming training run."""
 
@@ -238,6 +262,7 @@ class StreamingRunTelemetry:
     economic: StreamingEconomicTelemetry | None = None
     stability: StreamingStabilityTelemetry | None = None
     validation_returns: ValidationReturnsTelemetry | None = None
+    checkpoint: StreamingCheckpointTelemetry | None = None
 
     def as_dict(self) -> dict[str, object]:
         """Return run telemetry as a serializable mapping."""
@@ -268,10 +293,13 @@ class StreamingRunTelemetry:
                 payload["stability"] = stability_payload
         if self.validation_returns is not None:
             payload["validation_returns"] = self.validation_returns.as_dict()
+        if self.checkpoint is not None:
+            payload["checkpoint"] = self.checkpoint.as_dict()
         return payload
 
 
 __all__ = [
+    "StreamingCheckpointTelemetry",
     "StreamingEconomicTelemetry",
     "StreamingEnsembleMemberTelemetry",
     "StreamingEnsembleTelemetry",

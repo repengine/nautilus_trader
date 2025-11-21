@@ -147,7 +147,7 @@ event = FeatureEvent(
 ```python
 class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
     """Configuration for ML feature engineering."""
-    lookback_window: PositiveInt = 100
+    lookback_window: PositiveInt = 120
     indicators: dict[str, dict[str, Any]] | None = None
     feature_names: list[str] | None = None
     normalize_features: bool = True
@@ -156,7 +156,7 @@ class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
 ```
 
 **Key Features**:
-- **Lookback window**: Historical bars for feature computation (default 100)
+- **Lookback window**: Historical bars for feature computation (default 120)
 - **Indicators**: Dict of indicator configs (e.g., `{"sma_5": {"period": 5}}`)
 - **Feature names**: Explicit feature list (auto-computed if None)
 - **Normalization**: Feature scaling toggle with imputation value
@@ -1005,8 +1005,8 @@ macro_fred_path = "data/fred/fred_indicators_ml_format.parquet"
 
 # COMPREHENSIVE MACRO SERIES (30 series across 6 dimensions)
 macro_series_ids = [
-    # RATES / DURATION CURVE (5 series)
-    "DGS2", "DGS10", "T10Y2Y", "DFII10", "FEDFUNDS",
+    # RATES / DURATION CURVE (7 series)
+    "DGS2", "DGS5", "DGS10", "DGS30", "T10Y2Y", "DFII10", "FEDFUNDS",
 
     # CREDIT / CAPITAL MARKETS RISK (4 series)
     "BAMLC0A0CM", "BAMLH0A0HYM2", "TEDRATE", "VIXCLS",
@@ -1014,11 +1014,14 @@ macro_series_ids = [
     # GROWTH / LABOR CYCLE (4 series)
     "PAYEMS", "UNRATE", "INDPRO", "CFNAI",
 
-    # INFLATION & COST PRESSURE (5 series)
-    "CPIAUCSL", "PCEPI", "PPIACO", "WTISPLC", "GOLDAMGBD228NLBM",
+    # INFLATION & COST PRESSURE (4 series)
+    "CPIAUCSL", "PCEPI", "PPIACO", "WTISPLC",
 
-    # CROSS-ASSET / RISK ROTATION (6 series)
-    "SP500", "CRBINDX", "DTWEXBGS", "DEXUSAL", "DEXUSEU", "DEXJPUS",
+    # COMMODITIES / METALS (3 series)
+    "PALLFNFINDEXM", "PCOPPUSDM", "NASDAQQGLDI",
+
+    # CROSS-ASSET / RISK ROTATION (4 series)
+    "DTWEXBGS", "DEXUSAL", "DEXUSEU", "DEXJPUS",
 
     # LIQUIDITY / BALANCE SHEET (2 series)
     "WALCL", "TOTBKCR",

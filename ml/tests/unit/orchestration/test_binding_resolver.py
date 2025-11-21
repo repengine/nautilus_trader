@@ -23,11 +23,15 @@ from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.discovery_client import DiscoveryClient
 from ml.registry.dataclasses import StorageKind
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 # ========================================================================
 # Fixtures
 # ========================================================================
-
 
 @pytest.fixture
 def mock_coverage_provider():
@@ -35,7 +39,6 @@ def mock_coverage_provider():
     provider = Mock()
     provider.read_bucket_coverage = Mock()
     return provider
-
 
 @pytest.fixture
 def mock_ingestion_service():
@@ -45,7 +48,6 @@ def mock_ingestion_service():
     service.estimate_cost_usd = Mock()
     return service
 
-
 @pytest.fixture
 def mock_discovery_client():
     """Create mock discovery client."""
@@ -53,7 +55,6 @@ def mock_discovery_client():
     client.discover_market_inputs = Mock()
     client.discover_binding_for_symbol = Mock()
     return client
-
 
 @pytest.fixture
 def binding_resolver(mock_coverage_provider, mock_ingestion_service, mock_discovery_client):
@@ -64,7 +65,6 @@ def binding_resolver(mock_coverage_provider, mock_ingestion_service, mock_discov
         discovery_client=mock_discovery_client,
     )
 
-
 @pytest.fixture
 def binding_resolver_no_deps():
     """Create binding resolver with no dependencies."""
@@ -73,7 +73,6 @@ def binding_resolver_no_deps():
         ingestion_service=None,
         discovery_client=None,
     )
-
 
 @pytest.fixture
 def sample_binding():
@@ -93,7 +92,6 @@ def sample_binding():
         source="test",
     )
 
-
 @pytest.fixture
 def sample_config(tmp_path):
     """Create sample dataset build config."""
@@ -105,11 +103,9 @@ def sample_config(tmp_path):
         out_dir=str(tmp_path / "out"),
     )
 
-
 # ========================================================================
 # Test Initialization
 # ========================================================================
-
 
 def test_binding_resolver_init():
     """Test binding resolver initialization."""
@@ -119,7 +115,6 @@ def test_binding_resolver_init():
     assert resolver.discovery_client is None
     assert hasattr(resolver, "bindings_resolved_counter")
     assert hasattr(resolver, "binding_selection_time")
-
 
 def test_binding_resolver_init_with_deps(mock_coverage_provider, mock_ingestion_service, mock_discovery_client):
     """Test binding resolver initialization with dependencies."""
@@ -132,11 +127,9 @@ def test_binding_resolver_init_with_deps(mock_coverage_provider, mock_ingestion_
     assert resolver.service is mock_ingestion_service
     assert resolver.discovery_client is mock_discovery_client
 
-
 # ========================================================================
 # Test _binding_priority_key
 # ========================================================================
-
 
 def test_binding_priority_key_equs_mini():
     """Test priority key for EQUS.MINI dataset."""
@@ -157,7 +150,6 @@ def test_binding_priority_key_equs_mini():
     priority = BindingResolver._binding_priority_key(binding)
     assert priority == (0, "EQUS.MINI")
 
-
 def test_binding_priority_key_xnas_itch():
     """Test priority key for XNAS.ITCH dataset."""
     binding = ResolvedMarketBinding(
@@ -176,7 +168,6 @@ def test_binding_priority_key_xnas_itch():
     )
     priority = BindingResolver._binding_priority_key(binding)
     assert priority == (1, "XNAS.ITCH")
-
 
 def test_binding_priority_key_other_dataset():
     """Test priority key for other datasets."""
@@ -197,11 +188,9 @@ def test_binding_priority_key_other_dataset():
     priority = BindingResolver._binding_priority_key(binding)
     assert priority == (2, "OTHER.DATASET")
 
-
 # ========================================================================
 # Test _binding_allowed
 # ========================================================================
-
 
 def test_binding_allowed_no_schema(binding_resolver, sample_binding):
     """Test binding allowed with no schema and no default."""
@@ -228,7 +217,6 @@ def test_binding_allowed_no_schema(binding_resolver, sample_binding):
     )
     assert result is False
 
-
 def test_binding_allowed_no_service(binding_resolver_no_deps, sample_binding):
     """Test binding allowed with no ingestion service."""
     result = binding_resolver_no_deps._binding_allowed(
@@ -239,7 +227,6 @@ def test_binding_allowed_no_service(binding_resolver_no_deps, sample_binding):
         default_schema="ohlcv-1m",
     )
     assert result is True
-
 
 def test_binding_allowed_ingestion_error(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed with ingestion error."""
@@ -253,7 +240,6 @@ def test_binding_allowed_ingestion_error(binding_resolver, mock_ingestion_servic
         default_schema="ohlcv-1m",
     )
     assert result is False
-
 
 def test_binding_allowed_outside_coverage_start(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed outside coverage (before start)."""
@@ -271,7 +257,6 @@ def test_binding_allowed_outside_coverage_start(binding_resolver, mock_ingestion
     )
     assert result is False
 
-
 def test_binding_allowed_outside_coverage_end(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed outside coverage (after end)."""
     mock_ingestion_service.get_available_range_ns.return_value = (
@@ -287,7 +272,6 @@ def test_binding_allowed_outside_coverage_end(binding_resolver, mock_ingestion_s
         default_schema="ohlcv-1m",
     )
     assert result is False
-
 
 def test_binding_allowed_cost_policy_rejected(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed rejected by cost policy."""
@@ -306,7 +290,6 @@ def test_binding_allowed_cost_policy_rejected(binding_resolver, mock_ingestion_s
     )
     assert result is False
 
-
 def test_binding_allowed_nonzero_cost(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed rejected due to non-zero cost."""
     mock_ingestion_service.get_available_range_ns.return_value = (
@@ -323,7 +306,6 @@ def test_binding_allowed_nonzero_cost(binding_resolver, mock_ingestion_service, 
         default_schema="ohlcv-1m",
     )
     assert result is False
-
 
 def test_binding_allowed_zero_cost(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed with zero cost."""
@@ -342,7 +324,6 @@ def test_binding_allowed_zero_cost(binding_resolver, mock_ingestion_service, sam
     )
     assert result is True
 
-
 def test_binding_allowed_availability_check_fails(binding_resolver, mock_ingestion_service, sample_binding):
     """Test binding allowed when availability check fails."""
     mock_ingestion_service.get_available_range_ns.side_effect = Exception("Service error")
@@ -357,11 +338,9 @@ def test_binding_allowed_availability_check_fails(binding_resolver, mock_ingesti
     )
     assert result is True
 
-
 # ========================================================================
 # Test filter_candidate_bindings
 # ========================================================================
-
 
 def test_filter_candidate_bindings_empty(binding_resolver):
     """Test filtering empty candidate list."""
@@ -373,7 +352,6 @@ def test_filter_candidate_bindings_empty(binding_resolver):
         default_schema="ohlcv-1m",
     )
     assert result == ()
-
 
 def test_filter_candidate_bindings_all_allowed(binding_resolver, mock_ingestion_service):
     """Test filtering when all candidates are allowed."""
@@ -426,7 +404,6 @@ def test_filter_candidate_bindings_all_allowed(binding_resolver, mock_ingestion_
     # Should be sorted by priority (EQUS.MINI first)
     assert result[0].dataset_id == "EQUS.MINI"
     assert result[1].dataset_id == "XNAS.ITCH"
-
 
 def test_filter_candidate_bindings_some_rejected(binding_resolver, mock_ingestion_service):
     """Test filtering when some candidates are rejected."""
@@ -484,11 +461,9 @@ def test_filter_candidate_bindings_some_rejected(binding_resolver, mock_ingestio
     assert len(result) == 1
     assert result[0].dataset_id == "XNAS.ITCH"
 
-
 # ========================================================================
 # Test select_binding_with_coverage
 # ========================================================================
-
 
 def test_select_binding_with_coverage_no_provider(binding_resolver_no_deps, sample_binding):
     """Test selecting binding with no coverage provider."""
@@ -498,7 +473,6 @@ def test_select_binding_with_coverage_no_provider(binding_resolver_no_deps, samp
         end_ns=1_700_086_400_000_000_000,
     )
     assert result is None
-
 
 def test_select_binding_with_coverage_found(binding_resolver, mock_coverage_provider):
     """Test selecting binding with coverage found."""
@@ -527,7 +501,6 @@ def test_select_binding_with_coverage_found(binding_resolver, mock_coverage_prov
 
     assert result is binding
 
-
 def test_select_binding_with_coverage_not_found(binding_resolver, mock_coverage_provider):
     """Test selecting binding with no coverage found."""
     binding = ResolvedMarketBinding(
@@ -555,7 +528,6 @@ def test_select_binding_with_coverage_not_found(binding_resolver, mock_coverage_
 
     assert result is None
 
-
 def test_select_binding_with_coverage_no_schema(binding_resolver, mock_coverage_provider):
     """Test selecting binding with no schema."""
     binding = ResolvedMarketBinding(
@@ -580,7 +552,6 @@ def test_select_binding_with_coverage_no_schema(binding_resolver, mock_coverage_
     )
 
     assert result is None
-
 
 def test_select_binding_with_coverage_lookup_fails(binding_resolver, mock_coverage_provider):
     """Test selecting binding when coverage lookup fails."""
@@ -609,11 +580,9 @@ def test_select_binding_with_coverage_lookup_fails(binding_resolver, mock_covera
 
     assert result is None
 
-
 # ========================================================================
 # Test resolve_market_inputs
 # ========================================================================
-
 
 def test_resolve_market_inputs_from_config(binding_resolver, sample_config, tmp_path):
     """Test resolving market inputs from config."""
@@ -647,7 +616,6 @@ def test_resolve_market_inputs_from_config(binding_resolver, sample_config, tmp_
     # Bindings may or may not be resolved depending on the availability of resolve_market_dataset_bindings
     assert isinstance(resolved_bindings, tuple)
 
-
 def test_resolve_market_inputs_no_discovery_client(binding_resolver_no_deps, sample_config):
     """Test resolving market inputs with no discovery client."""
     resolved_inputs, resolved_bindings = binding_resolver_no_deps.resolve_market_inputs(
@@ -660,11 +628,9 @@ def test_resolve_market_inputs_no_discovery_client(binding_resolver_no_deps, sam
     assert resolved_inputs is None
     assert resolved_bindings == ()
 
-
 # ========================================================================
 # Test Protocol Conformance
 # ========================================================================
-
 
 def test_binding_resolver_conforms_to_protocol():
     """Test that BindingResolver conforms to BindingResolverProtocol."""

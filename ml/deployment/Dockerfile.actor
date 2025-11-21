@@ -17,6 +17,7 @@ COPY ml ./ml
 # Include ONNX runtime support for actor inference when used
 RUN pip install --no-cache-dir \
     nautilus-trader \
+    databento \
     numpy \
     pandas \
     msgspec \

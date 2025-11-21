@@ -42,7 +42,7 @@ class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
 
     Parameters
     ----------
-    lookback_window : PositiveInt, default 100
+    lookback_window : PositiveInt, default 120
         The number of historical bars to consider for feature engineering.
     indicators : dict[str, dict[str, Any]], optional
         Dictionary of indicator configurations, where keys are indicator names
@@ -58,7 +58,7 @@ class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
 
     """
 
-    lookback_window: PositiveInt = 100
+    lookback_window: PositiveInt = 120
     indicators: dict[str, dict[str, Any]] | None = None
     feature_names: list[str] | None = None
     normalize_features: bool = True

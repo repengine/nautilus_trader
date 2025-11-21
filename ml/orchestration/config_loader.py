@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import fields
+from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ try:  # Python 3.11 includes tomllib
 except ModuleNotFoundError:  # pragma: no cover - alt interpreter fallback
     tomllib = None  # type: ignore[assignment]
 
+from ml.config import universes as _universes
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
 from ml.orchestration.config_types import AutoFillUniverseConfig
@@ -56,6 +58,27 @@ __all__ = [
     "load_orchestrator_run_config",
     "to_pipeline_args",
 ]
+
+
+_UNIVERSE_ALIAS_MAP: dict[str, tuple[str, ...]] = {}
+for name, symbols in _universes.TIER1_SYMBOL_SETS.items():
+    if not symbols:
+        continue
+    normalized = tuple(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip())
+    _UNIVERSE_ALIAS_MAP[name.lower()] = normalized
+
+_ALIAS_SYNONYMS = {
+    "tier1": "default",
+    "tier1_default": "default",
+    "tier1_full": "full",
+    "tier1_full_95": "full",
+    "tier1_core": "core",
+    "tier1_core12": "core12",
+}
+for alias, target in _ALIAS_SYNONYMS.items():
+    target_resolved = _UNIVERSE_ALIAS_MAP.get(target.lower())
+    if target_resolved is not None:
+        _UNIVERSE_ALIAS_MAP[alias.lower()] = target_resolved
 
 
 class Stage(StrEnum):
@@ -94,6 +117,11 @@ class IngestionStageConfig:
         Ingestion write mode token string (e.g. ``"sql+parquet"``).
     catalog_path
         Optional parquet catalog location.
+    catalog_clean_mode
+        Optional hygiene mode ("archive" currently) applied before attaching the
+        catalog.
+    catalog_backup_dir
+        Optional directory where archived catalogs are stored.
     symbols
         Optional explicit symbol universe used for resolving market bindings.
     instrument_ids
@@ -115,6 +143,8 @@ class IngestionStageConfig:
     coverage_mode: str = "catalog"
     write_mode: str = "parquet"
     catalog_path: str | None = None
+    catalog_clean_mode: str | None = None
+    catalog_backup_dir: str | None = None
     symbols: tuple[str, ...] | None = None
     instrument_ids: tuple[str, ...] | None = None
     market_dataset_id: str | None = None
@@ -224,6 +254,9 @@ def load_orchestrator_run_config(
         )
     promotions_cfg = _coerce_dataclass(payload.get("promotions"), PromotionsConfig)
     auto_fill_cfg = _coerce_dataclass(payload.get("auto_fill"), AutoFillUniverseConfig)
+    if auto_fill_cfg and auto_fill_cfg.instrument_ids:
+        expanded_auto = _expand_symbol_sequence(auto_fill_cfg.instrument_ids, drop_venues=False)
+        auto_fill_cfg = replace(auto_fill_cfg, instrument_ids=expanded_auto or None)
     integration_cfg = _coerce_dataclass(payload.get("integration"), IntegrationConfig)
 
     return OrchestratorRunConfig(
@@ -303,6 +336,50 @@ def _parse_override_value(value: str) -> Any:
         return trimmed
 
 
+def _tokenize_symbol_entry(entry: str) -> list[str]:
+    trimmed = entry.strip()
+    if not trimmed:
+        return []
+    if trimmed.startswith("@"):
+        alias = trimmed[1:].lower()
+        resolved = _UNIVERSE_ALIAS_MAP.get(alias)
+        if resolved is None:
+            raise ValueError(f"Unknown universe alias '{alias}'")
+        return list(resolved)
+    if "," in trimmed:
+        return [part.strip() for part in trimmed.split(",") if part.strip()]
+    return [trimmed]
+
+
+def _strip_venue(symbol: str) -> str:
+    head, _, _tail = symbol.partition(".")
+    return head or symbol
+
+
+def _expand_symbol_sequence(value: Any, *, drop_venues: bool) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    tokens: list[str] = []
+    for entry in _ensure_sequence(value):
+        if isinstance(entry, str):
+            tokens.extend(_tokenize_symbol_entry(entry))
+        else:
+            tokens.append(str(entry))
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        normalized = token.strip().upper()
+        if not normalized:
+            continue
+        if drop_venues:
+            normalized = _strip_venue(normalized)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return tuple(ordered)
+
+
 def _coerce_training(payload: Any) -> TrainingStageConfig | None:
     if payload is None:
         return None
@@ -324,12 +401,14 @@ def _coerce_dataset(payload: Any) -> DatasetBuildConfig:
     if not isinstance(payload, Mapping):
         raise ValueError("dataset section must be a mapping")
     kwargs = dict(payload)
+    if "symbols" in kwargs and kwargs["symbols"] is not None:
+        expanded_symbols = _expand_symbol_sequence(kwargs["symbols"], drop_venues=True)
+        kwargs["symbols"] = ",".join(expanded_symbols)
     if "market_inputs" in kwargs:
         kwargs["market_inputs"] = _coerce_market_inputs(kwargs["market_inputs"])
     if "instrument_ids" in kwargs:
-        kwargs["instrument_ids"] = tuple(
-            str(item) for item in _ensure_sequence(kwargs["instrument_ids"])
-        )
+        instrument_ids = _expand_symbol_sequence(kwargs["instrument_ids"], drop_venues=False)
+        kwargs["instrument_ids"] = instrument_ids if instrument_ids else None
     if "macro_series_ids" in kwargs and kwargs["macro_series_ids"] is not None:
         kwargs["macro_series_ids"] = tuple(
             str(item) for item in _ensure_sequence(kwargs["macro_series_ids"])
@@ -346,23 +425,15 @@ def _coerce_ingestion(payload: Any) -> IngestionStageConfig | None:
         raise ValueError("ingestion section must be a mapping")
     kwargs = dict(payload)
     if "instruments" in kwargs and kwargs["instruments"] is not None:
-        kwargs["instruments"] = tuple(
-            str(item).strip()
-            for item in _ensure_sequence(kwargs["instruments"])
-            if str(item).strip()
+        kwargs["instruments"] = _expand_symbol_sequence(
+            kwargs["instruments"],
+            drop_venues=False,
         )
     if "instrument_ids" in kwargs and kwargs["instrument_ids"] is not None:
-        kwargs["instrument_ids"] = tuple(
-            str(item).strip()
-            for item in _ensure_sequence(kwargs["instrument_ids"])
-            if str(item).strip()
-        )
+        instrument_ids = _expand_symbol_sequence(kwargs["instrument_ids"], drop_venues=False)
+        kwargs["instrument_ids"] = instrument_ids if instrument_ids else None
     if "symbols" in kwargs and kwargs["symbols"] is not None:
-        kwargs["symbols"] = tuple(
-            str(item).strip().upper()
-            for item in _ensure_sequence(kwargs["symbols"])
-            if str(item).strip()
-        )
+        kwargs["symbols"] = _expand_symbol_sequence(kwargs["symbols"], drop_venues=True)
     if "market_inputs" in kwargs:
         kwargs["market_inputs"] = _coerce_market_inputs(kwargs["market_inputs"])
         if not kwargs["market_inputs"]:
@@ -375,6 +446,10 @@ def _coerce_ingestion(payload: Any) -> IngestionStageConfig | None:
         kwargs["schema"] = str(kwargs["schema"])
     if "catalog_path" in kwargs and kwargs["catalog_path"] is not None:
         kwargs["catalog_path"] = str(kwargs["catalog_path"])
+    if "catalog_clean_mode" in kwargs and kwargs["catalog_clean_mode"] is not None:
+        kwargs["catalog_clean_mode"] = str(kwargs["catalog_clean_mode"])
+    if "catalog_backup_dir" in kwargs and kwargs["catalog_backup_dir"] is not None:
+        kwargs["catalog_backup_dir"] = str(kwargs["catalog_backup_dir"])
     return IngestionStageConfig(**kwargs)
 
 
@@ -410,11 +485,12 @@ def _coerce_market_inputs(payload: Any) -> tuple[MarketDatasetInput, ...]:
             raise ValueError("market_inputs entries must be mappings")
         storage_kind = item.get("storage_kind_override") or item.get("storage_kind")
         storage_kind_parsed = coerce_storage_kind(storage_kind)
+        input_symbols = _expand_symbol_sequence(item.get("symbols"), drop_venues=False)
         inputs.append(
             MarketDatasetInput(
                 descriptor_id=item.get("descriptor_id"),
                 dataset_id=item.get("dataset_id"),
-                symbols=tuple(item.get("symbols", ()) or ()),
+                symbols=input_symbols,
                 schema_override=item.get("schema_override") or item.get("schema"),
                 storage_kind_override=storage_kind_parsed,
                 start=item.get("start"),
@@ -650,6 +726,10 @@ def to_pipeline_args(
         args += ["--write_mode", ingestion.write_mode]
         if ingestion.catalog_path:
             args += ["--catalog_path", ingestion.catalog_path]
+        if ingestion.catalog_clean_mode:
+            args += ["--catalog_clean_mode", ingestion.catalog_clean_mode]
+        if ingestion.catalog_backup_dir:
+            args += ["--catalog_backup_dir", ingestion.catalog_backup_dir]
         if ingestion.market_dataset_id:
             args += ["--market_dataset_id", ingestion.market_dataset_id]
 

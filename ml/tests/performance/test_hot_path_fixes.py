@@ -12,9 +12,9 @@ from ml.actors import EnhancedMLInferenceActor
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 
 
 # Configure module logger

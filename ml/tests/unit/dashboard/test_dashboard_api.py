@@ -16,6 +16,8 @@ from ml.dashboard.config import DashboardToken
 from ml.dashboard.service import DashboardService
 from ml.dashboard.services import PipelineTriggerResult
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
 
 @pytest.fixture()
 def client() -> FlaskClient:

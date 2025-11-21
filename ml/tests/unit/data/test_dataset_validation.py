@@ -8,6 +8,7 @@ from ml.data.validation import DatasetValidationError
 from ml.data.validation import validate_dataset
 from ml.data.vintage import VintagePolicy
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
 
 def test_validate_dataset_enforces_min_rows() -> None:
     df = pl.DataFrame(
@@ -21,7 +22,6 @@ def test_validate_dataset_enforces_min_rows() -> None:
     cfg = DatasetValidationConfig(min_rows=2)
     with pytest.raises(DatasetValidationError):
         validate_dataset(df, config=cfg)
-
 
 def test_validate_dataset_requires_macro_series() -> None:
     df = pl.DataFrame(
@@ -38,7 +38,6 @@ def test_validate_dataset_requires_macro_series() -> None:
     assert result.row_count == 3
     assert result.macro_columns_present == ("DGS10",)
     assert result.macro_observation_counts == {"DGS10": 0}
-
 
 def test_validate_dataset_enforces_macro_observations() -> None:
     df = pl.DataFrame(
@@ -57,7 +56,6 @@ def test_validate_dataset_enforces_macro_observations() -> None:
     )
     with pytest.raises(DatasetValidationError):
         validate_dataset(df, config=cfg)
-
 
 def test_validate_dataset_macro_observations_pass() -> None:
     df = pl.DataFrame(

@@ -100,6 +100,31 @@ The dashboard supports three UI modes optimized for different use cases:
 - Dashboard cards display the last snapshot value and fall back to a placeholder
   when the helper is disabled or returns `{ "ok": false }`.
 
+### Pipeline Coverage Telemetry
+
+- The ML pipeline `/health` endpoint now returns a `coverage` block with fields
+  such as `last_run`, `last_success`, `buckets_total`,
+  `buckets_restore_catalog`, `buckets_reingest_source`, `buckets_healthy`, and
+  `last_error`. Surface these values alongside the existing pipeline status
+  cards so ops can see whether catalog restoration succeeded.
+- Prometheus metrics:
+  - `nautilus_ml_coverage_buckets_total{status}` — classified bucket counts
+    (`healthy`, `restore_from_catalog`, `reingest_from_source`).
+  - `nautilus_ml_coverage_restore_failures_total{stage}` — failed stages
+    (`classification`, `catalog`, `targeted_update`).
+  - `nautilus_ml_coverage_latency_seconds` — end-to-end restoration latency.
+- Environment toggles:
+  - `COVERAGE_RESTORE_ENABLED=1` runs the flow automatically before ingestion.
+  - `COVERAGE_MAX_BUCKETS_PER_RUN` (default `500`) caps how many buckets are
+    processed per pass, preventing long recovery loops; skipped counts are
+    logged under `coverage_manager.bucket_cap_applied`.
+- Failure modes surfaced via `/health["errors"]`:
+  - `SchemaHealthCheckError: ... ml_data_events ...` (or `ml_data_watermarks`) means migrations skipped the instrumentation tables. Run `poetry run python -m ml.stores.migrations_runner apply --db-url …` before restarting so event emission works.
+  - `Invalid MARKET_DATASET_INPUTS` indicates the env var references descriptors not listed in `ml/config/market_feed_descriptors.json` or schema overrides that the dataset does not support (e.g., `mbp-10` on `EQUS.MINI`). Fix the env var and redeploy; the pipeline will not start until the combination is valid.
+- Manual remediation: `poetry run python -m ml.cli.coverage_restore --json`
+  boots the same workflow using local environment variables, emitting a summary
+  identical to `/health["coverage"]`.
+
 ### Streaming Orchestrator Admin
 
 - The streaming training orchestrator persists lifecycle state to
@@ -118,6 +143,11 @@ The dashboard supports three UI modes optimized for different use cases:
 - `expired_plans()` returns the underlying `DatasetPlanEvent` objects whose
   heartbeats aged out. Feed the results back into `enqueue_training` (or a
   manual worker run) after confirming the data path is healthy.
+- **Persistence worker backlog replay**
+  - Restarts now seed Redis `XREAD` with `0-0` when no cursor is stored, so the worker replays any backlog accumulated while it was offline. The cursor persists in `stream_cursor` inside `ml_out/streaming_training_state.json`.
+  - To replay from scratch, stop the worker, delete the `stream_cursor` field (or remove the state file), and restart the worker; the next poll will enumerate historical events before tailing live traffic.
+  - To skip directly to the head, update `stream_cursor` to the latest stream ID (check via `redis-cli XINFO STREAM ${ML_BUS_REDIS_STREAM:-ml-events}`) before restarting.
+  - Monitor `ml_streaming_persistence_poll_attempts_total{outcome="failure"}` and the worker logs for cursor persistence warnings; failures leave the worker tailing the old position.
 
 Example (run inside the `streaming_orchestrator` container or a local shell with
 the repo sourced):
@@ -157,6 +187,38 @@ orchestrator.clear_backlog(include_active=True)
   - Warning when `summary.total_outstanding >= 4`, critical when `>= 8`.
   - Warning when `summary.total_workers < expected_workers` (default 1), critical when zero.
   - Dataset row highlights turn amber when outstanding plans > 0; red styling is applied when backlog >= 8 via the dashboard JS logic.
+
+### Streaming Checkpoint Monitoring
+
+- Prometheus counters expose checkpoint activity:
+  - `ml_streaming_checkpoints_total{outcome,trigger}` tracks save attempts (success vs. failure, labelled by `interval_seconds`, `interval_steps`, or `manual`).
+  - `ml_streaming_checkpoint_resumes_total{outcome}` records discovery, successful resume, and missing checkpoint events.
+  - `ml_streaming_checkpoint_evictions_total{outcome}` increments when signal-driven saves complete (or fail) during Azure eviction notices.
+- Grafana panel `Streaming Checkpoints` (in `ml/deployment/grafana/ml_pipeline_health.json`) visualises:
+  - `sum by (outcome,trigger)(rate(ml_streaming_checkpoints_total[$__rate_interval]))`
+  - `sum by (outcome)(rate(ml_streaming_checkpoint_evictions_total[$__rate_interval]))`
+  Import or sync the dashboard to expose these panels alongside backlog charts.
+- Worker logs emit structured events `checkpoint_saved`, `checkpoint_resume_detected`, and `checkpoint_resume_applied`; surface these via the dashboard log stream or `kubectl logs` to confirm that spot interruptions triggered a flush.
+- The streaming runner injects checkpoint telemetry into result manifests (`checkpoint.resumed`, `checkpoint.resume_global_step`, `checkpoint.latest_checkpoint_path`). Dashboards consuming the state snapshot will display these fields under each dataset's telemetry block once a plan lands.
+- Checkpoint metadata files live under the configured `StreamingWorkerConfig.checkpoint_dir` (`{plan_id}_latest.json` and associated `.ckpt` artefacts). When debugging resumes, inspect these files to confirm the recorded epoch/step before relaunching the worker.
+
+### Azure Spot VM Lifecycle Checklist
+
+1. **Bootstrap the VM**
+   - Mount the durable checkpoint store (Blob via `blobfuse2` or Azure Files SMB) at the path referenced by `ML_STREAMING_CHECKPOINT_DIR`.
+   - Export the runner CLI flags (`--checkpoint-dir`, `--checkpoint-interval-seconds`, `--checkpoint-interval-steps`) or matching env vars before starting the streaming runner service.
+2. **Launch the Runner**
+   - Start `ml/cli/streaming_training_runner.py` inside the spot VM session; confirm the log line `checkpoint_resume_detected` when resuming an interrupted plan.
+   - Ensure `save_checkpoint_now` requests propagate to the worker by watching for `checkpoint_request_completed` after manual invocations or signal handling.
+3. **Monitor During Execution**
+   - Track the metrics above (especially `ml_streaming_checkpoint_evictions_total`) alongside backlog gauges to verify that eviction notices trigger final checkpoints.
+   - Use the dashboard `dataset_details[*].telemetry.checkpoint` payload to confirm whether the latest plan resumed (`resumed=true`) and which checkpoint file was consumed.
+4. **Handle Evictions**
+   - When Azure scheduled events flag an impending eviction, the runner's scheduled-event watcher emits `azure_eviction_notice_received` and calls `save_checkpoint_now` (`checkpoint_saved` with `trigger=manual:signal`). Avoid manual termination until the save completes.
+5. **Resume After Rehydration**
+   - On the replacement VM, remount the storage and relaunch the runner; the worker auto-loads `{plan_id}_latest.ckpt` and emits `checkpoint_resume_applied` upon restart.
+6. **Teardown & Cleanup**
+   - Before deallocating the VM, confirm that the latest manifest contains `checkpoint.latest_checkpoint_path`. Optional: prune archived `.ckpt` files older than required retention if the store quota is constrained.
 
 ## UI Operations
 

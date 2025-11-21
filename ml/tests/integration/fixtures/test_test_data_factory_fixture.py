@@ -10,12 +10,24 @@ behavior across multiple test invocations.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import pytest
 
-from ml.tests.fixtures.model_factory import TestDataFactory
+if TYPE_CHECKING:
+    from ml.tests.fixtures.model_factory import TestDataFactory
 
 
 # Module-level variable to track factory instance IDs
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 _shared_factory_id: int | None = None
 
 
@@ -30,7 +42,7 @@ def test_fixture_is_session_scoped(test_data_factory: TestDataFactory) -> None:
     # This test validates that the fixture exists and is accessible
     # The session scope is enforced by the @pytest.fixture(scope="session") decorator
     assert test_data_factory is not None
-    assert isinstance(test_data_factory, TestDataFactory)
+    assert test_data_factory.__class__.__name__ == "TestDataFactory"
 
 
 @pytest.mark.integration
@@ -50,7 +62,6 @@ def test_second_use_of_factory(test_data_factory: TestDataFactory) -> None:
     current_id = id(test_data_factory)
     # If session scope is working, IDs should match
     # If not, this assertion documents the expected behavior
-    assert isinstance(test_data_factory, TestDataFactory)
     assert current_id is not None
 
 

@@ -29,7 +29,7 @@ import os
 from argparse import Namespace
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ml.config.market_data import MarketDatasetInput
 from ml.orchestration.binding_resolver import BindingResolver
@@ -155,16 +155,11 @@ class MLPipelineOrchestrator:
         Parameters match original constructor for complete backward compatibility.
 
         """
-        if USE_LEGACY:
-            logger.warning(
-                "Legacy pipeline orchestrator flag enabled but component-based implementation is enforced"
-            )
-
         logger.info(
-            "Using component-based MLPipelineOrchestrator implementation (ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=%s)",
+            "Initializing MLPipelineOrchestrator facade (ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=%s)",
             "1" if USE_LEGACY else "0",
         )
-        self._use_legacy = False
+        self._use_legacy = USE_LEGACY
 
         # Store dependencies for direct access
         self.registry = registry
@@ -181,7 +176,59 @@ class MLPipelineOrchestrator:
         self.dataset_discovery = dataset_discovery
         self.write_mode_tokens = write_mode_tokens or ()
 
-        # Initialize 5 specialized components
+        self._legacy: object | None = None
+        self._config_resolver: ConfigResolver | None = None
+        self._discovery_client: DiscoveryClient | None = None
+        self._binding_resolver: BindingResolver | None = None
+        self._ingestion_coordinator: IngestionCoordinator | None = None
+        self._dataset_builder: DatasetBuilder | None = None
+        if self._use_legacy:
+            try:
+                from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator as LegacyImpl
+            except Exception:  # pragma: no cover - defensive guard
+                logger.error(
+                    "Failed to import legacy pipeline orchestrator; falling back to component implementation",
+                    exc_info=True,
+                )
+                self._use_legacy = False
+            else:
+                legacy_kwargs: dict[str, Any] = {}
+                if coverage_provider is not None:
+                    legacy_kwargs["coverage_provider"] = coverage_provider
+                if writer is not None:
+                    legacy_kwargs["writer"] = writer
+                if registry is not None:
+                    legacy_kwargs["registry"] = registry
+                    legacy_kwargs.setdefault("data_registry", registry)
+                if data_store is not None:
+                    legacy_kwargs["data_store"] = data_store
+                if ingestor is not None:
+                    legacy_kwargs["ingestor"] = ingestor
+                if service is not None:
+                    legacy_kwargs["service"] = service
+                if dataset_discovery is not None:
+                    legacy_kwargs["dataset_discovery"] = dataset_discovery
+                if raw_writer is not None:
+                    legacy_kwargs["raw_writer"] = raw_writer
+                if domain_loader is not None:
+                    legacy_kwargs["domain_loader"] = domain_loader
+
+                self._legacy = LegacyImpl(**legacy_kwargs)
+                if write_mode_tokens:
+                    setattr(self._legacy, "write_mode_tokens", write_mode_tokens)
+                if connection_string is not None:
+                    setattr(self._legacy, "connection_string", connection_string)
+                if default_data_dir is not None:
+                    setattr(self._legacy, "default_data_dir", default_data_dir)
+                if ingestion_orchestrator is not None:
+                    setattr(self._legacy, "ingestion_orchestrator", ingestion_orchestrator)
+                logger.info("Using legacy MLPipelineOrchestrator implementation")
+
+        if self._use_legacy:
+            # Legacy path does not require component initialization.
+            return
+
+        # Initialize specialized components for the component-based implementation.
         self._config_resolver = ConfigResolver()
 
         self._discovery_client = DiscoveryClient(
@@ -213,7 +260,7 @@ class MLPipelineOrchestrator:
         )
 
         logger.info(
-            "Initialized MLPipelineOrchestrator facade with 5 components: "
+            "Initialized MLPipelineOrchestrator facade with component-based implementation: "
             "ConfigResolver, DiscoveryClient, BindingResolver, IngestionCoordinator, DatasetBuilder"
         )
 
@@ -239,6 +286,10 @@ class MLPipelineOrchestrator:
             Configuration with market inputs populated
 
         """
+        if self._use_legacy:
+            return cast(DatasetBuildConfig, self._legacy_delegate("apply_default_market_inputs", cfg))
+        if self._config_resolver is None:
+            raise RuntimeError("ConfigResolver unavailable in component-based orchestrator")
         return self._config_resolver.apply_default_market_inputs(cfg)
 
     def collect_symbol_map(
@@ -271,6 +322,20 @@ class MLPipelineOrchestrator:
             Symbol to instrument IDs mapping
 
         """
+        if self._use_legacy:
+            return cast(
+                dict[str, tuple[str, ...]],
+                self._legacy_delegate(
+                    "collect_symbol_map",
+                    ds_cfg=ds_cfg,
+                    symbols=symbols,
+                    instruments=instruments,
+                    instrument_ids=instrument_ids,
+                    market_inputs=market_inputs,
+                ),
+            )
+        if self._config_resolver is None:
+            raise RuntimeError("ConfigResolver unavailable in component-based orchestrator")
         return self._config_resolver.collect_symbol_map(
             ds_cfg=ds_cfg,
             symbols=symbols,
@@ -300,6 +365,10 @@ class MLPipelineOrchestrator:
             Start date in ISO8601 format
 
         """
+        if self._use_legacy:
+            return cast(str, self._legacy_delegate("compute_window_start_iso", end_iso, lookback_years))
+        if self._config_resolver is None:
+            raise RuntimeError("ConfigResolver unavailable in component-based orchestrator")
         return self._config_resolver.compute_window_start_iso(end_iso, lookback_years)
 
     def resolve_window_bounds_ns(
@@ -320,6 +389,10 @@ class MLPipelineOrchestrator:
             (start_ns, end_ns) tuple in nanoseconds since epoch
 
         """
+        if self._use_legacy:
+            return cast(tuple[int, int], self._legacy_delegate("resolve_window_bounds_ns", cfg))
+        if self._config_resolver is None:
+            raise RuntimeError("ConfigResolver unavailable in component-based orchestrator")
         return self._config_resolver.resolve_window_bounds_ns(cfg)
 
     def prepare_dataset_config(
@@ -346,6 +419,18 @@ class MLPipelineOrchestrator:
             Updated configuration with resolved values
 
         """
+        if self._use_legacy:
+            return cast(
+                DatasetBuildConfig,
+                self._legacy_delegate(
+                    "prepare_dataset_config",
+                    cfg,
+                    resolved_inputs,
+                    bindings,
+                ),
+            )
+        if self._config_resolver is None:
+            raise RuntimeError("ConfigResolver unavailable in component-based orchestrator")
         return self._config_resolver.prepare_dataset_config(cfg, resolved_inputs, bindings)
 
     # =========================================================================
@@ -354,22 +439,42 @@ class MLPipelineOrchestrator:
 
     def run_pre_ingestion(self, *args: Any, **kwargs: Any) -> Any:
         """Run pre-ingestion tasks."""
+        if self._use_legacy:
+            return self._legacy_delegate("run_pre_ingestion", *args, **kwargs)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator unavailable in component-based orchestrator")
         return self._ingestion_coordinator.run_pre_ingestion(*args, **kwargs)
 
     def backfill(self, *args: Any, **kwargs: Any) -> Any:
         """Backfill market data."""
+        if self._use_legacy:
+            return self._legacy_delegate("backfill", *args, **kwargs)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator unavailable in component-based orchestrator")
         return self._ingestion_coordinator.backfill(*args, **kwargs)
 
     def backfill_binding(self, *args: Any, **kwargs: Any) -> Any:
         """Backfill market data for binding."""
+        if self._use_legacy:
+            return self._legacy_delegate("backfill_binding", *args, **kwargs)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator unavailable in component-based orchestrator")
         return self._ingestion_coordinator.backfill_binding(*args, **kwargs)
 
     def backfill_coverage(self, *args: Any, **kwargs: Any) -> Any:
         """Backfill coverage gaps."""
+        if self._use_legacy:
+            return self._legacy_delegate("backfill_coverage", *args, **kwargs)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator unavailable in component-based orchestrator")
         return self._ingestion_coordinator.backfill_coverage(*args, **kwargs)
 
     def auto_fill_universe(self, *args: Any, **kwargs: Any) -> Any:
         """Auto-fill universe with market data."""
+        if self._use_legacy:
+            return self._legacy_delegate("auto_fill_universe", *args, **kwargs)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator unavailable in component-based orchestrator")
         return self._ingestion_coordinator.auto_fill_universe(*args, **kwargs)
 
     # =========================================================================
@@ -391,10 +496,18 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
+        if self._use_legacy:
+            return cast(int, self._legacy_delegate("build_dataset", cfg))
+        if self._dataset_builder is None:
+            raise RuntimeError("DatasetBuilder unavailable in component-based orchestrator")
         return self._dataset_builder.build_dataset(cfg)
 
     def validate_dataset(self, *args: Any, **kwargs: Any) -> Any:
         """Validate dataset against expectations."""
+        if self._use_legacy:
+            return self._legacy_delegate("validate_dataset", *args, **kwargs)
+        if self._dataset_builder is None:
+            raise RuntimeError("DatasetBuilder unavailable in component-based orchestrator")
         return self._dataset_builder.validate_dataset(*args, **kwargs)
 
     # =========================================================================
@@ -403,6 +516,10 @@ class MLPipelineOrchestrator:
 
     def discover_market_inputs(self, *args: Any, **kwargs: Any) -> Any:
         """Discover market inputs for given symbols and time range."""
+        if self._use_legacy:
+            return self._legacy_delegate("discover_market_inputs", *args, **kwargs)
+        if self._discovery_client is None:
+            raise RuntimeError("DiscoveryClient unavailable in component-based orchestrator")
         return self._discovery_client.discover_market_inputs(*args, **kwargs)
 
     # =========================================================================
@@ -411,14 +528,26 @@ class MLPipelineOrchestrator:
 
     def resolve_market_inputs(self, *args: Any, **kwargs: Any) -> Any:
         """Resolve market inputs with coverage validation."""
+        if self._use_legacy:
+            return self._legacy_delegate("resolve_market_inputs", *args, **kwargs)
+        if self._binding_resolver is None:
+            raise RuntimeError("BindingResolver unavailable in component-based orchestrator")
         return self._binding_resolver.resolve_market_inputs(*args, **kwargs)
 
     def filter_candidate_bindings(self, *args: Any, **kwargs: Any) -> Any:
         """Filter candidate bindings based on availability and cost."""
+        if self._use_legacy:
+            return self._legacy_delegate("filter_candidate_bindings", *args, **kwargs)
+        if self._binding_resolver is None:
+            raise RuntimeError("BindingResolver unavailable in component-based orchestrator")
         return self._binding_resolver.filter_candidate_bindings(*args, **kwargs)
 
     def select_binding_with_coverage(self, *args: Any, **kwargs: Any) -> Any:
         """Select first binding with available coverage."""
+        if self._use_legacy:
+            return self._legacy_delegate("select_binding_with_coverage", *args, **kwargs)
+        if self._binding_resolver is None:
+            raise RuntimeError("BindingResolver unavailable in component-based orchestrator")
         return self._binding_resolver.select_binding_with_coverage(*args, **kwargs)
 
     # =========================================================================
@@ -444,9 +573,10 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
-        # HPO logic remains in facade for now (may extract in future Phase)
+        if self._use_legacy:
+            return cast(int, self._legacy_delegate("run_hpo", cfg, dataset_csv, out_dir))
         logger.warning(
-            "HPO not yet implemented in component-based orchestrator; use legacy mode"
+            "HPO not yet implemented in component-based orchestrator; set ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1"
         )
         return 1
 
@@ -474,9 +604,10 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
-        # Training logic remains in facade for now (may extract in future Phase)
+        if self._use_legacy:
+            return cast(int, self._legacy_delegate("train_teacher", cfg, dataset_csv, out_dir))
         logger.warning(
-            "Teacher training not yet implemented in component-based orchestrator; use legacy mode"
+            "Teacher training not yet implemented in component-based orchestrator; set ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1"
         )
         return 1
 
@@ -507,9 +638,19 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
-        # Distillation logic remains in facade for now (may extract in future Phase)
+        if self._use_legacy:
+            return cast(
+                int,
+                self._legacy_delegate(
+                    "distill_student",
+                    cfg,
+                    dataset_csv,
+                    teacher_dir,
+                    out_dir,
+                ),
+            )
         logger.warning(
-            "Student distillation not yet implemented in component-based orchestrator; use legacy mode",
+            "Student distillation not yet implemented in component-based orchestrator; set ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1",
             extra={"teacher_dir": str(teacher_dir), "dataset_csv": str(dataset_csv)},
         )
         return 1
@@ -529,9 +670,10 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
-        # Full pipeline orchestration - remains in facade for now
+        if self._use_legacy:
+            return cast(int, self._legacy_delegate("run", cfg))
         logger.warning(
-            "Full pipeline run not yet implemented in component-based orchestrator; use legacy mode"
+            "Full pipeline run not yet implemented in component-based orchestrator; set ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1"
         )
         return 1
 
@@ -550,9 +692,10 @@ class MLPipelineOrchestrator:
             Exit code (0 for success)
 
         """
-        # Training-only pipeline - remains in facade for now
+        if self._use_legacy:
+            return cast(int, self._legacy_delegate("run_training_only", cfg))
         logger.warning(
-            "Training-only run not yet implemented in component-based orchestrator; use legacy mode"
+            "Training-only run not yet implemented in component-based orchestrator; set ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1"
         )
         return 1
 
@@ -570,6 +713,12 @@ class MLPipelineOrchestrator:
             Health status information
 
         """
+        if self._use_legacy:
+            try:
+                legacy_health = self._legacy_delegate("get_health_status")
+                return cast(dict[str, Any], legacy_health)
+            except AttributeError:
+                return {"implementation": "legacy"}
         return {
             "implementation": "component_based",
             "config_resolver": "healthy",
@@ -606,9 +755,28 @@ class MLPipelineOrchestrator:
             If attribute not found
 
         """
+        if self._use_legacy and self._legacy is not None:
+            try:
+                return getattr(self._legacy, name)
+            except AttributeError as exc:  # pragma: no cover - propagate original error
+                raise AttributeError(
+                    f"'{type(self).__name__}' object has no attribute '{name}'"
+                ) from exc
         raise AttributeError(
             f"'{type(self).__name__}' object has no attribute '{name}'"
         )
+
+    def _legacy_delegate(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        if not self._legacy:
+            raise AttributeError(
+                "Legacy orchestrator is unavailable; cannot delegate call",
+            )
+        attr = getattr(self._legacy, method, None)
+        if attr is None:
+            raise AttributeError(
+                f"Legacy orchestrator has no attribute '{method}'",
+            )
+        return attr(*args, **kwargs)
 
 
 def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:

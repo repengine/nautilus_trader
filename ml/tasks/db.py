@@ -149,6 +149,7 @@ def split_sql_statements(sql: str) -> Iterable[str]:
     buffer: list[str] = []
     in_single = False
     in_dollar = False
+    in_line_comment = False
     dollar_tag = ""
     i = 0
     length = len(sql)
@@ -157,7 +158,7 @@ def split_sql_statements(sql: str) -> Iterable[str]:
         ch = sql[i]
         nxt = sql[i + 1] if i + 1 < length else ""
 
-        if not in_single and ch == "$":
+        if not in_line_comment and not in_single and ch == "$":
             j = i + 1
             tag: list[str] = []
             while (j < length and sql[j].isalnum()) or (j < length and sql[j] == "_"):
@@ -175,14 +176,26 @@ def split_sql_statements(sql: str) -> Iterable[str]:
                 i = j + 1
                 continue
 
-        if not in_dollar and ch == "'":
+        if not in_line_comment and not in_dollar and ch == "'":
             if in_single and nxt == "'":
                 buffer.append("''")
                 i += 2
                 continue
             in_single = not in_single
 
-        if ch == ";" and not in_single and not in_dollar:
+        if not in_single and not in_dollar:
+            if not in_line_comment and ch == "-" and nxt == "-":
+                in_line_comment = True
+                i += 2
+                continue
+            if in_line_comment:
+                if ch == "\n":
+                    in_line_comment = False
+                    buffer.append(ch)
+                i += 1
+                continue
+
+        if ch == ";" and not in_single and not in_dollar and not in_line_comment:
             stmt = "".join(buffer).strip()
             if stmt and _has_meaningful_sql(stmt):
                 statements.append(stmt)

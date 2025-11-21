@@ -14,13 +14,16 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-import pandera as pa
 import pytest
-from pandera import Check
-from pandera import Column
-from pandera import DataFrameSchema
-from pandera.typing import DataFrame
-from pandera.typing import Series
+
+from ml.tests.fixtures.pandera import DataFrame
+from ml.tests.fixtures.pandera import Series
+from ml.tests.fixtures.pandera import ensure_pandera_available
+
+pa = ensure_pandera_available()
+Check = pa.Check
+Column = pa.Column
+DataFrameSchema = pa.DataFrameSchema
 
 from nautilus_trader.model.identifiers import InstrumentId
 

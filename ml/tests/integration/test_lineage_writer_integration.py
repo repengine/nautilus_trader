@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+import pytest
 from typing import Any, cast
 
 from ml.common.in_memory_bus import InMemoryPublisher
@@ -8,6 +11,12 @@ from ml.consumers.lineage_writer import LineageWriter
 from ml.consumers.protocols import Envelope
 from ml.observability.service import ObservabilityService
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def test_aggregator_to_lineage_writer_flow() -> None:
     svc = ObservabilityService()

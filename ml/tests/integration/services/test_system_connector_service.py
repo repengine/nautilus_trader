@@ -4,6 +4,8 @@ Tests for the system connector integration service.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -13,6 +15,12 @@ import pytest
 from ml.dashboard.services.system_service import SystemConnectRequest
 from ml.dashboard.services.system_service import SystemConnectorService
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 class DummyEngine:
     """

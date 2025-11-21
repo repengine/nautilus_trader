@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from ml.registry.base import ModelManifest
 
 from ml.orchestration.promotions import (
@@ -14,6 +16,11 @@ from ml.orchestration.promotions import (
 )
 from ml.registry.dataclasses import QualityGate
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @dataclass
 class _ModelRegStub:
@@ -51,7 +58,6 @@ class _ModelRegStub:
         self.calls.setdefault("deploy_model", []).append({"model_id": model_id, "target": target})
         return True
 
-
 @dataclass
 class _FeatureRegStub:
     features: dict[str, dict[str, Any]]
@@ -68,7 +74,6 @@ class _FeatureRegStub:
 
     def update_manifest(self, feature_set_id: str, **kwargs: Any) -> None:
         self.features.setdefault(feature_set_id, {}).update({"updated": True, **kwargs})
-
 
 def test_register_and_promote_model(tmp_path: Path) -> None:
     model_file = tmp_path / "model.onnx"
@@ -97,7 +102,6 @@ def test_register_and_promote_model(tmp_path: Path) -> None:
     assert "register_model" in reg.calls
     assert reg.calls["register_model"]["quality_gates"]
     assert reg.calls.get("deploy_model") is not None
-
 
 def test_register_or_refresh_features(tmp_path: Path) -> None:
     m = tmp_path / "features.json"

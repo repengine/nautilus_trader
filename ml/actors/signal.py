@@ -71,6 +71,7 @@ Notes:
 
 from __future__ import annotations
 
+import itertools
 import os
 import time
 from abc import ABC
@@ -111,9 +112,9 @@ from ml.config.names import METRIC_PREDICTION_DISTRIBUTION
 from ml.config.names import METRIC_SIGNAL_GENERATION_SECONDS
 from ml.config.names import METRIC_SIGNALS_GENERATED_TOTAL
 from ml.config.names import SIGNAL_LATENCY_BUCKETS
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
@@ -565,7 +566,14 @@ class MomentumStrategy(SignalGenerationStrategy):
             history = context.get("prediction_history", [])
             if len(history) < look:
                 return None
-            recent_predictions = history[-look:]
+            
+            if isinstance(history, deque):
+                # Efficiently slice the last 'look' elements from deque
+                start_idx = len(history) - look
+                recent_predictions = list(itertools.islice(history, start_idx, len(history)))
+            else:
+                recent_predictions = history[-look:]
+                
             momentum = np.mean(np.diff(recent_predictions))
 
         if abs(momentum) > self.momentum_threshold and confidence >= self.threshold:
@@ -1267,8 +1275,10 @@ class MLSignalActor(BaseMLInferenceActor):
         self._parity_checked: bool = False
 
         # Signal generation state
-        self._prediction_history: list[float] = []
-        self._confidence_history: list[float] = []
+        # Use deque with maxlen to avoid unbounded memory growth
+        hist_limit = max(getattr(config, "adaptive_window", 1000), 2000)
+        self._prediction_history: deque[float] = deque(maxlen=hist_limit)
+        self._confidence_history: deque[float] = deque(maxlen=hist_limit)
         self._last_signal_bar: int = -config.min_signal_separation_bars
         self._adaptive_threshold = config.prediction_threshold
         self._market_regime = "unknown"

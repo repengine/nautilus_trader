@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
@@ -19,7 +19,9 @@ from ml.consumers.streaming_training_worker import StreamingTrainingPersistenceW
 from ml.dashboard.config import DashboardConfig
 from ml.dashboard.controllers import NoopServiceController
 from ml.dashboard.service import DashboardService
-from ml.tests.fixtures.streaming_events import build_streaming_test_payloads
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.streaming_events import StreamingTestPayloads
 
 
 class _BatchConsumer:
@@ -63,14 +65,17 @@ def _build_consumer_factory(
     return _factory
 
 
-def test_streaming_persistence_worker_microbench(tmp_path: Path) -> None:
+def test_streaming_persistence_worker_microbench(
+    tmp_path: Path,
+    streaming_test_payloads_factory: Callable[..., StreamingTestPayloads],
+) -> None:
     """Ensure snapshot backlog processing stays within the latency budget."""
     batch_count = 12
     events_per_batch = 3
     batches: list[list[tuple[str, dict[str, Any]]]] = []
 
     for idx in range(batch_count):
-        payloads = build_streaming_test_payloads(
+        payloads = streaming_test_payloads_factory(
             dataset_id=f"dataset-{idx}",
             plan_id=f"plan-{idx}",
             parquet_path=tmp_path / f"{idx}.parquet",

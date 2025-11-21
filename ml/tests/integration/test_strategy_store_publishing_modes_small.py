@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 from typing import Any, Dict, List, Tuple
 
 import pytest
@@ -24,7 +26,13 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
+
 
 
 def test_strategy_store_publishes_batch_event(postgres_connection: str) -> None:

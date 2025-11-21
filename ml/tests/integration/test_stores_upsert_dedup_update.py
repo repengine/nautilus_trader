@@ -8,6 +8,8 @@ batch upserts update existing rows as expected.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import time
 from typing import Any
 
@@ -22,7 +24,13 @@ pytestmark = [
     pytest.mark.database,
     pytest.mark.serial,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
+
 
 
 def test_model_store_dedup_and_update(test_database: Any) -> None:

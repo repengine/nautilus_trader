@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from unittest.mock import MagicMock
-from unittest.mock import Mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -16,6 +14,8 @@ from ml.dashboard.services.metrics_service import PerformanceMetricsAggregate
 from ml.dashboard.services.metrics_service import PortfolioSnapshot
 from ml.dashboard.services.metrics_service import StoreIntegrationService
 from ml.dashboard.services.metrics_service import StoreMetricsSnapshot
+
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
 
 
 @pytest.fixture
@@ -42,6 +42,13 @@ def service_with_integration(mock_integration_manager: Mock) -> StoreIntegration
 def service_no_integration() -> StoreIntegrationService:
     """Service without integration manager."""
     return StoreIntegrationService(None)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are isolated per test."""
+    # Fixture execution is sufficient; yielded harness handles cleanup.
+    del isolated_prometheus_registry
 
 
 class TestStoreIntegrationService:

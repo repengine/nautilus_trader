@@ -29,6 +29,7 @@ from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 from ml.stores.contract_enforcer import ContractEnforcer
+from ml.stores.feature_dataset_store import FeatureDatasetStore
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.schema_validator import SchemaValidator
 
@@ -275,6 +276,7 @@ class DataWriter:
         model_store: Any,
         strategy_store: Any,
         earnings_store: EarningsStoreProtocol,
+        feature_dataset_store: FeatureDatasetStore | None = None,
         contract_enforcer: ContractEnforcer,
         schema_validator: SchemaValidator,
         registry: Any,
@@ -299,6 +301,8 @@ class DataWriter:
             Strategy store instance
         earnings_store : EarningsStoreProtocol
             Earnings store instance
+        feature_dataset_store : FeatureDatasetStore | None
+            Store used for macro/events/micro/L2 datasets
         contract_enforcer : ContractEnforcer
             Contract enforcement component
         schema_validator : SchemaValidator
@@ -327,6 +331,7 @@ class DataWriter:
         self.contract_enforcer = contract_enforcer
         self.schema_validator = schema_validator
         self.registry = registry
+        self.feature_dataset_store = feature_dataset_store
         self.publisher: MessagePublisherProtocol | None = publisher
         self.enable_publishing = enable_publishing
         self.fail_on_validation_error = fail_on_validation_error
@@ -499,6 +504,15 @@ class DataWriter:
                 # Convert to StrategySignal format and write
                 signals = self._data_frame_to_signals(data_frame)
                 self.strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
+
+            elif manifest.dataset_type in {
+                DatasetType.MACRO_RELEASES,
+                DatasetType.MACRO_OBSERVATIONS,
+                DatasetType.EVENTS_CALENDAR,
+                DatasetType.MICRO_MINUTE_FEATURES,
+                DatasetType.L2_MINUTE_FEATURES,
+            }:
+                self._write_feature_dataset(manifest.dataset_type, data_frame)
 
             else:
                 # Raw dataset types: delegate to optional writer if configured
@@ -977,6 +991,7 @@ class DataWriter:
             "filing_type": filing_type,
             "fiscal_year": fiscal_year,
             "fiscal_quarter": fiscal_quarter,
+            "data_source": "EDGAR",
         }
 
         contract = self.contract_enforcer.get_contract(dataset_id)
@@ -1015,6 +1030,23 @@ class DataWriter:
             logger.exception("Earnings actual write failed for %s", ticker)
             raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
 
+        raw_writer_status = "not_configured"
+        if self.raw_writer is not None:
+            raw_writer_status = "ok"
+            try:
+                self.raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ACTUALS,
+                    data=[record],
+                )
+            except Exception as exc:  # pragma: no cover - mirror failures are non-critical
+                raw_writer_status = "failed"
+                logger.warning(
+                    "Raw earnings mirror write failed for %s: %s",
+                    ticker,
+                    exc,
+                    exc_info=True,
+                )
+
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -1026,7 +1058,10 @@ class DataWriter:
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata=self._build_earnings_metadata(
+                quality_score=quality_report.quality_score,
+                raw_writer_status=raw_writer_status,
+            ),
         )
 
         self._emit_success_event_and_update(
@@ -1110,6 +1145,7 @@ class DataWriter:
             "eps_consensus": eps_consensus,
             "revenue_consensus": revenue_consensus,
             "num_analysts": num_analysts,
+            "data_source": "YAHOO",
         }
 
         contract = self.contract_enforcer.get_contract(dataset_id)
@@ -1142,6 +1178,23 @@ class DataWriter:
             logger.exception("Earnings estimate write failed for %s", ticker)
             raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
 
+        raw_writer_status = "not_configured"
+        if self.raw_writer is not None:
+            raw_writer_status = "ok"
+            try:
+                self.raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ESTIMATES,
+                    data=[record],
+                )
+            except Exception as exc:  # pragma: no cover - mirror failures are non-critical
+                raw_writer_status = "failed"
+                logger.warning(
+                    "Raw earnings estimate mirror failed for %s: %s",
+                    ticker,
+                    exc,
+                    exc_info=True,
+                )
+
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -1153,7 +1206,10 @@ class DataWriter:
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata=self._build_earnings_metadata(
+                quality_score=quality_report.quality_score,
+                raw_writer_status=raw_writer_status,
+            ),
         )
 
         self._emit_success_event_and_update(
@@ -1173,6 +1229,18 @@ class DataWriter:
     # =========================================================================
     # Internal Helper Methods
     # =========================================================================
+
+    @staticmethod
+    def _build_earnings_metadata(
+        *,
+        quality_score: float,
+        raw_writer_status: str,
+    ) -> dict[str, object]:
+        """Build metadata payload for earnings write events."""
+        metadata: dict[str, object] = {"quality_score": quality_score}
+        if raw_writer_status != "not_configured":
+            metadata["raw_mirror_status"] = raw_writer_status
+        return metadata
 
     def _emit_success_event_and_update(
         self,
@@ -1220,7 +1288,8 @@ class DataWriter:
             from ml.common.correlation import make_correlation_id
             from ml.common.event_emitter import emit_dataset_event_and_watermark
             from ml.common.events_util import build_bus_payload
-            from ml.common.events_util import to_source_str
+            from ml.common.events_util import to_source_enum
+            from ml.common.events_util import to_stage_enum
             from ml.common.message_topics import build_topic_for_stage
 
             # Build correlation id for observability
@@ -1233,21 +1302,16 @@ class DataWriter:
                 count=count,
             )
 
-            # Normalize source
-            try:
-                source_norm = to_source_str(source)
-            except Exception:
-                source_norm = "live"
-
-            # Map to Source enum
-            src_enum = Source(source_norm) if not isinstance(source_norm, Source) else source_norm
+            # Normalize source to the canonical enum
+            src_enum = to_source_enum(source)
+            stage_enum = to_stage_enum(stage)
 
             # Emit event and watermark
             emit_dataset_event_and_watermark(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                stage=Stage(stage) if not isinstance(stage, Stage) else stage,
+                stage=stage_enum,
                 source=src_enum,
                 run_id=run_id,
                 ts_min=ts_min,
@@ -1262,7 +1326,7 @@ class DataWriter:
             if self.enable_publishing and self.publisher is not None:
                 try:
                     topic = build_topic_for_stage(
-                        Stage(stage) if not isinstance(stage, Stage) else stage,
+                        stage_enum,
                         instrument_id,
                         scheme=self.topic_scheme,
                         prefix=self.topic_prefix,
@@ -1278,8 +1342,8 @@ class DataWriter:
                 payload = build_bus_payload(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=stage,
-                    source=source_norm,
+                    stage=stage_enum,
+                    source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
@@ -1388,8 +1452,32 @@ class DataWriter:
             DatasetType.SIGNALS: Stage.SIGNAL_EMITTED.value,
             DatasetType.EARNINGS_ACTUALS: Stage.DATA_INGESTED.value,
             DatasetType.EARNINGS_ESTIMATES: Stage.DATA_INGESTED.value,
+            DatasetType.MACRO_RELEASES: Stage.DATA_INGESTED.value,
+            DatasetType.MACRO_OBSERVATIONS: Stage.DATA_INGESTED.value,
+            DatasetType.EVENTS_CALENDAR: Stage.DATA_INGESTED.value,
+            DatasetType.MICRO_MINUTE_FEATURES: Stage.FEATURE_COMPUTED.value,
+            DatasetType.L2_MINUTE_FEATURES: Stage.FEATURE_COMPUTED.value,
         }
         return stage_map.get(dataset_type, Stage.DATA_INGESTED.value)
+
+    def _write_feature_dataset(self, dataset_type: DatasetType, frame: DataFrameLike) -> None:
+        """
+        Delegate persistence of feature-adjacent datasets to FeatureDatasetStore.
+        """
+        if self.feature_dataset_store is None:
+            raise RuntimeError("FeatureDatasetStore is not configured for dataset ingestion")
+        if dataset_type == DatasetType.MACRO_RELEASES:
+            self.feature_dataset_store.write_macro_releases(frame)
+        elif dataset_type == DatasetType.MACRO_OBSERVATIONS:
+            self.feature_dataset_store.write_macro_observations(frame)
+        elif dataset_type == DatasetType.EVENTS_CALENDAR:
+            self.feature_dataset_store.write_events_calendar(frame)
+        elif dataset_type == DatasetType.MICRO_MINUTE_FEATURES:
+            self.feature_dataset_store.write_micro_features(frame)
+        elif dataset_type == DatasetType.L2_MINUTE_FEATURES:
+            self.feature_dataset_store.write_l2_features(frame)
+        else:  # pragma: no cover - defensive guard
+            raise ValueError(f"Unsupported feature dataset type {dataset_type}")
 
     def _to_dataframe(
         self,

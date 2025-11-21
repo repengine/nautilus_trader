@@ -59,4 +59,22 @@ class EventStatus(str, Enum):
     DEFERRED = "deferred"
 
 
-__all__ = ["EventStatus", "Source", "Stage"]
+LEGACY_STAGE_ALIAS_MAP: dict[str, Stage] = {
+    # Legacy aliases used by older pipelines and integration tests.
+    "MODEL_INFERRED": Stage.PREDICTION_EMITTED,
+}
+"""Mapping of legacy stage identifiers to canonical ``Stage`` members."""
+
+CANONICAL_STAGE_EQUIVALENTS: dict[Stage, Stage] = {
+    Stage.MODEL_INFERRED: Stage.PREDICTION_EMITTED,
+}
+"""Canonical representation for ``Stage`` members with legacy aliases."""
+
+
+__all__ = [
+    "CANONICAL_STAGE_EQUIVALENTS",
+    "LEGACY_STAGE_ALIAS_MAP",
+    "EventStatus",
+    "Source",
+    "Stage",
+]

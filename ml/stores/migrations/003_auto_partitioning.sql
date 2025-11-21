@@ -1,3 +1,6 @@
+-- Migration: Add helper functions for partition creation on ML store tables.
+-- Rollback: DROP FUNCTION IF EXISTS auto_create_partitions(); DROP FUNCTION IF EXISTS check_and_create_partition();
+
 -- Automatic Partition Management for ML Stores
 -- This migration sets up automatic partition creation and maintenance
 

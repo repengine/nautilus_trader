@@ -14,8 +14,10 @@
 # -------------------------------------------------------------------------------------------------
 
 import datetime
+import logging
 import sys
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -148,6 +150,27 @@ def test_catalog_instrument_ids_correctly_unmapped(catalog: ParquetDataCatalog) 
     # Assert
     assert instrument.id.value == "AUD/USD.SIM"
     assert trade_tick.instrument_id.value == "AUD/USD.SIM"
+
+
+def test_catalog_skips_overlapping_interval(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    catalog = ParquetDataCatalog(path=str(tmp_path))
+
+    def _bar(ts_ns: int) -> Bar:
+        return TestDataStubs.bar_5decimal(ts_event=ts_ns, ts_init=ts_ns)
+
+    bars = [_bar(0), _bar(60_000_000_000)]
+    catalog.write_data(bars)
+    files_before = list(tmp_path.rglob("*.parquet"))
+
+    with caplog.at_level(logging.WARNING, logger="nautilus_trader.persistence.catalog.parquet"):
+        catalog.write_data(bars)
+
+    files_after = list(tmp_path.rglob("*.parquet"))
+    assert len(files_after) == len(files_before)
+    assert "Parquet catalog write skipped due to overlapping interval" in caplog.text
 
 
 @pytest.mark.skip("development_only")

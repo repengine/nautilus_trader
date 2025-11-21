@@ -68,10 +68,12 @@ macro_fred_path = "data/fred/fred_indicators_ml_format.parquet"
 # COMPREHENSIVE MACRO SERIES (30 series across 6 dimensions)
 # ============================================================================
 macro_series_ids = [
-    # ---- RATES / DURATION CURVE (5 series) ----
+    # ---- RATES / DURATION CURVE (7 series) ----
     # Front vs. long duration, curve slope, real yields
     "DGS2",           # 2-Year Treasury Constant Maturity Rate
+    "DGS5",           # 5-Year Treasury Constant Maturity Rate
     "DGS10",          # 10-Year Treasury Constant Maturity Rate
+    "DGS30",          # 30-Year Treasury Constant Maturity Rate
     "T10Y2Y",         # 10Y-2Y Spread (curve slope, recession signal)
     "DFII10",         # 10-Year TIPS (real yield after inflation)
     "FEDFUNDS",       # Federal Funds Effective Rate (policy anchor)
@@ -90,18 +92,21 @@ macro_series_ids = [
     "INDPRO",         # Industrial Production Index
     "CFNAI",          # Chicago Fed National Activity Index
 
-    # ---- INFLATION & COST PRESSURE (5 series) ----
-    # Consumer/producer prices, commodities, hard assets
+    # ---- INFLATION & COST PRESSURE (4 series) ----
+    # Consumer/producer prices, energy
     "CPIAUCSL",       # Consumer Price Index (headline inflation)
     "PCEPI",          # Personal Consumption Expenditures Price Index (Fed target)
     "PPIACO",         # Producer Price Index (pipeline pressure)
     "WTISPLC",        # WTI Crude Oil Spot Price (energy impulse)
-    "GOLDAMGBD228NLBM",  # London Gold Fix PM (hard-asset hedge)
 
-    # ---- CROSS-ASSET / RISK ROTATION (6 series) ----
-    # Equities, commodities, FX carry/risk
-    "SP500",          # S&P 500 Index (equity beta proxy)
-    "CRBINDX",        # Commodity Research Bureau Index (broad commodities)
+    # ---- COMMODITIES / METALS (3 series) ----
+    # Broad commodity basket + industrial/precious metals
+    "PALLFNFINDEXM",  # World Bank Global Price Index of All Commodities
+    "PCOPPUSDM",      # Global price of Copper
+    "NASDAQQGLDI",    # Credit Suisse NASDAQ Gold FLOWS index
+
+    # ---- CROSS-ASSET / RISK ROTATION (4 series) ----
+    # FX carry/risk and global dollar impulse
     "DTWEXBGS",       # Trade-Weighted US Dollar Index (global risk-on/off)
     "DEXUSAL",        # USD/AUD Exchange Rate (commodity FX)
     "DEXUSEU",        # USD/EUR Exchange Rate (core risk)

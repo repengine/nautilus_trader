@@ -6,7 +6,7 @@ The ML Pipeline Health Monitoring System provides comprehensive observability fo
 
 ## Components
 
-### 1. SQL Monitoring Views (migrations/005_views.sql)
+### 1. SQL Monitoring Views (migrations/008_views.sql)
 
 Creates comprehensive database views for monitoring:
 
@@ -119,13 +119,13 @@ pip install tabulate
 1. Create monitoring views (canonical migrations):
 
 ```bash
-psql -U postgres -d nautilus -f ml/stores/migrations/005_views.sql
+psql -U postgres -d nautilus -f ml/stores/migrations/008_views.sql
 ```
 
 2. Ensure ML tables exist (created by stores migration):
 
 ```bash
-psql -U postgres -d nautilus -f ml/stores/migrations/001_stores_schema.sql
+psql -U postgres -d nautilus -f ml/stores/migrations/002_stores_schema.sql
 ```
 
 ### Grafana Setup

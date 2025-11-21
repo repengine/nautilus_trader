@@ -17,6 +17,24 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.utils import compute_dataset_schema_hash
 
 
+_MICRO_FEATURE_COLUMNS: tuple[str, ...] = (
+    "midprice",
+    "spread_bps",
+    "quote_imbalance",
+    "trade_imbalance",
+    "realized_vol",
+)
+
+_L2_TOPKS: tuple[int, ...] = (1, 3, 5, 10)
+_L2_BASE_COLUMNS: tuple[str, ...] = ("midprice", "spread_bps", "microprice_bps")
+_L2_METRIC_PREFIXES: tuple[str, ...] = ("depth_imbalance", "dwp_bps", "bid_slope", "ask_slope")
+_L2_FEATURE_COLUMNS: tuple[str, ...] = _L2_BASE_COLUMNS + tuple(
+    f"{prefix}_top{topk}"
+    for prefix in _L2_METRIC_PREFIXES
+    for topk in _L2_TOPKS
+)
+
+
 @dataclass(slots=True, frozen=True)
 class DatasetManifestSpec:
     """Immutable defaults describing a dataset manifest template."""
@@ -252,6 +270,128 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
             }
         },
     ),
+    DatasetType.MACRO_RELEASES: DatasetManifestSpec(
+        schema={
+            "series_id": "str",
+            "observation_ts": "int64",
+            "release_ts": "int64",
+            "release_end_ts": "int64",
+            "value": "float64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "source": "str",
+            "run_id": "str",
+        },
+        primary_keys=("series_id", "observation_ts", "release_ts"),
+        retention_days=3650,
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        metadata={"schema_kind": "macro_release_calendar"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "series_id": False,
+                "observation_ts": False,
+                "release_ts": False,
+                "ts_event": False,
+                "ts_init": False,
+            },
+        },
+    ),
+    DatasetType.MACRO_OBSERVATIONS: DatasetManifestSpec(
+        schema={
+            "series_id": "str",
+            "observation_ts": "int64",
+            "value": "float64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "source": "str",
+            "run_id": "str",
+        },
+        primary_keys=("series_id", "observation_ts"),
+        retention_days=3650,
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        metadata={"schema_kind": "macro_observations"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "series_id": False,
+                "observation_ts": False,
+                "ts_event": False,
+                "ts_init": False,
+            },
+        },
+    ),
+    DatasetType.EVENTS_CALENDAR: DatasetManifestSpec(
+        schema={
+            "event_timestamp": "int64",
+            "event_type": "str",
+            "name": "str",
+            "instrument_id": "str",
+            "importance": "str",
+            "source": "str",
+            "metadata": "json",
+            "ts_event": "int64",
+            "ts_init": "int64",
+        },
+        primary_keys=("event_type", "event_timestamp", "instrument_id", "name"),
+        retention_days=1825,
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        metadata={"schema_kind": "events_calendar"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "event_timestamp": False,
+                "event_type": False,
+                "name": False,
+                "ts_event": False,
+                "ts_init": False,
+            },
+        },
+    ),
+    DatasetType.MICRO_MINUTE_FEATURES: DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "timestamp": "int64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            **dict.fromkeys(_MICRO_FEATURE_COLUMNS, "float64"),
+        },
+        primary_keys=("instrument_id", "timestamp"),
+        retention_days=730,
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        metadata={"schema_kind": "microstructure_minute"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "instrument_id": False,
+                "timestamp": False,
+                "ts_event": False,
+                "ts_init": False,
+            },
+        },
+    ),
+    DatasetType.L2_MINUTE_FEATURES: DatasetManifestSpec(
+        schema={
+            "instrument_id": "str",
+            "timestamp": "int64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            **dict.fromkeys(_L2_FEATURE_COLUMNS, "float64"),
+        },
+        primary_keys=("instrument_id", "timestamp"),
+        retention_days=730,
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        metadata={"schema_kind": "l2_minute"},
+        ts_field="ts_event",
+        constraints={
+            "nullability": {
+                "instrument_id": False,
+                "timestamp": False,
+                "ts_event": False,
+                "ts_init": False,
+            },
+        },
+    ),
 }
 
 _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
@@ -298,6 +438,21 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
     ),
     "ml.earnings_estimates": DatasetManifestOverrides(
         dataset_type=DatasetType.EARNINGS_ESTIMATES,
+    ),
+    "ml.macro_release_calendar": DatasetManifestOverrides(
+        dataset_type=DatasetType.MACRO_RELEASES,
+    ),
+    "ml.macro_observations": DatasetManifestOverrides(
+        dataset_type=DatasetType.MACRO_OBSERVATIONS,
+    ),
+    "ml.events_calendar": DatasetManifestOverrides(
+        dataset_type=DatasetType.EVENTS_CALENDAR,
+    ),
+    "ml.microstructure_minute": DatasetManifestOverrides(
+        dataset_type=DatasetType.MICRO_MINUTE_FEATURES,
+    ),
+    "ml.l2_minute": DatasetManifestOverrides(
+        dataset_type=DatasetType.L2_MINUTE_FEATURES,
     ),
 }
 
@@ -400,6 +555,8 @@ def build_auto_dataset_manifest(
     metadata_payload = _merge_metadata(spec.metadata, metadata)
     metadata_payload.setdefault("dataset_id", dataset_id)
     metadata_payload.setdefault("dataset_type", resolved_type.value)
+    metadata_payload.setdefault("primary_keys", list(spec.primary_keys))
+    metadata_payload.setdefault("ts_field", spec.ts_field)
 
     non_nullable = {
         field: False

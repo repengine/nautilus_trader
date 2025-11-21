@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypedDict, runtime_c
 
 import pandas as pd
 
+from ml.ml_types import DataFrameLike
+
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
@@ -142,6 +144,7 @@ class CoverageProviderProtocol(Protocol):
         instrument_id: str,
         start_ns: int,
         end_ns: int,
+        entity_field: str = "instrument_id",
     ) -> set[int]: ...
 
 
@@ -325,6 +328,15 @@ class DataStoreFacadeProtocol(Protocol):
         period_end: str,
         ts_event: int,
     ) -> dict[str, Any] | None: ...
+
+    def write_ingestion(
+        self,
+        dataset_id: str,
+        records: list[dict[str, Any]] | DataFrameLike,
+        source: str,
+        run_id: str,
+        instrument_id: str | None = ...,
+    ) -> DataEvent: ...
 
 
 class CircuitBreakerProtocol(Protocol):

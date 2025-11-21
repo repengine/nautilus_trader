@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
 from typing import Mapping
 from typing import Sequence
 
@@ -91,6 +92,20 @@ class _StubResolver:
         return resolution
 
 
+class _ErrorResolver:
+    def resolve(
+        self,
+        *,
+        dataset: str,
+        symbol: str,
+        schema: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> SymbolResolution:
+        del dataset, symbol, schema, start, end
+        raise SymbologyResolutionError("symbol missing")
+
+
 def test_discover_selects_lowest_cost_dataset() -> None:
     metadata = _FakeMetadataClient()
     policy = DiscoveryPolicy.from_env({})
@@ -143,6 +158,23 @@ def test_discover_one_returns_symbol_resolution() -> None:
     assert discovered.requested_symbol == "INTC.XNAS"
     market_input = discovered.to_market_input()
     assert market_input.symbols == ("INTC",)
+
+
+def test_discover_tracks_symbology_rejection(isolated_prometheus_registry: Any) -> None:
+    metadata = _FakeMetadataClient()
+    policy = DiscoveryPolicy.from_env({})
+    resolver = _ErrorResolver()
+    service = DatasetDiscoveryService(metadata=metadata, policy=policy, resolver=resolver)
+    end = datetime.now(tz=UTC)
+    start = end - timedelta(days=3)
+    request = DiscoveryRequest(symbol="BRK", schema="ohlcv-1m", start=start, end=end)
+    with pytest.raises(DatasetDiscoveryError):
+        service.discover(requests=(request,))
+    value = isolated_prometheus_registry.registry.get_sample_value(
+        "nautilus_ml_discovery_symbology_rejections_total",
+        labels={"dataset": "XNAS.ITCH"},
+    )
+    assert value == 1.0
 
 
 def test_discover_respects_cost_limit() -> None:

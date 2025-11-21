@@ -1,40 +1,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from ml.data import DatasetBuildConfig
 from ml.data import build_tft_dataset
-from ml.tests.builders import DataBuilder
 from ml.tests.utils.earnings_facade import build_test_data_store
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
-def _fake_bars_to_dataframe(
-    catalog: object,
-    instrument_ids: list[str],
-    start: datetime | None = None,
-    end: datetime | None = None,
-):
-    """Return a deterministic bars DataFrame for testing."""
-    del catalog, start, end
-    pl = pytest.importorskip("polars")
-
-    base = datetime(2024, 1, 1, 9, 30, tzinfo=UTC)
-    base_ns = int(base.timestamp() * 1_000_000_000)
-    ts_ns = DataBuilder.time_series(n_points=5, start_time=base_ns, interval_ns=60_000_000_000)
-    timestamps = [datetime.fromtimestamp(value / 1_000_000_000, tz=UTC) for value in ts_ns]
-    return pl.DataFrame(
-        {
-            "instrument_id": [instrument_ids[0]] * len(timestamps),
-            "timestamp": timestamps,
-            "open": [100.0, 100.1, 100.2, 100.3, 100.4],
-            "high": [100.1, 100.2, 100.3, 100.4, 100.5],
-            "low": [99.9, 100.0, 100.1, 100.2, 100.3],
-            "close": [100.05, 100.15, 100.25, 100.35, 100.45],
-            "volume": [1000.0, 1100.0, 1200.0, 1300.0, 1400.0],
-        },
-    )
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
+]
 
 
 def _stub_descriptor_loader() -> object:
@@ -50,12 +34,16 @@ def _make_timestamp_ns(value: datetime) -> int:
     return int(value_utc.timestamp() * 1_000_000_000)
 
 
-@pytest.mark.integration
-def test_task_builds_dataset_with_earnings_columns(tmp_path, monkeypatch):
+def test_task_builds_dataset_with_earnings_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patch_dataset_bars,
+    sample_bar_series_config_factory,
+) -> None:
     pl = pytest.importorskip("polars")
 
-    monkeypatch.setattr("ml.data.catalog_utils.bars_to_dataframe", _fake_bars_to_dataframe)
-    monkeypatch.setattr("ml.data.tft_dataset_builder.bars_to_dataframe", _fake_bars_to_dataframe)
+    bar_config = sample_bar_series_config_factory(instrument_id="AAPL", rows=5, freq_minutes=1)
+    patch_dataset_bars(config=bar_config)
     monkeypatch.setattr("ml.data.load_market_feed_descriptors", lambda: _stub_descriptor_loader())
     monkeypatch.setattr("ml.data.resolve_market_dataset_bindings", lambda **_: [])
 

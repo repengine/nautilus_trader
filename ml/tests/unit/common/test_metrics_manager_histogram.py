@@ -9,10 +9,16 @@ verifies that observe flows through with expected labels and value.
 from __future__ import annotations
 
 from typing import Any
+
 import pytest
 
 from ml.common.metrics_manager import MetricsManager
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def test_metrics_manager_histogram_observe(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, Any] = {"get_hist_count": 0}

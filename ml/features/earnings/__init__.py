@@ -88,6 +88,7 @@ __all__ = [
     "compute_earnings_momentum_incremental",
     "compute_earnings_surprise_batch",
     "compute_earnings_surprise_incremental",
+    "reset_earnings_metrics_state",
 ]
 
 # Direct imports for pickle compatibility
@@ -100,6 +101,7 @@ from ml.features.earnings.earnings_features import compute_earnings_momentum_bat
 from ml.features.earnings.earnings_features import compute_earnings_momentum_incremental
 from ml.features.earnings.earnings_features import compute_earnings_surprise_batch
 from ml.features.earnings.earnings_features import compute_earnings_surprise_incremental
+from ml.features.earnings.earnings_features import reset_earnings_metrics_state
 from ml.features.earnings.earnings_transforms import EarningsCalendarTransformSpec
 from ml.features.earnings.earnings_transforms import EarningsGrowthTransformSpec
 from ml.features.earnings.earnings_transforms import EarningsMomentumTransformSpec

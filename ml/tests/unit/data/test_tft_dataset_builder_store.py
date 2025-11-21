@@ -14,6 +14,7 @@ from ml.stores.feature_store import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
 
 @pytest.mark.usefixtures("monkeypatch")
 def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,7 +95,6 @@ def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.Mon
     assert "instrument_id" in dataset.columns
     assert "feat_0" in dataset.columns
 
-
 def test_builder_raises_when_parquet_fallback_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     class _FailingStore:
         def read_range(
@@ -129,7 +129,6 @@ def test_builder_raises_when_parquet_fallback_disabled(monkeypatch: pytest.Monke
     with pytest.raises(RuntimeError, match="parquet fallback is disabled"):
         builder._load_bars_dataframe("SPY.XNAS", start=None, end=None)
 
-
 def test_component_builder_respects_include_flags() -> None:
     class _Catalog:
         def bars(self, *args: object, **kwargs: object) -> Any:  # pragma: no cover - defensive
@@ -161,7 +160,6 @@ def test_component_builder_respects_include_flags() -> None:
     assert builder.include_micro is True
     assert builder.include_l2 is True
     assert builder.include_macro_revisions is True
-
 
 def test_component_builder_enforces_earnings_lag_days() -> None:
     class _Catalog:
@@ -197,7 +195,6 @@ def test_component_builder_enforces_earnings_lag_days() -> None:
             earnings_lag_days=-1,
         )
 
-
 def test_component_builder_macro_revision_defaults() -> None:
     class _Catalog:
         def bars(self, *args: object, **kwargs: object) -> Any:  # pragma: no cover - defensive
@@ -218,7 +215,6 @@ def test_component_builder_macro_revision_defaults() -> None:
     assert builder.include_macro_revisions is True
     assert builder.macro_revision_mode == "core"
     assert builder.macro_revision_windows is None
-
 
 def test_component_builder_student_mode_forces_feature_flags() -> None:
     class _Catalog:
@@ -244,3 +240,81 @@ def test_component_builder_student_mode_forces_feature_flags() -> None:
     assert builder.include_events is False
     assert builder.include_l2 is False
     assert builder.include_earnings is False
+
+
+def test_restrict_df_to_window_trims_rows() -> None:
+    pl = pytest.importorskip("polars")
+
+    class _Catalog:
+        def bars(self, *args: object, **kwargs: object) -> Any:  # pragma: no cover - defensive
+            raise AssertionError("catalog should not be accessed during window trimming tests")
+
+    builder = TFTDatasetBuilder(
+        catalog=cast(ParquetDataCatalog, _Catalog()),
+        symbols=["SPY"],
+        instrument_ids=["SPY.XNAS"],
+        feature_store=None,
+        data_store=None,
+        include_macro=False,
+        include_micro=False,
+        include_l2=False,
+        include_events=False,
+        include_calendar=False,
+    )
+
+    base = datetime(2024, 1, 1, tzinfo=UTC)
+    timestamps = [base + timedelta(minutes=idx) for idx in range(180)]
+    df = pl.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": [float(idx) for idx in range(len(timestamps))],
+            "high": [float(idx) for idx in range(len(timestamps))],
+            "low": [float(idx) for idx in range(len(timestamps))],
+            "close": [float(idx) for idx in range(len(timestamps))],
+            "volume": [1_000.0] * len(timestamps),
+        },
+    )
+
+    start = base + timedelta(hours=3)
+    end = base + timedelta(hours=4)
+    trimmed = builder._restrict_df_to_window(
+        df,
+        symbol="SPY",
+        start=start,
+        end=end,
+        lookback_periods=45,
+        horizon_minutes=15,
+    )
+
+    assert 0 < trimmed.height < df.height
+    assert trimmed["timestamp"].min() == base + timedelta(hours=2)
+    assert trimmed["timestamp"].max() < base + timedelta(hours=4, minutes=15)
+
+
+def test_restrict_df_to_window_without_timestamp_returns_input() -> None:
+    pl = pytest.importorskip("polars")
+
+    class _Catalog:
+        def bars(self, *args: object, **kwargs: object) -> Any:  # pragma: no cover - defensive
+            raise AssertionError("catalog should not be accessed during window trimming tests")
+
+    builder = TFTDatasetBuilder(
+        catalog=cast(ParquetDataCatalog, _Catalog()),
+        symbols=["SPY"],
+        instrument_ids=["SPY.XNAS"],
+        feature_store=None,
+        data_store=None,
+        include_macro=False,
+    )
+
+    df = pl.DataFrame({"value": [1.0, 2.0, 3.0]})
+    result = builder._restrict_df_to_window(
+        df,
+        symbol="SPY",
+        start=datetime(2024, 1, 1, tzinfo=UTC),
+        end=datetime(2024, 1, 2, tzinfo=UTC),
+        lookback_periods=60,
+        horizon_minutes=15,
+    )
+
+    assert result.equals(df)

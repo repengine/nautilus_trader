@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
 from ml.cli import streaming_persistence_worker as cli
 from ml.consumers.streaming_training_worker import StreamingTrainingPersistenceWorker
-from ml.tests.fixtures.streaming_events import build_streaming_test_payloads
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.streaming_events import StreamingTestPayloads
+
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.integration
 def test_streaming_persistence_worker_cli_disable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -26,13 +37,18 @@ def test_streaming_persistence_worker_cli_persists_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    streaming_test_payloads_factory: Callable[..., StreamingTestPayloads],
 ) -> None:
     dataset_id = "cli-dataset"
     state_path = tmp_path / "state.json"
     monkeypatch.setenv("ML_STREAM_PERSIST_STATE_PATH", str(state_path))
     monkeypatch.setenv("ML_STREAM_PERSIST_ENABLE", "1")
 
-    payloads = build_streaming_test_payloads(dataset_id=dataset_id, plan_id="plan-cli", parquet_path=tmp_path / "dataset.parquet")
+    payloads = streaming_test_payloads_factory(
+        dataset_id=dataset_id,
+        plan_id="plan-cli",
+        parquet_path=tmp_path / "dataset.parquet",
+    )
     messages: list[tuple[str, dict[str, Any]]] = [
         (f"events.ml.DATASET_PLANNED.{dataset_id}", payloads.plan_message()),
         (f"events.ml.MODEL_TRAINING_COMPLETED.{dataset_id}", payloads.result_message()),

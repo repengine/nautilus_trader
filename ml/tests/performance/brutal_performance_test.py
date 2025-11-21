@@ -41,15 +41,14 @@ from ml._imports import check_ml_dependencies
 from ml.actors.enhanced import EnhancedMLInferenceActor
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
-from ml.core.cache import LockFreeRingBuffer
-from ml.core.cache import PreAllocatedFeatureCache
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
-
-# Nautilus imports
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import OptimizationLevel
+from ml.config.actors import OptimizationConfig
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation

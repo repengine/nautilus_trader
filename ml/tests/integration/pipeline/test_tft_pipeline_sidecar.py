@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import json
 from pathlib import Path
 
@@ -8,6 +10,12 @@ import pytest
 
 import ml.pipelines.tft_train_distill as pipeline_mod
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def _stub_build_main(argv: list[str] | None = None) -> int:
     if not argv:

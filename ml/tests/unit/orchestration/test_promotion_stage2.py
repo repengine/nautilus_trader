@@ -10,6 +10,11 @@ from ml.data.vintage import VintagePolicy
 from ml.orchestration.promotions import Stage2Config
 from ml.orchestration.promotions import run_promotion_stage2
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def _write_csv(path: Path, n: int = 100, symbol: str = "SPY") -> None:
     # Minimal dataset tail with required columns
@@ -26,7 +31,6 @@ def _write_csv(path: Path, n: int = 100, symbol: str = "SPY") -> None:
             },
         )
     pd.DataFrame(rows).to_csv(path, index=False)
-
 
 def _write_metadata_file(out_dir: Path, dataset_id: str = "stage2_ds") -> None:
     metadata = {
@@ -46,7 +50,6 @@ def _write_metadata_file(out_dir: Path, dataset_id: str = "stage2_ds") -> None:
         json.dumps(metadata, indent=2),
         encoding="utf-8",
     )
-
 
 def test_stage2_returns_engine(tmp_path: Path) -> None:
     out_dir = tmp_path / "stage2"
@@ -82,7 +85,6 @@ def test_stage2_returns_engine(tmp_path: Path) -> None:
         metrics = result["metrics"]
         assert "sharpe_ratio" in metrics and "max_drawdown" in metrics
 
-
 def test_stage2_backtest_engine_fallback(tmp_path: Path) -> None:
     out_dir = tmp_path / "stage2"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +108,6 @@ def test_stage2_backtest_engine_fallback(tmp_path: Path) -> None:
     result = run_promotion_stage2(cfg)
     # Engine mode may fall back; ensure it still returns a result
     assert result["status"] in {"passed", "failed", "skipped"}
-
 
 def test_stage2_metadata_mismatch_raises(tmp_path: Path) -> None:
     out_dir = tmp_path / "stage2"

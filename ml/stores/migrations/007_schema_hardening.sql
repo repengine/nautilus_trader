@@ -1,10 +1,14 @@
--- Schema Hardening Migration (005)
+-- Migration: Harden ML store schemas via unique indexes and timestamp normalization.
+-- Rollback: DROP INDEX IF EXISTS uq_ml_feature_values_key; revert column type changes manually via ALTER TABLE.
+
+-- Schema Hardening Migration (007)
 -- - Adds unique upsert key for features
 -- - Standardizes created_at types (TIMESTAMPTZ with DEFAULT NOW())
--- - Qualifies helper views are moved separately (005_views.sql)
+-- - Qualifies helper views are moved separately (008_views.sql)
 
 -- Ensure unique upsert key for ml_feature_values
--- Postgres requires partition key to be part of unique index; ts_event included
+-- Postgres requires partition key to be part of unique index
+-- (ts_event included explicitly in the definition below)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key
     ON public.ml_feature_values (feature_set_id, instrument_id, ts_event);
 

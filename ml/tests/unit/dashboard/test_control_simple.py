@@ -12,6 +12,8 @@ import pytest
 
 from ml.dashboard.control_simple import SimpleControlPanel
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
 
 class _SlowIntegration:
     def __init__(self, *, delay: float, store: object | None = None) -> None:

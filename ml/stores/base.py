@@ -217,6 +217,8 @@ class StrategySignal(NautilusData):
         Risk metrics at decision time
     execution_params : dict[str, Any]
         Execution parameters (stop loss, take profit, etc.)
+    is_live : bool
+        Whether the signal originated from live trading
     _ts_event : int
         Event timestamp in nanoseconds
     _ts_init : int
@@ -233,6 +235,7 @@ class StrategySignal(NautilusData):
     execution_params: dict[str, Any]
     _ts_event: int
     _ts_init: int
+    is_live: bool = False
 
     @property
     def ts_event(self) -> int:

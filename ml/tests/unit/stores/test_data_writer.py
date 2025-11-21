@@ -10,12 +10,16 @@ validation, event emission, and watermark updates.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any
 from unittest.mock import Mock
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
+from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
+from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -43,6 +47,18 @@ def mock_earnings_store() -> Mock:
     store = Mock()
     store.write_actuals = Mock()
     store.write_estimates = Mock()
+    return store
+
+
+@pytest.fixture
+def mock_feature_dataset_store() -> Mock:
+    """Create mock feature dataset store."""
+    store = Mock()
+    store.write_macro_releases = Mock()
+    store.write_macro_observations = Mock()
+    store.write_events_calendar = Mock()
+    store.write_micro_features = Mock()
+    store.write_l2_features = Mock()
     return store
 
 
@@ -141,6 +157,7 @@ def data_writer(
     mock_model_store: Mock,
     mock_strategy_store: Mock,
     mock_earnings_store: Mock,
+    mock_feature_dataset_store: Mock,
     mock_contract_enforcer: Mock,
     mock_schema_validator: Mock,
     mock_registry: Mock,
@@ -151,6 +168,7 @@ def data_writer(
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
         earnings_store=mock_earnings_store,
+        feature_dataset_store=mock_feature_dataset_store,
         contract_enforcer=mock_contract_enforcer,
         schema_validator=mock_schema_validator,
         registry=mock_registry,
@@ -438,6 +456,58 @@ def test_write_earnings_estimate_success(
     assert event.instrument_id == "AAPL"
     assert event.status == EventStatus.SUCCESS.value
     assert event.record_count == 1
+    assert event.metadata["quality_score"] == 1.0
+
+
+def test_write_earnings_actual_raw_writer_called(
+    data_writer: DataWriter,
+    mock_earnings_store: Mock,
+) -> None:
+    """Ensure raw writer is invoked when configured for earnings actuals."""
+    ts_event = time.time_ns()
+    raw_writer = Mock()
+    data_writer.raw_writer = raw_writer
+
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
+        event = data_writer.write_earnings_actual(
+            ticker="MSFT",
+            period_end="2024-06-30",
+            filing_date="2024-07-15",
+            eps_diluted=2.15,
+            revenue=62000000000.0,
+            ts_event=ts_event,
+            ts_init=ts_event,
+            source=Source.HISTORICAL.value,
+            run_id="raw_test",
+        )
+
+    raw_writer.write.assert_called_once()
+    assert event.metadata.get("raw_mirror_status") == "ok"
+
+
+def test_write_earnings_estimate_raw_writer_called(
+    data_writer: DataWriter,
+    mock_earnings_store: Mock,
+) -> None:
+    """Ensure raw writer mirrors earnings estimates when configured."""
+    ts_event = time.time_ns()
+    raw_writer = Mock()
+    data_writer.raw_writer = raw_writer
+
+    with patch("ml.common.event_emitter.emit_dataset_event_and_watermark"):
+        event = data_writer.write_earnings_estimate(
+            ticker="MSFT",
+            estimate_date="2024-07-01",
+            period_end="2024-06-30",
+            eps_consensus=2.05,
+            ts_event=ts_event,
+            ts_init=ts_event,
+            source=Source.HISTORICAL.value,
+            run_id="raw_test_estimate",
+        )
+
+    raw_writer.write.assert_called_once()
+    assert event.metadata.get("raw_mirror_status") == "ok"
 
 
 # ========================================================================
@@ -640,7 +710,7 @@ def test_data_frame_to_feature_data(data_writer: DataWriter) -> None:
     assert len(result) == 1
     assert result[0].feature_set_id == "test_features"
     assert result[0].instrument_id == "EURUSD.SIM"
-    assert result[0].values == {"rsi": 65.5}
+    assert getattr(result[0], "values") == {"rsi": 65.5}
 
 
 def test_data_frame_to_predictions(data_writer: DataWriter) -> None:
@@ -694,3 +764,85 @@ def test_data_frame_to_signals(data_writer: DataWriter) -> None:
     assert result[0].strategy_id == "test_strategy"
     assert result[0].instrument_id == "EURUSD.SIM"
     assert result[0].signal_type == "BUY"
+
+
+def test_write_ingestion_macro_release_routes_to_feature_store(
+    data_writer: DataWriter,
+    mock_contract_enforcer: Mock,
+    mock_feature_dataset_store: Mock,
+) -> None:
+    manifest = replace(
+        mock_contract_enforcer.get_manifest.return_value,
+        dataset_id=MACRO_RELEASES_DATASET_ID,
+        dataset_type=DatasetType.MACRO_RELEASES,
+        schema={
+            "series_id": "str",
+            "observation_ts": "int64",
+            "release_ts": "int64",
+            "ts_event": "int64",
+        },
+        primary_keys=("series_id", "observation_ts", "release_ts"),
+        ts_field="ts_event",
+    )
+    mock_contract_enforcer.get_manifest.return_value = manifest
+
+    frame = pd.DataFrame(
+        [
+            {
+                "series_id": "CPI",
+                "observation_ts": 1,
+                "release_ts": 2,
+                "ts_event": 2,
+            },
+        ],
+    )
+
+    data_writer.write_ingestion(
+        dataset_id=MACRO_RELEASES_DATASET_ID,
+        records=frame,
+        source="historical",
+        run_id="macro",
+        instrument_id="CPI",
+    )
+
+    mock_feature_dataset_store.write_macro_releases.assert_called_once_with(frame)
+
+
+def test_write_ingestion_micro_features_routes_to_feature_store(
+    data_writer: DataWriter,
+    mock_contract_enforcer: Mock,
+    mock_feature_dataset_store: Mock,
+) -> None:
+    manifest = replace(
+        mock_contract_enforcer.get_manifest.return_value,
+        dataset_id=MICRO_MINUTE_DATASET_ID,
+        dataset_type=DatasetType.MICRO_MINUTE_FEATURES,
+        schema={
+            "instrument_id": "str",
+            "timestamp": "int64",
+            "ts_event": "int64",
+        },
+        primary_keys=("instrument_id", "timestamp"),
+        ts_field="ts_event",
+    )
+    mock_contract_enforcer.get_manifest.return_value = manifest
+
+    frame = pd.DataFrame(
+        [
+            {
+                "instrument_id": "AAPL",
+                "timestamp": 100,
+                "ts_event": 100,
+            },
+        ],
+    )
+
+    data_writer.write_ingestion(
+        dataset_id=MICRO_MINUTE_DATASET_ID,
+        records=frame,
+        source="historical",
+        run_id="micro",
+        instrument_id="AAPL",
+    )
+
+    mock_feature_dataset_store.write_micro_features.assert_called_once_with(frame)

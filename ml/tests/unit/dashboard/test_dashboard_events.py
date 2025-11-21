@@ -12,6 +12,14 @@ from ml.dashboard.service import (
     _EVENT_POLLS_TOTAL,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Keep event metrics isolated per test case."""
+    del isolated_prometheus_registry
+
 
 def _metric_value(counter: Any, **labels: str) -> float:
     if labels:

@@ -11,6 +11,7 @@ tampered model artifacts and prevents loading of compromised models.
 import hashlib
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -214,7 +215,11 @@ class TestSecureOnnxLoad:
     Test secure ONNX model loading with integrity verification.
     """
 
-    def test_secure_onnx_load_valid_model(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_valid_model(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading of valid ONNX model.
         """
@@ -224,25 +229,23 @@ class TestSecureOnnxLoad:
         test_file.write_bytes(test_content)
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
-        # Mock ONNX imports and InferenceSession
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        # Test secure loading
+        result = secure_onnx_load(
+            file_path=test_file,
+            expected_digest=expected_digest,
+            strict_integrity=True,
+        )
 
-            # Test secure loading
-            result = secure_onnx_load(
-                file_path=test_file,
-                expected_digest=expected_digest,
-                strict_integrity=True,
-            )
+        assert result == mock_session
+        mock_onnx_runtime.ort.InferenceSession.assert_called_once_with(str(test_file))
 
-            assert result == mock_session
-            mock_ort.InferenceSession.assert_called_once_with(str(test_file))
-
-    def test_secure_onnx_load_tampered_model_strict(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_tampered_model_strict(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading rejects tampered ONNX model in strict mode.
         """
@@ -256,6 +259,8 @@ class TestSecureOnnxLoad:
         tampered_content = b"tampered onnx model content"
         test_file.write_bytes(tampered_content)
 
+        mock_onnx_runtime.set_available(True)
+
         # Test secure loading rejects tampered model
         with pytest.raises(ArtifactIntegrityError):
             secure_onnx_load(
@@ -264,7 +269,11 @@ class TestSecureOnnxLoad:
                 strict_integrity=True,
             )
 
-    def test_secure_onnx_load_tampered_model_non_strict(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_tampered_model_non_strict(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading handles tampered ONNX model in non-strict mode.
         """
@@ -278,49 +287,45 @@ class TestSecureOnnxLoad:
         tampered_content = b"tampered onnx model content"
         test_file.write_bytes(tampered_content)
 
-        # Mock ONNX imports
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        # Test secure loading proceeds with warning in non-strict mode
+        result = secure_onnx_load(
+            file_path=test_file,
+            expected_digest=expected_digest,
+            strict_integrity=False,
+        )
 
-            # Test secure loading proceeds with warning in non-strict mode
-            result = secure_onnx_load(
-                file_path=test_file,
-                expected_digest=expected_digest,
-                strict_integrity=False,
-            )
+        # Should still load the model despite integrity failure in non-strict mode
+        assert result == mock_session
 
-            # Should still load the model despite integrity failure in non-strict mode
-            assert result == mock_session
-
-    def test_secure_onnx_load_no_digest(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_no_digest(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading with no digest provided.
         """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"onnx model content")
 
-        # Mock ONNX imports
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        # Test loading without digest
+        result = secure_onnx_load(
+            file_path=test_file,
+            expected_digest=None,
+            strict_integrity=True,
+        )
 
-            # Test loading without digest
-            result = secure_onnx_load(
-                file_path=test_file,
-                expected_digest=None,
-                strict_integrity=True,
-            )
+        assert result == mock_session
 
-            assert result == mock_session
-
-    def test_secure_onnx_load_with_session_options(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_with_session_options(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading with custom session options.
         """
@@ -329,55 +334,52 @@ class TestSecureOnnxLoad:
         test_file.write_bytes(test_content)
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
-        # Mock ONNX imports and session options
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
+        mock_session_options = "mock_session_options"
+        mock_providers = ["CPUExecutionProvider"]
 
-            mock_session = mock_ort.InferenceSession.return_value
-            mock_session_options = "mock_session_options"
-            mock_providers = ["CPUExecutionProvider"]
+        # Test loading with custom options
+        result = secure_onnx_load(
+            file_path=test_file,
+            expected_digest=expected_digest,
+            session_options=mock_session_options,
+            providers=mock_providers,
+            strict_integrity=True,
+        )
 
-            # Test loading with custom options
-            result = secure_onnx_load(
-                file_path=test_file,
-                expected_digest=expected_digest,
-                session_options=mock_session_options,
-                providers=mock_providers,
-                strict_integrity=True,
-            )
+        assert result == mock_session
+        mock_onnx_runtime.ort.InferenceSession.assert_called_once_with(
+            str(test_file),
+            sess_options=mock_session_options,
+            providers=mock_providers,
+        )
 
-            assert result == mock_session
-            mock_ort.InferenceSession.assert_called_once_with(
-                str(test_file),
-                sess_options=mock_session_options,
-                providers=mock_providers,
-            )
-
-    def test_secure_onnx_load_onnx_not_available(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_onnx_not_available(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading when ONNX is not available.
         """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"onnx model content")
 
-        # Mock ONNX not available
-        with (
-            patch("ml.common.security.HAS_ONNX", False),
-            patch("ml.common.security.check_ml_dependencies") as mock_check,
-        ):
+        mock_onnx_runtime.set_available(False)
+        mock_onnx_runtime.check_dependencies.side_effect = ImportError("ONNX not available")
 
-            mock_check.side_effect = ImportError("ONNX not available")
+        with pytest.raises(ImportError, match="ONNX Runtime not available"):
+            secure_onnx_load(
+                file_path=test_file,
+                expected_digest=None,
+                strict_integrity=False,
+            )
 
-            with pytest.raises(ImportError, match="ONNX Runtime not available"):
-                secure_onnx_load(
-                    file_path=test_file,
-                    expected_digest=None,
-                    strict_integrity=False,
-                )
-
-    def test_secure_onnx_load_model_loading_error(self, tmp_path: Path) -> None:
+    def test_secure_onnx_load_model_loading_error(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test secure loading when ONNX model loading fails.
         """
@@ -386,20 +388,14 @@ class TestSecureOnnxLoad:
         test_file.write_bytes(test_content)
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
-        # Mock ONNX imports but make InferenceSession fail
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_onnx_runtime.ort.InferenceSession.side_effect = RuntimeError("Invalid ONNX model")
 
-            mock_ort.InferenceSession.side_effect = RuntimeError("Invalid ONNX model")
-
-            with pytest.raises(ValueError, match="Failed to load ONNX model"):
-                secure_onnx_load(
-                    file_path=test_file,
-                    expected_digest=expected_digest,
-                    strict_integrity=True,
-                )
+        with pytest.raises(ValueError, match="Failed to load ONNX model"):
+            secure_onnx_load(
+                file_path=test_file,
+                expected_digest=expected_digest,
+                strict_integrity=True,
+            )
 
 
 class TestArtifactIntegrityError:
@@ -465,7 +461,11 @@ class TestIntegrationScenarios:
         assert error.expected_digest != error.actual_digest
         assert "tampered" in str(error).lower()
 
-    def test_legitimate_model_loading_scenario(self, tmp_path: Path) -> None:
+    def test_legitimate_model_loading_scenario(
+        self,
+        tmp_path: Path,
+        mock_onnx_runtime: Any,
+    ) -> None:
         """
         Test end-to-end scenario of loading a legitimate model.
         """
@@ -482,20 +482,15 @@ class TestIntegrationScenarios:
         assert result is True
 
         # Step 4: Verify that secure loading would work
-        with (
-            patch("ml.common.security.HAS_ONNX", True),
-            patch("ml.common.security.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        loaded_model = secure_onnx_load(
+            file_path=model_file,
+            expected_digest=legitimate_digest,
+            strict_integrity=True,
+        )
 
-            loaded_model = secure_onnx_load(
-                file_path=model_file,
-                expected_digest=legitimate_digest,
-                strict_integrity=True,
-            )
-
-            assert loaded_model == mock_session
+        assert loaded_model == mock_session
 
     def test_multiple_file_tampering_detection(self, tmp_path: Path) -> None:
         """

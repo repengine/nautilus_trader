@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+import pytest
 from typing import Any
 
 from typing import cast
@@ -8,6 +11,12 @@ from ml.common.in_memory_bus import InMemoryPublisher
 from ml.common.message_topics import build_stage_topic
 from ml.consumers.idempotent import IdempotentConsumer
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
     """

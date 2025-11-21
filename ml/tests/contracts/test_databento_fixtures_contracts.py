@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import pandas as pd
-import pandera as pa
 import pytest
-from pandera.typing import Series
 
-from ml.data.fixtures import make_tbbo_fixture, make_trades_fixture, make_mbp10_fixture
+from ml.data.fixtures import make_mbp10_fixture
+from ml.data.fixtures import make_tbbo_fixture
+from ml.data.fixtures import make_trades_fixture
 from ml.data.fixtures.manifest import compute_schema_hash
-from ml._imports import HAS_PANDERA
-from ml._imports import PANDERA_IMPORT_ERROR
+from ml.tests.fixtures.pandera import Series
+from ml.tests.fixtures.pandera import ensure_pandera_available
 
-if not HAS_PANDERA:  # pragma: no cover - optional dependency
-    pytest.skip(
-        f"Pandera unavailable: {PANDERA_IMPORT_ERROR}",
-        allow_module_level=True,
-    )
+pa = ensure_pandera_available()
 
 
 class TBBOSchema(pa.DataFrameModel):

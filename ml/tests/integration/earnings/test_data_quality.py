@@ -35,12 +35,22 @@ from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.utils.earnings_facade import build_test_data_store
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
+]
+
 
 if TYPE_CHECKING:
     pass
 
 
-@pytest.mark.integration
 class TestEarningsDataQuality:
     """Data quality validation for earnings pipeline."""
 

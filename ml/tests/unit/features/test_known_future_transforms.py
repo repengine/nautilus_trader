@@ -12,7 +12,8 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
+from ml.features.config import build_pipeline_spec_from_feature_config
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
@@ -151,6 +152,36 @@ class TestCalendarTransform:
 
         # All features should be unique
         assert len(features) == len(set(features))
+
+
+class TestEventSchedulePipelineIntegration:
+    """
+    Validate optional pipeline integration for event schedule features.
+    """
+
+    def test_event_schedule_disabled_by_default(self) -> None:
+        """
+        Event schedule features should be absent unless the flag is enabled.
+        """
+        config = FeatureConfig()
+        spec = build_pipeline_spec_from_feature_config(config)
+        runner = PipelineRunner(spec, allowable=config.resolved_data_requirements())
+
+        feature_names = runner.compute_feature_names()
+        assert "hours_to_fed_meeting" not in feature_names
+        assert "total_events_24h" not in feature_names
+
+    def test_event_schedule_enabled_with_flag(self) -> None:
+        """
+        Setting include_event_schedule adds known-future event columns to the pipeline.
+        """
+        config = FeatureConfig(include_event_schedule=True)
+        spec = build_pipeline_spec_from_feature_config(config)
+        runner = PipelineRunner(spec, allowable=config.resolved_data_requirements())
+
+        feature_names = runner.compute_feature_names()
+        assert "hours_to_fed_meeting" in feature_names
+        assert "total_events_24h" in feature_names
 
 
 class TestEventScheduleTransform:

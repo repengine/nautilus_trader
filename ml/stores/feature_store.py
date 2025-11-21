@@ -41,9 +41,9 @@ from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.base import MLFeatureConfig
 from ml.core.db_engine import EngineManager
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.stores.mixins import DataRegistryMixin

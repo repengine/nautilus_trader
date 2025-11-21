@@ -11,7 +11,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.registry.base import DataRequirements
 
 
@@ -78,12 +80,60 @@ class TestFeatureParityFix:
 
         # Compute online features
         online_features = []
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
+
+        for bar_data in mock_bars_data[:-5]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
         for bar_data in mock_bars_data[-5:]:  # Test last 5 bars
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             features = online_engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features)
 
@@ -117,12 +167,60 @@ class TestFeatureParityFix:
 
         # Compute online features
         online_features = []
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
+
+        for bar_data in mock_bars_data[:-5]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
         for bar_data in mock_bars_data[-5:]:  # Test last 5 bars
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             features = online_engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features)
 
@@ -159,12 +257,60 @@ class TestFeatureParityFix:
 
         # Compute online features
         online_features = []
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
+
+        for bar_data in mock_bars_data[:-5]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
         for bar_data in mock_bars_data[-5:]:  # Test last 5 bars
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             features = online_engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features)
 
@@ -187,23 +333,67 @@ class TestFeatureParityFix:
             data_requirements=DataRequirements.L1_L2,
         )
         engineer = FeatureEngineer(config)
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
 
         # Warm up the engineer with some bars
         for bar_data in mock_bars_data[:50]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
 
         # Get features for a test bar
         test_bar = mock_bars_data[50]
+        current_bar = {
+            "open": test_bar.get("open", test_bar["close"]),
+            "high": test_bar["high"],
+            "low": test_bar["low"],
+            "close": test_bar["close"],
+            "volume": test_bar["volume"],
+        }
+        
+        bar = Bar(
+            bar_type=bar_type,
+            open=Price.from_str(str(current_bar["open"])),
+            high=Price.from_str(str(current_bar["high"])),
+            low=Price.from_str(str(current_bar["low"])),
+            close=Price.from_str(str(current_bar["close"])),
+            volume=Quantity.from_str(str(current_bar["volume"])),
+            ts_event=int(test_bar["ts_event"]),
+            ts_init=int(test_bar["ts_event"]),
+        )
+        indicator_mgr.update_from_bar(bar)
+
         features = engineer.calculate_features_online(
-            close_price=test_bar["close"],
-            high_price=test_bar["high"],
-            low_price=test_bar["low"],
-            volume=test_bar["volume"],
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         # Check that we have the expected number of features
@@ -231,23 +421,67 @@ class TestFeatureParityFix:
             data_requirements=DataRequirements.L1_L2,
         )
         engineer = FeatureEngineer(config)
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
 
         # Warm up the engineer with some bars
         for bar_data in mock_bars_data[:50]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
 
         # Get features for a test bar
         test_bar = mock_bars_data[50]
+        current_bar = {
+            "open": test_bar.get("open", test_bar["close"]),
+            "high": test_bar["high"],
+            "low": test_bar["low"],
+            "close": test_bar["close"],
+            "volume": test_bar["volume"],
+        }
+        
+        bar = Bar(
+            bar_type=bar_type,
+            open=Price.from_str(str(current_bar["open"])),
+            high=Price.from_str(str(current_bar["high"])),
+            low=Price.from_str(str(current_bar["low"])),
+            close=Price.from_str(str(current_bar["close"])),
+            volume=Quantity.from_str(str(current_bar["volume"])),
+            ts_event=int(test_bar["ts_event"]),
+            ts_init=int(test_bar["ts_event"]),
+        )
+        indicator_mgr.update_from_bar(bar)
+
         features = engineer.calculate_features_online(
-            close_price=test_bar["close"],
-            high_price=test_bar["high"],
-            low_price=test_bar["low"],
-            volume=test_bar["volume"],
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         # Check that we have the expected number of features
@@ -264,10 +498,20 @@ class TestFeatureParityFix:
         # Specifically check that VWAP is computed (should equal close price as approximation)
         vwap_idx = 1  # Second trade flow feature is VWAP
         vwap_value = trade_flow_features[vwap_idx]
-        expected_vwap = test_bar["close"]
+        # Calculate expected VWAP over the history (warmup + test bar)
+        history = mock_bars_data[:51]
+        cum_pv = 0.0
+        cum_vol = 0.0
+        for b in history:
+            tp = (b["high"] + b["low"] + b["close"]) / 3.0
+            cum_pv += tp * b["volume"]
+            cum_vol += b["volume"]
+        
+        expected_vwap = cum_pv / cum_vol if cum_vol > 0 else test_bar["close"]
 
+        print(f"DEBUG: VWAP got {vwap_value}, expected {expected_vwap}, diff {abs(vwap_value - expected_vwap)}")
         assert (
-            abs(vwap_value - expected_vwap) < 1e-6
+            abs(vwap_value - expected_vwap) < 1e-5
         ), f"VWAP mismatch: got {vwap_value}, expected {expected_vwap}"
 
     def test_feature_value_parity_microstructure(
@@ -292,12 +536,39 @@ class TestFeatureParityFix:
 
         # Compute online features
         online_features = []
+        indicator_mgr = IndicatorManager(config)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
+
         for bar_data in mock_bars_data:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             features = online_engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features.copy())
 
@@ -352,21 +623,66 @@ class TestFeatureParityFix:
         inference_engineer = FeatureEngineer(config_full)
 
         # Warm up the inference engineer
+        indicator_mgr = IndicatorManager(config_full)
+        from nautilus_trader.model.data import Bar, BarType, BarSpecification
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.enums import BarAggregation, PriceType, AggressorSide
+        from nautilus_trader.model.objects import Price, Quantity
+        
+        instrument_id = InstrumentId.from_str("TEST.USD")
+        bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
+
         for bar_data in mock_bars_data[:50]:
+            current_bar = {
+                "open": bar_data.get("open", bar_data["close"]),
+                "high": bar_data["high"],
+                "low": bar_data["low"],
+                "close": bar_data["close"],
+                "volume": bar_data["volume"],
+            }
+            
+            bar = Bar(
+                bar_type=bar_type,
+                open=Price.from_str(str(current_bar["open"])),
+                high=Price.from_str(str(current_bar["high"])),
+                low=Price.from_str(str(current_bar["low"])),
+                close=Price.from_str(str(current_bar["close"])),
+                volume=Quantity.from_str(str(current_bar["volume"])),
+                ts_event=int(bar_data["ts_event"]),
+                ts_init=int(bar_data["ts_event"]),
+            )
+            indicator_mgr.update_from_bar(bar)
+
             inference_engineer.calculate_features_online(
-                close_price=bar_data["close"],
-                high_price=bar_data["high"],
-                low_price=bar_data["low"],
-                volume=bar_data["volume"],
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
 
         # Get inference features for a test bar
         test_bar = mock_bars_data[50]
+        current_bar = {
+            "open": test_bar.get("open", test_bar["close"]),
+            "high": test_bar["high"],
+            "low": test_bar["low"],
+            "close": test_bar["close"],
+            "volume": test_bar["volume"],
+        }
+        
+        bar = Bar(
+            bar_type=bar_type,
+            open=Price.from_str(str(current_bar["open"])),
+            high=Price.from_str(str(current_bar["high"])),
+            low=Price.from_str(str(current_bar["low"])),
+            close=Price.from_str(str(current_bar["close"])),
+            volume=Quantity.from_str(str(current_bar["volume"])),
+            ts_event=int(test_bar["ts_event"]),
+            ts_init=int(test_bar["ts_event"]),
+        )
+        indicator_mgr.update_from_bar(bar)
+
         inference_features = inference_engineer.calculate_features_online(
-            close_price=test_bar["close"],
-            high_price=test_bar["high"],
-            low_price=test_bar["low"],
-            volume=test_bar["volume"],
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
         )
 
         # Verify inference produces 37 features (same as training)

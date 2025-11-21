@@ -12,6 +12,12 @@ from ml.registry.feature_registry import FeatureRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 @pytest.mark.integration
 def test_update_manifest_persists_postgres(tmp_path: Path) -> None:

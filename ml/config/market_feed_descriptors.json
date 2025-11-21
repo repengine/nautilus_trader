@@ -15,6 +15,32 @@
       "license_end": null
     },
     {
+      "descriptor_id": "EQUS.MINI_TBBO",
+      "dataset_id": "EQUS.MINI",
+      "storage_kind": "postgres",
+      "schema": "tbbo",
+      "symbol_patterns": ["*"],
+      "instrument_id_templates": [
+        "{symbol}.ARCX",
+        "{symbol}.XNAS"
+      ],
+      "license_start": "2023-01-01",
+      "license_end": null
+    },
+    {
+      "descriptor_id": "EQUS.MINI_MBP1",
+      "dataset_id": "EQUS.MINI",
+      "storage_kind": "postgres",
+      "schema": "mbp-1",
+      "symbol_patterns": ["*"],
+      "instrument_id_templates": [
+        "{symbol}.ARCX",
+        "{symbol}.XNAS"
+      ],
+      "license_start": "2023-01-01",
+      "license_end": null
+    },
+    {
       "descriptor_id": "XNAS.ITCH",
       "dataset_id": "XNAS.ITCH",
       "storage_kind": "postgres",
@@ -27,16 +53,15 @@
       "license_end": null
     },
     {
-      "descriptor_id": "DBEQ.MINI",
-      "dataset_id": "DBEQ.MINI",
+      "descriptor_id": "XNAS.ITCH_MBP10",
+      "dataset_id": "XNAS.ITCH",
       "storage_kind": "postgres",
-      "schema": "tbbo",
-      "symbol_patterns": ["*"],
+      "schema": "mbp-10",
+      "symbol_patterns": ["*.XNAS", "*"],
       "instrument_id_templates": [
-        "{symbol}.ARCX",
         "{symbol}.XNAS"
       ],
-      "license_start": "2016-01-01",
+      "license_start": "2018-01-01",
       "license_end": null
     }
   ]

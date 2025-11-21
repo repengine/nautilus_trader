@@ -22,12 +22,16 @@ from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.registry.dataclasses import StorageKind
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.fixture
 def resolver() -> ConfigResolver:
     """Create ConfigResolver instance for testing."""
     return ConfigResolver()
-
 
 @pytest.fixture
 def base_dataset_config() -> DatasetBuildConfig:
@@ -38,7 +42,6 @@ def base_dataset_config() -> DatasetBuildConfig:
         out_dir="output/test",
         dataset_id="test_dataset",
     )
-
 
 def create_test_binding(
     symbol: str = "SPY",
@@ -64,7 +67,6 @@ def create_test_binding(
         end="2030-12-31",
         source=source,
     )
-
 
 class TestApplyDefaultMarketInputs:
     """Test apply_default_market_inputs method."""
@@ -134,7 +136,6 @@ class TestApplyDefaultMarketInputs:
 
         result = resolver.apply_default_market_inputs(cfg)
         assert msgspec.to_builtins(result) == msgspec.to_builtins(cfg)
-
 
 class TestCollectSymbolMap:
     """Test collect_symbol_map method."""
@@ -301,7 +302,6 @@ class TestCollectSymbolMap:
 
         assert result == {"SPY": (), "AAPL": ()}
 
-
 class TestComputeWindowStartIso:
     """Test compute_window_start_iso method."""
 
@@ -346,7 +346,6 @@ class TestComputeWindowStartIso:
 
         # Default is 7 years
         assert result == "2017-01-15"
-
 
 class TestResolveWindowBoundsNs:
     """Test resolve_window_bounds_ns method."""
@@ -414,7 +413,6 @@ class TestResolveWindowBoundsNs:
         # Should add one day to end
         assert end_ns > start_ns
 
-
 class TestPrepareDatasetConfig:
     """Test prepare_dataset_config method."""
 
@@ -454,7 +452,6 @@ class TestPrepareDatasetConfig:
 
         # Should apply defaults but not change structure
         assert result.symbols == base_dataset_config.symbols
-
 
 class TestSymbolToInstruments:
     """Test symbol_to_instruments method."""
@@ -520,7 +517,6 @@ class TestSymbolToInstruments:
         result = resolver.symbol_to_instruments(cfg)
 
         assert list(result.keys()) == ["AAPL", "SPY", "TSLA"]
-
 
 class TestCollectInstrumentIds:
     """Test collect_instrument_ids method."""
@@ -594,7 +590,6 @@ class TestCollectInstrumentIds:
 
         assert result == ("SPY.XNAS", "AAPL.XNAS")
 
-
 class TestInferDefaultSchema:
     """Test infer_default_schema method."""
 
@@ -607,7 +602,6 @@ class TestInferDefaultSchema:
         result = resolver.infer_default_schema(base_dataset_config)
 
         assert result == "ohlcv-1m"
-
 
 class TestResolveInstrumentIds:
     """Test resolve_instrument_ids method."""
@@ -683,7 +677,6 @@ class TestResolveInstrumentIds:
         result = resolver.resolve_instrument_ids(cfg)
 
         assert result == ("SPY", "AAPL")
-
 
 class TestNsToDatetime:
     """Test ns_to_datetime static method."""

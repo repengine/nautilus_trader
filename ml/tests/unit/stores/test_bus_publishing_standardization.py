@@ -10,8 +10,9 @@ This test module verifies that:
 """
 
 import os
+
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from ml.common.message_bus import BusPublisherMixin, NoopPublisher
 from ml.config.bus import MessageBusConfig
@@ -70,14 +71,20 @@ class TestBusPublishingStandardization:
             (False, False, False),  # Neither enabled nor publisher -> no publish
         ],
     )
-    def test_data_store_publishing_gating(self, enable_flag, publisher_exists, should_publish):
+    def test_data_store_publishing_gating(
+        self,
+        enable_flag,
+        publisher_exists,
+        should_publish,
+        patch_engine_manager,
+    ):
         """
         Test DataStore respects both _enable_publishing flag and publisher existence.
         """
         mock_publisher = Mock() if publisher_exists else None
 
         # Create minimal DataStore instance for testing
-        with patch("ml.stores.data_store.EngineManager.get_engine"):
+        with patch_engine_manager():
             store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             store._enable_publishing = enable_flag
             store.publisher = mock_publisher
@@ -115,14 +122,20 @@ class TestBusPublishingStandardization:
             (False, False, False),  # Neither enabled nor publisher -> no publish
         ],
     )
-    def test_feature_store_publishing_gating(self, enable_flag, publisher_exists, should_publish):
+    def test_feature_store_publishing_gating(
+        self,
+        enable_flag,
+        publisher_exists,
+        should_publish,
+        patch_engine_manager,
+    ):
         """
         Test FeatureStore respects both _enable_publishing flag and publisher existence.
         """
         mock_publisher = Mock() if publisher_exists else None
 
         # Create minimal FeatureStore instance for testing
-        with patch("ml.stores.feature_store.EngineManager.get_engine"):
+        with patch_engine_manager():
             store = FeatureStore(
                 connection_string="postgresql://mock:mock@localhost:5432/mock",
                 enable_publishing=enable_flag,
@@ -208,7 +221,7 @@ class TestBusPublishingStandardization:
             config = MessageBusConfig.from_env()
             assert config.enabled is True
 
-    def test_topic_scheme_consistency(self):
+    def test_topic_scheme_consistency(self, patch_engine_manager):
         """
         Test that all stores use consistent topic scheme/prefix from MessageBusConfig.
         """
@@ -226,7 +239,7 @@ class TestBusPublishingStandardization:
                 },
             ):
                 # Test DataStore
-                with patch("ml.stores.data_store.EngineManager.get_engine"):
+                with patch_engine_manager():
                     data_store = DataStore(
                         connection_string="postgresql://mock:mock@localhost:5432/mock"
                     )
@@ -239,7 +252,7 @@ class TestBusPublishingStandardization:
                     assert data_store._topic_prefix == prefix
 
                 # Test FeatureStore
-                with patch("ml.stores.feature_store.EngineManager.get_engine"):
+                with patch_engine_manager():
                     feature_store = FeatureStore(
                         connection_string="postgresql://mock:mock@localhost:5432/mock",
                         enable_publishing=True,
@@ -248,14 +261,14 @@ class TestBusPublishingStandardization:
                     assert feature_store._topic_scheme == scheme
                     assert feature_store._topic_prefix == prefix
 
-    def test_hot_path_performance_preservation(self):
+    def test_hot_path_performance_preservation(self, patch_engine_manager):
         """
         Test that publishing doesn't significantly impact hot-path performance.
         """
         # This is a smoke test to ensure we don't add heavy operations
         mock_publisher = Mock()
 
-        with patch("ml.stores.data_store.EngineManager.get_engine"):
+        with patch_engine_manager():
             store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             store._enable_publishing = True
             store.publisher = mock_publisher
@@ -294,7 +307,7 @@ class TestBusPublishingStandardization:
         # Should return False to indicate no actual publishing occurred
         assert result is False
 
-    def test_consistent_error_logging_levels(self):
+    def test_consistent_error_logging_levels(self, patch_engine_manager):
         """
         Test that all stores use consistent error logging levels for publishing
         failures.
@@ -302,7 +315,7 @@ class TestBusPublishingStandardization:
         test_stores = []
 
         # DataStore
-        with patch("ml.stores.data_store.EngineManager.get_engine"):
+        with patch_engine_manager():
             data_store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
             data_store._enable_publishing = True
             data_store.publisher = Mock()
@@ -310,7 +323,7 @@ class TestBusPublishingStandardization:
             test_stores.append(("DataStore", data_store))
 
         # FeatureStore
-        with patch("ml.stores.feature_store.EngineManager.get_engine"):
+        with patch_engine_manager():
             feature_store = FeatureStore(
                 connection_string="postgresql://mock:mock@localhost:5432/mock",
                 enable_publishing=True,

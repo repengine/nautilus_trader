@@ -37,7 +37,7 @@ from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 from ml.actors.signal import MLSignalActor, MLSignalActorConfig, SignalStrategy
 from ml.config.actors import OptimizationConfig, StrategyConfig
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 
 if TYPE_CHECKING:
     from collections.abc import Generator

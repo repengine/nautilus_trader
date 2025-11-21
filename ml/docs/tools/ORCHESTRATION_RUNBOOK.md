@@ -65,6 +65,32 @@ Key flags:
   - `--runtime-auto-start-db`, `--runtime-auto-migrate`, `--runtime-no-ensure-healthy`
   - `--runtime-strict-protocol-validation` (enforce protocol checks) and `--runtime-skip-validators` (skip metrics/event validators)
 
+### Feature dataset coverage config
+
+The scheduler config controls market ingestion, but feature datasets (earnings,
+calendar, macro releases) need an explicit manifest so the coverage manager can
+inspect their SQL tables and parquet mirrors. Tier‑1 environments should set:
+
+```bash
+export COVERAGE_DATASETS_FILE=ml/config/coverage_datasets_tier1.toml
+```
+
+Each `[[datasets]]` entry declares the dataset id, schema, entity field (e.g.,
+`ticker`), resolved universe (`@tier1_full` is supported), plus optional `[sql]`
+and `[parquet]` sections. The loader (`ml/config/dataset_coverage.py`) normalises
+the payloads into `CoverageDatasetEntry` objects and the pipeline entrypoint
+appends them to the coverage manager before schema audits/classification. When a
+feature bucket lands in `RESTORE_FROM_CATALOG`, the entrypoint now spins up
+`FeatureCoverageRestorer` (`ml/data/coverage/feature_restorer.py`) and replays
+the parquet partition through the standard `DataStore.write_earnings_*`
+interfaces so SQL + registry state stay in lockstep. Operators will see a pair of
+log lines: `coverage.feature_restore.pending` and, after replay completes,
+`coverage.feature_restore.completed` with dataset/instrument/row counts (partial
+recoveries emit `coverage.feature_restore.partial`). Every activation increments
+`ml_fallback_activations_total{component="feature_coverage_restorer",
+level="<dataset_id>"}` for monitoring, so keep the manifest aligned with the
+active environment to maintain accurate detection and automated replays.
+
 ### Databento Discovery (dynamic dataset selection)
 
 The orchestrator now auto-discovers Databento datasets per symbol and schema when no explicit `market_inputs` are provided. Discovery queries Databento metadata at runtime, evaluates coverage windows and cost estimates, and picks the cheapest viable dataset for each symbol.
@@ -96,18 +122,49 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 ## Environment Variables
 
 - `CATALOG_PATH` for ParquetDataCatalog
+- `CATALOG_CLEAN_MODE=archive` (plus optional `CATALOG_BACKUP_DIR`) to archive the current catalog into a timestamped folder before each run.
 - `DATABENTO_API_KEY` for optional Databento ingestion
 - DB URL: `NAUTILUS_DB` or use orchestrator `--db` flag
 - TFT builder guardrail: `ML_TFT_ALLOW_PARQUET_FALLBACK=1` opt-in only; disabled by default so SQL read failures raise instead of silently falling back to parquet.
+- Catalog rehydration: set `CATALOG_REHYDRATE_ENABLED=1` (plus supporting `CATALOG_REHYDRATE_*` knobs) to replay the Parquet catalog into Postgres before orchestrator ingestion.
+- Dynamic Databento lookback:
+  - `MARKET_BACKFILL_DYNAMIC_LOOKBACK=1` enables per-instrument gap sizing so the scheduler only requests the missing windows instead of a fixed week of data every pass.
+  - `MARKET_BACKFILL_MIN_DAYS` (default `1`) clamps the lower bound, and `MARKET_BACKFILL_MAX_DAYS` optionally caps extremely stale symbols.
 - Scheduler env:
   - `ORCH_SCHEDULE_TIME`, `ORCH_INTERVAL_MIN`, `ORCH_CONFIG`, `ORCH_DRY_RUN`, `ORCH_FORCE`
   - `ORCH_LOCK_PATH`, `ORCH_LOCK_TTL_HOURS`
+- Port mapping reminders:
+  - Primary ML stack: host `5433` → container `ml-postgres-1:5432`. Docker services (e.g., `ml_pipeline`) should export `DB_CONNECTION=postgresql://postgres:postgres@ml-postgres-1:5432/nautilus`, while host tooling uses `postgresql://postgres:postgres@localhost:5433/nautilus`.
+  - Test stack: host `5434` → container `ml-test-postgres-test-1:5432`. Never point Tier‑1 orchestration or coverage restores at this DSN unless you are running the isolated test compose file.
+
+## Catalog Hygiene
+
+- Archive stale Parquet partitions before Tier-1 runs with:
+
+  ```bash
+  poetry run python -m ml.cli.catalog_hygiene \
+    --catalog-path data/catalog \
+    --backup-dir ml_out/catalog_archives
+  ```
+
+- Pipeline configs may also specify `[ingestion].catalog_clean_mode = "archive"` and `catalog_backup_dir = "ml_out/catalog_archives"` (or set `CATALOG_CLEAN_MODE=archive` / `CATALOG_BACKUP_DIR=...`) so the orchestrator and integration runtime scrub the catalog automatically.
+- `CATALOG_REHYDRATE_STALE_ONLY=1` (default) samples SQL staleness before replaying the catalog. If every instrument has rows newer than `CATALOG_REHYDRATE_STALENESS_HOURS` (default `6`) the rehydration pass is skipped entirely, which keeps restarts from scanning 100+ parquet trees when the database is already in sync. Set the flag to `0` to force a full replay after a destructive restore.
 
 ## Observability & Validation
 
 - Metrics (scheduler):
   - `nautilus_ml_orch_runs_total{status}`
   - `nautilus_ml_orch_phase_latency_seconds{phase}`
+- Symbology/alias telemetry:
+  - `nautilus_ml_symbology_alias_hits_total{dataset}` and `nautilus_ml_discovery_symbology_rejections_total{dataset}` surface alias usage and unresolved symbols during dataset discovery/ingestion.
+  - `nautilus_ml_symbology_retry_total{dataset,status}` increments whenever the Databento resolver retries a transient 5xx response; correlate spikes here with Tier‑1 failures such as the DIS `502 <empty message>` outage.
+- Coverage manifest telemetry:
+  - `nautilus_ml_coverage_manifest_events_total{event="loaded|missing|invalid"}` increments when the orchestrator loads `COVERAGE_DATASETS_FILE`; missing or invalid manifests now attach `feature_manifest_*` markers to pipeline status/errors before classification starts.
+- Partition hygiene:
+  - `create_monthly_partitions` now copies rows out of `<table>_default` (skipping generated columns such as `spread`/`mid_price`) before attaching the new monthly partition, and treats duplicate/overlap SQLSTATEs as idempotent. This keeps bootstrap runs from failing on historical data left in the default partition.
+  - When a dev database accretes orphan rows, run `SELECT create_monthly_partitions('market_data', '2023-01-01'::DATE, 60);` (or call `ml.common.db_utils.ensure_partition_tables_ready(...)`) to reattach the expected partitions without manual deletes.
+  - `MLIntegrationManager` now calls `ensure_partition_helpers` during bootstrap so the refreshed `attach_partition_with_data` / `create_monthly_partitions` bodies deploy automatically even when migrations are already applied, ensuring Tier‑1 reruns inherit the default-partition rehousing logic.
+- Runtime DB verification: when Docker services run overnight, confirm they are talking to the primary datastore by querying `ml_data_events` via `psql -h localhost -p 5433 -U postgres -d nautilus "SELECT dataset_id, instrument_id, stage, source, status, to_timestamp(ts_event/1e9) FROM ml_data_events ORDER BY created_at DESC LIMIT 10"`. Seeing fresh `EQUS.MINI` `INGESTED/backfill` events for Tier‑1 symbols (BAC, AMZN, CAT, etc.) ensures the pipeline did not write into the 5434 test instance.
 - Events: Use DataRegistry `emit_event` with `Stage/Source/EventStatus` for pipeline phases.
 - Validators:
   - `make validate-metrics`
@@ -115,6 +172,16 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
   - `make validate-nautilus-patterns` (advisory)
 - Parity harness: `make parity-report` regenerates `ml/tests/validation_reports/equs_itch_parity_summary.json` by executing the built-in Tier-1 suite (multiple symbols/windows across 2023–2025). Set `DATABENTO_API_KEY` in the environment before running.
 - Manual verification/backfill tool: generate test ingestions directly with `ml.cli.pipeline_orchestrator --stage ingest` and inspect the resulting `source_dataset` tags to confirm coverage.
+
+## Tier-1 orchestration evidence (2025-11-17)
+
+- **Command:** `COVERAGE_DATASETS_FILE=ml/config/coverage_datasets_tier1.toml COVERAGE_RESTORE_ENABLED=1 poetry run python -m ml.cli.pipeline_orchestrator --config ml/config/pipeline_scheduler_example.toml` (cold-path run ID `orch_625eb3bc2266`; full console log stored at `ml_out/tier1_orchestrator_run2.log`).
+- **Scope:** Tier-1 scheduler config with `VintagePolicy.REAL_TIME`, ingestion lookback 30 d, dual-write enabled (`write_mode = "sql+parquet"`), coverage manifest injected via `COVERAGE_DATASETS_FILE`.
+- **Results:** Eleven symbols (AAPL, ABBV, ABT, ACN, ADBE, AMAT, AMD, AMZN, AVGO, BA, BAC) emitted `ingestion.symbol.completed` events and replayed alternating 95 k/200 k row windows into Postgres via `DataStoreMarketDataWriter`. Every parquet mirror attempt failed fast with `nautilus_trader/persistence/catalog`'s disjoint-interval assertion, so the `FanoutMarketDataWriter` currently degrades to SQL-only writes until catalog hygiene removes overlapping files.
+- **Failure:** After processing BAC, the run aborted at the first symbol lacking Databento coverage (`SymbologyResolutionError: Symbol BRK not found in dataset EQUS.MINI`). The orchestration flow therefore requires (a) catalog compaction so parquet fan-out succeeds and (b) a symbology override/alias for BRK before the Tier-1 run can complete end-to-end.
+- **Follow-ups:** keep `COVERAGE_RESTORE_ENABLED=1` so `coverage.feature_restore` hooks stay armed once adapters land, and document the log path/run ID alongside any fixes so reviewers can trace the parquet + symbology remediation.
+- **Update (2025-11-18, run ID `orch_6dda9d5d543a`, log `ml_out/tier1_orchestrator_run3c.log`):** Running with catalog hygiene enabled plus the refreshed partition helpers allowed all Tier-1 symbols to stream into Postgres again while parquet fan-out logged `Parquet catalog write skipped due to overlapping interval` (acceptable degradation). The run now progresses past BRK (alias rewrite to BRK.B) and eventually fails when `update_watermark` attempts to record progress for HOOD because `EQUS.MINI` is missing from `ml_dataset_registry`, triggering a foreign-key violation. Register the dataset (via `ml.registry.bootstrap_datasets` or migration) before the next rerun so coverage + watermark updates can complete.
+- **Update (2025-11-18, run ID `orch_57f422b18f31`, log `ml_out/tier1_orchestrator_run4.log`):** After pointing `NAUTILUS_DB`/registry env vars to the primary DB (`localhost:5433/nautilus`) and confirming `EQUS.MINI` is present in both registries, Tier‑1 ingestion again streamed every symbol into Postgres with parquet fan-out logging overlap skips. The pipeline now fails when Databento’s symbology resolver returns `502 <empty message>` for `DIS` on `EQUS.MINI`, which surfaces as `SymbologyResolutionError` and aborts the ingestion stage. Next actions: add resilience/retry logic (or bake DIS aliasing) around Databento 5xx responses, rerun once the API is stable, and capture the log for the successful end-to-end run.
 
 ## Promotion Gates
 
@@ -128,6 +195,29 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 - The scheduler clears stale locks older than `ORCH_LOCK_TTL_HOURS`.
 - DRY_RUN allows validating scheduling and argument flow without running model training.
 - Orchestrator run failures emit FAILED events; use metric counters/histograms to track trends.
+
+## Cache Hydration Helpers
+
+Use the thin CLI `ml.cli.hydrate_feature_caches` to backfill or verify the per-minute cache layers before orchestrator runs. Example:
+
+```bash
+poetry run python -m ml.cli.hydrate_feature_caches \
+  --symbols @tier1_full \
+  --start-date 2025-08-04 \
+  --end-date 2025-08-15 \
+  --max-workers 4 \
+  --micro \
+  --l2 \
+  --raw-dir data/tier1 \
+  --micro-cache-dir data/features/micro_minute \
+  --l2-cache-dir data/features/l2_minute
+```
+
+Flags such as `--force-micro` / `--force-l2` refresh existing partitions, while `--no-micro` or `--no-l2` scope the run to a single cache family. The CLI emits partition-level statistics (requested/written/skipped/empty/failures) so operators can confirm hydration parity before triggering the dataset build or orchestrator validation stages.
+
+A Postgres DSN is now required; the CLI falls back to `DB_CONNECTION`, `NAUTILUS_DB`, or `DATABASE_URL` when `--dsn` is omitted. Every SQL write runs through the feature raw-writer so hydrated partitions immediately land in both the parquet cache (`data/features/{micro_minute,l2_minute}`) and the SQL mirrors (`ml.microstructure_minute`, `ml.l2_minute`). This keeps coverage automation green without waiting for a secondary ingest step.
+
+`ensure_macro_ready` and `MLIntegrationManager.ingest_events` share the same dual-write plumbing. Their DataStore instances include the feature raw-writer, so `ml.events_calendar`, `ml.macro_release_calendar`, and `ml.macro_observations` receive SQL updates at the same time their parquet artifacts (`data/events/events.parquet`, `data/fred/**`) refresh.
 
 ## Production Hardening
 
@@ -197,6 +287,76 @@ services:
       POSTGRES_DB: nautilus
     ports:
       - "5432:5432"
+
+## Data Hydration Playbook
+
+### ALFRED Vintage Refresh
+
+Keep `data/fred/vintages/**` synchronized with ALFRED by running:
+
+```bash
+source .env
+yes y | python scripts/download_alfred_vintages.py
+```
+
+The loader auto-loads the `.env` so the explicit `source` is defensive when running
+outside Poetry. The 2025‑11‑16 refresh brought in the new commodity/metals series
+(`PALLFNFINDEXM`, `PCOPPUSDM`, `NASDAQQGLDI`) after removing the legacy CRB/GOLD/SP500
+entries from the macro universe. Those feeds have first-class ALFRED support, so
+rerunning the command now writes full release calendars plus SQL dual writes via
+`ensure_macro_ready`. After the refresh completes, re-run the dataset/audit jobs with
+`VintagePolicy.REAL_TIME` and `fred_vintage_dir=data/fred/vintages` to verify
+macro feature hydration.
+
+### Event / Calendar Refresh
+
+Regenerate `data/events/events.parquet` whenever macro/event sources change:
+
+```bash
+PYTHONPATH=. python - <<'PY'
+from datetime import UTC, datetime
+from pathlib import Path
+from ml.preprocessing.event_ingestion import EventIngestionConfig, EventIngestionUtility
+series = tuple(sorted(p.name for p in Path('data/fred/vintages').iterdir() if p.is_dir()))
+cfg = EventIngestionConfig(
+    start=datetime(2023, 1, 1, tzinfo=UTC),
+    end=datetime(2025, 12, 31, tzinfo=UTC),
+    out_dir=Path('data/events'),
+    alfred_vintage_dir=Path('data/fred/vintages'),
+    economic_series=series,
+    calendar_code='XNYS',
+    include_options_expiry=True,
+)
+EventIngestionUtility(cfg).ingest()
+PY
+```
+
+The 2025‑11‑08 refresh produced ~326k events covering 2023‑2025 with
+`fed_meeting`, `economic_release`, `holiday`, `options_expiry`, and quarterly
+`earnings` stubs. The dataset builder now has calendar/context features available
+via `include_calendar=True`/`include_context_features=True` in
+`tmp/feature_audit_build.py`.
+
+### Earnings Ingestion
+
+Hydrate the `ml.earnings_actuals` / `ml.earnings_estimates` tables and parquet
+mirrors via:
+
+```bash
+ML_FILE_STORE_PATH=data/earnings_file_store \
+SEC_IDENTITY='nautilus-ml dev <dev@nautilus.ai>' \
+poetry run python -m ml.cli.ingest_earnings \
+  --dsn postgresql://postgres:postgres@localhost:5432/nautilus \
+  --parquet-root data/earnings_raw \
+  --universe-mode tier1_full \
+  --quarters 4
+```
+
+This dual-writes into Postgres plus `data/earnings_raw/earnings_{actuals,estimates}/`
+using `EarningsParquetRawWriter`. Ensure the `update_watermark(...)` SQL function
+exists (simple `INSERT ... ON CONFLICT` upsert into `ml_data_watermarks`) so the
+DataStore can emit events without noisy errors, and keep `NAUTILUS_DB` in `.env`
+pointing at the live DSN before running the audit harness.
     volumes:
       - pgdata:/var/lib/postgresql/data
 volumes:
@@ -204,33 +364,51 @@ volumes:
 ```
 
 This starts the scheduler alongside a PostgreSQL container. Provide `CATALOG_PATH` via a bind mount when using `parquet` writers.
-- Pre‑ingestion (Unified Ingestion) via config:
-  - Prefer the config file to enable unified ingestion before dataset build:
+- Unified ingestion/backfill via config:
+  - `ml/config/pipeline_scheduler_example.toml` now ships with a Tier‑1 example that
+    handles ingestion, auto-fill backfilling, and dataset construction for the full TFT universe:
 
 ```toml
 # ml/config/pipeline_scheduler_example.toml (excerpt)
+stage = "full"
 
 [dataset]
-data_dir = "/data/catalog" # ParquetDataCatalog path
-symbols = "SPY.XNAS,QQQ.XNAS"
-out_dir = "ml_out"
+data_dir = "data/tier1"
+out_dir = "ml_out/tier1_full_dataset"
+symbols = "@tier1_full"        # expands to 95 Tier-1 instruments
 include_macro = true
+include_micro = true
+include_l2 = true
+include_events = true
+include_calendar = true
+include_calendar_lags = true
+include_earnings = true
+register_features = true
+emit_dataset_events = true
 
-[pre_ingestion]
-symbols = ["SPY.XNAS","QQQ.XNAS"]
-retention_days = 90
-[pre_ingestion.databento]
-dataset = "EQUS.MINI"
-schema = "ohlcv-1m"
+[ingestion]
+enabled = true
+dataset_id = "EQUS.MINI"
+schema = "bars"
+instruments = "@tier1_full"
+write_mode = "sql+parquet"
+coverage_mode = "catalog"
 
-[pre_ingestion_options]
-use_orchestrator = true
-dual_write = true
-start_metrics_server = false
+[auto_fill]
+enabled = true
+dataset_id = "EQUS.MINI"
+include_bars = true
+include_tbbo = true
+include_trades = true
+include_l2 = true
+l2_dataset_id = "DBEQ.BASIC"
+l2_schema = "mbp-10"
+instrument_ids = "@tier1_full"
 ```
 
-The orchestrator reads this config and automatically runs `DataScheduler` in orchestrator
-mode before dataset build, ensuring both SQL coverage and ParquetDataCatalog are populated.
+Use `@tier1_full`, `@tier1_core`, etc. to expand symbol universes inline. The orchestrator
+will ingest each schema, run catalog-based backfills via `auto_fill`, and then build the
+full TFT dataset with the requested feature toggles.
 
 ### EQUS.MINI Provenance & ITCH Fallback
 

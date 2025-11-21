@@ -7,6 +7,7 @@ Tests the real market calendar implementation with pandas_market_calendars.
 
 from __future__ import annotations
 
+from datetime import UTC
 from datetime import datetime
 from datetime import time
 from datetime import timedelta
@@ -80,6 +81,8 @@ class TestPandasCalendarSource:
         assert isinstance(schedule, MarketSchedule)
         assert schedule.is_trading_day is True
         assert schedule.is_holiday is False
+        assert schedule.market_open.tzinfo == UTC
+        assert schedule.market_close.tzinfo == UTC
 
     def test_exchange_mapping(self) -> None:
         """
@@ -126,8 +129,33 @@ class TestPandasCalendarSource:
             assert schedule.is_market_hours is True
             assert schedule.is_pre_market is False
             assert schedule.is_after_hours is False
-            assert schedule.market_open == datetime(2024, 1, 15, 0, 0)
-            assert schedule.market_close == datetime(2024, 1, 15, 23, 59, 59)
+            assert schedule.market_open.tzinfo == UTC
+            assert schedule.market_close.tzinfo == UTC
+
+    def test_build_schedule_normalizes_timezone(self) -> None:
+        """
+        Ensure pandas-derived schedules are normalized to UTC for comparisons.
+        """
+        pd = pytest.importorskip("pandas")
+        source = PandasCalendarSource(force_fallback=True)
+        dt = datetime(2024, 1, 16, 15, 0, tzinfo=UTC)
+        schedule_index = pd.DatetimeIndex([pd.Timestamp("2024-01-16")])
+        schedule = pd.DataFrame(
+            {
+                "market_open": [pd.Timestamp("2024-01-16 09:30", tz="America/New_York")],
+                "market_close": [pd.Timestamp("2024-01-16 16:00", tz="America/New_York")],
+            },
+            index=schedule_index,
+        )
+
+        result = source._build_schedule(dt, "NYSE", schedule)
+
+        assert result.market_open.tzinfo == UTC
+        assert result.market_close.tzinfo == UTC
+        assert result.market_open.hour == 14  # 09:30 ET -> 14:30 UTC
+        assert result.market_close.hour == 21
+        assert result.market_open.minute == 30
+        assert result.is_market_hours is True
 
     @pytest.mark.skipif(
         not HAS_PANDAS_MARKET_CALENDARS,

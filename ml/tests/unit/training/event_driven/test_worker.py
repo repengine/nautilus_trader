@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
@@ -22,9 +23,10 @@ from ml.config.streaming_pipeline import (
 from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
 from ml.training.event_driven.orchestrator import InMemoryOrchestratorBus, InMemoryStreamingOrchestrator
 from ml.training.event_driven.services import DatasetPlanEvent, DatasetPlanRequest
-from ml.training.event_driven.worker import LightningStreamingWorker
+from ml.training.event_driven.worker import LightningStreamingWorker, StreamingCheckpointManager
 from ml.training.teacher import streaming_loader as stream
-from ml.training.teacher.streaming_loader import TFTStreamingConfig
+from ml.training.teacher.streaming_loader import TFTStreamingConfig, TFTStreamingSummary
+from ml.training.teacher.streaming_telemetry import StreamingLoaderTelemetry, StreamingRunTelemetry
 from ml.training.teacher.tft_teacher import StreamingFitResult, StreamingRowMetadata, TFTTeacher
 
 try:  # Optional dependency gate for PyTorch Forecasting
@@ -161,8 +163,10 @@ class _DeterministicTeacher:
         val_metadata,
         full_metadata,
         streaming_config,
+        callbacks=None,
+        checkpoint_path=None,
     ) -> StreamingFitResult:
-        del parquet_path, train_loader, val_loader, full_metadata  # unused in stub
+        del parquet_path, train_loader, val_loader, full_metadata, callbacks, checkpoint_path  # unused in stub
         train_sequences = max(1, stream.count_sequences(train_metadata, streaming_config))
         val_sequences = max(2, stream.count_sequences(val_metadata, streaming_config))
         z_train = np.linspace(-0.2, 0.2, num=train_sequences, dtype=np.float64)
@@ -475,7 +479,11 @@ def test_worker_defers_when_validation_empty(tmp_path: Path, monkeypatch: pytest
     def _fake_execute_training_attempt(
         plan: DatasetPlanEvent,
         context: Any,
+        *,
+        callbacks: Any | None = None,
+        checkpoint_path: Path | None = None,
     ) -> StreamingFitResult:
+        del callbacks, checkpoint_path  # unused for deterministic stub
         return StreamingFitResult(
             z_train=np.array([0.0], dtype=np.float64),
             z_val=np.array([], dtype=np.float64),
@@ -888,3 +896,114 @@ def test_worker_emits_economic_and_stability_metrics(tmp_path: Path) -> None:
     assert telemetry.economic is not None
     assert telemetry.economic.hit_rate is not None
     assert telemetry.stability is not None
+
+
+class _TrainerStub:
+    def __init__(self) -> None:
+        self.global_step = 1
+        self.current_epoch = 0
+        self.callback_metrics = {"loss": 0.1}
+        self.saved_paths: list[Path] = []
+
+    def save_checkpoint(self, path: str) -> None:
+        Path(path).write_text("checkpoint", encoding="utf-8")
+        self.saved_paths.append(Path(path))
+
+
+def test_checkpoint_manager_manual_save_and_resume(tmp_path: Path) -> None:
+    manager = StreamingCheckpointManager(
+        tmp_path / "manual",
+        retention=2,
+        interval_seconds=None,
+        interval_steps=None,
+    )
+    assert manager.prepare_plan("plan-manual", "dataset-manual") is None
+    trainer = _TrainerStub()
+    manager.attach_trainer(trainer, object())
+    saved_path = manager.request_manual_save(reason="manual-trigger", triggered_by_signal=True)
+    assert saved_path is not None
+    latest_ckpt = tmp_path / "manual" / "plan-manual_latest.ckpt"
+    metadata_path = tmp_path / "manual" / "plan-manual_latest.json"
+    assert latest_ckpt.exists()
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["trigger"] == "manual:signal"
+    assert payload["reason"] == "manual-trigger"
+    assert payload["global_step"] == 1
+    manager.detach_trainer()
+
+    resume_record = manager.prepare_plan("plan-manual", "dataset-manual")
+    assert resume_record is not None
+    assert resume_record.global_step == 1
+    assert resume_record.path == latest_ckpt
+
+
+def test_checkpoint_manager_interval_triggers_save(tmp_path: Path) -> None:
+    manager = StreamingCheckpointManager(
+        tmp_path / "interval",
+        retention=2,
+        interval_seconds=None,
+        interval_steps=1,
+    )
+    manager.prepare_plan("plan-interval", "dataset-interval")
+    trainer = _TrainerStub()
+    manager.attach_trainer(trainer, object())
+    manager.maybe_save_interval()
+    latest_ckpt = tmp_path / "interval" / "plan-interval_latest.ckpt"
+    assert latest_ckpt.exists()
+    metadata_path = tmp_path / "interval" / "plan-interval_latest.json"
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["trigger"] == "interval_steps"
+    manager.detach_trainer()
+
+
+def test_worker_checkpoint_telemetry_block(tmp_path: Path) -> None:
+    worker_config = StreamingWorkerConfig(checkpoint_dir=str(tmp_path / "telemetry"))
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "artifacts")
+    manager = worker._checkpoint_manager
+    assert manager is not None
+    manager.prepare_plan("plan-telemetry", "dataset-telemetry")
+    trainer = _TrainerStub()
+    manager.attach_trainer(trainer, object())
+    manager.request_manual_save(reason="telemetry", triggered_by_signal=False)
+    manager.detach_trainer()
+    resume_record = manager.prepare_plan("plan-telemetry", "dataset-telemetry")
+
+    summary = TFTStreamingSummary(total_shards=1, total_rows=1, max_shard_rows=1)
+    telemetry = StreamingRunTelemetry(
+        metadata_summary=summary,
+        caps={},
+        train=StreamingLoaderTelemetry(
+            loader="train",
+            total_shards=1,
+            selected_shards=1,
+            skipped_shards=0,
+            total_rows=1,
+            selected_rows=1,
+            skipped_rows=0,
+            total_sequences=1,
+            selected_sequences=1,
+            skipped_sequences=0,
+        ),
+        validation=StreamingLoaderTelemetry(
+            loader="validation",
+            total_shards=1,
+            selected_shards=1,
+            skipped_shards=0,
+            total_rows=1,
+            selected_rows=1,
+            skipped_rows=0,
+            total_sequences=1,
+            selected_sequences=1,
+            skipped_sequences=0,
+        ),
+    )
+    augmented = worker._attach_checkpoint_telemetry(
+        telemetry,
+        checkpoint_manager=manager,
+        resume_record=resume_record,
+        resume_applied=True,
+    )
+    assert augmented.checkpoint is not None
+    assert augmented.checkpoint.resumed is True
+    assert augmented.checkpoint.resume_checkpoint_path is not None
+    assert augmented.checkpoint.latest_checkpoint_path is not None

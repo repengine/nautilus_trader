@@ -53,7 +53,7 @@ Status: Draft (operationally recommended defaults implemented; verification hook
 
 ## F. Canonical Store Boundaries
 
-- [ ] Canonical raw store = Postgres `market_data` (003_market_data.sql)
+- [ ] Canonical raw store = Postgres `market_data` (004_market_data.sql)
   - Verify: Live/Backfill writes go through `SqlMarketDataWriter`; registry events/watermarks emitted post‑write
   - Where: Ingest Backfill CLI/orchestrator wiring; deployment config
 - [ ] Parquet used for training/offline reads/coverage planning only (not authoritative)

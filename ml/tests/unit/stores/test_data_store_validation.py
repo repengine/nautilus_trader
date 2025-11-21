@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, ContextManager, Iterable, Sequence, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ContextManager, Iterable, Protocol, Sequence, TypeAlias, TypeVar, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -65,7 +65,10 @@ if TYPE_CHECKING:
 else:
     DataStore = Any  # pragma: no cover - runtime fallback for type checking tools
 
-DataStoreModuleFactory = Callable[..., ContextManager[ModuleType]]
+class DataStoreModuleFactory(Protocol):
+    """Callable returning a DataStore module for the desired implementation."""
+
+    def __call__(self, *, use_component: bool) -> ContextManager[ModuleType]: ...
 
 
 def _maybe_polars_frame(records: RecordList) -> FrameLike:
@@ -73,6 +76,12 @@ def _maybe_polars_frame(records: RecordList) -> FrameLike:
     if HAS_POLARS:
         return pl.DataFrame(records)
     return [dict(row) for row in records]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are isolated for tests in this module."""
+    del isolated_prometheus_registry
 
 
 def _materialize_frame(records: RecordList) -> PandasDF:

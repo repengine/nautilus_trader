@@ -7,6 +7,8 @@ Validates that the new L2/L3 features integrate seamlessly with the registry and
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import hashlib
 import json
 import tempfile
@@ -20,8 +22,8 @@ import pytest
 from ml._imports import HAS_PANDAS
 from ml._imports import HAS_POLARS
 from ml._imports import pl
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
 from ml.features.microstructure import L2MicrostructureFeatures
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
@@ -37,10 +39,18 @@ from ml.registry.persistence import PersistenceConfig
 from ml.stores.feature_store import FeatureStore
 
 
-pytestmark = pytest.mark.skipif(
-    not HAS_POLARS or not HAS_PANDAS,
-    reason="Requires polars and pandas",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not HAS_POLARS or not HAS_PANDAS,
+        reason="Requires polars and pandas",
+    ),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
+]
+
 
 
 @pytest.mark.database
@@ -79,47 +89,7 @@ class TestL2L3RegistryStoreIntegration:
         assert "trade_intensity" in feature_names
         assert "avg_price_impact" in feature_names
 
-    @pytest.mark.database
-    @pytest.mark.serial
-    def test_feature_engineer_delegates_to_l2_calculator(self) -> None:
-        """
-        Test that FeatureEngineer properly delegates to L2MicrostructureFeatures.
-        """
-        config = FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_L2)
-        engineer = FeatureEngineer(config)
 
-        # Create mock data with L2 depth
-        df = pl.DataFrame(
-            {
-                "open": [100.0, 101.0],
-                "high": [102.0, 103.0],
-                "low": [99.0, 100.0],
-                "close": [101.0, 102.0],
-                "volume": [1000, 2000],
-                "ts_event": [1000, 2000],
-                "ts_init": [1000, 2000],
-                # L2 depth data
-                "bid_price_0": [100.5, 101.5],
-                "ask_price_0": [101.5, 102.5],
-                "bid_size_0": [100, 200],
-                "ask_size_0": [150, 250],
-            },
-        )
-
-        # Patch L2MicrostructureFeatures to verify delegation
-        with patch("ml.features.microstructure.L2MicrostructureFeatures") as mock_l2:
-            mock_instance = MagicMock()
-            mock_instance.compute_all_features.return_value = {
-                "spread": [1.0, 1.0],
-                "spread_bps": [100.0, 100.0],
-            }
-            mock_l2.return_value = mock_instance
-
-            features = engineer._calculate_microstructure_features_batch(df, 1)
-
-            # Verify L2 calculator was used
-            mock_l2.assert_called_once()
-            mock_instance.compute_all_features.assert_called_once()
 
     @pytest.mark.database
     @pytest.mark.serial

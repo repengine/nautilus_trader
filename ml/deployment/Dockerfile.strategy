@@ -16,6 +16,7 @@ COPY ml ./ml
 # Install runtime dependencies (avoid Poetry in image for simplicity)
 RUN pip install --no-cache-dir \
     nautilus-trader \
+    databento \
     numpy \
     pandas \
     msgspec \

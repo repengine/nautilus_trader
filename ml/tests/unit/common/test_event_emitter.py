@@ -9,6 +9,7 @@ from ml.common.event_emitter import (
     emit_dataset_event,
     emit_dataset_event_and_watermark,
 )
+from ml.common.events_util import normalize_stage_value
 
 from ml.config.events import EventStatus, Source, Stage
 from ml.registry.protocols import RegistryProtocol
@@ -245,6 +246,7 @@ def test_emit_dataset_event_logs_metadata_fallback(
 
     assert reg.last_emit is not None
     assert "metadata" not in reg.last_emit
+    expected_stage = normalize_stage_value(Stage.MODEL_INFERRED)
     assert any(
         "Registry rejected dataset event metadata" in record.message
         for record in caplog.records
@@ -252,7 +254,7 @@ def test_emit_dataset_event_logs_metadata_fallback(
     assert counter_stub.labels_called == {
         "dataset_type": "predictions",
         "component": "writer",
-        "stage": Stage.MODEL_INFERRED.value,
+        "stage": expected_stage,
         "source": Source.BATCH.value,
     }
     assert counter_stub.inc_called

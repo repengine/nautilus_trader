@@ -15,6 +15,8 @@ from typing import cast as _cast
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.features._symbol_utils import resolve_symbol_data_dir
+from ml.features._symbol_utils import select_latest_symbol_file
 from ml.ml_types import PolarsDF
 
 
@@ -59,6 +61,7 @@ def aggregate_microstructure_minute_pl(
         q = quotes
         if q[timestamp_col].dtype != _pl.Datetime:
             q = q.with_columns(_pl.col(timestamp_col).cast(_pl.Datetime("ns", "UTC")))
+        q = q.drop_nulls(subset=[timestamp_col])
         mid_expr = (_pl.col(bid_col) + _pl.col(ask_col)) / 2.0
         denom = (_pl.col(bid_sz_col) + _pl.col(ask_sz_col)).cast(_pl.Float64)
         denom_safe = _pl.when(denom > 0).then(denom).otherwise(1.0)
@@ -69,6 +72,7 @@ def aggregate_microstructure_minute_pl(
                 ((_pl.col(bid_sz_col) - _pl.col(ask_sz_col)) / denom_safe).alias("quote_imbalance"),
             ],
         )
+        q = q.sort(timestamp_col)
         q_min = (
             q.group_by_dynamic(index_column=timestamp_col, every="1m", period="1m")
             .agg(
@@ -86,12 +90,14 @@ def aggregate_microstructure_minute_pl(
         t = trades
         if t[timestamp_col].dtype != _pl.Datetime:
             t = t.with_columns(_pl.col(timestamp_col).cast(_pl.Datetime("ns", "UTC")))
+        t = t.drop_nulls(subset=[timestamp_col])
         sign = _pl.when(_pl.col("side").str.contains("SELL")).then(-1).otherwise(1)
         t = t.with_columns((sign * _pl.col("size").cast(_pl.Float64)).alias("signed_size"))
         t = t.with_columns(_pl.col("price").cast(_pl.Float64))
         t = t.with_columns(
             (_pl.col("price").log() - _pl.col("price").log().shift(1)).alias("log_ret"),
         )
+        t = t.sort(timestamp_col)
         denom_sum = _pl.sum("size").cast(_pl.Float64)
         denom_sum_safe = _pl.when(denom_sum > 0).then(denom_sum).otherwise(1.0)
         t_min = (
@@ -121,14 +127,17 @@ class MicrostructureAggregator:
 
     def _load_l1_quotes(self, symbol: str) -> PolarsDF | None:
         _pl = _ensure_polars()
-        l1_dir = self.base_dir / symbol / "l1"
+        root_dir = resolve_symbol_data_dir(self.base_dir, symbol)
+        if root_dir is None:
+            return None
+        l1_dir = root_dir / "l1"
         if not l1_dir.exists():
             return None
-        paths = sorted(p for p in l1_dir.glob("*_bbo_*.parquet"))
-        if not paths:
+        path = select_latest_symbol_file(l1_dir, root_dir.name, "bbo")
+        if path is None:
             return None
         try:
-            df = _pl.read_parquet(paths[-1])
+            df = _pl.read_parquet(str(path))
             needed = [
                 c
                 for c in df.columns
@@ -140,14 +149,17 @@ class MicrostructureAggregator:
 
     def _load_l1_trades(self, symbol: str) -> PolarsDF | None:
         _pl = _ensure_polars()
-        l1_dir = self.base_dir / symbol / "l1"
+        root_dir = resolve_symbol_data_dir(self.base_dir, symbol)
+        if root_dir is None:
+            return None
+        l1_dir = root_dir / "l1"
         if not l1_dir.exists():
             return None
-        paths = sorted(p for p in l1_dir.glob("*_trades_*.parquet"))
-        if not paths:
+        path = select_latest_symbol_file(l1_dir, root_dir.name, "trades")
+        if path is None:
             return None
         try:
-            df = _pl.read_parquet(paths[-1])
+            df = _pl.read_parquet(str(path))
             needed = [c for c in df.columns if c in {"ts_event", "price", "size", "side"}]
             return _cast(PolarsDF, df.select(needed))
         except Exception:

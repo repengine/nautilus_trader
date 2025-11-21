@@ -106,6 +106,24 @@ class SchedulerConfig:
     connection_string: str | None = None
     market_dataset_id: str | None = None
     market_inputs: tuple[MarketDatasetInput, ...] | None = None
+    market_backfill_lookback_days: int = 365
+    market_backfill_dynamic: bool = False
+    market_backfill_min_days: int = 1
+    market_backfill_max_days: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.market_backfill_lookback_days < 1:
+            msg = "market_backfill_lookback_days must be >= 1"
+            raise ValueError(msg)
+        if self.market_backfill_min_days < 1:
+            msg = "market_backfill_min_days must be >= 1"
+            raise ValueError(msg)
+        if (
+            self.market_backfill_max_days is not None
+            and self.market_backfill_max_days < self.market_backfill_min_days
+        ):
+            msg = "market_backfill_max_days must be >= market_backfill_min_days"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)

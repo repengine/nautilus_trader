@@ -17,6 +17,8 @@ from ml.dashboard.services.strategy_service import (
     StrategyService,
 )
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
 
 # ============================================================================
 # FIXTURES

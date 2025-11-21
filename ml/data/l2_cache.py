@@ -48,7 +48,9 @@ from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
+from ml.features.l2_aggregate import L2_MINUTE_COLUMNS
 from ml.features.l2_aggregate import L2Aggregator
+from ml.features.l2_aggregate import _empty_l2_minute_df
 
 
 if TYPE_CHECKING:
@@ -124,7 +126,7 @@ class L2MinuteCache:
         """
         ensure_polars()
         out = self.path_for(symbol, day)
-        if out.exists():
+        if not self._partition_needs_refresh(out):
             return out
         out.parent.mkdir(parents=True, exist_ok=True)
         # Compute from raw for the day
@@ -133,10 +135,20 @@ class L2MinuteCache:
         agg = L2Aggregator(raw_base_dir)
         df = agg.compute_for_symbol(symbol, start=start_dt, end=end_dt)
         if df.is_empty():
-            # Create empty schema with timestamp to preserve partition
-            df = PL.DataFrame({"timestamp": []})
+            df = _empty_l2_minute_df()
         df.write_parquet(str(out))
         return out
+
+    def _partition_needs_refresh(self, path: Path) -> bool:
+        if not path.exists():
+            return True
+        try:
+            header = PL.read_parquet(str(path), n_rows=0)
+        except Exception:
+            return True
+        existing_cols = set(header.columns)
+        required = set(L2_MINUTE_COLUMNS)
+        return not required.issubset(existing_cols)
 
     def get_range(
         self,

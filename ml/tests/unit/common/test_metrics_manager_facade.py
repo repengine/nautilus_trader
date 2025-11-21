@@ -6,6 +6,11 @@ import pytest
 
 from ml.common.metrics_manager import MetricsManager
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 class _FakeCtr:
     def __init__(self) -> None:
@@ -18,7 +23,6 @@ class _FakeCtr:
     def inc(self, amount: float = 1.0) -> None:
         self.calls.append((getattr(self, "_labels", {}), float(amount)))
 
-
 class _FakeGauge:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], float]] = []
@@ -29,7 +33,6 @@ class _FakeGauge:
 
     def set(self, value: float) -> None:
         self.calls.append((getattr(self, "_labels", {}), float(value)))
-
 
 def test_metrics_manager_inc_and_gauge_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_ctr = _FakeCtr()

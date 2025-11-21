@@ -15,12 +15,11 @@ We explicitly avoid testing implementation details like:
 """
 
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
 from ml._imports import HAS_NAUTILUS_CORE
-from ml._imports import HAS_ONNX
-from ml._imports import HAS_XGBOOST
 from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
@@ -34,7 +33,6 @@ from ml.actors.signal import SignalStrategy
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLStrategyConfig
 from ml.features import FeatureConfig
-from ml.features import FeatureEngineer
 from ml.strategies.base import SimpleMLStrategy
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
@@ -50,7 +48,39 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.model.objects import Money
 
-from ml.tests.fixtures.integration import create_onnx_model_for_features
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
+
+def _configure_mock_onnx_session(
+    mock_onnx_runtime,
+    onnx_session_stub_factory: Callable[..., object],
+    *,
+    prediction: float,
+    confidence: float,
+    raise_on_run: bool = False,
+) -> None:
+    """Install deterministic ONNX Runtime sessions for the duration of a test."""
+
+    def _factory(*_: object, **__: object) -> object:
+        return onnx_session_stub_factory(
+            prediction=prediction,
+            confidence=confidence,
+            raise_on_run=raise_on_run,
+        )
+
+    mock_onnx_runtime.ort.InferenceSession.side_effect = _factory
+
+
+def _write_stub_model(tmp_path: Path, filename: str = "model.onnx") -> Path:
+    """Write a placeholder ONNX artifact to satisfy path checks."""
+
+    model_path = tmp_path / filename
+    model_path.write_bytes(b"mock-onnx")
+    return model_path
 
 
 @pytest.mark.slow
@@ -66,6 +96,8 @@ class TestMLSignalPipeline:
         test_instrument: CurrencyPair,
         test_bar_type: BarType,
         tmp_path: Path,
+        mock_onnx_runtime,
+        onnx_session_stub_factory,
     ) -> None:
         """
         Test that ML signals flow correctly through the message bus.
@@ -77,11 +109,6 @@ class TestMLSignalPipeline:
         4. System completes without errors
 
         """
-        if not HAS_ONNX:
-            pytest.skip("ONNX Runtime not installed")
-        if not HAS_XGBOOST:
-            pytest.skip("XGBoost not installed")
-
         # Configure features
         feature_config = FeatureConfig(
             indicators={
@@ -93,9 +120,13 @@ class TestMLSignalPipeline:
         )
 
         # Create model with correct dimensions
-        engineer = FeatureEngineer(config=feature_config)
-        n_features = len(engineer.get_feature_names())
-        model_path = create_onnx_model_for_features(n_features, tmp_path)
+        model_path = _write_stub_model(tmp_path)
+        _configure_mock_onnx_session(
+            mock_onnx_runtime,
+            onnx_session_stub_factory,
+            prediction=1.0,
+            confidence=0.95,
+        )
 
         # Setup backtest engine
         config = BacktestEngineConfig(
@@ -186,6 +217,8 @@ class TestMLSignalPipeline:
         test_instrument: CurrencyPair,
         test_bar_type: BarType,
         tmp_path: Path,
+        mock_onnx_runtime,
+        onnx_session_stub_factory,
     ) -> None:
         """
         Test that the ML pipeline can generate trades.
@@ -194,23 +227,18 @@ class TestMLSignalPipeline:
         pipeline from signal to trade.
 
         """
-        if not HAS_ONNX:
-            pytest.skip("ONNX Runtime not installed")
-
-        # Create a model for testing
-        # In a real test, we'd create a deterministic model for predictable behavior
-
         feature_config = FeatureConfig(
             indicators={"sma": {"periods": [10]}},
             lookback_window=10,
         )
 
-        engineer = FeatureEngineer(config=feature_config)
-        n_features = len(engineer.get_feature_names())
-
-        # Need to create a helper that makes a bullish model
-        # For now, use regular model
-        model_path = create_onnx_model_for_features(n_features, tmp_path)
+        model_path = _write_stub_model(tmp_path, filename="trading_model.onnx")
+        _configure_mock_onnx_session(
+            mock_onnx_runtime,
+            onnx_session_stub_factory,
+            prediction=1.0,
+            confidence=0.9,
+        )
 
         # Setup engine
         config = BacktestEngineConfig(trader_id=TraderId("TESTER-002"))
@@ -272,6 +300,8 @@ class TestMLSignalPipeline:
         test_instrument: CurrencyPair,
         test_bar_type: BarType,
         tmp_path: Path,
+        mock_onnx_runtime,
+        onnx_session_stub_factory,
     ) -> None:
         """
         Test that the ML pipeline handles errors gracefully.
@@ -280,11 +310,14 @@ class TestMLSignalPipeline:
         breaker works.
 
         """
-        if not HAS_ONNX:
-            pytest.skip("ONNX Runtime not installed")
-
-        # Create model with WRONG dimensions to trigger errors
-        wrong_model_path = create_onnx_model_for_features(5, tmp_path)
+        wrong_model_path = _write_stub_model(tmp_path, filename="invalid_model.onnx")
+        _configure_mock_onnx_session(
+            mock_onnx_runtime,
+            onnx_session_stub_factory,
+            prediction=0.1,
+            confidence=0.4,
+            raise_on_run=True,
+        )
 
         # But configure actor with different features
         feature_config = FeatureConfig(

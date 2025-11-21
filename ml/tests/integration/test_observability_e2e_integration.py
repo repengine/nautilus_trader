@@ -13,6 +13,12 @@ from ml.common.observability_utils import record_stage_boundary
 from ml.core.integration import MLIntegrationManager
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 if TYPE_CHECKING:  # pragma: no cover - hints only
     import pandas as pd
 

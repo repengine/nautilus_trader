@@ -4,11 +4,12 @@ import numpy as np
 import pytest
 
 from ml.features.earnings import earnings_features as ef
+from ml.features.earnings import reset_earnings_metrics_state
 
 
 @pytest.fixture(autouse=True)
 def reset_metrics_cache() -> None:
-    ef._default_earnings_metrics_enabled.cache_clear()
+    reset_earnings_metrics_state()
 
 
 def test_earnings_metrics_enabled_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,20 +58,9 @@ class _StubMetricsManager:
         return self.hist_metric
 
 
-def _reset_module_state() -> None:
-    ef._default_earnings_metrics_enabled.cache_clear()
-    ef._metrics_init = False
-    ef._surprise_updates_total = None
-    ef._surprise_latency_seconds = None
-    ef._growth_updates_total = None
-    ef._growth_latency_seconds = None
-    ef._momentum_updates_total = None
-    ef._momentum_latency_seconds = None
-
-
 def test_compute_surprise_incremental_without_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ML_EARNINGS_ENABLE_METRICS", "0")
-    _reset_module_state()
+    reset_earnings_metrics_state()
 
     stub_manager = _StubMetricsManager()
     from ml.common.metrics_manager import MetricsManager
@@ -86,7 +76,7 @@ def test_compute_surprise_incremental_without_metrics(monkeypatch: pytest.Monkey
 
 def test_compute_surprise_batch_with_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ML_EARNINGS_ENABLE_METRICS", "1")
-    _reset_module_state()
+    reset_earnings_metrics_state()
 
     stub_manager = _StubMetricsManager()
     from ml.common.metrics_manager import MetricsManager
@@ -100,3 +90,12 @@ def test_compute_surprise_batch_with_metrics(monkeypatch: pytest.MonkeyPatch) ->
 
     assert stub_manager.counter_calls > 0
     assert stub_manager.histogram_calls > 0
+
+
+def test_metrics_flag_reflects_env_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ML_EARNINGS_ENABLE_METRICS", "1")
+    reset_earnings_metrics_state()
+    assert ef.earnings_metrics_enabled() is True
+
+    monkeypatch.setenv("ML_EARNINGS_ENABLE_METRICS", "0")
+    assert ef.earnings_metrics_enabled() is False

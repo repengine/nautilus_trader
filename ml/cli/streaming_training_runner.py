@@ -26,6 +26,7 @@ from ml.common.subprocess_utils import SubprocessExecutionError
 from ml.common.subprocess_utils import run_command
 from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
+from ml.config.streaming_pipeline import AzureScheduledEventsConfig
 from ml.config.streaming_pipeline import CurriculumGuardRule
 from ml.config.streaming_pipeline import CurriculumScheduleConfig
 from ml.config.streaming_pipeline import CurriculumStageConfig
@@ -48,7 +49,8 @@ from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
 from ml.registry.feature_registry import compute_schema_hash
-from ml.registry.model_registry import USE_LEGACY as REGISTRY_USE_LEGACY
+from ml.training.event_driven.azure_events import AzureScheduledEventsWatcher
+from ml.training.event_driven.azure_events import ScheduledEventNotice
 from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
 from ml.training.event_driven.orchestrator import AdaptiveSchedulingDeferred
 from ml.training.event_driven.orchestrator import InMemoryStreamingOrchestrator
@@ -124,6 +126,7 @@ class RunnerConfig:
     pipeline_signature: str
     pipeline_version: str
     persist_snapshot: bool
+    scheduled_events: AzureScheduledEventsConfig = field(default_factory=AzureScheduledEventsConfig)
 
 
 @dataclass(slots=True, frozen=True)
@@ -383,6 +386,71 @@ def _env_optional_seed(name: str) -> int | None:
     except ValueError:
         return None
     return parsed if parsed >= 0 else None
+
+
+def _env_optional_path(name: str) -> Path | None:
+    """Return path parsed from environment or ``None`` when unset or blank."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def _env_optional_positive_float(name: str) -> float | None:
+    """Return positive float parsed from environment or ``None`` when unset or invalid."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0.0 else None
+
+
+def _env_optional_positive_int(name: str) -> int | None:
+    """Return positive integer parsed from environment or ``None`` when unset or invalid."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    """Return boolean flag parsed from environment."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _env_str_tuple(name: str) -> tuple[str, ...]:
+    """Return tuple of strings derived from comma-separated environment variable."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return ()
+    parts = [segment.strip() for segment in raw.split(",")]
+    return tuple(part for part in parts if part)
 
 
 def _as_str_tuple(value: object) -> tuple[str, ...]:
@@ -804,8 +872,6 @@ def _register_model(
     pipeline_signature: str,
     pipeline_version: str,
 ) -> str:
-    if REGISTRY_USE_LEGACY:
-        logger.warning("Legacy model registry is active; runner uses facade APIs.")
     registry = ModelRegistry(registry_root)
     feature_names = list(spec.feature_layout.feature_schema.keys())
     feature_dtypes = [spec.feature_layout.feature_schema[name] for name in feature_names]
@@ -879,16 +945,81 @@ class StreamingTrainingRunner:
         self._config = config
         self._stop_requested = False
         self._message_bus_cfg = MessageBusConfig.from_env()
+        self._active_worker: LightningStreamingWorker | None = None
+        self._scheduled_event_watcher: AzureScheduledEventsWatcher | None = None
+        if config.scheduled_events.enabled:
+            self._scheduled_event_watcher = AzureScheduledEventsWatcher(
+                config.scheduled_events,
+                callback=self._handle_scheduled_event_notice,
+            )
 
     def install_signal_handlers(self) -> None:
         """Install SIGINT/SIGTERM handlers to stop the runner gracefully."""
 
         def _handler(signum: int, _frame: Any) -> None:
-            logger.info("received signal %s, stopping runner", signum)
-            self._stop_requested = True
+            self._handle_signal(signum)
 
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)
+
+    def _handle_signal(self, signum: int) -> None:
+        """Handle termination signals by requesting a graceful shutdown and checkpoint."""
+        signal_enum = getattr(signal, "Signals", None)
+        if signal_enum is not None:
+            try:  # pragma: no cover - platform dependent path
+                signal_name = signal_enum(signum).name
+            except Exception:  # pragma: no cover - fallback for unexpected signals
+                signal_name = str(signum)
+        else:  # pragma: no cover - Signals enum unavailable on some platforms
+            signal_name = str(signum)
+        logger.info("received signal %s, stopping runner", signal_name)
+        self._stop_requested = True
+        self._request_checkpoint(reason=f"signal:{signal_name}")
+
+    def _request_checkpoint(self, *, reason: str) -> None:
+        """Flush a checkpoint on the active worker when available."""
+        worker = self._active_worker
+        if worker is None:
+            return
+        try:
+            worker.save_checkpoint_now(reason=reason, triggered_by_signal=True)
+        except Exception:
+            logger.error(
+                "checkpoint_signal_save_failed",
+                extra={"reason": reason},
+                exc_info=True,
+            )
+
+    def _handle_scheduled_event_notice(self, notice: ScheduledEventNotice) -> None:
+        """Respond to Azure scheduled-event eviction notices by checkpointing."""
+        reason_parts = [f"azure:{notice.event_type.strip().lower()}"]
+        if notice.event_id:
+            reason_parts.append(str(notice.event_id))
+        reason = ":".join(reason_parts)
+        logger.info(
+            "azure_eviction_notice_received",
+            extra={
+                "event_id": notice.event_id,
+                "event_type": notice.event_type,
+                "event_status": notice.event_status,
+                "resources": list(notice.resources),
+                "not_before": notice.not_before,
+            },
+        )
+        self._stop_requested = True
+        self._request_checkpoint(reason=reason)
+
+    def _start_scheduled_event_monitoring(self) -> None:
+        """Start the Azure scheduled-event watcher when configured."""
+        watcher = self._scheduled_event_watcher
+        if watcher is not None:
+            watcher.start()
+
+    def _stop_scheduled_event_monitoring(self) -> None:
+        """Stop the Azure scheduled-event watcher."""
+        watcher = self._scheduled_event_watcher
+        if watcher is not None:
+            watcher.stop()
 
     def _should_defer_due_to_backlog(
         self,
@@ -954,50 +1085,56 @@ class StreamingTrainingRunner:
         config = self._config
         planner = StreamingDatasetPlanner(config.planner)
         worker = RecordingStreamingWorker(config.worker, output_dir=config.output_dir)
-        orchestrator = InMemoryStreamingOrchestrator(
-            config=config.orchestrator,
-            planner=planner,
-            worker=worker,
-            bus_config=self._message_bus_cfg,
-            state_path=config.state_path.parent / "streaming_orchestrator_state.json",
-        )
-        cleared = orchestrator.clear_backlog(include_active=True)
-        if cleared:
-            logger.info("cleared_stale_orchestrator_state", extra={"plan_ids": list(cleared)})
+        self._active_worker = worker
+        self._start_scheduled_event_monitoring()
+        try:
+            orchestrator = InMemoryStreamingOrchestrator(
+                config=config.orchestrator,
+                planner=planner,
+                worker=worker,
+                bus_config=self._message_bus_cfg,
+                state_path=config.state_path.parent / "streaming_orchestrator_state.json",
+            )
+            cleared = orchestrator.clear_backlog(include_active=True)
+            if cleared:
+                logger.info("cleared_stale_orchestrator_state", extra={"plan_ids": list(cleared)})
 
-        plans_run = 0
-        while not self._stop_requested:
-            if config.max_plans is not None and plans_run >= config.max_plans:
-                break
-            if self._should_defer_due_to_backlog(orchestrator):
-                self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
-                continue
-            plan_request = _make_dataset_plan_request(config.dataset)
-            try:
-                plan_event = orchestrator.enqueue_training(plan_request)
-            except AdaptiveSchedulingDeferred as exc:
-                logger.info(
-                    "adaptive_deferral_skipped_plan",
-                    extra={
-                        "dataset_id": config.dataset.dataset_id,
-                        "reason": str(exc),
-                    },
-                )
-                self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
-                continue
-            result_event = worker.last_result
-            if result_event is None:
-                RUN_COUNTER.labels(status=EventStatus.FAILED.value).inc()
-                raise RuntimeError("worker did not produce a training result event")
+            plans_run = 0
+            while not self._stop_requested:
+                if config.max_plans is not None and plans_run >= config.max_plans:
+                    break
+                if self._should_defer_due_to_backlog(orchestrator):
+                    self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
+                    continue
+                plan_request = _make_dataset_plan_request(config.dataset)
+                try:
+                    plan_event = orchestrator.enqueue_training(plan_request)
+                except AdaptiveSchedulingDeferred as exc:
+                    logger.info(
+                        "adaptive_deferral_skipped_plan",
+                        extra={
+                            "dataset_id": config.dataset.dataset_id,
+                            "reason": str(exc),
+                        },
+                    )
+                    self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
+                    continue
+                result_event = worker.last_result
+                if result_event is None:
+                    RUN_COUNTER.labels(status=EventStatus.FAILED.value).inc()
+                    raise RuntimeError("worker did not produce a training result event")
 
-            self._handle_result(plan_event, result_event)
-            plans_run += 1
+                self._handle_result(plan_event, result_event)
+                plans_run += 1
 
-            interval = self._next_plan_interval(result_event)
-            if interval <= 0.0:
-                break
-            logger.info("sleeping before next plan", extra={"seconds": interval})
-            self._sleep_with_stop_check(interval)
+                interval = self._next_plan_interval(result_event)
+                if interval <= 0.0:
+                    break
+                logger.info("sleeping before next plan", extra={"seconds": interval})
+                self._sleep_with_stop_check(interval)
+        finally:
+            self._stop_scheduled_event_monitoring()
+            self._active_worker = None
 
     def _handle_result(self, plan: DatasetPlanEvent, result: TrainingResultEvent) -> None:
         config = self._config
@@ -1592,6 +1729,104 @@ def _add_worker_args(parser: argparse.ArgumentParser) -> None:
         default=30.0,
         help="Interval (seconds) for GPU memory sampling (<=0 disables).",
     )
+    checkpoint_dir_default = _env_optional_path("ML_STREAMING_CHECKPOINT_DIR")
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=checkpoint_dir_default,
+        help="Directory where streaming checkpoints are written (default: ML_STREAMING_CHECKPOINT_DIR).",
+    )
+    checkpoint_interval_seconds_default = _env_optional_positive_float(
+        "ML_STREAMING_CHECKPOINT_INTERVAL_SECONDS",
+    )
+    parser.add_argument(
+        "--checkpoint-interval-seconds",
+        type=float,
+        default=checkpoint_interval_seconds_default,
+        help="Seconds between checkpoint saves (>0 enables time-based cadence).",
+    )
+    checkpoint_interval_steps_default = _env_optional_positive_int(
+        "ML_STREAMING_CHECKPOINT_INTERVAL_STEPS",
+    )
+    parser.add_argument(
+        "--checkpoint-interval-steps",
+        type=int,
+        default=checkpoint_interval_steps_default,
+        help="Training steps between checkpoint saves (>0 enables step-based cadence).",
+    )
+    checkpoint_retention_default = _env_int("ML_STREAMING_CHECKPOINT_RETENTION", 2)
+    if checkpoint_retention_default <= 0:
+        checkpoint_retention_default = 2
+    parser.add_argument(
+        "--checkpoint-retention",
+        type=int,
+        default=checkpoint_retention_default,
+        help="Number of checkpoint files to retain (>=1).",
+    )
+    azure_events_enabled_default = _env_truthy("ML_STREAMING_AZURE_EVENTS_ENABLED", False)
+    parser.add_argument(
+        "--azure-events-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=azure_events_enabled_default,
+        help="Enable Azure scheduled-event polling for eviction notices "
+        "(default sourced from ML_STREAMING_AZURE_EVENTS_ENABLED).",
+    )
+    azure_poll_default = _env_optional_positive_float("ML_STREAMING_AZURE_EVENTS_POLL_SECONDS")
+    parser.add_argument(
+        "--azure-events-poll-interval",
+        type=float,
+        default=azure_poll_default if azure_poll_default is not None else 5.0,
+        help="Seconds between Azure scheduled-event polls (>0).",
+    )
+    azure_timeout_default = _env_optional_positive_float("ML_STREAMING_AZURE_EVENTS_TIMEOUT_SECONDS")
+    parser.add_argument(
+        "--azure-events-timeout-seconds",
+        type=float,
+        default=azure_timeout_default if azure_timeout_default is not None else 2.0,
+        help="Request timeout (seconds) when querying Azure scheduled events (>0).",
+    )
+    azure_endpoint_default = os.environ.get(
+        "ML_STREAMING_AZURE_EVENTS_ENDPOINT",
+        "http://169.254.169.254/metadata/scheduledevents",
+    )
+    parser.add_argument(
+        "--azure-events-endpoint",
+        type=str,
+        default=azure_endpoint_default,
+        help="Azure metadata endpoint for scheduled events.",
+    )
+    azure_api_version_default = os.environ.get("ML_STREAMING_AZURE_EVENTS_API_VERSION", "2020-07-01")
+    parser.add_argument(
+        "--azure-events-api-version",
+        type=str,
+        default=azure_api_version_default,
+        help="Azure scheduled-events API version (default 2020-07-01).",
+    )
+    azure_resource_default = list(_env_str_tuple("ML_STREAMING_AZURE_EVENTS_RESOURCE"))
+    parser.add_argument(
+        "--azure-events-resource",
+        action="append",
+        default=azure_resource_default,
+        help="Resource filter applied to scheduled events (repeatable).",
+    )
+    azure_event_types_default = list(_env_str_tuple("ML_STREAMING_AZURE_EVENTS_TYPES"))
+    if not azure_event_types_default:
+        azure_event_types_default = ["Preempt"]
+    parser.add_argument(
+        "--azure-events-event-type",
+        action="append",
+        default=azure_event_types_default,
+        help="Event types triggering checkpoint saves (repeatable).",
+    )
+    azure_event_status_default = list(_env_str_tuple("ML_STREAMING_AZURE_EVENTS_STATUS"))
+    if not azure_event_status_default:
+        azure_event_status_default = ["Scheduled", "InProgress"]
+    parser.add_argument(
+        "--azure-events-status",
+        action="append",
+        default=azure_event_status_default,
+        help="Event statuses triggering checkpoint saves (repeatable).",
+    )
     parser.add_argument(
         "--heartbeat-interval-seconds",
         type=int,
@@ -1942,6 +2177,24 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
     else:
         validation_return_column_param = validation_return_column
 
+    checkpoint_dir_arg = args.checkpoint_dir
+    checkpoint_dir_value: str | None
+    if checkpoint_dir_arg is None:
+        checkpoint_dir_value = None
+    else:
+        checkpoint_dir_value = str(Path(checkpoint_dir_arg).expanduser())
+    checkpoint_seconds_value: float | None
+    if args.checkpoint_interval_seconds is None or float(args.checkpoint_interval_seconds) <= 0.0:
+        checkpoint_seconds_value = None
+    else:
+        checkpoint_seconds_value = float(args.checkpoint_interval_seconds)
+    checkpoint_steps_value: int | None
+    if args.checkpoint_interval_steps is None or int(args.checkpoint_interval_steps) <= 0:
+        checkpoint_steps_value = None
+    else:
+        checkpoint_steps_value = int(args.checkpoint_interval_steps)
+    checkpoint_retention_value = max(1, int(args.checkpoint_retention))
+
     worker_config = StreamingWorkerConfig(
         max_total_rows=_coerce_limit(args.max_total_rows),
         max_total_sequences=_coerce_limit(args.max_total_sequences),
@@ -1979,6 +2232,10 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
             if args.amp_guard_threshold_mb is None
             else max(float(args.amp_guard_threshold_mb), 0.0) or None
         ),
+        checkpoint_dir=checkpoint_dir_value,
+        checkpoint_interval_seconds=checkpoint_seconds_value,
+        checkpoint_interval_steps=checkpoint_steps_value,
+        checkpoint_retention=checkpoint_retention_value,
         curriculum=curriculum_config,
         ensemble=ensemble_config,
         validation_return_column=validation_return_column_param,
@@ -2046,6 +2303,45 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
             combined_checks.append(check)
             seen_signatures.add(signature)
     promotion_checks = tuple(combined_checks)
+    azure_endpoint_value = str(args.azure_events_endpoint or "").strip()
+    if not azure_endpoint_value:
+        azure_endpoint_value = "http://169.254.169.254/metadata/scheduledevents"
+    azure_api_version_value = str(args.azure_events_api_version or "").strip() or "2020-07-01"
+    azure_poll_interval = float(getattr(args, "azure_events_poll_interval", 5.0))
+    if azure_poll_interval <= 0.0:
+        azure_poll_interval = 5.0
+    azure_timeout_seconds = float(getattr(args, "azure_events_timeout_seconds", 2.0))
+    if azure_timeout_seconds <= 0.0:
+        azure_timeout_seconds = 2.0
+    azure_resource_values = tuple(
+        str(item).strip()
+        for item in (getattr(args, "azure_events_resource", None) or [])
+        if str(item).strip()
+    )
+    azure_event_types_values = tuple(
+        str(item).strip()
+        for item in (getattr(args, "azure_events_event_type", None) or [])
+        if str(item).strip()
+    )
+    if not azure_event_types_values:
+        azure_event_types_values = ("Preempt",)
+    azure_status_values = tuple(
+        str(item).strip()
+        for item in (getattr(args, "azure_events_status", None) or [])
+        if str(item).strip()
+    )
+    if not azure_status_values:
+        azure_status_values = ("Scheduled", "InProgress")
+    azure_events_config = AzureScheduledEventsConfig(
+        enabled=bool(getattr(args, "azure_events_enabled", False)),
+        poll_interval_seconds=azure_poll_interval,
+        request_timeout_seconds=azure_timeout_seconds,
+        metadata_endpoint=azure_endpoint_value,
+        api_version=azure_api_version_value,
+        resource_filter=azure_resource_values,
+        event_types=azure_event_types_values,
+        status_filter=azure_status_values,
+    )
 
     return RunnerConfig(
         dataset=dataset_spec,
@@ -2064,6 +2360,7 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         pipeline_signature=str(args.pipeline_signature),
         pipeline_version=str(args.pipeline_version),
         persist_snapshot=bool(args.persist_snapshot),
+        scheduled_events=azure_events_config,
     )
 
 

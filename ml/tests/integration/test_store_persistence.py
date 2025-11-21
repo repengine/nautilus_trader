@@ -7,11 +7,24 @@ Tests that data is actually persisted to stores and can be retrieved.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from sqlalchemy import text
 
-from ml.stores.model_store import ModelStore
+if TYPE_CHECKING:
+    from ml.stores.feature_store import FeatureStore
+    from ml.stores.model_store import ModelStore
+    from ml.stores.strategy_store import StrategyStore
+    from ml.tests.fixtures.stores import ModuleStoreBundle
+    from nautilus_trader.model.identifiers import InstrumentId
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.database
 @pytest.mark.serial
@@ -20,7 +33,12 @@ class TestStorePersistence:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_store_persistence(self, feature_store, store_bundle, default_instrument_id) -> None:
+    def test_feature_store_persistence(
+        self,
+        feature_store: FeatureStore,
+        store_bundle: ModuleStoreBundle,
+        default_instrument_id: InstrumentId,
+    ) -> None:
         """Test that FeatureStore actually persists and retrieves features."""
 
         features = {
@@ -58,7 +76,11 @@ class TestStorePersistence:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_model_store_persistence(self, model_store, store_bundle) -> None:
+    def test_model_store_persistence(
+        self,
+        model_store: ModelStore,
+        store_bundle: ModuleStoreBundle,
+    ) -> None:
         """Test that ModelStore actually persists and retrieves predictions."""
 
         model_store.write_prediction(
@@ -100,7 +122,11 @@ class TestStorePersistence:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_strategy_store_persistence(self, strategy_store, store_bundle) -> None:
+    def test_strategy_store_persistence(
+        self,
+        strategy_store: StrategyStore,
+        store_bundle: ModuleStoreBundle,
+    ) -> None:
         """Test that StrategyStore actually persists and retrieves signals."""
 
         strategy_store.write_signal(

@@ -17,6 +17,13 @@ from flask.testing import FlaskClient
 
 from ml.dashboard.app import create_app
 from ml.dashboard.config import DashboardConfig
+from ml.dashboard.config import DashboardToken
+from ml.tests.fixtures import PrometheusRegistryHarness
+
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
 
 
 # ============================================================================
@@ -24,13 +31,17 @@ from ml.dashboard.config import DashboardConfig
 # ============================================================================
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: PrometheusRegistryHarness) -> None:
+    """Ensure Prometheus collectors remain isolated for each test."""
+    del isolated_prometheus_registry
+
+
+@pytest.fixture
 def app() -> Iterator[Flask]:
     """
     Provide Flask test application with shared service instance.
     """
-    from ml.dashboard.config import DashboardToken
-
     config = DashboardConfig(
         auth_tokens=(DashboardToken(value="test-token-123"),),
         db_connection="postgresql://test:test@localhost:5432/test",

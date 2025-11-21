@@ -16,7 +16,7 @@ Key Properties Tested:
 All tests follow the ML testing strategy guidelines:
 - Use Hypothesis for property-based testing
 - Test invariants, not specific examples
-- Use proper fixtures from conftest.py
+- Use the canonical fixtures from ``ml.tests.fixtures`` (via the pytest plug-in)
 - Follow coding standards (mypy --strict, ruff clean)
 - Use ml._imports for ML library imports
 
@@ -47,11 +47,33 @@ from ml._imports import HAS_PANDAS, check_ml_dependencies
 
 from ml.actors.signal import MLSignalActorConfig, SignalStrategy
 from ml.config.actors import OptimizationConfig, StrategyConfig
-from ml.features.engineering import FeatureConfig
-from ml.tests.fixtures.model_factory import TestModelFactory
-
+from ml.features.config import FeatureConfig
 if TYPE_CHECKING:
-    pass
+    from ml.tests.fixtures.model_factory import TestModelFactory
+
+
+_TEST_MODEL_FACTORY: TestModelFactory | None = None
+
+
+def _require_test_model_factory() -> TestModelFactory:
+    if _TEST_MODEL_FACTORY is None:  # pragma: no cover - guardrail
+        raise RuntimeError(
+            "test_model_factory fixture not configured; ensure pytest plug-in is active.",
+        )
+    return _TEST_MODEL_FACTORY
+
+
+def _create_model_path(*, n_features: int, n_outputs: int) -> Path:
+    return _require_test_model_factory().create_onnx_model(
+        n_features=n_features,
+        n_outputs=n_outputs,
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _configure_test_model_factory(test_model_factory: TestModelFactory) -> None:
+    global _TEST_MODEL_FACTORY
+    _TEST_MODEL_FACTORY = test_model_factory
 
 
 # ============================================================================
@@ -176,8 +198,8 @@ def deterministic_signal_configs(draw: st.DrawFn) -> MLSignalActorConfig:
     instrument_id = draw(deterministic_instrument_ids())
     bar_type = draw(deterministic_bar_types(instrument_id))
 
-    # Create deterministic model path
-    model_path = TestModelFactory.create_onnx_model(n_features=10, n_outputs=2)
+    # Create deterministic model path via shared factory to avoid per-test imports
+    model_path = _create_model_path(n_features=10, n_outputs=2)
 
     feature_config = draw(deterministic_feature_configs())
     strategy = draw(st.sampled_from([
@@ -665,7 +687,7 @@ class TestMLSignalActorDeterminismRegression:
         """
         # Create identical configurations
         bar_type = TestDataStubs.bartype_audusd_1min_bid()
-        model_path = TestModelFactory.create_onnx_model(n_features=10, n_outputs=2)
+        model_path = _create_model_path(n_features=10, n_outputs=2)
 
         try:
             config1 = MLSignalActorConfig(

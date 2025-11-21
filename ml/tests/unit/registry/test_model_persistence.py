@@ -19,7 +19,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -277,14 +278,16 @@ def test_verify_artifact_integrity_empty_digest(model_persistence_json, temp_reg
 # ========== Model Caching Tests ==========
 
 
-@patch("ml.registry.model_persistence.HAS_ONNX", True)
-@patch("ml.registry.model_persistence.ort")
-def test_load_model_with_caching(mock_ort, model_persistence_json, sample_model_info):
+def test_load_model_with_caching(
+        mock_onnx_runtime: Any,
+    model_persistence_json: ModelPersistence,
+    sample_model_info: ModelInfo,
+) -> None:
     """
     Test model loading with caching.
     """
     mock_session = Mock()
-    mock_ort.InferenceSession.return_value = mock_session
+    mock_onnx_runtime.ort.InferenceSession.return_value = mock_session
 
     # Patch the digest verification to succeed
     with patch.object(model_persistence_json, "verify_artifact_integrity"):
@@ -297,16 +300,18 @@ def test_load_model_with_caching(mock_ort, model_persistence_json, sample_model_
         assert result2 == mock_session
 
         # Should only create session once
-        assert mock_ort.InferenceSession.call_count == 1
+        assert mock_onnx_runtime.ort.InferenceSession.call_count == 1
 
 
-@patch("ml.registry.model_persistence.HAS_ONNX", True)
-@patch("ml.registry.model_persistence.ort")
-def test_load_model_lru_eviction(mock_ort, model_persistence_json, temp_registry_path):
+def test_load_model_lru_eviction(
+        mock_onnx_runtime: Any,
+    model_persistence_json: ModelPersistence,
+    temp_registry_path: Path,
+) -> None:
     """
     Test LRU cache eviction when cache is full.
     """
-    mock_ort.InferenceSession.return_value = Mock()
+    mock_onnx_runtime.ort.InferenceSession.return_value = Mock()
 
     # Create 4 models (cache size is 3)
     model_infos = []

@@ -116,7 +116,7 @@ class StreamingTrainingPersistenceWorker:
         consumer = self._ensure_consumer()
         if consumer is None:
             return 0
-        last_id = self._last_stream_id or "$"
+        last_id = self._last_stream_id or "0-0"
         try:
             processed = consumer.poll_once(
                 count=int(self.config.batch_size),

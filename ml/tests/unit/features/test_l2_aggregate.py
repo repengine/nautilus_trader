@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import polars as pl
 
+from ml.features.l2_aggregate import L2_MINUTE_COLUMNS
 from ml.features.l2_aggregate import TOPKS
 from ml.features.l2_aggregate import aggregate_l2_minute_pl
 
@@ -25,6 +26,18 @@ def _make_l2_df() -> pl.DataFrame:
     return pl.DataFrame(data)
 
 
+def _make_unsorted_l2_df() -> pl.DataFrame:
+    base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
+    ts = [base + timedelta(minutes=1), base, base + timedelta(seconds=30)]
+    data: dict[str, list[float]] = {"ts_event": ts}
+    for i in range(10):
+        data[f"bid_px_{i:02d}"] = [100.0 - 0.01 * i] * len(ts)
+        data[f"ask_px_{i:02d}"] = [100.02 + 0.01 * i] * len(ts)
+        data[f"bid_sz_{i:02d}"] = [1000.0] * len(ts)
+        data[f"ask_sz_{i:02d}"] = [1000.0] * len(ts)
+    return pl.DataFrame(data)
+
+
 def test_aggregate_l2_minute_pl_basic() -> None:
     df = _make_l2_df()
     out = aggregate_l2_minute_pl(df)
@@ -39,3 +52,27 @@ def test_aggregate_l2_minute_pl_basic() -> None:
     # Symmetric sizes -> depth imbalance near 0
     for k in TOPKS:
         assert abs(out[f"depth_imbalance_top{k}"][0]) < 1e-6
+
+
+def test_aggregate_l2_minute_pl_sorts_rows() -> None:
+    df = _make_unsorted_l2_df()
+    out = aggregate_l2_minute_pl(df)
+    timestamps = [ts for ts in out["timestamp"].to_list()]
+    assert timestamps == sorted(timestamps)
+
+
+def test_aggregate_l2_minute_pl_empty_schema() -> None:
+    schema = [("ts_event", pl.Datetime("ns", "UTC"))]
+    for i in range(10):
+        schema.extend(
+            [
+                (f"bid_px_{i:02d}", pl.Float64),
+                (f"ask_px_{i:02d}", pl.Float64),
+                (f"bid_sz_{i:02d}", pl.Float64),
+                (f"ask_sz_{i:02d}", pl.Float64),
+            ],
+        )
+    empty = pl.DataFrame(schema=schema)
+    out = aggregate_l2_minute_pl(empty)
+    assert out.is_empty()
+    assert tuple(out.columns) == L2_MINUTE_COLUMNS

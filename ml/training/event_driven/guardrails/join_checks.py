@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 def check_validation_joins(manifest_dir: Path, limit: int | None = None) -> list[str]:
-    """Check validation-return joins in streaming manifests.
+    """
+    Check validation-return joins in streaming manifests.
 
     Args:
         manifest_dir: Directory containing streaming manifest JSON files

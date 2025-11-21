@@ -1,3 +1,6 @@
+-- Migration: Seed features dataset manifest for local/test environments.
+-- Rollback: DELETE FROM ml_dataset_registry WHERE dataset_id = 'features' AND name = 'Feature Store (Test Seed)'.
+
 -- Test-only seed for DataRegistry: ensure 'features' dataset exists in the test DB.
 -- This script is mounted only in docker-compose environments which use
 -- ml/stores/migrations for initialization. To avoid affecting production,

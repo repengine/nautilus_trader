@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import os
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Callable, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -12,62 +14,49 @@ from ml.actors.multi_signal import MultiInstrumentSignalActor
 from ml.actors.multi_signal import MultiInstrumentSignalActorConfig
 
 
-def _require_onnx_runtime() -> tuple[Any, Any]:
-    try:
-        import onnx  # type: ignore
-        import onnx.helper as oh  # type: ignore
-        import onnx.numpy_helper as onh  # type: ignore
-        import onnxruntime as ort  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"onnx/onnxruntime not available: {exc}")
-        raise
-    return (onnx, ort)
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
-def _build_minimal_sum_model(feature_dim: int, model_path: Path) -> None:
-    import onnx  # type: ignore
-    import onnx.helper as oh  # type: ignore
-    import onnx.numpy_helper as onh  # type: ignore
+class _OnnxSessionStub(Protocol):
+    """Subset of the onnx_session_stub_factory surface used in this test."""
 
-    # Inputs/Outputs
-    features = oh.make_tensor_value_info("features", onnx.TensorProto.FLOAT, [None, feature_dim])
-    pred_out = oh.make_tensor_value_info("pred", onnx.TensorProto.FLOAT, [None])
-    conf_out = oh.make_tensor_value_info("conf", onnx.TensorProto.FLOAT, [None])
+    prediction: float
+    confidence: float
 
-    # Nodes: pred = ReduceSum(features, axis=1); conf = (pred * 0.0) + 0.9 (broadcast)
-    axis_tensor = onh.from_array(np.array([1], dtype=np.int64), name="axis")
-    zero = onh.from_array(np.array(0.0, dtype=np.float32), name="zero")
-    nine = onh.from_array(np.array(0.9, dtype=np.float32), name="nine")
+    def get_inputs(self) -> list[SimpleNamespace]:
+        ...
 
-    node_reduce = oh.make_node("ReduceSum", inputs=["features", "axis"], outputs=["pred"], keepdims=0)
-    node_mul = oh.make_node("Mul", inputs=["pred", "zero"], outputs=["zero_vec"])  # broadcast 0 over pred shape
-    node_add = oh.make_node("Add", inputs=["zero_vec", "nine"], outputs=["conf"])  # broadcast 0.9 over shape
+    def get_outputs(self) -> list[SimpleNamespace]:
+        ...
 
-    graph = oh.make_graph(
-        nodes=[node_reduce, node_mul, node_add],
-        name="SumThenConstConf",
-        inputs=[features],
-        outputs=[pred_out, conf_out],
-        initializer=[axis_tensor, zero, nine],
-        value_info=[oh.make_tensor_value_info("zero_vec", onnx.TensorProto.FLOAT, [None])],
-    )
-
-    model = oh.make_model(graph, opset_imports=[oh.make_operatorsetid("", 13)])
-    # Adjust IR version for broad onnxruntime compatibility
-    model.ir_version = 10
-    onnx.checker.check_model(model)
-    model_path.write_bytes(model.SerializeToString())
+    def run(
+        self,
+        output_names: object,
+        input_feed: dict[str, npt.NDArray[np.float32]],
+    ) -> list[npt.NDArray[np.float32]]:
+        ...
 
 
 @pytest.mark.integration
-def test_vectorized_infer_with_real_onnxruntime(tmp_path: Path) -> None:
-    _onnx, ort = _require_onnx_runtime()
-
+def test_vectorized_infer_with_mocked_onnxruntime(
+    mock_onnx_runtime: Any,
+    onnx_session_stub_factory: Callable[..., _OnnxSessionStub],
+    tmp_path: Path,
+) -> None:
     feature_dim = 4
     model_file = tmp_path / "mini_sum.onnx"
-    _build_minimal_sum_model(feature_dim, model_file)
+    model_file.write_bytes(b"mock-model")
 
-    # Prepare actor (we will assign the ORT session directly)
+    stub_session = onnx_session_stub_factory(
+        prediction=0.75,
+        confidence=0.88,
+    )
+    mock_onnx_runtime.ort.InferenceSession.side_effect = lambda *args, **kwargs: stub_session
+
     cfg = MultiInstrumentSignalActorConfig(
         actor_id="onnx-integration",
         max_batch_size=8,
@@ -80,22 +69,25 @@ def test_vectorized_infer_with_real_onnxruntime(tmp_path: Path) -> None:
     )
     actor = MultiInstrumentSignalActor(cfg)  # type: ignore[arg-type]
 
-    # Load ORT session and wire metadata
-    session = ort.InferenceSession(str(model_file))
-    meta = {
-        "input_names": [i.name for i in session.get_inputs()],
-        "output_names": [o.name for o in session.get_outputs()],
+    # Load ORT session via the mocked runtime and wire metadata
+    session = mock_onnx_runtime.ort.InferenceSession(str(model_file))
+    metadata = {
+        "input_names": [info.name for info in session.get_inputs()],
+        "output_names": [info.name for info in session.get_outputs()],
     }
     setattr(actor, "_model", session)
-    setattr(actor, "_model_metadata", meta)
+    setattr(actor, "_model_metadata", metadata)
 
+    # Two rows ensure vectorized inference feeds the stub session once.
     batch: npt.NDArray[np.float32] = np.array(
         [
-            [1.0, 2.0, 3.0, 4.0],  # sum = 10
-            [0.5, 0.5, 0.0, 0.0],  # sum = 1.0
+            [1.0, 2.0, 3.0, 4.0],
+            [0.5, 0.5, 0.0, 0.0],
         ],
         dtype=np.float32,
     )
     preds, confs = actor._infer_batch(batch)
-    np.testing.assert_allclose(preds, np.array([10.0, 1.0], dtype=np.float32))
-    np.testing.assert_allclose(confs, np.array([0.9, 0.9], dtype=np.float32))
+    expected_preds = np.full(batch.shape[0], stub_session.prediction, dtype=np.float32)
+    expected_confs = np.full(batch.shape[0], stub_session.confidence, dtype=np.float32)
+    np.testing.assert_allclose(preds, expected_preds)
+    np.testing.assert_allclose(confs, expected_confs)

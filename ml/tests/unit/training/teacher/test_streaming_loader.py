@@ -12,6 +12,7 @@ from ml._imports import HAS_TORCH
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 import ml.common.metrics_bootstrap as metrics_bootstrap
+import ml.training.teacher.streaming_loader as streaming_loader_module
 from ml.training.teacher.streaming_loader import (
     StreamingLimitSummary,
     TFTStreamingConfig,
@@ -39,6 +40,8 @@ try:  # optional dependency for parity comparison
 except Exception:  # pragma: no cover - dependency missing
     TimeSeriesDataSet = None  # type: ignore[assignment]
     HAS_PYTORCH_FORECASTING = False
+
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
 
 
 @pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
@@ -98,8 +101,9 @@ def test_collect_streaming_metadata_counts_and_vocab(tmp_path: Path) -> None:
     filtered = filter_metadata_by_instruments(metadata, ["AAPL"])
     assert all(shard.instrument_id == "AAPL" for shard in filtered.shard_indices)
 
-    metrics_keys = metrics_bootstrap._METRICS.keys()
-    assert "ml_tft_streaming_metadata_shards_total||()" in metrics_keys
+    shard_counter = getattr(streaming_loader_module, "_METADATA_SHARDS_COUNTER", None)
+    counter_value = getattr(getattr(shard_counter, "_value", None), "get", lambda: 0)()
+    assert counter_value >= summary.total_shards
 
 
 @pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
@@ -198,8 +202,9 @@ def test_streaming_dataloader_emits_expected_batch(tmp_path: Path) -> None:
         assert np.array_equal(decoder_group_ids_val[:, 0], group_ids_val[:, 0])
     assert module_val_targets.ndim == 2
 
-    metric_keys = metrics_bootstrap._METRICS.keys()
-    assert "ml_tft_streaming_iterated_shards_total||()" in metric_keys
+    iteration_counter = getattr(streaming_loader_module, "_ITERATION_SHARDS_COUNTER", None)
+    iter_value = getattr(getattr(iteration_counter, "_value", None), "get", lambda: 0)()
+    assert iter_value >= 1
 
 
 @pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")

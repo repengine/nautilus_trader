@@ -21,13 +21,19 @@ from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import OperationalError
 
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.protocols import MLComponentProtocol
 from ml.common.subprocess_utils import SubprocessExecutionError
 from ml.common.subprocess_utils import run_command
+from ml.common.timestamps import sanitize_timestamp_ns
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.events import Source
 from ml.core.db_engine import EngineManager
+from ml.data.catalog_hygiene import prepare_clean_catalog_path
 from ml.tasks.db import MigrationSchema
 
 
@@ -55,6 +61,8 @@ from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.stores.data_store import DataStore
+from ml.stores.feature_raw_writer import CompositeRawIngestionWriter
+from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore
@@ -62,6 +70,7 @@ from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
 from ml.stores.infrastructure import PartitionManager
+from ml.stores.infrastructure import ensure_partition_helpers
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.model_store import ModelStore
 from ml.stores.providers import SqlMarketDataReader
@@ -413,10 +422,78 @@ class MLIntegrationManager:
             _EVENT_INGEST_COUNTER.labels(status="error").inc()
             logger.error("Event ingestion failed: %s", exc, exc_info=True)
             raise
+        frame = utility.latest_frame()
+        if frame is not None:
+            try:
+                self._persist_events_frame(
+                    frame=frame,
+                    run_id=f"event_ingest_{int(time.time())}",
+                )
+            except Exception:
+                logger.warning("Event SQL ingestion skipped due to failure", exc_info=True)
 
         _EVENT_INGEST_COUNTER.labels(status="success").inc()
         logger.info("Completed event ingestion: %s", target)
         return target
+
+    def _persist_events_frame(self, *, frame: Any, run_id: str) -> None:
+        """
+        Persist normalized events to the SQL store when available.
+        """
+        data_store = getattr(self, "data_store", None)
+        if data_store is None or frame is None:
+            return
+        is_empty = getattr(frame, "is_empty", None)
+        if callable(is_empty) and is_empty():
+            return
+        polars_module = self._require_polars_module()
+        ts_init_ns = sanitize_timestamp_ns(time.time_ns(), context="events_ingest")
+        prepared = (
+            frame.with_columns(
+                [
+                    polars_module.col("event_timestamp").cast(polars_module.Datetime("ns")).cast(polars_module.Int64),
+                    polars_module.col("metadata"),
+                ],
+            )
+            .with_columns(
+                [
+                    polars_module.col("event_timestamp").alias("ts_event"),
+                    polars_module.lit(ts_init_ns).alias("ts_init"),
+                ],
+            )
+            .select(
+                [
+                    "event_timestamp",
+                    "event_type",
+                    "name",
+                    "instrument_id",
+                    "importance",
+                    "source",
+                    "metadata",
+                    "ts_event",
+                    "ts_init",
+                ],
+            )
+        )
+        if prepared.is_empty():
+            return
+        data_store.write_ingestion(
+            dataset_id=EVENTS_CALENDAR_DATASET_ID,
+            records=prepared,
+            source=Source.HISTORICAL.value,
+            run_id=run_id,
+            instrument_id="events_calendar",
+        )
+
+    @staticmethod
+    def _require_polars_module() -> Any:
+        module = pl
+        if module is None:
+            check_ml_dependencies(["polars"])
+            from ml._imports import pl as _pl
+
+            module = _pl
+        return module
 
     def _init_database(self) -> None:
         """
@@ -429,6 +506,11 @@ class MLIntegrationManager:
         # Run migrations if needed
         if self.auto_migrate:
             self._run_migrations()
+        try:
+            ensure_partition_helpers(self.db_connection)
+        except Exception as exc:
+            logger.error("Partition helper deployment failed: %s", exc)
+            raise
 
     def _enable_file_fallback(self) -> bool:
         """
@@ -617,16 +699,50 @@ class MLIntegrationManager:
             connection_string=self.db_connection,
             table_name=table_name,
         )
-        raw_writer = None
+        raw_writers: list[RawIngestionWriterProtocol] = []
         try:  # best-effort; keep init resilient
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
             catalog_path = os.getenv("CATALOG_PATH", "").strip()
+            catalog_clean_mode = os.getenv("CATALOG_CLEAN_MODE", "").strip().lower()
+            catalog_backup_dir = os.getenv("CATALOG_BACKUP_DIR", "").strip()
             if catalog_path:
-                catalog = ParquetDataCatalog(catalog_path)
-                raw_writer = ParquetCatalogRawWriter(catalog)
+                catalog_path_obj = Path(catalog_path)
+                if catalog_clean_mode:
+                    if catalog_clean_mode == "archive":
+                        backup_root = (
+                            Path(catalog_backup_dir).expanduser()
+                            if catalog_backup_dir
+                            else None
+                        )
+                        prepare_clean_catalog_path(
+                            catalog_path=catalog_path_obj,
+                            backup_root=backup_root,
+                        )
+                    else:
+                        logger.warning(
+                            "catalog_clean_mode_unknown",
+                            extra={"mode": catalog_clean_mode, "catalog": catalog_path},
+                        )
+                catalog = ParquetDataCatalog(str(catalog_path_obj))
+                raw_writers.append(ParquetCatalogRawWriter(catalog))
         except Exception:
             logger.debug("Parquet catalog adapters not attached", exc_info=True)
+
+        feature_raw_writer = FeatureDatasetParquetRawWriter(
+            events_path=Path(os.getenv("FEATURE_EVENTS_PARQUET_PATH", "data/events/events.parquet")),
+            micro_base_dir=Path(os.getenv("FEATURE_MICRO_CACHE_DIR", "data/features/micro_minute")),
+            l2_base_dir=Path(os.getenv("FEATURE_L2_CACHE_DIR", "data/features/l2_minute")),
+        )
+        raw_writers.append(feature_raw_writer)
+
+        raw_writer: RawIngestionWriterProtocol | None = None
+        if raw_writers:
+            raw_writer = (
+                raw_writers[0]
+                if len(raw_writers) == 1
+                else CompositeRawIngestionWriter(tuple(raw_writers))
+            )
 
         self.data_store = create_data_store(
             registry=self.data_registry,

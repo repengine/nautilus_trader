@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import build_pipeline_spec_from_feature_config
+from ml.features.config import FeatureConfig
+from ml.features.config import build_pipeline_spec_from_feature_config
 from ml.features.macro_composites import get_composite_feature_names
 
 

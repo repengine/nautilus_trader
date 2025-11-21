@@ -15,12 +15,13 @@ from typing import Any
 
 import pandas as pd
 import pytest
-
-pytest.importorskip("pandera")
-import pandera as pa
 from hypothesis import given
 from hypothesis import strategies as st
-from pandera.typing import Series
+
+from ml.tests.fixtures.pandera import Series
+from ml.tests.fixtures.pandera import ensure_pandera_available
+
+pa = ensure_pandera_available()
 
 globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
 

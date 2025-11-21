@@ -31,6 +31,7 @@ import pandas as pd
 from ml._imports import HAS_POLARS
 from ml._imports import pl
 from ml.common.correlation import make_correlation_id
+from ml.common.events_util import to_source_enum
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.timestamps import sanitize_timestamp_ns
@@ -818,13 +819,8 @@ class FileDataStore:
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / f"{instrument}_{ts_min}_{ts_max}.jsonl"
         frame.to_json(target_path, orient="records", lines=True, force_ascii=False)
-        try:
-            source_enum = Source[source.upper()]
-        except (KeyError, AttributeError):
-            try:
-                source_enum = Source(source)
-            except Exception:
-                source_enum = Source.HISTORICAL
+        source_token = source or Source.HISTORICAL.value
+        source_enum = to_source_enum(source_token)
 
         self.emit_event(
             dataset_id=dataset_id,
@@ -926,16 +922,8 @@ class FileDataStore:
             fiscal_quarter=fiscal_quarter,
         )
 
-        source_enum: Source
-        if isinstance(source, Source):
-            source_enum = source
-            source_value = source.value
-        else:
-            try:
-                source_enum = Source(str(source))
-            except Exception:
-                source_enum = Source.HISTORICAL
-            source_value = source_enum.value
+        source_enum = to_source_enum(source)
+        source_value = source_enum.value
 
         event = _make_data_event(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
@@ -999,15 +987,8 @@ class FileDataStore:
             num_analysts=num_analysts,
         )
 
-        if isinstance(source, Source):
-            source_enum = source
-            source_value = source.value
-        else:
-            try:
-                source_enum = Source(str(source))
-            except Exception:
-                source_enum = Source.HISTORICAL
-            source_value = source_enum.value
+        source_enum = to_source_enum(source)
+        source_value = source_enum.value
 
         event = _make_data_event(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",

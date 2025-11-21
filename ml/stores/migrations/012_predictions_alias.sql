@@ -1,5 +1,8 @@
+-- Migration: Register generic predictions dataset and deprecate legacy alias.
+-- Rollback: DELETE FROM ml_dataset_registry WHERE dataset_id = 'predictions'; UPDATE metadata for 'predictions_xgboost' to remove deprecated flag.
+
 -- Add a generic 'predictions' dataset manifest and deprecate 'predictions_xgboost'.
--- Safe to run multiple times; uses ON CONFLICT and guarded updates.
+-- Safe to run multiple times (uses ON CONFLICT and guarded updates)
 
 -- Insert generic predictions dataset if missing
 INSERT INTO ml_dataset_registry (
@@ -21,4 +24,3 @@ SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('deprecated
     last_modified = NOW()
 WHERE dataset_id = 'predictions_xgboost'
   AND (metadata IS NULL OR (metadata->>'deprecated') IS DISTINCT FROM 'true');
-

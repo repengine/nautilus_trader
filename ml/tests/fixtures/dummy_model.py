@@ -173,3 +173,10 @@ def create_dummy_model_metadata(model_type: str = "onnx") -> dict[str, Any]:
             "recall": 0.93,
         },
     }
+
+
+__all__ = [
+    "create_dummy_model_metadata",
+    "create_dummy_onnx_model",
+    "create_dummy_xgboost_model",
+]

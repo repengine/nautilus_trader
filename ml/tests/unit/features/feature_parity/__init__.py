@@ -1,10 +1,7 @@
-"""
-Feature parity validation tests.
+"""Test package bootstrap for unit/features/feature_parity."""
 
-This package contains comprehensive tests to ensure perfect feature parity between batch
-(training) and online (inference) feature computations.
+from __future__ import annotations
 
-The tests validate that feature calculations produce identical results with < 1e-10
-tolerance between batch and streaming modes.
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
-"""
+__all__ = ("pytest_plugins",)

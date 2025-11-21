@@ -1,45 +1,36 @@
 from __future__ import annotations
 
-import os
 from datetime import UTC
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from ml.observability.migrations import ensure_monthly_partitions
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
 
 
-def _pg_available(url: str) -> bool:
-    try:
-        eng = create_engine(url)
-        with eng.connect() as conn:  # type: ignore[unused-ignore]
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
-
-
-_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5434/nautilus_test"
-
-
-@pytest.mark.skipif(
-    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
-    reason="PostgreSQL not reachable",
-)
-def test_partition_creation_on_empty_table() -> None:
-    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
-    eng: Engine = create_engine(url)
+def test_partition_creation_on_empty_table(
+    test_database: TestDatabase,
+) -> None:
+    eng: Engine = test_database.engine
     table = "obs_part_test_latency"
     ts_col = "ts_stage_end"
     with eng.begin() as conn:
@@ -73,13 +64,10 @@ def test_partition_creation_on_empty_table() -> None:
         assert int(part_like) >= 1
 
 
-@pytest.mark.skipif(
-    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
-    reason="PostgreSQL not reachable",
-)
-def test_skip_partition_when_not_empty() -> None:
-    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
-    eng: Engine = create_engine(url)
+def test_skip_partition_when_not_empty(
+    test_database: TestDatabase,
+) -> None:
+    eng: Engine = test_database.engine
     table = "obs_part_test_metrics"
     ts_col = "timestamp"
     with eng.begin() as conn:

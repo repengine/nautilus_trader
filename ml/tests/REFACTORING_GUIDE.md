@@ -4,6 +4,17 @@
 
 This guide explains how to use the new test fixture system to eliminate duplication in ML tests. The fixtures and builders have been designed to match the actual data structures in the codebase.
 
+All fixtures are grouped under `ml/tests/fixtures/`. Import from
+`ml.tests.fixtures` whenever possible — this package now re-exports the
+alphabetised index enforced by `ml/tests/fixtures/test_exports.py`, so new
+fixtures remain discoverable for both humans and tooling.
+
+Prefer the function-scoped `fresh_store_bundle` (in `ml.tests.fixtures.stores`)
+when you need real stores: it provisions fresh Feature/Model/Strategy stores per
+test and tears them down deterministically. The legacy `store_bundle` fixture is
+still available for transition periods but should be avoided for new tests
+unless sharing state is intentionally required.
+
 ## Available Fixtures
 
 ### Core Type Fixtures

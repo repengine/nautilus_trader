@@ -7,6 +7,13 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> None:
     # Store original sys.modules state for cleanup

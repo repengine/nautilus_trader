@@ -10,7 +10,8 @@ DataFrame using as-of semantics with a configurable publication lag.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import logging
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -23,10 +24,21 @@ pd = _ml_imports.pd
 pl = _ml_imports.pl
 check_ml_dependencies = _ml_imports.check_ml_dependencies
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from pandas import DataFrame as PandasDataFrame
 else:
     PandasDataFrame = Any
+
+
+RELEASE_CALENDAR_COLS: tuple[str, ...] = (
+    "series_id",
+    "observation_ts",
+    "value",
+    "release_ts",
+    "release_end_ts",
+)
 
 
 def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:
@@ -77,7 +89,10 @@ def _iter_vintage_series_dirs(
     Yield series id and directory pairs filtered by series ids when provided.
     """
     if not base_dir.exists():
-        return []
+        raise FileNotFoundError(
+            f"Vintage directory not found: {base_dir}. "
+            "Ensure FRED vintage data is downloaded or omit vintage processing."
+        )
     dirs: list[tuple[str, Path]] = []
     for child in base_dir.iterdir():
         if not child.is_dir():
@@ -87,6 +102,47 @@ def _iter_vintage_series_dirs(
             continue
         dirs.append((series_id, child))
     return dirs
+
+
+def _normalize_release_calendar_pl(
+    df: PolarsDF,
+    *,
+    series_id: str | None,
+    columns: Sequence[str] = RELEASE_CALENDAR_COLS,
+) -> PolarsDF:
+    """
+    Ensure release calendar frames share an identical schema before concatenation.
+    """
+    if pl is None:
+        check_ml_dependencies(["polars"])  # pragma: no cover
+    _pl = pl
+    if _pl is None:
+        msg = "Polars runtime not available after dependency check"
+        raise RuntimeError(msg)
+
+    dtype_map: dict[str, Any] = {
+        "series_id": _pl.Utf8,
+        "observation_ts": _pl.Datetime("ns"),
+        "value": _pl.Float64,
+        "release_ts": _pl.Datetime("ns"),
+        "release_end_ts": _pl.Datetime("ns"),
+    }
+    exprs: list[Any] = []
+    for name in columns:
+        dtype = dtype_map[name]
+        if name == "series_id":
+            if "series_id" in df.columns:
+                exprs.append(_pl.col("series_id").cast(dtype).alias("series_id"))
+            elif series_id is not None:
+                exprs.append(_pl.lit(series_id).cast(dtype).alias("series_id"))
+            else:
+                msg = "series_id missing from release calendar frame and cannot be inferred"
+                raise ValueError(msg)
+        elif name in df.columns:
+            exprs.append(_pl.col(name).cast(dtype).alias(name))
+        else:
+            exprs.append(_pl.lit(None).cast(dtype).alias(name))
+    return df.select(exprs)
 
 
 def _load_vintage_release_pl(
@@ -110,15 +166,46 @@ def _load_vintage_release_pl(
         df = _pl.read_parquet(str(cal_path))
         if df.is_empty():
             continue
-        if "series_id" not in df.columns:
-            df = df.with_columns([_pl.lit(series_id).alias("series_id")])
-        frames.append(df)
+        normalized = _normalize_release_calendar_pl(df, series_id=series_id)
+        frames.append(normalized)
     if not frames:
         return cast(PolarsDF, _pl.DataFrame())
     return cast(
         PolarsDF,
         _pl.concat(frames, how="vertical").sort(["release_ts", "observation_ts"]),
     )
+
+
+def _normalize_release_calendar_pd(
+    df: PandasDataFrame,
+    *,
+    series_id: str | None,
+    column_order: Sequence[str] = RELEASE_CALENDAR_COLS,
+) -> PandasDataFrame:
+    """
+    Normalize a pandas release calendar frame to the canonical schema/order.
+    """
+    if pd is None:
+        check_ml_dependencies(["pandas"])  # pragma: no cover
+    _pd = pd
+    if _pd is None:
+        msg = "pandas runtime not available after dependency check"
+        raise RuntimeError(msg)
+    normalized = df.copy()
+    if "series_id" not in normalized.columns:
+        if series_id is None:
+            msg = "series_id missing from release calendar frame and cannot be inferred"
+            raise ValueError(msg)
+        normalized["series_id"] = series_id
+    for col in column_order:
+        if col not in normalized.columns:
+            normalized[col] = _pd.NA
+    normalized = normalized.loc[:, list(column_order)]
+    normalized["series_id"] = normalized["series_id"].astype("string")
+    for col in ("observation_ts", "release_ts", "release_end_ts"):
+        normalized[col] = _pd.to_datetime(normalized[col], utc=True, errors="coerce")
+    normalized["value"] = _pd.to_numeric(normalized["value"], errors="coerce")
+    return normalized
 
 
 def _load_vintage_release_pd(
@@ -142,19 +229,10 @@ def _load_vintage_release_pd(
         df = _pd.read_parquet(cal_path)
         if df.empty:
             continue
-        if "series_id" not in df.columns:
-            df["series_id"] = series_id
-        frames.append(cast(PandasDataFrame, df))
+        normalized = _normalize_release_calendar_pd(df, series_id=series_id)
+        frames.append(normalized)
     if not frames:
-        empty = _pd.DataFrame(
-            columns=[
-                "series_id",
-                "observation_ts",
-                "value",
-                "release_ts",
-                "release_end_ts",
-            ],
-        )
+        empty = _pd.DataFrame(columns=list(RELEASE_CALENDAR_COLS))
         return cast(PandasDataFrame, empty)
     combined = _pd.concat(frames, ignore_index=True)
     combined = combined.sort_values(["release_ts", "observation_ts"])
@@ -378,6 +456,7 @@ def join_fred_asof(
         right_pl = fred_wide.sort(["ts_effective", "timestamp"])
 
         series_list = sorted(series_names)
+        missing_vintage_series: set[str] = set()
 
         joined = left_pl.join_asof(
             right_pl,
@@ -413,20 +492,81 @@ def join_fred_asof(
             if realtime_exprs:
                 joined = joined.with_columns(realtime_exprs)
 
-        release_dtype_joined = joined.schema.get("release_ts")
-        if release_dtype_joined is not None and series_list:
-            vintage_exprs = []
-            for name in series_list:
-                if name in joined.columns:
-                    vintage_exprs.append(
-                        _pl.when(_pl.col(name).is_not_null())
-                        .then(_pl.col("release_ts"))
-                        .otherwise(None)
-                        .cast(release_dtype_joined)
-                        .alias(f"{name}__value_vintage_ts")
-                    )
-            if vintage_exprs:
-                joined = joined.with_columns(vintage_exprs)
+        if use_vintage and release_df is not None and not release_df.is_empty():
+            release_lookup = release_df.rename({"observation_ts": "ts_event"}).with_columns(
+                [
+                    _pl.col("ts_event").cast(target_dtype or timestamp_dtype),
+                    _pl.col("release_ts").cast(target_dtype or timestamp_dtype),
+                ],
+            ).select(["series_id", "ts_event", "release_ts"])
+            available_release_series = set(release_lookup.get_column("series_id").unique().to_list())
+            for series_id in series_list:
+                if series_id not in available_release_series:
+                    continue
+                series_release = release_lookup.filter(_pl.col("series_id") == series_id).select(
+                    [
+                        _pl.col("ts_event").alias(f"__release_ts_key_{series_id}"),
+                        _pl.col("release_ts"),
+                    ],
+                )
+                if series_release.is_empty():
+                    continue
+                series_release = series_release.sort(f"__release_ts_key_{series_id}")
+                joined = joined.join_asof(
+                    series_release,
+                    left_on=timestamp_col,
+                    right_on=f"__release_ts_key_{series_id}",
+                    strategy="backward",
+                )
+                vintage_col = f"{series_id}__value_vintage_ts"
+                if "release_ts" in joined.columns:
+                    joined = joined.rename({"release_ts": vintage_col})
+                if f"__release_ts_key_{series_id}" in joined.columns:
+                    joined = joined.drop(f"__release_ts_key_{series_id}")
+
+                if vintage_col in joined.columns:
+                    non_null_count = int(joined[vintage_col].is_not_null().sum())
+                    if non_null_count == 0:
+                        if series_id not in missing_vintage_series:
+                            missing_vintage_series.add(series_id)
+                            logger.warning(
+                                "macro_vintage.missing_release_ts",
+                                extra={
+                                    "series_id": series_id,
+                                    "vintage_column": vintage_col,
+                                    "total_rows": len(joined),
+                                },
+                            )
+                        logger.debug(
+                                "macro_vintage.vintage_fallback_used",
+                                extra={
+                                    "series_id": series_id,
+                                    "vintage_column": vintage_col,
+                                    "total_rows": len(joined),
+                                },
+                            )
+        if use_vintage and series_list:
+            missing_series = [
+                series_id
+                for series_id in series_list
+                if f"{series_id}__value_vintage_ts" not in joined.columns
+            ]
+            if missing_series:
+                null_dtype = target_dtype or timestamp_dtype
+                joined = joined.with_columns(
+                    [
+                        _pl.lit(None).cast(null_dtype).alias(f"{series_id}__value_vintage_ts")
+                        for series_id in missing_series
+                    ],
+                )
+        elif series_list:
+            null_dtype = target_dtype or timestamp_dtype
+            joined = joined.with_columns(
+                [
+                    _pl.lit(None).cast(null_dtype).alias(f"{series_id}__value_vintage_ts")
+                    for series_id in series_list
+                ],
+            )
 
         if not fred.is_empty() and series_list:
             final_values = fred.select(

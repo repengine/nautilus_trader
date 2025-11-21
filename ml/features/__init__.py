@@ -200,15 +200,15 @@ def __getattr__(name: str) -> object:
     Lazy import implementation to avoid circular imports.
     """
     if name == "FeatureConfig":
-        from ml.features.engineering import FeatureConfig
+        from ml.features.config import FeatureConfig
 
         return FeatureConfig
     elif name == "FeatureEngineer":
-        from ml.features.engineering import FeatureEngineer
+        from ml.features.facade import FeatureEngineer
 
         return FeatureEngineer
     elif name == "IndicatorManager":
-        from ml.features.engineering import IndicatorManager
+        from ml.features.indicators import IndicatorManager
 
         return IndicatorManager
     elif name == "FeatureTransform":

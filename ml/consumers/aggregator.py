@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Final
 
+from ml.common.events_util import to_stage_enum
 from ml.common.logging_utils import log_best_effort
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
@@ -123,19 +124,24 @@ class AggregatingConsumer:
                     out_topic = self.topic_mapper(ev.get("stage", "events"))
                 else:
                     # Use canonical builders with proper Stage enum handling
-                    stage_str = ev.get("stage", "")
+                    stage_value = ev.get("stage", "")
                     instrument_id = ev["instrument_id"]
 
-                    # Try to parse stage string to Stage enum
-                    try:
-                        stage = Stage(stage_str) if stage_str else None
-                    except ValueError:
-                        # Fallback for invalid stage strings
-                        stage = None
+                    stage_enum: Stage | None = None
+                    if stage_value:
+                        try:
+                            stage_enum = to_stage_enum(stage_value)
+                        except ValueError:
+                            logging.getLogger(__name__).debug(
+                                "aggregator.stage_normalization_failed stage=%s instrument_id=%s",
+                                stage_value,
+                                instrument_id,
+                                exc_info=True,
+                            )
 
-                    if stage:
+                    if stage_enum is not None:
                         out_topic = build_topic_for_stage(
-                            stage=stage,
+                            stage=stage_enum,
                             instrument_id=instrument_id,
                             scheme=self.scheme,
                             prefix=self.prefix,

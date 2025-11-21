@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import Any, cast
 
 from ml.common.subprocess_utils import SubprocessExecutionError
+from ml.common.subprocess_utils import run_command as _run_command
 from ml.training.event_driven.guardrails import validation_bundle
 
+
+_VALIDATION_BUNDLE = cast(Any, validation_bundle)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    _VALIDATION_BUNDLE.run_command = run_command
     try:
         if args.alerts_only:
             rules = validation_bundle.run_alerts_only()
@@ -43,6 +48,8 @@ DEFAULT_PYTEST_TARGETS = validation_bundle.DEFAULT_PYTEST_TARGETS
 run_validation = validation_bundle.run_validation
 _validate_manifest_coverage = validation_bundle.validate_manifest_coverage
 _run_alerts_only = validation_bundle.run_alerts_only
+run_command = _run_command
+_VALIDATION_BUNDLE.run_command = run_command
 
 __all__ = [
     "ALERTS_PATH",
@@ -51,6 +58,7 @@ __all__ = [
     "DEFAULT_STATE_PATH",
     "_validate_manifest_coverage",
     "main",
+    "run_command",
     "run_validation",
 ]
 

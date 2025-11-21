@@ -36,7 +36,9 @@ import pytest
 from ml._imports import HAS_ONNX, check_ml_dependencies, ort
 from ml.actors.signal import MLSignalActor, MLSignalActorConfig, OptimizationLevel
 from ml.config.actors import OptimizationConfig, StrategyConfig
-from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import Bar, BarSpecification, BarType
 from typing import Callable, cast

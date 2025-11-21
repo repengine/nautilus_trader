@@ -31,6 +31,17 @@ def _env_seed(
     return value if value >= 0 else default
 
 
+def _env_optional_positive_float(source: Mapping[str, str], name: str) -> float | None:
+    raw = source.get(name)
+    if raw is None:
+        return None
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        return None
+    return value if value > 0.0 else None
+
+
 class DatasetServiceConfig(NautilusConfig, kw_only=True, frozen=True):
     """Configuration for the dataset planning microservice."""
 
@@ -605,6 +616,10 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
     enable_amp: bool = False
     amp_precision: str = "16-mixed"
     amp_guard_threshold_mb: PositiveFloat | None = None
+    checkpoint_dir: str | None = None
+    checkpoint_interval_seconds: PositiveFloat | None = None
+    checkpoint_interval_steps: PositiveInt | None = None
+    checkpoint_retention: PositiveInt = 2
     curriculum: CurriculumScheduleConfig = msgspec_field(default_factory=CurriculumScheduleConfig)
     ensemble: StreamingEnsembleConfig = msgspec_field(default_factory=StreamingEnsembleConfig)
     validation_return_column: str | None = "forward_return"
@@ -668,6 +683,14 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("amp_precision must be non-empty when AMP is enabled")
         if self.amp_guard_threshold_mb is not None and float(self.amp_guard_threshold_mb) <= 0.0:
             raise ValidationError("amp_guard_threshold_mb must be > 0 when set")
+        if self.checkpoint_dir is not None and not self.checkpoint_dir.strip():
+            raise ValidationError("checkpoint_dir must be non-empty when provided")
+        if self.checkpoint_interval_seconds is not None and float(self.checkpoint_interval_seconds) <= 0.0:
+            raise ValidationError("checkpoint_interval_seconds must be > 0 when set")
+        if self.checkpoint_interval_steps is not None and int(self.checkpoint_interval_steps) <= 0:
+            raise ValidationError("checkpoint_interval_steps must be > 0 when set")
+        if int(self.checkpoint_retention) < 1:
+            raise ValidationError("checkpoint_retention must be >= 1")
 
     @classmethod
     def from_env(
@@ -703,6 +726,10 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             ML_STREAMING_TFT_LOSS: teacher loss function (bce, poisson)
             ML_STREAMING_TFT_LOSS_POS_WEIGHT: positive class weight for BCE (>0)
             ML_STREAMING_VALIDATION_RETURN_COLUMN: forward-return column name (blank disables)
+            ML_STREAMING_CHECKPOINT_DIR: directory used to persist checkpoints
+            ML_STREAMING_CHECKPOINT_INTERVAL_SECONDS: positive float cadence for checkpoint saves
+            ML_STREAMING_CHECKPOINT_INTERVAL_STEPS: positive integer step cadence for checkpoint saves
+            ML_STREAMING_CHECKPOINT_RETENTION: positive integer count of checkpoints to retain
         """
         source = env or os.environ
 
@@ -837,6 +864,21 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
                     raise ValidationError(str(exc)) from exc
             ensemble_members = tuple(parsed_members)
 
+        checkpoint_dir = _optional_str("ML_STREAMING_CHECKPOINT_DIR", None)
+        checkpoint_interval_seconds = _env_optional_positive_float(
+            source,
+            "ML_STREAMING_CHECKPOINT_INTERVAL_SECONDS",
+        )
+        checkpoint_interval_steps = _int("ML_STREAMING_CHECKPOINT_INTERVAL_STEPS", None)
+        checkpoint_retention = 2
+        checkpoint_retention_raw = source.get("ML_STREAMING_CHECKPOINT_RETENTION")
+        if checkpoint_retention_raw is not None:
+            try:
+                checkpoint_retention_candidate = int(str(checkpoint_retention_raw).strip())
+            except ValueError:
+                checkpoint_retention_candidate = checkpoint_retention
+            checkpoint_retention = max(1, checkpoint_retention_candidate)
+
         return cls(
             max_total_rows=_int("ML_STREAMING_MAX_TOTAL_ROWS", None),
             max_total_sequences=_int("ML_STREAMING_MAX_TOTAL_SEQUENCES", None),
@@ -892,6 +934,10 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             enable_amp=_truthy("ML_STREAMING_ENABLE_AMP", False),
             amp_precision=str(source.get("ML_STREAMING_AMP_PRECISION", "16-mixed")),
             amp_guard_threshold_mb=_optional_float("ML_STREAMING_AMP_GUARD_THRESHOLD_MB", None),
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_interval_seconds=checkpoint_interval_seconds,
+            checkpoint_interval_steps=checkpoint_interval_steps,
+            checkpoint_retention=checkpoint_retention,
             curriculum=CurriculumScheduleConfig(
                 enabled=_truthy("ML_STREAMING_CURRICULUM_ENABLED", False),
                 stages=curriculum_stages,
@@ -1069,6 +1115,50 @@ class StreamingPromotionConfig(NautilusConfig, kw_only=True, frozen=True):
         )
 
 
+class AzureScheduledEventsConfig(NautilusConfig, kw_only=True, frozen=True):
+    """Configuration for polling Azure scheduled events on spot instances."""
+
+    enabled: bool = False
+    poll_interval_seconds: PositiveFloat = 5.0
+    request_timeout_seconds: PositiveFloat = 2.0
+    metadata_endpoint: str = "http://169.254.169.254/metadata/scheduledevents"
+    api_version: str = "2020-07-01"
+    resource_filter: tuple[str, ...] = msgspec_field(default_factory=tuple)
+    event_types: tuple[str, ...] = ("Preempt",)
+    status_filter: tuple[str, ...] = ("Scheduled", "InProgress")
+
+    def __post_init__(self) -> None:
+        """Validate Azure scheduled event polling parameters."""
+        if float(self.poll_interval_seconds) <= 0.0:
+            raise ValidationError("poll_interval_seconds must be > 0")
+        if float(self.request_timeout_seconds) <= 0.0:
+            raise ValidationError("request_timeout_seconds must be > 0")
+        if not self.metadata_endpoint.strip():
+            raise ValidationError("metadata_endpoint must be non-empty")
+        if not self.api_version.strip():
+            raise ValidationError("api_version must be non-empty")
+        if not self.event_types:
+            raise ValidationError("event_types must contain at least one entry")
+        if not self.status_filter:
+            raise ValidationError("status_filter must contain at least one entry")
+        for label, values in (
+            ("event_types", self.event_types),
+            ("status_filter", self.status_filter),
+            ("resource_filter", self.resource_filter),
+        ):
+            for value in values:
+                if not str(value).strip():
+                    raise ValidationError(f"{label} entries must be non-empty strings")
+
+    def build_request_url(self) -> str:
+        """Return the metadata endpoint including the API version query string."""
+        endpoint = self.metadata_endpoint.strip()
+        if "api-version=" in endpoint.lower():
+            return endpoint
+        separator = "&" if "?" in endpoint else "?"
+        return f"{endpoint}{separator}api-version={self.api_version}"
+
+
 class StreamingPersistenceConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     Configuration for the streaming training persistence worker.
@@ -1162,6 +1252,7 @@ class StreamingPersistenceConfig(NautilusConfig, kw_only=True, frozen=True):
 
 
 __all__ = [
+    "AzureScheduledEventsConfig",
     "CurriculumGuardContext",
     "CurriculumGuardRule",
     "CurriculumResolution",

@@ -7,6 +7,8 @@ import pytest
 from ml.cli.dashboard_welcome import parse_args
 from ml.dashboard_bootstrap import welcome
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
 
 def test_start_services_invokes_compose(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []

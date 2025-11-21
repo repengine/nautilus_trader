@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from ml.config.events import EventStatus
 from ml.training.event_driven.payloads import build_heartbeat_message
@@ -181,4 +184,11 @@ def build_streaming_test_payloads(
     )
 
 
-__all__ = ["StreamingTestPayloads", "build_streaming_test_payloads"]
+@pytest.fixture
+def streaming_test_payloads_factory() -> Callable[..., StreamingTestPayloads]:
+    """Return a callable that builds deterministic streaming payload bundles."""
+
+    return build_streaming_test_payloads
+
+
+__all__ = ["StreamingTestPayloads", "build_streaming_test_payloads", "streaming_test_payloads_factory"]

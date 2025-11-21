@@ -4,6 +4,11 @@ import pytest
 if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
     pytest.skip("component orchestrator tests disabled", allow_module_level=True)
 
+# Ensure component facade stays active before importing orchestrator module.
+os.environ["ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR"] = "1"
+os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
+import importlib
+
 #!/usr/bin/env python3
 
 """
@@ -31,19 +36,50 @@ Success Criteria:
 - No coordination failures
 """
 
-import os
 import time
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import MagicMock
 
 import pytest
 
 from ml.orchestration.config_types import DatasetBuildConfig
-from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+
+_pipeline_orchestrator_module = importlib.import_module("ml.orchestration.pipeline_orchestrator")
+_pipeline_orchestrator_module = importlib.reload(_pipeline_orchestrator_module)
+MLPipelineOrchestrator = _pipeline_orchestrator_module.MLPipelineOrchestrator
+
+pytestmark = [
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
+]
+
+
+@pytest.fixture(autouse=True)
+def _component_mode_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Default all tests to the component-based orchestrator path.
+    """
+
+    monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
+
+
+@pytest.fixture(autouse=True)
+def _configure_onnx_harness(
+    mock_onnx_runtime: Any,
+    onnx_session_stub_factory: Callable[..., object],
+) -> None:
+    """
+    Ensure ONNX runtime interactions stay within the shared harness.
+    """
+
+    mock_onnx_runtime.ort.InferenceSession.return_value = onnx_session_stub_factory()
 
 
 # ============================================================================
@@ -59,13 +95,13 @@ def timestamp_now() -> int:
     return time.time_ns()
 
 
-# Note: mock_data_registry and mock_data_store are now imported from conftest.py
-# If you need custom manifest data, use mock_registry_factory directly:
+# Note: ``mock_data_registry`` and ``mock_data_store`` live in
+# ``ml.tests.fixtures.mock_stores`` and are provided via
+# ``ml.tests.fixtures.pytest_plugins``. Use ``mock_registry_factory`` directly
+# for custom manifests when the default fixtures are insufficient:
 #   def test_something(mock_registry_factory):
 #       registry = mock_registry_factory("data")
 #       registry.get_manifest.return_value = custom_manifest
-#       ...
-# (which imports from ml.tests.fixtures.mock_stores)
 
 
 @pytest.fixture
@@ -179,18 +215,27 @@ def mock_dataset_discovery() -> Any:
 
 
 @pytest.fixture
-def sample_dataset_config(timestamp_now: int) -> DatasetBuildConfig:
+def sample_dataset_config(
+    timestamp_now: int,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> DatasetBuildConfig:
     """
     Create sample DatasetBuildConfig for testing.
     """
     now = datetime.fromtimestamp(timestamp_now / 1_000_000_000, tz=UTC)
     week_ago = now - timedelta(days=7)
 
+    base_dir = tmp_path_factory.mktemp("pipeline_dataset")
+    data_dir = base_dir / "data"
+    out_dir = base_dir / "out"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     return DatasetBuildConfig(
         dataset_id="test_dataset",
         symbols="AAPL,MSFT",
-        data_dir="/tmp/test_data",
-        out_dir="/tmp/test_output",
+        data_dir=str(data_dir),
+        out_dir=str(out_dir),
         horizon_minutes=5,
         threshold=0.001,
         lookback_periods=10,
@@ -219,13 +264,6 @@ class TestE2EConfigResolution:
     """
     Test configuration resolution end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode for these tests.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
 
     def test_e2e_apply_default_market_inputs(
         self,
@@ -335,13 +373,6 @@ class TestE2EDiscoveryOperations:
     Test dataset discovery operations end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
-
     def test_e2e_discover_market_inputs(
         self,
         mock_data_registry: Any,
@@ -392,13 +423,6 @@ class TestE2EBindingResolution:
     """
     Test market binding resolution end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
 
     def test_e2e_resolve_market_inputs_with_config(
         self,
@@ -505,13 +529,6 @@ class TestE2EDatasetBuilding:
     Test dataset building end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
-
     def test_e2e_prepare_dataset_config(
         self,
         mock_data_registry: Any,
@@ -580,13 +597,6 @@ class TestE2EComponentIntegration:
     """
     Test all components working together end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
 
     def test_e2e_full_configuration_pipeline(
         self,
@@ -674,13 +684,6 @@ class TestE2EHealthMonitoring:
     Test health status reporting end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
-
     def test_e2e_health_status_all_components(
         self,
         mock_data_registry: Any,
@@ -722,12 +725,13 @@ class TestE2ELegacyComponentParity:
         mock_data_registry: Any,
         mock_data_store: Any,
         sample_dataset_config: DatasetBuildConfig,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """
         E2E Test: Config resolution identical in both modes.
         """
         # Legacy mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "1"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
         orch_legacy = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -739,7 +743,7 @@ class TestE2ELegacyComponentParity:
             start_legacy = None
 
         # Component mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
         orch_component = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -756,12 +760,13 @@ class TestE2ELegacyComponentParity:
         mock_data_registry: Any,
         mock_data_store: Any,
         sample_dataset_config: DatasetBuildConfig,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """
         E2E Test: Window bounds resolution identical in both modes.
         """
         # Legacy mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "1"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
         orch_legacy = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -777,7 +782,7 @@ class TestE2ELegacyComponentParity:
             start_ns_legacy = end_ns_legacy = None
 
         # Component mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
         orch_component = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -796,12 +801,13 @@ class TestE2ELegacyComponentParity:
         self,
         mock_data_registry: Any,
         mock_data_store: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """
         E2E Test: Health status structure consistent between modes.
         """
         # Legacy mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "1"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
         orch_legacy = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -815,7 +821,7 @@ class TestE2ELegacyComponentParity:
             health_legacy = {}
 
         # Component mode
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
+        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
         orch_component = MLPipelineOrchestrator(
             registry=mock_data_registry,
             data_store=mock_data_store,
@@ -838,13 +844,6 @@ class TestE2EErrorHandling:
     """
     Test error handling in E2E scenarios.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
 
     def test_e2e_missing_registry_handled_gracefully(
         self,
@@ -921,12 +920,6 @@ class TestE2EPerformance:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
-
     def test_e2e_config_resolution_performance(
         self,
         mock_data_registry: Any,

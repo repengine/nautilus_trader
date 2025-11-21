@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+import pytest
 from pathlib import Path
 
 import pandas as pd
@@ -8,6 +11,12 @@ from ml.data.fixtures import make_tbbo_fixture
 from ml.stores.base import FeatureData
 from ml.stores.feature_store import FeatureStore
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def _to_feature_rows(df: pd.DataFrame, feature_set_id: str) -> list[FeatureData]:
     rows: list[FeatureData] = []

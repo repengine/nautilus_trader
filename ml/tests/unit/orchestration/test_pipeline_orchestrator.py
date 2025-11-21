@@ -4,8 +4,13 @@ import os
 
 import pytest
 
-if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
-    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
+
 
 import argparse
 from dataclasses import dataclass

@@ -22,7 +22,7 @@ import tempfile
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -51,8 +51,30 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
-from ml.features.engineering import FeatureConfig
-from ml.tests.fixtures.model_factory import TestModelFactory
+from ml.features.config import FeatureConfig
+if TYPE_CHECKING:
+    from ml.tests.fixtures.model_factory import TestModelFactory
+
+
+_TEST_MODEL_FACTORY: TestModelFactory | None = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _configure_test_model_factory(test_model_factory: TestModelFactory) -> None:
+    """
+    Ensure property tests share the canonical model factory instance.
+    """
+
+    global _TEST_MODEL_FACTORY
+    _TEST_MODEL_FACTORY = test_model_factory
+
+
+def _require_test_model_factory() -> TestModelFactory:
+    if _TEST_MODEL_FACTORY is None:  # pragma: no cover - sanity guard
+        raise RuntimeError(
+            "test_model_factory fixture not configured; ensure pytest plug-in is active.",
+        )
+    return _TEST_MODEL_FACTORY
 
 
 # ============================================================================
@@ -280,7 +302,7 @@ def feature_arrays(draw, n_features=None, allow_extreme_values=False):
 @lru_cache(maxsize=32)
 def _cached_model_path(n_features: int, n_outputs: int) -> str:
     """Generate or fetch a cached ONNX model path for the given shape."""
-    model_path = TestModelFactory.create_onnx_model(
+    model_path = _require_test_model_factory().create_onnx_model(
         n_features=n_features,
         n_outputs=n_outputs,
     )

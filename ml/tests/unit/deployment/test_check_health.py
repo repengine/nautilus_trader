@@ -56,7 +56,22 @@ class TestServiceHealthChecks:
 
         result, message = check_service_health("TestService", failed_check)
         assert result is False
-        assert message == "UNHEALTHY"
+        assert message == "ERROR: UNHEALTHY"
+
+    def test_check_service_health_logs_failure(self, caplog):
+        """
+        Test failed health checks emit error logs.
+        """
+
+        def failed_check():
+            return False
+
+        with caplog.at_level("ERROR"):
+            result, message = check_service_health("TestService", failed_check)
+
+        assert result is False
+        assert message == "ERROR: UNHEALTHY"
+        assert any("service_health_check_unhealthy" in record.message for record in caplog.records)
 
     def test_check_service_health_exception(self):
         """
@@ -69,6 +84,21 @@ class TestServiceHealthChecks:
         result, message = check_service_health("TestService", error_check)
         assert result is False
         assert "ERROR: Connection failed" in message
+
+    def test_check_service_health_logs_exception(self, caplog):
+        """
+        Test exception path logs error with traceback context.
+        """
+
+        def error_check():
+            raise RuntimeError("Connection failed")
+
+        with caplog.at_level("ERROR"):
+            result, message = check_service_health("TestService", error_check)
+
+        assert result is False
+        assert message == "ERROR: Connection failed"
+        assert any(record.exc_info for record in caplog.records)
 
     def test_check_postgres_healthy(self):
         """

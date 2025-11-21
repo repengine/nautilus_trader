@@ -1,5 +1,8 @@
+-- Migration: Optional deduplication helper for ml_feature_values prior to constraints.
+-- Rollback: Not applicable; script is diagnostic and does not mutate by default.
+
 -- Optional Pre-migration Deduplication for ml_feature_values
--- Run BEFORE 005_schema_hardening.sql if unique index creation might fail.
+-- Run BEFORE 007_schema_hardening.sql if unique index creation might fail.
 -- This script helps identify and (optionally) remove duplicates for the
 -- upsert key (feature_set_id, instrument_id, ts_event).
 
@@ -31,4 +34,3 @@ LIMIT 100;
 -- DELETE FROM public.ml_feature_values m
 -- USING ranked r
 -- WHERE m.ctid = r.ctid AND r.rn > 1;
-

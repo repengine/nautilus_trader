@@ -11,6 +11,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
+from pathlib import Path
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+_REPO_ROOT = Path(__file__).resolve().parent
+_LEGACY_TESTS_DIR = _REPO_ROOT / "tests"
+_THIRD_PARTY_TESTS_DIR = _REPO_ROOT / ".libraries"
 
 
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
@@ -67,4 +74,18 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     config.addinivalue_line(
         "filterwarnings",
         "ignore:.*Benchmark fixture was not used.*:pytest.PytestWarning",
+    )
+
+
+def pytest_ignore_collect(path, config) -> bool:  # type: ignore[no-untyped-def]
+    """
+    Skip legacy non-ML test directories when running focused ML shards.
+    """
+    keyword_expr = (getattr(config.option, "keyword", "") or "").lower()
+    if "earnings" not in keyword_expr:
+        return False
+
+    path_str = os.fspath(path)
+    return path_str.startswith(str(_LEGACY_TESTS_DIR)) or path_str.startswith(
+        str(_THIRD_PARTY_TESTS_DIR),
     )

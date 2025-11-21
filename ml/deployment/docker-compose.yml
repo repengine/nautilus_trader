@@ -270,6 +270,8 @@ services:
       # Pipeline configuration
       PIPELINE_MODE: "${PIPELINE_MODE:-daily}"  # daily, backfill, or realtime
       PIPELINE_SCHEDULE: "${PIPELINE_SCHEDULE:-0 17 * * *}"  # Default: 5 PM daily
+      USE_ORCHESTRATOR: "${USE_ORCHESTRATOR:-1}"
+      DUAL_WRITE: "${DUAL_WRITE:-1}"
 
       # Feature store configuration
       FEATURE_STORE_TYPE: postgres
@@ -281,6 +283,15 @@ services:
 
       # Catalog configuration
       CATALOG_PATH: /app/data/catalog
+      CATALOG_REHYDRATE_ENABLED: "${CATALOG_REHYDRATE_ENABLED:-0}"
+      CATALOG_REHYDRATE_LOOKBACK_DAYS: "${CATALOG_REHYDRATE_LOOKBACK_DAYS:-5}"
+      CATALOG_REHYDRATE_BATCH_SIZE: "${CATALOG_REHYDRATE_BATCH_SIZE:-1000}"
+      CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE: "${CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE:-{instrument_id}-1-MINUTE-LAST-EXTERNAL}"
+      CATALOG_REHYDRATE_TABLE: "${CATALOG_REHYDRATE_TABLE:-market_data}"
+      CATALOG_REHYDRATE_RESCAN: "${CATALOG_REHYDRATE_RESCAN:-0}"
+      CATALOG_REHYDRATE_EXHAUSTIVE: "${CATALOG_REHYDRATE_EXHAUSTIVE:-0}"
+      MARKET_DATASET_INPUTS: "${MARKET_DATASET_INPUTS:-}"
+      MARKET_BACKFILL_LOOKBACK_DAYS: "${MARKET_BACKFILL_LOOKBACK_DAYS:-1}"
 
       # Universe configuration
       UNIVERSE_SYMBOLS: "${UNIVERSE_SYMBOLS:-SPY.XNAS}"  # Comma-separated list
@@ -298,7 +309,7 @@ services:
 
     volumes:
       - ../models:/app/models:rw  # Read-write for model training
-      - ../data:/app/data:rw  # Data catalog persistence
+      - ../../data:/app/data:rw  # Data catalog persistence
       - ../logs:/app/logs:rw  # Log persistence
       - ./configs:/app/configs:ro  # Configuration files
       - ../stores/migrations:/app/migrations:ro  # Canonical migrations (optional)

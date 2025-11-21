@@ -23,13 +23,14 @@ class TestResourceUtilizationCollector:
     @pytest.fixture(autouse=True)
     def setup_test(
         self,
-        prometheus_registry_cleanup: Any,
+        isolated_prometheus_registry: Any,
         metric_name_manager: Any,
         monitoring_config: MonitoringConfig,
     ) -> None:
         """
         Set up test with proper cleanup and unique names.
         """
+        self.registry_harness = isolated_prometheus_registry
         self.metric_name_manager = metric_name_manager
         self.config = monitoring_config
 

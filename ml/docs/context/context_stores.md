@@ -206,7 +206,7 @@ def _should_use_component_feature_store() -> bool:
   - Offline (L1_L2): Full microstructure and trade-flow features for training
   - Online (L1_ONLY): OHLCV-only features for live inference
 
-**Table Schema** (from migration `001_stores_schema.sql`):
+**Table Schema** (from migration `002_stores_schema.sql`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS ml_feature_values (
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS ml_feature_values (
     PRIMARY KEY (feature_set_id, instrument_id, ts_event)
 ) PARTITION BY RANGE (ts_event);
 
--- BRIN index for efficient range scans (migration 007_brin_indexes.sql)
+-- BRIN index for efficient range scans (migration 011_brin_indexes.sql)
 CREATE INDEX IF NOT EXISTS brin_ml_feature_values_ts
     ON ml_feature_values USING BRIN (ts_event);
 ```
@@ -610,7 +610,7 @@ class ValidationViolation:
 **Event & Lineage System**:
 
 - **Correlation Tracking**: Deterministic `correlation_id` for end-to-end lineage
-- **Event Metadata**: JSONB storage in PostgreSQL (migration `007_add_event_metadata.sql`)
+- **Event Metadata**: JSONB storage in PostgreSQL (migration `010_add_event_metadata.sql`)
 - **Watermark Management**: Automatic timestamp watermark tracking for data freshness
 - **Cross-Domain Events**: Event cascading across data, features, models, and strategy domains
 
@@ -896,18 +896,18 @@ def build_standard_indexes(table_name: str) -> list[Index]:
 
 **Current Migration Files**:
 
-1. `001_stores_schema.sql` - Core partitioned tables (36 months initial partitions 2024-2026)
-2. `002_auto_partitioning.sql` - Automatic partition creation functions
-3. `003_market_data.sql` - Market data tables with OHLCV support
-4. `004_data_registry.sql` - Data registry tables for manifest and contract storage
-5. `005_schema_hardening.sql` - Schema hardening and optimization
-6. `005_views.sql` - Materialized views for performance
-7. `005a_feature_values_dedupe.sql` - Deduplication logic for feature values
-8. `006_disable_partition_triggers.sql` - ⚠️ **CRITICAL**: Disables race-prone automatic triggers
-9. `007_add_event_metadata.sql` - Adds JSONB metadata column to events table
-10. `007_brin_indexes.sql` - BRIN indexes for efficient time-range queries
-11. `008_predictions_alias.sql` - Alias view for backward compatibility
-12. `009_update_parents_predictions.sql` - Parent table updates
+1. `002_stores_schema.sql` - Core partitioned tables (36 months initial partitions 2024-2026)
+2. `003_auto_partitioning.sql` - Automatic partition creation functions
+3. `004_market_data.sql` - Market data tables with OHLCV support
+4. `005_data_registry.sql` - Data registry tables for manifest and contract storage
+5. `007_schema_hardening.sql` - Schema hardening and optimization
+6. `008_views.sql` - Materialized views for performance
+7. `006_feature_values_dedupe.sql` - Deduplication logic for feature values
+8. `009_disable_partition_triggers.sql` - ⚠️ **CRITICAL**: Disables race-prone automatic triggers
+9. `010_add_event_metadata.sql` - Adds JSONB metadata column to events table
+10. `011_brin_indexes.sql` - BRIN indexes for efficient time-range queries
+11. `012_predictions_alias.sql` - Alias view for backward compatibility
+12. `014_update_parents_predictions.sql` - Parent table updates
 
 **Archive Directory**: Legacy migrations stored in `migrations/archive/` for reference.
 
@@ -963,7 +963,7 @@ class PartitionManager:
 - Example: `ml_feature_values_2024_03`
 - Example: `ml_model_predictions_2025_10`
 
-**Critical Design Decision** (from migration `006_disable_partition_triggers.sql`):
+**Critical Design Decision** (from migration `009_disable_partition_triggers.sql`):
 
 Automatic partition triggers were **DISABLED** due to race conditions. Instead, `PartitionManager` handles partition creation proactively:
 
@@ -1014,7 +1014,7 @@ CREATE INDEX idx_ml_strategy_signals_type
     ON ml_strategy_signals (signal_type);
 ```
 
-**BRIN Benefits** (from migration `007_brin_indexes.sql`):
+**BRIN Benefits** (from migration `011_brin_indexes.sql`):
 
 - Block Range Indexes (BRIN) for minimal storage overhead
 - Efficient for time-range queries on large partitioned tables

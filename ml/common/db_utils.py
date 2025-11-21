@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 import re
+import zlib
 from collections.abc import Iterable
+from collections.abc import Iterator
 from collections.abc import Sequence
+from contextlib import contextmanager
 from datetime import date
 from typing import Any, Final
 
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
 from ml.core.db_engine import EngineManager
@@ -25,7 +29,7 @@ __all__ = sorted(
         "ensure_partition_tables_ready",
         "get_default_pool_config",
         "get_or_create_engine",
-    ]
+    ],
 )
 
 STORE_PARTITIONED_TABLES: Final[tuple[str, ...]] = (
@@ -35,6 +39,7 @@ STORE_PARTITIONED_TABLES: Final[tuple[str, ...]] = (
 )
 
 _VALID_IDENTIFIER: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PARTITION_LOCK_NAMESPACE: Final[int] = 0x4D4C  # "ML" sentinel for advisory locks
 
 
 def get_default_pool_config() -> dict[str, Any]:
@@ -124,28 +129,27 @@ def ensure_monthly_partitions(
     safe_schema = _validate_identifier(schema)
     start = start_date or _first_day_of_current_month()
 
-    stmt = text(
-        "SELECT create_monthly_partitions(:table_name, :start_date, :months)"
-    )
+    stmt = text("SELECT create_monthly_partitions(:table_name, :start_date, :months)")
 
     with engine.begin() as conn:
         conn.execute(text(f"SET LOCAL search_path TO {safe_schema}, pg_catalog"))
-        try:
-            conn.execute(
-                stmt,
-                {
-                    "table_name": safe_table,
-                    "start_date": start,
-                    "months": months_ahead,
-                },
-            )
-        except Exception as exc:  # pragma: no cover - helper may be absent
-            LOGGER.debug(
-                "create_monthly_partitions unavailable for %s.%s: %s",
-                safe_schema,
-                safe_table,
-                exc,
-            )
+        with _partition_lock(conn, safe_schema, safe_table):
+            try:
+                conn.execute(
+                    stmt,
+                    {
+                        "table_name": safe_table,
+                        "start_date": start,
+                        "months": months_ahead,
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - helper may be absent
+                LOGGER.debug(
+                    "create_monthly_partitions unavailable for %s.%s: %s",
+                    safe_schema,
+                    safe_table,
+                    exc,
+                )
 
 
 def ensure_partition_tables_ready(
@@ -168,29 +172,30 @@ def ensure_partition_tables_ready(
     with engine.begin() as conn:
         conn.execute(text(f"SET LOCAL search_path TO {safe_schema}, pg_catalog"))
         for table in tables:
-            conn.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS {table}_default PARTITION OF {table} DEFAULT"
-                )
-            )
-            try:
+            with _partition_lock(conn, safe_schema, table):
                 conn.execute(
                     text(
-                        "SELECT create_monthly_partitions(:table_name, :start_date, :months)"
+                        f"CREATE TABLE IF NOT EXISTS {table}_default PARTITION OF {table} DEFAULT"
                     ),
-                    {
-                        "table_name": table,
-                        "start_date": start,
-                        "months": months_ahead,
-                    },
                 )
-            except Exception as exc:  # pragma: no cover - helper may be absent
-                LOGGER.debug(
-                    "create_monthly_partitions unavailable for %s.%s: %s",
-                    safe_schema,
-                    table,
-                    exc,
-                )
+                try:
+                    conn.execute(
+                        text(
+                            "SELECT create_monthly_partitions(:table_name, :start_date, :months)"
+                        ),
+                        {
+                            "table_name": table,
+                            "start_date": start,
+                            "months": months_ahead,
+                        },
+                    )
+                except Exception as exc:  # pragma: no cover - helper may be absent
+                    LOGGER.debug(
+                        "create_monthly_partitions unavailable for %s.%s: %s",
+                        safe_schema,
+                        table,
+                        exc,
+                    )
 
 
 def _validate_identifier(identifier: str) -> str:
@@ -203,3 +208,27 @@ def _validate_identifier(identifier: str) -> str:
 def _first_day_of_current_month() -> date:
     today = date.today()
     return today.replace(day=1)
+
+
+def _partition_lock_key(schema: str, table: str) -> int:
+    """Derive a stable advisory lock key for a given schema/table."""
+    hashed = zlib.crc32(f"{schema}.{table}".encode()) & 0xFFFFFFFF
+    return (_PARTITION_LOCK_NAMESPACE << 32) | hashed
+
+
+@contextmanager
+def _partition_lock(connection: Connection, schema: str, table: str) -> Iterator[None]:
+    """
+    Serialize partition management per table via advisory locks.
+
+    PostgreSQL's `pg_advisory_xact_lock` releases automatically at transaction end,
+    ensuring parallel tests do not try to create/attach the same partition concurrently.
+    """
+    dialect_name = getattr(getattr(connection, "dialect", None), "name", "")
+    if dialect_name != "postgresql":
+        yield
+        return
+
+    lock_key = _partition_lock_key(schema, table)
+    connection.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+    yield

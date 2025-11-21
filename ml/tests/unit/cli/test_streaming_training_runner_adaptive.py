@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 from pathlib import Path
 from typing import Mapping
 
@@ -10,9 +11,11 @@ from ml.cli.streaming_training_runner import FeatureLayout
 from ml.cli.streaming_training_runner import RunnerConfig
 from ml.cli.streaming_training_runner import StreamingTrainingRunner
 from ml.config.events import EventStatus
+from ml.config.streaming_pipeline import AzureScheduledEventsConfig
 from ml.config.streaming_pipeline import DatasetServiceConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
+from ml.training.event_driven.azure_events import ScheduledEventNotice
 from ml.training.event_driven.services import TrainingResultEvent
 from ml.training.teacher.streaming_loader import PhaseOneFeatureSignals
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
@@ -173,3 +176,49 @@ def test_runner_interval_zero_when_base_zero(tmp_path: Path) -> None:
     runner = StreamingTrainingRunner(config)
     result = _make_result_event(max_gpu=256.0)
     assert runner._next_plan_interval(result) == pytest.approx(0.0)
+
+
+def test_runner_signal_requests_checkpoint(tmp_path: Path) -> None:
+    config = _build_runner_config(tmp_path)
+    runner = StreamingTrainingRunner(config)
+
+    class _WorkerStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, bool]] = []
+
+        def save_checkpoint_now(self, *, reason: str, triggered_by_signal: bool) -> None:
+            self.calls.append((reason, triggered_by_signal))
+
+    worker = _WorkerStub()
+    runner._active_worker = worker  # type: ignore[attr-defined]
+    runner._handle_signal(signal.SIGTERM)
+    assert runner._stop_requested is True
+    assert worker.calls == [("signal:SIGTERM", True)]
+    runner._active_worker = None
+
+
+def test_runner_azure_notice_triggers_checkpoint(tmp_path: Path) -> None:
+    config = _build_runner_config(tmp_path)
+    config.scheduled_events = AzureScheduledEventsConfig(enabled=True)
+    runner = StreamingTrainingRunner(config)
+
+    class _WorkerStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, bool]] = []
+
+        def save_checkpoint_now(self, *, reason: str, triggered_by_signal: bool) -> None:
+            self.calls.append((reason, triggered_by_signal))
+
+    worker = _WorkerStub()
+    runner._active_worker = worker  # type: ignore[attr-defined]
+    notice = ScheduledEventNotice(
+        event_id="evt-1234",
+        event_type="Preempt",
+        event_status="Scheduled",
+        resources=("vm-instance",),
+        not_before="2024-06-30T12:00:00Z",
+    )
+    runner._handle_scheduled_event_notice(notice)
+    assert runner._stop_requested is True
+    assert worker.calls == [("azure:preempt:evt-1234", True)]
+    runner._active_worker = None

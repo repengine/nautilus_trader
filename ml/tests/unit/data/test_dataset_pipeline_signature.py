@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from ml.data import MarketBindingMetadata
 from ml.data import compute_dataset_pipeline_signature
 from ml.data.vintage import VintagePolicy
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
 
 def _base_signature_kwargs() -> dict[str, object]:
     return {
@@ -18,7 +21,6 @@ def _base_signature_kwargs() -> dict[str, object]:
         "ts_event_start": "2024-01-01T00:00:00+00:00",
         "ts_event_end": "2024-01-31T00:00:00+00:00",
     }
-
 
 def test_pipeline_signature_changes_with_market_bindings() -> None:
     binding_a = MarketBindingMetadata(
@@ -66,7 +68,6 @@ def test_pipeline_signature_changes_with_market_bindings() -> None:
     )
 
     assert sig_a != sig_b
-
 
 def test_pipeline_signature_stable_under_binding_reordering() -> None:
     binding_a = MarketBindingMetadata(

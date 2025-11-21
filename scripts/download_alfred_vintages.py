@@ -23,7 +23,9 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from ml.common.env import load_project_dotenv
 from ml.common.logging_config import configure_logging
+from ml.config.macro_universe import MARKET_BASED_MACRO_SERIES, TIER1_MACRO_SERIES_UNIVERSE
 from ml.data.loaders.alfred_loader import ALFREDConfig
 from ml.data.loaders.alfred_loader import ALFREDDataLoader
 
@@ -31,22 +33,11 @@ from ml.data.loaders.alfred_loader import ALFREDDataLoader
 def main() -> int:
     configure_logging(level="INFO")
     logger = logging.getLogger(__name__)
+    load_project_dotenv()
 
-    # Expanded macro universe with depth features
-    # Organized by category for tracking
-    series_by_category = {
-        "Rates/Duration": ["DGS2", "DGS5", "DGS10", "DGS30", "T10Y2Y", "DFII10", "FEDFUNDS"],
-        "Credit/Risk": ["BAMLC0A0CM", "BAMLH0A0HYM2", "TEDRATE", "VIXCLS"],
-        "Growth/Labor": ["PAYEMS", "UNRATE", "INDPRO", "CFNAI"],
-        "Inflation/Costs": ["CPIAUCSL", "PCEPI", "PPIACO", "WTISPLC", "GOLDAMGBD228NLBM"],
-        "Cross-Asset": ["SP500", "CRBINDX", "DTWEXBGS", "DEXUSAL", "DEXUSEU", "DEXJPUS"],
-        "Liquidity": ["WALCL", "TOTBKCR"],
-    }
-
-    # Flatten to single list
-    all_series = []
-    for category, series_list in series_by_category.items():
-        all_series.extend(series_list)
+    # Expanded macro universe with depth features organised by category
+    series_by_category = dict(TIER1_MACRO_SERIES_UNIVERSE.categories)
+    all_series = list(TIER1_MACRO_SERIES_UNIVERSE.all_series())
 
     print(f"{'='*80}")
     print("ALFRED Vintage Data Download")
@@ -96,6 +87,7 @@ def main() -> int:
         start_date="2015-01-01",  # Last 10 years of vintages
         window_days=365,           # Download in yearly chunks to respect API limits
         max_retries=2,
+        fallback_to_fred_series=MARKET_BASED_MACRO_SERIES,
     )
 
     try:
@@ -111,7 +103,7 @@ def main() -> int:
         # Summary
         total_releases = 0
         for series_id, series_stats in stats.items():
-            releases = series_stats.get("releases_written", 0)
+            releases = series_stats.get("releases", 0)
             total_releases += releases
             print(f"  {series_id:20s}: {releases:4d} vintage releases")
 
@@ -129,13 +121,14 @@ def main() -> int:
         return 0
 
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("Configuration error: %s", e)
         print()
-        print("❌ Error: FRED_API_KEY environment variable not set")
+        print(f"❌ Error: {e}")
         print()
-        print("Get a free API key at: https://fred.stlouisfed.org/docs/api/api_key.html")
-        print("Then set it: export FRED_API_KEY='your_key_here'")
-        print()
+        if "FRED_API_KEY" in str(e):
+            print("Get a free API key at: https://fred.stlouisfed.org/docs/api/api_key.html")
+            print("Then set it: export FRED_API_KEY='your_key_here'")
+            print()
         return 1
 
     except Exception as e:

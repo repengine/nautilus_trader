@@ -18,8 +18,8 @@ import pytest
 from typing import Any, cast
 
 from ml.config.constants import MLConstants
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
 from ml.features.validation import FeatureParityError
 from ml.features.validation import FeatureParityValidator
 from ml.features.validation import validate_feature_parity
@@ -545,7 +545,7 @@ class TestUnifiedFeatureCalculation:
         }
 
         # Create indicator manager
-        from ml.features.engineering import IndicatorManager
+        from ml.features.indicators import IndicatorManager
 
         indicator_mgr = IndicatorManager(config)
 

@@ -38,6 +38,7 @@ class _DummyConsumer:
         self.polls: int = 0
         self._last_entry_id: str | None = None
         self._cursor_counter = 0
+        self.last_ids: list[str] = []
 
     def poll_once(
         self,
@@ -46,7 +47,8 @@ class _DummyConsumer:
         block_ms: int,
         last_id: str = "$",
     ) -> int:
-        del count, block_ms, last_id
+        del count, block_ms
+        self.last_ids.append(last_id)
         if not self._events:
             return 0
         topic, payload = self._events.popleft()
@@ -209,6 +211,38 @@ def test_streaming_persistence_worker_processes_events(tmp_path: Path) -> None:
     result_payload = snapshot["results"][plan.plan_id]
     resources_payload = result_payload["telemetry"]["resources"]
     assert resources_payload["max_gpu_memory_mb"] == 384.0
+
+
+def test_streaming_persistence_worker_replays_from_stream_head(tmp_path: Path) -> None:
+    messages: deque[tuple[str, dict[str, Any]]] = deque()
+    store = InMemoryStreamingTrainingStateStore()
+    config = StreamingPersistenceConfig(
+        state_path=str(tmp_path / "state.json"),
+        batch_size=4,
+        block_ms=0,
+        poll_interval_seconds=0.0,
+    )
+    bus_config = MessageBusConfig(
+        enabled=True,
+        backend="redis",
+        redis_url="redis://localhost:6379/0",
+        redis_stream="ml-events",
+    )
+
+    def factory(service: Any, _config: MessageBusConfig) -> _DummyConsumer:
+        return _DummyConsumer(handler=service.handle, events=messages)
+
+    worker = StreamingTrainingPersistenceWorker(
+        config=config,
+        message_bus_config=bus_config,
+        state_store=store,
+        consumer_factory=factory,
+    )
+
+    assert worker.poll_once() == 0
+    consumer = worker._consumer  # type: ignore[attr-defined]
+    assert consumer is not None
+    assert consumer.last_ids == ["0-0"]
 
 
 def test_streaming_persistence_worker_disabled(tmp_path: Path) -> None:

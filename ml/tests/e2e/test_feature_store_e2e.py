@@ -34,7 +34,7 @@ import pytest
 # Mark entire module for serial execution due to test dependencies
 pytestmark = pytest.mark.serial
 
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 
 
 if TYPE_CHECKING:

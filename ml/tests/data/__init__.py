@@ -4,7 +4,11 @@
 Test data directory for ML module tests.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
 
 def get_test_data_dir() -> Path:

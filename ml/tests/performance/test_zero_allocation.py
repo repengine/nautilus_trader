@@ -9,27 +9,33 @@ allocations by tracking memory usage and array sharing.
 import gc
 import logging
 import tracemalloc
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
 
-from ml.core.cache import LockFreeRingBuffer
-from ml.core.cache import PreAllocatedFeatureCache
-from ml.core.cache import ReservoirSampler
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarSpecification
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import OptimizationLevel
+from ml.config.actors import OptimizationConfig
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
+from nautilus_trader.model.data import Bar, BarSpecification
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
+from ml.core.cache import LockFreeRingBuffer, PreAllocatedFeatureCache, ReservoirSampler
+
+if TYPE_CHECKING:
+    pass
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -235,10 +241,10 @@ class TestZeroAllocationHotPath:
             scaler=None,
         )
 
-        # Verify it's a view of the feature buffer
+        # Verify it's a view of the feature buffer, not a copy
         assert np.shares_memory(
             features,
-            engineer.feature_buffer,
+            engineer.calculator.feature_buffer,
         ), "calculate_features_online should return a view of feature_buffer"
 
     def test_hot_path_memory_stability(self, setup_bar_data: tuple[BarType, list[Bar]]) -> None:

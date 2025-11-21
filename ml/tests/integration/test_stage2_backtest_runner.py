@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import os
 from pathlib import Path
 
@@ -9,6 +11,12 @@ import pytest
 from ml.orchestration.promotions import Stage2Config
 from ml.orchestration.promotions import run_promotion_stage2
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.integration
 def test_stage2_backtest_engine_smoke(tmp_path: Path) -> None:

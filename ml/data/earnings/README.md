@@ -740,6 +740,25 @@ class EarningsCache:
 
 ## Migration Guide
 
+### Automated Ingestion
+
+Earnings ingestion can be re-run via CLI/Makefile:
+
+```bash
+# Mirror to Postgres + Parquet (ml_out/earnings_raw)
+poetry run python ml/cli/ingest_earnings.py --dsn "$NAUTILUS_DB"
+
+# Or via Make target (honors DSN/PARQUET_ROOT environment variables)
+make earnings-ingest DSN="$NAUTILUS_DB"
+```
+
+Flags of interest:
+
+- `--symbol TICKER` to constrain ingestion (repeatable)
+- `--skip-actuals ETF1 --skip-actuals ETF2` to extend the ETF skip list
+- `--no-yahoo` to disable consensus ingestion
+- `--sec-identity "Your Org <ops@example.com>"` to satisfy SEC API requirements
+
 ### From No Earnings Data → Earnings Integration
 
 **Step 1**: Install dependencies

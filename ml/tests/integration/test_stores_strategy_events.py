@@ -8,6 +8,7 @@ operations.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -18,6 +19,9 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.stores.strategy_store import StrategyStore
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
 
 # Integration markers and module-scoped cleanup to reduce DB overhead
 pytestmark = [
@@ -25,10 +29,15 @@ pytestmark = [
     pytest.mark.database,
     pytest.mark.serial,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
 
 
-def test_strategy_store_emits_signal_events(test_database):
+def test_strategy_store_emits_signal_events(test_database: TestDatabase) -> None:
     """
     Test that StrategyStore emits SIGNAL_EMITTED events after flush.
     """
@@ -88,7 +97,9 @@ def test_strategy_store_emits_signal_events(test_database):
         assert watermark_args["completeness_pct"] == 100.0
 
 
-def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database):
+def test_strategy_store_groups_signals_by_strategy_and_instrument(
+    test_database: TestDatabase,
+) -> None:
     """
     Test that signals are grouped by strategy_id and instrument_id for event emission.
     """

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import os
 import time as _time
 from contextlib import contextmanager
 from types import MethodType
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +18,12 @@ from ml.actors.signal import MLSignalActor, MLSignalActorConfig
 from ml.config.base import CircuitBreakerConfig
 from nautilus_trader.model.data import Bar
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @contextmanager
 def env(vars: dict[str, str]) -> Iterator[None]:
@@ -29,6 +37,18 @@ def env(vars: dict[str, str]) -> Iterator[None]:
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+@pytest.fixture(autouse=True)
+def _configure_onnx_stub(
+    mock_onnx_runtime: Any,
+    onnx_session_stub_factory: Callable[..., object],
+) -> None:
+    """
+    Ensure every test uses the deterministic ONNX harness.
+    """
+
+    mock_onnx_runtime.ort.InferenceSession.return_value = onnx_session_stub_factory()
 
 
 @pytest.mark.integration

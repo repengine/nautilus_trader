@@ -13,9 +13,14 @@ from contextlib import contextmanager
 import numpy as np
 
 # Direct imports to avoid complex dependencies
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import OptimizationLevel
+from ml.config.actors import OptimizationConfig
+from ml.features.config import FeatureConfig
+from ml.features.indicators import IndicatorManager
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
 
 
 logging.basicConfig(level=logging.INFO)

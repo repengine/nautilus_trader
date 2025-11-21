@@ -14,7 +14,7 @@ for all valid inputs. Initially marked @pytest.mark.skip until implementation ex
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, Any
 
 import pytest
 from hypothesis import HealthCheck
@@ -30,7 +30,11 @@ from ml.stores.table_factory import get_schema_name
 
 if TYPE_CHECKING:
     from ml.stores.services.feature_services import CrossAssetFeatureService
-    from ml.tests.conftest import TestDatabase
+
+
+class _TestDatabase(Protocol):
+    connection_string: str
+    engine: Any
 
 pytestmark = pytest.mark.serial
 
@@ -102,7 +106,7 @@ def lookback_periods(draw):
 
 
 @pytest.fixture
-def cross_asset_service(test_database: TestDatabase) -> CrossAssetFeatureService:
+def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureService:
     """Provide initialized CrossAssetFeatureService."""
     from ml.stores.feature_store import ComponentFeatureStore
 
@@ -202,7 +206,7 @@ def test_timestamp_monotonicity_invariant(
 )
 def test_upsert_idempotence_invariant(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
     ts_event: int,
     asset_id: str,
     benchmark_id: str,
@@ -298,7 +302,7 @@ def test_upsert_idempotence_invariant(
 )
 def test_namespace_uniqueness_invariant(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
     ts_event: int,
     asset_1: str,
     asset_2: str,

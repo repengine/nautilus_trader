@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import random
+import shutil
 import time
 from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,6 +50,7 @@ from ml.training.teacher.streaming_loader import TFTStreamingConfig
 from ml.training.teacher.streaming_loader import TFTStreamingMetadata
 from ml.training.teacher.streaming_loader import TFTStreamingSummary
 from ml.training.teacher.streaming_loader import summarize_metadata
+from ml.training.teacher.streaming_telemetry import StreamingCheckpointTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingEconomicTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingEnsembleMemberTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingEnsembleTelemetry
@@ -71,8 +75,19 @@ if TYPE_CHECKING:
     import polars as _polars
 
     PolarsDataFrame = _polars.DataFrame
+    from pytorch_lightning.callbacks import Callback as _LightningCallbackBase
 else:  # pragma: no cover - used for typing only
     PolarsDataFrame = Any
+    try:  # pragma: no cover - optional Lightning dependency
+        from lightning.pytorch.callbacks import Callback as _LightningCallbackBase  # type: ignore[assignment]
+    except Exception:  # pragma: no cover
+        try:
+            from pytorch_lightning.callbacks import Callback as _LightningCallbackBase  # type: ignore[assignment]
+        except Exception:  # pragma: no cover
+            class _FallbackCallback:  # pragma: no cover - minimal stub when Lightning absent
+                pass
+
+            _LightningCallbackBase = _FallbackCallback
 
 
 @dataclass(slots=True, frozen=True)
@@ -116,6 +131,21 @@ _GPU_PEAK_MEMORY_MB = get_gauge(
     "Peak GPU memory usage observed during TFT streaming runs.",
     labelnames=("dataset_id",),
 )
+_CHECKPOINT_SAVES_TOTAL = get_counter(
+    "ml_streaming_checkpoints_total",
+    "Streaming checkpoint save attempts grouped by outcome and trigger.",
+    labelnames=("outcome", "trigger"),
+)
+_CHECKPOINT_RESUMES_TOTAL = get_counter(
+    "ml_streaming_checkpoint_resumes_total",
+    "Streaming checkpoint resume attempts grouped by outcome.",
+    labelnames=("outcome",),
+)
+_CHECKPOINT_SIGNAL_TOTAL = get_counter(
+    "ml_streaming_checkpoint_evictions_total",
+    "Streaming checkpoints triggered by eviction notices grouped by outcome.",
+    labelnames=("outcome",),
+)
 
 
 class ValidationDatasetEmptyError(RuntimeError):
@@ -153,6 +183,408 @@ class _LoadedMemberLogits:
     z_val: npt.NDArray[np.float64]
     train_rows: StreamingRowMetadata | None
     val_rows: StreamingRowMetadata | None
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointRecord:
+    """Persisted checkpoint metadata for resumable streaming training."""
+
+    plan_id: str
+    dataset_id: str
+    path: Path
+    epoch: int
+    global_step: int
+    saved_at: str
+    reason: str | None
+    trigger: str
+    metrics: Mapping[str, float]
+
+
+class StreamingCheckpointManager:
+    """Coordinate periodic/manual checkpoint persistence for streaming workers."""
+
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        retention: int,
+        interval_seconds: float | None,
+        interval_steps: int | None,
+    ) -> None:
+        self._directory = Path(directory)
+        self._directory.mkdir(parents=True, exist_ok=True)
+        self._retention = max(1, int(retention))
+        self._interval_seconds = float(interval_seconds) if interval_seconds is not None else None
+        self._interval_steps = int(interval_steps) if interval_steps is not None else None
+        self._active_plan_id: str | None = None
+        self._active_dataset_id: str | None = None
+        self._trainer: Any | None = None
+        self._pl_module: Any | None = None
+        self._resume_record: _CheckpointRecord | None = None
+        self._latest_record: _CheckpointRecord | None = None
+        self._last_checkpoint_time: float | None = None
+        self._last_checkpoint_step: int | None = None
+        self._pending_manual_requests: list[tuple[str, bool]] = []
+
+    @property
+    def resume_record(self) -> _CheckpointRecord | None:
+        """Return checkpoint metadata discovered prior to training start."""
+        return self._resume_record
+
+    @property
+    def latest_record(self) -> _CheckpointRecord | None:
+        """Return metadata for the most recent checkpoint written during this plan."""
+        return self._latest_record
+
+    def prepare_plan(self, plan_id: str, dataset_id: str) -> _CheckpointRecord | None:
+        """Reset manager state for a new plan and return any resumable checkpoint."""
+        self._active_plan_id = plan_id
+        self._active_dataset_id = dataset_id
+        self._trainer = None
+        self._pl_module = None
+        self._last_checkpoint_time = None
+        self._last_checkpoint_step = None
+        self._pending_manual_requests.clear()
+        self._resume_record = self._load_latest(plan_id)
+        self._latest_record = self._resume_record
+        return self._resume_record
+
+    def refresh_latest(self) -> _CheckpointRecord | None:
+        """Reload checkpoint metadata from disk for the active plan."""
+        if self._active_plan_id is None:
+            return None
+        self._latest_record = self._load_latest(self._active_plan_id)
+        return self._latest_record
+
+    def create_callbacks(self) -> tuple[StreamingCheckpointCallback, ...]:
+        """Return Lightning callbacks that attach the manager to trainer lifecycle."""
+        return (StreamingCheckpointCallback(self),)
+
+    def attach_trainer(self, trainer: Any, pl_module: Any) -> None:
+        """Capture trainer context so manual saves can execute immediately."""
+        self._trainer = trainer
+        self._pl_module = pl_module
+        self._process_pending_requests()
+
+    def detach_trainer(self) -> None:
+        """Release trainer references after fit completes."""
+        self._trainer = None
+        self._pl_module = None
+
+    def maybe_save_interval(self) -> None:
+        """Persist checkpoint when cadence thresholds are satisfied."""
+        trainer = self._trainer
+        if trainer is None or self._active_plan_id is None:
+            return
+        global_step = int(getattr(trainer, "global_step", 0))
+        if global_step <= 0:
+            self._process_pending_requests()
+            return
+        now = time.monotonic()
+        trigger: str | None = None
+        if self._interval_steps is not None:
+            last_step = self._last_checkpoint_step
+            if last_step is None or (global_step - last_step) >= self._interval_steps:
+                trigger = "interval_steps"
+        if trigger is None and self._interval_seconds is not None:
+            last_time = self._last_checkpoint_time
+            if last_time is None or (now - last_time) >= self._interval_seconds:
+                trigger = "interval_seconds"
+        if trigger is not None:
+            self._perform_save(
+                trainer,
+                reason=f"{trigger} checkpoint",
+                trigger=trigger,
+                triggered_by_signal=False,
+                global_step=global_step,
+                timestamp=now,
+            )
+        self._process_pending_requests()
+
+    def request_manual_save(self, reason: str, *, triggered_by_signal: bool) -> Path | None:
+        """Persist a checkpoint immediately or schedule it once the trainer is ready."""
+        if self._trainer is None or self._active_plan_id is None:
+            self._pending_manual_requests.append((reason, triggered_by_signal))
+            return None
+        return self._perform_save(
+            self._trainer,
+            reason=reason,
+            trigger="manual",
+            triggered_by_signal=triggered_by_signal,
+            force=True,
+        )
+
+    def _process_pending_requests(self) -> None:
+        if not self._pending_manual_requests or self._trainer is None or self._active_plan_id is None:
+            return
+        requests = list(self._pending_manual_requests)
+        self._pending_manual_requests.clear()
+        for reason, signal_flag in requests:
+            self._perform_save(
+                self._trainer,
+                reason=reason,
+                trigger="manual",
+                triggered_by_signal=signal_flag,
+                force=True,
+            )
+
+    def _perform_save(
+        self,
+        trainer: Any,
+        *,
+        reason: str,
+        trigger: str,
+        triggered_by_signal: bool,
+        force: bool = False,
+        global_step: int | None = None,
+        timestamp: float | None = None,
+    ) -> Path | None:
+        if self._active_plan_id is None or self._active_dataset_id is None:
+            return None
+        step_value = int(global_step if global_step is not None else getattr(trainer, "global_step", 0))
+        if step_value <= 0 and not force:
+            return None
+        epoch_value = int(getattr(trainer, "current_epoch", 0))
+        save_time = float(timestamp if timestamp is not None else time.monotonic())
+        utc_now = datetime.utcnow().replace(microsecond=0)
+        timestamp_label = utc_now.strftime("%Y%m%dT%H%M%SZ")
+        unique_name = f"{self._active_plan_id}_{timestamp_label}_step{step_value}.ckpt"
+        temp_path = self._directory / unique_name
+        try:
+            trainer.save_checkpoint(str(temp_path))
+        except Exception:
+            logger.error(
+                "checkpoint_save_failed",
+                extra={
+                    "plan_id": self._active_plan_id,
+                    "dataset_id": self._active_dataset_id,
+                    "checkpoint_path": str(temp_path),
+                    "trigger": trigger,
+                    "reason": reason,
+                    "signal": triggered_by_signal,
+                },
+                exc_info=True,
+            )
+            _CHECKPOINT_SAVES_TOTAL.labels(outcome="failed", trigger=trigger).inc()
+            if triggered_by_signal:
+                _CHECKPOINT_SIGNAL_TOTAL.labels(outcome="failed").inc()
+            return None
+
+        latest_path = self._directory / f"{self._active_plan_id}_latest.ckpt"
+        if latest_path.exists():
+            if self._retention >= 2:
+                previous_path = self._directory / f"{self._active_plan_id}_previous.ckpt"
+                try:
+                    latest_path.replace(previous_path)
+                except Exception:
+                    logger.debug(
+                        "checkpoint_previous_rotate_failed",
+                        extra={
+                            "plan_id": self._active_plan_id,
+                            "previous_path": str(latest_path),
+                            "target_path": str(previous_path),
+                        },
+                        exc_info=True,
+                    )
+            else:
+                try:
+                    latest_path.unlink()
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    logger.debug(
+                        "checkpoint_latest_unlink_failed",
+                        extra={"plan_id": self._active_plan_id, "path": str(latest_path)},
+                        exc_info=True,
+                    )
+        try:
+            temp_path.replace(latest_path)
+        except Exception:
+            logger.error(
+                "checkpoint_promote_failed",
+                extra={
+                    "plan_id": self._active_plan_id,
+                    "dataset_id": self._active_dataset_id,
+                    "source": str(temp_path),
+                    "target": str(latest_path),
+                },
+                exc_info=True,
+            )
+            _CHECKPOINT_SAVES_TOTAL.labels(outcome="failed", trigger=trigger).inc()
+            if triggered_by_signal:
+                _CHECKPOINT_SIGNAL_TOTAL.labels(outcome="failed").inc()
+            return None
+
+        if self._retention > 2:
+            archive_name = self._directory / f"{self._active_plan_id}_{timestamp_label}_archive.ckpt"
+            try:
+                shutil.copy2(latest_path, archive_name)
+            except Exception:
+                logger.debug(
+                    "checkpoint_archive_copy_failed",
+                    extra={
+                        "plan_id": self._active_plan_id,
+                        "source": str(latest_path),
+                        "archive": str(archive_name),
+                    },
+                    exc_info=True,
+                )
+            self._prune_archives(self._active_plan_id)
+
+        self._last_checkpoint_time = save_time
+        self._last_checkpoint_step = step_value
+        metrics = self._extract_metrics(trainer)
+        record = _CheckpointRecord(
+            plan_id=self._active_plan_id,
+            dataset_id=self._active_dataset_id,
+            path=latest_path,
+            epoch=epoch_value,
+            global_step=step_value,
+            saved_at=utc_now.isoformat() + "Z",
+            reason=reason,
+            trigger=trigger if not triggered_by_signal else f"{trigger}:signal",
+            metrics=metrics,
+        )
+        self._latest_record = record
+        self._write_metadata(record)
+        _CHECKPOINT_SAVES_TOTAL.labels(outcome="success", trigger=trigger).inc()
+        if triggered_by_signal:
+            _CHECKPOINT_SIGNAL_TOTAL.labels(outcome="success").inc()
+        logger.info(
+            "checkpoint_saved",
+            extra={
+                "plan_id": record.plan_id,
+                "dataset_id": record.dataset_id,
+                "checkpoint_path": str(record.path),
+                "epoch": record.epoch,
+                "global_step": record.global_step,
+                "trigger": record.trigger,
+            },
+        )
+        return record.path
+
+    def _prune_archives(self, plan_id: str) -> None:
+        allowed_archives = max(0, self._retention - 2)
+        archive_candidates = sorted(
+            [
+                path
+                for path in self._directory.glob(f"{plan_id}_*_archive.ckpt")
+                if path.is_file()
+            ],
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        for path in archive_candidates[allowed_archives:]:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except Exception:
+                logger.debug(
+                    "checkpoint_archive_prune_failed",
+                    extra={"plan_id": plan_id, "path": str(path)},
+                    exc_info=True,
+                )
+
+    def _write_metadata(self, record: _CheckpointRecord) -> None:
+        payload = {
+            "plan_id": record.plan_id,
+            "dataset_id": record.dataset_id,
+            "checkpoint_path": str(record.path),
+            "epoch": record.epoch,
+            "global_step": record.global_step,
+            "saved_at": record.saved_at,
+            "reason": record.reason,
+            "trigger": record.trigger,
+            "metrics": dict(record.metrics),
+        }
+        metadata_path = self._directory / f"{record.plan_id}_latest.json"
+        try:
+            metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        except Exception:
+            logger.error(
+                "checkpoint_metadata_write_failed",
+                extra={"plan_id": record.plan_id, "path": str(metadata_path)},
+                exc_info=True,
+            )
+
+    def _load_latest(self, plan_id: str) -> _CheckpointRecord | None:
+        metadata_path = self._directory / f"{plan_id}_latest.json"
+        if not metadata_path.exists():
+            return None
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug(
+                "checkpoint_metadata_parse_failed",
+                extra={"plan_id": plan_id, "path": str(metadata_path)},
+                exc_info=True,
+            )
+            return None
+        checkpoint_path = Path(str(payload.get("checkpoint_path", ""))).expanduser()
+        if not checkpoint_path.exists():
+            logger.warning(
+                "checkpoint_metadata_missing_file",
+                extra={"plan_id": plan_id, "checkpoint_path": str(checkpoint_path)},
+            )
+            return None
+        metrics_payload = payload.get("metrics", {})
+        metrics: dict[str, float] = {}
+        if isinstance(metrics_payload, Mapping):
+            for key, value in metrics_payload.items():
+                numeric = _coerce_float(value)
+                if numeric is not None:
+                    metrics[str(key)] = numeric
+        return _CheckpointRecord(
+            plan_id=str(payload.get("plan_id", plan_id)),
+            dataset_id=str(payload.get("dataset_id", "")),
+            path=checkpoint_path,
+            epoch=int(payload.get("epoch", 0)),
+            global_step=int(payload.get("global_step", 0)),
+            saved_at=str(payload.get("saved_at", "")),
+            reason=str(payload.get("reason")) if payload.get("reason") is not None else None,
+            trigger=str(payload.get("trigger", "manual")),
+            metrics=metrics,
+        )
+
+    @staticmethod
+    def _extract_metrics(trainer: Any) -> dict[str, float]:
+        metrics: dict[str, float] = {}
+        raw_metrics = getattr(trainer, "callback_metrics", None)
+        if not isinstance(raw_metrics, Mapping):
+            return metrics
+        for name, value in raw_metrics.items():
+            numeric = _coerce_float(value)
+            if numeric is not None:
+                metrics[str(name)] = numeric
+        return metrics
+
+
+class StreamingCheckpointCallback(_LightningCallbackBase):
+    """Lightning callback that proxies lifecycle events to the checkpoint manager."""
+
+    def __init__(self, manager: StreamingCheckpointManager) -> None:
+        try:
+            super().__init__()
+        except Exception:  # pragma: no cover - fallback when super().__init__ is unavailable
+            pass
+        self._manager = manager
+
+    def on_train_start(self, trainer: Any, pl_module: Any) -> None:  # pragma: no cover - Lightning runtime
+        self._manager.attach_trainer(trainer, pl_module)
+
+    def on_train_batch_end(  # pragma: no cover - Lightning runtime
+        self,
+        trainer: Any,
+        pl_module: Any,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+    ) -> None:
+        self._manager.maybe_save_interval()
+
+    def on_train_end(self, trainer: Any, pl_module: Any) -> None:  # pragma: no cover - Lightning runtime
+        self._manager.detach_trainer()
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -199,6 +631,26 @@ class LightningStreamingWorker(TrainingWorker):
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._teacher_factory = teacher_factory
         self._validation_returns_telemetry: ValidationReturnsTelemetry | None = None
+        checkpoint_dir_raw = config.checkpoint_dir.strip() if config.checkpoint_dir else ""
+        if checkpoint_dir_raw:
+            checkpoint_dir = Path(checkpoint_dir_raw).expanduser()
+            self._checkpoint_manager: StreamingCheckpointManager | None = StreamingCheckpointManager(
+                checkpoint_dir,
+                retention=int(config.checkpoint_retention),
+                interval_seconds=(
+                    float(config.checkpoint_interval_seconds)
+                    if config.checkpoint_interval_seconds is not None
+                    else None
+                ),
+                interval_steps=(
+                    int(config.checkpoint_interval_steps)
+                    if config.checkpoint_interval_steps is not None
+                    else None
+                ),
+            )
+        else:
+            self._checkpoint_manager = None
+        self._resume_record: _CheckpointRecord | None = None
 
     def run(self, plan: DatasetPlanEvent) -> TrainingResultEvent:
         """Run a bounded streaming training job for the provided plan."""
@@ -208,6 +660,25 @@ class LightningStreamingWorker(TrainingWorker):
         self._validation_returns_telemetry = None
         context = self._prepare_context(plan)
         dataset_id = plan.dataset_id
+        checkpoint_manager = self._checkpoint_manager
+        resume_record: _CheckpointRecord | None = None
+        if checkpoint_manager is not None:
+            resume_record = checkpoint_manager.prepare_plan(plan.plan_id, dataset_id)
+            self._resume_record = resume_record
+            if resume_record is not None:
+                _CHECKPOINT_RESUMES_TOTAL.labels(outcome="detected").inc()
+                logger.info(
+                    "checkpoint_resume_detected",
+                    extra={
+                        "plan_id": resume_record.plan_id,
+                        "dataset_id": resume_record.dataset_id,
+                        "checkpoint_path": str(resume_record.path),
+                        "epoch": resume_record.epoch,
+                        "global_step": resume_record.global_step,
+                    },
+                )
+        else:
+            self._resume_record = None
         monitor: GPUMemoryMonitor | None = None
         peak_gpu_mb: float | None = None
         interval = self.config.gpu_memory_monitor_interval_seconds
@@ -264,10 +735,53 @@ class LightningStreamingWorker(TrainingWorker):
 
         attempts = max(1, int(self.config.max_retry_attempts))
         backoff_seconds = float(self.config.retry_backoff_seconds)
+        resume_applied = False
 
         for attempt_index in range(1, attempts + 1):
+            callbacks: Sequence[Any] | None = None
+            checkpoint_path: Path | None = None
+            active_record: _CheckpointRecord | None = None
+            if checkpoint_manager is not None:
+                active_record = resume_record if attempt_index == 1 else checkpoint_manager.refresh_latest()
+                if active_record is not None:
+                    candidate_path = active_record.path
+                    if candidate_path.exists():
+                        checkpoint_path = candidate_path
+                        resume_applied = True
+                        _CHECKPOINT_RESUMES_TOTAL.labels(outcome="success").inc()
+                        logger.info(
+                            "checkpoint_resume_applied",
+                            extra={
+                                "plan_id": active_record.plan_id,
+                                "dataset_id": active_record.dataset_id,
+                                "checkpoint_path": str(candidate_path),
+                                "attempt_index": attempt_index,
+                                "global_step": active_record.global_step,
+                                "epoch": active_record.epoch,
+                            },
+                        )
+                    else:
+                        _CHECKPOINT_RESUMES_TOTAL.labels(outcome="missing").inc()
+                        logger.warning(
+                            "checkpoint_resume_missing_file",
+                            extra={
+                                "plan_id": active_record.plan_id,
+                                "dataset_id": active_record.dataset_id,
+                                "checkpoint_path": str(candidate_path),
+                                "attempt_index": attempt_index,
+                            },
+                        )
+                        checkpoint_path = None
+                callbacks = checkpoint_manager.create_callbacks()
             try:
-                fit_result = self._execute_training_attempt(plan, context)
+                fit_result = self._execute_training_attempt(
+                    plan,
+                    context,
+                    callbacks=callbacks,
+                    checkpoint_path=checkpoint_path,
+                )
+                if checkpoint_manager is not None:
+                    resume_record = checkpoint_manager.latest_record
                 fit_result = self._maybe_attach_validation_returns(plan, fit_result)
                 fit_result, ensemble_metrics, ensemble_telemetry = self._apply_ensemble(plan, fit_result)
                 artifact_path = self._persist_logits(
@@ -303,6 +817,12 @@ class LightningStreamingWorker(TrainingWorker):
                         ensemble=ensemble_telemetry,
                         economic=StreamingEconomicTelemetry(),
                         stability=StreamingStabilityTelemetry(),
+                    )
+                    telemetry = self._attach_checkpoint_telemetry(
+                        telemetry,
+                        checkpoint_manager=checkpoint_manager,
+                        resume_record=resume_record,
+                        resume_applied=resume_applied,
                     )
                     logger.warning(
                         "streaming worker deferred plan due to empty validation data",
@@ -359,6 +879,12 @@ class LightningStreamingWorker(TrainingWorker):
                     ensemble=ensemble_telemetry,
                     economic=economic_bundle,
                     stability=stability_bundle,
+                )
+                telemetry = self._attach_checkpoint_telemetry(
+                    telemetry,
+                    checkpoint_manager=checkpoint_manager,
+                    resume_record=resume_record,
+                    resume_applied=resume_applied,
                 )
                 self._record_gpu_metric(dataset_id, peak_gpu_mb)
                 return TrainingResultEvent(
@@ -492,6 +1018,9 @@ class LightningStreamingWorker(TrainingWorker):
         self,
         plan: DatasetPlanEvent,
         context: _TrainingContext,
+        *,
+        callbacks: Sequence[Any] | None = None,
+        checkpoint_path: Path | None = None,
     ) -> StreamingFitResult:
         self._apply_worker_seed()
         train_loader = stream.build_streaming_dataloader(
@@ -521,7 +1050,43 @@ class LightningStreamingWorker(TrainingWorker):
             val_metadata=context.val_metadata,
             full_metadata=context.limited_metadata,
             streaming_config=context.worker_streaming_cfg,
+            callbacks=callbacks,
+            checkpoint_path=checkpoint_path,
         )
+
+    @property
+    def resume_record(self) -> _CheckpointRecord | None:
+        """Return checkpoint metadata used to resume the most recent plan, if any."""
+        return self._resume_record
+
+    def save_checkpoint_now(self, *, reason: str, triggered_by_signal: bool = False) -> Path | None:
+        """Request an immediate checkpoint flush; queued when trainer context is absent."""
+        manager = self._checkpoint_manager
+        if manager is None:
+            logger.debug(
+                "checkpoint_request_ignored",
+                extra={"reason": reason},
+            )
+            return None
+        path = manager.request_manual_save(reason, triggered_by_signal=triggered_by_signal)
+        if path is None:
+            logger.info(
+                "checkpoint_request_deferred",
+                extra={
+                    "reason": reason,
+                    "triggered_by_signal": triggered_by_signal,
+                },
+            )
+        else:
+            logger.info(
+                "checkpoint_request_completed",
+                extra={
+                    "reason": reason,
+                    "triggered_by_signal": triggered_by_signal,
+                    "checkpoint_path": str(path),
+                },
+            )
+        return path
 
     def _apply_worker_caps(self, config: TFTStreamingConfig) -> TFTStreamingConfig:
         return replace(
@@ -1401,6 +1966,26 @@ class LightningStreamingWorker(TrainingWorker):
         if self._validation_returns_telemetry is not None:
             result = replace(result, validation_returns=self._validation_returns_telemetry)
         return result
+
+    def _attach_checkpoint_telemetry(
+        self,
+        telemetry: StreamingRunTelemetry,
+        *,
+        checkpoint_manager: StreamingCheckpointManager | None,
+        resume_record: _CheckpointRecord | None,
+        resume_applied: bool,
+    ) -> StreamingRunTelemetry:
+        if checkpoint_manager is None:
+            return telemetry
+        latest_record = checkpoint_manager.latest_record
+        checkpoint_payload = StreamingCheckpointTelemetry(
+            resumed=resume_applied,
+            resume_global_step=resume_record.global_step if resume_record is not None else None,
+            resume_epoch=resume_record.epoch if resume_record is not None else None,
+            resume_checkpoint_path=str(resume_record.path) if resume_record is not None else None,
+            latest_checkpoint_path=str(latest_record.path) if latest_record is not None else None,
+        )
+        return replace(telemetry, checkpoint=checkpoint_payload)
 
     def _record_gpu_metric(self, dataset_id: str, peak_gpu_mb: float | None) -> None:
         if peak_gpu_mb is None:

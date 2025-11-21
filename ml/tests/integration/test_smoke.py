@@ -1,8 +1,17 @@
 """Minimal smoke tests - if these pass, the core system works."""
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import msgspec
 import numpy as np
 import pytest
+
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 @pytest.mark.database
@@ -14,7 +23,7 @@ def test_can_import_core_modules():
     """
     from ml.actors.signal import MLSignalActor
     from ml.data.collector import DataCollector
-    from ml.features.engineering import FeatureEngineer
+    from ml.features.facade import FeatureEngineer
     from ml.stores.feature_store import FeatureStore
 
     assert True  # Got here = success
@@ -26,15 +35,15 @@ def test_can_create_feature_engineer():
     """
     Can we create a feature engineer?
     """
-    from ml.features.engineering import FeatureConfig
-    from ml.features.engineering import FeatureEngineer
+    from ml.features.config import FeatureConfig
+    from ml.features.facade import FeatureEngineer
 
     # Use actual FeatureConfig API (it has default values)
     config = FeatureConfig()
     engineer = FeatureEngineer(config)
     assert engineer is not None
     assert msgspec.to_builtins(engineer.config) == msgspec.to_builtins(
-        config
+        config,
     ), f"Config mismatch: {msgspec.to_builtins(engineer.config)} != {msgspec.to_builtins(config)}"
 
 
@@ -44,8 +53,8 @@ def test_can_compute_basic_features():
     """
     Can we compute basic features from price data?
     """
-    from ml.features.engineering import FeatureConfig
-    from ml.features.engineering import FeatureEngineer
+    from ml.features.config import FeatureConfig
+    from ml.features.facade import FeatureEngineer
 
     # Use default config
     config = FeatureConfig()
@@ -53,21 +62,30 @@ def test_can_compute_basic_features():
 
     # Create minimal bar-like data
     class MockBar:
-        def __init__(self, close):
-            self.close = close
+        def __init__(self, price, ts):
+            self.open = price
+            self.high = price + 1.0
+            self.low = price - 1.0
+            self.close = price
+            self.volume = 1000.0
+            self.ts_event = ts
+            self.ts_init = ts
 
-    bars = [MockBar(100.0), MockBar(101.0), MockBar(102.0), MockBar(101.0)]
+    bars = [
+        MockBar(100.0, 1000),
+        MockBar(101.0, 2000),
+        MockBar(102.0, 3000),
+        MockBar(101.0, 4000),
+    ]
 
     # Try to compute features
-    # Note: This might need adjustment based on actual API
     try:
-        # If this doesn't work, we'll need to adjust
         features = engineer.compute_features(bars)
         assert features is not None
-    except Exception:
-        # Alternative: try with raw prices
-        prices = np.array([100.0, 101.0, 102.0, 101.0])
-        # This is a smoke test - we just care that it doesn't crash
+        # Basic check that we got a dictionary
+        assert isinstance(features, dict)
+    except Exception as e:
+        pytest.fail(f"compute_features failed with: {e}")
 
 
 @pytest.mark.database
@@ -147,7 +165,7 @@ def test_can_load_config():
     # Just verify we can import config classes
     from ml.config.base import MLActorConfig
     from ml.config.base import StatsConfig
-    from ml.features.engineering import FeatureConfig
+    from ml.features.config import FeatureConfig
 
     # Config system imports work
     assert MLActorConfig is not None

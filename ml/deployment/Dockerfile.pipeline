@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
 # Copy only ML sources (use released Nautilus for core platform)
 RUN pip install --no-cache-dir nautilus-trader
 COPY ml ./ml
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Install minimal runtime dependencies for the pipeline (avoid heavy GPU stacks)
 RUN pip install --no-cache-dir \

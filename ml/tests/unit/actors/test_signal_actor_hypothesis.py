@@ -8,9 +8,8 @@ regardless of implementation.
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -26,8 +25,33 @@ from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
-from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.model_factory import TestModelFactory
+
+_TEST_MODEL_FACTORY: TestModelFactory | None = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _configure_test_model_factory(test_model_factory: TestModelFactory) -> None:
+    """
+    Inject the canonical TestModelFactory instance for Hypothesis modules.
+    """
+
+    global _TEST_MODEL_FACTORY
+    _TEST_MODEL_FACTORY = test_model_factory
+
+
+def _create_model_path(*, n_features: int = 10, n_outputs: int = 1) -> Path:
+    if _TEST_MODEL_FACTORY is None:  # pragma: no cover - guardrail
+        raise RuntimeError(
+            "test_model_factory fixture not configured; ensure pytest plug-in is active.",
+        )
+    return _TEST_MODEL_FACTORY.create_onnx_model(
+        n_features=n_features,
+        n_outputs=n_outputs,
+    )
 
 
 @pytest.mark.property
@@ -39,19 +63,12 @@ class TestMLSignalActorProperties:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_dummy_model(self):
+    def setup_dummy_model(self, dummy_onnx_model: Path):
         """
         Create a dummy model for all tests in this class.
         """
-        self.dummy_model_path = create_dummy_onnx_model()
+        self.dummy_model_path = dummy_onnx_model
         yield
-        # Cleanup
-        try:
-            self.dummy_model_path.unlink()
-        except Exception:
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug("Failed to unlink dummy model path", exc_info=True)
 
     @given(
         warm_up_period=st.integers(min_value=5, max_value=100),
@@ -332,8 +349,8 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
         from nautilus_trader.model.data import BarType
         from nautilus_trader.model.identifiers import InstrumentId
 
-        # Create dummy model for this state machine
-        self.dummy_model_path = create_dummy_onnx_model()
+        # Create dummy model for this state machine via shared factory
+        self.dummy_model_path = _create_model_path()
 
         self.config = MLSignalActorConfig(
             model_path=str(self.dummy_model_path),

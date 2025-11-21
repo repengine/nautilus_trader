@@ -8,6 +8,14 @@ import pytest
 from ml.tasks.pipelines.runner import PipelineRunConfig
 from ml.tasks.pipelines.runner import run_pipeline
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 def test_run_pipeline_initialises_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}

@@ -6,6 +6,63 @@
 -- ============================================================================
 
 -- Function to create partitions for specified months
+CREATE OR REPLACE FUNCTION attach_partition_with_data(
+    target_table TEXT,
+    partition_name TEXT,
+    start_ns BIGINT,
+    end_ns BIGINT
+)
+RETURNS VOID AS $$
+DECLARE
+    default_partition TEXT := target_table || '_default';
+    column_list TEXT;
+BEGIN
+    SELECT string_agg(format('%I', column_name), ', ')
+    INTO column_list
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = target_table
+      AND (is_generated = 'NEVER' OR is_generated IS NULL);
+
+    IF column_list IS NULL THEN
+        RAISE EXCEPTION 'Unable to resolve column list for %', target_table;
+    END IF;
+
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
+        partition_name,
+        target_table
+    );
+    EXECUTE format(
+        'INSERT INTO %I (%s) SELECT %s FROM %I WHERE ts_event >= %L AND ts_event < %L',
+        partition_name,
+        column_list,
+        column_list,
+        default_partition,
+        start_ns,
+        end_ns
+    );
+    EXECUTE format(
+        'DELETE FROM %I WHERE ts_event >= %L AND ts_event < %L',
+        default_partition,
+        start_ns,
+        end_ns
+    );
+    EXECUTE format(
+        'ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
+        target_table,
+        partition_name,
+        start_ns,
+        end_ns
+    );
+EXCEPTION
+    WHEN duplicate_object THEN
+        NULL;
+    WHEN object_in_use THEN
+        NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION create_monthly_partitions(
     table_name TEXT,
     start_date DATE,
@@ -23,12 +80,23 @@ BEGIN
         partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
         start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
         end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
-
-        EXECUTE format('
-            CREATE TABLE IF NOT EXISTS %I PARTITION OF %I
-            FOR VALUES FROM (%L) TO (%L)',
-            partition_name, table_name, start_ns, end_ns
-        );
+        BEGIN
+            EXECUTE format(
+                'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+                partition_name, table_name, start_ns, end_ns
+            );
+        EXCEPTION
+            WHEN check_violation THEN
+                PERFORM attach_partition_with_data(table_name, partition_name, start_ns, end_ns);
+            WHEN duplicate_table THEN
+                NULL;
+            WHEN object_in_use THEN
+                NULL;
+            WHEN invalid_object_definition THEN
+                NULL;
+            WHEN SQLSTATE '42P17' THEN
+                NULL;
+        END;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;

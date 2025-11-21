@@ -1,4 +1,7 @@
--- Views Migration (005)
+-- Migration: Materialize monitoring views and helper functions for ML schemas.
+-- Rollback: DROP VIEW/ FUNCTION statements for the objects created in this file.
+
+-- Views Migration (008)
 -- Moves monitoring views from ml/schema/pipeline_health.sql into migrations
 -- and qualifies base tables with public schema explicitly.
 

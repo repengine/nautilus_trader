@@ -8,6 +8,8 @@ that transforms can properly load data through providers.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 from datetime import datetime
 from datetime import timedelta
 
@@ -22,6 +24,12 @@ from ml.data.providers.factory import TransformProviderAdapter
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.property
 @pytest.mark.parallel_safe

@@ -13,6 +13,11 @@ from ml.data.ingest.macro_refresh import ensure_macro_ready
 from ml.data.ingest.macro_refresh import refresh_alfred_if_stale
 from ml.data.ingest.macro_refresh import refresh_fred_if_stale
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 class _StubFredLoader:
     def __init__(self, target: Path) -> None:
@@ -46,14 +51,12 @@ class _StubFredLoader:
         out_path.write_text("parquet", encoding="utf-8")
         return out_path
 
-
 class _StubAlfredLoader:
     def __init__(self) -> None:
         self.calls = 0
 
     def refresh(self) -> None:
         self.calls += 1
-
 
 def test_refresh_fred_if_stale_refreshes_missing(tmp_path: Path) -> None:
     target = tmp_path / "fred.parquet"
@@ -68,7 +71,6 @@ def test_refresh_fred_if_stale_refreshes_missing(tmp_path: Path) -> None:
     assert target.exists()
     assert loader.calls == [{"start_date": None, "end_date": None, "use_cache": False}]
 
-
 def test_refresh_fred_if_stale_skips_when_fresh(tmp_path: Path) -> None:
     target = tmp_path / "fred.parquet"
     target.write_text("parquet", encoding="utf-8")
@@ -82,7 +84,6 @@ def test_refresh_fred_if_stale_skips_when_fresh(tmp_path: Path) -> None:
     assert error is None
     assert loader.calls == []
 
-
 def test_refresh_alfred_if_stale_invokes_loader(tmp_path: Path) -> None:
     base_dir = tmp_path / "vintages"
     loader = _StubAlfredLoader()
@@ -95,7 +96,6 @@ def test_refresh_alfred_if_stale_invokes_loader(tmp_path: Path) -> None:
     assert refreshed
     assert error is None
     assert loader.calls == 1
-
 
 def test_ensure_macro_ready_combines_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fred_path = tmp_path / "macro" / "fred.parquet"

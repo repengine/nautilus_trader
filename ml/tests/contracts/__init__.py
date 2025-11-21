@@ -12,5 +12,10 @@ conform to expected interfaces and behaviors. These tests focus on:
 
 Contract tests ensure components can be safely composed and that breaking
 changes to interfaces are caught early.
-
 """
+
+from __future__ import annotations
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+__all__ = ("pytest_plugins",)

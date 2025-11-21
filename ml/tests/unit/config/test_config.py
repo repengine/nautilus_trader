@@ -328,13 +328,18 @@ class TestConfig:
 
         # Return files in order
         schema_files = [
-            migrations_dir / "001_stores_schema.sql",
-            migrations_dir / "002_auto_partitioning.sql",
-            migrations_dir / "003_market_data.sql",
-            migrations_dir / "004_data_registry.sql",
-            migrations_dir / "005_schema_hardening.sql",
-            migrations_dir / "005_views.sql",
-            migrations_dir / "005a_feature_values_dedupe.sql",
+            migrations_dir / "002_stores_schema.sql",
+            migrations_dir / "003_auto_partitioning.sql",
+            migrations_dir / "004_market_data.sql",
+            migrations_dir / "005_data_registry.sql",
+            migrations_dir / "007_schema_hardening.sql",
+            migrations_dir / "008_views.sql",
+            migrations_dir / "006_feature_values_dedupe.sql",
+            migrations_dir / "015_macro_release_calendar.sql",
+            migrations_dir / "016_macro_observations.sql",
+            migrations_dir / "017_events_calendar.sql",
+            migrations_dir / "018_microstructure_minute.sql",
+            migrations_dir / "019_l2_minute.sql",
         ]
 
         # Filter to only existing files

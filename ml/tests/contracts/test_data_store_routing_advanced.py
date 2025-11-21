@@ -52,6 +52,14 @@ if TYPE_CHECKING:
 else:
     DataStore = Any  # pragma: no cover
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 @pytest.fixture(autouse=True)
 def _configure_datastore_symbols(

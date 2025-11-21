@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - hypothesis optional
 
 from typing import Final
 
+from ml.common.events_util import normalize_stage_value
 from ml.common.message_topics import build_topic_for_stage, map_stage_to_topic_segments
 from ml.config.events import Stage
 
@@ -64,7 +65,8 @@ def test_stage_first_applies_prefix_and_domain_op_ignores(
     assert t_domain.startswith("ml."), "domain_op topics must use 'ml.' root"
     # stage_first format: {prefix}.{STAGE}[.{instrument}]
     assert t_stage.startswith(f"{prefix}."), "stage_first must include given prefix"
-    assert Stage(stage.value).value in t_stage, "stage_first must include STAGE value"
+    stage_value = normalize_stage_value(stage)
+    assert stage_value in t_stage, "stage_first must include STAGE value"
 
     # Ensure prefix does not leak into domain_op scheme
     assert not t_domain.startswith(f"{prefix}."), "domain_op must ignore prefix entirely"

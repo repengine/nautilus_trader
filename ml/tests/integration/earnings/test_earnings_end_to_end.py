@@ -35,6 +35,17 @@ from unittest.mock import MagicMock
 from typing import cast
 from ml.stores.data_store import DataStore
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
+]
+
 
 @dataclass(frozen=True)
 class _SampleActual:

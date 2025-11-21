@@ -51,9 +51,23 @@ def check_service_health(service_name: str, check_func: Callable[[], bool]) -> t
     """
     try:
         result = check_func()
-        return result, "OK" if result else "UNHEALTHY"
-    except Exception as e:
-        return False, f"ERROR: {e!s}"
+    except Exception as exc:
+        logger.error(
+            "ERROR: service_health_check_exception",
+            extra={"service": service_name},
+            exc_info=True,
+        )
+        return False, f"ERROR: {exc!s}"
+
+    if result:
+        logger.debug("service_health_check_passed", extra={"service": service_name})
+        return True, "OK"
+
+    logger.error(
+        "ERROR: service_health_check_unhealthy",
+        extra={"service": service_name},
+    )
+    return False, "ERROR: UNHEALTHY"
 
 
 def check_postgres() -> bool:

@@ -1453,6 +1453,81 @@
       "targets": [ { "expr": "nautilus_ml_observability_queue_depth{component=\"obs_async_worker\"}", "refId": "A" } ],
       "title": "Async Queue Depth (Timeseries)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
+      "id": 210,
+      "panels": [],
+      "title": "Streaming Checkpoints",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Checkpoint saves grouped by trigger/outcome (rate)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 62 },
+      "id": 211,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome, trigger)(rate(ml_streaming_checkpoints_total[$__rate_interval]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Checkpoint Saves (rate)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Eviction-triggered checkpoint rate",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 62 },
+      "id": 212,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "sparkline": { "show": true }
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome)(rate(ml_streaming_checkpoint_evictions_total[$__rate_interval]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Eviction Checkpoints (rate)",
+      "type": "stat"
     }
   ],
   "refresh": "10s",

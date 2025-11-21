@@ -48,7 +48,7 @@ from ml.actors.signal import SignalGenerationStrategy
 from ml.actors.signal import MomentumStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 from ml.tests.utils.stubs import FeatureStoreNoOp
 
 

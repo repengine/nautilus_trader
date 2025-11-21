@@ -32,7 +32,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -45,6 +45,12 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 # ============================================================================
@@ -178,8 +184,28 @@ def sample_catalog_with_multiple_instruments(temp_catalog_path: Path) -> Parquet
     return catalog
 
 
-# Note: mock_data_store is now imported from conftest.py
-# (which imports from ml.tests.fixtures.mock_stores)
+@pytest.fixture
+def apply_sample_bars_patch(
+    patch_dataset_bars,
+    sample_bar_series_config_factory,
+) -> Callable[[int], None]:
+    """Provide a helper to patch TFTDatasetBuilder with deterministic bars."""
+
+    def _apply(rows: int = 128, instrument_id: str = "AAPL.NASDAQ", freq_minutes: int = 1) -> None:
+        patch_dataset_bars(
+            modules=("ml.data.tft_dataset_builder",),
+            config=sample_bar_series_config_factory(
+                instrument_id=instrument_id,
+                rows=rows,
+                freq_minutes=freq_minutes,
+            ),
+        )
+
+    return _apply
+
+
+# Note: ``mock_data_store`` lives in ``ml.tests.fixtures.mock_stores`` and is
+# loaded automatically via ``ml.tests.fixtures.pytest_plugins``.
 
 
 # ============================================================================
@@ -191,6 +217,10 @@ class TestE2EBasicDatasetBuilding:
     """
     Test basic dataset building workflows end-to-end.
     """
+
+    @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch()
 
     @pytest.fixture(autouse=True)
     def setup_component_mode(self):
@@ -358,6 +388,10 @@ class TestE2EPolarsPandasParity:
     """
 
     @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch()
+
+    @pytest.fixture(autouse=True)
     def setup_component_mode(self):
         """
         Ensure component-based mode.
@@ -416,6 +450,10 @@ class TestE2ESaveLoadDatasets:
     """
     Test dataset serialization and deserialization.
     """
+
+    @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch()
 
     @pytest.fixture(autouse=True)
     def setup_component_mode(self):
@@ -484,6 +522,10 @@ class TestE2EValidationSplits:
     """
 
     @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch()
+
+    @pytest.fixture(autouse=True)
     def setup_component_mode(self):
         """
         Ensure component-based mode.
@@ -548,6 +590,10 @@ class TestE2ELegacyComponentParity:
 
     This is a CRITICAL test to ensure the refactoring preserves behavior.
     """
+
+    @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch()
 
     def test_e2e_legacy_vs_component_basic_parity(
         self, sample_catalog_with_bars: ParquetDataCatalog
@@ -742,6 +788,10 @@ class TestE2EPerformance:
     """
     Test performance characteristics to detect regressions.
     """
+
+    @pytest.fixture(autouse=True)
+    def _sample_bars_fixture(self, apply_sample_bars_patch):
+        apply_sample_bars_patch(rows=256)
 
     @pytest.fixture(autouse=True)
     def setup_component_mode(self):

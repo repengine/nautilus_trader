@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+import pytest
 from typing import Any, SupportsFloat, SupportsInt, cast
 
 import pandas as pd
@@ -12,6 +15,12 @@ from ml.data.fixtures import make_tbbo_fixture
 from ml.data.ingest.metrics import record_ingest_batch
 from ml.observability.service import ObservabilityService
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def _envelopes_from_tbbo(df: pd.DataFrame) -> list[Envelope]:
     envs: list[Envelope] = []

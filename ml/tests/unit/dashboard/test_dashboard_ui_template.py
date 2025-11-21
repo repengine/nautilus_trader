@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
+
 
 def test_ui_template_contains_ts_check_and_typed_helpers() -> None:
     tpl = Path("ml/dashboard/templates/index.html").read_text(encoding="utf-8")

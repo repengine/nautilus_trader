@@ -24,6 +24,7 @@ from ml.config.base import MLFeatureConfig
 from ml.config.registry import ModelRegistryConfig
 from ml.registry.model_registry import ModelManifest
 from ml.registry.feature_registry import FeatureManifest
+from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from ml.tests.fixtures.model_factory import TestDataFactory
 from ml.tests.fixtures.model_factory import TestModelFactory
 from nautilus_trader.model.data import BarType
@@ -124,10 +125,7 @@ def dummy_onnx_model() -> Path:
     Returns path to a valid ONNX model file that will be cleaned up after test.
 
     """
-    model_path = TestModelFactory.create_onnx_model(
-        n_features=10,
-        n_outputs=1,
-    )
+    model_path = create_dummy_onnx_model()
     yield model_path
     # Cleanup
     if model_path.exists():
@@ -459,3 +457,53 @@ def test_data_factory() -> TestDataFactory:
 
     """
     return TestDataFactory()
+
+
+@pytest.fixture(scope="session")
+def test_model_factory() -> TestModelFactory:
+    """
+    Session-scoped model factory for generating ONNX and XGBoost artifacts.
+
+    This fixture centralizes access to ``TestModelFactory`` so tests avoid importing
+    fixture modules directly.  The shared instance reduces repeated initialization
+    costs while still producing fresh model files for each request.
+
+    Examples
+    --------
+    >>> def test_with_model(test_model_factory):
+    ...     path = test_model_factory.create_onnx_model(n_features=8, n_outputs=2)
+    ...     assert path.exists()
+
+    Returns
+    -------
+    TestModelFactory
+        Factory for creating deterministic ML model artifacts.
+    """
+    return TestModelFactory()
+
+
+__all__ = [
+    "InMemoryPublisher",
+    "alternative_bar_type",
+    "alternative_instrument_id",
+    "base_feature_config",
+    "base_ml_config",
+    "base_signal_config",
+    "default_bar_type",
+    "default_instrument_id",
+    "default_venue",
+    "dummy_onnx_model",
+    "dummy_xgboost_model",
+    "in_memory_publisher",
+    "mock_stores_bundle",
+    "model_registry_config",
+    "sample_feature_array",
+    "sample_feature_manifest",
+    "sample_features",
+    "sample_model_manifest",
+    "sample_predictions",
+    "test_component_id",
+    "test_data_factory",
+    "test_model_factory",
+    "test_timestamps",
+]

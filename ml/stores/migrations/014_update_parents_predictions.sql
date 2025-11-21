@@ -1,3 +1,6 @@
+-- Migration: Update dataset lineage parents to use canonical predictions manifest.
+-- Rollback: UPDATE ml_dataset_registry SET parents = '["predictions_xgboost"]' WHERE dataset_id = 'signals_momentum';
+
 -- Update dataset lineage parents to reference canonical 'predictions' dataset
 -- instead of the legacy 'predictions_xgboost'. Idempotent, safe to re-run.
 
@@ -10,4 +13,3 @@ SET parents = jsonb_set(
 ), last_modified = NOW()
 WHERE dataset_id = 'signals_momentum'
   AND parents::text LIKE '%predictions_xgboost%';
-

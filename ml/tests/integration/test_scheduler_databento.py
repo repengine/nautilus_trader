@@ -15,7 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -31,6 +31,15 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 @pytest.mark.integration
 @pytest.mark.database
@@ -44,7 +53,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_scheduler_initialization(self, test_database: Any) -> None:
+    def test_scheduler_initialization(self, test_database: TestDatabase) -> None:
         """
         Test scheduler initializes correctly with configuration.
         """
@@ -78,7 +87,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_get_previous_trading_day(self, test_database: Any) -> None:
+    def test_get_previous_trading_day(self, test_database: TestDatabase) -> None:
         """
         Test getting previous trading day logic.
         """
@@ -113,7 +122,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_scheduler_status(self, test_database: Any) -> None:
+    def test_scheduler_status(self, test_database: TestDatabase) -> None:
         """
         Test scheduler status reporting.
         """
@@ -150,7 +159,7 @@ class TestDataSchedulerIntegration:
     @pytest.mark.serial
     def test_collect_symbol_data_success(
         self,
-        test_database: Any,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test successful data collection for a symbol.
@@ -204,7 +213,7 @@ class TestDataSchedulerIntegration:
     @pytest.mark.serial
     def test_collect_symbol_data_retry_logic(
         self,
-        test_database: Any,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test retry logic on collection failure.
@@ -255,7 +264,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_load_from_dbn_file_venue_mapping(self, test_database: Any) -> None:
+    def test_load_from_dbn_file_venue_mapping(self, test_database: TestDatabase) -> None:
         """
         Test venue code mapping in DBN file loading.
         """
@@ -343,7 +352,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_clean_old_data(self, test_database: Any) -> None:
+    def test_clean_old_data(self, test_database: TestDatabase) -> None:
         """
         Test cleanup of old data (placeholder test).
         """
@@ -365,7 +374,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_compute_features(self, test_database: Any) -> None:
+    def test_compute_features(self, test_database: TestDatabase) -> None:
         """
         Test feature computation trigger (placeholder test).
         """

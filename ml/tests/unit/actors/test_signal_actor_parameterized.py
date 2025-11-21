@@ -9,11 +9,12 @@ Target: ~1,180 lines (27% reduction) with improved coverage
 
 """
 
-import contextlib
+from __future__ import annotations
+
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from unittest.mock import Mock
 
 import numpy as np
@@ -34,9 +35,30 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.config.actors import StrategyConfig
 from ml.config.base import CircuitBreakerConfig
-from ml.features.engineering import FeatureConfig
-from ml.tests.fixtures.model_factory import TestModelFactory
+from ml.features.config import FeatureConfig
 from ml.tests.builders import MLConfigBuilder
+if TYPE_CHECKING:
+    from ml.tests.fixtures.model_factory import TestModelFactory
+
+_TEST_MODEL_FACTORY: TestModelFactory | None = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _configure_test_model_factory(test_model_factory: TestModelFactory) -> None:
+    """
+    Ensure the canonical TestModelFactory instance is available to class-based tests.
+    """
+
+    global _TEST_MODEL_FACTORY
+    _TEST_MODEL_FACTORY = test_model_factory
+
+
+def _require_test_model_factory() -> TestModelFactory:
+    if _TEST_MODEL_FACTORY is None:  # pragma: no cover - safety guard
+        raise RuntimeError(
+            "test_model_factory fixture not configured; ensure pytest plug-in is active.",
+        )
+    return _TEST_MODEL_FACTORY
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
     pytest.skip(
@@ -79,6 +101,12 @@ class MockTestModel:
         return np.array([[0.2, 0.8]])
 
 
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus collectors are isolated for each test."""
+    del isolated_prometheus_registry
+
+
 @pytest.mark.flaky
 @pytest.mark.slow
 @pytest.mark.unit
@@ -91,25 +119,11 @@ class TestMLSignalActorParameterized:
         """
         Set up test fixtures.
         """
-        # Clear Prometheus metrics registry to avoid duplicates
-        try:
-            import gc
-
-            from prometheus_client import REGISTRY
-
-            collectors = list(REGISTRY._collector_to_names.keys())
-            for collector in collectors:
-                with contextlib.suppress(Exception):
-                    REGISTRY.unregister(collector)
-            gc.collect()
-        except ImportError:
-            pass
-
         # Create temporary directory for test models
         self.temp_dir = Path(tempfile.mkdtemp())
 
-        # Create a valid test model using TestModelFactory
-        self.model_factory = TestModelFactory()
+        # Create a valid test model using the shared factory fixture
+        self.model_factory = _require_test_model_factory()
         # The factory methods return a Path to the saved model
         self.temp_model_file_path = self.model_factory.create_onnx_model(
             output_path=self.temp_dir / "test_model.onnx",

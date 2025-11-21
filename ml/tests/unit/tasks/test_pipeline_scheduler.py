@@ -8,6 +8,14 @@ import pytest
 from ml.tasks.pipelines import PipelineScheduleConfig
 from ml.tasks.pipelines import run_pipeline_schedule
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 def _pipeline_stub(_: Sequence[str] | None = None) -> int:
     return 0
@@ -17,13 +25,9 @@ def _sleep_stub(_: float) -> None:
     return None
 
 
-@pytest.fixture(autouse=True)
-def _clear_env() -> None:
-    for key in ["ORCH_SCHEDULE_TIME", "ORCH_INTERVAL_MIN", "ORCH_CONFIG", "ORCH_DRY_RUN", "ORCH_FORCE"]:
-        os.environ.pop(key, None)
-
-
-def test_run_pipeline_schedule_sets_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_pipeline_schedule_sets_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     recorded: dict[str, Any] = {}
 
     def _fake_run_forever(
@@ -54,7 +58,9 @@ def test_run_pipeline_schedule_sets_environment(monkeypatch: pytest.MonkeyPatch)
     assert recorded["invoke_pipeline"] is _pipeline_stub
 
 
-def test_run_pipeline_schedule_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_pipeline_schedule_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("ml.tasks.pipelines.scheduler._run_forever", lambda **_: None)
 
     run_pipeline_schedule(

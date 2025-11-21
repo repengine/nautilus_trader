@@ -19,7 +19,7 @@ for implementation. Once CrossAssetFeatureService is implemented, remove skip ma
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -35,19 +35,20 @@ from ml.stores.table_factory import get_schema_name
 
 if TYPE_CHECKING:
     from ml.stores.services.feature_services import CrossAssetFeatureService
-    from ml.tests.conftest import TestDatabase
+
+class _TestDatabase(Protocol):
+    connection_string: str
+    engine: Any
 
 
 pytestmark = pytest.mark.serial
-
 
 # ============================================================================
 # FIXTURES
 # ============================================================================
 
-
 @pytest.fixture
-def cross_asset_service(test_database: TestDatabase) -> CrossAssetFeatureService:
+def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureService:
     """
     Provide initialized CrossAssetFeatureService for testing.
 
@@ -57,7 +58,6 @@ def cross_asset_service(test_database: TestDatabase) -> CrossAssetFeatureService
 
     store = ComponentFeatureStore(connection_string=test_database.connection_string)
     return store.cross_asset
-
 
 @pytest.fixture
 def mock_cross_asset_deps():
@@ -83,7 +83,6 @@ def mock_cross_asset_deps():
 
     return mock_deps
 
-
 @pytest.fixture
 def sample_beta_data() -> dict:
     """Provide sample beta data for tests."""
@@ -98,7 +97,6 @@ def sample_beta_data() -> dict:
         "lookback_periods": 60,
         "ewma_span": 30,
     }
-
 
 @pytest.fixture
 def sample_spread_data() -> dict:
@@ -115,7 +113,6 @@ def sample_spread_data() -> dict:
         "lookback_periods": 60,
     }
 
-
 @pytest.fixture
 def sample_correlation_data() -> dict:
     """Provide sample correlation data for tests."""
@@ -130,11 +127,9 @@ def sample_correlation_data() -> dict:
         "lookback_periods": 30,
     }
 
-
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
 
 def _query_beta_row(
     engine,
@@ -187,7 +182,6 @@ def _query_beta_row(
             "values": result[4],
         }
 
-
 def _count_rows_for_beta(
     engine,
     asset_id: str,
@@ -222,7 +216,6 @@ def _count_rows_for_beta(
         result = conn.execute(stmt).scalar()
         return result or 0
 
-
 def _count_all_rows_for_instruments(
     engine,
     asset_1: str,
@@ -251,18 +244,16 @@ def _count_all_rows_for_instruments(
         result = conn.execute(stmt).scalar()
         return result or 0
 
-
 # ============================================================================
 # HAPPY PATH TESTS
 # ============================================================================
-
 
 
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_write_beta_inserts_with_namespaced_id(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that write_beta() correctly inserts a beta value with namespaced feature_set_id.
@@ -300,12 +291,11 @@ def test_write_beta_inserts_with_namespaced_id(
     assert row["values"]["ewma_span"] == sample_beta_data["ewma_span"]
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_write_beta_upserts_on_conflict(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that write_beta() correctly updates existing row on conflict.
@@ -358,7 +348,6 @@ def test_write_beta_upserts_on_conflict(
     assert row["ts_init"] == 2000000000000000000, "ts_init should be updated"
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_get_beta_history_returns_values_in_time_range(
     cross_asset_service: CrossAssetFeatureService,
@@ -402,7 +391,6 @@ def test_get_beta_history_returns_values_in_time_range(
     assert results == sorted(results, key=lambda r: r["ts_event"]), "Results should be ordered by ts_event"
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_get_beta_history_returns_empty_when_no_data(
     cross_asset_service: CrossAssetFeatureService,
@@ -423,7 +411,6 @@ def test_get_beta_history_returns_empty_when_no_data(
 
     assert results == [], "Should return empty list when no data exists"
     assert isinstance(results, list), "Result should be a list"
-
 
 
 @pytest.mark.usefixtures("clean_postgres_db")
@@ -462,12 +449,11 @@ def test_get_beta_history_excludes_end_timestamp(
     assert results[0]["ts_event"] == 1000000000000000000
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_write_spread_with_correct_namespace(
     cross_asset_service: CrossAssetFeatureService,
     sample_spread_data: dict,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that write_spread() uses correct namespace format.
@@ -519,12 +505,11 @@ def test_write_spread_with_correct_namespace(
     assert result[2]["lookback_periods"] == sample_spread_data["lookback_periods"]
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_write_correlation_with_correct_namespace(
     cross_asset_service: CrossAssetFeatureService,
     sample_correlation_data: dict,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that write_correlation() uses correct namespace format.
@@ -573,11 +558,9 @@ def test_write_correlation_with_correct_namespace(
     assert result[2]["correlation"] == sample_correlation_data["correlation"]
     assert result[2]["lookback_periods"] == sample_correlation_data["lookback_periods"]
 
-
 # ============================================================================
 # ERROR CONDITION TESTS
 # ============================================================================
-
 
 
 def test_service_initialization_with_minimal_deps(
@@ -602,11 +585,10 @@ def test_service_initialization_with_minimal_deps(
     assert hasattr(service, "write_correlation")
 
 
-
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_namespace_collision_prevention(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that different feature types never collide even with same asset pairs.
@@ -684,18 +666,16 @@ def test_namespace_collision_prevention(
     assert f"cross_asset:spread:{unique_asset}:{unique_benchmark}" in feature_set_ids
     assert f"cross_asset:correlation:{unique_asset}:{unique_benchmark}" in feature_set_ids
 
-
 # ============================================================================
 # EDGE CASE TESTS
 # ============================================================================
-
 
 
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_json_serialization_of_metadata(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: TestDatabase,
+    test_database: _TestDatabase,
 ) -> None:
     """
     Verify that metadata is correctly serialized as JSON and retrieved as proper types.

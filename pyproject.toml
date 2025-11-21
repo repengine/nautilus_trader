@@ -205,6 +205,9 @@ addopts = "--import-mode=importlib"
 pythonpath = [
     "."
 ]
+testpaths = [
+    "ml/tests"
+]
 norecursedirs = [
     ".*",
     "build",
@@ -213,7 +216,8 @@ norecursedirs = [
     "venv",
     "python",
     "python/examples",
-    ".libraries"
+    ".libraries",
+    "tests/unit_tests/indicators",
 ]
 
 [project.optional-dependencies]

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
-from prometheus_client import REGISTRY
 
 from ml._imports import HAS_PANDAS, HAS_TORCH, check_ml_dependencies, pd
 from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND
@@ -18,10 +18,6 @@ from ml.config.streaming_pipeline import (
 from ml.consumers.streaming_training_service import StreamingTrainingPersistenceService
 from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
 from ml.training.event_driven.payloads import build_plan_message, build_result_message
-from ml.training.event_driven.orchestrator import (
-    InMemoryOrchestratorBus,
-    InMemoryStreamingOrchestrator,
-)
 from ml.training.event_driven.services import (
     DatasetPlanEvent,
     DatasetPlanRequest,
@@ -30,17 +26,16 @@ from ml.training.event_driven.services import (
     TrainingResultEvent,
     TrainingWorker,
 )
-from ml.training.event_driven.worker import LightningStreamingWorker
-from ml.training.teacher import streaming_loader as stream
-from ml.training.teacher.streaming_loader import (
-    StreamingLimitSummary,
-    TFTShardIndex,
-    TFTStreamingConfig,
-    TFTStreamingMetadata,
-    TFTStreamingSummary,
-)
 from ml.training.teacher.streaming_telemetry import StreamingLoaderTelemetry, StreamingRunTelemetry
 from ml.training.teacher.tft_teacher import StreamingFitResult
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
+
+def _streaming_loader_module() -> Any:
+    return import_module("ml.training.teacher.streaming_loader")
 
 
 class _StaticPlanner(DatasetPlanner):
@@ -54,9 +49,10 @@ class _StaticPlanner(DatasetPlanner):
 
 
 def _plan_event(tmp_path: Path) -> DatasetPlanEvent:
-    metadata = TFTStreamingMetadata(
+    streaming_loader_mod = _streaming_loader_module()
+    metadata = streaming_loader_mod.TFTStreamingMetadata(
         shard_indices=(
-            TFTShardIndex(
+            streaming_loader_mod.TFTShardIndex(
                 shard_id="shard-0",
                 instrument_id="AAPL",
                 row_start=0,
@@ -70,9 +66,9 @@ def _plan_event(tmp_path: Path) -> DatasetPlanEvent:
         categorical_vocab={},
         instrument_row_counts={"AAPL": 5},
     )
-    summary = TFTStreamingSummary(total_shards=1, total_rows=5, max_shard_rows=5)
-    limits = StreamingLimitSummary(skipped_shards=0, skipped_rows=0, skipped_sequences=0)
-    streaming_cfg = TFTStreamingConfig(
+    summary = streaming_loader_mod.TFTStreamingSummary(total_shards=1, total_rows=5, max_shard_rows=5)
+    limits = streaming_loader_mod.StreamingLimitSummary(skipped_shards=0, skipped_rows=0, skipped_sequences=0)
+    streaming_cfg = streaming_loader_mod.TFTStreamingConfig(
         time_idx_col="time_index",
         group_id_col="instrument_id",
         target_col="y",
@@ -105,7 +101,8 @@ def _plan_event(tmp_path: Path) -> DatasetPlanEvent:
 
 
 def _result_event(plan: DatasetPlanEvent) -> TrainingResultEvent:
-    limits = StreamingLimitSummary()
+    streaming_loader_mod = _streaming_loader_module()
+    limits = streaming_loader_mod.StreamingLimitSummary()
     telemetry = StreamingRunTelemetry(
         metadata_summary=plan.metadata_summary,
         caps=plan.caps,
@@ -138,7 +135,8 @@ def _result_event(plan: DatasetPlanEvent) -> TrainingResultEvent:
 def test_plan_worker_round_trip(tmp_path: Path) -> None:
     plan_event = _plan_event(tmp_path)
     planner = _StaticPlanner(plan_event)
-    bus = InMemoryOrchestratorBus()
+    orchestrator_mod = import_module("ml.training.event_driven.orchestrator")
+    bus = orchestrator_mod.InMemoryOrchestratorBus()
 
     class _Worker(TrainingWorker):
         def __init__(self) -> None:
@@ -147,7 +145,7 @@ def test_plan_worker_round_trip(tmp_path: Path) -> None:
         def run(self, plan: DatasetPlanEvent) -> TrainingResultEvent:
             return _result_event(plan)
 
-    orchestrator = InMemoryStreamingOrchestrator(
+    orchestrator = orchestrator_mod.InMemoryStreamingOrchestrator(
         config=TrainingOrchestratorConfig(
             command_topic="",
             result_topic="",
@@ -199,10 +197,17 @@ def test_plan_worker_round_trip(tmp_path: Path) -> None:
     not (HAS_TORCH and HAS_PANDAS),
     reason="streaming pipeline requires torch and pandas",
 )
-def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: Any) -> None:
+def test_streaming_pipeline_records_gpu_telemetry(
+    tmp_path: Path,
+    monkeypatch: Any,
+    isolated_prometheus_registry: Any,
+) -> None:
     if pd is None:
         check_ml_dependencies(["pandas"])
         pytest.skip("pandas dependency unavailable at runtime")
+
+    streaming_loader_mod = _streaming_loader_module()
+    worker_mod = import_module("ml.training.event_driven.worker")
 
     dataset_dir = tmp_path / "full_tft_95"
     dataset_dir.mkdir()
@@ -227,7 +232,7 @@ def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: A
         max_total_sequences=90_000,
         max_shards=32,
     )
-    streaming_config = TFTStreamingConfig(
+    streaming_config = streaming_loader_mod.TFTStreamingConfig(
         time_idx_col="time_index",
         group_id_col="instrument_id",
         target_col="y",
@@ -277,31 +282,31 @@ def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: A
     monkeypatch.setattr("ml.training.event_driven.worker.GPUMemoryMonitor", _FakeMonitor)
 
     class _DeterministicTeacher:
-        def __init__(self, cfg: TFTStreamingConfig) -> None:
+        def __init__(self, cfg: Any) -> None:
             self._cfg = cfg
 
         def fit_streaming(
             self,
             parquet_path: Path,
-            train_loader,
-            val_loader,
+            train_loader: Any,
+            val_loader: Any,
             *,
-            train_metadata,
-            val_metadata,
-            full_metadata,
-            streaming_config,
+            train_metadata: Any,
+            val_metadata: Any,
+            full_metadata: Any,
+            streaming_config: Any,
+            callbacks: Any | None = None,
+            **_: Any,
         ) -> StreamingFitResult:
-            del parquet_path, train_loader, val_loader, full_metadata, streaming_config
-            train_sequences = max(1, stream.count_sequences(train_metadata, self._cfg))
-            val_sequences = max(1, stream.count_sequences(val_metadata, self._cfg))
+            del parquet_path, train_loader, val_loader, full_metadata, streaming_config, callbacks, _
+            train_sequences = max(1, streaming_loader_mod.count_sequences(train_metadata, self._cfg))
+            val_sequences = max(1, streaming_loader_mod.count_sequences(val_metadata, self._cfg))
             z_train = np.linspace(-0.5, 0.5, num=train_sequences, dtype=np.float64)
             z_val = np.linspace(-1.0, 1.0, num=val_sequences, dtype=np.float64)
-            labels = np.tile(np.array([0.0, 1.0], dtype=np.float64), val_sequences // 2 + 1)[
-                :val_sequences
-            ]
+            labels = np.tile(np.array([0.0, 1.0], dtype=np.float64), val_sequences // 2 + 1)[:val_sequences]
             return StreamingFitResult(z_train=z_train, z_val=z_val, y_val=labels)
 
-    def _teacher_factory(_plan: DatasetPlanEvent, cfg: TFTStreamingConfig) -> _DeterministicTeacher:
+    def _teacher_factory(_plan: DatasetPlanEvent, cfg: Any) -> _DeterministicTeacher:
         return _DeterministicTeacher(cfg)
 
     worker_config = StreamingWorkerConfig(
@@ -313,7 +318,7 @@ def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: A
         gpu_memory_monitor_interval_seconds=0.05,
         model_id="tft-streaming-test",
     )
-    worker = LightningStreamingWorker(
+    worker = worker_mod.LightningStreamingWorker(
         worker_config,
         output_dir=tmp_path / "artifacts",
         teacher_factory=_teacher_factory,
@@ -338,7 +343,7 @@ def test_streaming_pipeline_records_gpu_telemetry(tmp_path: Path, monkeypatch: A
     assert service.state_store.outstanding_plan_ids() == ()
 
     if HAS_METRICS_BACKEND:
-        metric_value = REGISTRY.get_sample_value(
+        metric_value = isolated_prometheus_registry.registry.get_sample_value(
             "ml_tft_streaming_worker_gpu_peak_mb",
             labels={"dataset_id": plan_event.dataset_id},
         )

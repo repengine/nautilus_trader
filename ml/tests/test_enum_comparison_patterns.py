@@ -71,8 +71,8 @@ class TestEnumStringComparison:
 
     def test_enum_string_comparison_with_different_values(self):
         """Verify string comparison for all enum types."""
-        assert str(Source.LIVE) == "Source.live"
-        assert str(EventStatus.SUCCESS) == "EventStatus.success"
+        assert str(Source.LIVE) == "Source.LIVE"
+        assert str(EventStatus.SUCCESS) == "EventStatus.SUCCESS"
 
 
 class TestEnumClassNameComparison:

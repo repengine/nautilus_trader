@@ -18,6 +18,7 @@ from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.common.safe_math import safe_divide_expr
+from ml.features._symbol_utils import resolve_symbol_data_dir
 
 
 if TYPE_CHECKING:
@@ -32,6 +33,44 @@ PL = _cast(Any, pl)
 
 
 TOPKS: tuple[int, ...] = (1, 3, 5, 10)
+_L2_BASE_COLUMNS: tuple[str, ...] = ("timestamp", "midprice", "spread_bps", "microprice_bps")
+_L2_METRIC_PREFIXES: tuple[str, ...] = (
+    "depth_imbalance",
+    "dwp_bps",
+    "bid_slope",
+    "ask_slope",
+)
+L2_MINUTE_COLUMNS: tuple[str, ...] = _L2_BASE_COLUMNS + tuple(
+    f"{prefix}_top{k}"
+    for prefix in _L2_METRIC_PREFIXES
+    for k in TOPKS
+)
+
+
+def _l2_minute_schema() -> list[tuple[str, Any]]:
+    _ensure_polars()
+    schema: list[tuple[str, Any]] = []
+    for name in L2_MINUTE_COLUMNS:
+        if name == "timestamp":
+            schema.append((name, PL.Datetime("ns", "UTC")))
+        else:
+            schema.append((name, PL.Float64))
+    return schema
+
+
+def _empty_l2_minute_df() -> PlDataFrame:
+    return _cast(PlDataFrame, PL.DataFrame(schema=_l2_minute_schema()))
+
+
+def _normalize_timestamp(df: PlDataFrame, timestamp_col: str) -> PlDataFrame:
+    schema = df.schema
+    if timestamp_col not in schema:
+        msg = f"timestamp column '{timestamp_col}' missing from L2 frame"
+        raise ValueError(msg)
+    target_dtype = PL.Datetime("ns", "UTC")
+    if schema[timestamp_col] != target_dtype:
+        df = df.with_columns(PL.col(timestamp_col).cast(target_dtype))
+    return df.sort(timestamp_col)
 
 
 def _ensure_polars() -> None:
@@ -54,11 +93,9 @@ def aggregate_l2_minute_pl(l2: PlDataFrame, *, timestamp_col: str = "ts_event") 
     """
     _ensure_polars()
     if l2.is_empty():
-        return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
+        return _empty_l2_minute_df()
 
-    df = l2
-    if df[timestamp_col].dtype != PL.Datetime:
-        df = df.with_columns(PL.col(timestamp_col).cast(PL.Datetime("ns", "UTC")))
+    df = _normalize_timestamp(l2, timestamp_col)
 
     # Base mid and spread at level 0
     mid = (PL.col("ask_px_00") + PL.col("bid_px_00")) / 2.0
@@ -119,13 +156,14 @@ def aggregate_l2_minute_pl(l2: PlDataFrame, *, timestamp_col: str = "ts_event") 
             ],
         )
 
-    df = df.sort(timestamp_col)
     out = (
         df.group_by_dynamic(index_column=timestamp_col, every="1m", period="1m")
         .agg(aggs)
         .rename({timestamp_col: "timestamp"})
         .sort("timestamp")
     )
+    if out.is_empty():
+        return _empty_l2_minute_df()
     return out
 
 
@@ -133,9 +171,15 @@ def aggregate_l2_minute_pl(l2: PlDataFrame, *, timestamp_col: str = "ts_event") 
 class L2Aggregator:
     base_dir: Path
 
+    def _resolve_symbol_dir(self, symbol: str) -> Path | None:
+        return resolve_symbol_data_dir(self.base_dir, symbol)
+
     def _load_l2(self, symbol: str) -> PlDataFrame | None:
         _ensure_polars()
-        l2_dir = self.base_dir / symbol / "l2"
+        root_dir = self._resolve_symbol_dir(symbol)
+        if root_dir is None:
+            return None
+        l2_dir = root_dir / "l2"
         if not l2_dir.exists():
             return None
         paths = sorted(p for p in l2_dir.glob("*.parquet"))
@@ -154,14 +198,18 @@ class L2Aggregator:
     ) -> PlDataFrame:
         _ensure_polars()
         logger = logging.getLogger(__name__)
-        l2_dir = self.base_dir / symbol / "l2"
+        root_dir = self._resolve_symbol_dir(symbol)
+        if root_dir is None:
+            logger.debug("L2 dir missing for %s under %s", symbol, self.base_dir)
+            return _empty_l2_minute_df()
+        l2_dir = root_dir / "l2"
         if not l2_dir.exists():
             logger.debug("L2 dir missing for %s: %s", symbol, l2_dir)
-            return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
+            return _empty_l2_minute_df()
         paths = sorted(p for p in l2_dir.glob("*.parquet"))
         if not paths:
             logger.debug("No L2 parquet files for %s", symbol)
-            return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
+            return _empty_l2_minute_df()
         latest = paths[-1]
         try:
             logger.info("L2: using %s (%0.2f MB)", latest, latest.stat().st_size / (1024 * 1024))
@@ -210,7 +258,7 @@ class L2Aggregator:
             )
             df_fallback = self._load_l2(symbol)
             if df_fallback is None or df_fallback.is_empty():
-                return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
+                return _empty_l2_minute_df()
             if start is not None or end is not None:
                 if df_fallback["ts_event"].dtype != PL.Datetime:
                     df_fallback = df_fallback.with_columns(

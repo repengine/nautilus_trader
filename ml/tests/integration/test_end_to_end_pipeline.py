@@ -63,9 +63,9 @@ from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.collector import DataCollector
 from ml.data.providers.factory import ProviderFactory
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
@@ -77,6 +77,14 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from ml.tests.builders import DataBuilder
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 PIPELINE_INSTRUMENT: InstrumentId = InstrumentId(Symbol("SPY"), Venue("NYSE"))
 

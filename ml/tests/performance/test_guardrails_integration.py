@@ -16,7 +16,7 @@ import pytest
 
 from ml.actors.signal import MLSignalActorConfig, OptimizationLevel
 from ml.config.actors import OptimizationConfig
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 from nautilus_trader.model.data import BarSpecification, BarType
 from nautilus_trader.model.enums import AggressorSide, BarAggregation, PriceType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue

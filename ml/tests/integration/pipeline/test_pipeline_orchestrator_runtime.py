@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,12 @@ import pytest
 from ml.cli import pipeline_orchestrator
 from ml.data import BuildResult
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 def test_pipeline_orchestrator_cli_attach_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     out_dir = tmp_path / "out"

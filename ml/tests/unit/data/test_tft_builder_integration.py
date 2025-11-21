@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -9,39 +8,17 @@ from pathlib import Path
 import polars as pl
 from pytest import MonkeyPatch
 
-import ml.data.tft_dataset_builder as builder_mod
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.tests.builders import DataBuilder
 from ml.tests.utils.earnings_facade import build_test_data_store
 
 
-def _fake_bars_to_dataframe(
-    catalog: object,
-    instrument_ids: Sequence[str],
-    start: datetime | None = None,
-    end: datetime | None = None,
-) -> pl.DataFrame:
-    # Produce 5 minutes of bars using DataBuilder for consistent test data
-    base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-    base_ns = int(base.timestamp() * 1e9)
-    ts_ns = DataBuilder.time_series(n_points=5, start_time=base_ns, interval_ns=60_000_000_000)
-    ts = [datetime.fromtimestamp(t / 1e9, tz=UTC) for t in ts_ns]
-    return pl.DataFrame(
-        {
-            "instrument_id": [instrument_ids[0]] * len(ts),
-            "timestamp": ts,
-            "open": [100.0, 100.1, 100.2, 100.3, 100.4],
-            "high": [100.2, 100.2, 100.3, 100.4, 100.5],
-            "low": [99.9, 100.0, 100.1, 100.2, 100.3],
-            "close": [100.1, 100.15, 100.25, 100.35, 100.45],
-            "volume": [1000, 1100, 1200, 1300, 1400],
-        },
-    )
-
-
-def test_tft_builder_macro_and_micro(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    # Monkeypatch bars loader
-    monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
+def test_tft_builder_macro_and_micro(
+    monkeypatch: MonkeyPatch,
+    patch_bars_to_dataframe,
+    tmp_path: Path,
+) -> None:
+    patch_bars_to_dataframe("ml.data.tft_dataset_builder")
 
     # Monkeypatch micro aggregator
     class _FakeAgg:
@@ -85,8 +62,16 @@ def test_tft_builder_macro_and_micro(monkeypatch: MonkeyPatch, tmp_path: Path) -
     # Dataset built successfully
 
 
-def test_tft_builder_earnings_join(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
+def test_tft_builder_earnings_join(
+    monkeypatch: MonkeyPatch,
+    patch_bars_to_dataframe,
+    tmp_path: Path,
+    sample_bar_series_config_factory,
+) -> None:
+    patch_bars_to_dataframe(
+        "ml.data.tft_dataset_builder",
+        sample_bar_series_config_factory(instrument_id="AAPL", rows=8, freq_minutes=5),
+    )
 
     store = build_test_data_store()
 

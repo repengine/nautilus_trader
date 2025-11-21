@@ -3,107 +3,106 @@
 """
 Test fixtures for ML testing.
 
-This module provides centralized test utilities and fixtures for ML tests.
-
+This package lazily re-exports every helper under ``ml.tests.fixtures`` so
+pytest's assertion rewriting can instrument each fixture module before it is
+imported.  Attribute lookups only import the submodule that defines the requested
+symbol, keeping startup lean for both pytest and ad-hoc scripts.
 """
 
-# Import existing factories
-from ml.tests.fixtures.model_factory import TestDataFactory
-from ml.tests.fixtures.model_factory import TestModelFactory
+from __future__ import annotations
 
-# Import common fixtures (for programmatic use, not just pytest)
-from ml.tests.fixtures.common import (
-    alternative_bar_type,
-    alternative_instrument_id,
-    base_feature_config,
-    base_ml_config,
-    base_signal_config,
-    default_bar_type,
-    default_instrument_id,
-    default_venue,
-    dummy_onnx_model,
-    dummy_xgboost_model,
-    mock_stores_bundle,
-    model_registry_config,
-    sample_feature_array,
-    sample_feature_manifest,
-    sample_features,
-    sample_model_manifest,
-    sample_predictions,
-    test_component_id,
-    test_data_factory,
-    test_timestamps,
-)
+import importlib
+from pathlib import Path
+from pkgutil import iter_modules
+from types import ModuleType
+from typing import Any, Final, Iterable
 
-# Import mock store fixtures from centralized location
-from ml.tests.fixtures.mock_stores import (
-    mock_data_store,
-    mock_feature_store,
-    mock_model_store,
-    mock_store_factory,
-    mock_strategy_store,
-)
+_FIXTURE_DIR: Final[Path] = Path(__file__).resolve().parent
+_EXCLUDED_MODULES: Final = frozenset({"__init__", "pytest_plugins"})
+_EXCLUDED_PREFIXES: Final = ("__", "test_")
+_BUILDER_EXPORTS: Final = frozenset({"DataBuilder", "MLConfigBuilder", "MockBuilder", "RegistryBuilder"})
 
-# Import mock registry fixtures from centralized location
-from ml.tests.fixtures.mock_stores import (
-    mock_data_registry,
-    mock_feature_registry,
-    mock_model_registry,
-    mock_registry_factory,
-    mock_strategy_registry,
-)
-
-# Builder classes are imported lazily to avoid circular imports during test discovery
+_MODULE_CACHE: dict[str, ModuleType] = {}
+_ALL_EXPORTS: list[str] | None = None
 
 
-__all__ = [
-    # Factory classes
-    "TestDataFactory",
-    "TestModelFactory",
-    # Builder classes
-    "DataBuilder",
-    "MLConfigBuilder",
-    "MockBuilder",
-    "RegistryBuilder",
-    # Common fixtures (for programmatic use)
-    "alternative_bar_type",
-    "alternative_instrument_id",
-    "base_feature_config",
-    "base_ml_config",
-    "base_signal_config",
-    "default_bar_type",
-    "default_instrument_id",
-    "default_venue",
-    "dummy_onnx_model",
-    "dummy_xgboost_model",
-    "mock_stores_bundle",
-    "model_registry_config",
-    "sample_feature_array",
-    "sample_feature_manifest",
-    "sample_features",
-    "sample_model_manifest",
-    "sample_predictions",
-    "test_component_id",
-    "test_data_factory",
-    "test_timestamps",
-    # Mock store fixtures (centralized)
-    "mock_data_store",
-    "mock_feature_store",
-    "mock_model_store",
-    "mock_store_factory",
-    "mock_strategy_store",
-    # Mock registry fixtures (centralized)
-    "mock_data_registry",
-    "mock_feature_registry",
-    "mock_model_registry",
-    "mock_registry_factory",
-    "mock_strategy_registry",
-]
+def _discover_fixture_modules() -> tuple[str, ...]:
+    module_names: list[str] = []
+    for module in iter_modules([str(_FIXTURE_DIR)]):
+        if module.name in _EXCLUDED_MODULES or module.name.startswith(_EXCLUDED_PREFIXES):
+            continue
+        module_names.append(module.name)
+    return tuple(sorted(module_names))
 
 
-def __getattr__(name: str):  # pragma: no cover - utility for import-time behavior
-    if name in {"DataBuilder", "MLConfigBuilder", "MockBuilder", "RegistryBuilder"}:
-        from ml.tests import builders as _builders
+_FIXTURE_MODULES: Final = _discover_fixture_modules()
 
-        return getattr(_builders, name)
+
+def _load_module(module_name: str) -> ModuleType:
+    qualified_name = f"{__name__}.{module_name}"
+    module = _MODULE_CACHE.get(qualified_name)
+    if module is None:
+        module = importlib.import_module(qualified_name)
+        _MODULE_CACHE[qualified_name] = module
+    return module
+
+
+def _iter_module_exports(module: ModuleType) -> Iterable[str]:
+    exports = getattr(module, "__all__", None)
+    if exports is not None:
+        return tuple(exports)
+    return tuple(name for name in vars(module) if not name.startswith("_"))
+
+
+def _build_all_exports() -> list[str]:
+    global _ALL_EXPORTS
+    if _ALL_EXPORTS is not None:
+        return _ALL_EXPORTS
+
+    names: set[str] = set(_BUILDER_EXPORTS)
+    for module_name in _FIXTURE_MODULES:
+        module = _load_module(module_name)
+        names.update(_iter_module_exports(module))
+
+    _ALL_EXPORTS = sorted(names)
+    return _ALL_EXPORTS
+
+
+def _resolve_from_fixture_modules(name: str) -> Any:
+    for module_name in _FIXTURE_MODULES:
+        module = _load_module(module_name)
+        if hasattr(module, name):
+            return getattr(module, name)
     raise AttributeError(name)
+
+
+def _load_builder_attribute(name: str) -> Any:
+    from ml.tests import builders as _builders
+
+    return getattr(_builders, name)
+
+
+def __getattr__(name: str) -> Any:  # pragma: no cover - import-time helper
+    if name == "__all__":
+        exports = _build_all_exports()
+        globals()["__all__"] = exports
+        return exports
+
+    if name in _BUILDER_EXPORTS:
+        value = _load_builder_attribute(name)
+        globals()[name] = value
+        return value
+
+    try:
+        value = _resolve_from_fixture_modules(name)
+    except AttributeError as exc:  # pragma: no cover - mirrors default behavior
+        raise AttributeError(name) from exc
+
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:  # pragma: no cover - developer convenience
+    dynamic_names = set(globals())
+    dynamic_names.update(_build_all_exports())
+    return sorted(dynamic_names)

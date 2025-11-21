@@ -21,9 +21,9 @@ from hypothesis import strategies as st
 from ml.config.base import MLActorConfig
 from ml.core.cache import PreAllocatedFeatureCache
 from ml.data.catalog_utils import bars_to_dataframe
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelManifest

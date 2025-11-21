@@ -9,22 +9,30 @@ exercise read_signals/get_latest/get_statistics/get_signal_distribution.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pytest
 
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.stores.strategy_store import StrategyStore
 
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
 
 
-def test_strategy_store_reads_and_stats(test_database: Any) -> None:
+def test_strategy_store_reads_and_stats(test_database: TestDatabase) -> None:
     """
     StrategyStore read_signals/get_latest/get_statistics/distribution behave as
     expected.

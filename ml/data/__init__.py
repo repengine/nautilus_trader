@@ -1735,6 +1735,7 @@ def build_tft_dataset(
             alfred_realtime_start=alfred_start_str,
             alfred_realtime_end=alfred_end_str,
             alfred_window_days=alfred_window_days,
+            data_store=data_store,
         )
         if macro_refresh.fred_error is not None:
             logger.warning(
@@ -1889,7 +1890,9 @@ def build_tft_dataset(
         ),
         "include_calendar": bool(getattr(builder, "include_calendar", cfg.include_calendar)),
         "include_events": bool(getattr(builder, "include_events", cfg.include_events)),
-        "include_earnings": bool(getattr(builder, "include_earnings", cfg.include_earnings)),
+        "include_earnings": bool(
+            getattr(builder, "include_earnings", False) or cfg.include_earnings,
+        ),
         "include_micro": bool(getattr(builder, "include_micro", cfg.include_micro)),
         "include_l2": bool(getattr(builder, "include_l2", cfg.include_l2)),
         "include_macro_deltas": bool(

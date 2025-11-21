@@ -4,12 +4,16 @@ from typing import Any
 
 import pytest
 
-from ml.dashboard.grafana import GrafanaConfig
-from ml.dashboard.grafana import GrafanaProvisionResult
-from ml.dashboard.grafana import PrometheusQueryHelper
-from ml.dashboard.grafana import build_dashboard
-from ml.dashboard.grafana import default_panel_bundles
-from ml.dashboard.grafana import provision_dashboard
+from ml.dashboard.grafana import (
+    GrafanaConfig,
+    GrafanaProvisionResult,
+    PrometheusQueryHelper,
+    build_dashboard,
+    default_panel_bundles,
+    provision_dashboard,
+)
+
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
 
 
 def test_build_dashboard_sets_datasource_variable() -> None:
@@ -102,3 +106,8 @@ def test_prometheus_query_helper_collect_scalars(monkeypatch: pytest.MonkeyPatch
     values = helper.collect_scalars({"first": "q1", "second": "q2"})
     assert pytest.approx(values["first"], rel=1e-6) == 3.14
     assert pytest.approx(values["second"], rel=1e-6) == 2.71
+
+@pytest.fixture(autouse=True)
+def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
+    """Ensure Prometheus state is isolated when helper instantiates metrics."""
+    del isolated_prometheus_registry

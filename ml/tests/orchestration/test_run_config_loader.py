@@ -4,9 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from ml.config import universes as _universes
 from ml.orchestration.config_loader import Stage
 from ml.orchestration.config_loader import load_orchestrator_run_config
 from ml.orchestration.config_loader import to_pipeline_args
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 def _fixture_path(name: str) -> Path:
@@ -48,3 +55,25 @@ def test_environment_override_applies(monkeypatch: pytest.MonkeyPatch) -> None:
     assert run_cfg.dataset.symbols == "MSFT"
     assert run_cfg.ingestion is not None
     assert run_cfg.ingestion.enabled is False
+
+
+def test_universe_alias_expansion() -> None:
+    config_path = _fixture_path("universe_alias.toml")
+    run_cfg = load_orchestrator_run_config(config_path)
+
+    tier1_full = tuple(str(symbol).strip().upper() for symbol in _universes.TIER1_FULL_95)
+    expected_symbols = ",".join(_strip_venue(symbol) for symbol in tier1_full)
+
+    assert run_cfg.dataset is not None
+    assert run_cfg.dataset.symbols == expected_symbols
+
+    assert run_cfg.ingestion is not None
+    assert run_cfg.ingestion.instruments == tier1_full
+
+    assert run_cfg.auto_fill is not None
+    assert run_cfg.auto_fill.instrument_ids == tier1_full
+
+
+def _strip_venue(symbol: str) -> str:
+    head, _, _tail = symbol.partition(".")
+    return head or symbol

@@ -4,6 +4,7 @@ from typing import Any
 
 from hypothesis import given, strategies as st
 
+from ml.common.events_util import to_stage_enum
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.common.message_topics import build_stage_topic
 from ml.common.message_topics import map_stage_to_topic_segments
@@ -25,20 +26,21 @@ def test_stage_topic_scheme_parity_routes_with_wildcards(stage: Stage, instrumen
     For any stage/instrument, topics generated under both schemes route with appropriate
     wildcard patterns in the in-memory bus.
     """
+    canonical_stage = to_stage_enum(stage)
+
     # Build topics for both schemes
-    topic_domain_op = build_stage_topic(stage, instrument, prefix="events.ml")
-    topic_stage_first = build_stage_topic(stage, instrument, prefix="events.ml")
+    topic_stage_first = build_stage_topic(canonical_stage, instrument, prefix="events.ml")
 
     bus = InMemoryPublisher()
     hits: dict[str, int] = {"domain_op": 0, "stage_first": 0}
 
     # Stage-first pattern
     bus.subscribe(
-        f"events.ml.{stage.value}.#",
+        f"events.ml.{canonical_stage.value}.#",
         lambda t, p: hits.__setitem__("stage_first", hits["stage_first"] + 1),
     )
     # Domain-op equivalent pattern
-    domain, op = map_stage_to_topic_segments(stage)
+    domain, op = map_stage_to_topic_segments(canonical_stage)
     bus.subscribe(
         f"ml.{domain}.{op}.#",
         lambda t, p: hits.__setitem__("domain_op", hits["domain_op"] + 1),

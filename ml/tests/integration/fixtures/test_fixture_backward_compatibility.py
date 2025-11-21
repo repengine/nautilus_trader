@@ -10,6 +10,8 @@ sample_predictions) still work after introducing test_data_factory.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import numpy as np
 import pytest
 
@@ -20,6 +22,12 @@ from nautilus_trader.model.data import Bar
 # Backward Compatibility Tests
 # ============================================================================
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.integration
 def test_generate_test_bars_still_works(generate_test_bars: list[Bar]) -> None:

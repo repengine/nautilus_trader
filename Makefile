@@ -161,15 +161,15 @@ pre-commit:  #-- Run all pre-commit hooks on all files
 db-preflight-dedupe:  #-- Check duplicates in feature values before adding unique index
 	$(info $(M) Running preflight duplicate detection for ml_feature_values...)
 	@[ -n "$$DATABASE_URL" ] || (echo "ERROR: DATABASE_URL is not set" && exit 1)
-	psql $$DATABASE_URL -f ml/stores/migrations/005a_feature_values_dedupe.sql
+	psql $$DATABASE_URL -f ml/stores/migrations/006_feature_values_dedupe.sql
 	$(info $(YELLOW)Review results before enabling delete block in the SQL file.$(RESET))
 
 .PHONY: db-migrate-hardening
 db-migrate-hardening:  #-- Apply schema hardening migrations (unique keys, created_at types, views)
 	$(info $(M) Applying schema hardening migrations...)
 	@[ -n "$$DATABASE_URL" ] || (echo "ERROR: DATABASE_URL is not set" && exit 1)
-	psql $$DATABASE_URL -f ml/stores/migrations/005_schema_hardening.sql
-	psql $$DATABASE_URL -f ml/stores/migrations/005_views.sql
+	psql $$DATABASE_URL -f ml/stores/migrations/007_schema_hardening.sql
+	psql $$DATABASE_URL -f ml/stores/migrations/008_views.sql
 	$(info $(GREEN)DB hardening migrations applied.$(RESET))
 
 .PHONY: db-migrate-cli
@@ -203,6 +203,10 @@ validate-metrics:  #-- Validate metrics bootstrap usage (no direct prometheus co
 .PHONY: validate-events
 validate-events:  #-- Validate canonical event stage constants usage
 	uv run --active --no-sync python tools/validate_event_constants.py
+
+.PHONY: validate-fixtures
+validate-fixtures:  #-- Validate pytest plug-in adoption + fixture exports
+	uv run --active --no-sync python tools/validate_fixture_plugins.py
 
 .PHONY: validate-nautilus-patterns
 validate-nautilus-patterns:  #-- Run extended ML validation suite (patterns, semgrep, import-linter, duplication, xenon)
@@ -252,6 +256,19 @@ ml-pipeline-orchestrator:  #-- Run cold-path pipeline: optional ingestion + data
 		$(if $(FEATURE_REGISTRY_DIR),--feature_registry_dir $(FEATURE_REGISTRY_DIR),) \
 		$(if $(FEATURE_SET_ID),--feature_set_id $(FEATURE_SET_ID),) \
 		$(if $(MAX_EPOCHS),--max_epochs $(MAX_EPOCHS),)
+
+.PHONY: earnings-ingest
+earnings-ingest:  #-- Ingest earnings actuals/estimates with Parquet mirroring
+	$(info $(M) Running earnings ingestion pipeline...)
+	$Q uv run --active --no-sync python ml/cli/ingest_earnings.py \
+		$(if $(DSN),--dsn $(DSN),) \
+		$(if $(PARQUET_ROOT),--parquet-root $(PARQUET_ROOT),) \
+		$(if $(UNIVERSE_MODE),--universe-mode $(UNIVERSE_MODE),) \
+		$(if $(QUARTERS),--quarters $(QUARTERS),) \
+		$(if $(SEC_IDENTITY),--sec-identity "$(SEC_IDENTITY)",) \
+		$(if $(NO_YAHOO),--no-yahoo,) \
+		$(foreach SYMBOL,$(SYMBOLS),--symbol $(SYMBOL)) \
+		$(foreach SKIP,$(SKIP_ACTUALS),--skip-actuals $(SKIP))
 
 .PHONY: ml-nightly-orchestrator
 ml-nightly-orchestrator:  #-- Opinionated nightly run: 90d L2+micro+macro, fast HPO, emit dataset events

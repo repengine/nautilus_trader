@@ -2,11 +2,13 @@
 Test the integrated FeatureStore with MLSignalActor and training pipeline.
 """
 
+from __future__ import annotations
+
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -18,16 +20,25 @@ from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.config.base import MLTrainingConfig
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 from ml.stores.feature_store import FeatureStore
-from ml.tests.fixtures.database_fixtures import TestDatabase
 from ml.training.base import BaseMLTrainer
 from nautilus_trader.model.data import Bar
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("clean_postgres_db_class", "real_engine_manager")
 class TestFeatureStoreIntegration:
     """
     Test FeatureStore integration with existing components.
@@ -283,8 +294,9 @@ class TestFeatureStoreIntegration:
 
             actual_config = cast(Any, actor._feature_store).feature_config
             expected_config = feature_config
-            assert msgspec.to_builtins(actual_config) == msgspec.to_builtins(expected_config), \
-                f"FeatureConfig mismatch: {msgspec.to_builtins(actual_config)} != {msgspec.to_builtins(expected_config)}"
+            assert msgspec.to_builtins(actual_config) == msgspec.to_builtins(
+                expected_config,
+            ), f"FeatureConfig mismatch: {msgspec.to_builtins(actual_config)} != {msgspec.to_builtins(expected_config)}"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -320,18 +332,37 @@ class TestFeatureStoreIntegration:
         batch_features, _ = feature_store.feature_engineer.calculate_features_batch(bars_df)
 
         # Test online computation (should match batch)
+        from ml.features.indicators import IndicatorManager
+
+        indicator_mgr = IndicatorManager(feature_store.feature_config)
         online_features = []
+
         for i in range(len(bars_df)):
-            # Robust scalar extraction across DataFrame types
+            # Update indicators first
             close_val = float(bars_df["close"][i])
             high_val = float(bars_df["high"][i])
             low_val = float(bars_df["low"][i])
             volume_val = float(bars_df["volume"][i])
-            features = feature_store.feature_engineer.calculate_features_online(
-                close_price=close_val,
-                high_price=high_val,
-                low_price=low_val,
+
+            indicator_mgr.update_from_values(
+                close=close_val,
+                high=high_val,
+                low=low_val,
                 volume=volume_val,
+            )
+
+            # Create current bar dict
+            current_bar = {
+                "open": close_val,  # Use close as open proxy per calculator logic
+                "high": high_val,
+                "low": low_val,
+                "close": close_val,
+                "volume": volume_val,
+            }
+
+            features = feature_store.feature_engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_mgr,
             )
             online_features.append(features.copy())
 

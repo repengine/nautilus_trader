@@ -9,7 +9,10 @@ scattering and make discovery easier for contributors and tools.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass
+import sys
+from typing import Any, Callable, Generator, Iterable
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -157,12 +160,102 @@ def mock_data_catalog() -> MagicMock:
     return catalog
 
 
+def _snapshot_registry_state(registry: Any) -> set[str]:
+    names: set[str] = set()
+    names_to_collectors = getattr(registry, "_names_to_collectors", None)
+    if isinstance(names_to_collectors, dict):
+        names = set(names_to_collectors.keys())
+    return names
+
+
+@dataclass(frozen=True, slots=True)
+class PrometheusRegistryHarness:
+    """Container exposing the active Prometheus registry and helpers."""
+
+    registry: Any
+    reload_modules: Callable[[Iterable[str] | str], None]
+
+
+@contextmanager
+def patch_prometheus_registry(
+    modules: Iterable[str] | str | None = None,
+) -> Generator[PrometheusRegistryHarness, None, None]:
+    """
+    Provide deterministic cleanup around the global Prometheus registry.
+
+    Args:
+        modules: Optional module (or iterable of modules) to evict from
+            ``sys.modules`` so they can be re-imported with fresh state.
+
+    Yields:
+        PrometheusRegistryHarness exposing the active registry and a helper
+        to drop modules from the import cache.
+
+    Raises:
+        pytest.SkipTest: When Prometheus is unavailable in the runtime.
+    """
+
+    if not HAS_PROMETHEUS:
+        pytest.skip("prometheus_client not available; patch_prometheus_registry requires it")
+
+    from prometheus_client import REGISTRY  # Local import to avoid hard dependency
+    from ml.common import metrics_bootstrap
+
+    metrics_bootstrap.reset_metrics_cache()
+    baseline_names = _snapshot_registry_state(REGISTRY)
+
+    def _reload_modules(targets: Iterable[str] | str) -> None:
+        resolved = (targets,) if isinstance(targets, str) else tuple(targets)
+        for module_path in resolved:
+            sys.modules.pop(module_path, None)
+
+    harness = PrometheusRegistryHarness(
+        registry=REGISTRY,
+        reload_modules=_reload_modules,
+    )
+
+    if modules:
+        harness.reload_modules(modules)
+
+    try:
+        yield harness
+    finally:
+        metrics_bootstrap.reset_metrics_cache()
+        try:
+            current_names = _snapshot_registry_state(REGISTRY)
+            extra_names = current_names - baseline_names
+            names_to_collectors = getattr(REGISTRY, "_names_to_collectors", {})
+            for name in extra_names:
+                collector = names_to_collectors.get(name)
+                if collector is not None:
+                    with suppress(KeyError, ValueError, AttributeError):
+                        REGISTRY.unregister(collector)
+        except AttributeError:
+            pass
+
+
+@pytest.fixture
+def isolated_prometheus_registry() -> Generator[PrometheusRegistryHarness, None, None]:
+    """
+    Provide deterministic registry cleanup for tests.
+
+    Returns:
+        PrometheusRegistryHarness exposing the shared registry and helpers.
+    """
+
+    with patch_prometheus_registry() as harness:
+        yield harness
+
+
 __all__ = [
     "MetricNameManager",
+    "PrometheusRegistryHarness",
     "disabled_monitoring_config",
+    "isolated_prometheus_registry",
     "metric_name_manager",
     "mock_data_catalog",
     "mock_prometheus_when_unavailable",
     "monitoring_config",
+    "patch_prometheus_registry",
     "prometheus_registry_cleanup",
 ]

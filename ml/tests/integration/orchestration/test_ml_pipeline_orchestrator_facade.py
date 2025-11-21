@@ -1,24 +1,19 @@
 import os
-import pytest
-
-if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
-    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
-
-#!/usr/bin/env python3
-
-"""
-Integration tests for MLPipelineOrchestrator facade.
-
-Tests backward compatibility and feature flag behavior between legacy
-and component-based implementations.
-
-"""
-
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
+if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
+    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
 
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator

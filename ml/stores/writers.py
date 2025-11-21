@@ -35,12 +35,12 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
-from ml.stores.data_store import DataStore
 from ml.stores.protocols import MarketDataWriterProtocol
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ml.registry.dataclasses import DatasetManifest
+    from ml.stores.data_store import DataStore
 
 
 logger = logging.getLogger(__name__)
@@ -602,6 +602,8 @@ class LiveDataRecorder:
             )
         # Mark as emitted only when using a real DataStore (facade does not emit events)
         try:
+            from ml.stores.data_store import DataStore
+
             if isinstance(self.data_store, DataStore):
                 metadata["emitted_by_store"] = True
         except Exception:
@@ -648,6 +650,8 @@ class LiveDataRecorder:
                 instrument_id=str(instrument_id),
             )
         try:
+            from ml.stores.data_store import DataStore
+
             if isinstance(self.data_store, DataStore):
                 metadata["emitted_by_store"] = True
         except Exception:
@@ -689,6 +693,8 @@ class LiveDataRecorder:
                 instrument_id=str(instrument_id),
             )
         try:
+            from ml.stores.data_store import DataStore
+
             if isinstance(self.data_store, DataStore):
                 # Mark emission handled to prevent duplicate events from recorder layer
                 metadata["emitted_by_store"] = True

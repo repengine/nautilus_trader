@@ -395,8 +395,23 @@ class TFTTeacher(BaseTeacher):
         val_metadata: TFTStreamingMetadata,
         full_metadata: TFTStreamingMetadata,
         streaming_config: TFTStreamingConfig,
+        callbacks: Sequence[Any] | None = None,
+        checkpoint_path: Path | str | None = None,
     ) -> StreamingFitResult:
-        """Train using streaming dataloaders to avoid materialising the full dataset."""
+        """
+        Train using streaming dataloaders to avoid materialising the full dataset.
+
+        Args:
+            parquet_path: Path to the source parquet dataset used for streaming loaders.
+            train_loader: Streaming dataloader supplying training batches.
+            val_loader: Streaming dataloader supplying validation batches.
+            train_metadata: Metadata describing the training shard selection.
+            val_metadata: Metadata describing the validation shard selection.
+            full_metadata: Combined metadata prior to train/validation splits.
+            streaming_config: Streaming configuration applied to loader construction.
+            callbacks: Optional Lightning callbacks invoked during training (e.g., checkpointing).
+            checkpoint_path: Optional checkpoint file used to resume the Lightning trainer.
+        """
         if not HAS_TORCH:
             check_ml_dependencies(["torch"])
         try:
@@ -495,12 +510,14 @@ class TFTTeacher(BaseTeacher):
 
             trainer_cls = _pl.Trainer
 
+        callbacks_param = list(callbacks) if callbacks is not None else None
         trainer = trainer_cls(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
             enable_progress_bar=False,
             logger=False,
-            enable_checkpointing=False,
+            callbacks=callbacks_param,
+            enable_checkpointing=bool(callbacks_param),
             accelerator=self._accelerator,
             devices=self._devices,
             precision=precision_arg,
@@ -508,8 +525,20 @@ class TFTTeacher(BaseTeacher):
 
         self._tft = model
         self._trainer = trainer
+        fit_kwargs: dict[str, Any] = {
+            "train_dataloaders": train_loader,
+            "val_dataloaders": val_loader,
+        }
+        if checkpoint_path is not None:
+            ckpt_path_str = str(checkpoint_path)
+            if ckpt_path_str:
+                fit_kwargs["ckpt_path"] = ckpt_path_str
+                logger.info(
+                    "lightning_resume_from_checkpoint",
+                    extra={"checkpoint_path": ckpt_path_str},
+                )
 
-        trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
+        trainer.fit(model, **fit_kwargs)
 
         group_inverse_map = self._build_group_inverse_map(full_metadata, streaming_config)
         train_logits, _, train_rows = self._collect_streaming_logits(

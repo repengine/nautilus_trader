@@ -13,6 +13,8 @@ This module tests ML strategies within the Nautilus BacktestEngine, validating:
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import time
 from pathlib import Path
 from typing import Any
@@ -22,9 +24,42 @@ import pandas as pd
 import pytest
 
 from ml._imports import HAS_NAUTILUS_CORE
-from ml._imports import HAS_ONNX
 from ml._imports import HAS_XGBOOST
 from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
+
+def _configure_mock_onnx_session(
+    mock_onnx_runtime,
+    onnx_session_stub_factory,
+    *,
+    prediction: float,
+    confidence: float,
+    raise_on_run: bool = False,
+) -> None:
+    """Install deterministic ONNX Runtime sessions for the duration of a test."""
+
+    def _factory(*_: object, **__: object) -> object:
+        return onnx_session_stub_factory(
+            prediction=prediction,
+            confidence=confidence,
+            raise_on_run=raise_on_run,
+        )
+
+    mock_onnx_runtime.ort.InferenceSession.side_effect = _factory
+
+
+def _write_stub_model(tmp_path: Path, filename: str = "model.onnx") -> Path:
+    """Create a placeholder ONNX artifact to satisfy file lookups."""
+
+    model_path = tmp_path / filename
+    model_path.write_bytes(b"mock-onnx")
+    return model_path
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
     pytest.skip(
@@ -37,7 +72,7 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLStrategyConfig
-from ml.features.engineering import FeatureConfig
+from ml.features.config import FeatureConfig
 from ml.strategies.base import SimpleMLStrategy
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
@@ -159,6 +194,8 @@ class TestMLStrategyBacktest:
         test_instrument: CurrencyPair,
         test_bar_type: BarType,
         tmp_path: Path,
+        mock_onnx_runtime,
+        onnx_session_stub_factory,
     ) -> None:
         """
         Test MLSignalActor signal generation during backtest.
@@ -170,8 +207,6 @@ class TestMLStrategyBacktest:
         - Circuit breaker activates on errors
 
         """
-        if not HAS_ONNX:
-            pytest.skip("ONNX Runtime not installed")
         if not HAS_XGBOOST:
             pytest.skip("XGBoost not installed")
 
@@ -204,14 +239,15 @@ class TestMLStrategyBacktest:
             normalize_features=True,
         )
 
-        # Create model with correct feature dimensions
-        from ml.features import FeatureEngineer
+        _write_stub_model(tmp_path, filename="backtest_model.onnx")
+        _configure_mock_onnx_session(
+            mock_onnx_runtime,
+            onnx_session_stub_factory,
+            prediction=0.9,
+            confidence=0.95,
+        )
 
-        from ml.tests.fixtures.integration import create_onnx_model_for_features
-
-        engineer = FeatureEngineer(config=feature_config)
-        n_features = len(engineer.get_feature_names())
-        onnx_model_path = create_onnx_model_for_features(n_features, tmp_path)
+        onnx_model_path = tmp_path / "backtest_model.onnx"
 
         circuit_breaker_config = CircuitBreakerConfig(
             failure_threshold=5,
@@ -795,8 +831,8 @@ class TestMLStrategyBacktest:
             pytest.skip("XGBoost not installed")
 
         # Create a simple in-memory test
-        from ml.features.engineering import FeatureEngineer
-        from ml.features.engineering import IndicatorManager
+        from ml.features.facade import FeatureEngineer
+        from ml.features.indicators import IndicatorManager
 
         feature_config = FeatureConfig(
             indicators={

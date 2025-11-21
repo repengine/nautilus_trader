@@ -20,6 +20,10 @@ Public API exports (alphabetically sorted):
 from ml.data.earnings.earnings_cache import EarningsCache
 from ml.data.earnings.edgar_fetcher import EarningsActual
 from ml.data.earnings.edgar_fetcher import EdgarFetcher
+from ml.data.earnings.ingestion_service import EarningsIngestionResult
+from ml.data.earnings.ingestion_service import EarningsIngestionService
+from ml.data.earnings.universe import ResolvedUniverse
+from ml.data.earnings.universe import resolve_ingestion_universe
 from ml.data.earnings.xbrl_parser import XBRLParser
 from ml.data.earnings.yahoo_fetcher import EarningsConsensus
 from ml.data.earnings.yahoo_fetcher import YahooFetcher
@@ -29,7 +33,11 @@ __all__ = [
     "EarningsActual",
     "EarningsCache",
     "EarningsConsensus",
+    "EarningsIngestionResult",
+    "EarningsIngestionService",
     "EdgarFetcher",
+    "ResolvedUniverse",
     "XBRLParser",
     "YahooFetcher",
+    "resolve_ingestion_universe",
 ]

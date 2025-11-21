@@ -1,3 +1,6 @@
+-- Migration: Provision ML data registry tables (manifests, lineage, events).
+-- Rollback: DROP TABLE statements for ml_dataset_registry, ml_data_events, ml_data_watermarks, and ml_data_lineage plus helper functions.
+
 -- Data Registry Schema Migration
 -- Creates tables for dataset manifests, contracts, lineage, events, and watermarks
 -- This migration implements Phase 0 of the Data Registry hardening plan

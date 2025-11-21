@@ -1,6 +1,6 @@
 """Centralized mock store fixture factory."""
 
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -59,7 +59,11 @@ def mock_store_factory():
     ValueError
         If store_type is not one of the supported types
     """
-    def _factory(store_type: str, use_spec: bool = True, **kwargs: Any) -> MagicMock:
+    def _factory(
+        store_type: Literal["feature", "model", "strategy", "data"],
+        use_spec: bool = True,
+        **kwargs: Any,
+    ) -> MagicMock:
         """Create a mock store of the specified type.
 
         Args:
@@ -138,7 +142,10 @@ def mock_data_store(mock_store_factory) -> MagicMock:
     DEPRECATED: Use mock_store_factory("data") directly.
     This fixture exists for backward compatibility during migration.
     """
-    return mock_store_factory("data")
+    store = mock_store_factory("data")
+    store.write = MagicMock(return_value=True)
+    store.read_features = MagicMock(return_value={})
+    return store
 
 
 @pytest.fixture
@@ -201,7 +208,7 @@ def mock_registry_factory():
         If registry_type is not one of the supported types
     """
     def _factory(
-        registry_type: str,
+        registry_type: Literal["model", "feature", "data", "strategy", "protocol"],
         use_spec: bool = True,
         with_manifest: bool = False,
         **kwargs: Any

@@ -8,6 +8,14 @@ import pytest
 from ml.tasks.ingest import PopulateAlternativeDataTaskConfig
 from ml.tasks.ingest import populate_alternative_data_task
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
+
 
 @pytest.fixture(autouse=True)
 def _patch_loader(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -30,14 +38,14 @@ def _patch_loader(monkeypatch: pytest.MonkeyPatch) -> None:
         "save_alternative_data",
         lambda result, output_dir: (output_dir / "demo.parquet",),
     )
-    monkeypatch.setattr(alt, "load_tier1_symbols", lambda path=None: ("SPY",))
-    monkeypatch.setattr(task_module, "load_tier1_symbols", lambda path=None: ("SPY",))
 
 
-def test_task_uses_tier1_symbols(tmp_path: Path) -> None:
+def test_task_uses_tier1_symbols(tmp_path: Path, tier1_symbol_loader_stub: tuple[str, ...]) -> None:
     config = PopulateAlternativeDataTaskConfig(
         output_dir=tmp_path,
         populate_all=True,
     )
     result = populate_alternative_data_task(config)
     assert "demo" in result.frames
+    assert result.frames["demo"].select("value").height == 1
+    assert tier1_symbol_loader_stub  # ensure stub applied for visibility

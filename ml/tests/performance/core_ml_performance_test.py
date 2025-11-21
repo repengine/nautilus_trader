@@ -24,9 +24,15 @@ from ml.core.cache import LockFreeRingBuffer
 from ml.core.cache import PreAllocatedFeatureCache
 
 # Core ML imports - avoid full Nautilus imports that cause FFI issues
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import OptimizationLevel
+from ml.config.actors import OptimizationConfig
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
+from ml.features.indicators import IndicatorManager
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
 
 
 logging.basicConfig(level=logging.INFO)

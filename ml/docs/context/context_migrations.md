@@ -30,16 +30,16 @@ ml/
 │   ├── 001_initial_schema.sql          # Models, features, strategies tables
 │   └── 002_add_cold_path_fields.sql    # Cold path feature additions
 └── stores/migrations/                   # Data storage schema
-    ├── 001_stores_schema.sql            # Core ML data tables with partitioning
-    ├── 002_auto_partitioning.sql       # Automatic partition management
-    ├── 003_market_data.sql              # Market data table extensions
-    ├── 004_data_registry.sql           # Data registry and event tracking
-    ├── 005_schema_hardening.sql        # Data integrity improvements
-    ├── 005a_feature_values_dedupe.sql  # Deduplication constraints
-    ├── 005_views.sql                    # Analytical views and summaries
-    ├── 006_disable_partition_triggers.sql # Testing optimizations
-    ├── 007_add_event_metadata.sql      # Event metadata extensions
-    └── 007_brin_indexes.sql             # Performance optimizations
+    ├── 002_stores_schema.sql            # Core ML data tables with partitioning
+    ├── 003_auto_partitioning.sql       # Automatic partition management
+    ├── 004_market_data.sql              # Market data table extensions
+    ├── 005_data_registry.sql           # Data registry and event tracking
+    ├── 007_schema_hardening.sql        # Data integrity improvements
+    ├── 006_feature_values_dedupe.sql  # Deduplication constraints
+    ├── 008_views.sql                    # Analytical views and summaries
+    ├── 009_disable_partition_triggers.sql # Testing optimizations
+    ├── 010_add_event_metadata.sql      # Event metadata extensions
+    └── 011_brin_indexes.sql             # Performance optimizations
 ```
 
 ### Migration Execution Flow
@@ -62,11 +62,11 @@ The migration system follows this execution pattern:
 ```python
 migrations = [
     "ml/registry/migrations/001_initial_schema.sql",
-    "ml/stores/migrations/001_stores_schema.sql",
-    "ml/stores/migrations/002_auto_partitioning.sql",
-    "ml/stores/migrations/003_market_data.sql",
-    "ml/stores/migrations/004_data_registry.sql",
-    "ml/stores/migrations/007_add_event_metadata.sql",
+    "ml/stores/migrations/002_stores_schema.sql",
+    "ml/stores/migrations/003_auto_partitioning.sql",
+    "ml/stores/migrations/004_market_data.sql",
+    "ml/stores/migrations/005_data_registry.sql",
+    "ml/stores/migrations/010_add_event_metadata.sql",
 ]
 ```
 
@@ -93,7 +93,7 @@ migrations = [
 - Automatic timestamp updates via `update_last_modified()` trigger
 - Dependency resolution functions (`get_model_dependencies()`)
 
-### Store Schema (`001_stores_schema.sql`)
+### Store Schema (`002_stores_schema.sql`)
 
 **Partitioned Tables** (by `ts_event` in nanoseconds):
 
@@ -107,7 +107,7 @@ migrations = [
 - Helper function `create_monthly_partitions()` for consistent creation
 - Nanosecond timestamp boundaries aligned with Nautilus conventions
 
-### Automatic Partitioning (`002_auto_partitioning.sql`)
+### Automatic Partitioning (`003_auto_partitioning.sql`)
 
 **Automated Management Functions**:
 
@@ -121,7 +121,7 @@ migrations = [
 - Pre-created test partitions for common timestamp ranges
 - Idempotent partition creation with conflict handling
 
-### Market Data Table (`003_market_data.sql`)
+### Market Data Table (`004_market_data.sql`)
 
 Defines the canonical `market_data` table used for raw market data persistence.
 
@@ -133,7 +133,7 @@ Defines the canonical `market_data` table used for raw market data persistence.
 
 Ensure this migration is applied in any environment where the orchestrator backfill runs.
 
-### Data Registry (`004_data_registry.sql`)
+### Data Registry (`005_data_registry.sql`)
 
 **Comprehensive Data Lineage**:
 
@@ -149,7 +149,7 @@ Ensure this migration is applied in any environment where the orchestrator backf
 - `ml_lineage_graph`: Recursive dataset dependency trees
 - `ml_data_quality_summary`: Comprehensive quality metrics
 
-### Schema Hardening (`005_schema_hardening.sql`)
+### Schema Hardening (`007_schema_hardening.sql`)
 
 **Data Integrity Improvements**:
 
@@ -159,7 +159,7 @@ Ensure this migration is applied in any environment where the orchestrator backf
 
 ### Partition Management Fixes
 
-**Emergency Fixes** (`999_fix_partitions_immediate.sql`, `006_disable_partition_triggers.sql`):
+**Emergency Fixes** (`999_fix_partitions_immediate.sql`, `009_disable_partition_triggers.sql`):
 
 - Disables race-prone automatic partition triggers
 - Pre-creates test partitions for 2023-2024 timestamp ranges

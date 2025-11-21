@@ -16,6 +16,14 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
+from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
+from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
+from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -26,8 +34,6 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.data_store import EARNINGS_ACTUALS_DATASET_ID
-from ml.stores.data_store import EARNINGS_ESTIMATES_DATASET_ID
 
 
 def create_standard_manifests() -> list[DatasetManifest]:
@@ -244,6 +250,56 @@ def create_standard_manifests() -> list[DatasetManifest]:
     )
     manifests.append(signals_manifest)
 
+    equs_mini_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_DATASET_ID,
+        dataset_type=DatasetType.BARS,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data",
+        partitioning={"by": ["instrument_id", "month"]},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+            "last": "float64",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+            "trade_count": "int64",
+            "vwap": "float64",
+            "spread": "float64",
+            "mid_price": "float64",
+            "source": "str",
+            "quality_flags": "int64",
+            "source_dataset": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "ts_init", "close"],
+            "nullable_fields": ["bid", "ask", "bid_size", "ask_size", "last", "trade_count"],
+            "ranges": {
+                "open": {"min": 0.0, "max": 1e9},
+                "high": {"min": 0.0, "max": 1e9},
+                "low": {"min": 0.0, "max": 1e9},
+                "close": {"min": 0.0, "max": 1e9},
+                "volume": {"min": 0.0, "max": 1e15},
+            },
+        },
+        lineage=["databento_scheduler_v1"],
+        pipeline_signature="tier1_pipeline_v1",
+        version="1.0.0",
+    )
+    manifests.append(equs_mini_manifest)
+
     # EARNINGS ACTUALS dataset
     earnings_actuals_manifest = DatasetManifest(
         dataset_id=EARNINGS_ACTUALS_DATASET_ID,
@@ -343,6 +399,231 @@ def create_standard_manifests() -> list[DatasetManifest]:
         version="1.0.0",
     )
     manifests.append(earnings_estimates_manifest)
+
+    macro_release_manifest = DatasetManifest(
+        dataset_id=MACRO_RELEASES_DATASET_ID,
+        dataset_type=DatasetType.MACRO_RELEASES,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.macro_release_calendar",
+        partitioning={"by": ["ts_event"]},
+        retention_days=3650,
+        schema={
+            "series_id": "str",
+            "observation_ts": "int64",
+            "release_ts": "int64",
+            "release_end_ts": "int64",
+            "value": "float64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "source": "str",
+            "run_id": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["series_id", "observation_ts", "release_ts"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "series_id",
+                "observation_ts",
+                "release_ts",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": ["release_end_ts", "value", "source", "run_id"],
+        },
+        lineage=["macro_refresh"],
+        pipeline_signature="macro_refresh_v1",
+        version="1.0.0",
+    )
+    manifests.append(macro_release_manifest)
+
+    macro_observation_manifest = DatasetManifest(
+        dataset_id=MACRO_OBSERVATIONS_DATASET_ID,
+        dataset_type=DatasetType.MACRO_OBSERVATIONS,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.macro_observations",
+        partitioning={"by": ["ts_event"]},
+        retention_days=3650,
+        schema={
+            "series_id": "str",
+            "observation_ts": "int64",
+            "value": "float64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "source": "str",
+            "run_id": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["series_id", "observation_ts"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "series_id",
+                "observation_ts",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": ["value", "source", "run_id"],
+        },
+        lineage=["macro_refresh"],
+        pipeline_signature="macro_refresh_v1",
+        version="1.0.0",
+    )
+    manifests.append(macro_observation_manifest)
+
+    events_manifest = DatasetManifest(
+        dataset_id=EVENTS_CALENDAR_DATASET_ID,
+        dataset_type=DatasetType.EVENTS_CALENDAR,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.events_calendar",
+        partitioning={"by": ["ts_event"]},
+        retention_days=1825,
+        schema={
+            "event_timestamp": "int64",
+            "event_type": "str",
+            "name": "str",
+            "instrument_id": "str",
+            "importance": "str",
+            "source": "str",
+            "metadata": "json",
+            "ts_event": "int64",
+            "ts_init": "int64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["event_type", "event_timestamp", "instrument_id", "name"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "event_timestamp",
+                "event_type",
+                "name",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": ["instrument_id", "importance", "source", "metadata"],
+        },
+        lineage=["events_ingestion"],
+        pipeline_signature="events_ingestion_v1",
+        version="1.0.0",
+    )
+    manifests.append(events_manifest)
+
+    micro_manifest = DatasetManifest(
+        dataset_id=MICRO_MINUTE_DATASET_ID,
+        dataset_type=DatasetType.MICRO_MINUTE_FEATURES,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.microstructure_minute",
+        partitioning={"by": ["ts_event"]},
+        retention_days=730,
+        schema={
+            "instrument_id": "str",
+            "timestamp": "int64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "midprice": "float64",
+            "spread_bps": "float64",
+            "quote_imbalance": "float64",
+            "trade_imbalance": "float64",
+            "realized_vol": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "timestamp"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "instrument_id",
+                "timestamp",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": [
+                "midprice",
+                "spread_bps",
+                "quote_imbalance",
+                "trade_imbalance",
+                "realized_vol",
+            ],
+        },
+        lineage=["micro_cache_hydration"],
+        pipeline_signature="micro_cache_hydration_v1",
+        version="1.0.0",
+    )
+    manifests.append(micro_manifest)
+
+    l2_manifest = DatasetManifest(
+        dataset_id=L2_MINUTE_DATASET_ID,
+        dataset_type=DatasetType.L2_MINUTE_FEATURES,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml.l2_minute",
+        partitioning={"by": ["ts_event"]},
+        retention_days=730,
+        schema={
+            "instrument_id": "str",
+            "timestamp": "int64",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "midprice": "float64",
+            "spread_bps": "float64",
+            "microprice_bps": "float64",
+            "depth_imbalance_top1": "float64",
+            "depth_imbalance_top3": "float64",
+            "depth_imbalance_top5": "float64",
+            "depth_imbalance_top10": "float64",
+            "dwp_bps_top1": "float64",
+            "dwp_bps_top3": "float64",
+            "dwp_bps_top5": "float64",
+            "dwp_bps_top10": "float64",
+            "bid_slope_top1": "float64",
+            "bid_slope_top3": "float64",
+            "bid_slope_top5": "float64",
+            "bid_slope_top10": "float64",
+            "ask_slope_top1": "float64",
+            "ask_slope_top3": "float64",
+            "ask_slope_top5": "float64",
+            "ask_slope_top10": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "timestamp"],
+        schema_hash="",
+        constraints={
+            "required_fields": [
+                "instrument_id",
+                "timestamp",
+                "ts_event",
+                "ts_init",
+            ],
+            "nullable_fields": [field for field in [
+                "midprice",
+                "spread_bps",
+                "microprice_bps",
+                "depth_imbalance_top1",
+                "depth_imbalance_top3",
+                "depth_imbalance_top5",
+                "depth_imbalance_top10",
+                "dwp_bps_top1",
+                "dwp_bps_top3",
+                "dwp_bps_top5",
+                "dwp_bps_top10",
+                "bid_slope_top1",
+                "bid_slope_top3",
+                "bid_slope_top5",
+                "bid_slope_top10",
+                "ask_slope_top1",
+                "ask_slope_top3",
+                "ask_slope_top5",
+                "ask_slope_top10",
+            ]],
+        },
+        lineage=["l2_cache_hydration"],
+        pipeline_signature="l2_cache_hydration_v1",
+        version="1.0.0",
+    )
+    manifests.append(l2_manifest)
 
     return manifests
 
@@ -497,6 +778,29 @@ def create_standard_contracts() -> dict[str, DataContract]:
     )
     contracts["signals"] = signals_contract
 
+    equs_mini_contract = DataContract(
+        contract_id="equs_mini_contract_v1",
+        dataset_id=EQUS_MINI_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "close", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.02,
+            "duplicate_rate": 0.005,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini.modified",
+        ),
+    )
+    contracts[EQUS_MINI_DATASET_ID] = equs_mini_contract
+
     earnings_actuals_contract = DataContract(
         contract_id="earnings_actuals_contract_v1",
         dataset_id=EARNINGS_ACTUALS_DATASET_ID,
@@ -540,6 +844,104 @@ def create_standard_contracts() -> dict[str, DataContract]:
         ),
     )
     contracts[EARNINGS_ESTIMATES_DATASET_ID] = earnings_estimates_contract
+
+    macro_release_contract = DataContract(
+        contract_id="macro_release_contract_v1",
+        dataset_id=MACRO_RELEASES_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="strict",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.01,
+            "duplicate_rate": 0.001,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:macro_release.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:macro_release.modified"),
+    )
+    contracts[MACRO_RELEASES_DATASET_ID] = macro_release_contract
+
+    macro_observations_contract = DataContract(
+        contract_id="macro_observations_contract_v1",
+        dataset_id=MACRO_OBSERVATIONS_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="strict",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.01,
+            "duplicate_rate": 0.001,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:macro_obs.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:macro_obs.modified"),
+    )
+    contracts[MACRO_OBSERVATIONS_DATASET_ID] = macro_observations_contract
+
+    events_calendar_contract = DataContract(
+        contract_id="events_calendar_contract_v1",
+        dataset_id=EVENTS_CALENDAR_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="strict",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.01,
+            "duplicate_rate": 0.001,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:events_calendar.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:events_calendar.modified",
+        ),
+    )
+    contracts[EVENTS_CALENDAR_DATASET_ID] = events_calendar_contract
+
+    micro_contract = DataContract(
+        contract_id="micro_minute_contract_v1",
+        dataset_id=MICRO_MINUTE_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="monitor_only",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:micro.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:micro.modified"),
+    )
+    contracts[MICRO_MINUTE_DATASET_ID] = micro_contract
+
+    l2_contract = DataContract(
+        contract_id="l2_minute_contract_v1",
+        dataset_id=L2_MINUTE_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="monitor_only",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:l2.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:l2.modified"),
+    )
+    contracts[L2_MINUTE_DATASET_ID] = l2_contract
 
     return contracts
 

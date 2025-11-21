@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Integration tests for ML deployment components.
 
@@ -9,6 +10,8 @@ metrics.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import asyncio
 import json
 import logging
@@ -17,7 +20,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -27,6 +30,12 @@ import pytest
 
 from ml._imports import HAS_NAUTILUS_CORE
 from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
     pytest.skip(
@@ -40,15 +49,6 @@ from ml.deployment.entrypoint_strategy import MLStrategyNode
 
 
 logger = logging.getLogger(__name__)
-
-
-# Import test database fixture if not already available
-try:
-    from ml.tests.conftest import clean_postgres_db
-    from ml.tests.conftest import test_database
-except ImportError:
-    # Fixtures should be available via pytest
-    pass
 
 
 @pytest.mark.integration
@@ -115,17 +115,31 @@ class TestDeploymentIntegration:
         logger.info(message)
 
     @pytest.fixture
-    def deployment_env(self, monkeypatch, tmp_path, test_database):
+    def deployment_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        test_database,
+        mock_onnx_runtime: Any,
+        onnx_session_stub_factory: Callable[..., object],
+    ):
         """
         Set up complete deployment environment with PostgreSQL.
         """
-        # Create necessary directories and files
-        from ml.tests.fixtures.model_factory import TestModelFactory
+        model_path = tmp_path / "models" / "model.onnx"
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_bytes(b"deterministic-onnx")
+        model_meta = model_path.with_suffix(".onnx.meta")
+        if not model_meta.exists():
+            model_meta.write_text("{}")
 
-        model_factory = TestModelFactory()
-        model_path = model_factory.create_onnx_model(
-            output_path=tmp_path / "models" / "model.onnx",
-        )
+        def _build_session(*_: object, **__: object) -> object:
+            return onnx_session_stub_factory(
+                prediction=0.42,
+                confidence=0.91,
+            )
+
+        mock_onnx_runtime.ort.InferenceSession.side_effect = _build_session
 
         catalog_path = tmp_path / "catalog"
         catalog_path.mkdir(exist_ok=True)

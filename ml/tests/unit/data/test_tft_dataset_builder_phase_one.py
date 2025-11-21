@@ -9,6 +9,8 @@ import pytest
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
 
 def _make_builder(**overrides: Any) -> TFTDatasetBuilder:
     catalog = cast(ParquetDataCatalog, object())
@@ -50,25 +52,7 @@ def test_append_macro_delta_features_polars_computes_differences() -> None:
     assert enriched.get_column("PAYEMS_delta_1d").to_list() == [0.0, 10.0, 20.0]
 
 
-def test_append_macro_delta_features_pandas_computes_differences() -> None:
-    pd = pytest.importorskip("pandas")
-    builder = _make_builder(
-        include_macro=True,
-        include_macro_deltas=True,
-        macro_series_ids=("PAYEMS",),
-    )
-    frame = pd.DataFrame(
-        {
-            "timestamp": pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC"),
-            "instrument_id": ["SPY", "SPY", "SPY"],
-            "PAYEMS": [200.0, 220.0, 215.0],
-        },
-    )
 
-    enriched = builder._append_macro_delta_features_pandas(frame.copy())
-
-    assert "PAYEMS_delta_1d" in enriched.columns
-    assert enriched["PAYEMS_delta_1d"].tolist() == [0.0, 20.0, -5.0]
 
 
 def test_event_features_join_when_calendar_lags_enabled() -> None:

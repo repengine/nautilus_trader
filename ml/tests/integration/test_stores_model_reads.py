@@ -8,6 +8,8 @@ fields and types.
 
 from __future__ import annotations
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import time
 from typing import Any
 
@@ -19,7 +21,13 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures(
+        "isolated_prometheus_registry",
+        "mock_tracing_backend",
+        "isolated_orchestrator_env",
+    ),
 ]
+
 
 
 def test_model_store_reads_stats_and_performance(test_database: Any) -> None:

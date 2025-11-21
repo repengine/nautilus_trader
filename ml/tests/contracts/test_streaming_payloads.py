@@ -2,22 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd
 import pytest
 
-from ml._imports import HAS_PANDERA
-from ml._imports import PANDERA_IMPORT_ERROR
+from ml.tests.fixtures.pandera import DataFrame
+from ml.tests.fixtures.pandera import Series
+from ml.tests.fixtures.pandera import ensure_pandera_available
 
-if HAS_PANDERA:
-    import pandera as pa
-    from pandera.typing import DataFrame
-    from pandera.typing import Series
-else:  # pragma: no cover - optional dependency absent
-    pa = cast(Any, None)
-    DataFrame = cast(Any, None)
-    Series = cast(Any, None)
+pa = ensure_pandera_available()
+
 from ml.config.events import EventStatus
 from ml.config.events import Stage
 from ml.training.event_driven.payloads import build_heartbeat_message
@@ -35,13 +30,6 @@ from ml.training.teacher.streaming_loader import TFTStreamingSummary
 from ml.training.teacher.streaming_telemetry import StreamingLoaderTelemetry
 from ml.training.teacher.streaming_telemetry import StreamingRunTelemetry
 from ml.training.teacher.streaming_telemetry import ValidationReturnsTelemetry
-
-
-if not HAS_PANDERA:  # pragma: no cover - optional dependency
-    pytest.skip(
-        f"Pandera unavailable: {PANDERA_IMPORT_ERROR}",
-        allow_module_level=True,
-    )
 
 
 def _plan_event(tmp_path: Path) -> DatasetPlanEvent:

@@ -45,7 +45,8 @@ macro_revision_windows = [1, 3, 12]  # Months for prior/revision features
 # MACRO SERIES - 23 series with revision data
 # ============================================================================
 # We have ALFRED vintages for these 23 series
-# Excluded: CRBINDX, GOLDAMGBD228NLBM, SP500 (market-based, no revisions)
+# Excluded: commodity/metals add-ons (`PALLFNFINDEXM`, `PCOPPUSDM`, `NASDAQQGLDI`)
+# because we currently collect revisions for the core macro set only.
 macro_series_ids = [
     # RATES / DURATION (5 series)
     "DGS2",

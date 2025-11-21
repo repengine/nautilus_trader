@@ -1,43 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC
-from datetime import datetime
-from datetime import timedelta
 from pathlib import Path
 
-from pytest import MonkeyPatch
-
 import polars as pl
+import pytest
 
-import ml.data.tft_dataset_builder as builder_mod
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
-def _fake_bars_to_dataframe(
-    catalog: ParquetDataCatalog,
-    instrument_ids: Sequence[str],
-    start: datetime | None = None,
-    end: datetime | None = None,
-) -> pl.DataFrame:
-    base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-    ts = [base + timedelta(minutes=i) for i in range(60)]
-    return pl.DataFrame(
-        {
-            "instrument_id": [instrument_ids[0]] * len(ts),
-            "timestamp": ts,
-            "open": [100.0 + 0.01 * i for i in range(60)],
-            "high": [100.1 + 0.01 * i for i in range(60)],
-            "low": [99.9 + 0.01 * i for i in range(60)],
-            "close": [100.05 + 0.01 * i for i in range(60)],
-            "volume": [1000 + 10 * i for i in range(60)],
-        },
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
+
+
+def test_builder_includes_event_features(
+    patch_dataset_bars,
+    tmp_path: Path,
+    sample_bar_series_config_factory,
+) -> None:
+    patch_dataset_bars(
+        modules=("ml.data.tft_dataset_builder",),
+        config=sample_bar_series_config_factory(instrument_id="SPY", rows=60),
     )
-
-
-def test_builder_includes_event_features(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
     builder = TFTDatasetBuilder(
         ParquetDataCatalog(path=str(tmp_path)),
         symbols=["SPY"],

@@ -19,9 +19,6 @@ import logging
 from collections.abc import Iterable
 from typing import Any, cast
 
-from ml.data.catalog_utils import bars_to_dataframe
-from ml.data.catalog_utils import quotes_to_dataframe
-from ml.data.catalog_utils import trades_to_dataframe
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
 from ml.stores.raw_protocols import RawIngestionWriterProtocol
@@ -44,6 +41,10 @@ class ParquetCatalogRawReader(RawReaderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> DataFrameLike:
+        from ml.data.catalog_utils import bars_to_dataframe
+        from ml.data.catalog_utils import quotes_to_dataframe
+        from ml.data.catalog_utils import trades_to_dataframe
+
         start: Any = start_ns
         end: Any = end_ns
         if dataset_type == DatasetType.BARS:
@@ -95,8 +96,9 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
         """
         Write raw items to the Parquet catalog.
 
-        Accepts either a list of domain objects (fast path) or tabular data for
-        bars which will be converted to domain Bars using a default bar template.
+        Accepts either a list of domain objects (fast path) or tabular data for bars
+        which will be converted to domain Bars using a default bar template.
+
         """
         # Fast path: already domain objects
         if isinstance(data, list) and data and not isinstance(data[0], dict):
@@ -111,12 +113,11 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                 from nautilus_trader.model.data import BarType as _BarType
                 from nautilus_trader.model.data import QuoteTick as _QuoteTick
                 from nautilus_trader.model.data import TradeTick as _TradeTick
+                from nautilus_trader.model.enums import AggressorSide as _AggressorSide
                 from nautilus_trader.model.identifiers import InstrumentId as _InstrumentId
                 from nautilus_trader.model.identifiers import TradeId as _TradeId
                 from nautilus_trader.model.objects import Price as _Price
                 from nautilus_trader.model.objects import Quantity as _Quantity
-
-                from nautilus_trader.model.enums import AggressorSide as _AggressorSide
             except Exception as exc:  # pragma: no cover - import-time defensive
                 import logging as _logging
 
@@ -128,6 +129,7 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
 
             # Support pandas/polars by duck-typing iteration
             from typing import Any as _Any
+
             rows: Iterable[dict[str, _Any]]
             if hasattr(data, "iter_rows"):
                 df_any2 = cast(_Any, data)

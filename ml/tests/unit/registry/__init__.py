@@ -1,11 +1,7 @@
-"""
-Unit tests for ML model registry components.
+"""Test package bootstrap for unit/registry."""
 
-This package contains unit tests for individual registry components:
+from __future__ import annotations
 
-- Registry statistics and metrics
-- Registry canary tests (health checks)
-- Model metadata management
-- Version management utilities
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
-"""
+__all__ = ("pytest_plugins",)

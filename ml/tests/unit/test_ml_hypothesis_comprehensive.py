@@ -21,8 +21,8 @@ from hypothesis import settings
 from hypothesis import strategies as st
 
 from ml.core.cache import PreAllocatedFeatureCache
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.facade import FeatureEngineer
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelManifest

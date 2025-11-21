@@ -22,11 +22,15 @@ from ml.stores.schema_validator import SchemaValidatorProtocol
 from ml.stores.validation_types import QualityReport
 from ml.stores.validation_types import ValidationViolation
 
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 # ========================================================================
 # Test Fixtures
 # ========================================================================
-
 
 @pytest.fixture
 def basic_manifest() -> DatasetManifest:
@@ -58,7 +62,6 @@ def basic_manifest() -> DatasetManifest:
         metadata={},
     )
 
-
 @pytest.fixture
 def basic_contract() -> DataContract:
     """Create a basic data contract for testing."""
@@ -82,7 +85,6 @@ def basic_contract() -> DataContract:
         metadata={},
     )
 
-
 @pytest.fixture
 def sample_dataframe() -> pd.DataFrame:
     """Create sample DataFrame for testing."""
@@ -94,17 +96,14 @@ def sample_dataframe() -> pd.DataFrame:
         "volume": [100, 200, 300],
     })
 
-
 @pytest.fixture
 def validator() -> SchemaValidator:
     """Create a SchemaValidator instance."""
     return SchemaValidator()
 
-
 # ========================================================================
 # TestSchemaValidatorProtocol
 # ========================================================================
-
 
 class TestSchemaValidatorProtocol:
     """Protocol compliance tests."""
@@ -125,11 +124,9 @@ class TestSchemaValidatorProtocol:
         """Protocol defines apply_validation_rule method."""
         assert hasattr(SchemaValidatorProtocol, "apply_validation_rule")
 
-
 # ========================================================================
 # TestValidateBatch
 # ========================================================================
-
 
 class TestValidateBatch:
     """Main validation orchestration tests."""
@@ -361,11 +358,9 @@ class TestValidateBatch:
         mock_duration_histogram.labels.assert_called_once_with(dataset_id="test_dataset")
         mock_duration_labels.observe.assert_called_once()
 
-
 # ========================================================================
 # TestApplyValidationRule
 # ========================================================================
-
 
 class TestApplyValidationRule:
     """Rule dispatcher tests."""
@@ -494,11 +489,9 @@ class TestApplyValidationRule:
         # Should return None for missing field
         assert violation is None
 
-
 # ========================================================================
 # TestTypeValidation
 # ========================================================================
-
 
 class TestTypeValidation:
     """_validate_types() tests."""
@@ -571,11 +564,9 @@ class TestTypeValidation:
         assert not validator._types_compatible("int64", "float64")
         assert not validator._types_compatible("str", "int64")
 
-
 # ========================================================================
 # TestRegexValidation
 # ========================================================================
-
 
 class TestRegexValidation:
     """_validate_regex() tests."""
@@ -675,11 +666,9 @@ class TestRegexValidation:
         violation = validator._validate_regex(rule, sample_dataframe)
         assert violation is None
 
-
 # ========================================================================
 # TestRangeValidation
 # ========================================================================
-
 
 class TestRangeValidation:
     """_validate_range() tests."""
@@ -775,11 +764,9 @@ class TestRangeValidation:
         violation = validator._validate_range(rule, sample_dataframe)
         assert violation is None
 
-
 # ========================================================================
 # TestUniquenessValidation
 # ========================================================================
-
 
 class TestUniquenessValidation:
     """_validate_uniqueness() tests."""
@@ -860,11 +847,9 @@ class TestUniquenessValidation:
         violation = validator._validate_uniqueness(rule, df)
         assert violation is not None
 
-
 # ========================================================================
 # TestMonotonicityValidation
 # ========================================================================
-
 
 class TestMonotonicityValidation:
     """_validate_monotonicity() tests."""
@@ -964,11 +949,9 @@ class TestMonotonicityValidation:
         violation = validator._validate_monotonicity(rule, sample_dataframe)
         assert violation is None
 
-
 # ========================================================================
 # TestNullabilityValidation
 # ========================================================================
-
 
 class TestNullabilityValidation:
     """_validate_nullability() tests."""
@@ -1054,11 +1037,9 @@ class TestNullabilityValidation:
         assert violation.violation_count == 2  # 2 nulls total
         assert len(violation.sample_values) > 0  # Field names with nulls
 
-
 # ========================================================================
 # TestLatenessValidation
 # ========================================================================
-
 
 class TestLatenessValidation:
     """_validate_lateness() tests."""
@@ -1152,11 +1133,9 @@ class TestLatenessValidation:
         violation = validator._validate_lateness(rule, df_without_ts, manifest)
         assert violation is None
 
-
 # ========================================================================
 # TestFormatViolations
 # ========================================================================
-
 
 class TestFormatViolations:
     """format_violations() tests."""
@@ -1226,11 +1205,9 @@ class TestFormatViolations:
         result = validator.format_violations(violations)
         assert "... and 2 more" in result
 
-
 # ========================================================================
 # TestEnforceQualityReport
 # ========================================================================
-
 
 def _create_contract(enforcement_mode: str = "strict") -> DataContract:
     """Helper to create a test contract."""
@@ -1253,7 +1230,6 @@ def _create_contract(enforcement_mode: str = "strict") -> DataContract:
         last_modified=int(time.time_ns()),
         metadata={},
     )
-
 
 class TestEdgeCases:
     """Edge cases and error handling tests."""
@@ -1330,7 +1306,6 @@ class TestEdgeCases:
         # Should not raise, just skip missing columns
         violation = validator._validate_types(rule, df, basic_manifest)
         # May or may not have violations depending on columns present
-
 
 class TestEnforceQualityReport:
     """enforce_quality_report() tests."""

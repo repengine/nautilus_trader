@@ -11,6 +11,8 @@ Coverage:
 - Integration with existing pipeline infrastructure
 """
 
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
 import pytest
 
 from ml.features.earnings import (
@@ -20,6 +22,12 @@ from ml.features.earnings import (
     EarningsSurpriseTransformSpec,
 )
 
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 @pytest.mark.integration
 class TestEarningsPipelineIntegration:

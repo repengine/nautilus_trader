@@ -20,14 +20,16 @@ import logging
 from collections.abc import Mapping
 from typing import Literal, cast
 
+from ml.config.events import CANONICAL_STAGE_EQUIVALENTS
+from ml.config.events import LEGACY_STAGE_ALIAS_MAP
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 
 
 # Persisted representation accepted by the DB and JSON artifacts
-SourceStr = Literal["live", "historical", "backfill"]
-_ALLOWED: tuple[SourceStr, ...] = ("live", "historical", "backfill")
+SourceStr = Literal["live", "historical", "backfill", "batch"]
+_ALLOWED: tuple[SourceStr, ...] = ("live", "historical", "backfill", "batch")
 
 
 def to_source_enum(x: Source | str) -> Source:
@@ -165,34 +167,74 @@ def to_stage_enum(stage: Stage | str) -> Stage:
     or raw enum instances. Raises ``ValueError`` for unknown names.
     """
     if isinstance(stage, Stage):
-        return stage
-    stage_str = str(stage)
+        return CANONICAL_STAGE_EQUIVALENTS.get(stage, stage)
+
+    stage_str = str(stage).strip()
     if stage_str.startswith("Stage."):
         stage_str = stage_str.split(".", 1)[1]
     if stage_str.startswith("STAGE."):
         stage_str = stage_str.split(".", 1)[1]
+
+    def _canonical(resolved: Stage) -> Stage:
+        return CANONICAL_STAGE_EQUIVALENTS.get(resolved, resolved)
+
+    # Direct value lookups
     try:
-        return Stage(stage_str)
+        resolved = Stage(stage_str)
+        return _canonical(resolved)
     except ValueError:
-        alias = stage_str.strip().upper()
-        alias_map = {
-            "FEATURE": Stage.FEATURE_COMPUTED,
-            "FEATURES": Stage.FEATURE_COMPUTED,
-            "FEATURE_COMPUTED": Stage.FEATURE_COMPUTED,
-            "PREDICTION": Stage.PREDICTION_EMITTED,
-            "PREDICTIONS": Stage.PREDICTION_EMITTED,
-            "PREDICTIONS_EMITTED": Stage.PREDICTION_EMITTED,
-            "SIGNAL": Stage.SIGNAL_EMITTED,
-            "SIGNALS": Stage.SIGNAL_EMITTED,
-            "DATA": Stage.DATA_INGESTED,
-            "DATA_INGESTED": Stage.DATA_INGESTED,
-            "CATALOG": Stage.CATALOG_WRITTEN,
-            "CATALOG_WRITTEN": Stage.CATALOG_WRITTEN,
-        }
+        pass
+
+    upper_value = stage_str.upper()
+    if upper_value != stage_str:
         try:
-            return alias_map[alias]
-        except KeyError as exc:  # pragma: no cover - defensive
-            raise ValueError(f"Unknown stage identifier '{stage_str}'") from exc
+            resolved_upper = Stage(upper_value)
+            return _canonical(resolved_upper)
+        except ValueError:
+            ...
+
+    normalized = (
+        stage_str.replace(".", "_")
+        .replace("-", "_")
+        .replace(" ", "_")
+        .upper()
+    )
+
+    if normalized in Stage.__members__:
+        member = Stage[normalized]
+        return _canonical(member)
+
+    alias_map: dict[str, Stage] = {
+        **LEGACY_STAGE_ALIAS_MAP,
+        "FEATURE": Stage.FEATURE_COMPUTED,
+        "FEATURES": Stage.FEATURE_COMPUTED,
+        "FEATURE_ENGINEERING": Stage.FEATURE_COMPUTED,
+        "FEATURES_ENGINEERED": Stage.FEATURE_COMPUTED,
+        "FEATURES_COMPUTED": Stage.FEATURE_COMPUTED,
+        "FEATURE_COMPUTED": Stage.FEATURE_COMPUTED,
+        "PREDICTION": Stage.PREDICTION_EMITTED,
+        "PREDICTIONS": Stage.PREDICTION_EMITTED,
+        "PREDICTIONS_EMITTED": Stage.PREDICTION_EMITTED,
+        "MODEL_INFERENCE": Stage.PREDICTION_EMITTED,
+        "SIGNAL": Stage.SIGNAL_EMITTED,
+        "SIGNALS": Stage.SIGNAL_EMITTED,
+        "SIGNAL_GENERATION": Stage.SIGNAL_EMITTED,
+        "SIGNAL_GENERATED": Stage.SIGNAL_EMITTED,
+        "EMIT_SIGNAL": Stage.SIGNAL_EMITTED,
+        "DATA": Stage.DATA_INGESTED,
+        "INGEST": Stage.DATA_INGESTED,
+        "INGESTED": Stage.DATA_INGESTED,
+        "DATA_INGEST": Stage.DATA_INGESTED,
+        "CATALOG": Stage.CATALOG_WRITTEN,
+        "CATALOG_WRITE": Stage.CATALOG_WRITTEN,
+        "CATALOG_WRITTEN": Stage.CATALOG_WRITTEN,
+    }
+
+    try:
+        mapped = alias_map[normalized]
+    except KeyError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Unknown stage identifier '{stage_str}'") from exc
+    return _canonical(mapped)
 
 
 def normalize_stage_value(stage: Stage | str) -> str:

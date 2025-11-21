@@ -645,16 +645,16 @@ Examples:
 
 2. **Store Migrations** (`ml/stores/migrations/`):
    - `001_bootstrap_schema.sql`: Initial store schema
-   - `001_stores_schema.sql`: Core ML data tables with partitioning
-   - `002_auto_partitioning.sql`: Automatic partition management functions
-   - `003_market_data.sql`: Market data table extensions
-   - `004_data_registry.sql`: Data registry and event tracking
-   - `005_schema_hardening.sql`: Data integrity improvements
-   - `005a_feature_values_dedupe.sql`: Deduplication constraints
-   - `005_views.sql`: Analytical views and summaries
-   - `006_disable_partition_triggers.sql`: Testing optimizations
-   - `007_add_event_metadata.sql`: Event metadata extensions
-   - `007_brin_indexes.sql`: Performance optimizations
+   - `002_stores_schema.sql`: Core ML data tables with partitioning
+   - `003_auto_partitioning.sql`: Automatic partition management functions
+   - `004_market_data.sql`: Market data table extensions
+   - `005_data_registry.sql`: Data registry and event tracking
+   - `007_schema_hardening.sql`: Data integrity improvements
+   - `006_feature_values_dedupe.sql`: Deduplication constraints
+   - `008_views.sql`: Analytical views and summaries
+   - `009_disable_partition_triggers.sql`: Testing optimizations
+   - `010_add_event_metadata.sql`: Event metadata extensions
+   - `011_brin_indexes.sql`: Performance optimizations
    - Plus additional migrations in archive/
 
 3. **Emergency Fixes** (`ml/migrations/`):
@@ -721,7 +721,7 @@ python -m ml.cli.apply_migrations --schema stores --full
 
 **Problem**: Race conditions in trigger-based partition creation during concurrent test execution.
 
-**Original Approach** (`ml/stores/migrations/002_auto_partitioning.sql`):
+**Original Approach** (`ml/stores/migrations/003_auto_partitioning.sql`):
 ```sql
 -- Trigger-based automatic partition creation
 CREATE TRIGGER auto_create_partition_feature_values
@@ -783,7 +783,7 @@ class MLIntegrationManager:
 **Migration Order** (from `ml.cli.apply_migrations.build_plan()`):
 1. Registry migrations (001, 002, 003)
 2. Store bootstrap (001_bootstrap_schema.sql)
-3. Store core schema (001_stores_schema.sql)
+3. Store core schema (002_stores_schema.sql)
 4. Partition management (002, 006)
 5. Extensions (003, 004, 005, 007)
 6. Emergency fixes (999) - if `--full` specified
@@ -828,8 +828,8 @@ export ML_ENV=production
 - Production needs separate partition creation strategy
 - Gap: No documented process for production partition management
 
-**6. Duplicate with 006_disable_partition_triggers.sql**
-- Store migration `006_disable_partition_triggers.sql` also disables triggers
+**6. Duplicate with 009_disable_partition_triggers.sql**
+- Store migration `009_disable_partition_triggers.sql` also disables triggers
 - Potential redundancy between migrations
 - Need to verify both are necessary or consolidate
 
@@ -899,28 +899,28 @@ def test_feature_storage(ensure_partitions):
 
 **Complementary Migrations:**
 
-1. **`ml/stores/migrations/001_stores_schema.sql`**:
+1. **`ml/stores/migrations/002_stores_schema.sql`**:
    - Creates base partitioned tables
    - Defines partition structure
    - This emergency fix operates on those tables
 
-2. **`ml/stores/migrations/002_auto_partitioning.sql`**:
+2. **`ml/stores/migrations/003_auto_partitioning.sql`**:
    - Originally created the problematic triggers
    - Defined `ensure_partition_exists()` function
    - This emergency fix disables those triggers
 
-3. **`ml/stores/migrations/006_disable_partition_triggers.sql`**:
+3. **`ml/stores/migrations/009_disable_partition_triggers.sql`**:
    - Also disables partition triggers for testing
    - Possible redundancy with this emergency fix
    - May need consolidation
 
 **Migration Dependencies:**
 ```
-001_stores_schema.sql (creates tables)
+002_stores_schema.sql (creates tables)
     ↓
-002_auto_partitioning.sql (adds triggers)
+003_auto_partitioning.sql (adds triggers)
     ↓
-006_disable_partition_triggers.sql (disables triggers for tests)
+009_disable_partition_triggers.sql (disables triggers for tests)
     ↓
 999_fix_partitions_immediate.sql (emergency fix - drops triggers, pre-creates partitions)
 ```
@@ -1145,7 +1145,7 @@ integration.model_registry.register_model(...)
 - ✅ Emergency fix successfully resolves partition race conditions
 - ✅ Idempotent, error-tolerant implementation
 - ⚠️ Manual application required (not in default plan)
-- ⚠️ Potential redundancy with `006_disable_partition_triggers.sql`
+- ⚠️ Potential redundancy with `009_disable_partition_triggers.sql`
 
 **Recommendations:**
 
@@ -1154,7 +1154,7 @@ integration.model_registry.register_model(...)
    - Prevents test failures from missing partitions
    - Ensures consistent test environment setup
 
-2. **Consolidate with 006_disable_partition_triggers.sql** (Medium Priority):
+2. **Consolidate with 009_disable_partition_triggers.sql** (Medium Priority):
    - Review both migrations for redundancy
    - Merge if they serve identical purpose
    - Keep separate if they address different scenarios

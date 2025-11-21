@@ -14,11 +14,19 @@ This module provides:
 
 from __future__ import annotations
 
-import tempfile
+import errno
+import fcntl
+import logging
+import os
+import subprocess
+import time
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, IO, Callable, ContextManager
+
+import pytest
+from unittest.mock import MagicMock, patch
 
 
 # Track schema initialization per connection URL to avoid re-running migrations
@@ -26,13 +34,286 @@ _SCHEMA_INITIALIZED: dict[str, bool] = {}
 
 import pandas as pd
 from sqlalchemy import MetaData
+from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from ml.core.db_engine import EngineManager
+
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/nautilus",
+)
+
+_ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
+    "ml.common.db_utils.EngineManager.get_engine",
+    "ml.core.db_engine.EngineManager.get_engine",
+    "ml.dashboard.service.EngineManager.get_engine",
+    "ml.dashboard.services.metrics_service.EngineManager.get_engine",
+    "ml.dashboard.services.trading_service.EngineManager.get_engine",
+    "ml.observability.db_persistence.EngineManager.get_engine",
+    "ml.stores.data_processor.EngineManager.get_engine",
+    "ml.stores.data_store.EngineManager.get_engine",
+    "ml.stores.feature_store.EngineManager.get_engine",
+    "ml.stores.model_store.EngineManager.get_engine",
+    "ml.stores.strategy_store.EngineManager.get_engine",
+)
+
+
+@contextmanager
+def patch_engine_manager(
+    *,
+    engine: Engine | MagicMock | None = None,
+    record_calls: bool = False,
+    side_effect: Exception | None = None,
+) -> Generator[MagicMock, None, None]:
+    """
+    Patch EngineManager lookups to return a deterministic engine-like object.
+
+    Ensures patched engines do not leak into subsequent tests by disposing the
+    EngineManager cache after use.
+    """
+
+    mock_engine = engine if engine is not None else MagicMock(name="engine")
+    call_log: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def _patched_get_engine(*args: object, **kwargs: object) -> MagicMock:
+        if record_calls:
+            call_log.append((args, kwargs))
+        if side_effect is not None:
+            raise side_effect
+        return mock_engine
+
+    setattr(mock_engine, "_engine_manager_calls", call_log)
+
+    with ExitStack() as stack:
+        for target in _ENGINE_MANAGER_PATCH_TARGETS:
+            with suppress(AttributeError, ModuleNotFoundError):
+                stack.enter_context(patch(target, _patched_get_engine))
+        try:
+            yield mock_engine
+        finally:
+            EngineManager.dispose_all()
+
+
+_PATCH_ENGINE_MANAGER_FN = patch_engine_manager
+
+
+@pytest.fixture(name="patch_engine_manager")
+def _patch_engine_manager_fixture() -> Callable[..., ContextManager[MagicMock]]:
+    """
+    Provide the patch_engine_manager context manager via fixture injection.
+    """
+
+    def _factory(
+        *,
+        engine: Engine | MagicMock | None = None,
+        record_calls: bool = False,
+        side_effect: Exception | None = None,
+    ) -> ContextManager[MagicMock]:
+        return _PATCH_ENGINE_MANAGER_FN(
+            engine=engine,
+            record_calls=record_calls,
+            side_effect=side_effect,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def mock_engine_manager() -> Generator[MagicMock, None, None]:
+    """
+    Provide a MagicMock-backed engine via EngineManager while ensuring cleanup.
+    """
+
+    with patch_engine_manager() as engine_mock:
+        yield engine_mock
+
+
+@pytest.fixture
+def real_engine_manager() -> Generator[None, None, None]:
+    """
+    Ensure EngineManager cache is clear before and after a test uses real engines.
+    """
+
+    EngineManager.dispose_all()
+    try:
+        yield
+    finally:
+        EngineManager.dispose_all()
+
+
+def _connect_timeout_seconds() -> int:
+    try:
+        return max(1, int(os.getenv("TEST_DB_CONNECT_TIMEOUT", "15")))
+    except ValueError:
+        return 15
+
+
+def is_postgresql_running() -> bool:
+    """
+    Check if PostgreSQL is running and accessible.
+    """
+    try:
+        import psycopg2  # Local import to avoid hard dependency for unit tests
+
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=_connect_timeout_seconds(),
+        )
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def start_postgresql() -> None:
+    """
+    Attempt to start PostgreSQL if not running.
+    """
+    if is_postgresql_running():
+        print("PostgreSQL is already running")
+        return
+
+    print("Starting PostgreSQL...")
+    try:
+        if os.path.exists("/usr/local/bin/pg_ctl"):
+            subprocess.run(
+                ["pg_ctl", "start", "-D", "/usr/local/var/postgres"],
+                capture_output=True,
+                check=False,
+            )
+        elif os.path.exists("/usr/bin/systemctl"):
+            subprocess.run(
+                ["sudo", "systemctl", "start", "postgresql"],
+                capture_output=True,
+                check=False,
+            )
+
+        for _ in range(10):
+            if is_postgresql_running():
+                print("PostgreSQL started successfully")
+                return
+            time.sleep(1)
+    except Exception as exc:
+        print(f"Could not start PostgreSQL: {exc}")
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def acquire_db_lock(name: str = "db") -> IO[str] | None:
+    """
+    Acquire an interprocess file lock to serialize DB/serial-marked tests across workers.
+    """
+    lock_dir = Path.home() / ".nautilus" / "ml"
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "Creating lock directory failed: %s",
+            exc,
+            exc_info=True,
+        )
+    lock_path = lock_dir / f"pytest_{name}.lock"
+    fh = open(lock_path, "a+")
+
+    timeout_env = os.getenv("ML_TEST_DB_LOCK_TIMEOUT_SEC", "15")
+    try:
+        timeout_sec = max(1.0, float(timeout_env))
+    except Exception:
+        timeout_sec = 15.0
+    deadline = time.monotonic() + timeout_sec
+
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fh.seek(0)
+                fh.truncate()
+                fh.write(str(os.getpid()))
+                fh.flush()
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).debug(
+                    "Recording DB lock ownership failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return fh
+        except OSError as exc:  # pragma: no cover - contention path
+            if exc.errno not in (errno.EAGAIN, errno.EACCES):
+                raise
+
+            try:
+                owner_pid_str = lock_path.read_text().strip()
+                owner_pid = int(owner_pid_str) if owner_pid_str else -1
+            except Exception:
+                owner_pid = -1
+
+            if owner_pid > 0 and not _pid_alive(owner_pid):
+                try:
+                    fh.seek(0)
+                    fh.truncate()
+                    fh.flush()
+                except Exception as inner_exc:
+                    import logging
+
+                    logging.getLogger(__name__).debug(
+                        "Clearing stale DB lock ownership failed: %s",
+                        inner_exc,
+                        exc_info=True,
+                    )
+
+            if time.monotonic() >= deadline:
+                try:
+                    fh.close()
+                except Exception as inner_exc:
+                    import logging
+
+                    logging.getLogger(__name__).debug(
+                        "Closing DB lock file failed: %s",
+                        inner_exc,
+                        exc_info=True,
+                    )
+                return None
+
+            time.sleep(0.1)
+
+
+def release_db_lock(fh: IO[str]) -> None:
+    """Release an acquired DB file lock."""
+
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        try:
+            fh.close()
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Closing DB lock handle failed: %s",
+                exc,
+                exc_info=True,
+            )
 
 
 class TestDatabase:
@@ -243,15 +524,66 @@ class TestDatabase:
                             raise
 
                 try:
-                    exists = conn.execute(
+                    conn.execute(
                         text(
-                            "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')",
-                        ),
-                    ).scalar()
-                    if not bool(exists):
-                        conn.execute(
-                            text(
-                                """
+                            """
+CREATE OR REPLACE FUNCTION attach_partition_with_data(
+    target_table TEXT,
+    partition_name TEXT,
+    start_ns BIGINT,
+    end_ns BIGINT
+)
+RETURNS VOID AS $$
+DECLARE
+    default_partition TEXT := target_table || '_default';
+    column_list TEXT;
+BEGIN
+    SELECT string_agg(format('%I', column_name), ', ')
+    INTO column_list
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = target_table
+      AND (is_generated = 'NEVER' OR is_generated IS NULL);
+
+    IF column_list IS NULL THEN
+        RAISE EXCEPTION 'Unable to resolve column list for %', target_table;
+    END IF;
+
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
+        partition_name,
+        target_table
+    );
+    EXECUTE format(
+        'INSERT INTO %I (%s) SELECT %s FROM %I WHERE ts_event >= %L AND ts_event < %L',
+        partition_name,
+        column_list,
+        column_list,
+        default_partition,
+        start_ns,
+        end_ns
+    );
+    EXECUTE format(
+        'DELETE FROM %I WHERE ts_event >= %L AND ts_event < %L',
+        default_partition,
+        start_ns,
+        end_ns
+    );
+    EXECUTE format(
+        'ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
+        target_table,
+        partition_name,
+        start_ns,
+        end_ns
+    );
+EXCEPTION
+    WHEN duplicate_object THEN
+        NULL;
+    WHEN object_in_use THEN
+        NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION create_monthly_partitions(
     table_name TEXT,
     start_date DATE,
@@ -269,18 +601,29 @@ BEGIN
         partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
         start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
         end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
-
-        EXECUTE format('
-            CREATE TABLE IF NOT EXISTS %I PARTITION OF %I
-            FOR VALUES FROM (%L) TO (%L)',
-            partition_name, table_name, start_ns, end_ns
-        );
+        BEGIN
+            EXECUTE format(
+                'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+                partition_name, table_name, start_ns, end_ns
+            );
+        EXCEPTION
+            WHEN check_violation THEN
+                PERFORM attach_partition_with_data(table_name, partition_name, start_ns, end_ns);
+            WHEN duplicate_table THEN
+                NULL;
+            WHEN object_in_use THEN
+                NULL;
+            WHEN invalid_object_definition THEN
+                NULL;
+            WHEN SQLSTATE '42P17' THEN
+                NULL;
+        END;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
                                 """,
-                            ),
-                        )
+                        ),
+                    )
                 except Exception:
                     pass
 
@@ -746,3 +1089,602 @@ class DatabaseSnapshot:
         Check if snapshot exists.
         """
         return name in self.snapshots
+
+
+# ============================================================================
+# Pytest fixtures
+# ============================================================================
+
+
+@pytest.fixture(scope="session")
+def database_engine() -> Generator[Engine, None, None]:
+    """Create a single database engine for the entire test session."""
+
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+        "Creating session-scoped database engine with pool_size=5, max_overflow=10",
+    )
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
+
+    try:
+        yield engine
+    finally:
+        try:
+            pool = engine.pool
+            logger.info(
+                "Database engine pool stats before disposal: size=%s, checked_in=%s, "
+                "checked_out=%s, overflow=%s",
+                pool.size(),
+                pool.checkedin(),
+                pool.checkedout(),
+                pool.overflow(),
+            )
+        except Exception:
+            pass
+
+        EngineManager.dispose_all()
+
+
+@pytest.fixture(scope="session")
+def database_session_factory(database_engine: Engine) -> sessionmaker:
+    """Create a session factory bound to the shared session-scoped engine."""
+
+    return sessionmaker(bind=database_engine)
+
+
+@pytest.fixture
+def database_session(database_session_factory: sessionmaker) -> Generator[Session, None, None]:
+    """Create an isolated database session for each test using nested transactions."""
+
+    connection = database_session_factory.bind.connect()
+    transaction = connection.begin()
+    session = database_session_factory(bind=connection)
+    connection.begin_nested()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+@pytest.fixture
+def isolated_engine() -> Generator[Engine, None, None]:
+    """Create an isolated in-memory SQLite engine for unit tests."""
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def postgres_connection() -> str:
+    """Expose PostgreSQL connection string for legacy tests."""
+
+    return DATABASE_URL
+
+
+@pytest.fixture(scope="function")
+def clean_postgres_db() -> Generator[None, None, None]:
+    """Ensure a clean PostgreSQL state before and after each test."""
+
+    if os.getenv("TEST_DB_SKIP_TRUNCATE") == "1":
+        yield
+        return
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
+    def _set_timeout(connection: Any) -> None:
+        try:
+            connection.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Set statement timeout failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+    def _truncate_and_verify(connection: Any) -> None:
+        try:
+            connection.rollback()
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Transaction rollback failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+        result = connection.execute(
+            text(
+                """
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename LIKE 'ml_%'
+                """,
+            ),
+        )
+        tables = [row[0] for row in result]
+
+        for table in tables:
+            try:
+                connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+            except Exception as exc:
+                print(f"Warning during cleanup of {table}: {exc}")
+                try:
+                    connection.rollback()
+                except Exception as inner_exc:
+                    logging.getLogger(__name__).debug(
+                        "Transaction rollback failed: %s",
+                        inner_exc,
+                        exc_info=True,
+                    )
+
+        core_tables = ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values")
+        retry_needed = False
+        for table in core_tables:
+            try:
+                count = connection.execute(text(f"SELECT COUNT(*) FROM {table}"))
+            except Exception:
+                continue
+            rows = count.scalar_one_or_none()
+            if rows:
+                retry_needed = True
+
+        if retry_needed:
+            for table in tables:
+                try:
+                    connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception as exc:
+                    print(f"Retry cleanup warning for {table}: {exc}")
+                    try:
+                        connection.rollback()
+                    except Exception as inner_exc:
+                        logging.getLogger(__name__).debug(
+                            "Transaction rollback failed: %s",
+                            inner_exc,
+                            exc_info=True,
+                        )
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+            _set_timeout(conn)
+            _truncate_and_verify(conn)
+            conn.commit()
+    except Exception as exc:
+        print(f"clean_postgres_db pre-test cleanup skipped: {exc}")
+
+    try:
+        yield
+    finally:
+        try:
+            with engine.connect() as conn:
+                _set_timeout(conn)
+                _truncate_and_verify(conn)
+                conn.commit()
+        except Exception as exc:
+            print(f"clean_postgres_db post-test cleanup skipped: {exc}")
+
+
+@pytest.fixture(scope="class")
+def clean_postgres_db_class() -> Generator[None, None, None]:
+    """Class-scoped PostgreSQL cleanup fixture."""
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
+    def _truncate_all() -> None:
+        try:
+            with engine.connect() as conn:
+                try:
+                    conn.rollback()
+                except Exception as exc:
+                    logging.getLogger(__name__).debug(
+                        "Transaction rollback failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+                try:
+                    conn.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
+                except Exception as exc:
+                    logging.getLogger(__name__).debug(
+                        "Set statement timeout failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename LIKE 'ml_%'
+                        """,
+                    ),
+                )
+                tables = [row[0] for row in result]
+                for table in tables:
+                    try:
+                        conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                    except Exception as exc:
+                        print(f"Warning during class-scope cleanup of {table}: {exc}")
+                for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
+                    try:
+                        count = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                    except Exception:
+                        continue
+                    rows = count.scalar_one_or_none()
+                    if rows:
+                        try:
+                            conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                        except Exception as exc:
+                            print(f"Retry cleanup warning for {table}: {exc}")
+                conn.commit()
+        except Exception as exc:
+            print(f"clean_postgres_db_class cleanup skipped: {exc}")
+
+    fh = acquire_db_lock("db")
+    try:
+        if fh is None:
+            print("clean_postgres_db_class: DB lock not acquired; proceeding without lock")
+    except Exception:
+        fh = None
+
+    previous = os.getenv("TEST_DB_SKIP_TRUNCATE")
+    os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
+    _truncate_all()
+    try:
+        yield
+    finally:
+        _truncate_all()
+        if previous is None:
+            os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
+        else:
+            os.environ["TEST_DB_SKIP_TRUNCATE"] = previous
+        if fh is not None:
+            release_db_lock(fh)
+
+
+@pytest.fixture(scope="module")
+def clean_postgres_db_module() -> Generator[None, None, None]:
+    """Module-scoped PostgreSQL cleanup fixture."""
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
+    def _truncate_all() -> None:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+                try:
+                    conn.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
+                except Exception as exc:
+                    logging.getLogger(__name__).debug(
+                        "Set statement timeout failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename LIKE 'ml_%'
+                        """,
+                    ),
+                )
+                tables = [row[0] for row in result]
+                for table in tables:
+                    try:
+                        conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                    except Exception as exc:
+                        print(f"Warning during module-scope cleanup of {table}: {exc}")
+                        try:
+                            conn.rollback()
+                        except Exception as inner_exc:
+                            logging.getLogger(__name__).debug(
+                                "Transaction rollback failed: %s",
+                                inner_exc,
+                                exc_info=True,
+                            )
+                for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
+                    try:
+                        count = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                    except Exception:
+                        continue
+                    rows = count.scalar_one_or_none()
+                    if rows:
+                        try:
+                            conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                        except Exception as exc:
+                            print(f"Retry cleanup warning for {table}: {exc}")
+                            try:
+                                conn.rollback()
+                            except Exception as inner_exc:
+                                logging.getLogger(__name__).debug(
+                                    "Transaction rollback failed: %s",
+                                    inner_exc,
+                                    exc_info=True,
+                                )
+                conn.commit()
+        except Exception as exc:
+            print(f"clean_postgres_db_module cleanup skipped: {exc}")
+
+    print("clean_postgres_db_module: attempting DB lock")
+    fh = acquire_db_lock("db")
+    try:
+        if fh is None:
+            print("clean_postgres_db_module: DB lock not acquired; proceeding without lock")
+        else:
+            print("clean_postgres_db_module: acquired DB lock")
+    except Exception:
+        fh = None
+
+    previous = os.getenv("TEST_DB_SKIP_TRUNCATE")
+    os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
+    _truncate_all()
+    try:
+        yield
+    finally:
+        _truncate_all()
+        if previous is None:
+            os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
+        else:
+            os.environ["TEST_DB_SKIP_TRUNCATE"] = previous
+        if fh is not None:
+            release_db_lock(fh)
+
+
+@pytest.fixture(scope="session")
+def module_test_database() -> Generator[TestDatabase, None, None]:
+    """Session-scoped PostgreSQL database with schema initialized once."""
+
+    if not is_postgresql_running():
+        pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
+
+    _SCHEMA_INITIALIZED.clear()
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
+
+    try:
+        try:
+            db.init_schema()
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "module_test_database init_schema failed; continuing",
+                exc_info=True,
+            )
+        yield db
+    finally:
+        db.cleanup()
+
+
+@pytest.fixture(scope="function")
+def test_database() -> Generator[TestDatabase, None, None]:
+    """Create a TestDatabase bound to PostgreSQL with schema initialized."""
+
+    logger = logging.getLogger(__name__)
+
+    if not is_postgresql_running():
+        pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
+
+    try:
+        EngineManager.dispose_all()
+        logger.debug("EngineManager cache cleared before test")
+    except Exception as exc:
+        logger.warning(
+            "Failed to dispose EngineManager engines before test: %s",
+            exc,
+            exc_info=True,
+        )
+
+    _SCHEMA_INITIALIZED.clear()
+    logger.debug("Schema initialization tracking cleared")
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    if os.getenv("TEST_DB_SKIP_TRUNCATE") != "1":
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                      AND tablename NOT LIKE 'pg_%'
+                      AND tablename NOT LIKE 'sql_%'
+                    """,
+                ),
+            )
+            for row in result:
+                table_name = row[0]
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        "TRUNCATE failed for table %s; ignoring in test cleanup",
+                        table_name,
+                        exc_info=True,
+                    )
+            conn.commit()
+
+    try:
+        with engine.connect() as conn:
+            for table in ("ml_feature_values", "ml_model_predictions", "ml_strategy_signals"):
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception:
+                    pass
+            conn.commit()
+    except Exception:
+        pass
+
+    db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
+    try:
+        db.init_schema()
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Database init_schema failed; continuing",
+            exc_info=True,
+        )
+
+    try:
+        yield db
+    finally:
+        try:
+            db.cleanup()
+        except Exception as exc:
+            logger.warning(
+                "TestDatabase cleanup failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            EngineManager.dispose_all()
+            logger.debug("EngineManager cache cleared after test")
+        except Exception as exc:
+            logger.warning(
+                "Failed to dispose EngineManager engines after test: %s",
+                exc,
+                exc_info=True,
+            )
+
+
+@pytest.fixture
+def test_db_engine(test_database: TestDatabase) -> Engine:
+    """Expose the SQLAlchemy engine from TestDatabase."""
+
+    return test_database.engine
+
+
+@pytest.fixture
+def test_db_session(test_database: TestDatabase) -> Generator[Session, None, None]:
+    """Yield a session with automatic rollback from TestDatabase."""
+
+    with test_database.get_session() as session:
+        yield session
+
+
+@pytest.fixture
+def seeded_database(test_database: TestDatabase) -> TestDatabase:
+    """Seed basic data for tests requiring pre-populated state."""
+
+    test_database.seed_test_data("basic")
+    return test_database
+
+
+@pytest.fixture
+def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
+    """Provide DatabaseSnapshot helper."""
+
+    return DatabaseSnapshot(test_database)
+
+
+@pytest.fixture
+def connection_monitor(database_engine: Engine) -> Generator[None, None, None]:
+    """Monitor database connections during test execution."""
+
+    logger = logging.getLogger(__name__)
+
+    with database_engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()",
+            ),
+        )
+        initial_count = result.scalar()
+
+    try:
+        yield
+    finally:
+        with database_engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()",
+                ),
+            )
+            final_count = result.scalar()
+
+        if final_count > initial_count + 2:
+            logger.warning(
+                "Potential connection leak detected: Initial=%s, Final=%s",
+                initial_count,
+                final_count,
+            )
+
+
+__all__ = sorted(
+    [
+        "_SCHEMA_INITIALIZED",
+        "DATABASE_URL",
+        "DatabaseSnapshot",
+        "TestDatabase",
+        "acquire_db_lock",
+        "clean_postgres_db",
+        "clean_postgres_db_class",
+        "clean_postgres_db_module",
+        "connection_monitor",
+        "database_engine",
+        "database_session",
+        "database_session_factory",
+        "database_snapshot",
+        "is_postgresql_running",
+        "mock_engine_manager",
+        "isolated_engine",
+        "module_test_database",
+        "patch_engine_manager",
+        "postgres_connection",
+        "release_db_lock",
+        "real_engine_manager",
+        "seeded_database",
+        "start_postgresql",
+        "temp_database",
+        "test_database",
+        "test_db_engine",
+        "test_db_session",
+    ],
+)

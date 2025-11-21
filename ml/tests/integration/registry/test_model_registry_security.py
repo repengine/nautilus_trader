@@ -11,6 +11,7 @@ registration and verifies integrity during model loading.
 import hashlib
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +21,12 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
+
+pytestmark = pytest.mark.usefixtures(
+    "isolated_prometheus_registry",
+    "mock_tracing_backend",
+    "isolated_orchestrator_env",
+)
 
 
 class TestModelRegistryIntegrity:
@@ -121,6 +128,7 @@ class TestModelRegistryIntegrity:
         registry: ModelRegistry,
         sample_onnx_model: tuple[Path, str],
         sample_manifest: ModelManifest,
+        mock_onnx_runtime: Any,
     ) -> None:
         """
         Test that model loading verifies artifact integrity.
@@ -133,19 +141,13 @@ class TestModelRegistryIntegrity:
             manifest=sample_manifest,
         )
 
-        # Mock ONNX runtime to avoid actual ONNX loading
-        with (
-            patch("ml.registry.model_registry.HAS_ONNX", True),
-            patch("ml.registry.model_registry.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        # Load the model - should verify integrity and succeed
+        loaded_model = registry.load_model(model_id)
 
-            # Load the model - should verify integrity and succeed
-            loaded_model = registry.load_model(model_id)
-
-            assert loaded_model == mock_session
-            mock_ort.InferenceSession.assert_called_once()
+        assert loaded_model == mock_session
+        mock_onnx_runtime.ort.InferenceSession.assert_called_once()
 
     def test_load_model_detects_tampering(
         self,
@@ -181,6 +183,7 @@ class TestModelRegistryIntegrity:
         registry: ModelRegistry,
         sample_onnx_model: tuple[Path, str],
         sample_manifest: ModelManifest,
+        mock_onnx_runtime: Any,
     ) -> None:
         """
         Test that model loading warns when digest is missing.
@@ -200,18 +203,13 @@ class TestModelRegistryIntegrity:
         model_info = registry._models[model_id]
         model_info.manifest.artifact_sha256_digest = None
 
-        # Mock ONNX runtime
-        with (
-            patch("ml.registry.model_registry.HAS_ONNX", True),
-            patch("ml.registry.model_registry.ort") as mock_ort,
-        ):
+        mock_session = mock_onnx_runtime.ort.InferenceSession.return_value
 
-            mock_session = mock_ort.InferenceSession.return_value
+        # Load the model - should succeed with warning
+        loaded_model = registry.load_model(model_id)
 
-            # Load the model - should succeed with warning
-            loaded_model = registry.load_model(model_id)
-
-            assert loaded_model == mock_session
+        assert loaded_model == mock_session
+        mock_onnx_runtime.ort.InferenceSession.assert_called_once()
 
     def test_register_model_file_not_found(
         self,

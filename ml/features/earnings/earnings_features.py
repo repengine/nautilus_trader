@@ -21,7 +21,6 @@ import os
 import time
 from collections.abc import Mapping
 from collections.abc import MutableMapping
-from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -38,6 +37,8 @@ _growth_updates_total = None
 _growth_latency_seconds = None
 _momentum_updates_total = None
 _momentum_latency_seconds = None
+_env_flag_raw: str | None = None
+_env_flag_enabled = False
 
 
 def _init_module_metrics() -> None:
@@ -93,10 +94,13 @@ def _init_module_metrics() -> None:
     _metrics_init = True
 
 
-@lru_cache(maxsize=1)
 def _default_earnings_metrics_enabled() -> bool:
+    global _env_flag_raw, _env_flag_enabled
     raw = os.getenv("ML_EARNINGS_ENABLE_METRICS", "0")
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+    if raw != _env_flag_raw:
+        _env_flag_raw = raw
+        _env_flag_enabled = raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return _env_flag_enabled
 
 
 def earnings_metrics_enabled(*, env: Mapping[str, str] | None = None) -> bool:
@@ -126,6 +130,26 @@ def _metrics_enabled() -> bool:
 EPS_EPSILON = 1e-12
 
 
+def reset_earnings_metrics_state() -> None:
+    """Reset cached metrics state to keep tests deterministic."""
+    global _env_flag_raw, _env_flag_enabled
+    global _metrics_init
+    global _surprise_updates_total, _surprise_latency_seconds
+    global _growth_updates_total, _growth_latency_seconds
+    global _momentum_updates_total, _momentum_latency_seconds
+
+    _env_flag_raw = None
+    _env_flag_enabled = False
+
+    _metrics_init = False
+    _surprise_updates_total = None
+    _surprise_latency_seconds = None
+    _growth_updates_total = None
+    _growth_latency_seconds = None
+    _momentum_updates_total = None
+    _momentum_latency_seconds = None
+
+
 def _assign_hot_value(
     container: MutableMapping[str, Any],
     key: str,
@@ -150,6 +174,7 @@ __all__ = [
     "compute_earnings_surprise_batch",
     "compute_earnings_surprise_incremental",
     "earnings_metrics_enabled",
+    "reset_earnings_metrics_state",
 ]
 
 

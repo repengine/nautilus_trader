@@ -8,14 +8,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ml._imports import HAS_ONNX
+from ml._imports import HAS_ONNX, HAS_ONNX_CORE
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 from ml.tests.builders import RegistryBuilder
 
 
-@pytest.mark.skipif(not HAS_ONNX, reason="ONNX not installed")
+@pytest.mark.skipif(not (HAS_ONNX and HAS_ONNX_CORE), reason="ONNX/ONNX Runtime not installed")
 def test_model_registry_register_load_deploy_lineage() -> None:
     # Build a simple ONNX model: y = sum(x)
     import onnx
