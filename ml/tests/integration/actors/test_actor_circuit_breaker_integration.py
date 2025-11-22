@@ -25,6 +25,7 @@ pytestmark = pytest.mark.usefixtures(
     "isolated_orchestrator_env",
 )
 
+
 @contextmanager
 def env(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
@@ -83,7 +84,8 @@ def test_circuit_breaker_transitions(
     def fake_compute_features(_bar: Bar) -> npt.NDArray[np.float32]:
         return np.array([0.0, 1.0], dtype=np.float32)
 
-    monkeypatch.setattr(actor, "_compute_features", fake_compute_features)
+    # Monkeypatch the component's method directly as it captures the callback at init
+    monkeypatch.setattr(actor._features_component, "compute_features", fake_compute_features)
 
     # Prepare predict to fail twice, then succeed
     calls = {"n": 0}

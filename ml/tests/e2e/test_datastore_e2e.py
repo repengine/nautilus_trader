@@ -23,6 +23,7 @@ Success Criteria:
 - Schema violations are caught correctly
 - Legacy and component modes produce identical results
 - No data loss or corruption
+
 """
 
 import os
@@ -59,6 +60,7 @@ def sample_feature_objects(timestamp_now: int) -> list[FeatureData]:
 
     Note: This fixture is E2E-specific and returns list[FeatureData].
     The canonical sample_features fixture in common.py returns dict[str, float].
+
     """
     base_ts = timestamp_now
     features = []
@@ -75,7 +77,7 @@ def sample_feature_objects(timestamp_now: int) -> list[FeatureData]:
                 },
                 ts_event=base_ts + i * 1_000_000_000,  # 1 second apart
                 ts_init=base_ts + i * 1_000_000_000,
-            )
+            ),
         )
 
     return features
@@ -88,6 +90,7 @@ def sample_prediction_objects(timestamp_now: int) -> list[ModelPrediction]:
 
     Note: This fixture is E2E-specific and returns list[ModelPrediction].
     The canonical sample_predictions fixture in common.py returns np.ndarray.
+
     """
     base_ts = timestamp_now
     predictions = []
@@ -103,7 +106,7 @@ def sample_prediction_objects(timestamp_now: int) -> list[ModelPrediction]:
                 inference_time_ms=5.0 + i * 0.5,
                 _ts_event=base_ts + i * 1_000_000_000,
                 _ts_init=base_ts + i * 1_000_000_000,
-            )
+            ),
         )
 
     return predictions
@@ -131,7 +134,7 @@ def sample_signals(timestamp_now: int) -> list[StrategySignal]:
                 execution_params={"stop_loss": 0.02, "take_profit": 0.05},
                 _ts_event=base_ts + i * 1_000_000_000,
                 _ts_init=base_ts + i * 1_000_000_000,
-            )
+            ),
         )
 
     return signals
@@ -144,6 +147,7 @@ def mock_stores() -> dict[str, Any]:
 
     Returns dictionary with feature_store, model_store, strategy_store, earnings_store
     all implemented as in-memory stores that actually retain data for E2E testing.
+
     """
     # In-memory storage for E2E tests
     feature_data_storage: list[dict[str, Any]] = []
@@ -166,7 +170,7 @@ def mock_stores() -> dict[str, Any]:
                 "features": features,
                 "ts_event": ts_event,
                 "ts_init": ts_init,
-            }
+            },
         )
 
     feature_store = MagicMock()
@@ -182,7 +186,11 @@ def mock_stores() -> dict[str, Any]:
     feature_store.get_health_status = lambda: {"status": "healthy"}
 
     # Create model store with real storage - DataWriter calls write_batch
-    def write_batch_predictions(data: list[Any], emit_events: bool = True, publish_bus: bool = True) -> None:
+    def write_batch_predictions(
+        data: list[Any],
+        emit_events: bool = True,
+        publish_bus: bool = True,
+    ) -> None:
         prediction_data_storage.extend(data)
 
     model_store = MagicMock()
@@ -192,7 +200,11 @@ def mock_stores() -> dict[str, Any]:
     model_store.get_health_status = lambda: {"status": "healthy"}
 
     # Create strategy store with real storage - DataWriter calls write_batch
-    def write_batch_signals(data: list[Any], emit_events: bool = True, publish_bus: bool = True) -> None:
+    def write_batch_signals(
+        data: list[Any],
+        emit_events: bool = True,
+        publish_bus: bool = True,
+    ) -> None:
         signal_data_storage.extend(data)
 
     strategy_store = MagicMock()
@@ -220,8 +232,9 @@ def mock_registry(mock_registry_factory):
     """
     Create mock DataRegistry for testing with custom contract.
 
-    Uses mock_registry_factory to create base registry, then adds custom
-    contract configuration needed for these E2E tests.
+    Uses mock_registry_factory to create base registry, then adds custom contract
+    configuration needed for these E2E tests.
+
     """
     import time
     from ml.registry.dataclasses import DataContract
@@ -505,7 +518,7 @@ class TestE2ESchemaValidation:
                 "ts_event": 1234567890000000000,
                 "ts_init": 1234567890000000000,
                 "feature1": 1.0,
-            }
+            },
         ]
 
         # Preflight check should pass
@@ -605,6 +618,7 @@ class TestE2EHealthAndConfiguration:
         E2E Test: Configuration validation catches invalid settings.
         """
         # Create DataStore with invalid config
+        # Inject mock data_processor to avoid initialization failure on empty string
         store = DataStore(
             connection_string="",  # Empty connection string
             registry=mock_registry,
@@ -612,6 +626,7 @@ class TestE2EHealthAndConfiguration:
             model_store=mock_stores["model_store"],
             strategy_store=mock_stores["strategy_store"],
             earnings_store=mock_stores["earnings_store"],
+            data_processor=MagicMock(),
             batch_size=0,  # Invalid batch size
         )
 
@@ -665,7 +680,7 @@ class TestE2ELargeDatasets:
                     values={"feature": float(i)},
                     ts_event=timestamp_now + i * 1_000_000,
                     ts_init=timestamp_now + i * 1_000_000,
-                )
+                ),
             )
 
         # Write large batch
@@ -725,7 +740,7 @@ class TestE2ETimestampOrdering:
                     values={"value": float(i)},
                     ts_event=timestamp_now + i * 1_000_000_000,  # 1 second apart
                     ts_init=timestamp_now + i * 1_000_000_000,
-                )
+                ),
             )
 
         # Write features
