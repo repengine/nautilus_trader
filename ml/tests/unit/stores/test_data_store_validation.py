@@ -21,7 +21,17 @@ from __future__ import annotations
 
 import time
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, ContextManager, Iterable, Protocol, Sequence, TypeAlias, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ContextManager,
+    Iterable,
+    Protocol,
+    Sequence,
+    TypeAlias,
+    TypeVar,
+    cast,
+)
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -65,14 +75,11 @@ if TYPE_CHECKING:
 else:
     DataStore = Any  # pragma: no cover - runtime fallback for type checking tools
 
-class DataStoreModuleFactory(Protocol):
-    """Callable returning a DataStore module for the desired implementation."""
-
-    def __call__(self, *, use_component: bool) -> ContextManager[ModuleType]: ...
-
 
 def _maybe_polars_frame(records: RecordList) -> FrameLike:
-    """Return a Polars DataFrame when available, otherwise a plain list copy."""
+    """
+    Return a Polars DataFrame when available, otherwise a plain list copy.
+    """
     if HAS_POLARS:
         return pl.DataFrame(records)
     return [dict(row) for row in records]
@@ -80,49 +87,25 @@ def _maybe_polars_frame(records: RecordList) -> FrameLike:
 
 @pytest.fixture(autouse=True)
 def _isolated_prom_registry(isolated_prometheus_registry: Any) -> None:
-    """Ensure Prometheus collectors are isolated for tests in this module."""
+    """
+    Ensure Prometheus collectors are isolated for tests in this module.
+    """
     del isolated_prometheus_registry
 
 
 def _materialize_frame(records: RecordList) -> PandasDF:
-    """Return a pandas DataFrame for schema/hash dependent tests."""
+    """
+    Return a pandas DataFrame for schema/hash dependent tests.
+    """
     import pandas as pd
 
     return pd.DataFrame.from_records(records)
-
-
-def _get_data_store_cls(module: ModuleType) -> type[DataStore]:
-    """Retrieve the DataStore class from the provided module."""
-    return cast(type[DataStore], getattr(module, "DataStore"))
-
-
-def _dataset_schema_hash(
-    schema: dict[str, str],
-    *,
-    primary_keys: Sequence[str],
-    ts_field: str,
-    pipeline_signature: str,
-    seq_field: str | None = None,
-) -> str:
-    return compute_dataset_schema_hash(
-        schema=schema,
-        primary_keys=primary_keys,
-        ts_field=ts_field,
-        seq_field=seq_field,
-        pipeline_signature=pipeline_signature,
-    )
-    import pandas as pd
-
-    return pd.DataFrame.from_records(records)
-
-
-def _store_mock(spec_type: type[StoreT]) -> StoreT:
-    """Create a typed MagicMock matching the provided store specification."""
-    return cast(StoreT, MagicMock(spec=spec_type))
 
 
 class _UnitRawWriter(RawIngestionWriterProtocol):
-    """Minimal raw writer used to satisfy type checks in unit tests."""
+    """
+    Minimal raw writer used to satisfy type checks in unit tests.
+    """
 
     def write(
         self,
@@ -136,44 +119,26 @@ class _UnitRawWriter(RawIngestionWriterProtocol):
         return len(cast(Sequence[object], data))
 
 
-# ========================================================================
-# Test Fixtures
-# ========================================================================
-# Note: mock_feature_store, mock_model_store, and mock_strategy_store
-# are now imported from conftest.py (which imports from ml.tests.fixtures.mock_stores).
-# These tests previously used MockBuilder for pre-populated test data, but the
-# backward-compatible fixtures from mock_stores.py work for these tests.
+def _store_mock(spec_type: type[StoreT]) -> StoreT:
+    """
+    Create a typed MagicMock matching the provided store specification.
+    """
+    return cast(StoreT, MagicMock(spec=spec_type))
+
+
+def _get_data_store_cls(module: ModuleType) -> type[DataStore]:
+    """
+    Retrieve the DataStore class from the provided module.
+    """
+    return cast(type[DataStore], getattr(module, "DataStore"))
 
 
 @pytest.fixture
-def mock_stores_bundle(
-    mock_feature_store: MagicMock,
-    mock_model_store: MagicMock,
-    mock_strategy_store: MagicMock,
-) -> dict[str, MagicMock]:
-    """
-    Bundle of all store mocks.
-    """
-    from ml.tests.builders import MockBuilder
-
-    return {
-        "feature_store": mock_feature_store,
-        "model_store": mock_model_store,
-        "strategy_store": mock_strategy_store,
-        "data_store": MockBuilder.store_with_data(store_type="data"),
-    }
-
-
-@pytest.fixture
-def mock_registry(mock_registry_factory) -> MagicMock:
+def mock_registry() -> MagicMock:
     """
     Create a mock DataRegistry with custom manifest and contract for validation tests.
-
-    Uses mock_registry_factory to create base registry, then overrides with
-    test-specific manifest and contract configuration.
     """
-    # Start with factory-created registry (no default manifest)
-    registry = mock_registry_factory("data", with_manifest=False)
+    registry = MagicMock()
 
     # Default manifest
     schema = {
@@ -189,7 +154,7 @@ def mock_registry(mock_registry_factory) -> MagicMock:
 
     primary_keys = ["instrument_id", "ts_event"]
     pipeline_signature = "test"
-    schema_hash = _dataset_schema_hash(
+    schema_hash = compute_dataset_schema_hash(
         schema=schema,
         primary_keys=primary_keys,
         ts_field="ts_event",
@@ -274,17 +239,14 @@ def mock_registry(mock_registry_factory) -> MagicMock:
     return registry
 
 
-@pytest.fixture(params=[False, True], ids=["legacy", "component"])
-def data_store_module(
-    request: pytest.FixtureRequest,
-    component_data_store_factory: DataStoreModuleFactory,
-) -> Generator[ModuleType, None, None]:
+@pytest.fixture
+def data_store_module() -> Generator[ModuleType, None, None]:
     """
-    Provide the DataStore module with the desired implementation toggle.
+    Provide the DataStore module (component-only).
     """
-    use_component = bool(request.param)
-    with component_data_store_factory(use_component=use_component) as module:
-        yield module
+    import ml.stores.data_store as module
+
+    yield module
 
 
 @pytest.fixture
@@ -803,9 +765,7 @@ class TestFailClosedWrites:
         valid_bar_data[0]["close"] = -1.0
 
         # Should not raise in monitor-only mode
-        with patch("ml.stores.data_store.logger") as mock_logger, patch(
-            "ml.stores.data_store_legacy.logger",
-        ) as legacy_logger:
+        with patch("ml.stores.data_store.logger") as mock_logger:
             event = data_store.write_ingestion(
                 dataset_id="test_bars",
                 records=_maybe_polars_frame(valid_bar_data),
@@ -814,11 +774,7 @@ class TestFailClosedWrites:
             )
 
             assert event.status == "success"
-            # Should log the issues on the active implementation
-            if getattr(data_store, "_use_legacy", False):
-                legacy_logger.info.assert_called()
-            else:
-                mock_logger.info.assert_called()
+            mock_logger.info.assert_called()
 
 
 # ========================================================================
@@ -1213,11 +1169,7 @@ class TestSchemaMigration:
         mock_registry.get_manifest.return_value = manifest2
 
         # Should detect version change and start migration
-        if getattr(store, "_use_legacy", False):
-            target = store._legacy_impl
-        else:
-            target = getattr(store, "_contract_enforcer")
-
+        target = store
         with patch.object(target, "_start_migration_window") as mock_start:
             _ = store._get_manifest("test_bars")
             mock_start.assert_called_once()
@@ -1292,9 +1244,11 @@ class TestPropertyBased:
         num_records: int,
         null_probability: float,
         include_duplicates: bool,
-        component_data_store_factory: DataStoreModuleFactory,
+        data_store_module: ModuleType,
     ) -> None:
-        """Test validation is consistent across different data patterns."""
+        """
+        Test validation is consistent across different data patterns.
+        """
         mock_registry = MagicMock()
 
         schema = {
@@ -1319,7 +1273,7 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=_dataset_schema_hash(
+            schema_hash=compute_dataset_schema_hash(
                 schema=schema,
                 primary_keys=["instrument_id", "ts_event"],
                 ts_field="ts_event",
@@ -1404,32 +1358,28 @@ class TestPropertyBased:
 
         frame = _maybe_polars_frame(data)
 
-        for use_component in (False, True):
-            with component_data_store_factory(use_component=use_component) as module:
-                data_store_cls = _get_data_store_cls(module)
-                data_store = data_store_cls(
-                    registry=mock_registry,
-                    connection_string=conn_str,
-                    feature_store=MockBuilder.store_with_data(store_type="feature"),
-                    model_store=MockBuilder.store_with_data(store_type="model"),
-                    strategy_store=MockBuilder.store_with_data(store_type="strategy"),
-                    fail_on_validation_error=True,
-                )
+        data_store_cls = _get_data_store_cls(data_store_module)
+        data_store = data_store_cls(
+            registry=mock_registry,
+            connection_string=conn_str,
+            feature_store=MockBuilder.store_with_data(store_type="feature"),
+            model_store=MockBuilder.store_with_data(store_type="model"),
+            strategy_store=MockBuilder.store_with_data(store_type="strategy"),
+            fail_on_validation_error=True,
+        )
 
-                report = data_store.validate_batch("test_bars", frame)
+        report = data_store.validate_batch("test_bars", frame)
 
-                assert report.total_records == num_records
-                assert report.passed_records + report.failed_records == report.total_records
-                assert 0.0 <= report.quality_score <= 1.0
+        assert report.total_records == num_records
+        assert report.passed_records + report.failed_records == report.total_records
+        assert 0.0 <= report.quality_score <= 1.0
 
-                if report.violations:
-                    assert report.quality_score < 1.0
+        if report.violations:
+            assert report.quality_score < 1.0
 
-                fail_violations = [
-                    v for v in report.violations if v.severity == QualityFlag.FAIL
-                ]
-                if fail_violations:
-                    assert report.failed_records > 0
+        fail_violations = [v for v in report.violations if v.severity == QualityFlag.FAIL]
+        if fail_violations:
+            assert report.failed_records > 0
 
     @given(
         close_min=st.floats(min_value=-1000.0, max_value=0.0),
@@ -1479,7 +1429,7 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=_dataset_schema_hash(
+            schema_hash=compute_dataset_schema_hash(
                 schema=schema,
                 primary_keys=["instrument_id", "ts_event"],
                 ts_field="ts_event",
@@ -1621,7 +1571,7 @@ class TestPropertyBased:
             ts_field="ts_event",
             seq_field=None,
             primary_keys=["instrument_id", "ts_event"],
-            schema_hash=_dataset_schema_hash(
+            schema_hash=compute_dataset_schema_hash(
                 schema=base_schema,
                 primary_keys=["instrument_id", "ts_event"],
                 ts_field="ts_event",

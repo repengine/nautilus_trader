@@ -173,7 +173,8 @@ def _attach_feature_store_stub(actor: MLSignalActor) -> _FeatureStoreStub:
     """Attach and return a deterministic feature store stub."""
 
     feature_store = _FeatureStoreStub()
-    actor._feature_store = feature_store
+    # Force inject into the private attribute backing the property (read-only property workaround)
+    object.__setattr__(actor, "_BaseMLInferenceActor__feature_store_instance", feature_store)
     actor._persist_features = False
     return feature_store
 
@@ -241,16 +242,20 @@ def build_test_actor(
     with patch("ml.actors.actor_services.init_actor_services", return_value=services_stub):
         actor = MLSignalActor(config)
 
-    feature_store_injected = _attach_feature_store_stub(actor)
-    actor._feature_store = feature_store_injected
-    services_stub.feature_store = feature_store_injected
-    actor._model_store = model_store_stub
-    actor._strategy_store = strategy_store_stub
-    actor._data_store = data_store_stub
-    actor._feature_registry = services_stub.feature_registry
-    actor._model_registry = services_stub.model_registry
-    actor._strategy_registry = services_stub.strategy_registry
-    actor._data_registry = services_stub.data_registry
+    # Ensure the feature store stub is attached (overwriting if needed via private attr)
+    # Note: init_actor_services patch above already sets the initial stores via the constructor,
+    # but we use the helper to ensure consistent configuration like _persist_features.
+    _attach_feature_store_stub(actor)
+    
+    # Inject other stores via private attributes (properties are read-only)
+    object.__setattr__(actor, "_BaseMLInferenceActor__model_store_instance", model_store_stub)
+    object.__setattr__(actor, "_BaseMLInferenceActor__strategy_store_instance", strategy_store_stub)
+    object.__setattr__(actor, "_BaseMLInferenceActor__data_store_instance", data_store_stub)
+    
+    object.__setattr__(actor, "_BaseMLInferenceActor__feature_registry_instance", services_stub.feature_registry)
+    object.__setattr__(actor, "_BaseMLInferenceActor__model_registry_instance", services_stub.model_registry)
+    object.__setattr__(actor, "_BaseMLInferenceActor__strategy_registry_instance", services_stub.strategy_registry)
+    object.__setattr__(actor, "_BaseMLInferenceActor__data_registry_instance", services_stub.data_registry)
 
     actor._model = mock_model
     actor._model_id = "test_model"

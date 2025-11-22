@@ -4,6 +4,17 @@ import os
 
 import pytest
 
+# Ensure tools module is mockable even if not in python path
+import sys
+from unittest.mock import MagicMock
+if "tools" not in sys.modules:
+    tools_mock = MagicMock()
+    tools_mock.validate_metrics_bootstrap = MagicMock()
+    tools_mock.validate_event_constants = MagicMock()
+    sys.modules["tools"] = tools_mock
+    sys.modules["tools.validate_metrics_bootstrap"] = tools_mock.validate_metrics_bootstrap
+    sys.modules["tools.validate_event_constants"] = tools_mock.validate_event_constants
+
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",

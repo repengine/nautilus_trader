@@ -52,6 +52,7 @@ from ml.actors.signal import SignalStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 from ml.features.config import FeatureConfig
+
 if TYPE_CHECKING:
     from ml.tests.fixtures.model_factory import TestModelFactory
 
@@ -80,6 +81,7 @@ def _require_test_model_factory() -> TestModelFactory:
 # ============================================================================
 # Custom Hypothesis Strategies
 # ============================================================================
+
 
 @st.composite
 def valid_instrument_ids(draw, allow_crypto=True, allow_forex=True, allow_stocks=True):
@@ -139,12 +141,14 @@ def valid_prices(draw, min_value=0.0001, max_value=100000.0, precision=4):
     Generate valid prices with realistic bounds and precision.
     """
     # Use float strategy with constraints
-    raw_price = draw(st.floats(
-        min_value=min_value,
-        max_value=max_value,
-        allow_nan=False,
-        allow_infinity=False,
-    ))
+    raw_price = draw(
+        st.floats(
+            min_value=min_value,
+            max_value=max_value,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+    )
 
     # Round to specified precision to avoid floating point issues
     rounded_price = round(raw_price, precision)
@@ -161,12 +165,14 @@ def valid_quantities(draw, min_value=0.0001, max_value=1000000.0, precision=4):
     """
     Generate valid quantities for volume.
     """
-    raw_quantity = draw(st.floats(
-        min_value=min_value,
-        max_value=max_value,
-        allow_nan=False,
-        allow_infinity=False,
-    ))
+    raw_quantity = draw(
+        st.floats(
+            min_value=min_value,
+            max_value=max_value,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+    )
 
     rounded_quantity = round(raw_quantity, precision)
 
@@ -187,43 +193,53 @@ def valid_bars(draw, bar_type=None, allow_extreme_values=False):
     # Generate base prices
     if allow_extreme_values:
         # Include edge cases: very small, very large, and precision edge cases
-        base_price = draw(st.floats(
-            min_value=1e-8,  # Very small prices (crypto dust)
-            max_value=1e6,   # Very large prices (some stocks/crypto)
-            allow_nan=False,
-            allow_infinity=False,
-        ))
+        base_price = draw(
+            st.floats(
+                min_value=1e-8,  # Very small prices (crypto dust)
+                max_value=1e6,  # Very large prices (some stocks/crypto)
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+        )
         price_precision = draw(st.integers(min_value=0, max_value=8))
     else:
         # Normal price ranges
-        base_price = draw(st.floats(
-            min_value=0.01,
-            max_value=10000.0,
-            allow_nan=False,
-            allow_infinity=False,
-        ))
+        base_price = draw(
+            st.floats(
+                min_value=0.01,
+                max_value=10000.0,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+        )
         price_precision = 4
 
     # Ensure OHLC relationships hold: Low <= Open,Close <= High
     price_variation = base_price * 0.05  # Max 5% variation
 
-    open_price = draw(valid_prices(
-        min_value=max(base_price - price_variation, 1e-8),
-        max_value=base_price + price_variation,
-        precision=price_precision,
-    ))
+    open_price = draw(
+        valid_prices(
+            min_value=max(base_price - price_variation, 1e-8),
+            max_value=base_price + price_variation,
+            precision=price_precision,
+        ),
+    )
 
-    high_price = draw(valid_prices(
-        min_value=float(open_price),
-        max_value=float(open_price) * 1.1,  # High can be up to 10% above open
-        precision=price_precision,
-    ))
+    high_price = draw(
+        valid_prices(
+            min_value=float(open_price),
+            max_value=float(open_price) * 1.1,  # High can be up to 10% above open
+            precision=price_precision,
+        ),
+    )
 
-    low_price = draw(valid_prices(
-        min_value=float(open_price) * 0.9,  # Low can be down to 90% of open
-        max_value=float(open_price),
-        precision=price_precision,
-    ))
+    low_price = draw(
+        valid_prices(
+            min_value=float(open_price) * 0.9,  # Low can be down to 90% of open
+            max_value=float(open_price),
+            precision=price_precision,
+        ),
+    )
 
     # Clamp OHLC relationships after rounding
     open_val = float(open_price)
@@ -232,25 +248,31 @@ def valid_bars(draw, bar_type=None, allow_extreme_values=False):
     high_price = Price(round(high_price_val, price_precision), price_precision)
     low_price = Price(round(max(low_price_val, 1e-8), price_precision), price_precision)
 
-    close_price = draw(valid_prices(
-        min_value=float(low_price),
-        max_value=float(high_price),
-        precision=price_precision,
-    ))
+    close_price = draw(
+        valid_prices(
+            min_value=float(low_price),
+            max_value=float(high_price),
+            precision=price_precision,
+        ),
+    )
 
     # Generate volume
     if allow_extreme_values:
-        volume = draw(valid_quantities(
-            min_value=0.0,  # Allow zero volume
-            max_value=1e12,  # Very high volume
-            precision=8,
-        ))
+        volume = draw(
+            valid_quantities(
+                min_value=0.0,  # Allow zero volume
+                max_value=1e12,  # Very high volume
+                precision=8,
+            ),
+        )
     else:
-        volume = draw(valid_quantities(
-            min_value=0.001,
-            max_value=1000000.0,
-            precision=4,
-        ))
+        volume = draw(
+            valid_quantities(
+                min_value=0.001,
+                max_value=1000000.0,
+                precision=4,
+            ),
+        )
 
     # Generate timestamps
     ts_event = draw(st.integers(min_value=1600000000000000000, max_value=2000000000000000000))
@@ -278,30 +300,35 @@ def feature_arrays(draw, n_features=None, allow_extreme_values=False):
 
     if allow_extreme_values:
         # Include edge cases that might break models
-        values = draw(st.lists(
-            st.one_of(
-                st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                st.just(0.0),  # Include exact zeros
-                st.floats(min_value=-1e-8, max_value=1e-8),  # Very small values
+        values = draw(
+            st.lists(
+                st.one_of(
+                    st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
+                    st.just(0.0),  # Include exact zeros
+                    st.floats(min_value=-1e-8, max_value=1e-8),  # Very small values
+                ),
+                min_size=n_features,
+                max_size=n_features,
             ),
-            min_size=n_features,
-            max_size=n_features,
-        ))
+        )
     else:
         # Normal feature ranges
-        values = draw(st.lists(
-            st.floats(min_value=-100.0, max_value=100.0, allow_nan=False, allow_infinity=False),
-            min_size=n_features,
-            max_size=n_features,
-        ))
+        values = draw(
+            st.lists(
+                st.floats(min_value=-100.0, max_value=100.0, allow_nan=False, allow_infinity=False),
+                min_size=n_features,
+                max_size=n_features,
+            ),
+        )
 
     return np.array(values, dtype=np.float32)
 
 
-
 @lru_cache(maxsize=32)
 def _cached_model_path(n_features: int, n_outputs: int) -> str:
-    """Generate or fetch a cached ONNX model path for the given shape."""
+    """
+    Generate or fetch a cached ONNX model path for the given shape.
+    """
     model_path = _require_test_model_factory().create_onnx_model(
         n_features=n_features,
         n_outputs=n_outputs,
@@ -329,12 +356,16 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
         )
 
     if strategy is None:
-        strategy = draw(st.sampled_from([
-            SignalStrategy.THRESHOLD,
-            SignalStrategy.EXTREMES,
-            SignalStrategy.MOMENTUM,
-            SignalStrategy.ADAPTIVE,
-        ]))
+        strategy = draw(
+            st.sampled_from(
+                [
+                    SignalStrategy.THRESHOLD,
+                    SignalStrategy.EXTREMES,
+                    SignalStrategy.MOMENTUM,
+                    SignalStrategy.ADAPTIVE,
+                ],
+            ),
+        )
 
     return MLSignalActorConfig(
         model_id="test_model",
@@ -367,7 +398,9 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
 
 
 def create_actor_with_mock_stores(config: MLSignalActorConfig) -> MLSignalActor:
-    """Instantiate an MLSignalActor with stores/registries stubbed for tests."""
+    """
+    Instantiate an MLSignalActor with stores/registries stubbed for tests.
+    """
 
     services_stub = SimpleNamespace(
         feature_store=MagicMock(),
@@ -410,20 +443,15 @@ def create_actor_with_mock_stores(config: MLSignalActorConfig) -> MLSignalActor:
 
     actor._signal_strategy = ThresholdSignalStrategy(config.prediction_threshold)
 
-    actor._feature_store = services_stub.feature_store
-    actor._model_store = services_stub.model_store
-    actor._strategy_store = services_stub.strategy_store
-    actor._data_store = services_stub.data_store
-    actor._feature_registry = services_stub.feature_registry
-    actor._model_registry = services_stub.model_registry
-    actor._strategy_registry = services_stub.strategy_registry
-    actor._data_registry = services_stub.data_registry
+    # Note: Stores and registries are initialized via init_actor_services patch
+    # and accessed via properties on the actor. We do not need to set them manually.
 
     actor._circuit_breaker = None
     actor._health_monitor = None
     actor._performance_monitor = MagicMock()
 
     return actor
+
 
 @pytest.mark.property
 class TestMLSignalActorBounds:
@@ -486,9 +514,9 @@ class TestMLSignalActorBounds:
             signal = actor._signal_strategy.generate_signal(bar, pred, conf, features, context)
 
             if signal is not None:
-                assert -1.0 <= signal.prediction <= 1.0, (
-                    f"Signal prediction {signal.prediction} out of bounds [-1, 1]"
-                )
+                assert (
+                    -1.0 <= signal.prediction <= 1.0
+                ), f"Signal prediction {signal.prediction} out of bounds [-1, 1]"
 
         except Exception:
             # If prediction fails due to invalid input, that's acceptable
@@ -497,7 +525,12 @@ class TestMLSignalActorBounds:
 
     @given(
         config=ml_signal_actor_configs(),
-        confidence_raw=st.floats(min_value=-2.0, max_value=3.0, allow_nan=False, allow_infinity=False),
+        confidence_raw=st.floats(
+            min_value=-2.0,
+            max_value=3.0,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
     )
     @settings(max_examples=100, deadline=10000)
     def test_confidence_bounds_invariant(self, config, confidence_raw):
@@ -545,9 +578,9 @@ class TestMLSignalActorBounds:
             signal = actor._signal_strategy.generate_signal(bar, pred, conf, features, context)
 
             if signal is not None:
-                assert 0.0 <= signal.confidence <= 1.0, (
-                    f"Signal confidence {signal.confidence} out of bounds [0, 1]"
-                )
+                assert (
+                    0.0 <= signal.confidence <= 1.0
+                ), f"Signal confidence {signal.confidence} out of bounds [0, 1]"
 
         except Exception:
             # Invalid inputs may cause exceptions, which is acceptable
@@ -599,7 +632,13 @@ class TestMLSignalActorBounds:
                 "model_id": config.model_id,
             }
 
-            signal = actor._signal_strategy.generate_signal(bar, pred, conf, computed_features, context)
+            signal = actor._signal_strategy.generate_signal(
+                bar,
+                pred,
+                conf,
+                computed_features,
+                context,
+            )
 
             if signal is not None:
                 # Verify signal properties
@@ -768,6 +807,7 @@ class TestMLSignalActorBounds:
 
         # Use adaptive strategy specifically
         from ml.actors.signal import AdaptiveStrategy
+
         strategy_config = config.strategy_config or StrategyConfig()
         actor._signal_strategy = AdaptiveStrategy(
             base_threshold=config.prediction_threshold,
@@ -790,8 +830,8 @@ class TestMLSignalActorBounds:
                 strategy_config.max_threshold,
                 max(
                     strategy_config.min_threshold,
-                    base_threshold + volatility * vol_factor
-                )
+                    base_threshold + volatility * vol_factor,
+                ),
             )
 
             bar = Bar(
@@ -820,7 +860,11 @@ class TestMLSignalActorBounds:
                 signal = actor._signal_strategy.generate_signal(bar, pred, conf, features, context)
 
                 # Property: Adaptive threshold should be within bounds
-                assert strategy_config.min_threshold <= adaptive_threshold <= strategy_config.max_threshold, (
+                assert (
+                    strategy_config.min_threshold
+                    <= adaptive_threshold
+                    <= strategy_config.max_threshold
+                ), (
                     f"Adaptive threshold {adaptive_threshold} outside bounds "
                     f"[{strategy_config.min_threshold}, {strategy_config.max_threshold}]"
                 )
@@ -829,7 +873,11 @@ class TestMLSignalActorBounds:
                     # If signal metadata includes adaptive threshold, verify it
                     signal_threshold = signal.metadata.get("adaptive_threshold")
                     if signal_threshold is not None:
-                        assert strategy_config.min_threshold <= signal_threshold <= strategy_config.max_threshold
+                        assert (
+                            strategy_config.min_threshold
+                            <= signal_threshold
+                            <= strategy_config.max_threshold
+                        )
 
             except Exception:
                 continue  # Skip failed iterations
@@ -838,6 +886,7 @@ class TestMLSignalActorBounds:
 # ============================================================================
 # Edge Case Tests
 # ============================================================================
+
 
 @pytest.mark.property
 class TestMLSignalActorEdgeCases:
@@ -907,9 +956,9 @@ class TestMLSignalActorEdgeCases:
             actor = create_actor_with_mock_stores(config)
 
             # Property: Initial adaptive threshold should be valid
-            assert 0.0 <= actor._adaptive_threshold <= 1.0, (
-                f"Initial adaptive threshold {actor._adaptive_threshold} out of bounds"
-            )
+            assert (
+                0.0 <= actor._adaptive_threshold <= 1.0
+            ), f"Initial adaptive threshold {actor._adaptive_threshold} out of bounds"
 
             # Property: Window indices should be valid
             assert 0 <= actor._window_index < config.adaptive_window

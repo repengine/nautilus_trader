@@ -819,6 +819,17 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return errors
 
+    def flush(self) -> None:
+        """
+        Flush all underlying stores.
+        """
+        for store in (self.feature_store, self.model_store, self.strategy_store, self._earnings_store):
+            if hasattr(store, "flush"):
+                try:
+                    store.flush()
+                except Exception as exc:
+                    logger.warning("Failed to flush %s: %s", store.__class__.__name__, exc)
+
     # =========================================================================
     # Write Operations
     # =========================================================================
@@ -2128,6 +2139,27 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
+        raw_writer_status = "skipped"
+        # Raw writer persistence (if configured)
+        if self._raw_writer is not None:
+            try:
+                # Add data_source for raw persistence context (e.g. EDGAR)
+                raw_record = record.copy()
+                raw_record["data_source"] = "EDGAR"
+                
+                # Wrap in list or DataFrame-like structure as expected by raw_writer
+                # (Using list of dicts which is compatible with _to_dataframe inside raw_writer if needed,
+                # or if raw_writer handles lists directly)
+                self._raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ACTUALS,
+                    data=[raw_record],
+                )
+                raw_writer_status = "ok"
+            except Exception:
+                # Best-effort persistence; logging handled by raw_writer or ignored to not block DB write
+                logger.warning("Raw writer failed for earnings actual", exc_info=True)
+                raw_writer_status = "failed"
+
         try:
             self._earnings_store.write_actuals(
                 ticker=ticker,
@@ -2160,7 +2192,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata={
+                "quality_score": quality_report.quality_score,
+                "raw_writer_status": raw_writer_status,
+            },
         )
 
         self._emit_success_event_and_update(
@@ -2228,6 +2263,23 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
+        raw_writer_status = "skipped"
+        # Raw writer persistence (if configured)
+        if self._raw_writer is not None:
+            try:
+                # Add data_source for raw persistence context (e.g. YAHOO)
+                raw_record = record.copy()
+                raw_record["data_source"] = "YAHOO"
+                
+                self._raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ESTIMATES,
+                    data=[raw_record],
+                )
+                raw_writer_status = "ok"
+            except Exception:
+                logger.warning("Raw writer failed for earnings estimate", exc_info=True)
+                raw_writer_status = "failed"
+
         try:
             self._earnings_store.write_estimates(
                 ticker=ticker,
@@ -2254,7 +2306,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata={
+                "quality_score": quality_report.quality_score,
+                "raw_writer_status": raw_writer_status,
+            },
         )
 
         self._emit_success_event_and_update(
