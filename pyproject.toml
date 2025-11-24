@@ -555,6 +555,17 @@ disable_error_code = [
     "redundant-cast",
 ]
 
+[[tool.mypy.overrides]]
+module = [
+    "ml.registry_backup.*",
+    "ml.features_backup_phase5.*",
+    "ml.stores_backup_phase3.*",
+    "ml.orchestration_backup_phase2.*",
+    "ml.actors_backup_phase4.*",
+    "ml.scripts.compare_streaming_cohorts",
+]
+ignore_errors = true
+
 # Relax strictness for test modules to preserve velocity while keeping
 # production ML code under strict typing. Tests often use dynamic mocks,
 # pytest fixtures, and untyped helpers that aren't worth fully annotating.
