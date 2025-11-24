@@ -23,8 +23,25 @@ logs/
 lightning_logs/
 reports/
 
-# ML artifacts and datasets
+# ML artifacts and datasets (with and without trailing slash to catch symlinks)
+data/tier1
 data/tier1/
+data/fred
+data/fred/
+data/catalog
+data/catalog/
+data/features
+data/features/
+data/earnings_raw
+data/earnings_raw/
+data/events
+data/events/
+data/earnings_file_store
+data/earnings_file_store/
+data/batch
+data/batch/
+ml_out
+ml_out/
 performance_results/
 checkpoints/
 ml_registry/models/
@@ -34,8 +51,6 @@ ml_registry/datasets/
 ml_registry/*.json
 .playwright-mcp/
 .png
-data/batch/
-ml_out/
 **.npz
 .npz
 datasets/
@@ -229,3 +244,6 @@ ml/tests/SESSION_SUMMARY_AND_LESSONS.md
 ml/tests/STATE_POLLUTION_SOURCES.md
 ml/tests/SYNTHESIS_AND_ACTION_PLAN.md
 TEST_POLLUTION_ELIMINATION_SUMMARY.md
+
+.gemini/
+gha-creds-*.json
