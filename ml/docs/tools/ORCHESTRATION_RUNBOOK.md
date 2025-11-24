@@ -45,7 +45,7 @@ Key flags:
 
 - Ingestion/backfill (optional): `--ingest`, `--dataset_id`, `--schema`, `--instruments`, `--lookback_days`
 - Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`
-    - The DataStore/Registry stack is mandatory. The orchestrator always writes
+  - The DataStore/Registry stack is mandatory. The orchestrator always writes
       via `DataStoreMarketDataWriter`. `--write_mode parquet` enables an
       additional mirror into the Parquet catalog; `--write_mode datastore`
       keeps writes confined to the store.
@@ -91,6 +91,28 @@ recoveries emit `coverage.feature_restore.partial`). Every activation increments
 level="<dataset_id>"}` for monitoring, so keep the manifest aligned with the
 active environment to maintain accurate detection and automated replays.
 
+**Tier‑1 coverage-gate quickstart**
+
+- Environment (Tier‑1): `COVERAGE_DATASETS_FILE=ml/config/coverage_datasets_tier1.toml COVERAGE_RESTORE_ENABLED=1 CATALOG_CLEAN_MODE=archive CATALOG_BACKUP_DIR=ml_out/catalog_archives MARKET_BACKFILL_DYNAMIC_LOOKBACK=1`
+- Command: `poetry run python -m ml.cli.pipeline_orchestrator --config ml/config/pipeline_scheduler_example.toml`
+- Expected evidence to capture per run:
+  - Orchestrator log path (e.g., `ml_out/tier1_orchestrator_run*.log`) and run_id from log prefix.
+  - Coverage metrics: `coverage.feature_restore.pending/completed/partial`, `ml_fallback_activations_total{component="feature_coverage_restorer",level=…}`, bucket counts (`pipeline_status["coverage"]`).
+  - Dataset metadata and catalog archive location under `ml_out/catalog_archives/**`.
+  - Validation: `make validate-metrics`, `make validate-events`, `poetry run coverage report --include "ml/*"` on the same working tree.
+- Manifest enforcement: the entrypoint now rejects manifests containing unsupported dataset IDs; ensure Tier‑1 manifests only list `ml.earnings_actuals`, `ml.earnings_estimates`, `ml.macro_release_calendar`, `ml.macro_observations`, `ml.events_calendar`, `ml.microstructure_minute`, `ml.l2_minute`.
+
+### Coverage restoration guardrails
+
+- Coverage restoration now gates ingestion. When `COVERAGE_RESTORE_ENABLED=1` the
+  pipeline aborts if the coverage manager cannot classify buckets, lacks a DB connection,
+  or fails targeted ingestion. Opt out only with `COVERAGE_RESTORE_ALLOW_FAILURE=1`
+  (not recommended for Tier‑1).
+- Catalog coverage uses the same identifier resolver as the rehydrator. Bars default to
+  `{instrument_id}-1-MINUTE-LAST-EXTERNAL` (override via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE`);
+  TBBO/trade schemas key directly on `instrument_id`. This alignment keeps parquet interval
+  scans fast and prevents redundant Databento backfills when the catalog already contains data.
+
 ### Databento Discovery (dynamic dataset selection)
 
 The orchestrator now auto-discovers Databento datasets per symbol and schema when no explicit `market_inputs` are provided. Discovery queries Databento metadata at runtime, evaluates coverage windows and cost estimates, and picks the cheapest viable dataset for each symbol.
@@ -127,6 +149,7 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 - DB URL: `NAUTILUS_DB` or use orchestrator `--db` flag
 - TFT builder guardrail: `ML_TFT_ALLOW_PARQUET_FALLBACK=1` opt-in only; disabled by default so SQL read failures raise instead of silently falling back to parquet.
 - Catalog rehydration: set `CATALOG_REHYDRATE_ENABLED=1` (plus supporting `CATALOG_REHYDRATE_*` knobs) to replay the Parquet catalog into Postgres before orchestrator ingestion.
+- Docker defaults now bias to fast starts: the override file sets `CATALOG_REHYDRATE_LOOKBACK_DAYS=5`, `CATALOG_REHYDRATE_STALE_ONLY=1`, and `CATALOG_REHYDRATE_EXHAUSTIVE=0`. Override these in your shell if you intentionally want a full replay (for example after destructive DB restores).
 - Dynamic Databento lookback:
   - `MARKET_BACKFILL_DYNAMIC_LOOKBACK=1` enables per-instrument gap sizing so the scheduler only requests the missing windows instead of a fixed week of data every pass.
   - `MARKET_BACKFILL_MIN_DAYS` (default `1`) clamps the lower bound, and `MARKET_BACKFILL_MAX_DAYS` optionally caps extremely stale symbols.
@@ -149,6 +172,7 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
 
 - Pipeline configs may also specify `[ingestion].catalog_clean_mode = "archive"` and `catalog_backup_dir = "ml_out/catalog_archives"` (or set `CATALOG_CLEAN_MODE=archive` / `CATALOG_BACKUP_DIR=...`) so the orchestrator and integration runtime scrub the catalog automatically.
 - `CATALOG_REHYDRATE_STALE_ONLY=1` (default) samples SQL staleness before replaying the catalog. If every instrument has rows newer than `CATALOG_REHYDRATE_STALENESS_HOURS` (default `6`) the rehydration pass is skipped entirely, which keeps restarts from scanning 100+ parquet trees when the database is already in sync. Set the flag to `0` to force a full replay after a destructive restore.
+- Coverage guard: set `COVERAGE_RESTORE_ENABLED=1` to fail the pipeline when coverage classification/restore cannot complete. Use `COVERAGE_RESTORE_ALLOW_FAILURE=1` only for non-critical drills; production Tier‑1 runs should keep it disabled so coverage remains authoritative.
 
 ## Observability & Validation
 
@@ -160,6 +184,11 @@ When `--attach-runtime` is enabled, the orchestrator hydrates the four stores/re
   - `nautilus_ml_symbology_retry_total{dataset,status}` increments whenever the Databento resolver retries a transient 5xx response; correlate spikes here with Tier‑1 failures such as the DIS `502 <empty message>` outage.
 - Coverage manifest telemetry:
   - `nautilus_ml_coverage_manifest_events_total{event="loaded|missing|invalid"}` increments when the orchestrator loads `COVERAGE_DATASETS_FILE`; missing or invalid manifests now attach `feature_manifest_*` markers to pipeline status/errors before classification starts.
+- Tier-1 run recipe (cold path, coverage gate on):
+  - Env: `COVERAGE_DATASETS_FILE=ml/config/coverage_datasets_tier1.toml COVERAGE_RESTORE_ENABLED=1 CATALOG_CLEAN_MODE=archive CATALOG_BACKUP_DIR=ml_out/catalog_archives`
+  - Command: `poetry run python -m ml.cli.pipeline_orchestrator --config ml/config/pipeline_scheduler_example.toml`
+  - Expected I/O: catalog hygiene archive under `ml_out/catalog_archives/**`, orchestrator log under `ml_out/tier1_orchestrator_run*.log`, SQL writes for Tier-1 bars/TBBO/trades, parquet fan-out may log overlap skips until catalog is compacted, coverage logs (`coverage.feature_restore.*`) if feature buckets require replay.
+  - Validation: check `ml_data_events` for fresh `INGESTED/backfill` entries, `coverage.feature_restore.completed` metrics/logs, `dataset_metadata.json` alongside dataset artifacts, and `make validate-metrics validate-events` if validators are enabled.
 - Partition hygiene:
   - `create_monthly_partitions` now copies rows out of `<table>_default` (skipping generated columns such as `spread`/`mid_price`) before attaching the new monthly partition, and treats duplicate/overlap SQLSTATEs as idempotent. This keeps bootstrap runs from failing on historical data left in the default partition.
   - When a dev database accretes orphan rows, run `SELECT create_monthly_partitions('market_data', '2023-01-01'::DATE, 60);` (or call `ml.common.db_utils.ensure_partition_tables_ready(...)`) to reattach the expected partitions without manual deletes.
@@ -361,6 +390,7 @@ pointing at the live DSN before running the audit harness.
       - pgdata:/var/lib/postgresql/data
 volumes:
   pgdata: {}
+
 ```
 
 This starts the scheduler alongside a PostgreSQL container. Provide `CATALOG_PATH` via a bind mount when using `parquet` writers.

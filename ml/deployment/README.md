@@ -163,6 +163,10 @@ The `ml_pipeline` container can restore the canonical `market_data` table from t
 
 When enabled, the pipeline compares catalog coverage with SQL coverage and only replays missing day buckets, preventing redundant Databento downloads during recovery.
 
+### Coverage Restoration Gate
+
+Set `COVERAGE_RESTORE_ENABLED=1` to require successful coverage classification/restoration before ingestion proceeds. The entrypoint treats failures as fatal unless `COVERAGE_RESTORE_ALLOW_FAILURE=1` is set (not recommended for Tier‑1). Catalog coverage and the rehydrator share the identifier template (`{instrument_id}-1-MINUTE-LAST-EXTERNAL` for bars; TBBO/trades use `instrument_id`) to keep parquet scans fast and avoid redundant Databento downloads when the catalog already holds the data.
+
 ### Cleaning Up Old Volumes
 
 Anonymous volumes (long hex names under `~/docker-data/volumes`) are safe to prune once the containers that created them are gone:
@@ -201,17 +205,21 @@ docker compose --env-file ./.env.test -f docker-compose.test.yml down -v
 
 ### Schema Bootstrap & External Databases
 
-- Run the schema audit before applying migrations to legacy databases:  
+- Run the schema audit before applying migrations to legacy databases:
+
   ```bash
   poetry run python -m ml.stores.schema_audit inspect --db-url postgresql://ml:ml@postgres.nautilus-ml:5432/nautilus_ml
   ```
+
   The CLI reports whether `ml_feature_values`, `ml_model_predictions`, `ml_strategy_signals`, and `market_data` are partitioned, have default partitions, and keep the generated `spread`/`mid_price` columns. It also ensures helper functions (e.g., `create_monthly_partitions`) exist.
 - Once the audit is green, run the migrations runner (automatically executed inside the pipeline container) from the same network boundary:
+
   ```bash
   poetry run python -m ml.stores.migrations_runner apply \
     --db-url postgresql://ml:ml@postgres.nautilus-ml:5432/nautilus_ml
   ```
-- The runner records checksums in `ml_schema_migrations` and the pipeline entrypoint refuses to start ingestion if migrations or the schema health check fail. Use `plan` mode for dry runs:  
+
+- The runner records checksums in `ml_schema_migrations` and the pipeline entrypoint refuses to start ingestion if migrations or the schema health check fail. Use `plan` mode for dry runs:
   `poetry run python -m ml.stores.migrations_runner plan --db-url …`
 - Instrumentation guardrails: the pipeline now verifies that `ml_data_events` and `ml_data_watermarks` exist immediately after migrations. If either table is missing, the container exits with a `SchemaHealthCheckError` so Databento ingestion never runs against an uninstrumented database. Re-run the migrations runner (or load the missing tables) before restarting the stack.
 

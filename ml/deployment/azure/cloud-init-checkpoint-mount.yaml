@@ -1,0 +1,84 @@
+#cloud-config
+package_update: true
+packages:
+  - blobfuse2
+  - cifs-utils
+write_files:
+  - path: /etc/blobfuse2/checkpoint.yaml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      logging:
+        type: syslog
+        level: info
+      mounts:
+        - account_name: ${AZURE_STORAGE_ACCOUNT}
+          container: ${AZURE_BLOB_CONTAINER}
+          auth_type: msi
+          identity_id: ${AZURE_USER_ASSIGNED_IDENTITY}
+          mode: mirror
+      filesystem:
+        cache:
+          mode: local
+          path: /var/lib/blobfuse2/cache
+          timeout_seconds: 120
+  - path: /usr/local/bin/mount-checkpoint.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      : "${CHECKPOINT_MOUNT:=/mnt/ml-checkpoints}"
+      mkdir -p "${CHECKPOINT_MOUNT}"
+      mkdir -p /var/lib/blobfuse2/cache
+
+      blobfuse2 mount "${CHECKPOINT_MOUNT}" \
+        --config-file=/etc/blobfuse2/checkpoint.yaml \
+        --use-azure-identity \
+        --tmp-path=/var/lib/blobfuse2/cache \
+        --allow-other
+  - path: /etc/systemd/system/blobfuse2-checkpoint.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Mount ML checkpoint Blob Storage via blobfuse2
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=-/etc/default/blobfuse2-checkpoint
+      ExecStart=/usr/local/bin/mount-checkpoint.sh
+      ExecStop=/usr/bin/fusermount -u ${CHECKPOINT_MOUNT:-/mnt/ml-checkpoints}
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/default/blobfuse2-checkpoint
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # CHECKPOINT_MOUNT=/mnt/ml-checkpoints
+      # AZURE_STORAGE_ACCOUNT=storageacct
+      # AZURE_BLOB_CONTAINER=ml-checkpoints
+      # AZURE_USER_ASSIGNED_IDENTITY=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<name>
+  - path: /etc/smbcredentials/checkpoint.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=${AZURE_FILES_STORAGE_ACCOUNT}
+      password=${AZURE_FILES_SAS_TOKEN}
+runcmd:
+  - mkdir -p /var/lib/blobfuse2/cache
+  - systemctl daemon-reload
+  - systemctl enable --now blobfuse2-checkpoint.service
+  - mkdir -p /mnt/ml-checkpoints/snapshots
+  - mkdir -p /mnt/ml-checkpoints/releases
+  - mkdir -p /mnt/ml-checkpoints/files
+  - >
+    mount -t cifs //${AZURE_FILES_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILES_SHARE}
+    /mnt/ml-checkpoints/files
+    -o vers=3.0,credentials=/etc/smbcredentials/checkpoint.cred,dir_mode=0770,file_mode=0660,serverino,nounix
+  - echo "ML_STREAMING_CHECKPOINT_DIR=${CHECKPOINT_MOUNT:-/mnt/ml-checkpoints}" >> /etc/environment
