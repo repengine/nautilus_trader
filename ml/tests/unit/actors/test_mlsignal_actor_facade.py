@@ -38,11 +38,11 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
 
 # Component imports - these exist and are tested separately
-from ml.actors.components.adaptive_threshold import AdaptiveThresholdComponent
-from ml.actors.components.model_warmup import ModelWarmUpComponent
-from ml.actors.components.performance_monitoring import PerformanceMonitoringComponent
-from ml.actors.components.prediction_buffer import PredictionBufferComponent
-from ml.actors.components.signal_strategy import (
+from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
+from ml.actors.common.model_warmup import ModelWarmUpComponent
+from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
+from ml.actors.common.prediction_buffer import PredictionBufferComponent
+from ml.actors.common.signal_strategy import (
     SignalGenerationStrategy,
     SignalStrategy,
     ThresholdSignalStrategy,
@@ -272,7 +272,7 @@ class TestFacadeComponentInitialization:
 
         """
         from ml.actors.signal_facade import MLSignalActorFacade
-        from ml.actors.components.signal_strategy import SignalStrategyComponent
+        from ml.actors.common.signal_strategy import SignalStrategyComponent
 
         facade = MLSignalActorFacade(base_ml_signal_config)
 
@@ -446,7 +446,7 @@ class TestFacadeComponentDelegation:
 
         """
         from ml.actors.signal_facade import MLSignalActorFacade
-        from ml.actors.components.signal_strategy import SignalGenerationStrategy
+        from ml.actors.common.signal_strategy import SignalGenerationStrategy
 
         facade = MLSignalActorFacade(base_ml_signal_config)
 

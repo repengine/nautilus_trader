@@ -76,7 +76,7 @@ def strategy_registry() -> Mock:
 @pytest.fixture
 def runtime_attacher(integration_manager: Mock):
     """Provides RuntimeAttacher instance for testing."""
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     return RuntimeAttacher(
         integration_manager=integration_manager,
@@ -261,7 +261,7 @@ def test_attach_runtime_handles_none_integration_manager(
     - Warning logged
     - Returns None gracefully
     """
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     attacher_no_manager = RuntimeAttacher(integration_manager=None)
 

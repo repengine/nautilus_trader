@@ -185,9 +185,7 @@ def _load_and_build_df(
     if not HAS_POLARS:
         check_ml_dependencies(["polars"])
     _pl = pl
-    if _pl is None:
-        msg = "Polars runtime not available after dependency check"
-        raise RuntimeError(msg)
+    assert _pl is not None
 
     # Convert string instrument IDs to InstrumentId objects once
     instrument_id_objs = [InstrumentId.from_str(id_str) for id_str in instrument_ids]

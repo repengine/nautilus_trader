@@ -73,8 +73,7 @@ def update_model_artifact(
         if request.validate and request.artifact_format.lower() == "onnx":
             ok = validate_onnx(request.artifact_path)
         from sqlalchemy import text as _text
-        if session is None:
-            raise RuntimeError("PersistenceManager returned no active session")
+        assert session is not None
         session.execute(
             _text(
                 """
@@ -106,8 +105,8 @@ def update_model_artifact(
     except Exception as exc:  # pragma: no cover - defensive
         try:
             session.rollback() if session is not None else None
-        except Exception:
-            ...
+        except Exception as rollback_exc:
+            logger.debug("Artifact update rollback failed", exc_info=rollback_exc)
         _artifact_updates_total.labels(status="error").inc()
         logger.warning(
             "Artifact update failed",
@@ -119,5 +118,5 @@ def update_model_artifact(
     finally:
         try:
             session.close() if session is not None else None
-        except Exception:
-            ...
+        except Exception as close_exc:
+            logger.debug("Artifact update session close failed", exc_info=close_exc)

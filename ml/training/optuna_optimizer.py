@@ -323,7 +323,7 @@ class XGBoostOptunaOptimizer:
 
             except Exception as e:
                 # Log error and return worst possible score
-                logger.info(f"Trial {trial.number} failed: {e}", exc_info=True)
+                logger.info(f"Trial {trial.number} failed: {e}")
                 return float("-inf") if self.config.direction == "maximize" else float("inf")
 
         return objective

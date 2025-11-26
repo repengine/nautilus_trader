@@ -56,7 +56,7 @@ class TestMLSignalActor(MLSignalActor):
     def __init__(self, config: MLSignalActorConfig) -> None:
         self._mock_log = Mock()
         super().__init__(config)
-    
+
     @property
     def log(self) -> Mock:
         return self._mock_log

@@ -30,7 +30,6 @@ def test_build_dataset_ten_instruments() -> None:
     - Row count = 10 symbols * 11,700 bars = 117,000 rows
     - OR wide format: 11,700 rows * (4 base cols + 10 symbols * 5 OHLCV cols)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -48,7 +47,6 @@ def test_multi_instrument_time_alignment() -> None:
     - Timestamps monotonic increasing
     - Missing bars handled (forward fill or NaN)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -66,4 +64,3 @@ def test_multi_instrument_missing_data_handling() -> None:
     - No look-ahead bias (do not backfill)
     - Minimal NaN values (only at start if no previous value)
     """
-    pass

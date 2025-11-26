@@ -35,9 +35,9 @@ from ml.config.names import METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL
 from ml.config.names import METRIC_STRATEGY_STORE_BATCH_SIZE
 from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
-from ml.common.logging_utils import KeywordLoggerMixin
 
 if TYPE_CHECKING:
+
     from ml.stores.protocols import StrategyStoreProtocol
     from ml.common.message_bus import MessagePublisherProtocol
     from ml.strategies.protocols import OrderExecutorProtocol
@@ -142,7 +142,7 @@ _initialize_metrics()
 
 # Note: Upstream `Strategy` lacks complete typing; inheriting from it triggers a mypy
 # miscellaneous error in strict mode. This is safe and expected here.
-class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[misc]
+class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
     """
     Base class for ML-driven trading strategies.
 
@@ -190,8 +190,6 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
 
         """
         super().__init__(config)
-        # Ensure keyword-safe logger wrapper is initialized
-        _ = self.log
         self._config = config
         self._stores = stores
 
@@ -757,7 +755,6 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
                 except Exception as breaker_exc:
                     self.log.debug(
                         f"ml_strategy.breaker_record_success_failed strategy={self.id} error={breaker_exc!r}",
-                        exc_info=True,
                     )
 
                 # Update metrics
@@ -780,7 +777,6 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
             except Exception as breaker_exc:
                 self.log.debug(
                     f"ml_strategy.breaker_record_failure_failed strategy={self.id} error={breaker_exc!r}",
-                    exc_info=True,
                 )
             try:
                 from ml.config.events import EventStatus as _ES
@@ -803,13 +799,11 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
                     "ml_strategy.partial_publish_failed "
                     f"strategy={self.id} instrument={signal.instrument_id} "
                     f"decision_type={decision_type} error={pub_exc!r}",
-                    exc_info=True,
                 )
             self.log.error(
                 "ml_strategy.strategy_store_write_failed "
                 f"strategy={self.id} instrument={signal.instrument_id} "
                 f"decision_type={decision_type} error={exc!r}",
-                exc_info=True,
             )
 
     def on_stop(self) -> None:
@@ -823,7 +817,6 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
             except Exception as exc:
                 self.log.error(
                     f"ml_strategy.strategy_store_flush_failed strategy={self.id} error={exc!r}",
-                    exc_info=True,
                 )
 
         win_rate = self._winning_trades / max(self._trades_executed, 1) * 100
@@ -1247,14 +1240,12 @@ class BaseMLStrategy(KeywordLoggerMixin, StrategyBase, ABC):  # type: ignore[mis
                     except Exception as perf_exc:
                         self.log.debug(
                             f"ml_strategy.performance_record_order_failed strategy_id={self.id} error={perf_exc}",
-                            exc_info=True,
                         )
                     return order.client_order_id
             except Exception as exc:
                 # Log and continue to fallback
                 self.log.error(
                     f"ml_strategy.smart_order_creation_failed strategy_id={self.id} order_side={side.name} error={exc}",
-                    exc_info=True,
                 )
 
         # Fallback to existing market order helper (outside try to avoid masking errors)

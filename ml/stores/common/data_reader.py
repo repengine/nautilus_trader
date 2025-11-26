@@ -178,7 +178,7 @@ class DataReaderComponent:
 
     Example
     -------
-    >>> from ml.stores.components.data_reader import DataReaderComponent
+    >>> from ml.stores.common.data_reader import DataReaderComponent
     >>> reader = DataReaderComponent(
     ...     feature_store=feature_store,
     ...     model_store=model_store,

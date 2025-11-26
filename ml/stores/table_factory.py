@@ -35,7 +35,17 @@ __all__ = [
 
 class _UnboundIndex(Index):
     """
-    Index subclass that exposes columns before table binding for tests.
+    Index subclass that populates columns before table binding.
+
+    SQLAlchemy Index objects normally don't populate the .columns attribute
+    until they're bound to a table. This subclass works around that limitation
+    for test compatibility by creating Column objects from string expressions.
+
+    Notes
+    -----
+    This is a workaround for testing. In production, indexes should be bound
+    to tables via _set_parent() which properly resolves column references.
+
     """
 
     def __init__(
@@ -44,33 +54,77 @@ class _UnboundIndex(Index):
         *expressions: str | Column[Any],
         **kw: Any,
     ) -> None:
+        """
+        Create index with pre-populated columns.
+
+        Parameters
+        ----------
+        name : str
+            Index name.
+        *expressions : str | Column
+            Column names or Column objects.
+        **kw : Any
+            Additional Index kwargs.
+
+        """
         super().__init__(name, *expressions, **kw)
 
+        # Pre-populate columns from string expressions for test compatibility
+        # This allows .columns to work before binding to a table
         from sqlalchemy.sql.base import ColumnCollection
 
         cols: list[Column[Any]] = []
         for expr in self.expressions:
             if isinstance(expr, str):
+                # Create a Column object from the string name
+                # Type is generic String since we don't know the actual type yet
                 cols.append(Column(expr, String))
             elif isinstance(expr, Column):
                 cols.append(expr)
 
-        collection: ColumnCollection[str, Column[Any]] = ColumnCollection()
+        # Store columns for early access (before binding to table)
+        col_collection: ColumnCollection[str, Column[Any]] = ColumnCollection()
         for col in cols:
-            collection.add(col)
+            col_collection.add(col)
 
-        self._unbound_columns = collection.as_readonly()
-        self._is_bound = False
+        # Store as readonly for early access before _set_parent()
+        self._unbound_columns = col_collection.as_readonly()
+        # Flag to track if we've been bound to a table
+        self._is_bound: bool = False
 
     def _set_parent(self, parent: SchemaEventTarget, **kw: Any) -> None:
+        """
+        Bind index to a table.
+
+        Parameters
+        ----------
+        parent : SchemaEventTarget
+            The parent schema element to bind to.
+        **kw : Any
+            Additional keyword arguments.
+
+        """
+        # Call parent implementation to do the real binding
         super()._set_parent(parent, **kw)
+        # Mark as bound so we use the real columns from now on
         self._is_bound = True
 
     @property
     def columns(self) -> Any:
-        if getattr(self, "_is_bound", False):
+        """
+        Return columns collection.
+
+        Returns
+        -------
+        ReadOnlyColumnCollection
+            Immutable collection of columns in this index.
+
+        """
+        # If bound to a table, use the real columns from parent
+        if self._is_bound:
             return self._columns
-        return getattr(self, "_unbound_columns", [])
+        # Otherwise, use our pre-populated columns for testing
+        return self._unbound_columns
 
 
 def get_schema_name(engine: Engine) -> str | None:
@@ -165,13 +219,22 @@ def build_standard_indexes(
     Returns
     -------
     list[Index]
-        List of Index objects.
+        List of Index objects with populated column references.
 
     Notes
     -----
     - Composite (instrument_id, ts_event) index optimizes time-series queries
     - Additional columns get individual indexes
     - Index names follow pattern: idx_{table}_{column(s)}
+    - Uses _UnboundIndex to populate .columns before table binding
+
+    Example
+    -------
+    >>> indexes = build_standard_indexes("ml_predictions")
+    >>> indexes[0].name
+    'idx_ml_predictions_instrument_ts'
+    >>> [col.name for col in indexes[0].columns]
+    ['instrument_id', 'ts_event']
 
     """
     indexes: list[Index] = []
@@ -186,9 +249,9 @@ def build_standard_indexes(
         )
 
     if additional_columns:
-        for col in additional_columns:
+        for col_name in additional_columns:
             indexes.append(
-                _UnboundIndex(f"idx_{table_name}_{col}", col),
+                _UnboundIndex(f"idx_{table_name}_{col_name}", col_name),
             )
 
     return indexes

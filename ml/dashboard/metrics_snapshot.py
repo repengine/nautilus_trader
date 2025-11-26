@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND
 from ml.config.events import EventStatus
-
-
-logger = logging.getLogger(__name__)
 
 
 def _matches_labels(sample: Any, labels: Mapping[str, str] | None) -> bool:
@@ -64,11 +60,6 @@ def _histogram_quantile(
                     try:
                         upper = float(upper_raw)
                     except Exception:
-                        logger.debug(
-                            "Failed to parse histogram bucket upper bound",
-                            extra={"le": upper_raw},
-                            exc_info=True,
-                        )
                         continue
                 buckets.append((upper, float(sample.value)))
             elif name.endswith("_count"):
@@ -159,14 +150,14 @@ def build_dashboard_snapshot(
         labels={
             "route": "/api/observability/grafana/provision",
             "method": "POST",
-            "status": "error",
+            "status": EventStatus.FAILED.value,
         },
     ) + _counter_total(
         request_counter,
         labels={
             "route": "/api/observability/grafana/provision",
             "method": "POST",
-            "status": "exception",
+            "status": EventStatus.FAILED.value,
         },
     )
     store_p95 = _histogram_quantile(

@@ -4,28 +4,13 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Any, Literal
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from sqlalchemy.sql.elements import TextClause
 
 
 StoreName = Literal["feature", "model", "strategy", "data"]
-_FETCH_MAX_TIMESTAMP_QUERIES: Final[dict[tuple[str, str | None], TextClause]] = {
-    ("ml_feature_values", "is_live = TRUE"): text(
-        "SELECT MAX(ts_event) AS ts_event FROM ml_feature_values WHERE is_live = TRUE",
-    ),
-    ("ml_model_predictions", "is_live = TRUE"): text(
-        "SELECT MAX(ts_event) AS ts_event FROM ml_model_predictions WHERE is_live = TRUE",
-    ),
-    ("ml_strategy_signals", "is_live = TRUE"): text(
-        "SELECT MAX(ts_event) AS ts_event FROM ml_strategy_signals WHERE is_live = TRUE",
-    ),
-    ("ml_data_events", None): text(
-        "SELECT MAX(ts_event) AS ts_event FROM ml_data_events",
-    ),
-}
 
 
 @dataclass(slots=True, frozen=True)
@@ -123,12 +108,12 @@ def _fetch_max_timestamp(
 ) -> tuple[int | None, str | None]:
     if engine is None:
         return None, "engine_unavailable"
-    statement = _FETCH_MAX_TIMESTAMP_QUERIES.get((table, where_clause))
-    if statement is None:
-        return None, "unsupported_query"
+    query = f"SELECT MAX(ts_event) AS ts_event FROM {table}"
+    if where_clause:
+        query += f" WHERE {where_clause}"
     try:
         with engine.connect() as conn:
-            row = conn.execute(statement).first()
+            row = conn.execute(text(query)).first()
     except Exception as exc:
         return None, str(exc)
     if not row:

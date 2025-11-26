@@ -154,7 +154,7 @@ class PipelineSignatureValidator:
         self,
         dataset_id: str,
         new_signature: str,
-        registry: "PipelineSignatureRegistry",
+        registry: PipelineSignatureRegistry,
     ) -> None:
         """
         Validate new signature against stored signature for dataset.
@@ -204,7 +204,7 @@ class PipelineSignatureValidator:
         """
         stored_signature = registry.get_pipeline_signature(dataset_id)
 
-        if stored_signature is None:
+        if not stored_signature:
             # First run - no signature stored yet
             logger.debug(
                 "No stored signature for dataset_id=%s, validation passes",

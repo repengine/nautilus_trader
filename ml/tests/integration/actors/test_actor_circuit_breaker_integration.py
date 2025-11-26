@@ -63,14 +63,14 @@ def test_circuit_breaker_transitions(
     actor = MLSignalActor(cfg2)
 
     # Make feature computation trivial and allocation-free
+    # Note: Must patch the component method because the actor delegates to it
+    # and the component holds a reference to the original bound _compute_features
     def fake_compute_features(_bar: Bar) -> npt.NDArray[np.float32]:
         return np.array([0.0, 1.0], dtype=np.float32)
 
-    monkeypatch.setattr(actor, "_compute_features", fake_compute_features)
+    monkeypatch.setattr(actor._features_component, "compute_features", fake_compute_features)
 
     # Prepare predict to fail twice, then succeed
-    calls = {"n": 0}
-
     def fail_then_succeed(_features: npt.NDArray[np.float32]) -> tuple[float, float]:
         if calls["n"] < 2:
             calls["n"] += 1
@@ -151,4 +151,3 @@ def test_actor_bus_scheme_prefix_integration(
     topic, payload = calls[-1]
     assert topic.startswith("events.ml.qa.SIGNAL_EMITTED."), topic
     assert payload.get("stage") == "SIGNAL_EMITTED"
-

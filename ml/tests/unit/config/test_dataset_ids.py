@@ -14,11 +14,12 @@ import pytest
 DATASET_ID_EXPECTATIONS: Final[tuple[tuple[str, str], ...]] = (
     ("EARNINGS_ACTUALS_DATASET_ID", "ml.earnings_actuals"),
     ("EARNINGS_ESTIMATES_DATASET_ID", "ml.earnings_estimates"),
-    ("MACRO_RELEASES_DATASET_ID", "ml.macro_release_calendar"),
-    ("MACRO_OBSERVATIONS_DATASET_ID", "ml.macro_observations"),
+    ("EQUS_MINI_DATASET_ID", "EQUS.MINI"),
     ("EVENTS_CALENDAR_DATASET_ID", "ml.events_calendar"),
-    ("MICRO_MINUTE_DATASET_ID", "ml.microstructure_minute"),
     ("L2_MINUTE_DATASET_ID", "ml.l2_minute"),
+    ("MACRO_OBSERVATIONS_DATASET_ID", "ml.macro_observations"),
+    ("MACRO_RELEASES_DATASET_ID", "ml.macro_release_calendar"),
+    ("MICRO_MINUTE_DATASET_ID", "ml.microstructure_minute"),
 )
 
 
@@ -47,7 +48,8 @@ def test_dataset_ids_have_correct_values() -> None:
     for attr, expected in DATASET_ID_EXPECTATIONS:
         value = getattr(module, attr)
         assert isinstance(value, str)
-        assert value.startswith("ml.")
+        # Most IDs start with "ml." but some (EQUS_MINI) use different prefix
+        assert "." in value, f"{attr} should contain namespace separator"
         assert value == expected
 
 

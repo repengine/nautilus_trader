@@ -17,10 +17,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.common.security import ArtifactIntegrityError
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -240,7 +240,14 @@ class TestModelRegistryIntegrity:
         model_path, _ = sample_onnx_model
 
         # Mock file reading to raise permission error during digest calculation
-        with patch("ml.registry.model_registry.open", side_effect=PermissionError("Access denied")):
+        # Patch both legacy (model_registry.open) and facade (model_persistence.open)
+        with (
+            patch("ml.registry.model_registry.open", side_effect=PermissionError("Access denied")),
+            patch(
+                "ml.registry.common.model_persistence.open",
+                side_effect=PermissionError("Access denied"),
+            ),
+        ):
             with pytest.raises(ValueError, match="Cannot calculate SHA-256 digest"):
                 registry.register_model(
                     model_path=model_path,
@@ -312,6 +319,32 @@ class TestModelRegistrySecurityEdgeCases:
         Create a test model registry.
         """
         return ModelRegistry(registry_path=tmp_path)
+
+    @pytest.fixture
+    def sample_onnx_model(self, tmp_path: Path) -> tuple[Path, str]:
+        """
+        Create a sample ONNX model file and return path and digest.
+        """
+        model_file = tmp_path / "test_model.onnx"
+        model_content = b"sample ONNX model content for testing"
+        model_file.write_bytes(model_content)
+        digest = hashlib.sha256(model_content).hexdigest()
+        return model_file, digest
+
+    @pytest.fixture
+    def sample_manifest(self) -> ModelManifest:
+        """
+        Create a sample model manifest.
+        """
+        return ModelManifest(
+            model_id="test_model_001",
+            role=ModelRole.INFERENCE,
+            data_requirements=DataRequirements.L1_ONLY,
+            architecture="test_arch",
+            feature_schema={"feature1": "float32", "feature2": "float32"},
+            feature_schema_hash="test_hash_123",
+            version="1.0.0",
+        )
 
     def test_digest_calculation_large_file(
         self,

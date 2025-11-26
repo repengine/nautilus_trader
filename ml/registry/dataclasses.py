@@ -49,16 +49,6 @@ class DatasetType(Enum):
         Reported corporate earnings fundamentals
     EARNINGS_ESTIMATES : str
         Analyst consensus earnings estimates
-    MACRO_RELEASES : str
-        Macro-economic release calendars (FRED/ALFRED)
-    MACRO_OBSERVATIONS : str
-        Macro-economic indicator observations (long format)
-    EVENTS_CALENDAR : str
-        Normalized event/calendar features
-    MICRO_MINUTE_FEATURES : str
-        Aggregated L1 microstructure features
-    L2_MINUTE_FEATURES : str
-        Aggregated L2 depth features
 
     """
 
@@ -72,11 +62,6 @@ class DatasetType(Enum):
     SIGNALS = "signals"
     EARNINGS_ACTUALS = "earnings_actuals"
     EARNINGS_ESTIMATES = "earnings_estimates"
-    MACRO_RELEASES = "macro_releases"
-    MACRO_OBSERVATIONS = "macro_observations"
-    EVENTS_CALENDAR = "events_calendar"
-    MICRO_MINUTE_FEATURES = "micro_minute_features"
-    L2_MINUTE_FEATURES = "l2_minute_features"
 
 
 class StorageKind(Enum):
@@ -143,7 +128,7 @@ class QualityFlag(Enum):
 
     """
 
-    PASS = "pass"  # nosec B105: symbolic validation status, not a credential
+    PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
     SKIP = "skip"

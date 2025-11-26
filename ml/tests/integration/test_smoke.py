@@ -140,7 +140,7 @@ def test_registry_can_initialize():
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        from ml.registry.model_registry import ModelRegistry
+        from ml.registry import ModelRegistry
 
         # Try with JSON backend (simplest)
         try:

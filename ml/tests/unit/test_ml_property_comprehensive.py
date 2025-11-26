@@ -24,10 +24,10 @@ from ml.data.catalog_utils import bars_to_dataframe
 from ml.features.config import FeatureConfig
 from ml.features.facade import FeatureEngineer
 from ml.features.indicators import IndicatorManager
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelManifest
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 

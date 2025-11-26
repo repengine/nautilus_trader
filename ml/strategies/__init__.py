@@ -182,12 +182,53 @@ When upgrading from older ML strategy implementations:
 
 """
 
+# Feature flag for gradual rollout of facade pattern
+import os
+
+
+def _use_legacy_strategy_base() -> bool:
+    """
+    Check if legacy BaseMLStrategy should be used.
+
+    The ML_USE_LEGACY_STRATEGY_BASE environment variable controls which
+    implementation is used:
+    - "1": Use legacy BaseMLStrategy from ml.strategies.base
+    - "0" or not set: Use BaseMLStrategyFacade from ml.strategies.base_facade
+
+    Returns
+    -------
+    bool
+        True if legacy implementation should be used.
+
+    """
+    return os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "0") == "1"
+
+
 # Position sizing and risk management
 from ml.strategies.analytics import AnalyticsConfig
 from ml.strategies.analytics import PerformanceTracker
 from ml.strategies.analytics import SignalRecord
-from ml.strategies.base import BaseMLStrategy
-from ml.strategies.base import SimpleMLStrategy
+
+# Import legacy classes directly
+from ml.strategies.base import BaseMLStrategy as _LegacyBaseMLStrategy
+from ml.strategies.base import SimpleMLStrategy as _LegacySimpleMLStrategy
+
+# Conditionally expose either legacy or facade based on feature flag
+if _use_legacy_strategy_base():
+    BaseMLStrategy = _LegacyBaseMLStrategy
+    SimpleMLStrategy = _LegacySimpleMLStrategy
+else:
+    # Import facade implementations
+    from ml.strategies.base_facade import (
+        BaseMLStrategyFacade as _FacadeBaseMLStrategy,
+    )
+    from ml.strategies.base_facade import (
+        SimpleMLStrategyFacade as _FacadeSimpleMLStrategy,
+    )
+
+    BaseMLStrategy = _FacadeBaseMLStrategy  # type: ignore[misc,assignment]
+    SimpleMLStrategy = _FacadeSimpleMLStrategy  # type: ignore[misc,assignment]
+
 from ml.strategies.execution import ExecutionConfig
 from ml.strategies.execution import OrderExecutor
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -232,4 +273,5 @@ __all__ = [
     "SimpleMLStrategy",
     "SizingConfig",
     "VolatilitySizer",
+    "_use_legacy_strategy_base",
 ]

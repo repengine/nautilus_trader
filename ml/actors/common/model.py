@@ -16,11 +16,11 @@ The component provides:
 - Resource cleanup and error handling
 - Centralized metrics for security violations and fallback activations
 
-Security Policy (CLAUDE.md):
-- PRIMARY: ONNX models via ONNXRuntime (secure, optimized)
-- FALLBACK: JSON for XGBoost models (legacy support)
-- BLOCKED: Pickle/Joblib files in production (security risk - arbitrary code execution)
-- Environment flags: ML_ONNX_ONLY=1 (strict), ML_ALLOW_JOBLIB=1 (test-only)
+    Security Policy (CLAUDE.md):
+    - PRIMARY: ONNX models via ONNXRuntime (secure, optimized)
+    - FALLBACK: JSON for XGBoost models (legacy support)
+    - BLOCKED: Pickle/Joblib files in production (security risk - arbitrary code execution)
+    - Environment flags: ML_ONNX_ONLY=1 (strict)
 
 """
 
@@ -113,7 +113,7 @@ class ModelComponent:
 
     The component handles:
     - Model loading with security enforcement (ONNX-only unless flags set)
-    - Multiple format support: ONNX (preferred), JSON/XGBoost (legacy), Joblib (test-only)
+    - Multiple format support: ONNX (preferred), JSON/XGBoost (legacy)
     - Hot reload: detect file changes, reload models without actor restart
     - Model warm-up: pre-allocate buffers for zero-allocation hot path
     - Version tracking: maintain version history across reloads
@@ -124,7 +124,6 @@ class ModelComponent:
     Security Enforcement:
     - Production mode (default): Only ONNX models allowed
     - ML_ONNX_ONLY=1: Blocks all non-ONNX formats (joblib, pickle, pt, h5)
-    - ML_ALLOW_JOBLIB=1: Permits joblib in test environments only
     - PYTEST_CURRENT_TEST: Auto-detected test environment
 
     Example:
@@ -235,14 +234,13 @@ class ModelComponent:
         Security Policy:
         - Check ML_ONNX_ONLY environment variable (strictest)
         - Check file extension
-        - Block .pkl/.joblib unless ML_ALLOW_JOBLIB=1 or PYTEST_CURRENT_TEST set
+        - Block .pkl/.joblib entirely (security risk)
         - Block .pt/.h5 in production
         - Prefer ONNX for security and performance
 
         Supported Formats:
         - .onnx: ONNX Runtime (preferred, secure, optimized)
         - .json: XGBoost Booster (legacy support)
-        - .joblib: sklearn models (test-only, blocked in production)
 
         Raises:
             ValueError: If security policy violated
@@ -265,10 +263,6 @@ class ModelComponent:
 
         # Security enforcement: Check environment flags
         onnx_only_mode = os.getenv("ML_ONNX_ONLY", "0") == "1"
-        allow_joblib = (
-            os.getenv("ML_ALLOW_JOBLIB", "0") == "1" or os.getenv("PYTEST_CURRENT_TEST") is not None
-        )
-
         file_ext = model_path.suffix.lower()
 
         # ONNX-only mode: Block all non-ONNX
@@ -276,8 +270,8 @@ class ModelComponent:
             self._security_counter.labels(result="blocked_non_onnx").inc()
             raise ValueError(
                 "Joblib models are disabled in ONNX-only mode. "
-                "Set ML_ALLOW_JOBLIB=1 to permit joblib models in tests.",
-            )
+                "Convert artifacts to ONNX for secure loading.",
+        )
 
         # Block pickle files (NEVER allowed - security risk)
         if file_ext in (".pkl", ".pickle"):
@@ -287,18 +281,10 @@ class ModelComponent:
             )
 
         # Block other non-ONNX formats in production
-        if file_ext in (".pt", ".h5", ".pth") and not allow_joblib:
+        if file_ext in (".pt", ".h5", ".pth"):
             self._security_counter.labels(result="blocked_non_onnx").inc()
             raise ValueError(
                 f"Only ONNX models allowed in production. " f"File: {model_path}",
-            )
-
-        # Block joblib unless explicitly allowed
-        if file_ext == ".joblib" and not allow_joblib:
-            self._security_counter.labels(result="blocked_joblib").inc()
-            raise ValueError(
-                "Joblib models are disabled in ONNX-only mode. "
-                "Set ML_ALLOW_JOBLIB=1 to permit joblib models in tests.",
             )
 
         # Load based on file extension
@@ -307,7 +293,10 @@ class ModelComponent:
         elif file_ext == ".json":
             self._load_json_model(model_path)
         elif file_ext == ".joblib":
-            self._load_joblib_model(model_path)
+            raise ValueError(
+                "Joblib models are not supported in production actors. "
+                "Convert artifacts to ONNX for secure loading.",
+            )
         else:
             raise ValueError(f"Unsupported model format: {file_ext}")
 
@@ -382,13 +371,12 @@ class ModelComponent:
                     return
             except Exception:
                 # XGBoost loading failed - try plain JSON
-                pass
+                self._logger.debug("XGBoost JSON load failed, falling back to plain JSON", exc_info=True)
 
             # Fallback to plain JSON
             import json
 
-            with open(model_path, encoding="utf-8") as f:
-                data = json.load(f)
+            data = json.loads(model_path.read_text(encoding="utf-8"))
 
             self._model = data
             self._model_metadata = {
@@ -399,34 +387,6 @@ class ModelComponent:
 
         except Exception as e:
             raise RuntimeError(f"Failed to load JSON model: {e}") from e
-
-    def _load_joblib_model(self, model_path: Path) -> None:
-        """
-        Load joblib model (sklearn).
-
-        Args:
-            model_path: Path to .joblib file
-
-        Raises:
-            RuntimeError: If joblib model fails to load
-
-        """
-        try:
-            from ml._imports import joblib as _joblib
-
-            model = _joblib.load(str(model_path))
-            self._model = model
-
-            # Extract metadata
-            self._model_metadata = {
-                "type": "sklearn",
-                "format": "joblib",
-                "framework": "scikit-learn",
-                "model_class": type(model).__name__,
-            }
-
-        except Exception as e:
-            raise RuntimeError(f"Failed to load joblib model: {e}") from e
 
     def _extract_onnx_metadata(self) -> None:
         """
@@ -547,11 +507,9 @@ class ModelComponent:
 
         """
         try:
-            sha256 = hashlib.sha256()
-            with open(model_path, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    sha256.update(chunk)
-            return sha256.hexdigest()[:16]
+            stat_result = model_path.stat()
+            fingerprint = f"{stat_result.st_size}:{stat_result.st_mtime_ns}"
+            return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
         except Exception:
             return "unknown"
 
@@ -783,13 +741,6 @@ class ModelComponent:
 
         """
         return self._model_metadata.copy()
-
-    @property
-    def metadata(self) -> dict[str, Any]:
-        """
-        Alias for model_metadata (compatibility).
-        """
-        return self.model_metadata
 
     def reload_if_changed(self) -> bool:
         """

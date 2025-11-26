@@ -232,7 +232,7 @@ def _arrow_to_numpy(
 ) -> GenericArray:
     numpy_dtype = np.dtype(dtype)
     if array is None:
-        return np.empty(0, dtype=numpy_dtype)
+        return cast(GenericArray, np.empty(0, dtype=numpy_dtype))
     combined = _combine_chunks(array)
     casted = _cast_arrow_array(combined, dtype)
     np_array = casted.to_numpy(zero_copy_only=False)
@@ -243,14 +243,15 @@ def _arrow_to_numpy(
             fill = 0.0
         else:
             fill = float(fill_value)
-        masked_array = cast(np.ma.MaskedArray[Any], np_array)
-        filled = masked_array.filled(fill)
-        return np.asarray(filled, dtype=numpy_dtype)
+        mask = np_array.mask
+        data = np_array.data
+        filled_array = np.where(mask, fill, data)
+        return cast(GenericArray, np.asarray(filled_array, dtype=numpy_dtype))
     if not isinstance(np_array, np.ndarray):
-        return np.asarray(np_array, dtype=numpy_dtype)
+        return cast(GenericArray, np.asarray(np_array, dtype=numpy_dtype))
     if np_array.dtype != numpy_dtype:
-        return np_array.astype(numpy_dtype, copy=False)
-    return np_array
+        return cast(GenericArray, np_array.astype(numpy_dtype, copy=False))
+    return cast(GenericArray, np_array)
 
 
 def _arrow_strings(array: Any) -> list[str]:
@@ -549,8 +550,11 @@ class TFTStreamingPreprocessor:
                 num_column = _get_column(batch, column)
                 if num_column is None:
                     continue
-                values = _arrow_to_numpy(num_column, dtype=np.float64)
-                numeric_stats[column] = _update_running_stats(numeric_stats[column], values)
+                values = np.asarray(_arrow_to_numpy(num_column, dtype=np.float64), dtype=np.float64)
+                numeric_stats[column] = _update_running_stats(
+                    numeric_stats[column],
+                    values,
+                )
 
             for instrument, time_value in zip(group_values, time_values.tolist()):
                 if not instrument:
@@ -1144,15 +1148,15 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
             if column_data is None:
                 numeric_arrays[column] = np.zeros(total_rows, dtype=np.float32)
                 continue
-            array = _arrow_to_numpy(column_data, dtype=np.float32, fill_value=0.0)
+            array = np.asarray(_arrow_to_numpy(column_data, dtype=np.float32, fill_value=0.0), dtype=np.float32)
             stats = self._numeric_stats.get(column)
             if stats is not None and stats.count > 0:
                 std = (stats.variance**0.5) if stats.variance > 0 else 0.0
                 mean = stats.mean
                 if std > 0:
-                    array = (array - mean) / std
+                    array = cast(FloatArray32, (array - mean) / std)
                 else:
-                    array = array - mean
+                    array = cast(FloatArray32, array - mean)
             array = np.nan_to_num(array, nan=0.0)
             numeric_arrays[column] = np.asarray(array, dtype=np.float32)
 

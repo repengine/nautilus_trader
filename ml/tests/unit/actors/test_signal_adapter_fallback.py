@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import Mock
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import ThresholdSignalStrategy
@@ -27,5 +28,7 @@ def test_invalid_policy_falls_back_to_threshold(
     # invalid policy path should be ignored and actor should use built-ins
     actor._model_metadata = {"decision_policy": "not.a.real.Adapter", "decision_config": {}}
     strat = actor._create_strategy()
+
+    # Then
     assert isinstance(strat, ThresholdSignalStrategy)
     assert abs(strat.threshold - 0.33) < 1e-9

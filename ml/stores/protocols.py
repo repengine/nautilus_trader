@@ -15,26 +15,17 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypedDict, runtime_c
 
 import pandas as pd
 
-from ml.ml_types import DataFrameLike
-
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.validation_types import DataEvent
-else:  # pragma: no cover - runtime import for structural typing
-    from ml.stores.validation_types import DataEvent  # type: ignore[no-redef]
+    from ml.stores.data_store import DataEvent
+else:  # pragma: no cover - typing fallback
+    DataEvent = Any  # type: ignore[assignment]
 
 
 # Phase 1: introduce aliases for read/write frames to retain flexibility
 ReadFrame: TypeAlias = pd.DataFrame
 WriteRecords: TypeAlias = list[dict[str, Any]]
-ExcInfoType: TypeAlias = (
-    bool
-    | tuple[type[BaseException], BaseException, TracebackType | None]
-    | tuple[None, None, None]
-    | BaseException
-    | None
-)
 
 
 class BaseStoreProtocol(Protocol):
@@ -58,8 +49,6 @@ class FeatureStoreProtocol(Protocol):
         ts_event: int | None = None,
         ts_init: int | None = None,
         data: Any | None = None,
-        *,
-        publish_bus: bool = ...,
     ) -> None: ...
     def flush(self) -> None: ...
     def compute_realtime(
@@ -144,7 +133,6 @@ class CoverageProviderProtocol(Protocol):
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        entity_field: str = "instrument_id",
     ) -> set[int]: ...
 
 
@@ -329,15 +317,6 @@ class DataStoreFacadeProtocol(Protocol):
         ts_event: int,
     ) -> dict[str, Any] | None: ...
 
-    def write_ingestion(
-        self,
-        dataset_id: str,
-        records: list[dict[str, Any]] | DataFrameLike,
-        source: str,
-        run_id: str,
-        instrument_id: str | None = ...,
-    ) -> DataEvent: ...
-
 
 class CircuitBreakerProtocol(Protocol):
     """
@@ -389,49 +368,65 @@ class LoggerLike(Protocol):
         self,
         msg: object,
         *args: object,
-        exc_info: ExcInfoType = False,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-    ) -> None:
-        del msg, args, exc_info, stack_info, stacklevel, extra
-        raise NotImplementedError
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
 
     def info(
         self,
         msg: object,
         *args: object,
-        exc_info: ExcInfoType = False,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-    ) -> None:
-        del msg, args, exc_info, stack_info, stacklevel, extra
-        raise NotImplementedError
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
 
     def warning(
         self,
         msg: object,
         *args: object,
-        exc_info: ExcInfoType = False,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-    ) -> None:
-        del msg, args, exc_info, stack_info, stacklevel, extra
-        raise NotImplementedError
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
 
     def error(
         self,
         msg: object,
         *args: object,
-        exc_info: ExcInfoType = False,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-    ) -> None:
-        del msg, args, exc_info, stack_info, stacklevel, extra
-        raise NotImplementedError
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
 
 
 # Model service deps ---------------------------------------------------------

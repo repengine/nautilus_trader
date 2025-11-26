@@ -16,10 +16,10 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelManifest
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 
 
 @pytest.mark.property

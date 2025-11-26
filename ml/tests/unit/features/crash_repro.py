@@ -10,7 +10,7 @@ def test_crash_repro():
     print("Config created")
     batch_engineer = FeatureEngineer(config)
     print("Engineer created")
-    
+
     mock_bars_data = []
     for i in range(100):
         mock_bars_data.append({
@@ -23,7 +23,7 @@ def test_crash_repro():
     bars_df = pl.DataFrame(mock_bars_data)
     print("DataFrame created")
 
-    batch_features, _ = batch_engineer.calculate_features_batch(bars_df)
+    _batch_features, _ = batch_engineer.calculate_features_batch(bars_df)
     print("Batch features calculated")
 
     from ml.features.indicators import IndicatorManager
@@ -34,7 +34,7 @@ def test_crash_repro():
 
     indicator_mgr = IndicatorManager(config)
     online_engineer = FeatureEngineer(config)
-    
+
     instrument_id = InstrumentId.from_str("TEST.USD")
     bar_type = BarType(instrument_id, BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST))
 
@@ -46,7 +46,7 @@ def test_crash_repro():
             "close": bar_data["close"],
             "volume": bar_data["volume"],
         }
-        
+
         bar = Bar(
             bar_type=bar_type,
             open=Price.from_str(str(current_bar["open"])),

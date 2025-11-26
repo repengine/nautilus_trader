@@ -99,7 +99,7 @@ class EventEmitterComponent:
 
     Example
     -------
-    >>> from ml.stores.components.event_emitter import EventEmitterComponent
+    >>> from ml.stores.common.event_emitter import EventEmitterComponent
     >>> emitter = EventEmitterComponent(
     ...     registry=registry,
     ...     publisher=publisher,

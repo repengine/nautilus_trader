@@ -17,11 +17,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import DeploymentStatus
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelManifest
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import DeploymentStatus
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.tests.builders import RegistryBuilder
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest

@@ -196,7 +196,7 @@ class MLSignalActorNode:
                 import numpy as _np
                 from nautilus_trader.model.data import Bar as _Bar
 
-                from ml.actors.base import MLSignal as _MLSignal
+                from ml.actors import MLSignal as _MLSignal
 
                 class _AlwaysSignalStrategy:  # minimal protocol-compatible
                     def generate_signal(

@@ -19,20 +19,14 @@ from __future__ import annotations
 import math
 import os
 import time
-from collections.abc import Mapping
 from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-import numpy.typing as npt
 
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-FloatArray = npt.NDArray[np.float64]
-DatetimeArray = npt.NDArray[np.datetime64]
-IntArray = npt.NDArray[np.int64]
 
 # ===== Module metrics (idempotent) =====
 _metrics_init = False
@@ -42,8 +36,6 @@ _growth_updates_total = None
 _growth_latency_seconds = None
 _momentum_updates_total = None
 _momentum_latency_seconds = None
-_env_flag_raw: str | None = None
-_env_flag_enabled = False
 
 
 def _init_module_metrics() -> None:
@@ -99,52 +91,22 @@ def _init_module_metrics() -> None:
     _metrics_init = True
 
 
-def _default_earnings_metrics_enabled() -> bool:
-    global _env_flag_raw, _env_flag_enabled
-    raw = os.getenv("ML_EARNINGS_ENABLE_METRICS", "0")
-    if raw != _env_flag_raw:
-        _env_flag_raw = raw
-        _env_flag_enabled = raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-    return _env_flag_enabled
+ENABLE_EARNINGS_METRICS = os.getenv("ML_EARNINGS_ENABLE_METRICS", "0").lower() in {"1", "true", "yes"}
 
-
-def earnings_metrics_enabled(*, env: Mapping[str, str] | None = None) -> bool:
-    """
-    Determine whether earnings metrics are enabled.
-
-    Uses a cached lookup for process-wide defaults while still permitting explicit
-    mappings during tests.
-    """
-    if env is None:
-        return _default_earnings_metrics_enabled()
-    source = env
-    raw = source.get("ML_EARNINGS_ENABLE_METRICS", "0")
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _metrics_enabled() -> bool:
-    """
-    Return True when metrics instrumentation is enabled and ensure initialization.
-    """
-    if earnings_metrics_enabled():
-        _init_module_metrics()
-        return True
-    return False
-
-
-EPS_EPSILON = 1e-12
+if ENABLE_EARNINGS_METRICS:
+    _init_module_metrics()
 
 
 def reset_earnings_metrics_state() -> None:
-    """Reset cached metrics state to keep tests deterministic."""
-    global _env_flag_raw, _env_flag_enabled
+    """Reset module-level metrics state for testing.
+
+    Resets the `_metrics_init` flag and all metric references to None,
+    allowing tests to reinitialize metrics in isolation.
+    """
     global _metrics_init
     global _surprise_updates_total, _surprise_latency_seconds
     global _growth_updates_total, _growth_latency_seconds
     global _momentum_updates_total, _momentum_latency_seconds
-
-    _env_flag_raw = None
-    _env_flag_enabled = False
 
     _metrics_init = False
     _surprise_updates_total = None
@@ -153,6 +115,34 @@ def reset_earnings_metrics_state() -> None:
     _growth_latency_seconds = None
     _momentum_updates_total = None
     _momentum_latency_seconds = None
+
+
+def earnings_metrics_enabled(
+    env: MutableMapping[str, str] | None = None,
+) -> bool:
+    """Check if earnings metrics collection is enabled.
+
+    Args:
+        env: Optional mapping to check for ML_EARNINGS_ENABLE_METRICS.
+             If None, checks os.environ.
+
+    Returns:
+        True if ML_EARNINGS_ENABLE_METRICS is set to "1", "true", or "yes"
+        (case-insensitive), False otherwise.
+
+    Example:
+        >>> earnings_metrics_enabled()
+        False
+        >>> earnings_metrics_enabled({"ML_EARNINGS_ENABLE_METRICS": "1"})
+        True
+    """
+    if env is None:
+        env = cast(MutableMapping[str, str], os.environ)
+    value = env.get("ML_EARNINGS_ENABLE_METRICS", "0").lower()
+    return value in {"1", "true", "yes"}
+
+
+EPS_EPSILON = 1e-12
 
 
 def _assign_hot_value(
@@ -232,7 +222,7 @@ def compute_earnings_surprise_incremental(
     2.857142857142857
     """
     metrics_enabled = (
-        _metrics_enabled()
+        ENABLE_EARNINGS_METRICS
         and _surprise_latency_seconds is not None
         and _surprise_updates_total is not None
     )
@@ -273,9 +263,9 @@ def compute_earnings_surprise_incremental(
 
 
 def compute_earnings_surprise_batch(
-    actuals: FloatArray,
-    estimates: FloatArray,
-) -> dict[str, FloatArray]:
+    actuals: np.ndarray,
+    estimates: np.ndarray,
+) -> dict[str, np.ndarray]:
     """
     Compute earnings surprise in batch (cold path - vectorized).
 
@@ -317,12 +307,7 @@ def compute_earnings_surprise_batch(
     >>> surprises['eps_surprise_q0']
     array([0.07, 0.05, 0.03, 0.02])
     """
-    metrics_enabled = (
-        _metrics_enabled()
-        and _surprise_latency_seconds is not None
-        and _surprise_updates_total is not None
-    )
-    start: float | None = time.perf_counter() if metrics_enabled else None
+    start = time.perf_counter()
 
     # Validation
     if actuals.shape != estimates.shape:
@@ -334,8 +319,8 @@ def compute_earnings_surprise_batch(
     n = len(actuals)
     if n == 0:
         return {
-            "eps_surprise_q0": np.array([], dtype=np.float64),
-            "eps_surprise_pct_q0": np.array([], dtype=np.float64),
+            "eps_surprise_q0": np.array([]),
+            "eps_surprise_pct_q0": np.array([]),
         }
 
     # Calculate dollar surprise (vectorized)
@@ -349,7 +334,7 @@ def compute_earnings_surprise_batch(
     ) * 100.0
 
     # Record metrics
-    if metrics_enabled and start is not None:
+    if ENABLE_EARNINGS_METRICS and _surprise_latency_seconds is not None and _surprise_updates_total is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _surprise_latency_seconds)
         updates_counter = cast(Any, _surprise_updates_total)
@@ -407,7 +392,7 @@ def compute_earnings_growth_incremental(
     14.545454545454545
     """
     metrics_enabled = (
-        _metrics_enabled()
+        ENABLE_EARNINGS_METRICS
         and _growth_latency_seconds is not None
         and _growth_updates_total is not None
     )
@@ -450,8 +435,8 @@ def compute_earnings_growth_incremental(
 
 
 def compute_earnings_growth_batch(
-    eps_series: FloatArray,
-) -> dict[str, FloatArray]:
+    eps_series: np.ndarray,
+) -> dict[str, np.ndarray]:
     """
     Compute earnings growth in batch (cold path - vectorized).
 
@@ -486,18 +471,13 @@ def compute_earnings_growth_batch(
     >>> growth['eps_growth_yoy'][-1]
     14.545454545454545
     """
-    metrics_enabled = (
-        _metrics_enabled()
-        and _growth_latency_seconds is not None
-        and _growth_updates_total is not None
-    )
-    start: float | None = time.perf_counter() if metrics_enabled else None
+    start = time.perf_counter()
 
     n = len(eps_series)
     if n == 0:
         return {
-            "eps_growth_yoy": np.array([], dtype=np.float64),
-            "eps_growth_qoq": np.array([], dtype=np.float64),
+            "eps_growth_yoy": np.array([]),
+            "eps_growth_qoq": np.array([]),
         }
 
     # Pre-allocate output arrays
@@ -521,7 +501,7 @@ def compute_earnings_growth_batch(
             eps_growth_qoq[i] = ((eps_q0 - eps_q1) / eps_q1) * 100.0
 
     # Record metrics
-    if metrics_enabled and start is not None:
+    if ENABLE_EARNINGS_METRICS and _growth_latency_seconds is not None and _growth_updates_total is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _growth_latency_seconds)
         updates_counter = cast(Any, _growth_updates_total)
@@ -582,7 +562,7 @@ def compute_earnings_momentum_incremental(
     3
     """
     metrics_enabled = (
-        _metrics_enabled()
+        ENABLE_EARNINGS_METRICS
         and _momentum_latency_seconds is not None
         and _momentum_updates_total is not None
     )
@@ -637,9 +617,9 @@ def compute_earnings_momentum_incremental(
 
 
 def compute_earnings_momentum_batch(
-    surprises_series: FloatArray,
-    eps_series: FloatArray,
-) -> dict[str, FloatArray]:
+    surprises_series: np.ndarray,
+    eps_series: np.ndarray,
+) -> dict[str, np.ndarray]:
     """
     Compute earnings momentum in batch (cold path - vectorized).
 
@@ -675,12 +655,7 @@ def compute_earnings_momentum_batch(
     >>> eps_series = np.array([2.52, 2.45, 2.38, 2.30, 2.20])
     >>> momentum = compute_earnings_momentum_batch(surprises, eps_series)
     """
-    metrics_enabled = (
-        _metrics_enabled()
-        and _momentum_latency_seconds is not None
-        and _momentum_updates_total is not None
-    )
-    start: float | None = time.perf_counter() if metrics_enabled else None
+    start = time.perf_counter()
 
     # Validation
     if surprises_series.shape != eps_series.shape:
@@ -690,8 +665,8 @@ def compute_earnings_momentum_batch(
     n = len(surprises_series)
     if n == 0:
         return {
-            "earnings_beat_streak": np.array([], dtype=np.float64),
-            "eps_volatility_4q": np.array([], dtype=np.float64),
+            "earnings_beat_streak": np.array([]),
+            "eps_volatility_4q": np.array([]),
         }
 
     # Pre-allocate output arrays
@@ -719,7 +694,7 @@ def compute_earnings_momentum_batch(
             eps_volatility_4q[i] = eps_std / eps_mean
 
     # Record metrics
-    if metrics_enabled and start is not None:
+    if ENABLE_EARNINGS_METRICS and _momentum_latency_seconds is not None and _momentum_updates_total is not None:
         elapsed = time.perf_counter() - start
         latency_hist = cast(Any, _momentum_latency_seconds)
         updates_counter = cast(Any, _momentum_updates_total)
@@ -787,9 +762,9 @@ def compute_calendar_features_incremental(
 
 
 def compute_calendar_features_batch(
-    next_earnings_dates: DatetimeArray,
-    current_dates: DatetimeArray,
-) -> dict[str, IntArray]:
+    next_earnings_dates: np.ndarray,
+    current_dates: np.ndarray,
+) -> dict[str, np.ndarray]:
     """
     Compute earnings calendar features in batch (cold path - vectorized).
 
@@ -842,7 +817,7 @@ def compute_calendar_features_batch(
     delta = next_earnings_dates - current_dates
 
     # Convert timedelta64 to days (integer)
-    days_to_earnings: IntArray = delta.astype("timedelta64[D]").astype(np.int64)
+    days_to_earnings = delta.astype("timedelta64[D]").astype(np.int64)
 
     return {
         "days_to_next_earnings": days_to_earnings,

@@ -1,10 +1,35 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402  # Deprecation warning must execute before imports
 
 """
-A/B testing configuration and statistical analysis.
+A/B testing configuration and statistical analysis (DEPRECATED).
+
+.. deprecated::
+    This is the legacy implementation. Use package-level imports instead:
+
+        # Old (deprecated):
+        from ml.registry.ab_testing_manager import ABTestingManager
+
+        # New (preferred):
+        from ml.registry import ABTestingComponent
+        # or for backwards compatibility:
+        from ml.registry import ABTestingManager  # alias to ABTestingComponent
+
+    The canonical implementation is :class:`ml.registry.common.ab_testing.ABTestingComponent`
+    which provides thread-safety via RLock and uses the persistence component pattern.
 """
 
 from __future__ import annotations
+
+import warnings
+
+
+warnings.warn(
+    "ml.registry.ab_testing_manager is deprecated. "
+    "Use 'from ml.registry import ABTestingComponent' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 import time

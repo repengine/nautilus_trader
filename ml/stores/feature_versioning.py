@@ -11,17 +11,18 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 
 if TYPE_CHECKING:
+    from ml.features import FeatureConfig as EngineeringFeatureConfig
     from ml.features.config import FeatureConfig as FacadeFeatureConfig
-    from ml.features.engineering import FeatureConfig as EngineeringFeatureConfig
     from ml.features.pipeline import PipelineRunner
 
     FeatureConfigLike = FacadeFeatureConfig | EngineeringFeatureConfig
 else:
-    FeatureConfigLike = object
+    # Runtime placeholder - actual type validation is structural
+    FeatureConfigLike: type = object  # type: ignore[misc]
 
 
 logger = logging.getLogger(__name__)
@@ -64,9 +65,9 @@ class FeatureVersioning:
 
     def __init__(
         self,
-        feature_config: FeatureConfigLike,
-        pipeline_runner_offline: PipelineRunner | None = None,
-        pipeline_runner_online: PipelineRunner | None = None,
+        feature_config: "FeatureConfigLike",  # type: ignore[valid-type]  # noqa: UP037
+        pipeline_runner_offline: "PipelineRunner | None" = None,  # noqa: UP037
+        pipeline_runner_online: "PipelineRunner | None" = None,  # noqa: UP037
         logger: logging.Logger | None = None,
     ) -> None:
         """
@@ -123,7 +124,7 @@ class FeatureVersioning:
         """
         # Handle both dict-like and dataclass objects
         if hasattr(self._feature_config, "__dict__"):
-            config_dict = self._feature_config.__dict__
+            config_dict = self._feature_config.__dict__  # type: ignore[attr-defined]
         else:
             # For frozen dataclasses, convert to dict
             try:
@@ -190,10 +191,10 @@ class FeatureVersioning:
 
         # Get from FeatureEngineer (if no pipeline specified)
         # Import locally to avoid circular dependencies
-        from ml.features.engineering import FeatureEngineer
+        from ml.features import FeatureEngineer
 
-        engineer = FeatureEngineer(self._feature_config)
-        return engineer.get_feature_names()
+        engineer = FeatureEngineer(cast(Any, self._feature_config))  # type: ignore[operator]
+        return list(engineer.get_feature_names())
 
     def _get_feature_names_online(self) -> list[str]:
         """
@@ -209,10 +210,10 @@ class FeatureVersioning:
             return self._pipeline_runner_online.compute_feature_names()
 
         # Derive from current FeatureEngineer configuration if no pipeline_spec provided
-        from ml.features.engineering import FeatureEngineer
+        from ml.features import FeatureEngineer
         from ml.features.pipeline import PipelineRunner
         from ml.registry.base import DataRequirements
 
-        engineer = FeatureEngineer(self._feature_config)
+        engineer = FeatureEngineer(cast(Any, self._feature_config))  # type: ignore[operator]
         spec = engineer.build_pipeline_spec_from_config()
         return PipelineRunner(spec, allowable=DataRequirements.L1_ONLY).compute_feature_names()

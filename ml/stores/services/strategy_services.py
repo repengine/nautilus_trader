@@ -6,7 +6,6 @@ preserving the public API and behavior. Services are dependency-injected with a 
 protocol that the facade already satisfies via existing mixins.
 
 Phase 1 scope: internal refactor only — no public API changes.
-
 """
 
 from __future__ import annotations
@@ -14,19 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, SupportsFloat, SupportsInt, cast
 
-from sqlalchemy import Float
-from sqlalchemy import bindparam
-from sqlalchemy import case
-from sqlalchemy import cast as sa_cast
-from sqlalchemy import column as sa_column
-from sqlalchemy import distinct
-from sqlalchemy import func
-from sqlalchemy import literal
-from sqlalchemy import select
-from sqlalchemy import table as sa_table
-from sqlalchemy.sql.elements import ColumnElement
-from sqlalchemy.sql.selectable import Select
-from sqlalchemy.sql.selectable import TableClause
+from sqlalchemy import text as _text
 
 from ml.config.events import EventStatus
 from ml.config.events import Source
@@ -37,50 +24,8 @@ from ml.stores.protocols import StrategyClearDepsStrict
 from ml.stores.protocols import StrategyEventDepsStrict
 from ml.stores.protocols import StrategyReadDepsStrict
 from ml.stores.protocols import StrategyWriteDepsStrict
+from ml.stores.services.common_stats import build_time_conditions as _time_conditions
 from ml.stores.services.common_stats import resolve_table_name as _resolve_table_name
-
-
-def _strategy_signals_table(table_name: str) -> TableClause:
-    """
-    Return a lightweight SQLAlchemy table clause for strategy signals.
-    """
-    schema: str | None = None
-    table_id = table_name
-    if "." in table_name:
-        schema, table_id = table_name.split(".", 1)
-    return sa_table(
-        table_id,
-        sa_column("strategy_id"),
-        sa_column("instrument_id"),
-        sa_column("ts_event"),
-        sa_column("ts_init"),
-        sa_column("signal_type"),
-        sa_column("strength"),
-        sa_column("model_predictions"),
-        sa_column("risk_metrics"),
-        sa_column("execution_params"),
-        sa_column("is_live"),
-        schema=schema,
-    )
-
-
-def _time_filter_conditions(
-    ts_column: ColumnElement[int],
-    start_ns: int | None,
-    end_ns: int | None,
-) -> tuple[list[ColumnElement[bool]], dict[str, int]]:
-    """
-    Build SQLAlchemy conditions and params for timestamp bounds.
-    """
-    conditions: list[ColumnElement[bool]] = []
-    params: dict[str, int] = {}
-    if start_ns is not None:
-        conditions.append(ts_column >= bindparam("start_ns"))
-        params["start_ns"] = int(start_ns)
-    if end_ns is not None:
-        conditions.append(ts_column < bindparam("end_ns"))
-        params["end_ns"] = int(end_ns)
-    return conditions, params
 
 
 # Strict deps imported from ml.stores.protocols
@@ -88,9 +33,7 @@ def _time_filter_conditions(
 
 @dataclass(slots=True)
 class StrategySignalWriteService:
-    """
-    Pure persistence for strategy signals.
-    """
+    """Pure persistence for strategy signals."""
 
     deps: StrategyWriteDepsStrict
     logger: LoggerLike
@@ -113,7 +56,7 @@ class StrategySignalWriteService:
                     "risk_metrics": item.risk_metrics if item.risk_metrics else None,
                     "execution_params": item.execution_params if item.execution_params else None,
                     "is_live": getattr(item, "is_live", False),
-                },
+                }
             )
 
         # Preserve historical patch point used by tests: if the deps object
@@ -161,9 +104,7 @@ class StrategySignalWriteService:
 
 @dataclass(slots=True)
 class StrategySignalQueryService:
-    """
-    Read/query operations for strategy signals.
-    """
+    """Read/query operations for strategy signals."""
 
     deps: StrategyReadDepsStrict
 
@@ -181,21 +122,16 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        sql: Select[Any] = (
-            select(
-                signals_table.c.ts_event,
-                signals_table.c.signal_type,
-                signals_table.c.strength,
-                signals_table.c.model_predictions,
-                signals_table.c.risk_metrics,
-                signals_table.c.execution_params,
-            )
-            .where(signals_table.c.strategy_id == bindparam("strategy_id"))
-            .where(signals_table.c.instrument_id == bindparam("instrument_id"))
-            .where(signals_table.c.ts_event >= bindparam("start_ns"))
-            .where(signals_table.c.ts_event < bindparam("end_ns"))
-            .order_by(signals_table.c.ts_event)
+        sql = _text(  # nosec B608: table name validated via allowlist
+            f"""
+            SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
+            FROM {table_name}
+            WHERE strategy_id = :strategy_id
+              AND instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY ts_event
+            """
         )
         params: dict[str, object] = {
             "strategy_id": strategy_id,
@@ -223,34 +159,26 @@ class StrategySignalQueryService:
         end_ns: int,
         instrument_id: str | None = None,
     ) -> object:
+        params: dict[str, object] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
+        where_parts = ["ts_event >= :start_ns", "ts_event < :end_ns"]
+        if instrument_id is not None:
+            where_parts.append("instrument_id = :instrument_id")
+            params["instrument_id"] = instrument_id
         table_name = _resolve_table_name(
             self.deps,
             attr="strategy_signals_table",
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        sql: Select[Any] = (
-            select(
-                signals_table.c.strategy_id,
-                signals_table.c.instrument_id,
-                signals_table.c.ts_event,
-                signals_table.c.signal_type,
-                signals_table.c.strength,
-                signals_table.c.model_predictions,
-                signals_table.c.risk_metrics,
-            )
-            .where(signals_table.c.ts_event >= bindparam("start_ns"))
-            .where(signals_table.c.ts_event < bindparam("end_ns"))
+        sql = _text(  # nosec B608: table name validated via allowlist
+            f"""
+            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                   model_predictions, risk_metrics
+            FROM {table_name}
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_event
+            """
         )
-        params: dict[str, object] = {
-            "start_ns": int(start_ns),
-            "end_ns": int(end_ns),
-        }
-        if instrument_id is not None:
-            sql = sql.where(signals_table.c.instrument_id == bindparam("instrument_id"))
-            params["instrument_id"] = instrument_id
-        sql = sql.order_by(signals_table.c.ts_event)
         return self.deps._execute_read(
             sql,
             params,
@@ -272,20 +200,18 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        stmt = select(
-            signals_table.c.strategy_id,
-            signals_table.c.ts_event,
-            signals_table.c.signal_type,
-            signals_table.c.strength,
-            signals_table.c.risk_metrics,
-        ).where(
-            signals_table.c.instrument_id == bindparam("instrument_id"),
+        sql = _text(  # nosec B608: table name validated via allowlist
+            f"""
+            SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
+            FROM {table_name}
+            WHERE instrument_id = :instrument_id
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """
         )
-        stmt = stmt.order_by(signals_table.c.ts_event.desc()).limit(bindparam("limit_val"))
-        params: dict[str, object] = {"instrument_id": instrument_id, "limit_val": int(limit)}
+        params: dict[str, object] = {"instrument_id": instrument_id, "limit": int(limit)}
         return self.deps._execute_read(
-            stmt,
+            sql,
             params,
             columns=[
                 "strategy_id",
@@ -309,10 +235,13 @@ class StrategySignalQueryService:
         now_ns: int = int(_time.time() * 1e9)
         start_ns: int = int(now_ns - hours_back * 3600 * 1e9)
 
-        params: dict[str, Any] = {"start_ns": start_ns, "limit_val": int(limit)}
+        where_parts: list[str] = ["ts_event >= :start_ns"]
+        params: dict[str, Any] = {"start_ns": start_ns, "limit": int(limit)}
         if strategy_id is not None:
+            where_parts.append("strategy_id = :strategy_id")
             params["strategy_id"] = strategy_id
         if instrument_id is not None:
+            where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
 
         table_name = _resolve_table_name(
@@ -321,23 +250,23 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        sql: Select[Any] = select(
-            signals_table.c.strategy_id,
-            signals_table.c.instrument_id,
-            signals_table.c.signal_type,
-            signals_table.c.strength,
-            signals_table.c.model_predictions,
-            signals_table.c.risk_metrics,
-            signals_table.c.execution_params,
-            signals_table.c.ts_event,
-            signals_table.c.ts_init,
-        ).where(signals_table.c.ts_event >= bindparam("start_ns"))
-        if strategy_id is not None:
-            sql = sql.where(signals_table.c.strategy_id == bindparam("strategy_id"))
-        if instrument_id is not None:
-            sql = sql.where(signals_table.c.instrument_id == bindparam("instrument_id"))
-        sql = sql.order_by(signals_table.c.ts_event.desc()).limit(bindparam("limit_val"))
+        sql = _text(  # nosec B608: table name validated via allowlist
+            f"""
+            SELECT strategy_id,
+                   instrument_id,
+                   signal_type,
+                   strength,
+                   model_predictions,
+                   risk_metrics,
+                   execution_params,
+                   ts_event,
+                   ts_init
+            FROM {table_name}
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """
+        )
         return self.deps._execute_read(
             sql,
             params,
@@ -376,21 +305,16 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        sql: Select[Any] = (
-            select(
-                signals_table.c.strategy_id,
-                signals_table.c.instrument_id,
-                signals_table.c.ts_event,
-                signals_table.c.signal_type,
-                signals_table.c.strength,
-                signals_table.c.model_predictions,
-                signals_table.c.risk_metrics,
-            )
-            .where(signals_table.c.strategy_id == bindparam("strategy_id"))
-            .where(signals_table.c.ts_event >= bindparam("start_ns"))
-            .where(signals_table.c.ts_event < bindparam("end_ns"))
-            .order_by(signals_table.c.instrument_id, signals_table.c.ts_event)
+        sql = _text(  # nosec B608: table name validated via allowlist
+            f"""
+            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                   model_predictions, risk_metrics
+            FROM {table_name}
+            WHERE strategy_id = :strategy_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY instrument_id, ts_event
+            """
         )
         params: dict[str, object] = {
             "strategy_id": strategy_id,
@@ -414,55 +338,36 @@ class StrategySignalQueryService:
 
 @dataclass(slots=True)
 class StrategySignalStatsService:
-    """
-    Aggregate/statistical read operations for strategy signals.
-    """
+    """Aggregate/statistical read operations for strategy signals."""
 
     deps: StrategyReadDepsStrict
 
-    def get_statistics(
-        self, *, start_ns: int | None = None, end_ns: int | None = None
-    ) -> dict[str, object]:
+    def get_statistics(self, *, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, object]:
         table_name = _resolve_table_name(
             self.deps,
             attr="strategy_signals_table",
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        conditions, params = _time_filter_conditions(
-            signals_table.c.ts_event,
-            start_ns,
-            end_ns,
+        from ml.stores.services.common_stats import select_min_max_ts as _minmax
+
+        minmax = _minmax(field="ts_event", min_alias="min_ts", max_alias="max_ts")
+        conditions, params = _time_conditions(start_ns, end_ns, field="ts_event")
+        base_sql = (
+            "SELECT\n"
+            "                COUNT(*) as total_signals,\n"
+            "                COUNT(DISTINCT strategy_id) as unique_strategies,\n"
+            "                COUNT(DISTINCT instrument_id) as unique_instruments,\n"
+            "                SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,\n"
+            "                SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,\n"
+            "                SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,\n"
+            "                AVG(strength) as avg_strength,\n"
+            f"                {minmax}\n"
+            f"            FROM {table_name}"
         )
-        query: Select[Any] = select(
-            func.count().label("total_signals"),
-            func.count(distinct(signals_table.c.strategy_id)).label("unique_strategies"),
-            func.count(distinct(signals_table.c.instrument_id)).label("unique_instruments"),
-            func.sum(case((signals_table.c.signal_type == "BUY", 1), else_=0)).label(
-                "buy_signals"
-            ),
-            func.sum(case((signals_table.c.signal_type == "SELL", 1), else_=0)).label(
-                "sell_signals"
-            ),
-            func.sum(case((signals_table.c.signal_type == "HOLD", 1), else_=0)).label(
-                "hold_signals"
-            ),
-            func.avg(signals_table.c.strength).label("avg_strength"),
-            func.min(signals_table.c.ts_event).label("min_ts"),
-            func.max(signals_table.c.ts_event).label("max_ts"),
-        )
-        for condition in conditions:
-            query = query.where(condition)
-        # Protocol-first pattern: use engine if available,
-        # otherwise fall back to _fetch_one (for test stubs/NoOp stores)
-        engine = getattr(self.deps, "engine", None)
-        if engine is not None:
-            with engine.connect() as conn:
-                row = conn.execute(query, params).fetchone()
-        else:
-            # Test stub path - _fetch_one will handle query conversion
-            row = self.deps._fetch_one(query, params)
+        if conditions:
+            base_sql += " WHERE " + " AND ".join(conditions)
+        row = self.deps._fetch_one(_text(base_sql), params)
         if row:
             return {
                 "total_signals": row[0] or 0,
@@ -500,43 +405,26 @@ class StrategySignalStatsService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        time_conditions, params = _time_filter_conditions(
-            signals_table.c.ts_event,
-            start_ns,
-            end_ns,
-        )
+        conditions, params = _time_conditions(start_ns, end_ns, field="ts_event")
         params2: dict[str, object] = dict(params)
         if strategy_id is not None:
-            time_conditions.append(signals_table.c.strategy_id == bindparam("strategy_id"))
+            conditions.append("strategy_id = :strategy_id")
             params2["strategy_id"] = strategy_id
-        elif not time_conditions:
-            # Use engine directly to avoid bind param issues with limit()
-            engine = getattr(self.deps, "engine", None)
-            if engine is not None:
-                with engine.connect() as conn:
-                    latest_row = conn.execute(
-                        select(signals_table.c.strategy_id)
-                        .order_by(signals_table.c.ts_event.desc())
-                        .limit(1)
-                    ).fetchone()
-            else:
-                # Fallback for test stubs: fetch all and take first in Python
-                all_rows = self.deps._fetch_all(
-                    select(signals_table.c.strategy_id).order_by(signals_table.c.ts_event.desc()),
-                    {},
-                )
-                latest_row = all_rows[0] if all_rows else None
+        elif not conditions:
+            latest_row = self.deps._fetch_one(
+                _text(  # nosec B608: table name validated via allowlist
+                    f"SELECT strategy_id FROM {table_name} ORDER BY ts_event DESC LIMIT 1"
+                ),
+                {},
+            )
             if latest_row and latest_row[0] is not None:
-                time_conditions.append(signals_table.c.strategy_id == bindparam("strategy_id"))
+                conditions.append("strategy_id = :strategy_id")
                 params2["strategy_id"] = str(latest_row[0])
-        query: Select[Any] = select(
-            signals_table.c.signal_type,
-            func.count().label("count"),
-        ).group_by(signals_table.c.signal_type)
-        for condition in time_conditions:
-            query = query.where(condition)
-        rows = self.deps._fetch_all(query, params2)
+        query = f"SELECT signal_type, COUNT(*) as count FROM {table_name}"
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " GROUP BY signal_type"
+        rows = self.deps._fetch_all(_text(query), params2)
         out: dict[str, int] = {}
         for signal_type, count in rows:
             out[str(signal_type)] = int(cast(SupportsInt, count))
@@ -555,41 +443,26 @@ class StrategySignalStatsService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        signals_table = _strategy_signals_table(table_name)
-        time_conditions, params = _time_filter_conditions(
-            signals_table.c.ts_event,
-            start_ns,
-            end_ns,
-        )
+        from ml.stores.services.common_stats import select_signal_counts as _sel_counts
+
+        conditions, params = _time_conditions(start_ns, end_ns, field="ts_event")
         params2: dict[str, object] = dict(params)
+        conditions.insert(0, "strategy_id = :strategy_id")
         params2["strategy_id"] = strategy_id
-        query: Select[Any] = select(
-            func.count().label("signal_count"),
-            func.sum(case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)).label(
-                "buy_count"
+        counts = _sel_counts(include_avg_strength=True)
+        from ml.stores.services.common_stats import select_numeric_stats as _num
+        strength_stats = _num(column="strength", prefix="strength", include_avg=False, include_stddev=True, include_min_max=True)
+        where_clause = " AND ".join(conditions) if conditions else "TRUE"
+        row = self.deps._fetch_one(
+            _text(
+                f"SELECT\n"
+                f"                {counts},\n"
+                f"                {strength_stats}\n"
+                f"            FROM {table_name}\n"
+                f"            WHERE {where_clause}"
             ),
-            func.sum(case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)).label(
-                "sell_count"
-            ),
-            func.sum(case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)).label(
-                "hold_count"
-            ),
-            func.avg(signals_table.c.strength).label("avg_strength"),
-            func.stddev(signals_table.c.strength).label("std_strength"),
-            func.min(signals_table.c.strength).label("min_strength"),
-            func.max(signals_table.c.strength).label("max_strength"),
-        ).where(signals_table.c.strategy_id == bindparam("strategy_id"))
-        for condition in time_conditions:
-            query = query.where(condition)
-        # Protocol-first pattern: use engine if available (preserves bind params from literal()),
-        # otherwise fall back to _fetch_one (for test stubs/NoOp stores)
-        engine = getattr(self.deps, "engine", None)
-        if engine is not None:
-            with engine.connect() as conn:
-                row = conn.execute(query, params2).fetchone()
-        else:
-            # Test stub path - _fetch_one will handle query conversion
-            row = self.deps._fetch_one(query, params2)
+            params2,
+        )
         if row:
             return {
                 "signal_count": row[0] or 0,
@@ -631,29 +504,18 @@ class StrategySignalStatsService:
                 base="ml_strategy_signals",
                 allowed={"ml_strategy_signals"},
             )
-            signals_table = _strategy_signals_table(table_name)
-            risk_score_expr = sa_cast(
-                signals_table.c.risk_metrics.op("->>")("risk_score"),
-                Float,
-            )
-            query: Select[Any] = (
-                select(
-                    func.count().label("signal_count"),
-                    func.sum(
-                        case((signals_table.c.signal_type == literal("BUY"), 1), else_=0)
-                    ).label("buy_count"),
-                    func.sum(
-                        case((signals_table.c.signal_type == literal("SELL"), 1), else_=0)
-                    ).label("sell_count"),
-                    func.sum(
-                        case((signals_table.c.signal_type == literal("HOLD"), 1), else_=0)
-                    ).label("hold_count"),
-                    func.avg(signals_table.c.strength).label("avg_strength"),
-                    func.avg(risk_score_expr).label("avg_risk_score"),
-                )
-                .where(signals_table.c.strategy_id == bindparam("strategy_id"))
-                .where(signals_table.c.ts_event >= bindparam("period_start"))
-                .where(signals_table.c.ts_event < bindparam("period_end"))
+            from ml.stores.services.common_stats import select_signal_counts as _sel_counts
+            counts = _sel_counts(include_avg_strength=True)
+            query = _text(  # nosec B608: table name validated via allowlist
+                f"""
+                SELECT
+                    {counts},
+                    AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
+                FROM {table_name}
+                WHERE strategy_id = :strategy_id
+                AND ts_event >= :period_start
+                AND ts_event < :period_end
+                """
             )
 
             res = conn.execute(
@@ -698,9 +560,7 @@ class StrategySignalStatsService:
 
 @dataclass(slots=True)
 class StrategySignalEventService:
-    """
-    Event emission service for strategy signals (registry/metrics).
-    """
+    """Event emission service for strategy signals (registry/metrics)."""
 
     deps: StrategyEventDepsStrict
     logger: LoggerLike
@@ -717,6 +577,10 @@ class StrategySignalEventService:
             except Exception:
                 # Best-effort: attempt to register the dataset manifest; on failure
                 # log a warning and emit a metric, then continue with event emission.
+                self.logger.debug(
+                    "Manifest lookup for 'signals' failed; attempting auto-registration",
+                    exc_info=True,
+                )
                 try:
                     import hashlib as _hashlib
 
@@ -798,8 +662,11 @@ class StrategySignalEventService:
                                 "Auto-registration metrics/logging failed (ignored)",
                                 exc_info=True,
                             )
-                        except Exception:
-                            ...
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed metrics/logging failure during auto-registration",
+                                exc_info=log_exc,
+                            )
 
             from collections import defaultdict
 
@@ -866,8 +733,11 @@ class StrategySignalEventService:
                                     "Registry emit_event fallback failed (ignored)",
                                     exc_info=True,
                                 )
-                            except Exception:
-                                ...
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during emit_event fallback",
+                                    exc_info=log_exc,
+                                )
                 else:
                     # Fallback: direct registry calls (non-blocking with logging)
                     try:
@@ -899,8 +769,11 @@ class StrategySignalEventService:
                                     "Registry watermark update failed (ignored)",
                                     exc_info=True,
                                 )
-                            except Exception:
-                                ...
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during watermark update fallback",
+                                    exc_info=log_exc,
+                                )
                     except Exception as exc:
                         self.logger.warning("Registry emit/update failed (non-blocking): %s", exc)
 
@@ -911,9 +784,7 @@ class StrategySignalEventService:
 
 @dataclass(slots=True)
 class StrategySignalClearService:
-    """
-    Deletion/cleanup operations for strategy signals.
-    """
+    """Deletion/cleanup operations for strategy signals."""
 
     deps: StrategyClearDepsStrict
 

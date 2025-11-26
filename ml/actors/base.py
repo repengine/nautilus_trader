@@ -32,12 +32,12 @@ from nautilus_trader.model.identifiers import InstrumentId
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
-from ml.actors.components import FeaturesComponent
-from ml.actors.components import ModelComponent
-from ml.actors.components import RegistryComponent
+from ml.actors.common import FeaturesComponent
+from ml.actors.common import ModelComponent
+from ml.actors.common import RegistryComponent
 
 # Component imports for facade pattern (Phase 2.3.5a)
-from ml.actors.components import StoreOperationsComponent
+from ml.actors.common import StoreOperationsComponent
 from ml.common.metrics_manager import MetricsManager
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
@@ -851,22 +851,16 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             logger=self.log,
         )
 
-        # Initialize production features (moved up for dependency injection)
-        self._health_monitor = (
-            HealthMonitor(config.health_config) if config.enable_health_monitoring else None
-        )
-        self._circuit_breaker = (
-            CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
-        )
-
         # Step 4: Initialize FeaturesComponent (manages feature computation, buffering, validation)
+        # Note: health_monitor and persistence_worker are initialized later, so we pass None here
+        # All components now share the same config instance (self._config)
         self._features_component = FeaturesComponent(
             config=self._config,
             compute_function=self._compute_features,
             feature_registry=self._feature_registry,
             feature_store=self._feature_store,
-            health_monitor=self._health_monitor,
-            persistence_worker=self._store_ops_component.persistence_worker,
+            health_monitor=None,  # Initialized later in __init__
+            persistence_worker=None,  # Initialized later in __init__
             logger=self.log,
         )
         # ========================================================================
@@ -888,9 +882,13 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             maxlen=self._feature_config.lookback_window,
         )
 
-        # Production features (initialized above)
-        # self._health_monitor = ...
-        # self._circuit_breaker = ...
+        # Production features
+        self._health_monitor = (
+            HealthMonitor(config.health_config) if config.enable_health_monitoring else None
+        )
+        self._circuit_breaker = (
+            CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
+        )
 
         # Hot reload state
         self._last_model_check = 0.0
@@ -1215,9 +1213,6 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
             # FACADE: Delegate model loading to ModelComponent
             self._model_component.load_model()
-            # Sync model to base class attribute for legacy compatibility
-            self._model = self._model_component.model
-            self._model_metadata = self._model_component.metadata or {}
             self.log.debug(f"Model loaded via ModelComponent: {self._model_component.model_id}")
 
             # FACADE: FeaturesComponent initialization happens in __init__, no separate step needed

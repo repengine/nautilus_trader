@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureConfig
+    from ml.features import FeatureConfig
 
 
 class InitializationManagerProtocol(Protocol):

@@ -16,12 +16,13 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 
-from ml.actors.signal import MLSignalActor
-from ml.actors.signal import MLSignalActorConfig
-from ml.actors.signal import SignalStrategy
+from ml.actors import MLSignalActor
+from ml.actors import MLSignalActorConfig
+from ml.actors import SignalStrategy
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
+from ml.features.indicators import IndicatorManager
 from ml.stores.feature_store import FeatureStore
 from ml.training.base import BaseMLTrainer
 from nautilus_trader.model.data import BarType
@@ -191,15 +192,19 @@ def example_parity_validation() -> bool:
     # Compute features using batch method (training)
     batch_features, _ = feature_store.feature_engineer.calculate_features_batch(bars_df)
 
+    indicator_manager = IndicatorManager(feature_store.feature_engineer.config)
     # Compute features using online method (inference)
     online_features = []
     for i in range(len(bars_df)):
         row = bars_df[i]
         features = feature_store.feature_engineer.calculate_features_online(
-            close_price=float(cast(Any, row)["close"]),
-            high_price=float(cast(Any, row)["high"]),
-            low_price=float(cast(Any, row)["low"]),
-            volume=float(cast(Any, row)["volume"]),
+            current_bar={
+                "close": float(cast(Any, row)["close"]),
+                "high": float(cast(Any, row)["high"]),
+                "low": float(cast(Any, row)["low"]),
+                "volume": float(cast(Any, row)["volume"]),
+            },
+            indicator_manager=indicator_manager,
         )
         online_features.append(features)
 

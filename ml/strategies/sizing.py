@@ -275,12 +275,6 @@ class CompositeSizer:
         import time
 
         start_time = time.perf_counter()
-        open_positions = len(current_positions)
-        if open_positions > 0:
-            logger.debug(
-                "Composite sizer processing with existing positions",
-                extra={"open_positions": open_positions},
-            )
 
         try:
             # Get account balance

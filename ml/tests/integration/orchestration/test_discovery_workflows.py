@@ -19,7 +19,7 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 
 # Import will be available after Phase 2 implementation
-# from ml.orchestration.components.discovery_service import DiscoveryService
+# from ml.orchestration.discovery_service import DiscoveryService
 
 
 # =============================================================================
@@ -35,7 +35,7 @@ def discovery_service():
     Phase 2.2.8: Full implementation.
     """
     # Uncomment after implementation:
-    # from ml.orchestration.components.discovery_service import DiscoveryService
+    # from ml.orchestration.discovery_service import DiscoveryService
     # return DiscoveryService()
     return None  # Placeholder for Phase 2.2.7
 

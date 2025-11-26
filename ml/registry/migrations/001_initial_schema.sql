@@ -286,6 +286,3 @@ GRANT ALL ON SCHEMA ml_registry TO postgres;
 GRANT ALL ON ALL TABLES IN SCHEMA ml_registry TO postgres;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA ml_registry TO postgres;
 GRANT ALL ON ALL FUNCTIONS IN SCHEMA ml_registry TO postgres;
-
--- Restore canonical search path for subsequent migrations.
-SET search_path TO public, pg_catalog, ml_registry;

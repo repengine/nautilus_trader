@@ -246,12 +246,12 @@ def build_test_actor(
     # Note: init_actor_services patch above already sets the initial stores via the constructor,
     # but we use the helper to ensure consistent configuration like _persist_features.
     _attach_feature_store_stub(actor)
-    
+
     # Inject other stores via private attributes (properties are read-only)
     object.__setattr__(actor, "_BaseMLInferenceActor__model_store_instance", model_store_stub)
     object.__setattr__(actor, "_BaseMLInferenceActor__strategy_store_instance", strategy_store_stub)
     object.__setattr__(actor, "_BaseMLInferenceActor__data_store_instance", data_store_stub)
-    
+
     object.__setattr__(actor, "_BaseMLInferenceActor__feature_registry_instance", services_stub.feature_registry)
     object.__setattr__(actor, "_BaseMLInferenceActor__model_registry_instance", services_stub.model_registry)
     object.__setattr__(actor, "_BaseMLInferenceActor__strategy_registry_instance", services_stub.strategy_registry)

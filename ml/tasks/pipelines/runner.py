@@ -29,7 +29,7 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureEngineer
+    from ml.features import FeatureEngineer
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +131,8 @@ class MLPipelineRunner:
 
     def _initialize_feature_engineer(self) -> FeatureEngineer | None:
         try:
-            from ml.features.engineering import FeatureConfig
-            from ml.features.engineering import FeatureEngineer
+            from ml.features import FeatureConfig
+            from ml.features import FeatureEngineer
 
             feature_config = FeatureConfig(
                 include_microstructure=self.config.get("enable_microstructure_features", False),

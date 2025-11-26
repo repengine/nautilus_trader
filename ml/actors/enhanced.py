@@ -17,9 +17,9 @@ from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
-from ml.features.config import FeatureConfig
-from ml.features.facade import FeatureEngineer
-from ml.features.indicators import IndicatorManager
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import IndicatorManager
 from ml.stores.adapters import FeatureStoreStrictAdapter
 from ml.stores.adapters import ModelStoreStrictAdapter
 from ml.stores.adapters import StrategyStoreStrictAdapter

@@ -17,7 +17,7 @@ from typing import cast
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.universes import TIER1_SYMBOL_SETS
-from ml.stores.data_store import DataStore
+from ml.stores import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
 from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.tasks.caches import CacheHydrationResult

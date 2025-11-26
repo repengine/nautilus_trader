@@ -38,7 +38,7 @@ def dataset_config() -> DatasetBuildConfig:
 @pytest.fixture
 def config_resolver():
     """Provides ConfigResolver instance for testing."""
-    from ml.orchestration.components.config_resolver import ConfigResolver
+    from ml.orchestration.config_resolver import ConfigResolver
 
     return ConfigResolver()
 
@@ -156,7 +156,7 @@ def test_infer_default_schema_from_config_hints():
     - Returns "trades" if trades are primary
     - Falls back to "ohlcv-1m" if no hints
     """
-    from ml.orchestration.components.config_resolver import ConfigResolver
+    from ml.orchestration.config_resolver import ConfigResolver
 
     # Test different config variations
     # Note: DatasetBuildConfig may not have bars/quotes fields yet

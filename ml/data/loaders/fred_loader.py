@@ -14,7 +14,6 @@ import hashlib
 import json
 import logging
 import os
-import tempfile
 import time
 from dataclasses import dataclass
 from dataclasses import field
@@ -179,7 +178,7 @@ class FREDConfig:
     """
 
     api_key: str | None = None
-    cache_dir: Path = field(default_factory=lambda: Path(tempfile.gettempdir()) / "fred_cache")
+    cache_dir: Path = field(default_factory=lambda: Path("/tmp/fred_cache"))
     cache_ttl_hours: int = 24
     rate_limit_calls: int = 120  # FRED limit is 120 calls/minute
     backfill_years: int = 10
@@ -575,9 +574,7 @@ class FREDDataLoader:
         try:
             cache_path = self._get_cache_path(series_id)
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available when loading cache"
-                raise RuntimeError(msg)
+            assert _pl is not None
             df = _pl.read_parquet(cache_path)
 
             cache_hit_counter.labels(series=series_id).inc()
@@ -702,9 +699,7 @@ class FREDDataLoader:
 
         # Convert to Polars DataFrame
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available when converting fetched series"
-            raise RuntimeError(msg)
+        assert _pl is not None
         df = _pl.DataFrame(
             {
                 "timestamp": series_data.index,
@@ -801,9 +796,7 @@ class FREDDataLoader:
 
         """
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available when combining indicators"
-            raise RuntimeError(msg)
+        assert _pl is not None
         if not data:
             from typing import cast as _cast
 
@@ -988,9 +981,7 @@ class FREDDataLoader:
 
         # Store each indicator as a separate feature
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available when storing indicator features"
-            raise RuntimeError(msg)
+        assert _pl is not None
         for column in combined_df.columns:
             if column in ["timestamp", "timestamp_ns"]:
                 continue
@@ -1082,9 +1073,7 @@ class FREDDataLoader:
 
         """
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available when exporting ML parquet"
-            raise RuntimeError(msg)
+        assert _pl is not None
 
         target = out_path or Path("data/fred/fred_indicators_ml_format.parquet")
         target.parent.mkdir(parents=True, exist_ok=True)

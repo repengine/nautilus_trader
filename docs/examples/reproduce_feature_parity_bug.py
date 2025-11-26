@@ -9,7 +9,7 @@ sys.path.insert(0, "/home/nate/projects/nautilus_trader")
 
 import numpy as np
 import polars as pl
-from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.features import FeatureConfig, FeatureEngineer
 
 
 def reproduce_feature_parity_bug():

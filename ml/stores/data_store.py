@@ -529,16 +529,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         except Exception:
             logger.debug("Failed to record fallback activation metric", exc_info=True)
 
-    def flush(self) -> None:
-        """
-        Flush pending writes across managed stores and registry.
-        """
-        self.feature_store.flush()
-        self.model_store.flush()
-        self.strategy_store.flush()
-        self._earnings_store.flush()
-        self.registry.flush()
-
     # ---------------------------------------------------------------------
     # Typed, minimal read facades (cold-path only; for actors/services)
     # ---------------------------------------------------------------------
@@ -2087,23 +2077,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
-        # Delegate to optional raw writer if configured
-        raw_writer_status = None
-        if self._raw_writer is not None:
-            try:
-                # Enrich record with source metadata for raw writer
-                record_with_meta = record.copy()
-                record_with_meta["data_source"] = "EDGAR"  # Default/Implied source for actuals
-                
-                self._raw_writer.write(
-                    dataset_type=DatasetType.EARNINGS_ACTUALS,
-                    data=[record_with_meta],
-                )
-                raw_writer_status = "ok"
-            except Exception as exc:
-                logger.warning("Raw writer failed for earnings actual: %s", exc)
-                raw_writer_status = "failed"
-
         try:
             self._earnings_store.write_actuals(
                 ticker=ticker,
@@ -2125,10 +2098,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             logger.exception("Earnings actual write failed for %s", ticker)
             raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
 
-        event_metadata: dict[str, float | str] = {"quality_score": quality_report.quality_score}
-        if raw_writer_status:
-            event_metadata["raw_writer_status"] = raw_writer_status
-
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -2140,7 +2109,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata=event_metadata,
+            metadata={"quality_score": quality_report.quality_score},
         )
 
         self._emit_success_event_and_update(
@@ -2205,23 +2174,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
-        # Delegate to optional raw writer if configured
-        raw_writer_status = None
-        if self._raw_writer is not None:
-            try:
-                # Enrich record with source metadata for raw writer
-                record_with_meta = record.copy()
-                record_with_meta["data_source"] = "YAHOO"  # Default/Implied source for estimates
-                
-                self._raw_writer.write(
-                    dataset_type=DatasetType.EARNINGS_ESTIMATES,
-                    data=[record_with_meta],
-                )
-                raw_writer_status = "ok"
-            except Exception as exc:
-                logger.warning("Raw writer failed for earnings estimate: %s", exc)
-                raw_writer_status = "failed"
-
         try:
             self._earnings_store.write_estimates(
                 ticker=ticker,
@@ -2237,10 +2189,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             logger.exception("Earnings estimate write failed for %s", ticker)
             raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
 
-        event_metadata: dict[str, float | str] = {"quality_score": quality_report.quality_score}
-        if raw_writer_status:
-            event_metadata["raw_writer_status"] = raw_writer_status
-
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -2252,7 +2200,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata=event_metadata,
+            metadata={"quality_score": quality_report.quality_score},
         )
 
         self._emit_success_event_and_update(

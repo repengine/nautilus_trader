@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 from numpy.random import default_rng
 
-from ml.actors.base import BaseMLInferenceActor
+from ml.actors import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
 from nautilus_trader.model.data import Bar
 

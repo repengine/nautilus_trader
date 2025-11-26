@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ml.config.constants import Versions
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureRegistry

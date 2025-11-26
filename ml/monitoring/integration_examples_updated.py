@@ -13,14 +13,15 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
+from ml.common.logging_config import configure_logging
 from ml.monitoring.extended_metrics import ExtendedMetricsManager
 
 
 if TYPE_CHECKING:
     from polars import DataFrame as PlDataFrame
 
-    from ml.features.engineering import FeatureEngineer
-    from ml.features.engineering import IndicatorManager
+    from ml.features import FeatureEngineer
+    from ml.features import IndicatorManager
     from ml.ml_types import StandardScaler as StandardScalerT
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -424,7 +425,7 @@ def example_basic_monitoring() -> None:
     """
     Demonstrate basic monitoring setup.
     """
-    from ml.features.engineering import FeatureEngineer
+    from ml.features import FeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
     # Initialize components
@@ -455,7 +456,7 @@ def example_production_monitoring() -> None:
     """
     Demonstrate production-grade monitoring with Prometheus export.
     """
-    from ml.features.engineering import FeatureEngineer
+    from ml.features import FeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
     # Initialize with Prometheus export
@@ -488,7 +489,7 @@ def example_production_monitoring() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    configure_logging(level="INFO")
 
     # Run examples
     logger.info("Running basic monitoring example...")

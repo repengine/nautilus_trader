@@ -17,7 +17,7 @@ from allpairspy import AllPairs
 
 from ml.actors.signal import MLSignalActorConfig
 from ml.features.config import FeatureConfig
-from ml.registry.model_registry import ModelManifest
+from ml.registry import ModelManifest
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol

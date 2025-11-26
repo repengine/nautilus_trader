@@ -22,9 +22,9 @@ from typing import Any
 import numpy as np
 
 from ml._imports import HAS_POLARS
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import safe_divide
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
+from ml.common.safe_math import safe_divide
 
 
 class CustomFeatureEngineer(FeatureEngineer):

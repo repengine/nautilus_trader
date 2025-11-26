@@ -3,10 +3,8 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
-from pathlib import Path
 from typing import Any, Final, cast
 
 import pandas as pd
@@ -24,13 +22,12 @@ from sqlalchemy.sql import column as sa_column
 from sqlalchemy.sql import func as sa_func
 from sqlalchemy.sql import select as sa_select
 from sqlalchemy.sql import table as sa_table
-from sqlalchemy.sql.elements import ColumnClause
 
 from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
+from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
-from ml.stores.raw_protocols import RawReaderProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -47,25 +44,6 @@ def _validate_identifier(identifier: str, *, label: str) -> str:
     return identifier
 
 
-def resolve_catalog_identifier(
-    *,
-    schema: str,
-    instrument_id: str,
-    identifier_template: str | None = None,
-) -> str:
-    """
-    Resolve the catalog identifier used for parquet interval lookups.
-
-    Bars typically store the bar_type (template) while tick datasets key on instrument_id.
-    """
-    normalized_schema = schema.lower()
-    if "tbbo" in normalized_schema or "quote" in normalized_schema or "trade" in normalized_schema:
-        return instrument_id
-    if identifier_template:
-        return identifier_template.format(instrument_id=instrument_id)
-    return instrument_id
-
-
 def _schema_to_dataclass(schema: str) -> type[Any]:
     s = schema.lower()
     if "bar" in s or "ohlcv" in s:
@@ -77,18 +55,6 @@ def _schema_to_dataclass(schema: str) -> type[Any]:
     return cast(type[Any], Bar)
 
 
-@dataclass(frozen=True, slots=True)
-class SqlCoverageOverride:
-    """
-    Dataset-specific overrides for SQL coverage inspection.
-    """
-
-    table_name: str | None = None
-    schema: str | None = None
-    ts_field: str | None = None
-    entity_field: str | None = None
-
-
 @dataclass(slots=True)
 class CatalogCoverageProvider(CoverageProviderProtocol):
     """
@@ -96,7 +62,6 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
     """
 
     catalog_path: str
-    identifier_template: str | None = None
 
     def __post_init__(self) -> None:
         self._catalog = ParquetDataCatalog(self.catalog_path)
@@ -109,15 +74,9 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        entity_field: str = "instrument_id",
     ) -> set[int]:
         data_cls = _schema_to_dataclass(schema)
-        identifier = resolve_catalog_identifier(
-            schema=schema,
-            instrument_id=instrument_id,
-            identifier_template=self.identifier_template,
-        )
-        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=identifier)
+        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=instrument_id)
         if not intervals:
             return set()
         buckets: set[int] = set()
@@ -149,23 +108,11 @@ class SqlCoverageProvider(CoverageProviderProtocol):
     connection_string: str
     table_name: str = "market_data"
     ts_field: str = "ts_event"
-    dataset_overrides: Mapping[str, SqlCoverageOverride] | None = None
     _engine: Engine = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="coverage.table")
         _validate_identifier(self.ts_field, label="coverage.ts_field")
-        if self.dataset_overrides:
-            for dataset_id, override in self.dataset_overrides.items():
-                label_prefix = f"{dataset_id}.coverage"
-                if override.table_name:
-                    _validate_identifier(override.table_name, label=f"{label_prefix}.table")
-                if override.ts_field:
-                    _validate_identifier(override.ts_field, label=f"{label_prefix}.ts_field")
-                if override.entity_field:
-                    _validate_identifier(override.entity_field, label=f"{label_prefix}.entity_field")
-                if override.schema:
-                    _validate_identifier(override.schema, label=f"{label_prefix}.schema")
         self._engine = get_or_create_engine(self.connection_string)
 
     def read_bucket_coverage(
@@ -176,288 +123,27 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-        entity_field: str = "instrument_id",
     ) -> set[int]:
-        override = self.dataset_overrides.get(dataset_id) if self.dataset_overrides else None
-        table_name = override.table_name if override and override.table_name else self.table_name
-        ts_field = override.ts_field if override and override.ts_field else self.ts_field
-        entity_column = (
-            entity_field
-            if entity_field
-            else (override.entity_field if override and override.entity_field else "instrument_id")
-        )
-        schema_name = override.schema if override and override.schema else None
-
-        entity_col: ColumnClause[Any] = sa_column(entity_column)
-        ts_col: ColumnClause[Any] = sa_column(ts_field)
         table = sa_table(
-            table_name,
-            entity_col,
-            ts_col,
-            schema=schema_name,
+            self.table_name,
+            sa_column("instrument_id"),
+            sa_column(self.ts_field),
         )
-        bucket_expr = sa_func.floor(ts_col / bindparam("day_ns")).label("bucket")
-        stmt = (
-            sa_select(bucket_expr)
-            .select_from(table)
-            .where(
-                entity_col == bindparam("entity_id"),
-                ts_col >= bindparam("start_ns"),
-                ts_col < bindparam("end_ns"),
-            )
-            .group_by(bucket_expr)
-        )
+        bucket_expr = sa_func.floor(sa_column(self.ts_field) / bindparam("day_ns")).label("bucket")
+        stmt = sa_select(bucket_expr).select_from(table).where(
+            sa_column("instrument_id") == bindparam("instrument_id"),
+            sa_column(self.ts_field) >= bindparam("start_ns"),
+            sa_column(self.ts_field) < bindparam("end_ns"),
+        ).group_by(bucket_expr)
         params = {
             "day_ns": DAY_NS,
-            "entity_id": instrument_id,
+            "instrument_id": instrument_id,
             "start_ns": int(start_ns),
             "end_ns": int(end_ns),
         }
         with self._engine.connect() as conn:
             rows = conn.execute(stmt, params).fetchall()
         return {int(r[0]) for r in rows}
-
-    def latest_timestamp_ns(
-        self,
-        *,
-        dataset_id: str | None,
-        instrument_id: str,
-        entity_field: str = "instrument_id",
-    ) -> int | None:
-        """
-        Return the most recent ``ts_event`` recorded for ``instrument_id``.
-        """
-        override = None
-        if dataset_id and self.dataset_overrides:
-            override = self.dataset_overrides.get(dataset_id)
-        table_name = override.table_name if override and override.table_name else self.table_name
-        ts_field = override.ts_field if override and override.ts_field else self.ts_field
-        schema_name = override.schema if override and override.schema else None
-        entity_column = (
-            entity_field
-            if entity_field
-            else (override.entity_field if override and override.entity_field else "instrument_id")
-        )
-        entity_col: ColumnClause[Any] = sa_column(entity_column)
-        ts_col: ColumnClause[Any] = sa_column(ts_field)
-        table = sa_table(
-            table_name,
-            entity_col,
-            ts_col,
-            schema=schema_name,
-        )
-        stmt = (
-            sa_select(sa_func.max(ts_col))
-            .select_from(table)
-            .where(entity_col == bindparam("entity_id"))
-        )
-        with self._engine.connect() as conn:
-            result = conn.execute(stmt, {"entity_id": instrument_id}).scalar()
-        if result is None:
-            return None
-        return int(result)
-
-
-@dataclass(frozen=True, slots=True)
-class ParquetCoverageSpec:
-    """
-    Coverage metadata for datasets mirrored to partitioned Parquet files.
-    """
-
-    dataset_id: str
-    base_path: Path
-    partition_field: str = "instrument_id"
-    timestamp_field: str = "ts_event"
-    partition_template: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.dataset_id:
-            msg = "dataset_id cannot be empty"
-            raise ValueError(msg)
-        if not self.base_path:
-            msg = "base_path cannot be empty"
-            raise ValueError(msg)
-        if not self.partition_field:
-            msg = "partition_field cannot be empty"
-            raise ValueError(msg)
-        if not self.timestamp_field:
-            msg = "timestamp_field cannot be empty"
-            raise ValueError(msg)
-
-    def files_for_instrument(self, instrument_id: str) -> tuple[Path, ...]:
-        """
-        Resolve parquet files for an instrument respecting partition templates.
-        """
-        base_path = self.base_path
-        if base_path.is_file():
-            return (base_path,)
-        template_value = self.partition_template
-        if template_value is None:
-            template_value = "{field}={value}"
-        else:
-            template_value = template_value.strip()
-        partition_root = base_path
-        if template_value:
-            try:
-                partition_path = template_value.format(
-                    field=self.partition_field,
-                    value=instrument_id.strip(),
-                )
-            except (KeyError, IndexError, ValueError) as exc:
-                msg = f"Invalid partition_template for dataset {self.dataset_id}: {template_value!r}"
-                raise ValueError(msg) from exc
-            partition_root = base_path / partition_path
-        if partition_root.is_file():
-            return (partition_root,)
-        if partition_root.is_dir():
-            files = sorted(partition_root.glob("*.parquet"))
-            return tuple(files)
-        return tuple()
-
-
-@dataclass(slots=True)
-class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
-    """
-    Coverage provider that inspects partitioned Parquet mirrors (e.g., earnings).
-    """
-
-    specs: Mapping[str, ParquetCoverageSpec]
-
-    def read_bucket_coverage(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-        instrument_id: str,
-        start_ns: int,
-        end_ns: int,
-        entity_field: str = "instrument_id",
-    ) -> set[int]:
-        spec = self.specs.get(dataset_id)
-        if spec is None:
-            return set()
-        partition_field = spec.partition_field or entity_field
-        instrument_value = instrument_id.strip()
-        parquet_files = spec.files_for_instrument(instrument_value)
-        if not parquet_files:
-            logger.debug(
-                "parquet_coverage.partition_missing",
-                extra={
-                    "dataset_id": dataset_id,
-                    "schema": schema,
-                    "instrument_id": instrument_value,
-                    "base_path": str(spec.base_path),
-                },
-            )
-            return set()
-        buckets: set[int] = set()
-        for parquet_file in parquet_files:
-            buckets.update(
-                self._buckets_from_file(
-                    parquet_file,
-                    timestamp_field=spec.timestamp_field,
-                    start_ns=start_ns,
-                    end_ns=end_ns,
-                    entity_field=partition_field,
-                    instrument_id=instrument_value,
-                ),
-            )
-        return buckets
-
-    @staticmethod
-    def _buckets_from_file(
-        path: Path,
-        *,
-        timestamp_field: str,
-        start_ns: int,
-        end_ns: int,
-        entity_field: str,
-        instrument_id: str,
-    ) -> set[int]:
-        needs_entity = bool(entity_field and entity_field != timestamp_field)
-        columns = [timestamp_field]
-        if needs_entity:
-            columns.append(entity_field)
-        try:
-            frame = pd.read_parquet(path, columns=columns)
-            entity_available = entity_field in frame.columns if entity_field else False
-        except Exception:
-            if needs_entity:
-                try:
-                    frame = pd.read_parquet(path, columns=[timestamp_field])
-                    entity_available = False
-                except Exception:  # pragma: no cover - IO/backend issues
-                    logger.warning("parquet_coverage.read_failed", exc_info=True, extra={"path": str(path)})
-                    return set()
-            else:  # pragma: no cover - IO/backend issues
-                logger.warning("parquet_coverage.read_failed", exc_info=True, extra={"path": str(path)})
-                return set()
-        if timestamp_field not in frame:
-            return set()
-        filtered = frame
-        if entity_field and entity_available and entity_field in frame.columns:
-            instrument_value = instrument_id.strip()
-            column = frame[entity_field].astype(str).str.strip()
-            filtered = frame.loc[column == instrument_value]
-        series = filtered[timestamp_field].dropna()
-        if series.empty:
-            return set()
-        window = series[(series >= start_ns) & (series < end_ns)]
-        if window.empty:
-            return set()
-        return {int(value // DAY_NS) for value in window.astype("int64").to_list()}
-
-
-@dataclass(slots=True)
-class UnionCoverageProvider(CoverageProviderProtocol):
-    """
-    Coverage provider that unions results from multiple backends.
-    """
-
-    providers: tuple[CoverageProviderProtocol, ...]
-
-    def read_bucket_coverage(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-        instrument_id: str,
-        start_ns: int,
-        end_ns: int,
-        entity_field: str = "instrument_id",
-    ) -> set[int]:
-        buckets: set[int] = set()
-        for provider in self.providers:
-            buckets.update(
-                provider.read_bucket_coverage(
-                    dataset_id=dataset_id,
-                    schema=schema,
-                    instrument_id=instrument_id,
-                    start_ns=start_ns,
-                    end_ns=end_ns,
-                    entity_field=entity_field,
-                ),
-            )
-        return buckets
-
-
-@dataclass(slots=True)
-class NullCoverageProvider(CoverageProviderProtocol):
-    """
-    No-op provider used when no catalog source is configured.
-    """
-
-    def read_bucket_coverage(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-        instrument_id: str,
-        start_ns: int,
-        end_ns: int,
-        entity_field: str = "instrument_id",
-    ) -> set[int]:
-        return set()
 
 
 @dataclass(slots=True)
@@ -495,10 +181,6 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         if df.empty:
             return 0
-
-        return self._write_standard(df, instrument_id)
-
-    def _write_standard(self, df: pd.DataFrame, instrument_id: str) -> int:
         cols = set(map(str, df.columns))
 
         def _maybe(val: object) -> object | None:
@@ -741,6 +423,160 @@ class SqlMarketDataReader(RawReaderProtocol):
             return empty
 
 
+# =============================================================================
+# Null/Union/Partitioned Coverage Providers
+# =============================================================================
+
+
+@dataclass(slots=True)
+class NullCoverageProvider(CoverageProviderProtocol):
+    """
+    Null coverage provider that always returns empty coverage.
+
+    Useful as a fallback when no real provider is available.
+    """
+
+    def read_bucket_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> set[int]:
+        """Return empty coverage set."""
+        _ = dataset_id, schema, instrument_id, start_ns, end_ns
+        return set()
+
+
+@dataclass(frozen=True, slots=True)
+class ParquetCoverageSpec:
+    """
+    Specification for parquet-based coverage.
+
+    Attributes
+    ----------
+    base_path : str
+        Base path to parquet files
+    partition_field : str
+        Field used for partitioning (default: "date")
+    """
+
+    base_path: str
+    partition_field: str = "date"
+
+
+@dataclass(slots=True)
+class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
+    """
+    Coverage provider for partitioned parquet files.
+    """
+
+    spec: ParquetCoverageSpec
+
+    def read_bucket_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> set[int]:
+        """Read coverage from partitioned parquet files."""
+        # TODO: Implement actual parquet reading
+        _ = dataset_id, schema, instrument_id, start_ns, end_ns
+        return set()
+
+
+@dataclass(frozen=True, slots=True)
+class SqlCoverageOverride:
+    """
+    Override configuration for SQL coverage queries.
+
+    Attributes
+    ----------
+    table_name : str
+        Override table name
+    date_column : str
+        Override date column name
+    """
+
+    table_name: str | None = None
+    date_column: str | None = None
+
+
+@dataclass(slots=True)
+class UnionCoverageProvider(CoverageProviderProtocol):
+    """
+    Coverage provider that unions results from multiple providers.
+    """
+
+    providers: list[CoverageProviderProtocol]
+
+    def read_bucket_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> set[int]:
+        """Return union of all provider coverages."""
+        result: set[int] = set()
+        for provider in self.providers:
+            result |= provider.read_bucket_coverage(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+        return result
+
+
+def resolve_catalog_identifier(
+    *,
+    schema: str,
+    instrument_id: str,
+    identifier_template: str | None = None,
+) -> str:
+    """
+    Resolve catalog identifier from schema and instrument_id.
+
+    Parameters
+    ----------
+    schema : str
+        Data schema (e.g., "bar_1_minute")
+    instrument_id : str
+        Instrument identifier (e.g., "AAPL.NASDAQ")
+    identifier_template : str | None
+        Template for identifier resolution. If None, uses default format.
+        Supports {schema} and {instrument_id} placeholders.
+
+    Returns
+    -------
+    str
+        Resolved identifier string
+
+    Examples
+    --------
+    >>> resolve_catalog_identifier(schema="bar_1_minute", instrument_id="AAPL.NASDAQ")
+    'AAPL.NASDAQ'
+    >>> resolve_catalog_identifier(
+    ...     schema="bar_1_minute",
+    ...     instrument_id="AAPL.NASDAQ",
+    ...     identifier_template="{instrument_id}_{schema}"
+    ... )
+    'AAPL.NASDAQ_bar_1_minute'
+    """
+    if identifier_template is None:
+        return instrument_id
+    return identifier_template.format(schema=schema, instrument_id=instrument_id)
+
+
 __all__ = [
     "DAY_NS",
     "CatalogCoverageProvider",
@@ -752,4 +588,5 @@ __all__ = [
     "SqlMarketDataReader",
     "SqlMarketDataWriter",
     "UnionCoverageProvider",
+    "resolve_catalog_identifier",
 ]

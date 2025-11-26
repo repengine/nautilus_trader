@@ -157,7 +157,8 @@ class EngineManager:
         try:
             parsed = make_url(connection_string)
             masked = isinstance(parsed.password, str) and parsed.password.strip() == "***"
-        except Exception:
+        except Exception as exc:
+            logger.debug("Connection string parse failed; treating as raw", exc_info=exc)
             parsed = None
             masked = False
 
@@ -195,11 +196,12 @@ class EngineManager:
                 )
 
                 if is_test:
-                    # Use conservative settings for tests
-                    actual_pool_size = min(pool_size, 2)
-                    actual_max_overflow = min(max_overflow, 3)
+                    # Use appropriate settings for parallel test execution
+                    # 4 workers × 2 connections minimum = 8, plus overhead
+                    actual_pool_size = min(pool_size, int(os.getenv("ML_TEST_POOL_SIZE", "5")))
+                    actual_max_overflow = min(max_overflow, int(os.getenv("ML_TEST_MAX_OVERFLOW", "10")))
                     logger.debug(
-                        f"Test environment detected, using conservative pool settings: "
+                        f"Test environment detected, using test pool settings: "
                         f"pool_size={actual_pool_size}, max_overflow={actual_max_overflow}",
                     )
                 else:
@@ -363,7 +365,7 @@ class EngineManager:
                     logger.debug(f"Disposed engine for {connection_string[:30]}...")
                 except Exception as e:
                     error_msg = f"Error disposing engine for {connection_string[:30]}...: {e}"
-                    logger.warning(error_msg)
+                    logger.warning(error_msg, exc_info=True)
                     errors.append(error_msg)
 
             cls._instances.clear()

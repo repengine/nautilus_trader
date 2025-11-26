@@ -22,8 +22,8 @@ from ml.config.actors import MLSignalActorConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.config.registry import ModelRegistryConfig
-from ml.registry.model_registry import ModelManifest
-from ml.registry.feature_registry import FeatureManifest
+from ml.registry import FeatureManifest
+from ml.registry import ModelManifest
 from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from ml.tests.fixtures.model_factory import TestDataFactory
 from ml.tests.fixtures.model_factory import TestModelFactory

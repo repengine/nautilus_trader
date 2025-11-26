@@ -30,8 +30,8 @@ from ml.stores.protocols import StrategyStoreProtocol
 
 try:
     configure_logging()
-except Exception:
-    logging.getLogger(__name__).debug("Dashboard control logging configuration failed", exc_info=True)
+except Exception:  # pragma: no cover - defensive
+    pass
 
 logger = logging.getLogger(__name__)
 

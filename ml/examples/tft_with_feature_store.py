@@ -16,9 +16,10 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
+from ml.common.logging_config import configure_logging
 from ml.config.base import MLFeatureConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
 from ml.stores.feature_store import FeatureStore
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -28,10 +29,7 @@ def main() -> None:
     Demonstrate TFT Dataset Builder with FeatureStore.
     """
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    configure_logging(level="INFO")
     logger = logging.getLogger(__name__)
 
     # Create temporary directory for catalog

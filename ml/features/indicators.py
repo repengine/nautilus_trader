@@ -9,15 +9,14 @@ from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
-
 from nautilus_trader.model.data import Bar
 
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
 from ml.features.config import FeatureConfig
 
-
-from ml._imports import HAS_POLARS, pl
 
 logger = logging.getLogger(__name__)
 
@@ -385,15 +384,22 @@ class IndicatorManager:
 
         return all_values
 
-    def _update_batch_polars(
+    def update_batch_polars(
         self,
         open_prices: npt.NDArray[np.float64],
         high_prices: npt.NDArray[np.float64],
         low_prices: npt.NDArray[np.float64],
         close_prices: npt.NDArray[np.float64],
         volumes: npt.NDArray[np.float64],
-    ) -> list[dict[str, float]]:
-        """Internal Polars implementation for batch updates."""
+    ) -> Any:  # pl.DataFrame
+        """
+        Update indicators using Polars for batch processing (returns DataFrame).
+
+        Returns
+        -------
+        pl.DataFrame
+            DataFrame containing indicator values.
+        """
         if pl is None:
             raise RuntimeError("Polars is not available")
         df = pl.DataFrame(
@@ -432,15 +438,15 @@ class IndicatorManager:
                 delta = pl.col("close").diff()
                 up = delta.clip(lower_bound=0.0)
                 down = -delta.clip(upper_bound=0.0)
-                
+
                 # Wilder's smoothing: alpha = 1/period
                 alpha = 1.0 / period
                 avg_up = up.ewm_mean(alpha=alpha, adjust=False, min_periods=period)
                 avg_down = down.ewm_mean(alpha=alpha, adjust=False, min_periods=period)
-                
+
                 rs = avg_up / avg_down
                 rsi = 100.0 - (100.0 / (1.0 + rs))
-                
+
                 # Normalize to [-1, 1] for ML: (RSI/100 - 0.5) * 2
                 rsi_norm = ((rsi / 100.0) - 0.5) * 2.0
                 exprs.append(rsi_norm.fill_null(0.0).alias(name))
@@ -452,7 +458,7 @@ class IndicatorManager:
                 std = pl.col("close").rolling_std(period)
                 upper = mid + (std * std_dev)
                 lower = mid - (std * std_dev)
-                
+
                 exprs.append(upper.fill_null(0.0).alias(IndicatorNames.BB_UPPER))
                 exprs.append(mid.fill_null(0.0).alias(IndicatorNames.BB_MIDDLE))
                 exprs.append(lower.fill_null(0.0).alias(IndicatorNames.BB_LOWER))
@@ -466,7 +472,7 @@ class IndicatorManager:
                 tr3 = (pl.col("low") - pl.col("close").shift(1)).abs()
                 # Max of TRs
                 tr = pl.max_horizontal(tr1, tr2, tr3)
-                
+
                 # Using SMA for ATR as per fallback implementation
                 atr = tr.rolling_mean(period)
                 exprs.append(atr.fill_null(0.0).alias(name))
@@ -475,22 +481,34 @@ class IndicatorManager:
                 fast = spec["fast"]
                 slow = spec["slow"]
                 # Signal is not used in output currently (0.0)
-                
+
                 fast_ema = pl.col("close").ewm_mean(span=fast, adjust=False)
                 slow_ema = pl.col("close").ewm_mean(span=slow, adjust=False)
                 macd_line = fast_ema - slow_ema
-                
+
                 # Normalize by close price
                 macd_norm = macd_line / pl.col("close")
-                
+
                 exprs.append(macd_norm.fill_null(0.0).alias(IndicatorNames.MACD_LINE))
                 exprs.append(pl.lit(0.0).alias(IndicatorNames.MACD_SIGNAL))
                 exprs.append(pl.lit(0.0).alias(IndicatorNames.MACD_DIFF))
 
-        # Collect and convert to dicts
-        # Note: Some values might be null (NaN) initially due to lookback
-        # fill_null(0.0) was applied above
-        return cast(list[dict[str, float]], df.lazy().with_columns(exprs).collect().to_dicts())
+        # Return Polars DataFrame directly
+        return df.lazy().with_columns(exprs).collect()
+
+    def _update_batch_polars(
+        self,
+        open_prices: npt.NDArray[np.float64],
+        high_prices: npt.NDArray[np.float64],
+        low_prices: npt.NDArray[np.float64],
+        close_prices: npt.NDArray[np.float64],
+        volumes: npt.NDArray[np.float64],
+    ) -> list[dict[str, float]]:
+        """Internal Polars implementation for batch updates."""
+        df = self.update_batch_polars(
+            open_prices, high_prices, low_prices, close_prices, volumes
+        )
+        return cast(list[dict[str, float]], df.to_dicts())
 
     def get_values(self, current_price: float | None = None) -> dict[str, float]:
         """

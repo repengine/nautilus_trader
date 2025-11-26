@@ -13,7 +13,7 @@ Components:
 - RegistrySynchronizer: Registry operations during pipeline
 - RuntimeAttacher: Runtime attachment operations
 - ConfigResolver: Configuration parsing and validation
-- DiscoveryService: Service discovery operations
+- DiscoveryClient: Service discovery operations
 
 The facade uses the delegation pattern to preserve behavioral parity while enabling
 better testability, maintainability, and adherence to Single Responsibility Principle.
@@ -49,19 +49,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ml.data.ingest.subscription import SubscriptionPolicy as CoveragePolicy
-from ml.orchestration.components.config_resolver import ConfigResolver
-from ml.orchestration.components.dataset_builder import DatasetBuilder
-from ml.orchestration.components.discovery_service import DiscoveryService
-from ml.orchestration.components.ingestion_coordinator import IngestionCoordinator
-from ml.orchestration.components.registry_synchronizer import RegistrySynchronizer
-from ml.orchestration.components.runtime_attacher import RuntimeAttacher
-from ml.orchestration.components.training_coordinator import TrainingCoordinator
+from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.orchestration.dataset_builder import DatasetBuilder
+from ml.orchestration.discovery_client import DiscoveryClient
+from ml.orchestration.feature_flags import use_legacy_orchestrator
+from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.orchestration.runtime_attacher import RuntimeAttacher
+from ml.orchestration.training_coordinator import TrainingCoordinator
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 
@@ -255,7 +256,7 @@ class MLPipelineOrchestratorFacade:
         init=False,
         repr=False,
     )
-    _discovery_service: DiscoveryService | None = field(
+    _discovery_client: DiscoveryClient | None = field(
         default=None,
         init=False,
         repr=False,
@@ -337,78 +338,58 @@ class MLPipelineOrchestratorFacade:
         Operations still delegate to the legacy orchestrator for behavioral parity.
 
         """
-        from unittest.mock import Mock
-
         # Initialize ConfigResolver (no dependencies on other components)
         self._config_resolver = ConfigResolver()
 
-        # Initialize DiscoveryService (no dependencies on other components)
-        self._discovery_service = DiscoveryService()
+        # Initialize DiscoveryClient (no dependencies on other components)
+        self._discovery_client = DiscoveryClient(
+            dataset_discovery=self.dataset_discovery,
+            ingestion_service=self.service,
+        )
 
-        # Initialize RuntimeAttacher (no dependencies on other components)
+        # Initialize RuntimeAttacher
         self._runtime_attacher = RuntimeAttacher(
-            integration_manager=None,  # Will be set if factory provided
-            validators=None,
+            integration_manager_factory=self.integration_manager_factory,
+            data_registry=self.data_registry,  # type: ignore[arg-type]
         )
 
-        # Create mock message bus for structural phase
-        mock_message_bus = Mock()
-        mock_message_bus.publish = Mock(return_value=None)
-
-        # Initialize RegistrySynchronizer (with mocks for missing registries)
-        data_reg = self.data_registry if self.data_registry is not None else Mock()
-        feat_reg = self.feature_registry if self.feature_registry is not None else Mock()
-        model_reg = self.model_registry if self.model_registry is not None else Mock()
-
+        # Initialize RegistrySynchronizer
         self._registry_synchronizer = RegistrySynchronizer(
-            data_registry=data_reg,  # type: ignore[arg-type]
-            feature_registry=feat_reg,  # type: ignore[arg-type]
-            model_registry=model_reg,  # type: ignore[arg-type]
-            message_bus=mock_message_bus,
+            data_registry=self.data_registry,  # type: ignore[arg-type]
+            feature_registry=self.feature_registry,
         )
 
-        # Initialize DatasetBuilder (with mocks for missing stores)
-        data_st = self.data_store if self.data_store is not None else Mock()
-        feat_st = self.feature_store if self.feature_store is not None else Mock()
-
+        # Initialize DatasetBuilder (root module)
         self._dataset_builder = DatasetBuilder(
-            data_store=data_st,  # type: ignore[arg-type]
-            feature_store=feat_st,  # type: ignore[arg-type]
-            discovery_service=self.dataset_discovery,
+            data_store=self.data_store,  # type: ignore[arg-type]
+            data_registry=self.data_registry,  # type: ignore[arg-type]
+            build_main=self.build_main,
         )
 
-        # Initialize TrainingCoordinator (with mocks for missing store/registry)
-        model_st = self.model_store if self.model_store is not None else Mock()
-        model_rg = self.model_registry if self.model_registry is not None else Mock()
-
+        # Initialize TrainingCoordinator
         self._training_coordinator = TrainingCoordinator(
-            model_store=model_st,  # type: ignore[arg-type]
-            model_registry=model_rg,  # type: ignore[arg-type]
-            hpo_main=self.hpo_main,
             teacher_main=self.teacher_main,
-            distill_cli=None,  # Will be set in full migration
+            hpo_main=self.hpo_main,
+            build_artifacts=None,  # Will be set after dataset build
         )
 
-        # Initialize IngestionCoordinator (with mocks for missing store/registry)
-        # Note: IngestionCoordinator uses delegation pattern - requires orchestrator
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-
-        legacy = self._legacy_orchestrator
-        if isinstance(legacy, MLPipelineOrchestrator):
-            data_st_for_ing = self.data_store if self.data_store is not None else Mock()
-            data_reg_for_ing = self.data_registry if self.data_registry is not None else Mock()
-
-            self._ingestion_coordinator = IngestionCoordinator(
-                orchestrator=legacy,
-                data_store=data_st_for_ing,  # type: ignore[arg-type]
-                data_registry=data_reg_for_ing,  # type: ignore[arg-type]
-            )
+        # Initialize IngestionCoordinator (root module - needs coverage, writer, etc.)
+        self._ingestion_coordinator = IngestionCoordinator(
+            coverage=self.coverage,
+            writer=self.writer,
+            registry=self.data_registry,  # type: ignore[arg-type]
+            ingestor=self.ingestor,  # type: ignore[arg-type]
+            service=self.service,
+            raw_writer=self.raw_writer,
+            domain_loader=self.domain_loader,
+            discovery_client=self._discovery_client,
+        )
 
         logger.debug(
             "Components initialized",
             extra={
                 "has_config_resolver": self._config_resolver is not None,
-                "has_discovery_service": self._discovery_service is not None,
+                "has_discovery_client": self._discovery_client is not None,
                 "has_registry_synchronizer": self._registry_synchronizer is not None,
                 "has_runtime_attacher": self._runtime_attacher is not None,
                 "has_dataset_builder": self._dataset_builder is not None,
@@ -451,16 +432,24 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            legacy.run_pre_ingestion(
+                catalog_path=catalog_path,
+                scheduler_cfg=scheduler_cfg,
+                options=options,
+            )
+            return
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        legacy.run_pre_ingestion(
+        # Use root module (canonical path)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator not initialized")
+        self._ingestion_coordinator.run_pre_ingestion(
             catalog_path=catalog_path,
             scheduler_cfg=scheduler_cfg,
             options=options,
@@ -505,16 +494,24 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.backfill(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                lookback_days=lookback_days,
+            )
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.backfill(
+        # Use root module (canonical path)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator not initialized")
+        return self._ingestion_coordinator.backfill(
             dataset_id=dataset_id,
             schema=schema,
             instrument_id=instrument_id,
@@ -552,16 +549,22 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.backfill_binding(
+                binding=binding,
+                lookback_days=lookback_days,
+            )
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.backfill_binding(
+        # Use root module (canonical path)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator not initialized")
+        return self._ingestion_coordinator.backfill_binding(
             binding=binding,
             lookback_days=lookback_days,
         )
@@ -605,16 +608,24 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.backfill_coverage(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                policy=policy,
+            )
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.backfill_coverage(
+        # Use root module (canonical path)
+        if self._ingestion_coordinator is None:
+            raise RuntimeError("IngestionCoordinator not initialized")
+        return self._ingestion_coordinator.backfill_coverage(
             dataset_id=dataset_id,
             schema=schema,
             instrument_id=instrument_id,
@@ -648,16 +659,19 @@ class MLPipelineOrchestratorFacade:
         >>> assert result == 0  # Success
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.build_dataset(cfg)
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.build_dataset(cfg)
+        # Use root module (canonical path)
+        if self._dataset_builder is None:
+            raise RuntimeError("DatasetBuilder not initialized")
+        return self._dataset_builder.build_dataset(cfg)
 
     def run_hpo(
         self,
@@ -693,16 +707,19 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.run_hpo(cfg, dataset_csv, out_dir)
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.run_hpo(cfg, dataset_csv, out_dir)
+        # Use root module (canonical path)
+        if self._training_coordinator is None:
+            raise RuntimeError("TrainingCoordinator not initialized")
+        return self._training_coordinator.run_hpo(cfg, dataset_csv, out_dir)
 
     def train_teacher(
         self,
@@ -743,16 +760,19 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.train_teacher(cfg, dataset_csv, out_dir)
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.train_teacher(cfg, dataset_csv, out_dir)
+        # Use root module (canonical path)
+        if self._training_coordinator is None:
+            raise RuntimeError("TrainingCoordinator not initialized")
+        return self._training_coordinator.train_teacher(cfg, dataset_csv, out_dir)
 
     def distill_student(
         self,
@@ -789,16 +809,23 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+        # Use legacy mode for parity testing
+        if use_legacy_orchestrator():
+            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
+            legacy = self._legacy_orchestrator
+            if not isinstance(legacy, MLPipelineOrchestrator):
+                raise TypeError("Invalid legacy orchestrator type")
+            return legacy.distill_student(
+                cfg,
+                dataset_dir=dataset_dir,
+                teacher_cfg=teacher_cfg,
+            )
 
-        legacy = self._legacy_orchestrator
-        if not isinstance(legacy, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-
-        return legacy.distill_student(
+        # Use root module (canonical path)
+        if self._training_coordinator is None:
+            raise RuntimeError("TrainingCoordinator not initialized")
+        return self._training_coordinator.distill_student(
             cfg,
             dataset_dir=dataset_dir,
             teacher_cfg=teacher_cfg,
@@ -845,10 +872,9 @@ class MLPipelineOrchestratorFacade:
         ... )
 
         """
+        # Full pipeline orchestration - delegates to legacy for now
+        # Individual methods (build_dataset, train_teacher, etc.) use root modules
         from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
 
         legacy = self._legacy_orchestrator
         if not isinstance(legacy, MLPipelineOrchestrator):
@@ -886,10 +912,8 @@ class MLPipelineOrchestratorFacade:
         >>> result = facade.run_training_only(orchestrator_config)
 
         """
+        # Training pipeline orchestration - delegates to legacy for now
         from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-
-        if self._legacy_orchestrator is None:
-            raise RuntimeError("Legacy orchestrator not initialized")
 
         legacy = self._legacy_orchestrator
         if not isinstance(legacy, MLPipelineOrchestrator):

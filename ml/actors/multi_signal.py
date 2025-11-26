@@ -152,6 +152,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
         except Exception as exc:  # pragma: no cover - best-effort metrics
             self.log.debug(
                 f"multi_signal.metrics_init_failed actor={self.id} error={exc!r}",
+                exc_info=True,
             )
 
             class _NoMetric:
@@ -213,6 +214,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
         except Exception as exc:
             self.log.debug(
                 f"multi_signal.universe_metric_set_failed actor={self.id} error={exc!r}",
+                exc_info=True,
             )
 
     # --------------------------------- Hot path ---------------------------------
@@ -300,7 +302,6 @@ class MultiInstrumentSignalActor(MLSignalActor):
                         "multi_signal.prediction_pipeline_failed "
                         f"instrument={self._batch_instruments[i]} index={i} "
                         f"batch_size={self._batch_size} error={exc!r}",
-                        exc_info=True,
                     )
             # Observability (best-effort)
             try:
@@ -348,6 +349,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Never fail startup due to alignment; metrics/parity checks will surface problems
             self.log.debug(
                 f"multi_signal.feature_dim_alignment_failed actor={self.id} error={exc!r}",
+                exc_info=True,
             )
 
         # Advisory: auto-set universe from model registry metadata when not provided
@@ -385,12 +387,12 @@ class MultiInstrumentSignalActor(MLSignalActor):
                             bt = getattr(self._config, "bar_type", None)
                             if bt is not None:
                                 venue = str(getattr(bt.instrument_id, "venue", "")) or None
-                        except Exception as venue_exc:
-                            self.log.debug(
-                                "multi_signal.universe_metadata_venue_lookup_failed "
-                                f"actor={self.id} error={venue_exc!r}",
-                                exc_info=True,
-                            )
+                except Exception as venue_exc:
+                    self.log.debug(
+                        "multi_signal.universe_metadata_venue_lookup_failed "
+                        f"actor={self.id} error={venue_exc!r}",
+                        exc_info=True,
+                    )
                             venue = None
                         mapped = [
                             f"{s}.{venue}" if venue and "." not in str(s) else str(s) for s in usyms
@@ -404,6 +406,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Best-effort behavior; never fail actor startup due to metadata
             self.log.debug(
                 f"multi_signal.universe_metadata_failed actor={self.id} error={exc!r}",
+                exc_info=True,
             )
 
     # ----------------------------- Inference backend -----------------------------
@@ -442,6 +445,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
             # Fall through to per-row inference on any failure
             self.log.debug(
                 f"multi_signal.onnx_batch_run_failed actor={self.id} error={exc!r}",
+                exc_info=True,
             )
 
         # Fallback: per-row predictions using inherited predictor

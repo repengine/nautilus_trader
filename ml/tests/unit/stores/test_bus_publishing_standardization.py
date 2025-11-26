@@ -332,19 +332,34 @@ class TestBusPublishingStandardization:
             feature_store.publisher.publish.side_effect = Exception("Test error")
             test_stores.append(("FeatureStore", feature_store))
 
+        # Map store names to their actual module paths for patching
+        module_paths = {
+            "DataStore": [
+                "ml.stores.data_store_facade",  # Facade module
+                "ml.stores.data_store",  # Legacy module
+            ],
+            "FeatureStore": ["ml.stores.feature_store"],
+        }
+
         for store_name, store in test_stores:
-            with patch(f"ml.stores.{store_name.lower()}.logger") as mock_logger:
-                if hasattr(store, "emit_dataset_event"):
-                    store.emit_dataset_event(
-                        dataset_id="test",
-                        instrument_id="EUR/USD",
-                        stage="catalog_written",
-                        source="historical",
-                        run_id="test_run",
-                        ts_min=1000,
-                        ts_max=2000,
-                        count=100,
-                        status="success",
-                    )
-                    # Should use exception-level logging for consistency
-                    assert mock_logger.exception.called or mock_logger.debug.called
+            if hasattr(store, "emit_dataset_event"):
+                # Try each possible module path
+                logged = False
+                for module_path in module_paths.get(store_name, []):
+                    with patch(f"{module_path}.logger") as mock_logger:
+                        store.emit_dataset_event(
+                            dataset_id="test",
+                            instrument_id="EUR/USD",
+                            stage="catalog_written",
+                            source="historical",
+                            run_id="test_run",
+                            ts_min=1000,
+                            ts_max=2000,
+                            count=100,
+                            status="success",
+                        )
+                        if mock_logger.exception.called or mock_logger.debug.called:
+                            logged = True
+                            break
+                # Should use exception-level logging for consistency
+                assert logged, f"{store_name} did not log error"

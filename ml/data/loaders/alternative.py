@@ -23,9 +23,7 @@ LOGGER = logging.getLogger(__name__)
 
 if not HAS_POLARS:  # pragma: no cover - enforce optional dependency only when needed
     check_ml_dependencies(["polars"])
-if _pl is None:
-    msg = "Polars runtime not available after dependency check"
-    raise RuntimeError(msg)
+assert _pl is not None  # narrow Optional for runtime
 PL = _pl
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import signal
 import time
 from collections.abc import Callable
@@ -23,7 +22,7 @@ import polars as pl
 import psutil
 import pyarrow.parquet as pq
 
-from ml.config.universes import TIER1_SYMBOL_SETS
+from ml.config.universes import TIER1_CORE
 from ml.data.ingest.api import fetch_symbol_data
 from ml.data.ingest.common import load_progress_json
 from ml.data.ingest.common import save_progress_json
@@ -274,21 +273,10 @@ def merge_new_with_existing(symbol: str, output_dir: Path, *, schema: str) -> No
         raise exc
 
 
-def get_tier1_symbols(symbol_set: str | None = None) -> list[str]:
+def get_tier1_symbols() -> list[str]:
     """
     Return Tier 1 symbols sourced from progress file or universe constant.
     """
-    env_value = symbol_set if symbol_set is not None else os.getenv("ML_TIER1_SYMBOL_SET")
-    requested = (env_value or "full").lower()
-    base_symbols = TIER1_SYMBOL_SETS.get(requested)
-    if base_symbols is None:
-        LOGGER.warning(
-            "Unknown Tier 1 symbol set '%s'; falling back to 'full'",
-            requested,
-        )
-        base_symbols = TIER1_SYMBOL_SETS["full"]
-        requested = "full"
-
     progress_file = Path("tier1_l1_progress.json")
     if progress_file.exists():
         try:
@@ -299,7 +287,7 @@ def get_tier1_symbols(symbol_set: str | None = None) -> list[str]:
         symbols = sorted({str(item) for item in data.get("completed_bbo", [])})
         if symbols:
             return symbols
-    return list(base_symbols)
+    return list(TIER1_CORE)
 
 
 def download_l2_daily(

@@ -7,8 +7,54 @@
 2. ✅ Broke legacy code before verifying testing parity
 3. ✅ Tests only collected, not executed ("X collected" vs "X passed")
 
-**Date:** 2025-10-15
-**Status:** Pre-execution review
+**🆕 Phase 2.3 Success (2025-10-29):** Completed all 5 sub-phases with proven patterns
+- 127 tests designed across 5 components
+- 50 API mismatches caught by Codex MCP verification before implementation
+- 100% compilation success rate after API corrections
+- 0 runtime failures after V2 documents created
+- **KEY LESSON: Codex verification is NON-NEGOTIABLE**
+
+**🆕 Decomposition Audit (2025-11-26):** Comprehensive quality review revealed gaps
+- 7/16 decompositions were SHALLOW (components unused, facade wraps legacy)
+- 4/16 decompositions PROPER but need cleanup (duplication issues)
+- 5/16 decompositions PROPER (done correctly)
+- **KEY LESSON: TDD verifies behavior, not decomposition quality → Category 14 added**
+
+**Date:** 2025-11-26 (Updated with decomposition quality audit)
+**Status:** 14 categories of safeguards (Categories 0-13 + Category 14)
+
+---
+
+## 🆕 CATEGORY 0: Codex MCP Verification (Phase 2.3 Proven Essential)
+
+### ⚠️ RISK: Test specifications contain invented/incorrect APIs
+
+**Phase 2.3 Evidence:** 50 API mismatches caught; 100% compilation after V2 corrections; 20-30 hours saved.
+
+**SAFEGUARD:**
+```yaml
+Rule: ALL test designs MUST be Codex-verified BEFORE implementation
+
+Error Patterns (from 127 tests):
+  - Invented methods (35%): Methods don't exist (e.g., `_buffer_bar()` → actual `on_bar()`)
+  - Wrong signatures (25%): Parameters/return types wrong
+  - Invented metrics (20%): Assertions for non-existent metrics
+  - Config field errors (10%): Wrong field names
+  - Attribute vs method (5%): Callable vs property confusion
+  - Invented classes (5%): Component classes don't exist
+
+Verification Process:
+  1. Test Design Agent creates specs
+  2. Codex verifies: methods, signatures, attributes, config fields, exceptions, metrics
+  3. Issues found → Create V2 with corrections
+  4. Implementation uses V2 (corrected)
+
+Decision Tree:
+  0 issues → ✅ PASS → Implement | 1-5 issues → ⚠️ Create V2 | 6+ issues → ❌ Major revision
+
+Phase 2.3 Results: 11→8→14→15→2 issues (87% improvement by Phase 2.3.5)
+ROI: 2-8 hours invested → 20-30 hours saved (250-1500% ROI)
+```
 
 ---
 
@@ -113,116 +159,40 @@ REJECTION CRITERIA:
 
 ## Category 3: Test Execution Verification (Not Just Collection)
 
-### ⚠️ RISK: Tests collected but not executed, giving false confidence
-
-**What went wrong before:** `pytest` showed "47 collected" but tests didn't run (import errors, missing fixtures)
+### ⚠️ RISK: Tests collected but not executed
 
 **SAFEGUARD:**
 ```yaml
-Rule: Phase 4 MUST verify tests ACTUALLY RUN:
+Rule: Phase 4 MUST verify tests ACTUALLY RUN
 
-  Required output parsing:
-    ✅ PASS: "47 passed in 3.2s"
-    ❌ FAIL: "47 collected"
-    ❌ FAIL: "47 collected, 2 errors"
-    ❌ FAIL: "47 passed, 1 skipped" (investigate skip)
+Required output:
+  ✅ PASS: "47 passed in 3.2s"
+  ❌ FAIL: "47 collected" (no "passed")
+  ❌ FAIL: Import/fixture errors
 
-  Verification commands:
-    pytest ml/tests/unit/stores/test_data_store.py -v 2>&1 | tee test_output.txt
-
-    # Parse output - MUST contain "passed"
-    if grep -q "passed" test_output.txt && ! grep -q "collected$" test_output.txt; then
-        echo "✅ Tests EXECUTED and PASSED"
-    else
-        echo "❌ Tests only COLLECTED or FAILED"
-        exit 1
-    fi
-
-  Integration agent MUST:
-    1. Run pytest with -v flag
-    2. Capture FULL output
-    3. Parse for "X passed" string
-    4. Count passed tests
-    5. Verify passed count > 0
-    6. Verify no "collected" without "passed"
-    7. REJECT if tests didn't execute
-```
-
-**Phase 4 Agent Prompt Addition:**
-```markdown
-## CRITICAL: VERIFY TESTS ACTUALLY RUN
-
-⚠️ "47 collected" ≠ "47 passed"
-
-You MUST verify pytest output contains "X passed" (not just "X collected").
-
-REJECTION CRITERIA:
-- Output shows "collected" but not "passed" → AUTOMATIC REJECTION
-- Output shows "0 passed" → AUTOMATIC REJECTION
-- Output shows import errors → AUTOMATIC REJECTION
-- Output shows fixture errors → AUTOMATIC REJECTION
-
-REQUIRED OUTPUT FORMAT:
-```
-======================== test session starts =========================
-collected 47 items
-
-ml/tests/unit/stores/test_data_store.py::test_write_data PASSED [ 2%]
-ml/tests/unit/stores/test_data_store.py::test_read_data PASSED [ 4%]
-...
-======================== 47 passed in 3.21s ==========================
-```
-
-Look for "47 passed" - that's the ONLY acceptable outcome.
+Verification: grep -q "passed" output && ! grep -q "collected$" output
+Integration agent REJECTS if tests only collected, not executed.
 ```
 
 ---
 
 ## Category 4: Feature Flag Implementation & Testing
 
-### ⚠️ RISK: Feature flags implemented incorrectly or not tested
-
-**New risk:** Feature flags control legacy vs facade, but what if the flag logic is broken?
+### ⚠️ RISK: Feature flags incorrectly implemented
 
 **SAFEGUARD:**
 ```yaml
-Rule: Feature flags MUST be implemented and tested FIRST:
+Rule: Feature flags MUST be implemented and tested FIRST
 
-  Phase 2 (Implementation) - Step 1: Implement feature flag infrastructure
-    1. Create feature flag in ml/config/feature_flags.py:
-       ```python
-       import os
+Implementation (ml/config/feature_flags.py):
+  def use_legacy_data_store() -> bool:
+      return os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
 
-       def use_legacy_data_store() -> bool:
-           return os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
-       ```
-
-    2. Write feature flag tests FIRST:
-       ```python
-       def test_feature_flag_legacy_mode():
-           with env_var("ML_USE_LEGACY_DATA_STORE", "1"):
-               assert use_legacy_data_store() is True
-
-       def test_feature_flag_facade_mode():
-           with env_var("ML_USE_LEGACY_DATA_STORE", "0"):
-               assert use_legacy_data_store() is False
-
-       def test_feature_flag_default_is_facade():
-           # No env var set
-           assert use_legacy_data_store() is False  # Default to new code
-       ```
-
-    3. Run feature flag tests → verify PASS
-    4. ONLY THEN proceed with facade implementation
-
-  Phase 4 (Integration) - Feature flag parity testing:
-    1. Run ALL tests with ML_USE_LEGACY_X=1 → count passed: N
-    2. Run ALL tests with ML_USE_LEGACY_X=0 → count passed: M
-    3. REQUIRE: N == M (same number of tests pass in both modes)
-    4. If N ≠ M → FAIL and investigate discrepancy
+Phase 4 Parity Test:
+  ML_USE_LEGACY_X=1 pytest → N passed
+  ML_USE_LEGACY_X=0 pytest → M passed
+  REQUIRE: N == M (identical pass counts)
 ```
-
-**Enforcement:** Integration agent verifies feature flag parity before approving.
 
 ---
 
@@ -646,12 +616,187 @@ Rule: Memory must not grow unbounded:
 
 ---
 
+## Category 14: Decomposition Quality Gates (2025-11-26)
+
+### ⚠️ RISK: "Decomposition" is just a wrapper with duplicated code
+
+**What the audit revealed:** 7 of 16 decompositions (44%) were SHALLOW - components exist but are unused, facade wraps legacy, code copied instead of extracted. TDD/parity tests PASSED because they verify behavioral correctness, not structural quality.
+
+**Evidence from comprehensive audit:**
+- BaseMLInferenceActor: Facade (2,273 lines) LARGER than legacy (2,046 lines)
+- FeatureEngineer: 5 components instantiated but NEVER CALLED
+- MLPipelineOrchestrator: Components return placeholder values `{"rows_written": 0}`
+- Code growth: +172% instead of expected +50%
+
+**SAFEGUARD:**
+```yaml
+Rule: Verify ACTUAL decomposition, not just functional parity:
+
+Phase 4 (Integration) - Decomposition Quality Checks (MANDATORY):
+
+  1. Facade Size Check (MUST be thin)
+     ```bash
+     FACADE_LINES=$(wc -l < *_facade.py)
+     if [ $FACADE_LINES -gt 400 ]; then
+         echo "❌ FAIL: Facade too large ($FACADE_LINES lines)"
+         echo "   Facade should be ~200-400 lines of pure delegation"
+         echo "   If larger, logic belongs in components, not facade"
+         exit 1
+     fi
+     ```
+     Thresholds:
+       - Excellent: <300 lines
+       - Acceptable: 300-400 lines
+       - REJECT: >400 lines (logic not extracted)
+
+  2. Component Usage Check (Components MUST be called)
+     ```bash
+     # Facade should NOT delegate to legacy
+     LEGACY_CALLS=$(grep -c "self._legacy" *_facade.py || echo 0)
+     if [ $LEGACY_CALLS -gt 0 ]; then
+         echo "❌ FAIL: Facade delegates to legacy ($LEGACY_CALLS calls)"
+         echo "   Components should own the logic, not legacy wrapper"
+         exit 1
+     fi
+
+     # Facade MUST call components
+     COMPONENT_CALLS=$(grep -c "self\._[a-z_]*\." *_facade.py || echo 0)
+     if [ $COMPONENT_CALLS -lt 5 ]; then
+         echo "❌ FAIL: Facade doesn't use components ($COMPONENT_CALLS calls)"
+         echo "   Components are instantiated but never called"
+         exit 1
+     fi
+     ```
+
+  3. Code Duplication Check (<10% allowed)
+     ```bash
+     # Install jscpd if not present: npm install -g jscpd
+     jscpd --min-lines 10 --reporters console \
+           legacy.py *_facade.py components/*.py \
+           --format "python" 2>&1 | tee duplication_report.txt
+
+     DUPE_PERCENT=$(grep "duplicated" duplication_report.txt | grep -oP '\d+\.\d+' | head -1)
+     if (( $(echo "$DUPE_PERCENT > 10" | bc -l) )); then
+         echo "❌ FAIL: ${DUPE_PERCENT}% code duplication (max 10%)"
+         echo "   Extract shared code to components/common.py"
+         exit 1
+     fi
+     ```
+     Common duplication patterns to check:
+       - Dataclasses (DataEvent, ValidationViolation) - extract to common.py
+       - Helper methods (_validate_*, _generate_*) - extract to utils component
+       - Protocols - define ONCE in protocols.py, import everywhere
+       - Constants (VENUE_MAP, STATIC_FEATURE_MAP) - define in config
+
+  4. Code Growth Check (<200% allowed)
+     ```bash
+     BEFORE=$(wc -l < legacy.py)
+     AFTER=$(cat *_facade.py components/*.py 2>/dev/null | wc -l)
+     GROWTH=$((AFTER * 100 / BEFORE))
+
+     if [ $GROWTH -gt 200 ]; then
+         echo "❌ FAIL: Code grew ${GROWTH}% (max 200%)"
+         echo "   Expected: Legacy N lines → Facade+Components ~1.5N lines"
+         echo "   Actual growth indicates copy-paste, not extraction"
+         exit 1
+     fi
+     ```
+     Expected growth patterns:
+       - Excellent: <150% (logic moved, not copied)
+       - Acceptable: 150-200% (some duplication for clarity)
+       - REJECT: >200% (copy-paste extraction)
+
+  5. Dead Component Check (All components MUST be used)
+     ```bash
+     for component in components/*.py; do
+         # Extract class name
+         CLASS=$(grep -oP "^class \K\w+" "$component" | head -1)
+         if [ -z "$CLASS" ]; then continue; fi
+
+         # Count usages in facade (excluding imports)
+         USAGES=$(grep -c "$CLASS" *_facade.py 2>/dev/null || echo 0)
+         IMPORTS=$(grep -c "from.*import.*$CLASS\|import.*$CLASS" *_facade.py 2>/dev/null || echo 0)
+         ACTUAL=$((USAGES - IMPORTS))
+
+         if [ $ACTUAL -lt 1 ]; then
+             echo "❌ FAIL: $CLASS instantiated but never used"
+             echo "   Component exists in $component but facade doesn't call it"
+             exit 1
+         fi
+     done
+     ```
+
+  6. Legacy Removal Readiness Check
+     ```bash
+     # After decomposition, legacy file should be deletable
+     # Check if facade imports from legacy (it shouldn't)
+     LEGACY_IMPORTS=$(grep -c "from.*legacy import\|import.*legacy" *_facade.py || echo 0)
+     if [ $LEGACY_IMPORTS -gt 0 ]; then
+         echo "⚠️ WARN: Facade still imports from legacy ($LEGACY_IMPORTS imports)"
+         echo "   True decomposition = legacy file can be deleted"
+     fi
+
+     # Check if tests still reference legacy directly
+     TEST_LEGACY_REFS=$(grep -r "legacy" tests/ --include="*.py" | grep -v "parity\|compare" | wc -l)
+     if [ $TEST_LEGACY_REFS -gt 5 ]; then
+         echo "⚠️ WARN: Tests still reference legacy ($TEST_LEGACY_REFS refs)"
+         echo "   Update tests to use facade exclusively"
+     fi
+     ```
+
+Why Parity Tests Don't Catch This:
+  # This PASSES all parity tests but is SHALLOW:
+  class FeatureEngineerFacade:
+      def __init__(self):
+          self._legacy = LegacyFeatureEngineer()  # Full legacy instantiated
+          self.calculator = FeatureCalculator()    # Component created but...
+
+      def calculate_features(self, bars):
+          return self._legacy.calculate_features(bars)  # ...NEVER USED!
+
+  # Parity test:
+  assert legacy.calculate_features(bars) == facade.calculate_features(bars)
+  # Result: ✅ PASS (both return same value)
+  # Reality: Facade is a wrapper, not a decomposition
+
+Decision Criteria:
+  ✅ PASS (proceed) if ALL checks pass:
+    - Facade <400 lines
+    - 0 legacy delegation calls
+    - >5 component method calls
+    - <10% code duplication
+    - <200% code growth
+    - All components actually used
+
+  ❌ FAIL (return to Phase 2) if ANY check fails:
+    - Facade too large → Extract logic to components
+    - Legacy delegation → Wire facade to use components
+    - Components unused → Remove or wire them up
+    - High duplication → Extract to common.py
+    - Code bloat → Refactor, don't copy-paste
+```
+
+**Implementation:** Add these checks to Phase 4 (Integration Validation) in AGENT_TASK_FRAMEWORK.md
+
+**Audit Results Reference:** See REFACTORING_PLAN.md Appendix F for complete findings.
+
+---
+
 ## Enforcement Checklist - Print Before Each Phase
+
+**🆕 UPDATED (2025-10-29):** Added Codex verification requirements based on Phase 2.3 lessons.
 
 Before starting ANY god class decomposition, print this checklist:
 
 ```markdown
 # Pre-Flight Checklist for Phase [X.Y]: [God Class Name]
+
+## 🆕 Codex MCP Verification (Phase 2.3 Proven Essential)
+- [ ] Codex verification will run AFTER Phase 1 (Test Design)
+- [ ] ALL API calls will be verified against legacy code
+- [ ] V2 documents will be created if Codex finds issues
+- [ ] Implementation will use V2 (corrected), not V1 (raw)
+- [ ] Understand: 50 API errors caught across Phase 2.3 - this step is NON-NEGOTIABLE
 
 ## Code Preservation
 - [ ] Legacy code will NOT be modified until Phase 4 passes
@@ -705,12 +850,62 @@ Before starting ANY god class decomposition, print this checklist:
 - [ ] File locks checked
 - [ ] No concurrent work on same files
 
+## 🆕 Decomposition Quality (2025-11-26 Audit Lessons)
+- [ ] Facade will be <400 lines (pure delegation, no business logic)
+- [ ] Components will be ACTUALLY CALLED (not just instantiated)
+- [ ] Code duplication will be <10% (extract shared code to common.py)
+- [ ] Code growth will be <200% (refactor, don't copy-paste)
+- [ ] Legacy file will be DELETABLE after decomposition
+- [ ] No `self._legacy` delegation in facade (components own logic)
+
 ALL BOXES CHECKED? ✅ Proceed with Phase 1 (Test Design)
 ANY BOX UNCHECKED? ❌ STOP and address missing safeguard
+
+🆕 SPECIAL NOTES:
+- Codex verification is MANDATORY (proven in Phase 2.3) - 50 API errors caught
+- Decomposition quality checks are MANDATORY (proven in 2025-11-26 audit) - 7/16 were shallow
 ```
 
 ---
 
-**This document MUST be reviewed before starting Phase 2.0 Analysis.**
+## Summary of Phase 2.3 Lessons (2025-10-29)
+
+**What We Learned:**
+1. **Codex verification is NON-NEGOTIABLE** - 50 API errors caught = 20-30 hours saved
+2. **V2 documents are essential** - API corrections ensure compilation success
+3. **Learning curves are real** - 87% error reduction from phase 1 to phase 5
+4. **Common patterns exist** - Invented methods, wrong signatures, config errors
+5. **Parity testing reduces errors** - Comparing existing APIs prevents invention
+6. **Type annotations help** - Complete typing catches many issues early
+7. **Documentation quality matters** - Line references enable Codex verification
+
+**Statistics:**
+- Phases completed: 5/5 (Phase 2.3.1 through 2.3.5)
+- Tests designed: 127 across all phases
+- API errors caught: 50 (would have blocked all implementation)
+- V2 documents created: 5 (one per phase)
+- Compilation success: 100% after corrections
+- Time invested in Codex: ~2-8 hours total
+- Time saved: ~20-30 hours of debugging
+
+**Pattern Proven:**
+```
+Phase 1: Test Design Agent → Creates specifications
+Phase 1.5: Codex MCP → Verifies APIs (NEW - MANDATORY)
+Phase 2: Implementation Agent → Uses corrected V2
+Phase 3: Static Validation → Code quality
+Phase 4: Integration Validation → Runtime behavior
+Phase 5: System Validation → Deployment (optional)
+```
+
+**Key Takeaway:** The 4-step workflow (design → codex → corrections → consolidation) is now proven and should be standard for all test design work. Skip Codex at your peril - every phase had issues, even the "best" one.
+
+---
+
+**This document MUST be reviewed before starting any refactoring work.**
+
+**Updates Applied:**
+- **Phase 2.3 (2025-10-29):** Codex verification now mandatory (Category 0)
+- **Audit (2025-11-26):** Decomposition quality gates added (Category 14) - 7/16 shallow decompositions caught
 
 Any violation of these safeguards → AUTOMATIC REJECTION.

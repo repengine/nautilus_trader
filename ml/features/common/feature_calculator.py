@@ -23,24 +23,22 @@ Critical Requirements:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, overload
 
 import numpy as np
-import numpy.typing as npt
 
 from ml.common.safe_math import safe_divide
 from ml.config.constants import IndicatorNames
-from ml.features.config import FeatureConfig
-from ml.features.indicators import IndicatorManager
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import IndicatorManager
 
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
     import pandas as pd
     import polars as pl
 
     DataFrameLike = pd.DataFrame | pl.DataFrame
-else:
-    DataFrameLike = Any
 
 
 logger = logging.getLogger(__name__)
@@ -197,7 +195,7 @@ class FeatureCalculator:
 
     def calculate_features(
         self: Self,
-        data: DataFrameLike | dict[str, float],
+        data: Any,  # DataFrameLike | dict[str, float]
         mode: str = "batch",
         indicator_manager: IndicatorManager | None = None,
         fit_scaler: bool = False,
@@ -251,31 +249,27 @@ class FeatureCalculator:
         ... )
         """
         if mode == "batch":
-            if isinstance(data, dict):
-                raise ValueError("batch mode requires a DataFrame-like input")
             return self._calculate_features_batch(
-                data=data,
+                data=data,  # type: ignore[arg-type]
                 fit_scaler=fit_scaler,
                 scaler_fit_ratio=scaler_fit_ratio,
             )
-        if mode == "online":
+        elif mode == "online":
             if indicator_manager is None:
                 msg = "indicator_manager is required for online mode"
                 raise ValueError(msg)
-            if not isinstance(data, dict):
-                msg = "online mode expects current_bar dict data"
-                raise ValueError(msg)
             return self._calculate_features_online(
-                current_bar=data,
+                current_bar=data,  # type: ignore[arg-type]
                 indicator_manager=indicator_manager,
                 scaler=scaler,
             )
-        msg = f"Invalid mode: {mode}. Must be 'batch' or 'online'"
-        raise ValueError(msg)
+        else:
+            msg = f"Invalid mode: {mode}. Must be 'batch' or 'online'"
+            raise ValueError(msg)
 
     def _calculate_features_batch(
         self: Self,
-        data: DataFrameLike,
+        data: Any,  # pd.DataFrame | pl.DataFrame
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
     ) -> tuple[Any, Any | None]:  # (DataFrame, StandardScaler | None)
@@ -344,7 +338,7 @@ class FeatureCalculator:
         # Convert to DataFrame (match input type)
         if hasattr(data, "__class__") and "polars" in str(data.__class__):
             import polars as pl
-            features_df: DataFrameLike = pl.DataFrame(feature_rows)
+            features_df = pl.DataFrame(feature_rows)
         else:
             import pandas as pd
             features_df = pd.DataFrame(feature_rows)
@@ -358,20 +352,12 @@ class FeatureCalculator:
             fit_size = int(len(feature_rows) * scaler_fit_ratio)
             if fit_size > 0:
                 fit_data = features_df.iloc[:fit_size] if hasattr(features_df, "iloc") else features_df[:fit_size]
-                fit_array = (
-                    cast(Any, fit_data).to_numpy()
-                    if hasattr(fit_data, "to_numpy")
-                    else cast(Any, fit_data).to_pandas().to_numpy()
-                )
-                fitted_scaler.fit(fit_array)
+                fitted_scaler.fit(fit_data.to_numpy() if hasattr(fit_data, "to_numpy") else fit_data.to_pandas().to_numpy())
 
                 # Transform all data
-                transform_input = (
-                    cast(Any, features_df).to_numpy()
-                    if hasattr(features_df, "to_numpy")
-                    else cast(Any, features_df).to_pandas().to_numpy()
+                transformed = fitted_scaler.transform(
+                    features_df.to_numpy() if hasattr(features_df, "to_numpy") else features_df.to_pandas().to_numpy()
                 )
-                transformed = fitted_scaler.transform(transform_input)
                 if hasattr(features_df, "__class__") and "polars" in str(features_df.__class__):
                     import polars as pl
                     features_df = pl.DataFrame(transformed, schema=feature_names)
@@ -484,33 +470,8 @@ class FeatureCalculator:
                     feature_idx=tech_idx,
                 )
 
-        # 6. Microstructure features (if enabled)
-        if self.config.include_microstructure:
-            # Find start index for microstructure features
-            # Look for first known microstructure feature name
-            micro_idx = next((i for i, name in enumerate(feature_names) 
-                             if name in ["spread_mean", "mid_return_std"]), -1)
-            
-            if micro_idx >= 0:
-                micro_features = self._calculate_microstructure_features(indicator_manager)
-                for i, val in enumerate(micro_features):
-                    if micro_idx + i < self.n_features:
-                        self.feature_buffer[micro_idx + i] = val
-
-        # 7. Trade flow features (if enabled)
-        if self.config.include_trade_flow:
-            # Find start index for trade flow features
-            flow_idx = next((i for i, name in enumerate(feature_names) 
-                            if name in ["trade_flow_imbalance", "vwap"]), -1)
-                            
-            if flow_idx >= 0:
-                flow_features = self._calculate_trade_flow_features(indicator_manager)
-                for i, val in enumerate(flow_features):
-                    if flow_idx + i < self.n_features:
-                        self.feature_buffer[flow_idx + i] = val
-
         # Return view of feature_buffer (no copy)
-        features = self.feature_buffer[:self.n_features]
+        features = self.feature_buffer[:self.n_features].copy()
 
         # Apply scaler if provided
         if scaler is not None:
@@ -842,69 +803,6 @@ class FeatureCalculator:
             else:
                 features[f"momentum_{period}"] = 0.0
 
-    def _calculate_microstructure_features(self, indicator_manager: IndicatorManager) -> list[float]:
-        """
-        Calculate microstructure features.
-        
-        Uses price history from IndicatorManager as a proxy when L2 data is not available.
-        """
-        features = []
-        
-        # Spread features (placeholder as we don't have L2 data in this context)
-        # spread_mean, spread_std, spread_relative
-        features.extend([0.0, 0.0, 0.0])
-        
-        # Size imbalance features (placeholder)
-        # size_imbalance_mean, size_imbalance_std
-        features.extend([0.0, 0.0])
-        
-        # Mid return features
-        # Use close prices as proxy for mid prices
-        closes = indicator_manager.price_history["closes"]
-        mid_return_std, mid_return_autocorr = self._calculate_mid_return_features(closes)
-        features.extend([mid_return_std, mid_return_autocorr])
-        
-        return features
-
-    def _calculate_trade_flow_features(self, indicator_manager: IndicatorManager) -> list[float]:
-        """
-        Calculate trade flow features.
-        """
-        features = []
-        
-        closes = indicator_manager.price_history["closes"]
-        volumes = indicator_manager.price_history["volumes"]
-        highs = indicator_manager.price_history["highs"]
-        lows = indicator_manager.price_history["lows"]
-        
-        if not closes:
-            return [0.0, 0.0, 0.0, 0.0]
-            
-        # 1. Trade flow imbalance (placeholder)
-        features.append(0.0)
-        
-        # 2. VWAP (approximation using HLC/3)
-        # Calculate VWAP over the available history
-        cum_pv = 0.0
-        cum_vol = 0.0
-        for i in range(len(closes)):
-            typical_price = (highs[i] + lows[i] + closes[i]) / 3.0
-            cum_pv += typical_price * volumes[i]
-            cum_vol += volumes[i]
-            
-        vwap = safe_divide(cum_pv, cum_vol) if cum_vol > 0 else closes[-1]
-        features.append(vwap)
-        
-        # 3. Trade intensity (volume / time proxy, here just volume)
-        # Use average volume over recent history
-        avg_vol = sum(volumes) / len(volumes) if volumes else 0.0
-        features.append(avg_vol)
-        
-        # 4. Average price impact (placeholder)
-        features.append(0.0)
-        
-        return features
-
     def _calculate_mid_return_features(self, mid_prices: list[float]) -> tuple[float, float]:
         """
         Calculate mid-price return statistics.
@@ -991,41 +889,48 @@ class FeatureCalculator:
                 "volume": float(b.volume),
             })
 
-        import polars as pl
-        df = pl.DataFrame(rows)
+        import pandas as pd
+        df = pd.DataFrame(rows)
 
         # Calculate features in batch mode
         features_df, _ = self.calculate_features(df, mode="batch")
 
         # Return last row as dict
-        # Since input was Polars, output is Polars
-        last_row = features_df.tail(1).to_dicts()[0]
-        return {str(k): float(v) for k, v in last_row.items()}
+        last_row = features_df.iloc[-1] if hasattr(features_df, "iloc") else features_df[-1]  # type: ignore[index]
+        return {str(k): float(v) for k, v in last_row.items()}  # type: ignore[union-attr]
 
     # Helper methods for DataFrame extraction
 
-    def _extract_close_prices(self, df: Any) -> npt.NDArray[np.float64]:
+    def _extract_close_prices(self, df: Any) -> Any:  # ndarray[float64]
         """Extract close prices from DataFrame."""
-        values = df["close"].to_numpy() if hasattr(df, "to_numpy") else df["close"].to_numpy()
-        return np.asarray(values, dtype=np.float64)
+        if hasattr(df, "to_numpy"):  # pandas
+            return df["close"].to_numpy()  # type: ignore[no-any-return]
+        else:  # polars
+            return df["close"].to_numpy()  # type: ignore[no-any-return]
 
-    def _extract_high_prices(self, df: Any) -> npt.NDArray[np.float64] | None:
+    def _extract_high_prices(self, df: Any) -> Any:  # ndarray[float64] | None
         """Extract high prices from DataFrame (returns None if column missing)."""
         try:
-            values = df["high"].to_numpy() if hasattr(df, "to_numpy") else df["high"].to_numpy()
+            if hasattr(df, "to_numpy"):  # pandas
+                return df["high"].to_numpy()  # type: ignore[no-any-return]
+            else:  # polars
+                return df["high"].to_numpy()  # type: ignore[no-any-return]
         except (KeyError, AttributeError):
             return None
-        return np.asarray(values, dtype=np.float64)
 
-    def _extract_low_prices(self, df: Any) -> npt.NDArray[np.float64] | None:
+    def _extract_low_prices(self, df: Any) -> Any:  # ndarray[float64] | None
         """Extract low prices from DataFrame (returns None if column missing)."""
         try:
-            values = df["low"].to_numpy() if hasattr(df, "to_numpy") else df["low"].to_numpy()
+            if hasattr(df, "to_numpy"):  # pandas
+                return df["low"].to_numpy()  # type: ignore[no-any-return]
+            else:  # polars
+                return df["low"].to_numpy()  # type: ignore[no-any-return]
         except (KeyError, AttributeError):
             return None
-        return np.asarray(values, dtype=np.float64)
 
-    def _extract_volumes(self, df: Any) -> npt.NDArray[np.float64]:
+    def _extract_volumes(self, df: Any) -> Any:  # ndarray[float64]
         """Extract volumes from DataFrame."""
-        values = df["volume"].to_numpy() if hasattr(df, "to_numpy") else df["volume"].to_numpy()
-        return np.asarray(values, dtype=np.float64)
+        if hasattr(df, "to_numpy"):  # pandas
+            return df["volume"].to_numpy()  # type: ignore[no-any-return]
+        else:  # polars
+            return df["volume"].to_numpy()  # type: ignore[no-any-return]

@@ -71,7 +71,6 @@ class FeatureData(NautilusData):
         ts_event: int | None = None,
         ts_init: int | None = None,
         features: dict[str, float] | None = None,
-        feature_values: dict[str, float] | None = None,
         quality_flags: int = 0,
     ) -> None:
         """
@@ -85,12 +84,7 @@ class FeatureData(NautilusData):
         """
         self.feature_set_id = feature_set_id or "default"
         self.instrument_id = instrument_id
-        source_values = features
-        if source_values is None:
-            source_values = feature_values
-        if source_values is None:
-            source_values = values
-        self.values = dict(source_values or {})
+        self.values = dict(features if features is not None else (values or {}))
         # Event/init timestamps: prefer public aliases when provided
         evt = ts_event if ts_event is not None else _ts_event
         init = ts_init if ts_init is not None else _ts_init
@@ -217,8 +211,6 @@ class StrategySignal(NautilusData):
         Risk metrics at decision time
     execution_params : dict[str, Any]
         Execution parameters (stop loss, take profit, etc.)
-    is_live : bool
-        Whether the signal originated from live trading
     _ts_event : int
         Event timestamp in nanoseconds
     _ts_init : int
@@ -235,7 +227,6 @@ class StrategySignal(NautilusData):
     execution_params: dict[str, Any]
     _ts_event: int
     _ts_init: int
-    is_live: bool = False
 
     @property
     def ts_event(self) -> int:

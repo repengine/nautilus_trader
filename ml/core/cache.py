@@ -8,7 +8,7 @@ prediction history and computing percentiles with zero allocations in the hot pa
 
 from __future__ import annotations
 
-from random import SystemRandom
+import random
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -19,9 +19,20 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+__all__ = [
+    "RingBufferProtocol",
+    "FeatureCacheProtocol",
+    "SamplerProtocol",
+    "LockFreeRingBuffer",
+    "ReservoirSampler",
+    "PreAllocatedFeatureCache",
+]
+
+
 @runtime_checkable
 class RingBufferProtocol(Protocol):
-    """Protocol for ring buffer implementations."""
+    @property
+    def count(self) -> int: ...
 
     def append(self, value: float) -> None: ...
 
@@ -31,38 +42,31 @@ class RingBufferProtocol(Protocol):
 
     def reset(self) -> None: ...
 
-    @property
-    def count(self) -> int: ...
-
 
 @runtime_checkable
 class FeatureCacheProtocol(Protocol):
-    """Protocol for feature cache implementations."""
-
-    def get_current_buffer(self) -> npt.NDArray[np.float32]: ...
-
-    def store_current_features(self) -> None: ...
-
-    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float32]: ...
-
-    def reset(self) -> None: ...
-
     @property
     def n_features(self) -> int: ...
+
+    def get_current_buffer(self) -> npt.NDArray[np.float64]: ...
+
+    def store_current_features(self, features: npt.NDArray[np.float64]) -> None: ...
+
+    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float64]: ...
+
+    def reset(self) -> None: ...
 
 
 @runtime_checkable
 class SamplerProtocol(Protocol):
-    """Protocol for sampling implementations."""
+    @property
+    def count(self) -> int: ...
 
     def add_sample(self, value: float) -> None: ...
 
     def get_percentile(self, q: float) -> float: ...
 
     def reset(self) -> None: ...
-
-    @property
-    def count(self) -> int: ...
 
 
 class LockFreeRingBuffer(RingBufferProtocol):
@@ -91,7 +95,7 @@ class LockFreeRingBuffer(RingBufferProtocol):
         self._index = 0
         self._count = 0
         self._dtype = dtype
-        self._random = SystemRandom()
+        self._random = random.Random()
 
     @property
     def size(self) -> int:
@@ -313,7 +317,6 @@ class ReservoirSampler(SamplerProtocol):
         self._count = 0
         self._total_seen = 0
         self._dtype = dtype
-        self._random = SystemRandom()
 
     @property
     def reservoir_size(self) -> int:
@@ -354,7 +357,7 @@ class ReservoirSampler(SamplerProtocol):
             self._count += 1
         else:
             # Reservoir full, randomly replace
-            j = self._random.randint(0, self._total_seen - 1)
+            j = random.randint(0, self._total_seen - 1)
             if j < self._reservoir_size:
                 self._reservoir[j] = value
 
@@ -781,14 +784,3 @@ class MultiChannelRingBuffer:
         """
         self._idx = 0
         self._count = 0
-
-
-__all__ = [
-    "FeatureCacheProtocol",
-    "LockFreeRingBuffer",
-    "MultiChannelRingBuffer",
-    "PreAllocatedFeatureCache",
-    "ReservoirSampler",
-    "RingBufferProtocol",
-    "SamplerProtocol",
-]

@@ -88,21 +88,68 @@ __all__ = [
     "compute_earnings_momentum_incremental",
     "compute_earnings_surprise_batch",
     "compute_earnings_surprise_incremental",
+    "earnings_metrics_enabled",
     "reset_earnings_metrics_state",
 ]
 
-# Direct imports for pickle compatibility
-# (lazy imports via __getattr__ break pickle identity checks)
-from ml.features.earnings.earnings_features import compute_calendar_features_batch
-from ml.features.earnings.earnings_features import compute_calendar_features_incremental
-from ml.features.earnings.earnings_features import compute_earnings_growth_batch
-from ml.features.earnings.earnings_features import compute_earnings_growth_incremental
-from ml.features.earnings.earnings_features import compute_earnings_momentum_batch
-from ml.features.earnings.earnings_features import compute_earnings_momentum_incremental
-from ml.features.earnings.earnings_features import compute_earnings_surprise_batch
-from ml.features.earnings.earnings_features import compute_earnings_surprise_incremental
-from ml.features.earnings.earnings_features import reset_earnings_metrics_state
-from ml.features.earnings.earnings_transforms import EarningsCalendarTransformSpec
-from ml.features.earnings.earnings_transforms import EarningsGrowthTransformSpec
-from ml.features.earnings.earnings_transforms import EarningsMomentumTransformSpec
-from ml.features.earnings.earnings_transforms import EarningsSurpriseTransformSpec
+
+def __getattr__(name: str) -> object:
+    """Lazy import implementation to avoid circular imports."""
+    if name == "EarningsSurpriseTransformSpec":
+        from ml.features.earnings.earnings_transforms import EarningsSurpriseTransformSpec
+
+        return EarningsSurpriseTransformSpec
+    elif name == "EarningsGrowthTransformSpec":
+        from ml.features.earnings.earnings_transforms import EarningsGrowthTransformSpec
+
+        return EarningsGrowthTransformSpec
+    elif name == "EarningsMomentumTransformSpec":
+        from ml.features.earnings.earnings_transforms import EarningsMomentumTransformSpec
+
+        return EarningsMomentumTransformSpec
+    elif name == "EarningsCalendarTransformSpec":
+        from ml.features.earnings.earnings_transforms import EarningsCalendarTransformSpec
+
+        return EarningsCalendarTransformSpec
+    elif name == "compute_earnings_surprise_incremental":
+        from ml.features.earnings.earnings_features import compute_earnings_surprise_incremental
+
+        return compute_earnings_surprise_incremental
+    elif name == "compute_earnings_surprise_batch":
+        from ml.features.earnings.earnings_features import compute_earnings_surprise_batch
+
+        return compute_earnings_surprise_batch
+    elif name == "compute_earnings_growth_incremental":
+        from ml.features.earnings.earnings_features import compute_earnings_growth_incremental
+
+        return compute_earnings_growth_incremental
+    elif name == "compute_earnings_growth_batch":
+        from ml.features.earnings.earnings_features import compute_earnings_growth_batch
+
+        return compute_earnings_growth_batch
+    elif name == "compute_earnings_momentum_incremental":
+        from ml.features.earnings.earnings_features import compute_earnings_momentum_incremental
+
+        return compute_earnings_momentum_incremental
+    elif name == "compute_earnings_momentum_batch":
+        from ml.features.earnings.earnings_features import compute_earnings_momentum_batch
+
+        return compute_earnings_momentum_batch
+    elif name == "compute_calendar_features_incremental":
+        from ml.features.earnings.earnings_features import compute_calendar_features_incremental
+
+        return compute_calendar_features_incremental
+    elif name == "compute_calendar_features_batch":
+        from ml.features.earnings.earnings_features import compute_calendar_features_batch
+
+        return compute_calendar_features_batch
+    elif name == "earnings_metrics_enabled":
+        from ml.features.earnings.earnings_features import earnings_metrics_enabled
+
+        return earnings_metrics_enabled
+    elif name == "reset_earnings_metrics_state":
+        from ml.features.earnings.earnings_features import reset_earnings_metrics_state
+
+        return reset_earnings_metrics_state
+    else:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

@@ -118,12 +118,12 @@ def test_micro_aggregator_prefers_latest_file(tmp_path: Path) -> None:
     import time
     time.sleep(0.01)  # Ensure filesystem timestamp difference
     _write_l1_file(latest, mid=50.0)
-    
+
     # Explicitly set mtime to ensure latest is newer (in case of low resolution fs)
     import os
     stat = dated.stat()
     os.utime(latest, (stat.st_atime + 10, stat.st_mtime + 10))
-    
+
     _write_trade_file(l1_dir / "SPY_trades.parquet")
 
     agg = MicrostructureAggregator(base_dir)

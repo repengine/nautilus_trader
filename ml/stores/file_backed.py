@@ -31,7 +31,6 @@ import pandas as pd
 from ml._imports import HAS_POLARS
 from ml._imports import pl
 from ml.common.correlation import make_correlation_id
-from ml.common.events_util import to_source_enum
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.timestamps import sanitize_timestamp_ns
@@ -63,9 +62,9 @@ __all__ = [
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing import only
-    from ml.stores.validation_types import DataEvent
-else:  # pragma: no cover - runtime import
-    from ml.stores.validation_types import DataEvent  # type: ignore[no-redef]
+    from ml.stores.data_store import DataEvent
+else:
+    DataEvent = Any  # type: ignore[misc,assignment]
 
 pl = cast(Any, pl)
 _PL = pl
@@ -73,7 +72,9 @@ _PL = pl
 
 def _make_data_event(**kwargs: Any) -> DataEvent:
     """Create a `DataEvent` instance without causing import cycles."""
-    return DataEvent(**kwargs)
+    from ml.stores.data_store import DataEvent as _DataEvent  # Local import to avoid cyclic dependency
+
+    return _DataEvent(**kwargs)
 
 
 def _ensure_polars() -> None:
@@ -255,10 +256,7 @@ class FileFeatureStore(FeatureStoreProtocol):
         ts_event: int | None = None,
         ts_init: int | None = None,
         data: Any | None = None,
-        *,
-        publish_bus: bool = True,
     ) -> None:
-        _ = publish_bus  # File-backed store does not publish to an event bus.
         feature_set = feature_set_id or "default"
         instrument = instrument_id or "UNKNOWN"
         payload = FeatureData(
@@ -819,8 +817,13 @@ class FileDataStore:
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / f"{instrument}_{ts_min}_{ts_max}.jsonl"
         frame.to_json(target_path, orient="records", lines=True, force_ascii=False)
-        source_token = source or Source.HISTORICAL.value
-        source_enum = to_source_enum(source_token)
+        try:
+            source_enum = Source[source.upper()]
+        except (KeyError, AttributeError):
+            try:
+                source_enum = Source(source)
+            except Exception:
+                source_enum = Source.HISTORICAL
 
         self.emit_event(
             dataset_id=dataset_id,
@@ -922,8 +925,16 @@ class FileDataStore:
             fiscal_quarter=fiscal_quarter,
         )
 
-        source_enum = to_source_enum(source)
-        source_value = source_enum.value
+        source_enum: Source
+        if isinstance(source, Source):
+            source_enum = source
+            source_value = source.value
+        else:
+            try:
+                source_enum = Source(str(source))
+            except Exception:
+                source_enum = Source.HISTORICAL
+            source_value = source_enum.value
 
         event = _make_data_event(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
@@ -987,8 +998,15 @@ class FileDataStore:
             num_analysts=num_analysts,
         )
 
-        source_enum = to_source_enum(source)
-        source_value = source_enum.value
+        if isinstance(source, Source):
+            source_enum = source
+            source_value = source.value
+        else:
+            try:
+                source_enum = Source(str(source))
+            except Exception:
+                source_enum = Source.HISTORICAL
+            source_value = source_enum.value
 
         event = _make_data_event(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",

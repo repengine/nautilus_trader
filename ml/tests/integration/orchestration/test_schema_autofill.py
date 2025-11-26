@@ -47,7 +47,7 @@ def auto_fill_config() -> AutoFillUniverseConfig:
 @pytest.fixture
 def config_resolver():
     """Provides ConfigResolver instance for testing."""
-    from ml.orchestration.components.config_resolver import ConfigResolver
+    from ml.orchestration.config_resolver import ConfigResolver
 
     return ConfigResolver()
 

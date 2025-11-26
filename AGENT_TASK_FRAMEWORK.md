@@ -8,143 +8,59 @@
 
 Previous workflow validated **form** (code looks right) but not **function** (code works).
 This framework now enforces:
+
 1. **TDD approach**: Tests written BEFORE implementation
 2. **5-phase validation**: Design → Implement → Static Check → Runtime Check → System Check
 3. **Smaller agent scope**: Each agent has ONE focused responsibility
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATOR AGENT                        │
-│  - Reads REFACTORING_PLAN.md                                │
-│  - Spawns agents sequentially through 5 phases              │
-│  - Manages handoffs between phases                          │
-│  - Enforces validation before approval                      │
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│              PHASE 1: TEST DESIGN AGENT                      │
-│  🎯 Mission: Design tests BEFORE implementation (TDD)       │
-│  Input Context:                                              │
-│    - REFACTORING_PLAN.md (specific task section)            │
-│    - tasks/phase_X_Y_task_name.md (task definition)        │
-│    - CODING_STANDARDS.md                                     │
-│    - universal_patterns_guide.md                            │
-│    - CLAUDE.md (AI agent guide)                             │
-│  Responsibilities:                                           │
-│    - Design comprehensive test cases                        │
-│    - Write test skeletons/stubs (initially failing/skip)   │
-│    - Document expected behavior in test docstrings         │
-│    - Define fixtures and test data                         │
-│    - Specify edge cases (nulls, empty, boundaries)         │
-│  Output:                                                     │
-│    - Test files (unit, integration, e2e)                   │
-│    - TEST_DESIGN_REPORT.md (strategy, coverage plan)       │
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│            PHASE 2: IMPLEMENTATION AGENT                     │
-│  🎯 Mission: Write code to satisfy test specifications      │
-│  Input Context:                                              │
-│    - TEST_DESIGN_REPORT.md (specification!)                │
-│    - Test files (define the contract)                      │
-│    - tasks/phase_X_Y_task_name.md                          │
-│    - CODING_STANDARDS.md                                     │
-│    - universal_patterns_guide.md                            │
-│  Responsibilities:                                           │
-│    - Read test cases to understand requirements            │
-│    - Implement code with 100% type annotations             │
-│    - Follow architectural patterns (protocols, facades)    │
-│    - Make tests pass one by one                            │
-│    - Preserve backward compatibility                       │
-│    - Add docstrings and comments                           │
-│  Output:                                                     │
-│    - Production code changes                                │
-│    - IMPLEMENTATION_REPORT.md (what changed, how tests pass)│
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│          PHASE 3: STATIC VALIDATION AGENT (mandatory)        │
-│  🎯 Mission: Verify CODE QUALITY (not runtime behavior)     │
-│  Input Context:                                              │
-│    - IMPLEMENTATION_REPORT.md                               │
-│    - TEST_DESIGN_REPORT.md                                  │
-│    - CODING_STANDARDS.md                                     │
-│  Validation Steps (Code Quality):                            │
-│    1. Run: ruff check [files] (must be 0 violations)       │
-│    2. Run: mypy [files] --strict (must be 0 errors)        │
-│    3. Run: make validate-nautilus-patterns (must pass)      │
-│    4. Test: All imports work (python -c "import ...")      │
-│    5. Verify: Public API preserved (no breaking changes)   │
-│    6. Check: 100% type annotations present                  │
-│    7. Verify: No circular dependencies introduced           │
-│  Output:                                                     │
-│    - STATIC_VALIDATION_REPORT.md (pass/fail + issues)       │
-│    - Decision: PASS → Phase 4 | FAIL → Back to Phase 2     │
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│      PHASE 4: INTEGRATION VALIDATION AGENT (mandatory)       │
-│  🎯 Mission: RUNTIME verification - tests MUST RUN          │
-│  ⚠️ CRITICAL: "X collected" ≠ "X passed" - tests must RUN!  │
-│  Input Context:                                              │
-│    - STATIC_VALIDATION_REPORT.md (must be PASS)             │
-│    - IMPLEMENTATION_REPORT.md                               │
-│    - TEST_DESIGN_REPORT.md                                  │
-│  Validation Steps (Runtime Verification):                    │
-│    1. Run: pytest [unit tests] -v (verify "X passed")      │
-│       - ⚠️ CRITICAL: NOT "X collected" - must RUN!          │
-│       - Must: 100% pass rate (0 failed, 0 errors)          │
-│    2. Run: pytest [integration tests] -v -m integration    │
-│       - Verify: All tests PASS                              │
-│    3. Run: pytest [e2e tests] -v                           │
-│       - Verify: All tests PASS                              │
-│    4. Test: Can instantiate classes (python -c "...")      │
-│    5. Test: Methods work with real data                     │
-│    6. Test: Config classes accept legacy parameters         │
-│    7. Test: Feature flags work in BOTH modes (if applicable)│
-│       - Legacy mode: ML_USE_LEGACY_X=1 pytest [...]        │
-│       - Facade mode: ML_USE_LEGACY_X=0 pytest [...]        │
-│       - Pass counts MUST match                              │
-│    8. Check: No infinite loops/recursion (timeout test)    │
-│    9. Verify: All public APIs from original preserved       │
-│   10. Check: Coverage maintained or improved                │
-│  Output:                                                     │
-│    - INTEGRATION_VALIDATION_REPORT.md (pass/fail + output)  │
-│    - Decision: PASS → Phase 5 or APPROVED | FAIL → Phase 2 │
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│      PHASE 5: SYSTEM VALIDATION AGENT (optional)             │
-│  🎯 Mission: Deployment verification                        │
-│  Only required for major changes (stores, orchestrator, etc) │
-│  Input Context:                                              │
-│    - INTEGRATION_VALIDATION_REPORT.md (must be PASS)         │
-│    - Service definitions                                     │
-│  Validation Steps (Deployment Verification):                 │
-│    1. Build: docker build (must succeed)                    │
-│    2. Boot: Start services (actor, strategy, dashboard)     │
-│       - Verify: No exceptions in logs                       │
-│       - Verify: Services respond to health checks           │
-│    3. Smoke tests: Basic workflows end-to-end               │
-│       - Can write to stores                                 │
-│       - Can read from stores                                │
-│       - Can register datasets                               │
-│       - Can run pipeline stages                             │
-│    4. Check: No 503 errors on critical endpoints            │
-│  Output:                                                     │
-│    - SYSTEM_VALIDATION_REPORT.md (pass/fail)                │
-│    - Decision: PASS → APPROVED | FAIL → Back to Phase 2    │
-└─────────────────────────────────────────────────────────────┘
-                             ↓
-                  ┌──────────┴──────────┐
-                  │                     │
-            ✅ APPROVED           ❌ REJECTED
-                  │                     │
-          Commit changes         Return to Phase 2
-          Move to next task      (Implementation Agent)
-```
+**🚨 CRITICAL UPDATE (2025-10-29):** After completing Phase 2.3 (all 5 sub-phases), we've proven a **4-step workflow** is essential:
+
+1. **Test Design Agent** → Creates gap fix specifications
+2. **Codex MCP Verification** → Verifies ALL APIs against legacy code (caught 50 errors!)
+3. **API Corrections (V2)** → Fixes mismatches to ensure compilation success
+4. **Consolidation** → Production-ready deliverable
+
+**This Codex verification step is NON-NEGOTIABLE** - without it, 50 API mismatches would have blocked implementation across 5 phases.
+
+**🚨 CRITICAL UPDATE (2025-11-26):** Comprehensive audit revealed 7/16 decompositions were SHALLOW:
+
+**Root Cause:** Jumped straight to TDD without proper concern mapping. Components were created arbitrarily.
+
+**Solution:** New **Phase 0: Decomposition Design** added BEFORE TDD:
+
+1. **Decomposition Design Agent** → Maps concerns, defines component boundaries
+2. **Test Design Agent** → Designs tests FOR the mapped components
+3. **Implementation Agent** → Implements the designed components
+4. **Validation Agents** → Now includes Category 14 decomposition quality checks
+
+**This decomposition design step is NON-NEGOTIABLE** - without it, 7/16 decompositions were wrappers, not decompositions.
+
+### Phase Flow
+
+| Phase | Agent | Mission | Key Output |
+|-------|-------|---------|------------|
+| **0** | Planning Agent | Research codebase, design components BEFORE code | DECOMPOSITION_MAP.md |
+| **1** | Test Design Agent | Design tests using decomposition map (TDD) | TEST_DESIGN_REPORT.md |
+| **1.5** | Codex MCP | Verify ALL APIs against legacy code (MANDATORY) | CODEX_VERIFICATION_REPORT.md |
+| **2** | Implementation Agent | Write code to satisfy test specs | IMPLEMENTATION_REPORT.md |
+| **3** | Static Validation | ruff, mypy, imports, API preservation | STATIC_VALIDATION_REPORT.md |
+| **4** | Integration Validation | Runtime tests, parity, Category 14 checks | INTEGRATION_VALIDATION_REPORT.md |
+| **5** | System Validation | Docker, deployment, smoke tests (optional) | SYSTEM_VALIDATION_REPORT.md |
+
+**Decision Flow:**
+- Phase 3 PASS → Phase 4 | FAIL → Phase 2
+- Phase 4 PASS → Phase 5 or APPROVED | FAIL → Phase 2
+- Phase 5 PASS → APPROVED | FAIL → Phase 2
+
+**Quality Gates (CRITICAL_SAFEGUARDS.md Category 14):**
+- Facade <400 lines (delegation only)
+- Single responsibility per component
+- No duplication (uses common/ modules)
+- Growth <200% of baseline
+
+**Codex Verification Stats:** 50 API errors caught in Phase 2.3 (11+8+14+15+2 across 5 sub-phases)
 
 ---
 
@@ -207,6 +123,298 @@ Each task follows this structure:
 - Test coverage: [maintained or +X%]
 ```
 
+### 1.5 🆕 Phase 0: Planning Agent Prompt Template (2025-11-26)
+
+**Agent:** `planning-architect` (Claude Code custom agent)
+
+```markdown
+You are a PLANNING AGENT responsible for researching the codebase and designing modular implementations BEFORE any tests or code are written.
+
+## YOUR MISSION
+Design the decomposition for [God Class Name] (~X,XXX lines)
+
+## WHY THIS PHASE EXISTS
+Audit of 16 god class decompositions revealed:
+- 7/16 (44%) were SHALLOW - components exist but unused, facade wraps legacy
+- Root cause: Jumped to TDD without mapping concerns first
+- Result: +172% code growth instead of expected +50%
+
+This phase ensures we UNDERSTAND the class before decomposing it.
+
+## REQUIRED CONTEXT (Read these FIRST - spend 2-4 hours here!)
+1. **Legacy source file** (the god class to decompose) - READ EVERY LINE
+2. REFACTORING_PLAN.md (task section for this class)
+3. CRITICAL_SAFEGUARDS.md Category 14 (decomposition quality gates)
+4. Examples of PROPER decompositions:
+   - ml/stores/feature_store_facade.py + components/ (FeatureStore - done right)
+   - ml/training/base_facade.py + components/ (TrainerBase - done right)
+   - ml/core/integration_facade.py + components/ (MLIntegrationManager - done right)
+
+## YOUR RESPONSIBILITIES
+
+### Step 1: DEEP ANALYSIS (2-4 hours minimum)
+Read the entire legacy class and document:
+
+```
+## Method Inventory
+
+### Public Methods
+| Method | Lines | Purpose | Dependencies |
+|--------|-------|---------|--------------|
+| process_data() | 45-89 | Validates and stores data | _validate(), _store() |
+| get_features() | 112-156 | Retrieves computed features | _read_cache(), _compute() |
+...
+
+### Private Methods
+| Method | Lines | Purpose | Called By |
+|--------|-------|---------|-----------|
+| _validate() | 200-245 | Schema validation | process_data() |
+| _compute() | 300-380 | Feature computation | get_features() |
+...
+
+### Attributes/Properties
+| Name | Type | Purpose |
+|------|------|---------|
+| _cache | dict | In-memory feature cache |
+| _engine | Engine | Database connection |
+...
+
+### Dataclasses/Protocols/Constants
+| Name | Lines | Used By |
+|------|-------|---------|
+| DataEvent | 50-65 | process_data(), _emit_event() |
+| VENUE_MAP | 20-35 | _resolve_venue() |
+...
+```
+
+### Step 2: IDENTIFY CONCERNS (Group by responsibility)
+Group methods by what they DO, not where they are:
+
+```
+## Concern Analysis
+
+### Concern 1: Schema Validation
+- _validate_schema() (lines 200-245)
+- _check_constraints() (lines 250-280)
+- _validate_types() (lines 285-310)
+Total: ~115 lines
+Why grouped: All deal with validating data against schema
+
+### Concern 2: Data Storage
+- _write_to_db() (lines 400-450)
+- _batch_insert() (lines 455-490)
+- _handle_conflicts() (lines 495-530)
+Total: ~135 lines
+Why grouped: All deal with database persistence
+
+### Concern 3: Feature Computation
+...
+```
+
+### Step 3: MAP TO COMPONENTS
+Assign each method to exactly one component:
+
+```
+## Component Mapping
+
+### SchemaValidatorComponent (components/schema_validator.py)
+Concern: Schema Validation
+Methods:
+  - validate_schema() ← from _validate_schema()
+  - check_constraints() ← from _check_constraints()
+  - validate_types() ← from _validate_types()
+Estimated size: ~150 lines (115 + overhead)
+Dependencies: None (stateless)
+
+### DataWriterComponent (components/data_writer.py)
+Concern: Data Storage
+Methods:
+  - write() ← from _write_to_db()
+  - batch_insert() ← from _batch_insert()
+  - handle_conflicts() ← from _handle_conflicts()
+Estimated size: ~180 lines (135 + overhead)
+Dependencies: SchemaValidatorComponent (validates before write)
+
+### Facade (god_class_facade.py)
+Role: DELEGATION ONLY - zero business logic
+Methods (thin wrappers):
+  - process_data() → validator.validate() then writer.write()
+  - get_features() → reader.read() or computer.compute()
+Estimated size: ~250 lines (delegation + __init__)
+```
+
+### Step 4: IDENTIFY SHARED CODE TO EXTRACT FIRST
+Before ANY component work, extract:
+
+```
+## Shared Code Extraction Plan
+
+### components/common.py (extract FIRST)
+Dataclasses to move:
+  - DataEvent (lines 50-65) - used by 3 components
+  - ValidationViolation (lines 70-85) - used by validator, writer
+  - QualityReport (lines 90-110) - used by validator, facade
+
+### components/protocols.py (extract SECOND)
+Protocols to define:
+  - DataReaderProtocol - for reader component
+  - DataWriterProtocol - for writer component
+  - ValidatorProtocol - for schema validator
+
+### config/constants.py (if needed)
+Constants to centralize:
+  - VENUE_MAP (lines 20-35) - used by 2 components
+  - DEFAULT_BATCH_SIZE (line 40) - used by writer
+```
+
+### Step 5: ESTIMATE SIZES
+Verify decomposition meets Category 14 thresholds:
+
+```
+## Size Estimates
+
+| Component | Estimated Lines | Status |
+|-----------|-----------------|--------|
+| Facade | ~250 | ✅ <400 (delegation only) |
+| SchemaValidatorComponent | ~150 | ✅ Focused |
+| DataWriterComponent | ~180 | ✅ Focused |
+| DataReaderComponent | ~200 | ✅ Focused |
+| FeatureComputerComponent | ~220 | ✅ Focused |
+| common.py | ~80 | ✅ Shared code |
+| protocols.py | ~60 | ✅ Interfaces |
+
+Total: ~1,140 lines
+Original: ~1,000 lines
+Growth: ~14% ✅ (<200% threshold)
+```
+
+## OUTPUT: DECOMPOSITION_MAP.md
+
+Generate a report with this structure:
+
+```markdown
+# Decomposition Map: [God Class Name]
+
+**Date:** [timestamp]
+**Legacy file:** [path] (~X,XXX lines)
+**Designer:** Decomposition Design Agent (Phase 0)
+
+## Executive Summary
+- Components planned: [N]
+- Estimated facade size: [X] lines (must be <400)
+- Estimated total size: [Y] lines
+- Expected growth: [Z]% (must be <200%)
+
+## Method Inventory
+[Full table from Step 1]
+
+## Concern Analysis
+[Groupings from Step 2]
+
+## Component Mapping
+[Assignments from Step 3 - THIS IS THE KEY DELIVERABLE]
+
+## Shared Code Extraction Plan
+[What to extract first from Step 4]
+
+## Size Estimates
+[Table from Step 5]
+
+## Component Dependency Graph
+```
+                    ┌─────────────┐
+                    │   Facade    │
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │ Validator │    │  Writer  │    │  Reader  │
+    └──────────┘    └────┬─────┘    └──────────┘
+                         │
+                         ▼
+                  ┌──────────┐
+                  │ Validator │ (validates before write)
+                  └──────────┘
+```
+
+## Facade Delegation Pattern
+```python
+class GodClassFacade:
+    def __init__(self, config):
+        # Initialize components
+        self._validator = SchemaValidatorComponent(config)
+        self._writer = DataWriterComponent(config, self._validator)
+        self._reader = DataReaderComponent(config)
+
+    def process_data(self, data):
+        # DELEGATION ONLY - no business logic here
+        violations = self._validator.validate(data)
+        if violations:
+            return ValidationResult(success=False, violations=violations)
+        return self._writer.write(data)
+```
+
+## Quality Gate Checklist
+- [ ] Facade <400 lines? [X] lines ✅/❌
+- [ ] All methods assigned to components? [Y/Z] ✅/❌
+- [ ] No business logic in facade? ✅/❌
+- [ ] Shared code identified? [N] items ✅/❌
+- [ ] Growth <200%? [X]% ✅/❌
+- [ ] Component boundaries make sense? ✅/❌
+
+## Decision
+✅ APPROVE - Proceed to Phase 1 (Test Design)
+❌ REVISE - [Specific issues to address]
+```
+
+## QUALITY GATES (from CRITICAL_SAFEGUARDS.md Category 14)
+
+Before approving, verify:
+1. **Facade <400 lines** - If larger, more logic needs to move to components
+2. **Every method assigned** - No orphan methods that "will be handled later"
+3. **Zero business logic in facade** - Facade is delegation only
+4. **Shared code identified** - Dataclasses, protocols, constants listed for extraction
+5. **Growth <200%** - If higher, you're copying instead of moving
+
+## ANTI-PATTERNS TO AVOID (from audit failures)
+
+❌ **Don't create arbitrary components:**
+   Bad: "Let's have 5 components because that seems like a good number"
+   Good: "Method X, Y, Z all handle validation, so ValidationComponent"
+
+❌ **Don't leave methods unassigned:**
+   Bad: "We'll figure out where _complex_method() goes later"
+   Good: "Every method has exactly one component home"
+
+❌ **Don't plan business logic in facade:**
+   Bad: "Facade will validate data and then decide which component to call"
+   Good: "Facade calls validator.validate(), then writer.write()"
+
+❌ **Don't skip shared code extraction:**
+   Bad: "Each component can have its own DataEvent class"
+   Good: "DataEvent in common.py, imported by all components"
+
+## REFERENCE: PROPER vs SHALLOW Decomposition
+
+### PROPER (MLIntegrationManager - <1% duplication)
+- Facade: 287 lines (pure delegation)
+- Components: Each owns ONE concern
+- Shared code: Extracted to common modules
+- Result: Clean, maintainable, testable
+
+### SHALLOW (BaseMLInferenceActor - 40% duplication)
+- Facade: 2,273 lines (LARGER than legacy!)
+- Components: Exist but NEVER CALLED
+- Shared code: Duplicated in facade AND components
+- Result: Wrapper, not decomposition
+
+Your goal is PROPER decomposition.
+
+BEGIN DECOMPOSITION DESIGN:
+```
+
+---
+
 ### 2. Phase 1: Test Design Agent Prompt Template
 
 ```markdown
@@ -216,16 +424,95 @@ You are a TEST DESIGN AGENT responsible for designing comprehensive tests BEFORE
 Design tests for Phase [X.Y]: [Task Name]
 
 ## REQUIRED CONTEXT (Read these FIRST)
-1. Task Definition: tasks/phase_X_Y_task_name.md
-2. Overall Plan: REFACTORING_PLAN.md (Phase X section)
-3. Coding Standards: ml/docs/development/CODING_STANDARDS.md
-4. Architecture Patterns: ml/docs/architecture/universal_patterns_guide.md
-5. CLAUDE.md (AI agent guide)
+1. 🆕 **DECOMPOSITION_MAP.md** (component boundaries - use this as your blueprint!)
+2. Task Definition: tasks/phase_X_Y_task_name.md
+3. Overall Plan: REFACTORING_PLAN.md (Phase X section)
+4. Coding Standards: ml/docs/development/CODING_STANDARDS.md
+5. Architecture Patterns: ml/docs/architecture/universal_patterns_guide.md
+6. CLAUDE.md (AI agent guide)
+7. **CRITICAL: ml/tests/fixtures/FIXTURE_GUIDE.md** (existing fixture patterns)
+7. **CRITICAL: ml/tests/fixtures/__init__.py** (available fixtures)
+
+## FIXTURE REUSE REQUIREMENTS (MANDATORY)
+Before designing ANY new fixtures, you MUST:
+
+1. **Audit Existing Fixtures**
+   - Read ml/tests/fixtures/__init__.py for available exports
+   - Read ml/tests/conftest.py for core fixtures
+   - Search: `grep -r "@pytest.fixture" ml/tests/fixtures/`
+
+2. **Document Fixture Reuse Plan**
+   For each test category, specify:
+   - Which EXISTING fixtures to use (name + module)
+   - Why existing fixtures are suitable
+   - Only if no suitable fixture exists: propose NEW fixture with justification
+
+3. **Fixture Creation Rules** (if new fixtures needed)
+   - Place in ml/tests/fixtures/{appropriate_module}.py
+   - Add to module's `__all__` export list
+   - Follow naming conventions (mock_*, create_*, sample_*)
+   - Include comprehensive docstrings
+   - NEVER define fixtures inline in test files
+
+4. **Anti-Patterns to AVOID**
+   ```python
+   # BAD: Fixture defined inline (duplicates existing!)
+   @pytest.fixture
+   def mock_feature_store():
+       return MagicMock()
+
+   # GOOD: Use existing fixture by name
+   def test_something(mock_feature_store):
+       ...
+
+   # BAD: Import fixture directly
+   from ml.tests.fixtures import mock_feature_store
+
+   # GOOD: Request via dependency injection (automatic)
+   def test_something(mock_feature_store):
+       ...
+   ```
+
+## AVAILABLE FIXTURE CATEGORIES
+Reference these before creating duplicates:
+
+### Database Fixtures (conftest.py)
+
+- `test_database` - PostgreSQL TestDatabase with cleanup
+- `database_session` - Isolated session with rollback
+- `clean_postgres_db` - Truncates ml_* tables
+- `isolated_engine` - In-memory SQLite for unit tests
+
+### Store Fixtures (conftest.py)
+
+- `store_bundle` - Feature/Model/Strategy stores (reset each test)
+- `feature_store`, `model_store`, `strategy_store` - Individual stores
+- `mock_feature_store`, `mock_model_store`, `mock_strategy_store` - Mocks
+
+### Common Type Fixtures (fixtures/common.py)
+
+- `default_instrument_id`, `default_bar_type`, `default_venue`
+- `test_timestamps` - (ts_event, ts_init) nanoseconds
+- `sample_features`, `sample_predictions` - Test data
+- `dummy_onnx_model` - Minimal ONNX model bytes
+
+### Integration Fixtures (fixtures/integration.py)
+
+- `test_instrument` - Full Equity instrument
+- `generate_test_bars` - Factory for Bar sequences
+- `onnx_test_model_path`, `xgboost_test_model`, `lightgbm_test_model`
+
+### Monitoring Fixtures (fixtures/monitoring_collectors.py)
+
+- `metric_name_manager` - Unique metric names
+- `prometheus_registry_cleanup` - Clean registry state
 
 ## YOUR RESPONSIBILITIES
+
 1. Read ALL required context documents
-2. Understand requirements from task definition
-3. Design comprehensive test cases covering:
+2. **AUDIT EXISTING FIXTURES before designing new ones**
+3. Understand requirements from task definition
+4. Design comprehensive test cases covering:
    - Happy path scenarios
    - Error conditions and edge cases
    - Boundary conditions (empty, null, extreme values)
@@ -238,6 +525,7 @@ Design tests for Phase [X.Y]: [Task Name]
 8. Identify e2e workflows to verify
 
 ## TEST DESIGN CHECKLIST
+
 - [ ] Unit tests for each new function/method
 - [ ] Integration tests if touching stores/DB/external systems
 - [ ] E2E tests if workflow changes
@@ -249,6 +537,7 @@ Design tests for Phase [X.Y]: [Task Name]
 - [ ] Performance tests for hot paths (if applicable)
 
 ## CONSTRAINTS
+
 - Tests should be FAILING initially or marked @pytest.mark.skip
 - Tests define the CONTRACT for implementation
 - Cover happy path AND failure modes
@@ -258,14 +547,21 @@ Design tests for Phase [X.Y]: [Task Name]
 
 ## OUTPUT FORMAT
 Generate TEST_DESIGN_REPORT.md with:
+
 1. Test strategy overview
-2. List of test files created/modified
-3. Test cases with expected outcomes
-4. Fixtures and test data requirements
-5. Coverage expectations
-6. Handoff notes for implementation agent
+2. **Fixture Reuse Plan** (REQUIRED)
+   - Existing fixtures to be used (name, source, purpose)
+   - New fixtures proposed (with justification for why existing don't suffice)
+   - Where new fixtures will be placed (ml/tests/fixtures/{module}.py)
+3. List of test files created/modified
+4. Test cases with expected outcomes
+5. Fixtures and test data requirements
+6. Coverage expectations
+7. Handoff notes for Codex verification (list ALL APIs to verify)
+8. Handoff notes for implementation agent
 
 BEGIN TEST DESIGN:
+
 ```
 
 ### 3. Phase 2: Implementation Agent Prompt Template
@@ -458,6 +754,7 @@ Generate a report with this structure:
 ```
 
 BEGIN STATIC VALIDATION:
+
 ```
 
 ### 5. Phase 4: Integration Validation Agent Prompt Template
@@ -646,7 +943,9 @@ Generate a report with this structure:
 
 ### Unit Tests
 ```
+
 [Full pytest output]
+
 ```
 - Tests RUN (not just collected): [YES/NO - CRITICAL]
 - Passed: [count]
@@ -655,14 +954,18 @@ Generate a report with this structure:
 
 ### Integration Tests
 ```
+
 [Full pytest output]
+
 ```
 - Passed: [count]
 - Failed: [count]
 
 ### E2E Tests
 ```
+
 [Full pytest output]
+
 ```
 - Passed: [count]
 - Failed: [count]
@@ -689,6 +992,7 @@ Generate a report with this structure:
 
 ## DECISION CRITERIA
 **APPROVE (PASS) if:**
+
 - All unit tests RAN and PASSED (not just collected)
 - All integration tests PASSED
 - All E2E tests PASSED
@@ -698,6 +1002,7 @@ Generate a report with this structure:
 - Coverage ≥ baseline
 
 **REJECT (FAIL) if:**
+
 - Tests only collected (not run)
 - Any test failures
 - Instantiation fails
@@ -706,6 +1011,7 @@ Generate a report with this structure:
 - Coverage decreased
 
 BEGIN INTEGRATION VALIDATION:
+
 ```
 
 ### 6. Phase 5: System Validation Agent Prompt Template (Optional)
@@ -838,7 +1144,9 @@ Generate a report with this structure:
 
 ## Build Results
 ```
+
 [docker build output]
+
 ```
 - Build successful: [YES/NO]
 - Image size: [MB]
@@ -846,7 +1154,9 @@ Generate a report with this structure:
 
 ## Service Boot Results
 ```
+
 [docker-compose up output]
+
 ```
 - Services started: [list]
 - Boot time: [seconds]
@@ -888,6 +1198,7 @@ Generate a report with this structure:
 
 ## DECISION CRITERIA
 **APPROVE (PASS) if:**
+
 - Docker build succeeds
 - All services boot without exceptions
 - All health checks pass
@@ -897,6 +1208,7 @@ Generate a report with this structure:
 - No 503 errors on critical endpoints
 
 **REJECT (FAIL) if:**
+
 - Build fails
 - Services fail to boot
 - Health checks fail
@@ -905,20 +1217,57 @@ Generate a report with this structure:
 - 503 errors on critical endpoints
 
 BEGIN SYSTEM VALIDATION:
+
 ```
 
 ---
 
 ## Critical Workflow Rules
 
+### 🆕 Rule -1: Planning is Mandatory (2025-11-26 Audit Lesson)
+**Codebase MUST be researched and design planned BEFORE writing any tests or code.**
+
+- Phase 0 uses **planning-architect** agent (Claude Code custom agent)
+- Research existing ml/common/ and ml/{domain}/common/ modules first
+- Design modular components following Pattern 2 (scoped organization)
+- Facade/main module <400 lines (delegation only)
+- This ensures we UNDERSTAND the codebase before modifying it
+
+**Lesson Learned:** Audit of 16 decompositions revealed 7/16 (44%) were SHALLOW because they skipped this step.
+
+**Evidence:**
+- Without Phase 0: Components created arbitrarily, existing common/ ignored
+- With Phase 0: Proper reuse of existing modules, thin facades, no duplication
+- Code growth: 172% (bad) vs expected 50% (good)
+
+**Quality Gates (from Category 14):**
+- Facade/main module <400 lines?
+- Single responsibility per component?
+- No duplication (uses existing common/ modules)?
+- Follows Pattern 2 scoped organization?
+- Growth estimate <200%?
+
+**No exceptions for significant tasks.**
+
+---
+
 ### Rule 0: TDD is Mandatory
 **Tests MUST be designed BEFORE implementation.**
 
-- Phase 1 (Test Design) writes tests first
+- Phase 0 (Decomposition Design) maps concerns first (**NEW - proven essential**)
+- Phase 1 (Test Design) writes tests for the mapped components
+- Phase 1.5 (Codex) verifies APIs match legacy code (**NEW - proven essential**)
 - Phase 2 (Implementation) makes tests pass
 - This ensures code satisfies requirements, not the other way around
 
 **No exceptions.**
+
+### 🆕 Rule 0.5: Codex Verification is NON-NEGOTIABLE
+**ALL test designs MUST be verified against legacy code before implementation.**
+
+**Details:** See CRITICAL_SAFEGUARDS.md Category 0 for error patterns and decision tree.
+
+**Summary:** Phase 2.3 caught 50 API mismatches across 5 sub-phases; 87% error reduction by Phase 2.3.5.
 
 ### Rule 1: Phases 3 and 4 are MANDATORY
 **Every refactoring task MUST pass both validation phases:**
@@ -938,6 +1287,7 @@ Test collection proves nothing about functionality.
 
 ### Rule 3: Both Feature Flag Modes Must Work
 **If you create a facade, BOTH modes must pass the same tests:**
+
 - Legacy mode: `ML_USE_LEGACY_X=1 pytest [...]`
 - Facade mode: `ML_USE_LEGACY_X=0 pytest [...]`
 
@@ -955,6 +1305,7 @@ Pass counts must match. Parity is non-negotiable.
 **Static checks (ruff, mypy, imports) are necessary but not sufficient.**
 
 Must also verify (Phase 4):
+
 - Classes can be instantiated
 - Methods work with real data
 - No infinite loops/recursion
@@ -978,17 +1329,49 @@ Better to catch issues in validation than in production.
 
 ## Workflow Summary
 
+**🆕 UPDATED (2025-11-26):** Added Phase 0 (Decomposition Design) based on audit findings. 7/16 decompositions were shallow because they skipped concern mapping.
+
+### Phase 0: Planning (NEW - MANDATORY for all significant tasks)
+
+```
+🆕 Planning Agent (Phase 0) - planning-architect
+    ↓ (researches codebase, designs modular components, plans organization)
+    ├─ Quality gates pass → ✅ APPROVE → Proceed to Phase 1
+    ├─ Facade >400 lines → ❌ REVISE → Extract more to components
+    ├─ Duplication planned → ❌ REVISE → Use common/ modules
+    └─ Pattern 2 violated → ❌ REVISE → Fix scoped organization
+
+Output: PLANNING_DOCUMENT.md (or DECOMPOSITION_MAP.md) with:
+    • Codebase research (existing common/ to reuse)
+    • Component design (scope, responsibility, dependencies)
+    • Shared code plan (what goes to which common/)
+    • File organization tree
+    • Handoff notes for TDD agent
+```
+
+### Test Design Workflow (Phases 1-1.5)
+
 ```
 Test Design Agent (Phase 1)
-    ↓ (designs tests, writes test skeletons, defines contracts)
+    ↓ (designs tests FOR the mapped components, uses DECOMPOSITION_MAP.md)
+🆕 Codex MCP Verification (Phase 1.5) - MANDATORY
+    ├─ 0 issues → ✅ PASS → Proceed to Phase 2
+    ├─ Minor issues → ⚠️ PARTIAL → Create V2 with corrections → Phase 2
+    └─ Major issues → ❌ FAIL → Major revision → Phase 1
+```
+
+### Implementation & Validation Workflow (Phases 2-5)
+
+```
 Implementation Agent (Phase 2)
-    ↓ (writes code to make tests pass, generates implementation report)
+    ↓ (writes code to make tests pass, FOLLOWS DECOMPOSITION_MAP.md)
 Static Validation Agent (Phase 3)
     ├─ PASS → Integration Validation Agent (Phase 4)
     └─ FAIL → Back to Implementation Agent (Phase 2)
              ↓ (actually runs tests, verifies runtime behavior)
 Integration Validation Agent (Phase 4)
     ├─ PASS → System Validation Agent (Phase 5, optional) or APPROVED
+    ├─ 🆕 Category 14 checks FAIL → Back to Phase 2 (decomposition quality)
     └─ FAIL → Back to Implementation Agent (Phase 2) → Phase 3 → Phase 4
              ↓ (boots system, smoke tests, deployment checks)
 System Validation Agent (Phase 5, optional)
@@ -997,14 +1380,16 @@ System Validation Agent (Phase 5, optional)
 ```
 
 **Key Points:**
-- Phase 1: Test-first approach (TDD) - tests define the contract
-- Phase 2: Implementation follows test specifications
-- Phase 3: Quick validation (seconds) - Syntax, types, imports
-- Phase 4: Runtime validation (minutes) - Test execution, actual behavior
-- Phase 5: System validation (minutes-hours) - Docker, deployment, smoke tests
-- Phases 1-4 are always required; Phase 5 only for major changes
-- All fixes go back to Phase 2 (Implementation), not Phase 1 (tests stay fixed)
 
+- **Phase 0: Decomposition design - maps concerns BEFORE any code (PROVEN ESSENTIAL)**
+- Phase 1: Test-first approach (TDD) - tests FOR the designed components
+- **Phase 1.5: Codex verification - prevents 50+ API errors (PROVEN ESSENTIAL)**
+- Phase 2: Implementation follows DECOMPOSITION_MAP.md + test specifications
+- Phase 3: Quick validation (seconds) - Syntax, types, imports
+- Phase 4: Runtime validation (minutes) - Test execution + **Category 14 decomposition quality**
+- Phase 5: System validation (minutes-hours) - Docker, deployment, smoke tests
+- Phase 0 required for all god class decompositions; Phases 1-4 for all tasks; Phase 5 for major changes
+- If Category 14 fails in Phase 4 → back to Phase 2 to fix decomposition structure
 ---
 
 ## Phase 0 Task Breakdown (Example Tasks)
@@ -1071,129 +1456,17 @@ Remove the circular import between `ml/stores/__init__.py` and `ml/actors/base.p
   ```
 
 ## Rollback Plan
+
 ```bash
 git checkout ml/stores/__init__.py
 ```
 
 ## Success Metrics
+
 - Circular dependency chain count: 3 → 2
 - Import time: (measure before/after)
 - Test suite: 100% pass rate maintained
-```
 
-### Task 0.2: Extract dataset constants to config
-**File:** `tasks/phase_0_2_extract_dataset_constants.md`
-
-```markdown
-# Task: [Phase 0.2] Extract Dataset Constants to Config
-
-## Context
-**Phase:** 0 - Foundation (Critical Blockers)
-**Task ID:** 0.2
-**Depends On:** 0.1
-**Estimated Effort:** 1 hour
-
-## Scope
-Move `EARNINGS_ACTUALS_DATASET_ID` and `EARNINGS_ESTIMATES_DATASET_ID` from `ml/stores/data_store.py` to a new centralized config module to break the registry → stores circular dependency.
-
-## Required Reading
-- [x] REFACTORING_PLAN.md (Phase 0.2)
-- [x] ml/docs/development/CODING_STANDARDS.md
-- [x] ml/docs/architecture/universal_patterns_guide.md
-
-## Definition of Done
-- [ ] New file created: `ml/config/dataset_ids.py`
-- [ ] Constants moved from `ml/stores/data_store.py`
-- [ ] `ml/registry/bootstrap_datasets.py` imports from config
-- [ ] `ml/stores/data_store.py` imports from config
-- [ ] All existing usages updated
-- [ ] All tests pass
-- [ ] Circular dependency broken (registry ↔ stores)
-
-## Files to Modify
-- [ ] ml/config/dataset_ids.py (CREATE NEW)
-- [ ] ml/stores/data_store.py (UPDATE: remove constants)
-- [ ] ml/registry/bootstrap_datasets.py (UPDATE: lines 29-30)
-- [ ] ml/config/__init__.py (UPDATE: export new constants)
-
-## Implementation Steps
-1. Create `ml/config/dataset_ids.py`:
-   ```python
-   """Dataset ID constants for ML module."""
-   from typing import Final
-
-   # Earnings dataset IDs
-   EARNINGS_ACTUALS_DATASET_ID: Final[str] = "earnings.actuals"
-   EARNINGS_ESTIMATES_DATASET_ID: Final[str] = "earnings.estimates"
-
-   __all__ = [
-       "EARNINGS_ACTUALS_DATASET_ID",
-       "EARNINGS_ESTIMATES_DATASET_ID",
-   ]
-   ```
-
-2. Update `ml/config/__init__.py`:
-   ```python
-   from ml.config.dataset_ids import (
-       EARNINGS_ACTUALS_DATASET_ID,
-       EARNINGS_ESTIMATES_DATASET_ID,
-   )
-
-   # Add to __all__ (keep alphabetically sorted)
-   ```
-
-3. Update `ml/registry/bootstrap_datasets.py:29-30`:
-   ```python
-   # OLD:
-   # from ml.stores.data_store import EARNINGS_ACTUALS_DATASET_ID
-
-   # NEW:
-   from ml.config.dataset_ids import (
-       EARNINGS_ACTUALS_DATASET_ID,
-       EARNINGS_ESTIMATES_DATASET_ID,
-   )
-   ```
-
-4. Update `ml/stores/data_store.py`:
-   - Remove constant definitions
-   - Import from `ml.config.dataset_ids`
-
-5. Search for other usages:
-   ```bash
-   grep -r "EARNINGS_ACTUALS_DATASET_ID" ml/
-   ```
-   Update all imports to use `ml.config.dataset_ids`
-
-6. Run tests:
-   ```bash
-   pytest ml/tests/ -k "earnings" -v
-   ```
-
-## Testing Requirements
-- [ ] Existing tests pass unchanged
-- [ ] Add test to verify constants accessible from config:
-   ```python
-   def test_dataset_ids_accessible_from_config():
-       from ml.config import (
-           EARNINGS_ACTUALS_DATASET_ID,
-           EARNINGS_ESTIMATES_DATASET_ID,
-       )
-       assert EARNINGS_ACTUALS_DATASET_ID == "earnings.actuals"
-       assert EARNINGS_ESTIMATES_DATASET_ID == "earnings.estimates"
-   ```
-
-## Rollback Plan
-```bash
-git checkout ml/config/dataset_ids.py ml/config/__init__.py
-git checkout ml/stores/data_store.py
-git checkout ml/registry/bootstrap_datasets.py
-```
-
-## Success Metrics
-- Circular dependency chain count: 2 → 1
-- Files affected: 4
-- Test suite: 100% pass rate maintained
-- Lines of code: +15 (new file) -10 (removed duplication) = +5 net
 ```
 
 ---
@@ -1211,6 +1484,7 @@ git checkout ml/registry/bootstrap_datasets.py
    ```
 
 2. **Execute Phase 0.1 (5-Agent TDD Workflow):**
+
    ```
    You: "Execute task Phase 0.1: Remove stores → actors circular dependency"
 
@@ -1253,11 +1527,13 @@ git checkout ml/registry/bootstrap_datasets.py
 ### For Me (Specialized Agents)
 
 When you say:
+
 ```
 "Execute task Phase 0.1"
 ```
 
 I will:
+
 1. Spawn **Test Design Agent** (Phase 1)
    - Reads task definition
    - Designs comprehensive tests
@@ -1289,64 +1565,10 @@ I will:
 
 ---
 
-## Benefits of This Approach
-
-1. **Test-Driven Development:** Tests designed before implementation
-   - Tests define the contract and requirements
-   - Implementation satisfies pre-defined specifications
-   - Reduces scope creep and gold-plating
-
-2. **Smaller Agent Scope:** Each agent has ONE focused responsibility
-   - Test Design: Only designs tests
-   - Implementation: Only writes code
-   - Static Validation: Only checks code quality
-   - Integration Validation: Only runs tests
-   - System Validation: Only checks deployment
-
-3. **Systematic Execution:** Each task has clear boundaries and phases
-   - Phase 1 → 2 → 3 → 4 → (5 optional)
-   - Clear handoffs between agents
-   - Each phase has specific deliverables
-
-4. **Built-in Quality:** Multi-phase validation before approval
-   - Static checks (syntax, types, imports)
-   - Runtime checks (tests actually run)
-   - System checks (deployment works)
-
-5. **Audit Trail:** Complete reports for every phase
-   - TEST_DESIGN_REPORT.md
-   - IMPLEMENTATION_REPORT.md
-   - STATIC_VALIDATION_REPORT.md
-   - INTEGRATION_VALIDATION_REPORT.md
-   - SYSTEM_VALIDATION_REPORT.md (if applicable)
-
-6. **Rollback Safety:** Each task can be independently reverted
-   - Git commits per approved task
-   - Clear task boundaries
-
-7. **Parallelizable:** Independent tasks can run concurrently
-   - After Phase 0 blockers removed
-   - Within same refactoring phase
-
-8. **Coding Standards Enforced:** Agents read standards before every task
-   - Phase 3 validates compliance automatically
-
-9. **Architecture Compliance:** Universal patterns verified automatically
-   - Protocol-First, Hot/Cold separation, etc.
-
-10. **Test Coverage:** Required for every task
-    - ≥90% for ML modules, ≥80% general
-    - Verified in Phase 4
-
-11. **Documentation:** Reports explain all changes
-    - What changed, why, how to test
-    - Deviations justified
-
----
-
 ## Next Steps
 
 Ready to execute? Say:
+
 - **"Generate all Phase 0 task files"** - I'll create the 3 task definition files
 - **"Execute Phase 0.1"** - I'll spawn all 5 agents sequentially (TDD workflow)
 - **"Execute all Phase 0 tasks"** - I'll run 0.1 → 0.2 → 0.3 with full 5-agent workflow
@@ -1355,9 +1577,9 @@ Ready to execute? Say:
 **Example Full Workflow:**
 
 ```
-You: "Execute Phase 0.1"
+User: "Execute Phase 0.1"
 
-Me:
+CLAUDE:
   1. Spawns Test Design Agent → generates TEST_DESIGN_REPORT.md + tests
   2. Spawns Implementation Agent → generates IMPLEMENTATION_REPORT.md + code
   3. Spawns Static Validation Agent → generates STATIC_VALIDATION_REPORT.md
@@ -1368,7 +1590,5 @@ Me:
      - If FAIL: Returns to step 2
   6. Returns all reports to you
 
-You: Review reports, approve if all pass, or request fixes if any fail
+USER: Review reports, approve if all pass, or request fixes if any fail
 ```
-
-**Your call.**

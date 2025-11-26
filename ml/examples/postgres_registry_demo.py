@@ -15,10 +15,10 @@ import time
 from pathlib import Path
 
 from ml.config.constants import SUFFIX_ONNX
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 

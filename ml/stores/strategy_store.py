@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -21,12 +20,10 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 from ml.stores.mixins import BufferedStoreMixin
@@ -48,10 +45,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
-    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -59,8 +56,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "StrategySignal",
     "StrategyStore",
-    "create_engine",
-    "strategy_store",
 ]
 
 
@@ -312,7 +307,6 @@ class StrategyStore(
             execution_params=dict(execution_params) if not isinstance(execution_params, dict) else execution_params,
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
-            is_live=bool(is_live),
         )
 
         self._write_buffer.append(data)
@@ -789,20 +783,23 @@ class StrategyStore(
     strategy_performance_table: Any
 
 
-def create_engine(connection_string: str, **kwargs: object) -> Engine:
+# Module-level delegation function for EngineManager integration
+def create_engine(connection_string: str):
     """
-    Return the shared SQLAlchemy engine for ``connection_string``.
+    Create database engine delegating to EngineManager.
 
-    Args:
-        connection_string: Database URL (e.g. ``postgresql://...``).
-        **kwargs: Optional SQLAlchemy engine overrides.
+    This function ensures all stores share the same engine pool,
+    preventing connection exhaustion in parallel tests.
 
-    Returns:
-        Engine: Shared engine instance managed by :class:`ml.core.db_engine.EngineManager`.
+    Parameters
+    ----------
+    connection_string : str
+        Database connection string
+
+    Returns
+    -------
+    Engine
+        SQLAlchemy engine instance
     """
-    engine_getter = cast(Callable[..., Engine], EngineManager.get_engine)
-    return engine_getter(connection_string, **kwargs)
-
-
-# Backwards compatibility alias expected by legacy imports/tests
-strategy_store = StrategyStore
+    from ml.core.db_engine import EngineManager
+    return EngineManager.get_engine(connection_string)

@@ -40,13 +40,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import DeploymentStatus
-from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRole
+from ml.registry import DataRequirements
+from ml.registry import DeploymentStatus
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import QualityGate
-from ml.registry.model_registry import ModelRegistry
 
 
 # ============================================================================

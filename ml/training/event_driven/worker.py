@@ -2018,7 +2018,7 @@ class LightningStreamingWorker(TrainingWorker):
         val_returns: npt.NDArray[np.float64] | npt.NDArray[np.float32] | None = None,
     ) -> Path:
         artifact_path = self._output_dir / f"{plan_id}_logits.npz"
-        payload: dict[str, np.ndarray] = {
+        payload: dict[str, npt.NDArray[Any]] = {
             "z_train": np.asarray(z_train, dtype=np.float32).reshape(-1),
             "z_val": np.asarray(z_val, dtype=np.float32).reshape(-1),
             "y_val": np.asarray(y_val, dtype=np.float32).reshape(-1),
@@ -2044,7 +2044,10 @@ class LightningStreamingWorker(TrainingWorker):
     ) -> dict[str, float]:
         metric_name = self.config.validation_metric.strip().lower()
         y_val = np.asarray(fit_result.y_val, dtype=np.float64).reshape(-1)
-        logits = np.asarray(fit_result.z_val, dtype=np.float64).reshape(-1)
+        logits = cast(
+            npt.NDArray[np.float64],
+            np.asarray(fit_result.z_val, dtype=np.float64).reshape(-1),
+        )
         if y_val.size == 0 or logits.size == 0:
             raise ValidationDatasetEmptyError(
                 "validation_data_empty",
@@ -2132,16 +2135,22 @@ class LightningStreamingWorker(TrainingWorker):
         plan_caps: Mapping[str, float | int | None],
     ) -> tuple[StreamingEconomicTelemetry, StreamingStabilityTelemetry, dict[str, float]]:
         y_val = np.asarray(fit_result.y_val, dtype=np.float64).reshape(-1)
-        logits_val = np.asarray(fit_result.z_val, dtype=np.float64).reshape(-1)
+        logits_val = cast(
+            npt.NDArray[np.float64],
+            np.asarray(fit_result.z_val, dtype=np.float64).reshape(-1),
+        )
         if y_val.size == 0 or logits_val.size == 0:
             return (
                 StreamingEconomicTelemetry(),
                 StreamingStabilityTelemetry(),
                 {},
             )
-        logits_val = np.clip(logits_val, -60.0, 60.0)
+        logits_val = cast(npt.NDArray[np.float64], np.clip(logits_val, -60.0, 60.0))
         probabilities = 1.0 / (1.0 + np.exp(-logits_val))
-        train_logits = np.asarray(fit_result.z_train, dtype=np.float64).reshape(-1)
+        train_logits = cast(
+            npt.NDArray[np.float64],
+            np.asarray(fit_result.z_train, dtype=np.float64).reshape(-1),
+        )
         train_probabilities = None
         if train_logits.size > 0:
             train_logits = np.clip(train_logits, -60.0, 60.0)

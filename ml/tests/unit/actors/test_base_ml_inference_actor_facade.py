@@ -35,10 +35,10 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.actors.base import BaseMLInferenceActor
-from ml.actors.components.features import FeaturesComponent
-from ml.actors.components.model import ModelComponent
-from ml.actors.components.registry import RegistryComponent
-from ml.actors.components.store_operations import StoreOperationsComponent
+from ml.actors.common.features import FeaturesComponent
+from ml.actors.common.model import ModelComponent
+from ml.actors.common.registry import RegistryComponent
+from ml.actors.common.store_operations import StoreOperationsComponent
 from ml.config.base import MLActorConfig
 
 

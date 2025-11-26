@@ -19,6 +19,7 @@ from collections import OrderedDict
 from datetime import UTC
 from datetime import date
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from ml.config.market_data import MarketDatasetInput
@@ -705,3 +706,73 @@ class ConfigResolver:
         """
         seconds = value / 1_000_000_000
         return datetime.fromtimestamp(seconds, tz=UTC)
+
+    # ------------------------------------------------------------------
+    # Structural compatibility helpers (Phase0 placeholders)
+    # ------------------------------------------------------------------
+
+    def _resolve_window_bounds_ns(
+        self,
+        start: str | None,
+        end: str | None,
+    ) -> tuple[int | None, int | None]:
+        del start, end
+        return (None, None)
+
+    def _resolve_instrument_ids(
+        self,
+        config_ids: tuple[str, ...],
+        binding_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        del config_ids, binding_ids
+        return ()
+
+    def _resolve_market_inputs(
+        self,
+        market_inputs: dict[str, object] | None,
+    ) -> OrderedDict[str, object]:
+        del market_inputs
+        return OrderedDict()
+
+    def _symbol_to_instruments(
+        self,
+        symbols: list[str],
+        venue: object | None,
+    ) -> tuple[str, ...]:
+        del symbols, venue
+        return ()
+
+    @staticmethod
+    def _infer_default_schema(cfg: DatasetBuildConfig) -> str | tuple[str, ...] | None:
+        del cfg
+        return None
+
+    @staticmethod
+    def _infer_feature_names(feature_dir: Path) -> tuple[str, ...] | None:
+        del feature_dir
+        return ()
+
+    def _auto_fill_universe(self, universe: list[str]) -> tuple[str, ...]:
+        del universe
+        return ()
+
+    def _auto_fill_schema(
+        self,
+        schema: str | None,
+        *,
+        config: DatasetBuildConfig,
+        feature_dir: Path | None,
+    ) -> tuple[str, ...]:
+        del schema, config, feature_dir
+        return ()
+
+    def _auto_fill_l2(self, l2_schemas: dict[str, object] | None) -> dict[str, object]:
+        del l2_schemas
+        return {}
+
+    @staticmethod
+    def _collect_instrument_ids(
+        market_inputs: dict[str, object] | OrderedDict[str, object],
+    ) -> tuple[str, ...]:
+        del market_inputs
+        return ()

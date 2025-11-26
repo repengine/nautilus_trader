@@ -21,8 +21,8 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TraderId
 
-from ml.actors.signal import MLSignalActor
-from ml.actors.signal import MLSignalActorConfig
+from ml.actors import MLSignalActor
+from ml.actors import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy

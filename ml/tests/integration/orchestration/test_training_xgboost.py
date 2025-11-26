@@ -31,7 +31,6 @@ def test_train_xgboost_model() -> None:
     - Metadata includes model_type, hyperparameters, training_date
     - Metrics include accuracy, precision, recall
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -51,7 +50,6 @@ def test_xgboost_onnx_export() -> None:
     - ONNX model can be loaded with onnxruntime
     - Predictions match original model (within tolerance)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -76,4 +74,3 @@ def test_xgboost_metrics_logged_to_model_store() -> None:
     - Feature importance list has ≤ 20 features
     - Training time > 0
     """
-    pass

@@ -27,6 +27,7 @@ from ml.tests.fixtures.database_fixtures import (
     is_postgresql_running,
     release_db_lock,
     start_postgresql,
+    TestDatabase,
 )
 
 warnings.filterwarnings(
@@ -254,7 +255,9 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     start_postgresql()
 
-    if is_postgresql_running():
+    skip_db_preflight = os.getenv("ML_SKIP_DB_PREFLIGHT", "").lower() in {"1", "true", "yes"}
+
+    if is_postgresql_running() and not skip_db_preflight:
         engine = _EngineManager.get_engine(DATABASE_URL)
         print("Database initialized, stores will create tables as needed...")
         engine.dispose()
@@ -290,6 +293,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:
                 print(f"Warning: DB preflight failed: {status}")
         except Exception as exc:
             print(f"Warning: DB preflight error: {exc}")
+    elif skip_db_preflight:
+        print("Skipping DB preflight (ML_SKIP_DB_PREFLIGHT=1)")
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -314,4 +319,3 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         logger.info("Test session completed with exit status: %s", exitstatus)
     except ValueError:
         pass
-

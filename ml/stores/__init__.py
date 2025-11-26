@@ -69,37 +69,11 @@ PostgreSQL → DummyStore (no persistence, warnings logged)
 
 See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
-# ruff: noqa: E402
-
-import os as _os
-from typing import TYPE_CHECKING, Any, cast
-
-
-def _should_use_component_feature_store() -> bool:
-    """
-    Determine whether to enable the component-based FeatureStore facade.
-
-    Precedence (highest to lowest):
-    1. ML_USE_COMPONENT_FEATURE_STORE=1 explicitly opts in.
-    2. ML_USE_COMPONENT_FEATURE_STORE=0 explicitly opts out.
-    3. Historical flag ML_USE_LEGACY_FEATURE_STORE continues to work:
-       - "1" => legacy implementation
-       - "0" => component implementation
-       - unset => legacy (default)
-    """
-    legacy_flag = _os.getenv("ML_USE_LEGACY_FEATURE_STORE")
-    if legacy_flag is not None:
-        return legacy_flag.strip() == "0"
-
-    component_flag = _os.getenv("ML_USE_COMPONENT_FEATURE_STORE")
-    if component_flag is not None:
-        return component_flag.strip() == "1"
-
-    return False
 
 # =============================================================================
 # Pattern 1: The 4 Mandatory Stores
 # =============================================================================
+
 # Core store implementations (Pattern 1 requirement)
 # =============================================================================
 # Base Classes and Data Structures
@@ -107,7 +81,6 @@ def _should_use_component_feature_store() -> bool:
 # Abstract base store and data structures
 from ml.stores import data_store as data_store  # re-export module for test patch paths
 from ml.stores import feature_store as feature_store  # re-export module for test patch paths
-from ml.stores import model_store as model_store  # re-export module for test patch paths
 from ml.stores.base import BaseStore
 
 # Pattern 4: Fallback store for testing/unavailable PostgreSQL
@@ -120,32 +93,70 @@ from ml.stores.base import StrategySignal
 # Data Processing and Infrastructure
 # =============================================================================
 # Data processing pipeline
-from ml.stores.contract_enforcer import ContractEnforcer
 from ml.stores.data_processor import DataProcessor
-from ml.stores.data_reader import DataReader
-from ml.stores.data_store import DataStore
-from ml.stores.data_writer import DataWriter
+
+# =============================================================================
+# Feature Flag: ML_USE_LEGACY_DATA_STORE
+# =============================================================================
+# Controls whether to use legacy DataStore or new DataStoreFacade
+# Default: "0" = use DataStoreFacade (recommended)
+# Legacy: "1" = use legacy DataStore (for backward compatibility testing)
+
+import os as _os
+from typing import TYPE_CHECKING, Union
+
+_USE_LEGACY_DATA_STORE = _os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
+
+if TYPE_CHECKING:
+    # For type checkers, import both types
+    from ml.stores.data_store import DataStore as LegacyDataStore
+    from ml.stores.data_store_facade import DataStoreFacade
+
+    # Type union for the exported DataStore
+    DataStore = Union[type[LegacyDataStore], type[DataStoreFacade]]
+else:
+    # At runtime, conditionally import based on feature flag
+    if _USE_LEGACY_DATA_STORE:
+        # Use legacy DataStore implementation
+        from ml.stores.data_store import DataStore
+    else:
+        # Use new DataStoreFacade (default)
+        from ml.stores.data_store_facade import DataStoreFacade as DataStore
+
+    # Always export DataStoreFacade for direct imports (even in legacy mode)
+    from ml.stores.data_store_facade import DataStoreFacade
+
+# =============================================================================
+# Feature Flag: ML_USE_LEGACY_FEATURE_STORE
+# =============================================================================
+# Controls whether to use legacy FeatureStore or new FeatureStoreFacade
+# Default: "0" = use FeatureStoreFacade (recommended)
+# Legacy: "1" = use legacy FeatureStore (for backward compatibility testing)
+
+_USE_LEGACY_FEATURE_STORE = _os.getenv("ML_USE_LEGACY_FEATURE_STORE", "0") == "1"
+
+if TYPE_CHECKING:
+    # For type checkers, import both types
+    from ml.stores.feature_store import FeatureStore as LegacyFeatureStore
+    from ml.stores.feature_store_facade import FeatureStoreFacade
+
+    # Type union for the exported FeatureStore
+    FeatureStore = Union[type[LegacyFeatureStore], type[FeatureStoreFacade]]
+else:
+    # At runtime, conditionally import based on feature flag
+    if _USE_LEGACY_FEATURE_STORE:
+        # Use legacy FeatureStore implementation
+        from ml.stores.feature_store import FeatureStore
+    else:
+        # Use new FeatureStoreFacade (default)
+        from ml.stores.feature_store_facade import FeatureStoreFacade as FeatureStore
+
+    # Always export FeatureStoreFacade for direct imports (even in legacy mode)
+    from ml.stores.feature_store_facade import FeatureStoreFacade
 
 # Earnings store
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
-
-
-# =============================================================================
-# Feature Flag: FeatureStore Implementation Selection
-# =============================================================================
-# Legacy implementation remains the default; opt into the component facade via
-# ML_USE_COMPONENT_FEATURE_STORE=1 (or ML_USE_LEGACY_FEATURE_STORE=0).
-if TYPE_CHECKING:
-    from ml.stores.feature_store import FeatureStore as FeatureStore
-else:
-    if not _should_use_component_feature_store():
-        from ml.stores.feature_store_legacy import FeatureStoreLegacy as _FeatureStoreImpl
-    else:
-        from ml.stores.feature_store import ComponentFeatureStore as _FeatureStoreImpl
-
-    FeatureStore = cast(type[Any], _FeatureStoreImpl)
-
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
 from ml.stores.file_backed import FileFeatureStore
@@ -162,6 +173,10 @@ from ml.stores.instrument_metadata_store import DummyInstrumentMetadataStore
 from ml.stores.instrument_metadata_store import InstrumentMetadataStore
 from ml.stores.io_raw import ParquetCatalogRawReader
 from ml.stores.io_raw import ParquetCatalogRawWriter
+
+# Raw I/O protocols and implementations
+from ml.stores.io_raw import RawIngestionWriterProtocol
+from ml.stores.io_raw import RawReaderProtocol
 
 # =============================================================================
 # Mixins and Utilities (Internal - Advanced Use Only)
@@ -208,24 +223,7 @@ from ml.stores.protocols import WriteRecords
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
-
-# Raw I/O protocols and implementations
-from ml.stores.raw_protocols import RawIngestionWriterProtocol
-from ml.stores.raw_protocols import RawReaderProtocol
-from ml.stores.schema_validator import SchemaValidator
 from ml.stores.strategy_store import StrategyStore
-
-# Table factory utilities
-from ml.stores.table_factory import build_instrument_id_column
-from ml.stores.table_factory import build_nautilus_timestamp_columns
-from ml.stores.table_factory import build_standard_indexes
-from ml.stores.table_factory import create_ml_table
-from ml.stores.table_factory import get_schema_name
-
-# Validation types (shared across store components)
-from ml.stores.validation_types import DataEvent
-from ml.stores.validation_types import QualityReport
-from ml.stores.validation_types import ValidationViolation
 
 # Market data writers and live recording
 from ml.stores.writers import DataStoreMarketDataWriter
@@ -239,6 +237,16 @@ featurestore = feature_store
 
 
 # =============================================================================
+# Table Factory (DRY Pattern for Table Schemas)
+# =============================================================================
+# Centralized table creation utilities
+from ml.stores.table_factory import build_instrument_id_column
+from ml.stores.table_factory import build_nautilus_timestamp_columns
+from ml.stores.table_factory import build_standard_indexes
+from ml.stores.table_factory import create_ml_table
+from ml.stores.table_factory import get_schema_name
+
+# =============================================================================
 # Public API Definition
 # =============================================================================
 
@@ -247,16 +255,13 @@ __all__ = [
     "BaseStoreProtocol",
     "BufferedStoreMixin",
     "CatalogCoverageProvider",
-    "ContractEnforcer",
     "CoverageProviderProtocol",
-    "DataEvent",
     "DataProcessor",
-    "DataReader",
     "DataRegistryMixin",
     "DataStore",
+    "DataStoreFacade",
     "DataStoreFacadeProtocol",
     "DataStoreMarketDataWriter",
-    "DataWriter",
     "DummyEarningsStore",
     "DummyInstrumentMetadataStore",
     "DummyStore",
@@ -264,6 +269,7 @@ __all__ = [
     "EngineInitMixin",
     "FeatureData",
     "FeatureStore",
+    "FeatureStoreFacade",
     "FeatureStoreProtocol",
     "FeatureStoreStrictProtocol",
     "FileDataStore",
@@ -284,13 +290,11 @@ __all__ = [
     "ParquetCatalogRawWriter",
     "PartitionManager",
     "PredictionRecord",
-    "QualityReport",
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
     "ReadFrame",
     "ReadQueryMixin",
     "SQLUpsertMixin",
-    "SchemaValidator",
     "SignalRecord",
     "SqlCoverageProvider",
     "SqlMarketDataWriter",
@@ -299,7 +303,6 @@ __all__ = [
     "StrategyStore",
     "StrategyStoreProtocol",
     "StrategyStoreStrictProtocol",
-    "ValidationViolation",
     "WriteRecords",
     "build_instrument_id_column",
     "build_nautilus_timestamp_columns",

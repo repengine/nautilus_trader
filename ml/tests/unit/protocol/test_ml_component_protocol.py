@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from ml.common.protocols import MLComponentProtocol
-from ml.registry.data_registry import DataRegistry
-from ml.registry.feature_registry import FeatureRegistry
-from ml.registry.model_registry import ModelRegistry
-from ml.registry.strategy_registry import StrategyRegistry
+from ml.registry import DataRegistry
+from ml.registry import FeatureRegistry
+from ml.registry import ModelRegistry
+from ml.registry import StrategyRegistry
 from ml.tests.utils.protocol_helpers import assert_implements_ml_component
 
 

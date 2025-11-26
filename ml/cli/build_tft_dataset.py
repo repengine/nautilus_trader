@@ -20,7 +20,7 @@ from ml.common.logging_config import configure_logging
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
 from ml.data.vintage import VintagePolicy
-from ml.stores.data_store import DataStore
+from ml.stores import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
 from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.tasks.datasets import TFTDatasetTaskConfig

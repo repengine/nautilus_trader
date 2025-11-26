@@ -60,7 +60,7 @@ db = _DBStub()
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureEngineer
+    from ml.features import FeatureEngineer
     from ml.registry.protocols import RegistryProtocol
 
 
@@ -434,7 +434,7 @@ class DataSchedulerLegacy:
         """
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
-        from ml.features.engineering import FeatureConfig
+        from ml.features import FeatureConfig
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])

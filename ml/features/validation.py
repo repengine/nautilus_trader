@@ -10,9 +10,6 @@ model performance in production - even small discrepancies can cause model failu
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
-from datetime import UTC
-from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -23,12 +20,11 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
-from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.config.constants import MLConstants
-from ml.features.config import FeatureConfig
-from ml.features.facade import FeatureEngineer
-from ml.features.indicators import IndicatorManager
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import IndicatorManager
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
@@ -68,76 +64,6 @@ class FeatureParityError(Exception):
         self.max_difference = max_difference
         self.tolerance = tolerance
         self.failing_features = failing_features
-
-
-def _to_nanoseconds(value: object) -> int | None:
-    """
-    Convert supported timestamp-like values to integer nanoseconds.
-
-    Args:
-        value: Object representing a timestamp (datetime/np.int/float/None).
-
-    Returns:
-        Integer nanoseconds since epoch or ``None`` when conversion fails.
-    """
-    if value is None:
-        return None
-    if isinstance(value, (int, np.integer)):
-        return int(value)
-    if isinstance(value, float):
-        if np.isnan(value):
-            return None
-        return int(value)
-    if isinstance(value, datetime):
-        dt_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-        return int(dt_value.timestamp() * 1_000_000_000)
-    value_attr = getattr(value, "value", None)
-    if isinstance(value_attr, (int, np.integer)):
-        return int(value_attr)
-    return None
-
-
-def validate_known_future_effective_times(
-    *,
-    evaluation_series: Sequence[object],
-    effective_series: Sequence[object],
-    context: str,
-) -> None:
-    """
-    Ensure known-future features honour their publication lags.
-
-    Args:
-        evaluation_series: Sequence of timestamps representing when a feature is read
-            (typically market timestamps).
-        effective_series: Sequence of timestamps indicating when the feature became
-            available after applying publication lag logic.
-        context: Human-readable label used in any raised error message.
-
-    Raises:
-        ValueError: If any evaluation timestamp precedes the corresponding effective
-            timestamp.
-
-    Notes:
-        - ``None`` or NaN values are ignored.
-        - The two sequences must be of equal length.
-    """
-    if len(evaluation_series) != len(effective_series):
-        msg = (
-            f"{context} evaluation and effective sequences must share length "
-            f"(got {len(evaluation_series)} vs {len(effective_series)})"
-        )
-        raise ValueError(msg)
-
-    for index, (evaluation, effective) in enumerate(zip(evaluation_series, effective_series)):
-        eval_ns = _to_nanoseconds(evaluation)
-        eff_ns = _to_nanoseconds(effective)
-        if eval_ns is None or eff_ns is None:
-            continue
-        if eval_ns < eff_ns:
-            raise ValueError(
-                f"{context} feature effective timestamp {eff_ns} occurs after evaluation "
-                f"timestamp {eval_ns} at row {index}",
-            )
 
 
 class FeatureParityValidator:
@@ -675,19 +601,12 @@ class FeatureParityValidator:
 
         # Create DataFrame (Polars or Pandas based on availability)
         if POLARS_AVAILABLE:
-            polars_module = pl
-            if polars_module is None:
-                check_ml_dependencies(["polars"])  # pragma: no cover - raises if missing
-                polars_module = pl
-            if polars_module is None:
-                raise RuntimeError(
-                    "Polars dependency 'polars' is required to generate validation price data",
-                )
+            _pl = pl
+            assert _pl is not None
             data = {
-                "timestamp": polars_module.datetime_range(
-                    start=polars_module.datetime(2024, 1, 1),
-                    end=polars_module.datetime(2024, 1, 1)
-                    + polars_module.duration(days=n_samples - 1),
+                "timestamp": _pl.datetime_range(
+                    start=_pl.datetime(2024, 1, 1),
+                    end=_pl.datetime(2024, 1, 1) + _pl.duration(days=n_samples - 1),
                     interval="1d",
                     eager=True,
                 ),
@@ -697,19 +616,16 @@ class FeatureParityValidator:
                 "close": closes,
                 "volume": volumes,
             }
-            return polars_module.DataFrame(data)
+            return _pl.DataFrame(data)
         else:
-            from ml._imports import pd as pandas_module
+            from ml._imports import check_ml_dependencies
+            from ml._imports import pd
 
-            if pandas_module is None:
+            if pd is None:
                 check_ml_dependencies(["pandas"])
-                from ml._imports import pd as pandas_module  # re-import after dependency check
-            if pandas_module is None:
-                raise RuntimeError(
-                    "Pandas dependency 'pandas' is required to generate validation price data",
-                )
+            assert pd is not None
             data = {
-                "timestamp": pandas_module.date_range(
+                "timestamp": pd.date_range(
                     start="2024-01-01",
                     periods=n_samples,
                     freq="D",
@@ -720,7 +636,7 @@ class FeatureParityValidator:
                 "close": closes,
                 "volume": volumes,
             }
-            return pandas_module.DataFrame(data)
+            return pd.DataFrame(data)
 
 
 def validate_feature_parity(
@@ -764,3 +680,89 @@ def validate_feature_parity(
         end_idx=end_idx,
         detailed_report=True,
     )
+
+
+class KnownFutureError(Exception):
+    """
+    Exception raised when known-future validation fails.
+
+    Raised when effective timestamps are detected after evaluation timestamps,
+    indicating potential data leakage or look-ahead bias.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        context: str,
+        violations: int,
+    ) -> None:
+        """
+        Initialize known-future error.
+
+        Parameters
+        ----------
+        message : str
+            Error message.
+        context : str
+            Context string identifying the validation.
+        violations : int
+            Number of violations found.
+        """
+        super().__init__(message)
+        self.context = context
+        self.violations = violations
+
+
+def validate_known_future_effective_times(
+    evaluation_series: npt.ArrayLike,
+    effective_series: npt.ArrayLike,
+    context: str = "",
+) -> None:
+    """
+    Validate that effective times are not after evaluation times.
+
+    This validation prevents known-future / look-ahead bias in features.
+    An effective time represents when a value became available, and it
+    should always be at or before the evaluation time.
+
+    Parameters
+    ----------
+    evaluation_series : array-like
+        Array of evaluation timestamps (nanoseconds).
+    effective_series : array-like
+        Array of effective timestamps (nanoseconds).
+    context : str, default ""
+        Context string for error reporting.
+
+    Raises
+    ------
+    KnownFutureError
+        If any effective time is after its corresponding evaluation time.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> eval_times = np.array([1000, 2000, 3000])
+    >>> eff_times = np.array([500, 1500, 2500])
+    >>> validate_known_future_effective_times(eval_times, eff_times)  # OK
+    >>> eff_times_bad = np.array([500, 2500, 3500])  # 3500 > 3000
+    >>> validate_known_future_effective_times(eval_times, eff_times_bad, "test")
+    Traceback (most recent call last):
+        ...
+    KnownFutureError: Known-future detected in test: 1 violations
+    """
+    eval_arr = np.asarray(evaluation_series)
+    eff_arr = np.asarray(effective_series)
+
+    if len(eval_arr) != len(eff_arr):
+        msg = f"Series length mismatch: evaluation={len(eval_arr)}, effective={len(eff_arr)}"
+        raise ValueError(msg)
+
+    # Check for violations: effective > evaluation
+    violations_mask = eff_arr > eval_arr
+    n_violations = int(np.sum(violations_mask))
+
+    if n_violations > 0:
+        ctx_str = f" in {context}" if context else ""
+        msg = f"Known-future detected{ctx_str}: {n_violations} violations"
+        raise KnownFutureError(msg, context=context, violations=n_violations)

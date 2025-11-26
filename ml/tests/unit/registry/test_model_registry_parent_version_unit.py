@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
@@ -58,8 +58,11 @@ def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
     )
     student_id = reg.register_model(model_path=student_path, manifest=s_manifest, auto_deploy=False)
 
-    # Save and fetch
-    reg._save_registry(immediate=True)  # type: ignore[attr-defined]
+    # Save and fetch - use flush() for facade, _save_registry for legacy
+    if hasattr(reg, "flush"):
+        reg.flush()  # Facade API
+    elif hasattr(reg, "_save_registry"):
+        reg._save_registry(immediate=True)  # Legacy API
     t_info = reg.get_model(teacher_id)
     s_info = reg.get_model(student_id)
 

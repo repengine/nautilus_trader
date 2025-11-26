@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 
 from ml._imports import HAS_ONNX, HAS_ONNX_CORE
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.tests.builders import RegistryBuilder
 
 

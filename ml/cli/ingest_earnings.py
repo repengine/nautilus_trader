@@ -16,7 +16,7 @@ from ml.common.logging_config import configure_logging
 from ml.config.earnings_ingestion import DEFAULT_SKIP_ACTUALS_TICKERS
 from ml.config.earnings_ingestion import EarningsIngestionConfig
 from ml.data.earnings.ingestion_service import EarningsIngestionService
-from ml.stores.data_store import DataStore
+from ml.stores import DataStore
 from ml.stores.earnings_raw_writer import EarningsParquetRawWriter
 
 

@@ -13,17 +13,10 @@ Hot/Cold path separation: All fetching is cold-path only
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock
-from unittest.mock import Mock
-
-import pandas as pd
 
 from ml._imports import HAS_YFINANCE
 from ml._imports import check_ml_dependencies
@@ -73,62 +66,6 @@ def _init_module_metrics() -> None:
 
 
 _init_module_metrics()
-
-
-_STUB_TICKER_CACHE: dict[str, SimpleNamespace] = {}
-_YFINANCE_OVERRIDE: Any | None = None
-
-
-def set_yfinance_override(override: Any | None) -> None:
-    """
-    Override the yfinance client used by YahooFetcher.
-
-    Primarily intended for tests to inject deterministic mocks even when
-    fixture mode forces stub usage.
-    """
-    global _YFINANCE_OVERRIDE
-    _YFINANCE_OVERRIDE = override
-
-
-def _build_stub_ticker(ticker: str) -> SimpleNamespace | None:
-    """
-    Provide deterministic stub data for tests when yfinance is disabled.
-    """
-    ticker_upper = ticker.upper()
-    if ticker_upper == "SMALLCAP":
-        stub = SimpleNamespace(
-            earnings_dates=None,
-            analyst_price_target=None,
-            calendar={},
-            info={},
-        )
-        _STUB_TICKER_CACHE[ticker_upper] = stub
-        return stub
-
-    if ticker_upper not in {"AAPL", "MSFT", "GOOGL"}:
-        return None
-
-    cached = _STUB_TICKER_CACHE.get(ticker_upper)
-    if cached is not None:
-        return cached
-
-    earnings_dates = pd.DataFrame(
-        {
-            "EPS Estimate": [2.10, 2.05],
-        },
-        index=[
-            datetime(2025, 1, 30, 16, 0),
-            datetime(2025, 4, 30, 16, 0),
-        ],
-    )
-    stub = SimpleNamespace(
-        earnings_dates=earnings_dates,
-        analyst_price_target={"numberOfAnalystOpinions": 42},
-        calendar={"Earnings Date": datetime(2025, 1, 30)},
-        info={"forwardEps": 2.10, "symbol": ticker_upper},
-    )
-    _STUB_TICKER_CACHE[ticker_upper] = stub
-    return stub
 
 
 @dataclass(frozen=True)
@@ -275,36 +212,6 @@ class YahooFetcher:
     def _fetch_ticker(self, ticker: str) -> Any | None:
         """Fetch ticker object from yfinance."""
         try:
-            fixture_mode = os.getenv("ML_YFINANCE_FIXTURE")
-            if fixture_mode == "static":
-                override = _YFINANCE_OVERRIDE
-                if override is not None:
-                    return override.Ticker(ticker)
-                if isinstance(yfinance, (MagicMock, Mock)):
-                    logger.debug(
-                        "Using patched yfinance MagicMock for %s (fixture_mode=%s)",
-                        ticker,
-                        fixture_mode,
-                    )
-                    return yfinance.Ticker(ticker)
-                ticker_attr = getattr(yfinance, "Ticker", None)
-                if isinstance(ticker_attr, (MagicMock, Mock)):
-                    logger.debug(
-                        "Using patched yfinance.Ticker MagicMock for %s (fixture_mode=%s)",
-                        ticker,
-                        fixture_mode,
-                    )
-                    return ticker_attr(ticker)
-                stub = _build_stub_ticker(ticker)
-                if stub is not None:
-                    logger.debug(
-                        "Using static Yahoo Finance stub for %s (fixture_mode=%s, yfinance=%s)",
-                        ticker,
-                        fixture_mode,
-                        type(yfinance),
-                    )
-                    return stub
-                return None
             if yfinance is None:
                 return None
             stock = yfinance.Ticker(ticker)
@@ -320,26 +227,12 @@ class YahooFetcher:
             if hasattr(stock, "earnings_dates"):
                 earnings_dates = stock.earnings_dates
                 if earnings_dates is not None and len(earnings_dates) > 0:
-                    try:
-                        candidate_index = earnings_dates.index.sort_values()
-                    except Exception:
-                        candidate_index = earnings_dates.index
-                    now_utc = datetime.now(UTC)
-                    next_candidates: list[datetime] = []
-                    for value in candidate_index:
-                        if isinstance(value, datetime):
-                            candidate = value
-                        else:
-                            candidate = datetime.fromisoformat(str(value))
-                        if candidate.tzinfo is None:
-                            candidate_utc = candidate.replace(tzinfo=UTC)
-                        else:
-                            candidate_utc = candidate.astimezone(UTC)
-                        next_candidates.append(candidate)
-                        if candidate_utc >= now_utc:
-                            return candidate.replace(tzinfo=None)
-                    if next_candidates:
-                        return next_candidates[0].replace(tzinfo=None)
+                    # Get first upcoming date
+                    next_date = earnings_dates.index[0]
+                    if isinstance(next_date, datetime):
+                        return next_date
+                    # Convert to datetime if timestamp
+                    return datetime.fromisoformat(str(next_date))
 
             # Fallback: try calendar property
             if hasattr(stock, "calendar"):
@@ -347,34 +240,15 @@ class YahooFetcher:
                 if calendar is not None and len(calendar) > 0:
                     earnings_date = calendar.get("Earnings Date")
                     if earnings_date is not None:
-                        normalized = self._normalize_calendar_date(earnings_date)
-                        if normalized is not None:
-                            return normalized
+                        if isinstance(earnings_date, datetime):
+                            return earnings_date
+                        return datetime.fromisoformat(str(earnings_date))
 
             return None
 
         except Exception as e:
             logger.debug("Failed to extract earnings date: %s", e)
             return None
-
-    @staticmethod
-    def _normalize_calendar_date(value: Any) -> datetime | None:
-        """Normalize calendar-derived earnings date to naive midnight."""
-        try:
-            if isinstance(value, datetime):
-                candidate = value
-            else:
-                candidate = datetime.fromisoformat(str(value))
-        except (TypeError, ValueError):
-            return None
-        if hasattr(candidate, "to_pydatetime"):
-            candidate = candidate.to_pydatetime()
-        candidate_naive = candidate.replace(tzinfo=None)
-        return datetime(
-            int(candidate_naive.year),
-            int(candidate_naive.month),
-            int(candidate_naive.day),
-        )
 
     def _extract_eps_estimate(self, stock: Any) -> float | None:
         """Extract EPS consensus estimate from ticker."""
@@ -447,6 +321,41 @@ class YahooFetcher:
         except Exception as e:
             logger.debug("Failed to extract num analysts: %s", e)
             return 0
+
+
+# Module-level override for testing purposes
+_yfinance_override: Any = None
+
+
+def set_yfinance_override(override: Any | None) -> None:
+    """
+    Set a yfinance override for testing purposes.
+
+    This function allows tests to inject a mock yfinance module to avoid
+    making real network calls during testing.
+
+    Parameters
+    ----------
+    override : Any | None
+        The yfinance override. Set to None to clear the override.
+
+    Examples
+    --------
+    >>> from unittest.mock import MagicMock
+    >>> mock_yf = MagicMock()
+    >>> set_yfinance_override(mock_yf)
+    >>> # Now YahooFetcher will use mock_yf instead of real yfinance
+    >>> set_yfinance_override(None)  # Clear override
+    """
+    global _yfinance_override
+    _yfinance_override = override
+
+
+def _get_yfinance() -> Any:
+    """Get the effective yfinance module (override or real)."""
+    if _yfinance_override is not None:
+        return _yfinance_override
+    return yfinance
 
 
 __all__ = [

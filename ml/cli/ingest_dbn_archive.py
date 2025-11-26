@@ -19,7 +19,7 @@ import structlog
 
 from ml.data.ingest.dbn_archive import DBNArchiveIngestionConfig
 from ml.data.ingest.dbn_archive import DBNArchiveIngestor
-from ml.stores.data_store import DataStore
+from ml.stores import DataStore
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.writers import DataStoreMarketDataWriter
 

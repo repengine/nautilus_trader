@@ -363,16 +363,16 @@ class MockMetadataSource(MetadataSource):
             Mock instrument metadata
 
         """
-        from random import Random
+        import random
 
-        rng = Random(self.seed)
+        random.seed(self.seed)
 
         metadata_list = []
 
         for symbol in instruments:
             # Generate realistic mock data based on symbol characteristics
             is_etf = symbol.endswith("ETF") or symbol in ["SPY", "QQQ", "IWM", "VTI"]
-            is_penny = rng.random() < 0.1  # 10% penny stocks
+            is_penny = random.random() < 0.1  # 10% penny stocks
 
             if is_penny:
                 tick_size = 0.0001
@@ -386,13 +386,13 @@ class MockMetadataSource(MetadataSource):
 
             # Randomly assign to exchanges
             exchanges = ["XNAS", "XNYS", "ARCX", "BATS"]
-            exchange = rng.choice(exchanges)
+            exchange = random.choice(exchanges)
 
             # Asset class
             if is_etf:
                 asset_class = "ETF"
             else:
-                asset_class = rng.choice(["EQUITY", "ADR"])
+                asset_class = random.choice(["EQUITY", "ADR"])
 
             metadata = {
                 "instrument_id": symbol,

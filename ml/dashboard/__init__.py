@@ -13,11 +13,25 @@ project's Universal ML Architecture Patterns:
 
 Public API is intentionally minimal; consumers should import from this package
 only (not internal modules).
+
+Feature Flag:
+    ML_USE_LEGACY_DASHBOARD_SERVICE=1 → Use legacy monolithic DashboardService
+    ML_USE_LEGACY_DASHBOARD_SERVICE=0 → Use new DashboardServiceFacade (default)
 """
+
+import os
 
 from ml.dashboard.app import create_app
 from ml.dashboard.config import DashboardConfig
-from ml.dashboard.service import DashboardService
+
+
+# Feature flag for gradual migration
+_USE_LEGACY = os.getenv("ML_USE_LEGACY_DASHBOARD_SERVICE", "0") == "1"
+
+if _USE_LEGACY:
+    from ml.dashboard.service import DashboardService
+else:
+    from ml.dashboard.service_facade import DashboardServiceFacade as DashboardService
 
 
 __all__ = [

@@ -102,6 +102,7 @@ def patch_onnx_runtime(
         "ml.common.security",
         "ml.registry.model_persistence",
         "ml.registry.model_registry",
+        "ml.registry.model_registry_facade",  # Add facade to ONNX patching
     )
     target_modules = tuple(modules) if modules is not None else default_modules
 

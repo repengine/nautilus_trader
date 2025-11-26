@@ -15,9 +15,10 @@ from pathlib import Path
 
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
+from ml.common.logging_config import configure_logging
 from ml.data.scheduler import DataScheduler
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -26,10 +27,7 @@ def main() -> None:
     Demonstrate DataScheduler with FeatureStore integration.
     """
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    configure_logging(level="INFO")
     logger = logging.getLogger(__name__)
 
     # 1. Setup catalog for data storage

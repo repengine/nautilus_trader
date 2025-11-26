@@ -5,7 +5,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
 from ml.stores.feature_store import FeatureStore
 
 

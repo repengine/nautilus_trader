@@ -15,7 +15,7 @@ import polars as pl
 
 sys.path.insert(0, ".")
 
-from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
+from ml.features import FeatureConfig, FeatureEngineer, IndicatorManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")

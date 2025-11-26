@@ -13,15 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, SupportsFloat, cast
 
-from sqlalchemy import bindparam
-from sqlalchemy import column as sa_column
-from sqlalchemy import distinct
-from sqlalchemy import func
-from sqlalchemy import select
-from sqlalchemy import table as sa_table
-from sqlalchemy.sql.elements import ColumnElement
-from sqlalchemy.sql.selectable import Select
-from sqlalchemy.sql.selectable import TableClause
+from sqlalchemy import text as _text
 
 from ml.config.events import EventStatus
 from ml.config.events import Source
@@ -34,44 +26,6 @@ from ml.stores.protocols import ModelEventDepsStrict
 from ml.stores.protocols import ModelReadDepsStrict
 from ml.stores.protocols import ModelWriteDepsStrict
 from ml.stores.services.common_stats import resolve_table_name as _resolve_table_name
-
-
-def _model_predictions_table(table_name: str) -> TableClause:
-    """Return a lightweight SQLAlchemy table clause for model predictions."""
-    schema: str | None = None
-    table_id = table_name
-    if "." in table_name:
-        schema, table_id = table_name.split(".", 1)
-    return sa_table(
-        table_id,
-        sa_column("model_id"),
-        sa_column("instrument_id"),
-        sa_column("ts_event"),
-        sa_column("ts_init"),
-        sa_column("prediction"),
-        sa_column("confidence"),
-        sa_column("features_used"),
-        sa_column("inference_time_ms"),
-        sa_column("is_live"),
-        schema=schema,
-    )
-
-
-def _time_filter_conditions(
-    ts_column: ColumnElement[int],
-    start_ns: int | None,
-    end_ns: int | None,
-) -> tuple[list[ColumnElement[bool]], dict[str, int]]:
-    """Build SQLAlchemy conditions and params for timestamp bounds."""
-    conditions: list[ColumnElement[bool]] = []
-    params: dict[str, int] = {}
-    if start_ns is not None:
-        conditions.append(ts_column >= bindparam("start_ns"))
-        params["start_ns"] = int(start_ns)
-    if end_ns is not None:
-        conditions.append(ts_column < bindparam("end_ns"))
-        params["end_ns"] = int(end_ns)
-    return conditions, params
 
 
 @dataclass(slots=True)
@@ -166,20 +120,16 @@ class ModelQueryService:
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        sql: Select[Any] = (
-            select(
-                predictions_table.c.ts_event,
-                predictions_table.c.prediction,
-                predictions_table.c.confidence,
-                predictions_table.c.features_used,
-                predictions_table.c.inference_time_ms,
-            )
-            .where(predictions_table.c.model_id == bindparam("model_id"))
-            .where(predictions_table.c.instrument_id == bindparam("instrument_id"))
-            .where(predictions_table.c.ts_event >= bindparam("start_ns"))
-            .where(predictions_table.c.ts_event < bindparam("end_ns"))
-            .order_by(predictions_table.c.ts_event)
+        sql = _text(
+            f"""
+            SELECT ts_event, prediction, confidence, features_used, inference_time_ms
+            FROM {table_name}
+            WHERE model_id = :model_id
+              AND instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY ts_event
+            """
         )
         params: dict[str, object] = {
             "model_id": model_id,
@@ -212,25 +162,27 @@ class ModelQueryService:
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        sql: Select[Any] = (
-            select(
-                predictions_table.c.model_id,
-                predictions_table.c.instrument_id,
-                predictions_table.c.prediction,
-                predictions_table.c.confidence,
-                predictions_table.c.inference_time_ms,
-                predictions_table.c.is_live,
-                predictions_table.c.ts_event,
-                predictions_table.c.ts_init,
-            )
-            .where(predictions_table.c.model_id == bindparam("model_id"))
-        )
-        params: dict[str, object] = {"model_id": model_id, "limit_val": int(limit)}
+        where_parts: list[str] = ["model_id = :model_id"]
+        params: dict[str, object] = {"model_id": model_id, "limit": int(limit)}
         if instrument_id is not None:
-            sql = sql.where(predictions_table.c.instrument_id == bindparam("instrument_id"))
+            where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
-        sql = sql.order_by(predictions_table.c.ts_event.desc()).limit(bindparam("limit_val"))
+        sql = _text(
+            f"""
+            SELECT model_id,
+                   instrument_id,
+                   prediction,
+                   confidence,
+                   inference_time_ms,
+                   is_live,
+                   ts_event,
+                   ts_init
+            FROM {table_name}
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """
+        )
         return self.deps._execute_read(
             sql,
             params,
@@ -259,24 +211,31 @@ class ModelQueryService:
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        sql: Select[Any] = (
-            select(
-                predictions_table.c.model_id,
-                predictions_table.c.instrument_id,
-                predictions_table.c.ts_event,
-                predictions_table.c.prediction,
-                predictions_table.c.confidence,
-                predictions_table.c.inference_time_ms,
+        if instrument_id is None:
+            sql = _text(
+                f"""
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM {table_name}
+                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+                ORDER BY ts_event
+                """
             )
-            .where(predictions_table.c.ts_event >= bindparam("start_ns"))
-            .where(predictions_table.c.ts_event < bindparam("end_ns"))
-        )
-        params: dict[str, object] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
-        if instrument_id is not None:
-            sql = sql.where(predictions_table.c.instrument_id == bindparam("instrument_id"))
-            params["instrument_id"] = instrument_id
-        sql = sql.order_by(predictions_table.c.ts_event)
+            params: dict[str, object] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
+        else:
+            sql = _text(
+                f"""
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM {table_name}
+                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+                  AND instrument_id = :instrument_id
+                ORDER BY ts_event
+                """
+            )
+            params = {
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+                "instrument_id": instrument_id,
+            }
         return self.deps._execute_read(
             sql,
             params,
@@ -297,20 +256,16 @@ class ModelQueryService:
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        sql: Select[Any] = (
-            select(
-                predictions_table.c.model_id,
-                predictions_table.c.ts_event,
-                predictions_table.c.prediction,
-                predictions_table.c.confidence,
-                predictions_table.c.inference_time_ms,
-            )
-            .where(predictions_table.c.instrument_id == bindparam("instrument_id"))
-            .order_by(predictions_table.c.ts_event.desc())
-            .limit(bindparam("limit_val"))
+        sql = _text(
+            f"""
+            SELECT model_id, ts_event, prediction, confidence, inference_time_ms
+            FROM {table_name}
+            WHERE instrument_id = :instrument_id
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """
         )
-        params: dict[str, object] = {"instrument_id": instrument_id, "limit_val": int(limit)}
+        params: dict[str, object] = {"instrument_id": instrument_id, "limit": int(limit)}
         return self.deps._execute_read(
             sql,
             params,
@@ -338,20 +293,14 @@ class ModelQueryService:
                 base="ml_model_predictions",
                 allowed=None,
             )
-            predictions_table = _model_predictions_table(table_name)
-            sql: Select[Any] = (
-                select(
-                    predictions_table.c.model_id,
-                    predictions_table.c.instrument_id,
-                    predictions_table.c.ts_event,
-                    predictions_table.c.prediction,
-                    predictions_table.c.confidence,
-                    predictions_table.c.inference_time_ms,
-                )
-                .where(predictions_table.c.model_id == bindparam("model_id"))
-                .where(predictions_table.c.ts_event >= bindparam("start_ns"))
-                .where(predictions_table.c.ts_event < bindparam("end_ns"))
-                .order_by(predictions_table.c.instrument_id, predictions_table.c.ts_event)
+            sql = _text(
+                f"""
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM {table_name}
+                WHERE model_id = :model_id
+                  AND ts_event >= :start_ns AND ts_event < :end_ns
+                ORDER BY instrument_id, ts_event
+                """
             )
             params2: dict[str, object] = {
                 "model_id": model_id,
@@ -386,31 +335,30 @@ class ModelStatsService:
     deps: ModelReadDepsStrict
 
     def get_statistics(self, *, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, object]:
+        from ml.stores.services.common_stats import build_time_conditions as _conds
+        conditions, params = _conds(start_ns, end_ns, field="ts_event")
+
         table_name = _resolve_table_name(
             self.deps,
             attr="model_predictions_table",
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        conditions, params = _time_filter_conditions(
-            predictions_table.c.ts_event,
-            start_ns,
-            end_ns,
+        from ml.stores.services.common_stats import select_min_max_ts as _minmax
+        minmax = _minmax(field="ts_event", min_alias="min_ts", max_alias="max_ts")
+        base_sql = (
+            "SELECT COUNT(*) as total_predictions, "
+            "COUNT(DISTINCT model_id) as unique_models, "
+            "COUNT(DISTINCT instrument_id) as unique_instruments, "
+            "AVG(inference_time_ms) as avg_inference_ms, "
+            "MAX(inference_time_ms) as max_inference_ms, "
+            f"{minmax} "
+            f"FROM {table_name} "
         )
-        query: Select[Any] = select(
-            func.count().label("total_predictions"),
-            func.count(distinct(predictions_table.c.model_id)).label("unique_models"),
-            func.count(distinct(predictions_table.c.instrument_id)).label("unique_instruments"),
-            func.avg(predictions_table.c.inference_time_ms).label("avg_inference_ms"),
-            func.max(predictions_table.c.inference_time_ms).label("max_inference_ms"),
-            func.min(predictions_table.c.ts_event).label("min_ts"),
-            func.max(predictions_table.c.ts_event).label("max_ts"),
-        )
-        for condition in conditions:
-            query = query.where(condition)
+        if conditions:
+            base_sql += "WHERE " + " AND ".join(conditions)
 
-        row = self.deps._fetch_one(query, params)
+        row = self.deps._fetch_one(_text(base_sql), params)
         if row:
             return {
                 "total_predictions": row[0] or 0,
@@ -446,43 +394,30 @@ class ModelStatsService:
             end_ns = _time.time_ns()
             start_ns = end_ns - int(hours_back * 3_600_000_000_000)
 
+        from ml.stores.services.common_stats import build_time_conditions as _conds
+        conditions, params = _conds(start_ns, end_ns, field="ts_event")
+        conditions.insert(0, "model_id = :model_id")
+        params2: dict[str, object] = dict(params)
+        params2["model_id"] = model_id
+
         table_name = _resolve_table_name(
             self.deps,
             attr="model_predictions_table",
             base="ml_model_predictions",
             allowed=None,
         )
-        predictions_table = _model_predictions_table(table_name)
-        time_conditions, params = _time_filter_conditions(
-            predictions_table.c.ts_event,
-            start_ns,
-            end_ns,
+        from ml.stores.services.common_stats import select_latency_summary as _latency
+        from ml.stores.services.common_stats import select_numeric_stats as _num
+        latency = _latency(column="inference_time_ms", include_avg=True, percentiles=(0.50, 0.95, 0.99))
+        conf_stats = _num(column="confidence", prefix="confidence", include_avg=True, include_stddev=True, include_min_max=False)
+        sql = (
+            "SELECT COUNT(*) as prediction_count, "
+            f"{conf_stats}, "
+            f"{latency} "
+            f"FROM {table_name} WHERE " + " AND ".join(conditions)
         )
-        params2: dict[str, object] = dict(params)
-        params2["model_id"] = model_id
-        percentile_params = (0.50, 0.95, 0.99)
-        query: Select[Any] = select(
-            func.count().label("prediction_count"),
-            func.avg(predictions_table.c.confidence).label("avg_confidence"),
-            func.stddev(predictions_table.c.confidence).label("std_confidence"),
-            func.avg(predictions_table.c.inference_time_ms).label("avg_latency_ms"),
-            func.percentile_cont(0.50)
-            .within_group(predictions_table.c.inference_time_ms)
-            .label("p50_latency_ms"),
-            func.percentile_cont(0.95)
-            .within_group(predictions_table.c.inference_time_ms)
-            .label("p95_latency_ms"),
-            func.percentile_cont(0.99)
-            .within_group(predictions_table.c.inference_time_ms)
-            .label("p99_latency_ms"),
-        ).where(predictions_table.c.model_id == bindparam("model_id"))
-        for condition in time_conditions:
-            query = query.where(condition)
 
-        for idx, pct in enumerate(percentile_params, start=1):
-            params2[f"percentile_cont_{idx}"] = float(pct)
-
-        row = self.deps._fetch_one(query, params2)
+        row = self.deps._fetch_one(_text(sql), params2)
         if row:
             return {
                 "prediction_count": row[0] or 0,
@@ -559,16 +494,9 @@ class ModelEventService:
 
                     _emit_wm = getattr(_ee, "emit_dataset_event_and_watermark", None)
                     _emit = getattr(_ee, "emit_dataset_event", None)
-                except Exception as import_exc:
+                except Exception:
                     _emit_wm = None
                     _emit = None
-                    self.logger.debug(
-                        "model_services.prediction_event_emitter_import_failed model_id=%s instrument_id=%s",
-                        model_id,
-                        instrument_id,
-                        exc_info=True,
-                        extra={"error": repr(import_exc)},
-                    )
 
                 # Ensure dataset is registered before emitting events
                 try:
@@ -628,15 +556,9 @@ class ModelEventService:
                     try:
                         registry.register_dataset(manifest)
                         self.logger.info("Registered dataset 'predictions' in registry")
-                    except Exception as manifest_exc:
+                    except Exception:
                         # Best-effort registration; continue with emission path.
-                        self.logger.debug(
-                            "model_services.prediction_manifest_register_failed model_id=%s instrument_id=%s",
-                            model_id,
-                            instrument_id,
-                            exc_info=True,
-                            extra={"error": repr(manifest_exc)},
-                        )
+                        pass
 
                 # Emit event + watermark; if watermark path fails (e.g., FK not yet visible
                 # under concurrent transactions), fall back to event-only emission.
@@ -657,7 +579,7 @@ class ModelEventService:
                             component=model_id,
                             metadata={"model_id": model_id},
                         )
-                    except Exception as emit_exc:
+                    except Exception:
                         try:
                             registry.emit_event(
                                 dataset_id="predictions",
@@ -671,23 +593,9 @@ class ModelEventService:
                                 status=EventStatus.SUCCESS,
                                 metadata={"model_id": model_id},
                             )
-                        except Exception as event_exc:
+                        except Exception:
                             # Event path must not impact hot writes
-                            self.logger.debug(
-                                "model_services.prediction_event_emit_failed model_id=%s instrument_id=%s",
-                                model_id,
-                                instrument_id,
-                                exc_info=True,
-                                extra={"error": repr(event_exc)},
-                            )
-                        else:
-                            self.logger.debug(
-                                "model_services.prediction_watermark_emit_failed model_id=%s instrument_id=%s",
-                                model_id,
-                                instrument_id,
-                                exc_info=True,
-                                extra={"error": repr(emit_exc)},
-                            )
+                            pass
                 else:
                     # Fallback: direct registry calls
                     try:
@@ -712,22 +620,10 @@ class ModelEventService:
                                 count=len(group),
                                 completeness_pct=100.0,
                             )
-                        except Exception as watermark_exc:
+                        except Exception:
                             # Watermark update is best-effort
-                            self.logger.debug(
-                                "model_services.prediction_watermark_failed model_id=%s instrument_id=%s",
-                                model_id,
-                                instrument_id,
-                                exc_info=True,
-                                extra={"error": repr(watermark_exc)},
-                            )
-                    except Exception as direct_emit_exc:
-                        self.logger.debug(
-                            "model_services.prediction_event_direct_emit_failed model_id=%s instrument_id=%s",
-                            model_id,
-                            instrument_id,
-                            exc_info=True,
-                            extra={"error": repr(direct_emit_exc)},
-                        )
+                            pass
+                    except Exception:
+                        pass
         except Exception:
             self.logger.warning("Failed to emit prediction events", exc_info=True)

@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from ml.actors.base import BaseMLInferenceActor
+from ml.actors import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.average.sma import SimpleMovingAverage

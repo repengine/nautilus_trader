@@ -102,7 +102,6 @@ class TestDataRegistryIntegration:
 
         """
         # Test will verify data_registry.register_dataset called correctly
-        pass
 
     def test_data_registry_manifest_retrieval(
         self,
@@ -121,7 +120,6 @@ class TestDataRegistryIntegration:
         - Manifest returned with correct fields
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -155,7 +153,6 @@ class TestFeatureRegistryIntegration:
         - Schema hash computed correctly
 
         """
-        pass
 
     def test_feature_registry_version_tracking(
         self,
@@ -175,7 +172,6 @@ class TestFeatureRegistryIntegration:
         - Old version preserved
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -209,7 +205,6 @@ class TestModelRegistryIntegration:
         - Metadata captured correctly
 
         """
-        pass
 
     def test_model_registry_deployment_status(
         self,
@@ -229,7 +224,6 @@ class TestModelRegistryIntegration:
         - A/B routing configured
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -259,7 +253,6 @@ class TestStrategyRegistryIntegration:
         - Dependencies tracked
 
         """
-        pass
 
 
 # ============================================================================
@@ -298,7 +291,6 @@ class TestDataStoreIntegration:
         - Read returns same data
 
         """
-        pass
 
     def test_data_store_time_range_query(
         self,
@@ -318,7 +310,6 @@ class TestDataStoreIntegration:
         - Filtering applied
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -348,7 +339,6 @@ class TestFeatureStoreIntegration:
         - Retrievable by instrument
 
         """
-        pass
 
     def test_feature_store_instrument_filtering(
         self,
@@ -367,7 +357,6 @@ class TestFeatureStoreIntegration:
         - Only matching features returned
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -397,7 +386,6 @@ class TestModelStoreIntegration:
         - Loadable
 
         """
-        pass
 
     def test_model_store_prediction_logging(
         self,
@@ -417,7 +405,6 @@ class TestModelStoreIntegration:
         - Retrievable by timestamp
 
         """
-        pass
 
 
 @pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
@@ -447,7 +434,6 @@ class TestStrategyStoreIntegration:
         - Retrievable
 
         """
-        pass
 
     def test_strategy_store_state_history(
         self,
@@ -467,7 +453,6 @@ class TestStrategyStoreIntegration:
         - Chronologically ordered
 
         """
-        pass
 
 
 # ============================================================================
@@ -507,7 +492,6 @@ class TestCrossComponentIntegration:
         - StrategyStore used for strategy
 
         """
-        pass
 
     def test_pipeline_uses_all_registries(
         self,
@@ -529,7 +513,6 @@ class TestCrossComponentIntegration:
         - StrategyRegistry has strategy manifest
 
         """
-        pass
 
     def test_store_registry_synchronization(
         self,
@@ -549,7 +532,6 @@ class TestCrossComponentIntegration:
         - Metadata consistent
 
         """
-        pass
 
 
 # ============================================================================
@@ -580,7 +562,6 @@ class TestMessageBusIntegration:
         - PipelineCompleted event at end
 
         """
-        pass
 
     def test_error_events_emitted_on_failure(self) -> None:
         """
@@ -597,4 +578,3 @@ class TestMessageBusIntegration:
         - Error details included
 
         """
-        pass

@@ -24,25 +24,20 @@ import logging
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import MetaData
 from sqlalchemy import text as _satext
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
-from ml.common.db_utils import get_or_create_engine
-from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_manager import MetricsManager
 from ml.config.events import EventStatus
 from ml.config.events import Stage
+from ml.common.db_utils import get_or_create_engine
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    pass
 from ml.registry.utils import get_default_registry_path
 
 
@@ -99,8 +94,8 @@ def sanitize_and_dedup(
 def publish_batch_and_rows(
     *,
     enable_publishing: bool,
-    publisher: MessagePublisherProtocol | None,
-    publish_mode: Literal["batch", "row", "both"],
+    publisher: Any | None,
+    publish_mode: str,
     topic_scheme: str,
     topic_prefix: str,
     stage: Stage,
@@ -253,19 +248,12 @@ class EngineInitMixin:
         self.engine = get_or_create_engine(self.connection_string)
         self.metadata = MetaData()
         self._setup_tables()  # type: ignore[attr-defined]
-        engine_manager_cls: Any | None
         try:
-            from ml.core.db_engine import EngineManager as engine_manager_cls
-        except Exception:
-            engine_manager_cls = None
-
-        if engine_manager_cls is not None:
-            try:
-                status: dict[str, Any] | None = engine_manager_cls.get_pool_status(self.connection_string)
-                if status:
-                    logger.debug("Engine pool status: %s", status)
-            except Exception as exc:
-                logger.debug("Pool status unavailable: %s", exc)
+            status: dict[str, Any] | None = EngineManager.get_pool_status(self.connection_string)
+            if status:
+                logger.debug("Engine pool status: %s", status)
+        except Exception as exc:
+            logger.debug("Pool status unavailable: %s", exc)
 
 
 # =============================================================================
@@ -409,7 +397,7 @@ class StoreInitMixin:
             setattr(
                 self,
                 "connection_string",
-                connection_string or "postgresql://postgres:postgres@localhost:5432/nautilus",
+                connection_string or "postgresql://postgres:postgres@localhost:5434/nautilus_test",
             )
 
         setattr(self, "batch_size", int(batch_size))
@@ -746,46 +734,25 @@ class SQLUpsertMixin:
         try:
             with engine.begin() as conn:
                 conn.execute(stmt, values)
-        except Exception as cb_exc:
+        except Exception:
             # Record breaker failure then propagate
             try:
                 if _cb is not None:
                     _cb.record_failure()
-            except Exception as record_exc:
-                logger.debug(
-                    "sql_upsert_mixin.circuit_breaker_record_failure_failed error=%s",
-                    record_exc,
-                    exc_info=True,
-                    extra={"error": repr(record_exc)},
-                )
-            logger.debug(
-                "sql_upsert_mixin.upsert_failed dataset_id=%s",
-                getattr(self, "_dataset_id", "unknown"),
-                exc_info=True,
-                extra={"error": repr(cb_exc)},
-            )
+            except Exception:
+                pass
             raise
         else:
             try:
                 if _cb is not None:
                     _cb.record_success()
-            except Exception as record_exc:
-                logger.debug(
-                    "sql_upsert_mixin.circuit_breaker_record_success_failed error=%s",
-                    record_exc,
-                    exc_info=True,
-                    extra={"error": repr(record_exc)},
-                )
+            except Exception:
+                pass
 
-        publisher_obj = cast(MessagePublisherProtocol | None, getattr(self, "publisher", None))
-        publish_mode_obj = cast(
-            Literal["batch", "row", "both"],
-            getattr(self, "_publish_mode", "batch"),
-        )
         publish_batch_and_rows(
             enable_publishing=bool(getattr(self, "_enable_publishing", False) and publish_bus),
-            publisher=publisher_obj,
-            publish_mode=publish_mode_obj,
+            publisher=getattr(self, "publisher", None),
+            publish_mode=getattr(self, "_publish_mode", "batch"),
             topic_scheme=getattr(self, "_topic_scheme", "domain_op"),
             topic_prefix=getattr(self, "_topic_prefix", "events.ml"),
             stage=stage,

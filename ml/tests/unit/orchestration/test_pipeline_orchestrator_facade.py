@@ -311,7 +311,7 @@ class TestFacadeInitialization:
         assert facade._registry_synchronizer is not None
         assert facade._runtime_attacher is not None
         assert facade._config_resolver is not None
-        assert facade._discovery_service is not None
+        assert facade._discovery_client is not None
 
     def test_facade_initializes_with_minimal_dependencies(
         self,

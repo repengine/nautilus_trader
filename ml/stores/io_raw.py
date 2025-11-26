@@ -15,14 +15,44 @@ Existing modules re-export these symbols with deprecation warnings.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
+from ml.data.catalog_utils import bars_to_dataframe
+from ml.data.catalog_utils import quotes_to_dataframe
+from ml.data.catalog_utils import trades_to_dataframe
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
-from ml.stores.raw_protocols import RawIngestionWriterProtocol
-from ml.stores.raw_protocols import RawReaderProtocol
+
+
+@runtime_checkable
+class RawIngestionWriterProtocol(Protocol):
+    """
+    Protocol for writing raw datasets (bars/quotes/trades/mbp1/tbbo).
+    """
+
+    def write(
+        self,
+        *,
+        dataset_type: DatasetType,
+        data: DataFrameLike | list[dict[str, object]],
+    ) -> int: ...
+
+
+@runtime_checkable
+class RawReaderProtocol(Protocol):
+    """
+    Protocol for reading raw datasets over a time range.
+    """
+
+    def read_range(
+        self,
+        *,
+        dataset_type: DatasetType,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> DataFrameLike: ...
 
 
 class ParquetCatalogRawReader(RawReaderProtocol):
@@ -41,10 +71,6 @@ class ParquetCatalogRawReader(RawReaderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> DataFrameLike:
-        from ml.data.catalog_utils import bars_to_dataframe
-        from ml.data.catalog_utils import quotes_to_dataframe
-        from ml.data.catalog_utils import trades_to_dataframe
-
         start: Any = start_ns
         end: Any = end_ns
         if dataset_type == DatasetType.BARS:
@@ -96,9 +122,8 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
         """
         Write raw items to the Parquet catalog.
 
-        Accepts either a list of domain objects (fast path) or tabular data for bars
-        which will be converted to domain Bars using a default bar template.
-
+        Accepts either a list of domain objects (fast path) or tabular data for
+        bars which will be converted to domain Bars using a default bar template.
         """
         # Fast path: already domain objects
         if isinstance(data, list) and data and not isinstance(data[0], dict):
@@ -113,11 +138,12 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                 from nautilus_trader.model.data import BarType as _BarType
                 from nautilus_trader.model.data import QuoteTick as _QuoteTick
                 from nautilus_trader.model.data import TradeTick as _TradeTick
-                from nautilus_trader.model.enums import AggressorSide as _AggressorSide
                 from nautilus_trader.model.identifiers import InstrumentId as _InstrumentId
                 from nautilus_trader.model.identifiers import TradeId as _TradeId
                 from nautilus_trader.model.objects import Price as _Price
                 from nautilus_trader.model.objects import Quantity as _Quantity
+
+                from nautilus_trader.model.enums import AggressorSide as _AggressorSide
             except Exception as exc:  # pragma: no cover - import-time defensive
                 import logging as _logging
 
@@ -129,7 +155,6 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
 
             # Support pandas/polars by duck-typing iteration
             from typing import Any as _Any
-
             rows: Iterable[dict[str, _Any]]
             if hasattr(data, "iter_rows"):
                 df_any2 = cast(_Any, data)
@@ -165,13 +190,7 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception as exc:
-                        logger.debug(
-                            "raw_writer.bar_parse_failed instrument=%s error=%s",
-                            inst,
-                            exc,
-                            exc_info=True,
-                        )
+                    except Exception:
                         continue
                 if not bars:
                     return 0
@@ -198,13 +217,7 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception as exc:
-                        logger.debug(
-                            "raw_writer.quote_parse_failed row=%s error=%s",
-                            row,
-                            exc,
-                            exc_info=True,
-                        )
+                    except Exception:
                         continue
                 if not quotes:
                     return 0
@@ -235,13 +248,7 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                                 ts_init=int(row.get("ts_init", row["ts_event"])),
                             ),
                         )
-                    except Exception as exc:
-                        logger.debug(
-                            "raw_writer.trade_parse_failed row=%s error=%s",
-                            row,
-                            exc,
-                            exc_info=True,
-                        )
+                    except Exception:
                         continue
                 if not trades:
                     return 0
@@ -258,4 +265,3 @@ __all__ = [
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
 ]
-logger = logging.getLogger(__name__)

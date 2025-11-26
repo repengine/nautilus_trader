@@ -29,7 +29,6 @@ def test_build_tft_specific_dataset() -> None:
     - Dataset has proper windowing for sequential prediction
     - Dataset has columns for known inputs, unknown inputs, targets
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -46,7 +45,6 @@ def test_tft_static_vs_time_varying_features() -> None:
     - Time-varying known: hour, minute, is_market_open (known at prediction time)
     - Time-varying unknown: close, volume, sma_20, rsi_14 (predicted targets)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -64,4 +62,3 @@ def test_tft_windowing_correct() -> None:
     - Windows slide by 1 bar (or configurable stride)
     - Total samples = (total_bars - window_size - prediction_horizon) / stride
     """
-    pass

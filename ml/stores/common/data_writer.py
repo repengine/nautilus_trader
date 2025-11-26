@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from ml.actors.types import ModelPrediction
     from ml.actors.types import StrategySignal
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.components.protocols import SchemaValidatorProtocol
+    from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
     from ml.stores.feature_store import FeatureStore
     from ml.stores.model_store import ModelStore
@@ -159,7 +159,7 @@ class DataWriterComponent:
 
     Example
     -------
-    >>> from ml.stores.components.data_writer import DataWriterComponent
+    >>> from ml.stores.common.data_writer import DataWriterComponent
     >>> writer = DataWriterComponent(
     ...     feature_store=feature_store,
     ...     model_store=model_store,

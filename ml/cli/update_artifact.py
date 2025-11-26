@@ -30,7 +30,7 @@ def _compute_digest(path: Path) -> str:
 
 
 def _load_registry(registry_dir: Path) -> Any:
-    from ml.registry.model_registry import ModelRegistry
+    from ml.registry import ModelRegistry
 
     return ModelRegistry(registry_dir)
 

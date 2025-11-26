@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from ml.registry.dataclasses import DatasetManifest
     from ml.registry.dataclasses import ValidationRule
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.components.schema_validator import QualityReport
-    from ml.stores.components.schema_validator import ValidationViolation
+    from ml.stores.common.schema_validator import QualityReport
+    from ml.stores.common.schema_validator import ValidationViolation
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class ContractEnforcerComponent:
 
     Example
     -------
-    >>> from ml.stores.components.contract_enforcer import ContractEnforcerComponent
+    >>> from ml.stores.common.contract_enforcer import ContractEnforcerComponent
     >>> enforcer = ContractEnforcerComponent(
     ...     registry=registry,
     ...     allow_schema_migration=True,

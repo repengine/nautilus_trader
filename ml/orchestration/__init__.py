@@ -59,6 +59,15 @@ else:
 # Also export the facade directly for explicit usage
 from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
 
+# Root module components (canonical implementations)
+from ml.orchestration.config_resolver import ConfigResolver
+from ml.orchestration.dataset_builder import DatasetBuilder
+from ml.orchestration.discovery_client import DiscoveryClient
+from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.orchestration.runtime_attacher import RuntimeAttacher
+from ml.orchestration.training_coordinator import TrainingCoordinator
+
 # Promotion helpers
 from ml.orchestration.promotions import register_and_promote_model
 from ml.orchestration.promotions import register_or_refresh_features
@@ -80,8 +89,12 @@ from . import config_loader
 
 __all__ = [
     "AutoFillUniverseConfig",
+    "ConfigResolver",
     "DatasetBuildConfig",
+    "DatasetBuilder",
+    "DiscoveryClient",
     "HPOConfig",
+    "IngestionCoordinator",
     "IngestionStageConfig",
     "IntegrationConfig",
     "MLPipelineOrchestrator",
@@ -93,9 +106,12 @@ __all__ = [
     "PipelineSignatureValidator",
     "PreIngestionOptions",
     "PromotionsConfig",
+    "RegistrySynchronizer",
+    "RuntimeAttacher",
     "Stage",
     "StudentDistillConfig",
     "TeacherTrainConfig",
+    "TrainingCoordinator",
     "TrainingStageConfig",
     "VintagePolicy",
     "compute_next_run",

@@ -41,7 +41,7 @@ def validators() -> list[Mock]:
 @pytest.fixture
 def runtime_attacher(integration_manager: Mock):
     """Provides RuntimeAttacher instance for testing."""
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     return RuntimeAttacher(
         integration_manager=integration_manager,
@@ -72,7 +72,7 @@ def test_run_validators_executes_all_validators(
     - Calls validator.validate() for each
     - Returns True if all pass
     """
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     attacher = RuntimeAttacher(
         integration_manager=integration_manager,
@@ -107,7 +107,7 @@ def test_run_validators_returns_false_if_any_fail(
     - Returns False if any fail
     - Logs failed validator names
     """
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     validator1 = Mock()
     validator1.validate.return_value = True
@@ -153,7 +153,7 @@ def test_run_method_orchestrates_full_pipeline(
     - All methods called in correct order
     - Returns None on success
     """
-    from ml.orchestration.components.runtime_attacher import RuntimeAttacher
+    from ml.orchestration.runtime_attacher import RuntimeAttacher
 
     attacher = RuntimeAttacher(
         integration_manager=integration_manager,

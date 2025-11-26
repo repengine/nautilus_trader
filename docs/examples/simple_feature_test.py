@@ -61,7 +61,7 @@ def test_basic_functionality():
     logger.info("Testing basic functionality...")
 
     try:
-        from ml.features.engineering import FeatureConfig, FeatureEngineer
+        from ml.features import FeatureConfig, FeatureEngineer
 
         config = FeatureConfig(
             return_periods=[1, 5, 10],
@@ -98,7 +98,7 @@ def test_hot_cold_paths():
     logger.info("Testing hot/cold path separation...")
 
     try:
-        from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
+        from ml.features import FeatureConfig, FeatureEngineer, IndicatorManager
 
         config = FeatureConfig(
             return_periods=[1, 5],
@@ -188,7 +188,7 @@ def test_memory_allocation():
     logger.info("Testing memory allocation...")
 
     try:
-        from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
+        from ml.features import FeatureConfig, FeatureEngineer, IndicatorManager
 
         config = FeatureConfig(return_periods=[1, 5], volume_ma_periods=[5])
         engineer = FeatureEngineer(config)
@@ -258,7 +258,7 @@ def test_mathematical_correctness():
     logger.info("Testing mathematical correctness...")
 
     try:
-        from ml.features.engineering import FeatureConfig, FeatureEngineer
+        from ml.features import FeatureConfig, FeatureEngineer
 
         config = FeatureConfig(
             return_periods=[1, 5],

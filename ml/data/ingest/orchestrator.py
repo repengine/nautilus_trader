@@ -39,15 +39,13 @@ from ml.data.ingest.service import IngestionRequest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
+from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import SqlMarketDataWriter
-from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import FanoutMarketDataWriter
 
-
-logger = logging.getLogger(__name__)
 
 DAY_NS: Final[int] = 86_400_000_000_000
 
@@ -335,17 +333,6 @@ class IngestionOrchestrator:
                 if frame.empty:
                     return
                 normalized_frame = self._normalize_time_columns(frame)
-                if "ts_event" not in normalized_frame.columns:
-                    LOGGER.error(
-                        "Normalized ingestion frame missing ts_event column",
-                        extra={
-                            "dataset_id": dataset_id,
-                            "schema": schema,
-                            "instrument_id": instrument_id,
-                            "symbol": ingest_symbol,
-                        },
-                    )
-                    raise ValueError("Ingestion frame missing 'ts_event' column after normalization")
                 coerced_df = self._coerce_frame_to_manifest(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
@@ -380,14 +367,7 @@ class IngestionOrchestrator:
                         else:
                             self.raw_writer.write(dataset_type=dataset_type, data=coerced_df)
                     except Exception:
-                        logger.debug(
-                            "Raw writer fallback failed during ingestion chunk",
-                            extra={
-                                "dataset_id": dataset_id,
-                                "instrument_id": instrument_id,
-                            },
-                            exc_info=True,
-                        )
+                        pass
             if self.service is not None:
                 start_dt = datetime.fromtimestamp(start_ns / 1_000_000_000, tz=UTC)
                 end_dt = datetime.fromtimestamp(end_ns / 1_000_000_000, tz=UTC)
@@ -669,81 +649,28 @@ class IngestionOrchestrator:
         """
         working = frame.copy()
         if "ts_event" in working.columns:
-            coerced_event = IngestionOrchestrator._coerce_time_series(working["ts_event"])
-            if coerced_event is not None:
-                working.loc[:, "ts_event"] = coerced_event
-        else:
-            derived_event = IngestionOrchestrator._derive_ts_event_series(working)
-            if derived_event is not None:
-                working.insert(0, "ts_event", derived_event)
+            event_series = working["ts_event"]
+            if not pd.api.types.is_integer_dtype(event_series):
+                converted = pd.to_datetime(event_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted) and converted.notna().all():
+                    working.loc[:, "ts_event"] = converted.astype("int64")
+                else:
+                    numeric = pd.to_numeric(event_series, errors="coerce")
+                    if numeric.notna().all():
+                        working.loc[:, "ts_event"] = numeric.astype("int64")
         if "ts_init" in working.columns:
-            coerced_init = IngestionOrchestrator._coerce_time_series(working["ts_init"])
-            if coerced_init is not None:
-                working.loc[:, "ts_init"] = coerced_init
+            init_series = working["ts_init"]
+            if not pd.api.types.is_integer_dtype(init_series):
+                converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
+                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
+                    working.loc[:, "ts_init"] = converted_init.astype("int64")
+                else:
+                    numeric_init = pd.to_numeric(init_series, errors="coerce")
+                    if numeric_init.notna().all():
+                        working.loc[:, "ts_init"] = numeric_init.astype("int64")
         elif "ts_event" in working.columns:
             working.loc[:, "ts_init"] = working["ts_event"]
         return working
-
-    @staticmethod
-    def _derive_ts_event_series(frame: pd.DataFrame) -> pd.Series | None:
-        """
-        Derive a ts_event series from alternate timestamp columns or the index.
-        """
-        timestamp_columns = (
-            "timestamp",
-            "ts",
-            "ts_exchange",
-            "ts_recv",
-            "event_ts",
-            "event_time",
-        )
-        for column in timestamp_columns:
-            if column in frame.columns:
-                normalized = IngestionOrchestrator._coerce_time_series(frame[column])
-                if normalized is not None:
-                    return normalized
-        index_name = getattr(frame.index, "name", None)
-        if index_name and index_name.lower() in {"ts_event", "timestamp", "ts", "ts_exchange", "ts_recv"}:
-            normalized_index = IngestionOrchestrator._coerce_time_index(frame.index, frame.index)
-            if normalized_index is not None:
-                return normalized_index
-        return None
-
-    @staticmethod
-    def _coerce_time_index(index: pd.Index, target_index: pd.Index) -> pd.Series | None:
-        """
-        Convert an index of timestamps into an int64 nanosecond series.
-        """
-        if len(index) == 0:
-            return pd.Series([], index=target_index, dtype="int64")
-        as_series = pd.Series(index, index=target_index)
-        return IngestionOrchestrator._coerce_time_series(as_series)
-
-    @staticmethod
-    def _coerce_time_series(series: pd.Series) -> pd.Series | None:
-        """
-        Convert a timestamp-like series to int64 nanoseconds when possible.
-        """
-        if series.empty:
-            return series.astype("int64", copy=False)
-        if pd.api.types.is_integer_dtype(series):
-            if getattr(series, "hasnans", False):
-                return None
-            return series.astype("int64", copy=False)
-        if pd.api.types.is_datetime64tz_dtype(series):  # type: ignore[attr-defined]
-            tz_normalized: pd.Series = (
-                series.dt.tz_convert(UTC).dt.tz_localize(None).astype("int64")
-            )
-            return tz_normalized
-        if pd.api.types.is_datetime64_any_dtype(series):
-            return series.astype("datetime64[ns]").astype("int64")
-        numeric: pd.Series = pd.to_numeric(series, errors="coerce")
-        if not numeric.isna().any():
-            return numeric.astype("int64")
-        converted: pd.Series = pd.to_datetime(series, utc=True, errors="coerce")
-        if converted.isna().any():
-            return None
-        return converted.astype("int64")
 
 
     def start_live(self) -> None:  # pragma: no cover - integration hook

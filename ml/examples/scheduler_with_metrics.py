@@ -19,6 +19,7 @@ from pathlib import Path
 
 import requests
 
+from ml.common.logging_config import configure_logging
 _REQUEST_TIMEOUT = float(os.getenv("ML_METRICS_REQUEST_TIMEOUT", "5.0"))
 
 from ml.config.scheduler_config import DatabentoConfig
@@ -73,10 +74,7 @@ def main() -> None:
     Run example DataScheduler with metrics monitoring.
     """
     # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    configure_logging(level="INFO")
     logger = logging.getLogger(__name__)
 
     # Create temporary directory for catalog

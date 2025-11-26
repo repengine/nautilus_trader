@@ -198,17 +198,38 @@ __all__ = [
 def __getattr__(name: str) -> object:
     """
     Lazy import implementation to avoid circular imports.
+
+    Feature flag support: FeatureEngineer, FeatureConfig, and IndicatorManager
+    can be loaded from either legacy (engineering.py) or facade (facade.py)
+    based on the ML_USE_LEGACY_FEATURE_ENGINEER environment variable.
     """
     if name == "FeatureConfig":
-        from ml.features.config import FeatureConfig
+        from ml.config.feature_flags import use_legacy_feature_engineer
+
+        if use_legacy_feature_engineer():
+            from ml.features.engineering import FeatureConfig
+        else:
+            # Facade re-exports FeatureConfig from legacy for compatibility
+            from ml.features.facade import FeatureConfig
 
         return FeatureConfig
     elif name == "FeatureEngineer":
-        from ml.features.facade import FeatureEngineer
+        from ml.config.feature_flags import use_legacy_feature_engineer
+
+        if use_legacy_feature_engineer():
+            from ml.features.engineering import FeatureEngineer
+        else:
+            from ml.features.facade import FeatureEngineer  # type: ignore[assignment]
 
         return FeatureEngineer
     elif name == "IndicatorManager":
-        from ml.features.indicators import IndicatorManager
+        from ml.config.feature_flags import use_legacy_feature_engineer
+
+        if use_legacy_feature_engineer():
+            from ml.features.engineering import IndicatorManager
+        else:
+            # Facade re-exports IndicatorManager from legacy for compatibility
+            from ml.features.facade import IndicatorManager
 
         return IndicatorManager
     elif name == "FeatureTransform":

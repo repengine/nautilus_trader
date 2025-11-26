@@ -29,23 +29,13 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Final, Protocol, cast
+from typing import Final, Protocol, cast
 
 import structlog
 
-from ml._imports import check_ml_dependencies
-from ml._imports import pl
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
-from ml.common.timestamps import sanitize_timestamp_ns
-from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
-from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
-from ml.config.events import Source
-from ml.config.macro_universe import MARKET_BASED_MACRO_SERIES
-from ml.stores.protocols import DataStoreFacadeProtocol
 
-
-POLARS = cast(Any, pl)
 
 logger = structlog.get_logger(__name__)
 
@@ -270,22 +260,8 @@ def ensure_macro_ready(
     alfred_realtime_start: str | None = None,
     alfred_realtime_end: str | None = None,
     alfred_window_days: int = 365,
-    data_store: DataStoreFacadeProtocol | None = None,
-    ingest_run_id: str | None = None,
 ) -> MacroRefreshResult:
-    """
-    Ensure macro artifacts exist within *max_age* and refresh when necessary.
-
-    Args:
-        fred_path: Location of the ML-format parquet.
-        vintage_dir: Directory containing ALFRED release calendars.
-        max_age: Maximum allowed staleness for artifacts.
-        series_ids: Optional subset of macro series to refresh/ingest.
-        data_store: When provided, refreshed artifacts are ingested into SQL
-            via :class:`FeatureDatasetStore`.
-        ingest_run_id: Optional run identifier to stamp on dataset events.
-
-    """
+    """Ensure macro artifacts exist within *max_age* and refresh when necessary."""
     fred_refreshed, fred_error = refresh_fred_if_stale(
         parquet_path=fred_path,
         max_age=max_age,
@@ -314,19 +290,6 @@ def ensure_macro_ready(
             loader_factory=loader_factory,
         )
 
-    if data_store is not None:
-        run_id_value = ingest_run_id or f"macro_refresh_{int(time.time())}"
-        try:
-            _ingest_macro_datasets(
-                data_store=data_store,
-                fred_path=fred_path,
-                vintage_dir=vintage_dir,
-                series_ids=series_ids,
-                run_id=run_id_value,
-            )
-        except Exception:
-            logger.warning("macro_sql_ingest_failed", exc_info=True)
-
     return MacroRefreshResult(
         fred_refreshed=fred_refreshed,
         alfred_refreshed=alfred_refreshed,
@@ -335,205 +298,6 @@ def ensure_macro_ready(
         fred_error=fred_error,
         alfred_error=alfred_error,
     )
-
-
-def _ingest_macro_datasets(
-    *,
-    data_store: DataStoreFacadeProtocol,
-    fred_path: Path,
-    vintage_dir: Path | None,
-    series_ids: Sequence[str] | None,
-    run_id: str,
-) -> None:
-    _pl = _require_polars()
-    ts_init_ns = sanitize_timestamp_ns(time.time_ns(), context="macro_ingest")
-    _ingest_macro_releases(
-        data_store=data_store,
-        vintage_dir=vintage_dir,
-        series_ids=series_ids,
-        run_id=run_id,
-        ts_init_ns=ts_init_ns,
-        polars_module=_pl,
-    )
-    _ingest_macro_observations(
-        data_store=data_store,
-        fred_path=fred_path,
-        series_ids=series_ids,
-        run_id=run_id,
-        ts_init_ns=ts_init_ns,
-        polars_module=_pl,
-    )
-
-
-def _ingest_macro_releases(
-    *,
-    data_store: DataStoreFacadeProtocol,
-    vintage_dir: Path | None,
-    series_ids: Sequence[str] | None,
-    run_id: str,
-    ts_init_ns: int,
-    polars_module: Any,
-) -> None:
-    if vintage_dir is None or not vintage_dir.exists():
-        return
-    targets = _normalize_series_ids(series_ids) or tuple(
-        sorted(child.name for child in vintage_dir.iterdir() if child.is_dir())
-    )
-    if not targets:
-        return
-    for series in targets:
-        cal_path = vintage_dir / series / "release_calendar.parquet"
-        if not cal_path.exists():
-            continue
-        try:
-            frame = polars_module.read_parquet(str(cal_path))
-        except Exception:
-            logger.warning(
-                "macro_release.parquet_read_failed",
-                series=series,
-                path=str(cal_path),
-                exc_info=True,
-            )
-            continue
-        if "release_end_ts" not in frame.columns:
-            frame = frame.with_columns(polars_module.lit(None).alias("release_end_ts"))
-        if frame.is_empty():
-            continue
-        prepared = (
-            frame.with_columns(
-                [
-                    polars_module.lit(series).alias("series_id"),
-                    polars_module.col("observation_ts").cast(polars_module.Datetime("ns")).cast(polars_module.Int64),
-                    polars_module.col("release_ts").cast(polars_module.Datetime("ns")).cast(polars_module.Int64),
-                    polars_module.col("release_end_ts")
-                    .cast(polars_module.Datetime("ns"))
-                    .cast(polars_module.Int64),
-                    polars_module.col("value").cast(polars_module.Float64),
-                ],
-            )
-            .with_columns(
-                [
-                    polars_module.col("release_ts").alias("ts_event"),
-                    polars_module.lit(ts_init_ns).alias("ts_init"),
-                    polars_module.lit("macro_refresh").alias("source"),
-                    polars_module.lit(run_id).alias("run_id"),
-                ],
-            )
-            .select(
-                [
-                    "series_id",
-                    "observation_ts",
-                    "release_ts",
-                    "release_end_ts",
-                    "value",
-                    "ts_event",
-                    "ts_init",
-                    "source",
-                    "run_id",
-                ],
-            )
-        )
-        if prepared.is_empty():
-            continue
-        data_store.write_ingestion(
-            dataset_id=MACRO_RELEASES_DATASET_ID,
-            records=prepared,
-            source=Source.HISTORICAL.value,
-            run_id=f"{run_id}_release",
-            instrument_id=series,
-        )
-
-
-def _ingest_macro_observations(
-    *,
-    data_store: DataStoreFacadeProtocol,
-    fred_path: Path,
-    series_ids: Sequence[str] | None,
-    run_id: str,
-    ts_init_ns: int,
-    polars_module: Any,
-) -> None:
-    if not fred_path.exists():
-        return
-    try:
-        frame = polars_module.read_parquet(str(fred_path))
-    except Exception:
-        logger.warning("macro_observations.parquet_read_failed", path=str(fred_path), exc_info=True)
-        return
-    if frame.is_empty():
-        return
-    if series_ids:
-        normalized = _normalize_series_ids(series_ids)
-        if normalized:
-            frame = frame.filter(polars_module.col("series_id").is_in(normalized))
-    if frame.is_empty():
-        return
-    prepared = (
-        frame.rename({"timestamp": "observation_ts"})
-        .with_columns(
-            [
-                polars_module.col("observation_ts").cast(polars_module.Datetime("ns")).cast(polars_module.Int64),
-                polars_module.col("value").cast(polars_module.Float64),
-            ],
-        )
-        .with_columns(
-            [
-                polars_module.col("observation_ts").alias("ts_event"),
-                polars_module.lit(ts_init_ns).alias("ts_init"),
-                polars_module.lit("macro_refresh").alias("source"),
-                polars_module.lit(run_id).alias("run_id"),
-            ],
-        )
-        .select(
-            [
-                "series_id",
-                "observation_ts",
-                "value",
-                "ts_event",
-                "ts_init",
-                "source",
-                "run_id",
-            ],
-        )
-    )
-    if prepared.is_empty():
-        return
-    available_series = prepared.select("series_id").unique().to_series().to_list()
-    targets = _normalize_series_ids(series_ids) or tuple(str(series).strip() for series in available_series if series)
-    for series in targets:
-        subset = prepared.filter(polars_module.col("series_id") == series)
-        if subset.is_empty():
-            continue
-        data_store.write_ingestion(
-            dataset_id=MACRO_OBSERVATIONS_DATASET_ID,
-            records=subset,
-            source=Source.HISTORICAL.value,
-            run_id=f"{run_id}_observations",
-            instrument_id=series,
-        )
-
-
-def _normalize_series_ids(series_ids: Sequence[str] | None) -> tuple[str, ...]:
-    if not series_ids:
-        return tuple()
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for raw in series_ids:
-        series = raw.strip().upper()
-        if not series or series in seen:
-            continue
-        seen.add(series)
-        ordered.append(series)
-    return tuple(ordered)
-
-
-def _require_polars() -> Any:
-    if POLARS is not None:
-        return POLARS
-    check_ml_dependencies(["polars"])
-    from ml._imports import pl as _pl
-
-    return cast(Any, _pl)
 
 
 def _build_fred_loader(series_ids: Sequence[str] | None) -> _FREDLoaderProtocol:
@@ -576,6 +340,5 @@ def _build_alfred_loader(
         start_date=realtime_start,
         end_date=realtime_end,
         window_days=window_days,
-        fallback_to_fred_series=MARKET_BASED_MACRO_SERIES,
     )
     return cast(_ALFREDLoaderProtocol, ALFREDDataLoader(cfg))

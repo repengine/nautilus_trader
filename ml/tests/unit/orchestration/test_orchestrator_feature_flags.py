@@ -2,7 +2,7 @@
 Feature flag tests for MLPipelineOrchestrator.
 
 Phase 2.2.8: Verify feature flag behavior for legacy/facade switching.
-Tests verify ML_USE_LEGACY_ORCHESTRATOR environment variable handling.
+Tests verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR environment variable handling.
 
 Test Design: reports/tests/phase_2_2_8_test_design_report.md
 
@@ -49,7 +49,7 @@ class TestFeatureFlagFunction:
 
     def test_feature_flag_legacy_mode_enabled_with_1(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=1 uses legacy implementation.
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1 uses legacy implementation.
 
         Given:
         - Environment variable set to "1"
@@ -63,12 +63,12 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "1"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1"):
             assert use_legacy_orchestrator() is True
 
     def test_feature_flag_legacy_mode_enabled_with_true(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=true uses legacy.
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=true uses legacy.
 
         Given:
         - Environment variable set to "true" (lowercase)
@@ -82,12 +82,12 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "true"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "true"):
             assert use_legacy_orchestrator() is True
 
     def test_feature_flag_legacy_mode_enabled_with_TRUE(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=TRUE uses legacy (case insensitive).
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=TRUE uses legacy (case insensitive).
 
         Given:
         - Environment variable set to "TRUE" (uppercase)
@@ -101,12 +101,12 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "TRUE"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "TRUE"):
             assert use_legacy_orchestrator() is True
 
     def test_feature_flag_legacy_mode_enabled_with_yes(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=yes uses legacy.
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=yes uses legacy.
 
         Given:
         - Environment variable set to "yes"
@@ -120,12 +120,12 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "yes"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "yes"):
             assert use_legacy_orchestrator() is True
 
     def test_feature_flag_facade_mode_with_0(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=0 uses facade.
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=0 uses facade.
 
         Given:
         - Environment variable set to "0"
@@ -139,12 +139,12 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "0"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0"):
             assert use_legacy_orchestrator() is False
 
     def test_feature_flag_facade_mode_with_false(self) -> None:
         """
-        Verify ML_USE_LEGACY_ORCHESTRATOR=false uses facade.
+        Verify ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=false uses facade.
 
         Given:
         - Environment variable set to "false"
@@ -158,7 +158,7 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "false"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "false"):
             assert use_legacy_orchestrator() is False
 
     def test_feature_flag_default_is_facade(self) -> None:
@@ -177,7 +177,7 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", None):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", None):
             assert use_legacy_orchestrator() is False
 
     def test_feature_flag_invalid_value_uses_facade(self) -> None:
@@ -196,13 +196,13 @@ class TestFeatureFlagFunction:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "invalid"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "invalid"):
             assert use_legacy_orchestrator() is False
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "maybe"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "maybe"):
             assert use_legacy_orchestrator() is False
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", ""):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", ""):
             assert use_legacy_orchestrator() is False
 
 
@@ -217,7 +217,7 @@ class TestFeatureFlagImportBehavior:
         Verify use_legacy_orchestrator() returns True when flag=1.
 
         Given:
-        - ML_USE_LEGACY_ORCHESTRATOR=1
+        - ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1
 
         When:
         - Checking feature flag
@@ -228,7 +228,7 @@ class TestFeatureFlagImportBehavior:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "1"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1"):
             assert use_legacy_orchestrator() is True
 
     def test_import_returns_facade_when_flag_disabled(self) -> None:
@@ -236,7 +236,7 @@ class TestFeatureFlagImportBehavior:
         Verify use_legacy_orchestrator() returns False when flag=0.
 
         Given:
-        - ML_USE_LEGACY_ORCHESTRATOR=0
+        - ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=0
 
         When:
         - Checking feature flag
@@ -247,7 +247,7 @@ class TestFeatureFlagImportBehavior:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", "0"):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0"):
             assert use_legacy_orchestrator() is False
 
     def test_import_returns_facade_by_default(self) -> None:
@@ -255,7 +255,7 @@ class TestFeatureFlagImportBehavior:
         Verify use_legacy_orchestrator() returns False when flag not set.
 
         Given:
-        - ML_USE_LEGACY_ORCHESTRATOR not set
+        - ML_USE_LEGACY_PIPELINE_ORCHESTRATOR not set
 
         When:
         - Checking feature flag
@@ -266,5 +266,5 @@ class TestFeatureFlagImportBehavior:
         """
         from ml.orchestration.feature_flags import use_legacy_orchestrator
 
-        with env_var("ML_USE_LEGACY_ORCHESTRATOR", None):
+        with env_var("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", None):
             assert use_legacy_orchestrator() is False

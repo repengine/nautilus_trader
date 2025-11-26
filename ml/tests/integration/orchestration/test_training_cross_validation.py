@@ -30,7 +30,6 @@ def test_purged_walk_forward_cross_validation() -> None:
     - Embargo period == 3 days
     - Fold scores are consistent
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -48,7 +47,6 @@ def test_no_data_leakage_across_folds() -> None:
     - For each fold: train_end < val_start
     - Gap between train_end and val_start >= 3 days (embargo)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -65,4 +63,3 @@ def test_embargo_period_respected() -> None:
     - All folds respect embargo period
     - Gap >= 3 days for all splits
     """
-    pass

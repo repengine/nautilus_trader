@@ -23,10 +23,10 @@ from hypothesis import strategies as st
 from ml.core.cache import PreAllocatedFeatureCache
 from ml.features.config import FeatureConfig
 from ml.features.facade import FeatureEngineer
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelManifest
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 
 
 @pytest.mark.property

@@ -30,6 +30,7 @@ from sqlalchemy import SMALLINT
 from sqlalchemy import Column
 from sqlalchemy import Index
 from sqlalchemy import MetaData
+from sqlalchemy import PrimaryKeyConstraint
 from sqlalchemy import Table
 from sqlalchemy import Text
 from sqlalchemy import select
@@ -131,7 +132,7 @@ class InstrumentMetadataStore(HealthMixin):
             Index(
                 f"idx_{self.table_name}_ts_event",
                 "ts_event",
-                postgresql_using="BRIN",
+                postgresql_using="brin",
             ),
             Index(
                 f"idx_{self.table_name}_instrument_ts",
@@ -145,6 +146,7 @@ class InstrumentMetadataStore(HealthMixin):
                 "valid_until_ns",
                 postgresql_where=Column("valid_until_ns").is_(None),
             ),
+            PrimaryKeyConstraint("instrument_id", "ts_event", name=f"pk_{self.table_name}"),
             schema=self.schema,
         )
         return table

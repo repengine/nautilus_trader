@@ -156,14 +156,14 @@ class TestFeatureParity:
                 low=float(bar.low),
                 volume=float(bar.volume),
             )
-            
+
             current_bar = {
                 "close": float(bar.close),
                 "high": float(bar.high),
                 "low": float(bar.low),
                 "volume": float(bar.volume),
             }
-            
+
             features = online_engineer.calculate_features_online(
                 current_bar=current_bar,
                 indicator_manager=indicator_mgr,
@@ -198,7 +198,7 @@ class TestFeatureParity:
             connection_string=test_database.connection_string,
             feature_config=feature_config,
         )
-        
+
         # Setup indicator manager
         indicator_mgr = IndicatorManager(feature_config)
 
@@ -207,7 +207,7 @@ class TestFeatureParity:
 
         # Compute features for same bar multiple times
         bar = mock_bars[50]  # Middle bar with stable indicators
-        
+
         # Update indicators state
         indicator_mgr.update_from_values(
             close=float(bar.close),
@@ -215,7 +215,7 @@ class TestFeatureParity:
             low=float(bar.low),
             volume=float(bar.volume),
         )
-        
+
         current_bar = {
             "close": float(bar.close),
             "high": float(bar.high),
@@ -260,14 +260,14 @@ class TestFeatureParity:
                 low=float(bar.low),
                 volume=float(bar.volume),
             )
-            
+
             current_bar = {
                 "close": float(bar.close),
                 "high": float(bar.high),
                 "low": float(bar.low),
                 "volume": float(bar.volume),
             }
-            
+
             engineer.calculate_features_online(
                 current_bar=current_bar,
                 indicator_manager=indicator_mgr,
@@ -278,7 +278,7 @@ class TestFeatureParity:
         rsi_ind = indicator_mgr.indicators["rsi"]
         ema_fast_ind = indicator_mgr.indicators["ema_fast"]
         ema_slow_ind = indicator_mgr.indicators["ema_slow"]
-        
+
         assert (
             getattr(rsi_ind, "is_initialized", getattr(rsi_ind, "initialized", False)) is True
         ), "RSI not initialized after 50 bars"
@@ -308,7 +308,7 @@ class TestFeatureParity:
             "low": float(bar.low),
             "volume": float(bar.volume),
         }
-        
+
         engineer.calculate_features_online(
             current_bar=current_bar,
             indicator_manager=indicator_mgr,
@@ -432,7 +432,7 @@ class TestFeatureParity:
                 "low": float(low),
                 "volume": float(volume),
             }
-            
+
             features = engineer.calculate_features_online(
                 current_bar=current_bar,
                 indicator_manager=indicator_mgr,
@@ -539,7 +539,7 @@ class TestParityFailureModes:
             "low": 1.1990,
             "volume": 1000000.0,
         }
-        
+
         # Need to update managers with this bar first
         mgr1.update_from_values(**current_bar)
         mgr2.update_from_values(**current_bar)
@@ -582,7 +582,7 @@ class TestParityFailureModes:
         # Check that indicators still have reasonable precision
         ema_fast = indicator_mgr.indicators["ema_fast"]
         ema_slow = indicator_mgr.indicators["ema_slow"]
-        
+
         assert ema_fast.value > 0
         assert ema_slow.value > 0
 

@@ -5,14 +5,14 @@ Utilities for ingesting scheduled events into normalized datasets.
 from __future__ import annotations
 
 import json
+import logging
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-import logging
-import time
 from typing import Any, cast
 
 from ml._imports import check_ml_dependencies

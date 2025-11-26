@@ -9,14 +9,12 @@ Compose with conservative timeouts and structured logging.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from ml.common.subprocess_utils import SubprocessExecutionError
-from ml.common.subprocess_utils import run_command
 from ml.dashboard.exceptions import ServiceActionFailedError
 from ml.dashboard.exceptions import ServiceControlUnsupportedError
 
@@ -88,27 +86,16 @@ class ComposeServiceController(ServiceControllerProtocol):
         if not docker:
             raise ServiceControlUnsupportedError("docker not found in PATH")
         compose_file = self._resolve_compose_file()
-        timeout_env = os.getenv("ML_DASHBOARD_COMPOSE_TIMEOUT")
-        compose_timeout: float | None = float(timeout_env) if timeout_env else None
         try:
-            run_command(
+            subprocess.run(
                 [docker, "compose", "-f", str(compose_file), *args],
+                check=True,
                 capture_output=True,
                 text=True,
-                timeout=compose_timeout,
-                log=logger,
             )
-        except SubprocessExecutionError as exc:
-            stderr_text = exc.stderr
-            if isinstance(stderr_text, bytes):
-                stderr_text = stderr_text.decode("utf-8", errors="ignore")
-            logger.warning(
-                "compose command failed returncode=%s args=%s",
-                exc.returncode,
-                args,
-                exc_info=True,
-            )
-            raise ServiceActionFailedError(stderr_text or str(exc)) from exc
+        except subprocess.CalledProcessError as exc:
+            logger.warning("compose command failed: %s", exc, exc_info=True)
+            raise ServiceActionFailedError(exc.stderr or str(exc)) from exc
 
     def start(self, name: str) -> bool:
         self._compose("up", "-d", name)

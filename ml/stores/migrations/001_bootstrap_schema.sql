@@ -1,6 +1,3 @@
--- Migration: Bootstrap Nautilus ML schema (market data + store tables).
--- Rollback: DROP SCHEMA IF EXISTS ml CASCADE; DROP SCHEMA IF EXISTS ml_registry CASCADE (destructive, prefer snapshot restore).
-
 -- ============================================================================
 -- Nautilus ML Bootstrap Schema
 -- Consolidated from fragmented migration history (greenfield deployment)
@@ -10,69 +7,9 @@
 -- Notes: No production data existed - clean slate deployment
 -- ============================================================================
 
--- Ensure store objects land in the public schema by default.
-SET search_path TO public, pg_catalog, ml_registry;
-
 -- ============================================================================
 -- Helper Functions
 -- ============================================================================
-
-CREATE OR REPLACE FUNCTION attach_partition_with_data(
-    target_table TEXT,
-    partition_name TEXT,
-    start_ns BIGINT,
-    end_ns BIGINT
-)
-RETURNS VOID AS $$
-DECLARE
-    default_partition TEXT := target_table || '_default';
-    column_list TEXT;
-BEGIN
-    SELECT string_agg(format('%I', column_name), ', ')
-    INTO column_list
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = target_table
-      AND (is_generated = 'NEVER' OR is_generated IS NULL);
-
-    IF column_list IS NULL THEN
-        RAISE EXCEPTION 'Unable to resolve column list for %', target_table;
-    END IF;
-
-    EXECUTE format(
-        'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
-        partition_name,
-        target_table
-    );
-    EXECUTE format(
-        'INSERT INTO %I (%s) SELECT %s FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        partition_name,
-        column_list,
-        column_list,
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'DELETE FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
-        target_table,
-        partition_name,
-        start_ns,
-        end_ns
-    );
-EXCEPTION
-    WHEN duplicate_object THEN
-        NULL;
-    WHEN object_in_use THEN
-        NULL;
-END;
-$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION create_monthly_partitions(
     table_name TEXT,
@@ -91,23 +28,12 @@ BEGIN
         partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
         start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
         end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
-        BEGIN
-            EXECUTE format(
-                'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-                partition_name, table_name, start_ns, end_ns
-            );
-        EXCEPTION
-            WHEN check_violation THEN
-                PERFORM attach_partition_with_data(table_name, partition_name, start_ns, end_ns);
-            WHEN duplicate_table THEN
-                NULL;
-            WHEN object_in_use THEN
-                NULL;
-            WHEN invalid_object_definition THEN
-                NULL;
-            WHEN SQLSTATE '42P17' THEN
-                NULL;
-        END;
+
+        EXECUTE format('
+            CREATE TABLE IF NOT EXISTS %I PARTITION OF %I
+            FOR VALUES FROM (%L) TO (%L)',
+            partition_name, table_name, start_ns, end_ns
+        );
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
@@ -498,59 +424,15 @@ BEGIN
 
     IF p_status = 'success' THEN
         INSERT INTO ml_data_watermarks (
-            dataset_id,
-            instrument_id,
-            source,
-            last_success_ns,
-            last_attempt_ns,
-            last_count,
-            completeness_pct,
-            updated_at
+            dataset_id, instrument_id, source, ts_max, count, updated_at
         )
         VALUES (
-            p_dataset_id,
-            p_instrument_id,
-            p_source,
-            p_ts_max,
-            p_ts_max,
-            p_count,
-            100.0,
-            NOW()
+            p_dataset_id, p_instrument_id, p_source, p_ts_max, p_count, NOW()
         )
         ON CONFLICT (dataset_id, instrument_id, source)
         DO UPDATE SET
-            last_success_ns = GREATEST(
-                COALESCE(ml_data_watermarks.last_success_ns, 0),
-                EXCLUDED.last_success_ns
-            ),
-            last_attempt_ns = GREATEST(
-                COALESCE(ml_data_watermarks.last_attempt_ns, 0),
-                EXCLUDED.last_attempt_ns
-            ),
-            last_count = EXCLUDED.last_count,
-            completeness_pct = COALESCE(EXCLUDED.completeness_pct, ml_data_watermarks.completeness_pct),
-            updated_at = NOW();
-    ELSE
-        INSERT INTO ml_data_watermarks (
-            dataset_id,
-            instrument_id,
-            source,
-            last_attempt_ns,
-            updated_at
-        )
-        VALUES (
-            p_dataset_id,
-            p_instrument_id,
-            p_source,
-            p_ts_max,
-            NOW()
-        )
-        ON CONFLICT (dataset_id, instrument_id, source)
-        DO UPDATE SET
-            last_attempt_ns = GREATEST(
-                COALESCE(ml_data_watermarks.last_attempt_ns, 0),
-                EXCLUDED.last_attempt_ns
-            ),
+            ts_max = GREATEST(ml_data_watermarks.ts_max, EXCLUDED.ts_max),
+            count = ml_data_watermarks.count + EXCLUDED.count,
             updated_at = NOW();
     END IF;
 
@@ -585,44 +467,23 @@ CREATE OR REPLACE FUNCTION update_watermark(
     p_dataset_id VARCHAR(255),
     p_instrument_id VARCHAR(100),
     p_source VARCHAR(50),
-    p_last_success_ns BIGINT,
+    p_ts_max BIGINT,
     p_count BIGINT,
-    p_completeness_pct NUMERIC DEFAULT NULL
+    p_last_seq BIGINT DEFAULT NULL
 )
 RETURNS VOID AS $$
 BEGIN
     INSERT INTO ml_data_watermarks (
-        dataset_id,
-        instrument_id,
-        source,
-        last_success_ns,
-        last_attempt_ns,
-        last_count,
-        completeness_pct,
-        updated_at
+        dataset_id, instrument_id, source, ts_max, count, last_seq, updated_at
     )
     VALUES (
-        p_dataset_id,
-        p_instrument_id,
-        p_source,
-        p_last_success_ns,
-        p_last_success_ns,
-        p_count,
-        p_completeness_pct,
-        NOW()
+        p_dataset_id, p_instrument_id, p_source, p_ts_max, p_count, p_last_seq, NOW()
     )
     ON CONFLICT (dataset_id, instrument_id, source)
     DO UPDATE SET
-        last_success_ns = GREATEST(
-            COALESCE(ml_data_watermarks.last_success_ns, 0),
-            EXCLUDED.last_success_ns
-        ),
-        last_attempt_ns = GREATEST(
-            COALESCE(ml_data_watermarks.last_attempt_ns, 0),
-            EXCLUDED.last_attempt_ns
-        ),
-        last_count = EXCLUDED.last_count,
-        completeness_pct = COALESCE(EXCLUDED.completeness_pct, ml_data_watermarks.completeness_pct),
+        ts_max = GREATEST(ml_data_watermarks.ts_max, EXCLUDED.ts_max),
+        count = ml_data_watermarks.count + EXCLUDED.count,
+        last_seq = COALESCE(EXCLUDED.last_seq, ml_data_watermarks.last_seq),
         updated_at = NOW();
 END;
 $$ LANGUAGE plpgsql;

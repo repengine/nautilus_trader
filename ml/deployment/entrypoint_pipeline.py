@@ -814,7 +814,7 @@ class PipelineRunner:
             result = self._rehydrator.rehydrate_missing_data(
                 dataset_id=scheduler_config.databento.dataset,
                 schema=scheduler_config.databento.schema,
-                instrument_ids=instrument_ids,
+                instrument_ids=list(instrument_ids),
             )
         except Exception as exc:
             message = f"Catalog rehydration failed during {note}: {exc.__class__.__name__}"

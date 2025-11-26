@@ -9,20 +9,15 @@ Databento and feature computation for ML models.
 from __future__ import annotations
 
 import logging
-import math
 import os
 import time
 from collections.abc import Generator
-from collections.abc import Mapping
-from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
-
-from nautilus_trader.model.identifiers import InstrumentId
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
@@ -34,29 +29,23 @@ from ml.config.events import Source as _source
 from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
-from ml.data.collection_coordinator import CollectionCoordinator
 from ml.data.collector import DataCollector
-from ml.data.coverage.manager import BucketSpec
-from ml.data.coverage.types import DAY_NS
-from ml.data.data_retention_manager import DataRetentionManager
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
-from ml.data.feature_computation_manager import FeatureComputationManager
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
-from ml.data.ingest.orchestrator import _schema_to_dataset_type
 from ml.data.ingest.resume import DatabentoIngestor
-from ml.data.initialization_manager import InitializationManager
-from ml.data.registry_integrator import RegistryIntegrator
-from ml.data.trading_day_calculator import TradingDayCalculator
+from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
-from ml.stores.providers import CatalogCoverageProvider
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
-from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -69,13 +58,8 @@ db = _DBStub()
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
-    from ml.features.facade import FeatureEngineer as ComponentFeatureEngineer
+    from ml.features.engineering import FeatureEngineer
     from ml.registry.protocols import RegistryProtocol
-
-    FeatureEngineerType = LegacyFeatureEngineer | ComponentFeatureEngineer
-else:
-    FeatureEngineerType = Any
 
 
 logger = logging.getLogger(__name__)
@@ -264,7 +248,7 @@ class DataScheduler:
         catalog: ParquetDataCatalog,
         config: SchedulerConfig | None = None,
         collector: DataCollector | None = None,
-        feature_engineer: FeatureEngineerType | None = None,
+        feature_engineer: FeatureEngineer | None = None,
         metrics_port: int | None = None,
         start_metrics_server: bool = True,
         connection: str | None = None,
@@ -282,7 +266,7 @@ class DataScheduler:
             Configuration for scheduler. If None, uses defaults.
         collector : DataCollector, optional
             Data collector for fetching from Databento
-        feature_engineer : FeatureEngineerType, optional
+        feature_engineer : FeatureEngineer, optional
             Feature engineer for computing features
         metrics_port : int, optional
             Port for metrics HTTP server. Defaults to 8000.
@@ -291,8 +275,6 @@ class DataScheduler:
 
         """
         self.catalog = catalog
-        self._catalog_path = getattr(catalog, "path", None)
-        self._catalog_identifier_templates: dict[tuple[str, str], str | None] = {}
         self.config = config or SchedulerConfig()
         # Frozen-friendly connection resolution (do not mutate config dataclass)
         conn_candidate = connection
@@ -308,54 +290,20 @@ class DataScheduler:
         # Unified ingestion flags
         self._use_orchestrator: bool = bool(use_orchestrator)
         self._dual_write: bool = bool(dual_write)
-        # Trading day calculations (legacy compatibility)
-        self._trading_day_calc = TradingDayCalculator()
 
         # Scheduling state
         self.enabled = True
         self._databento_loader = DatabentoDataLoader()
         self._current_run_id: str = ""  # Will be set during collection runs
 
-        # Component managers (Pattern 1 compliance)
-        self._trading_day_calc = TradingDayCalculator()
-        self._init_mgr = InitializationManager(
-            feature_engineer=feature_engineer,
-            logger=logger,
-        )
-        self._registry_integrator = RegistryIntegrator(logger=logger)
-        self._retention_mgr = DataRetentionManager(catalog=catalog, logger=logger)
-
-        # Initialize DataRegistry for event tracking via integrator
-        self._data_registry: "RegistryProtocol" | None = self._registry_integrator.initialize_registry(  # noqa: UP037
-            connection=self._feature_store_connection,
-        )
+        # Initialize DataRegistry for event tracking
+        self._data_registry: "RegistryProtocol" | None = None  # noqa: UP037
+        self._init_data_registry()
 
         # Initialize feature store if configured
         self._feature_store: Any | None = None
         if self.config.feature_store_enabled and self.feature_engineer is not None:
             self._initialize_feature_store()
-
-        # Collection coordinator abstraction for Databento ingestion
-        self._collection_coord = CollectionCoordinator(
-            catalog=catalog,
-            config=self.config,
-            databento_loader=self._databento_loader,
-            registry_integrator=self._registry_integrator,
-            data_registry=self._data_registry,
-            logger=logger,
-        )
-        self._sql_coverage_provider: SqlCoverageProvider | None = None
-        self._instrument_dynamic_lookbacks: dict[str, int] = {}
-
-        # Feature computation manager (cold path)
-        self._feature_comp_mgr = FeatureComputationManager(
-            catalog=catalog,
-            config=self.config,
-            feature_engineer=self.feature_engineer,
-            feature_store=self._feature_store,
-            trading_day_calc=self._trading_day_calc,
-            logger=logger,
-        )
 
         # Initialize metrics server if configured
         self._metrics_server: Any | None = None
@@ -432,12 +380,44 @@ class DataScheduler:
         tracking watermarks throughout the pipeline.
 
         """
-        # Maintained for backward compatibility with legacy callers.
-        if self._registry_integrator is None:
-            self._registry_integrator = RegistryIntegrator(logger=logger)
-        self._data_registry = self._registry_integrator.initialize_registry(
-            connection=self._feature_store_connection,
-        )
+        try:
+            # Prefer resolved scheduler connection; fall back to JSON backend
+            db_connection = self._feature_store_connection
+
+            if db_connection:
+                # Use PostgreSQL backend in production
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.POSTGRES,
+                    connection_string=db_connection,
+                )
+                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+            else:
+                # Use JSON backend for development (standardized location)
+                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+                try:
+                    registry_path.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.JSON,
+                    json_path=registry_path,
+                )
+
+            self._data_registry = DataRegistry(
+                registry_path=registry_path,
+                persistence_config=persistence_config,
+            )
+
+            logger.info(
+                "Initialized DataRegistry with backend=%s",
+                persistence_config.backend.value,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to initialize DataRegistry. Events will not be tracked.",
+                exc_info=True,
+            )
+            self._data_registry = None
 
     def _initialize_feature_store(self) -> None:
         """
@@ -449,7 +429,7 @@ class DataScheduler:
         """
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
-        from ml.features.config import FeatureConfig
+        from ml.features.engineering import FeatureConfig
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -565,355 +545,6 @@ class DataScheduler:
             pipeline_duration = time.perf_counter() - pipeline_start_time
             pipeline_runs_total.labels(status=pipeline_status).inc()
             pipeline_stage_latency.labels(stage="complete_pipeline").observe(pipeline_duration)
-
-    def run_targeted_update(self, buckets: Sequence[BucketSpec]) -> None:
-        """
-        Run Databento ingestion for explicit coverage buckets.
-        """
-        bucket_groups = self._group_bucket_specs(buckets)
-        if not bucket_groups:
-            logger.info("scheduler.targeted_update.no_buckets")
-            return
-
-        pipeline_start = time.perf_counter()
-        if self._use_orchestrator:
-            orchestrator, base_lookback = self._build_orchestrator()
-            self._run_targeted_via_orchestrator(
-                orchestrator=orchestrator,
-                bucket_groups=bucket_groups,
-                base_lookback_days=base_lookback,
-            )
-            pipeline_stage_latency.labels(stage="targeted_update").observe(time.perf_counter() - pipeline_start)
-            return
-
-        normalized = self.__class__._normalize_bucket_specs(buckets)
-        api_key = self.config.databento.api_key or os.getenv("DATABENTO_API_KEY")
-        if not api_key:
-            raise ValueError("DATABENTO_API_KEY environment variable is required for targeted updates")
-
-        try:
-            import databento as db
-        except ImportError:  # pragma: no cover - depends on optional dependency
-            logger.error("databento library not installed", exc_info=True)
-            raise
-
-        client = db.Historical(api_key)
-        temp_data_dir: Path | None = None
-        if self.config.databento.use_temporary_files:
-            temp_data_dir = Path(self.config.databento.temp_data_dir)
-            temp_data_dir.mkdir(parents=True, exist_ok=True)
-
-        success = 0
-        failure = 0
-
-        try:
-            for symbol, bucket_start in normalized:
-                start_date = bucket_start
-                end_date = bucket_start + timedelta(days=1) - timedelta(microseconds=1)
-                self._current_run_id = f"scheduler_targeted_{start_date.strftime('%Y%m%d')}_{time.time_ns()}"
-                collected = self._collect_symbol_data(
-                    client=client,
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    target_date=start_date,
-                    temp_data_dir=temp_data_dir,
-                )
-                if collected:
-                    success += 1
-                else:
-                    failure += 1
-        finally:
-            if temp_data_dir and temp_data_dir.exists() and not any(temp_data_dir.iterdir()):
-                temp_data_dir.rmdir()
-            pipeline_stage_latency.labels(stage="targeted_update").observe(time.perf_counter() - pipeline_start)
-
-        logger.info(
-            "scheduler.targeted_update.completed",
-            extra={"buckets": len(normalized), "success": success, "failure": failure},
-        )
-
-    @staticmethod
-    def _normalize_bucket_specs(buckets: Sequence[BucketSpec]) -> list[tuple[str, datetime]]:
-        seen: set[tuple[str, int]] = set()
-        normalized: list[tuple[str, datetime]] = []
-        for bucket in buckets:
-            symbol = bucket.instrument_id.strip()
-            if not symbol:
-                continue
-            key = (symbol, bucket.bucket_start_ns)
-            if key in seen:
-                continue
-            seen.add(key)
-            start_dt = datetime.fromtimestamp(bucket.bucket_start_ns / 1_000_000_000, tz=UTC)
-            normalized.append((symbol, start_dt))
-        normalized.sort(key=lambda item: (item[0], item[1]))
-        return normalized
-
-    @staticmethod
-    def _group_bucket_specs(
-        buckets: Sequence[BucketSpec],
-    ) -> dict[tuple[str, str, str], tuple[int, ...]]:
-        grouped: dict[tuple[str, str, str], set[int]] = {}
-        for bucket in buckets:
-            dataset_id = bucket.dataset_id.strip()
-            schema = bucket.schema.strip()
-            instrument_id = bucket.instrument_id.strip()
-            if not dataset_id or not schema or not instrument_id:
-                continue
-            key = (dataset_id, schema, instrument_id)
-            grouped.setdefault(key, set()).add(bucket.bucket_start_ns)
-        return {key: tuple(sorted(values)) for key, values in grouped.items()}
-
-    def _run_targeted_via_orchestrator(
-        self,
-        *,
-        orchestrator: IngestionOrchestrator,
-        bucket_groups: Mapping[tuple[str, str, str], tuple[int, ...]],
-        base_lookback_days: int,
-    ) -> None:
-        reference_time = datetime.now(tz=UTC)
-        requested = sum(len(windows) for windows in bucket_groups.values())
-        persisted_windows = 0
-        failed_buckets = 0
-        for (dataset_id, schema, instrument_id), bucket_windows in bucket_groups.items():
-            if not bucket_windows:
-                continue
-            lookback_days = self._targeted_orchestrator_lookback_days(
-                bucket_start_ns=min(bucket_windows),
-                base_lookback_days=base_lookback_days,
-                reference_time=reference_time,
-            )
-            try:
-                result = orchestrator.backfill_gaps(
-                    dataset_id=dataset_id,
-                    schema=schema,
-                    instrument_id=instrument_id,
-                    lookback_days=lookback_days,
-                    symbol_hint=instrument_id.split(".")[0],
-                )
-            except Exception:
-                failed_buckets += len(bucket_windows)
-                logger.error(
-                    "scheduler.targeted_update.orchestrator_failed",
-                    exc_info=True,
-                    extra={
-                        "dataset_id": dataset_id,
-                        "schema": schema,
-                        "instrument_id": instrument_id,
-                        "lookback_days": lookback_days,
-                    },
-                )
-                continue
-            persisted_windows += result.persisted_window_count
-            if result.persisted_window_count == 0:
-                logger.warning(
-                    "scheduler.targeted_update.orchestrator_no_windows",
-                    extra={
-                        "dataset_id": dataset_id,
-                        "schema": schema,
-                        "instrument_id": instrument_id,
-                        "lookback_days": lookback_days,
-                    },
-                )
-
-        logger.info(
-            "scheduler.targeted_update.orchestrator_completed",
-            extra={
-                "groups": len(bucket_groups),
-                "requested_buckets": requested,
-                "persisted_windows": persisted_windows,
-                "failed_buckets": failed_buckets,
-            },
-        )
-
-    @staticmethod
-    def _targeted_orchestrator_lookback_days(
-        *,
-        bucket_start_ns: int,
-        base_lookback_days: int,
-        reference_time: datetime | None = None,
-    ) -> int:
-        if reference_time is None:
-            reference_time = datetime.now(tz=UTC)
-        bucket_start = datetime.fromtimestamp(bucket_start_ns / 1_000_000_000, tz=UTC)
-        delta_days = (reference_time - bucket_start).days
-        if delta_days < 0:
-            delta_days = 0
-        return max(1, base_lookback_days, delta_days + 1)
-
-    def _apply_trading_day_padding(
-        self,
-        *,
-        base_lookback_days: int,
-        reference_time: datetime | None = None,
-    ) -> int:
-        """
-        Ensure orchestrator lookback spans the previous trading day.
-        """
-        if reference_time is None:
-            reference_time = datetime.now(tz=UTC)
-        base = max(int(base_lookback_days), 1)
-        previous_trading_day = self._trading_day_calc.get_previous_trading_day(reference_time)
-        delta_days = (reference_time.date() - previous_trading_day.date()).days
-        if delta_days < 1:
-            delta_days = 1
-        return max(base, delta_days)
-
-    def _catalog_coverage_provider(self) -> CatalogCoverageProvider | None:
-        path = getattr(self, "_catalog_path", None)
-        if not path:
-            return None
-        try:
-            return CatalogCoverageProvider(catalog_path=path)
-        except Exception:
-            logger.debug(
-                "Failed to initialize CatalogCoverageProvider",
-                exc_info=True,
-                extra={"catalog_path": path},
-            )
-            return None
-
-    def _resolve_catalog_identifier_template(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-    ) -> str | None:
-        path = getattr(self, "_catalog_path", None)
-        if not path:
-            return None
-        dataset_type = _schema_to_dataset_type(schema)
-        key = (dataset_id, dataset_type.value)
-        if key in self._catalog_identifier_templates:
-            return self._catalog_identifier_templates[key]
-        try:
-            manifest = build_auto_dataset_manifest(
-                dataset_id=dataset_id,
-                dataset_type=dataset_type,
-                location=path,
-                storage_kind=StorageKind.PARQUET,
-                pipeline_signature="scheduler.auto_lookback",
-            )
-        except Exception:
-            logger.debug(
-                "Failed to build dataset manifest for identifier template",
-                exc_info=True,
-                extra={"dataset_id": dataset_id, "dataset_type": dataset_type.value},
-            )
-            self._catalog_identifier_templates[key] = None
-            return None
-        template = manifest.metadata.get("bar_type_template")
-        self._catalog_identifier_templates[key] = template
-        return template
-
-    def _catalog_identifier_for_instrument(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-        instrument_id: str,
-    ) -> str:
-        template = self._resolve_catalog_identifier_template(dataset_id=dataset_id, schema=schema)
-        if template:
-            try:
-                return template.format(instrument_id=instrument_id)
-            except Exception:
-                logger.debug(
-                    "Failed to format catalog identifier template",
-                    exc_info=True,
-                    extra={"template": template, "instrument_id": instrument_id},
-                )
-        return instrument_id
-
-    def _derive_catalog_lookback_days(
-        self,
-        *,
-        dataset_id: str,
-        schema: str,
-        instrument_ids: Sequence[str],
-        reference_time: datetime | None = None,
-    ) -> int:
-        """
-        Derive the minimum lookback needed to cover existing catalog history.
-        """
-        if reference_time is None:
-            reference_time = datetime.now(tz=UTC)
-        provider = self._catalog_coverage_provider()
-        if provider is None:
-            return 0
-        now_ns = int(reference_time.timestamp() * 1_000_000_000)
-        now_bucket = now_ns // DAY_NS
-        earliest_bucket: int | None = None
-        for instrument_id in instrument_ids:
-            identifier = self._catalog_identifier_for_instrument(
-                dataset_id=dataset_id,
-                schema=schema,
-                instrument_id=instrument_id,
-            )
-            try:
-                buckets = provider.read_bucket_coverage(
-                    dataset_id=dataset_id,
-                    schema=schema,
-                    instrument_id=identifier,
-                    start_ns=0,
-                    end_ns=now_ns,
-                )
-            except Exception:
-                logger.debug(
-                    "catalog_coverage.read_failed",
-                    exc_info=True,
-                    extra={"instrument_id": instrument_id, "identifier": identifier},
-                )
-                continue
-            if not buckets:
-                continue
-            bucket_candidate = min(buckets)
-            if earliest_bucket is None or bucket_candidate < earliest_bucket:
-                earliest_bucket = bucket_candidate
-        if earliest_bucket is None:
-            return 0
-        derived = int(max(now_bucket - earliest_bucket, 1))
-        return derived
-
-    def _compute_dynamic_lookbacks(
-        self,
-        *,
-        coverage: SqlCoverageProvider,
-        dataset_id: str,
-        instrument_ids: Sequence[str],
-        min_days: int,
-        max_days: int | None,
-    ) -> dict[str, int]:
-        """
-        Compute per-instrument lookback windows based on SQL staleness.
-        """
-        now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
-        lookbacks: dict[str, int] = {}
-        for instrument_id in instrument_ids:
-            if not instrument_id:
-                continue
-            try:
-                latest = coverage.latest_timestamp_ns(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                )
-            except Exception:
-                logger.debug(
-                    "scheduler.dynamic_lookback_probe_failed",
-                    exc_info=True,
-                    extra={"instrument_id": instrument_id},
-                )
-                continue
-            if latest is None or latest <= 0:
-                continue
-            delta_ns = max(now_ns - latest, 0)
-            delta_days = math.ceil(delta_ns / DAY_NS)
-            desired = max(min_days, delta_days + 1)
-            if max_days is not None:
-                desired = min(desired, max_days)
-            lookbacks[instrument_id] = desired
-        return lookbacks
 
     def _collect_latest_data(self) -> None:
         """
@@ -1166,7 +797,8 @@ class DataScheduler:
                         if self._data_registry is not None:
                             try:
                                 # Extract timestamp range from the data
-                                ts_min, ts_max = self._extract_ts_bounds(data)
+                                ts_min = min(item.ts_event for item in data) if data else 0
+                                ts_max = max(item.ts_event for item in data) if data else 0
 
                                 # Use the run_id from the collection run
                                 run_id = getattr(
@@ -1303,7 +935,7 @@ class DataScheduler:
                     ).observe(collection_duration)
 
                     # Calculate and record data freshness
-                    data_age = (datetime.now(tz=UTC) - target_date).total_seconds()
+                    data_age = (datetime.now() - target_date).total_seconds()
                     data_staleness_seconds.labels(instrument=symbol).set(data_age)
 
                     logger.info(f"Successfully collected and stored data for {symbol_code}")
@@ -1407,11 +1039,13 @@ class DataScheduler:
             include_trades="trades" in self.config.databento.schema,
         )
 
-    def _build_orchestrator(self) -> tuple[IngestionOrchestrator, int]:
+    def _collect_via_orchestrator(self) -> None:
         """
-        Instantiate an IngestionOrchestrator configured for the current scheduler.
+        Collect previous trading day via orchestrator with optional dual-write.
 
-        Returns the orchestrator plus the baseline lookback days.
+        Uses SQL coverage and SQL writer, and when dual_write=True mirrors domain
+        objects into the ParquetDataCatalog using a lightweight domain loader.
+
         """
         api_key = self.config.databento.api_key or os.getenv("DATABENTO_API_KEY")
         if not api_key:
@@ -1427,21 +1061,18 @@ class DataScheduler:
         if not db_conn:
             raise ValueError("DB connection required for orchestrator coverage/writer")
 
+        coverage = SqlCoverageProvider(connection_string=db_conn, table_name="market_data")
+        writer = SqlMarketDataWriter(connection_string=db_conn, table_name="market_data")
         if self._data_registry is None:
             raise RuntimeError("DataRegistry not initialized")
 
-        coverage = SqlCoverageProvider(connection_string=db_conn, table_name="market_data")
-        self._sql_coverage_provider = coverage
-        writer = SqlMarketDataWriter(connection_string=db_conn, table_name="market_data")
         registry = self._data_registry
         ingestor = DatabentoIngestor(client=DatabentoAPIClient(api_key=api_key))
 
-        raw_writer: RawIngestionWriterProtocol | None = None
+        raw_writer: ParquetCatalogRawWriter | None = None
         domain_loader: DomainWindowLoaderProtocol | None = None
         if getattr(self, "_dual_write", False):
-            from ml.stores.io_raw import ParquetCatalogRawWriter as _ParquetCatalogRawWriter
-
-            raw_writer = _ParquetCatalogRawWriter(self.catalog)
+            raw_writer = ParquetCatalogRawWriter(self.catalog)
 
             class _DomainLoader(DomainWindowLoaderProtocol):
                 def __init__(self, key: str, parent: DataScheduler) -> None:
@@ -1461,9 +1092,9 @@ class DataScheduler:
                     from datetime import datetime
 
                     import databento as db
-                    from nautilus_trader.model.identifiers import InstrumentId as _IID
 
                     from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBL
+                    from nautilus_trader.model.identifiers import InstrumentId as _IID
 
                     sym, venue = (
                         instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
@@ -1505,7 +1136,7 @@ class DataScheduler:
 
             domain_loader = _DomainLoader(api_key, self)
 
-        orchestrator = IngestionOrchestrator(
+        orch = IngestionOrchestrator(
             coverage=coverage,
             writer=writer,
             registry=registry,
@@ -1513,48 +1144,6 @@ class DataScheduler:
             raw_writer=raw_writer,
             domain_loader=domain_loader,
         )
-        lookback_days = getattr(self.config, "market_backfill_lookback_days", 1)
-        if lookback_days < 1:
-            lookback_days = 1
-        derived_lookback = self._derive_catalog_lookback_days(
-            dataset_id=self.config.databento.dataset,
-            schema=self.config.databento.schema,
-            instrument_ids=tuple(self.config.symbols),
-        )
-        if derived_lookback > lookback_days:
-            lookback_days = derived_lookback
-            logger.info(
-                "scheduler.orchestrator.lookback_expanded",
-                extra={
-                    "lookback_days": lookback_days,
-                    "derived_from_catalog": derived_lookback,
-                },
-            )
-        lookback_days = self._apply_trading_day_padding(
-            base_lookback_days=lookback_days,
-        )
-        if self.config.market_backfill_dynamic:
-            unique_instruments = tuple(dict.fromkeys(self.config.symbols))
-            self._instrument_dynamic_lookbacks = self._compute_dynamic_lookbacks(
-                coverage=coverage,
-                dataset_id=self.config.databento.dataset,
-                instrument_ids=unique_instruments,
-                min_days=max(1, self.config.market_backfill_min_days),
-                max_days=self.config.market_backfill_max_days,
-            )
-        else:
-            self._instrument_dynamic_lookbacks = {}
-        return orchestrator, lookback_days
-
-    def _collect_via_orchestrator(self) -> None:
-        """
-        Collect previous trading day via orchestrator with optional dual-write.
-
-        Uses SQL coverage and SQL writer, and when dual_write=True mirrors domain
-        objects into the ParquetDataCatalog using a lightweight domain loader.
-
-        """
-        orch, lookback_days = self._build_orchestrator()
         bindings: tuple[ResolvedMarketBinding, ...] = ()
         if self.config.market_inputs or self.config.market_dataset_id:
             base_symbols = sorted({sym.split(".")[0].upper() for sym in self.config.symbols})
@@ -1570,165 +1159,17 @@ class DataScheduler:
             for binding in bindings:
                 if binding.binding_id in processed:
                     continue
-                binding_base = self._binding_dynamic_base(binding=binding, fallback=lookback_days)
-                effective_lookback = self._binding_lookback_days(
-                    binding=binding,
-                    base_lookback_days=binding_base,
-                )
-                orch.backfill_binding(binding=binding, lookback_days=effective_lookback)
+                orch.backfill_binding(binding=binding, lookback_days=1)
                 processed.add(binding.binding_id)
-
-        # Always ensure the primary dataset (typically EQUS.MINI) is topped up.
-        primary_dataset_id = self.config.databento.dataset
-        primary_schema = self.config.databento.schema
-        for instrument_id in self.config.symbols:
-            instrument_lookback = self._instrument_dynamic_lookback(
-                instrument_id=instrument_id,
-                fallback=lookback_days,
-            )
-            orch.backfill_gaps(
-                dataset_id=primary_dataset_id,
-                schema=primary_schema,
-                instrument_id=instrument_id,
-                lookback_days=instrument_lookback,
-                state=None,
-            )
-
-    @staticmethod
-    def _extract_ts_bounds(items: Sequence[Any]) -> tuple[int, int]:
-        """
-        Derive the nanosecond timestamp bounds from a heterogeneous collection.
-
-        Accepts Nautilus domain objects, dictionaries, pandas rows, or wrapper objects
-        that expose ``ts_event`` via attribute, mapping access, or ``to_dict``. Falls back
-        to ``(0, 0)`` when no valid timestamp can be recovered.
-        """
-        ts_values: list[int] = []
-        item_types: set[str] = set()
-        for item in items:
-            item_types.add(type(item).__name__)
-            ts_value = DataScheduler._coerce_ts_event(item)
-            if ts_value is not None:
-                ts_values.append(ts_value)
-        if ts_values:
-            return min(ts_values), max(ts_values)
-
-        logger.debug(
-            "Unable to extract ts_event from collected data items",
-            extra={"item_types": sorted(item_types)},
-        )
-        return 0, 0
-
-    @staticmethod
-    def _coerce_ts_event(item: Any) -> int | None:
-        candidate: Any | None = None
-
-        if hasattr(item, "ts_event"):
-            candidate = getattr(item, "ts_event")
-            if callable(candidate):
-                try:
-                    candidate = candidate()
-                except Exception:
-                    logger.debug(
-                        "ts_event callable on item raised; attempting fallbacks",
-                        exc_info=True,
-                        extra={"item_type": type(item).__name__},
-                    )
-                    candidate = None
-
-        if candidate is None and hasattr(item, "to_dict"):
-            try:
-                mapping = item.to_dict()
-                candidate = mapping.get("ts_event")
-            except Exception:
-                logger.debug(
-                    "Failed to extract ts_event via to_dict",
-                    exc_info=True,
-                    extra={"item_type": type(item).__name__},
+        else:
+            for symbol in self.config.symbols:
+                orch.backfill_gaps(
+                    dataset_id=self.config.databento.dataset,
+                    schema=self.config.databento.schema,
+                    instrument_id=symbol,
+                    lookback_days=1,
+                    state=None,
                 )
-
-        if candidate is None:
-            if isinstance(item, dict):
-                candidate = item.get("ts_event")
-            elif hasattr(item, "get"):
-                try:
-                    candidate = item.get("ts_event")
-                except Exception:
-                    candidate = None
-            if candidate is None and hasattr(item, "__getitem__"):
-                try:
-                    candidate = item["ts_event"]
-                except Exception:
-                    candidate = None
-
-        return DataScheduler._coerce_ns(candidate)
-
-    @staticmethod
-    def _coerce_ns(value: Any) -> int | None:
-        if value is None:
-            return None
-
-        if isinstance(value, int):
-            return int(value)
-
-        if isinstance(value, float):
-            if math.isnan(value):
-                return None
-            return int(value)
-
-        if isinstance(value, datetime):
-            target = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-            return int(target.timestamp() * 1_000_000_000)
-
-        try:  # numpy scalar support
-            import numpy as np
-
-            if isinstance(value, np.generic):
-                return int(value)
-        except Exception:
-            pass
-
-        try:  # pandas Timestamp
-            import pandas as pd
-
-            if isinstance(value, pd.Timestamp):
-                return int(value.value)
-        except Exception:
-            pass
-
-        if hasattr(value, "to_pydatetime"):
-            try:
-                converted = value.to_pydatetime()
-                if converted.tzinfo is None:
-                    converted = converted.replace(tzinfo=UTC)
-                return int(converted.timestamp() * 1_000_000_000)
-            except Exception:
-                logger.debug(
-                    "Failed to convert ts_event via to_pydatetime",
-                    exc_info=True,
-                    extra={"value_type": type(value).__name__},
-                )
-
-        if hasattr(value, "value"):
-            try:
-                numeric = getattr(value, "value")
-                return int(numeric)
-            except Exception:
-                logger.debug(
-                    "Failed to coerce ts_event candidate attribute 'value'",
-                    exc_info=True,
-                    extra={"value_type": type(value).__name__},
-                )
-
-        try:
-            return int(value)
-        except Exception:
-            logger.debug(
-                "Unable to coerce ts_event candidate to integer nanoseconds",
-                exc_info=True,
-                extra={"value_type": type(value).__name__},
-            )
-            return None
 
     def _get_previous_trading_day(self) -> datetime:
         """
@@ -1740,84 +1181,17 @@ class DataScheduler:
             Previous trading day
 
         """
-        return self._trading_day_calc.get_previous_trading_day(datetime.now(tz=UTC))
+        today = datetime.now()
 
-    @staticmethod
-    def _binding_lookback_days(
-        *,
-        binding: ResolvedMarketBinding,
-        base_lookback_days: int,
-        reference_time: datetime | None = None,
-    ) -> int:
-        """Clamp lookback to the dataset licensing window for the binding."""
-        lookback = max(int(base_lookback_days), 1)
-        if reference_time is None:
-            reference_time = datetime.now(tz=UTC)
-
-        license_start = binding.license_start
-        if license_start:
-            try:
-                start_dt = datetime.fromisoformat(license_start)
-            except ValueError:
-                logger.debug(
-                    "Invalid license_start on binding; skipping clamp",
-                    extra={"binding_id": binding.binding_id, "license_start": license_start},
-                )
-            else:
-                if start_dt.tzinfo is None:
-                    start_dt = start_dt.replace(tzinfo=UTC)
-                if reference_time > start_dt:
-                    days_since_start = (reference_time - start_dt).days
-                    if days_since_start >= 0:
-                        lookback = min(lookback, max(days_since_start, 1))
-                else:
-                    lookback = 1
-
-        license_end = binding.license_end
-        if license_end:
-            try:
-                end_dt = datetime.fromisoformat(license_end)
-            except ValueError:
-                logger.debug(
-                    "Invalid license_end on binding; skipping upper clamp",
-                    extra={"binding_id": binding.binding_id, "license_end": license_end},
-                )
-            else:
-                if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=UTC)
-                if end_dt < reference_time:
-                    # Dataset expired; clamp to time between start and end if possible
-                    if license_start:
-                        try:
-                            start_dt = datetime.fromisoformat(license_start)
-                            if start_dt.tzinfo is None:
-                                start_dt = start_dt.replace(tzinfo=UTC)
-                            days_available = (end_dt - start_dt).days
-                            if days_available > 0:
-                                lookback = min(lookback, max(days_available, 1))
-                        except ValueError:
-                            lookback = 1
-                    else:
-                        lookback = 1
-
-        return max(lookback, 1)
-
-    def _binding_dynamic_base(self, binding: ResolvedMarketBinding, fallback: int) -> int:
-        """
-        Resolve the dynamic lookback baseline for a binding.
-        """
-        if not self._instrument_dynamic_lookbacks:
-            return fallback
-        values = [
-            self._instrument_dynamic_lookback(instrument_id=instrument_id, fallback=fallback)
-            for instrument_id in binding.instrument_ids
-        ]
-        return max(values) if values else fallback
-
-    def _instrument_dynamic_lookback(self, *, instrument_id: str, fallback: int) -> int:
-        if not instrument_id:
-            return fallback
-        return self._instrument_dynamic_lookbacks.get(instrument_id, fallback)
+        if today.weekday() == 0:  # Monday
+            # Get Friday's data
+            return today - timedelta(days=3)
+        elif today.weekday() == 6:  # Sunday
+            # Get Friday's data
+            return today - timedelta(days=2)
+        else:
+            # Get previous day's data
+            return today - timedelta(days=1)
 
     def _compute_features(self) -> None:
         """
@@ -1849,11 +1223,10 @@ class DataScheduler:
         logger.info("Starting feature computation for new data...")
 
         # Import required modules
-        from nautilus_trader.model.data import Bar
-        from nautilus_trader.model.identifiers import InstrumentId
-
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
+        from nautilus_trader.model.data import Bar
+        from nautilus_trader.model.identifiers import InstrumentId
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])

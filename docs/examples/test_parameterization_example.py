@@ -13,7 +13,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
 
 
 # Minimal helpers used in examples to keep tests executable

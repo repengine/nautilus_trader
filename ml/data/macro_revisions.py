@@ -78,9 +78,7 @@ def compute_revision_features_pl(
     if pl is None:
         check_ml_dependencies(["polars"])  # pragma: no cover
     _pl = pl
-    if _pl is None:
-        msg = "Polars runtime not available after dependency check"
-        raise RuntimeError(msg)
+    assert _pl is not None
 
     if release_df.is_empty():
         return cast(

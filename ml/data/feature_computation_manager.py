@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from ml.config.scheduler_config import SchedulerConfig
     from ml.data.trading_day_calculator import TradingDayCalculator
-    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+    from ml.features import FeatureEngineer as LegacyFeatureEngineer
     from ml.features.facade import FeatureEngineer as FacadeFeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 

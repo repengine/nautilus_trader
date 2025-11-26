@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from ml.orchestration.components.registry_synchronizer import RegistrySynchronizer
+from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
 
 @pytest.mark.skip(

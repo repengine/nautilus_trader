@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.feature_registry import FeatureRegistry
-from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import compute_schema_hash
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import FeatureRegistry
+from ml.registry import FeatureRole
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
+from ml.registry import compute_schema_hash
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
@@ -72,7 +72,10 @@ def test_model_registry_register_happy_path(tmp_path: Path) -> None:
     )
     model_id = mreg.register_model(model_path=model_path, manifest=manifest, auto_deploy=False)
     # Force immediate save to avoid flakiness from batch timer
-    mreg._save_registry(immediate=True)  # type: ignore[attr-defined]
+    if hasattr(mreg, "flush"):
+        mreg.flush()  # Facade API
+    elif hasattr(mreg, "_save_registry"):
+        mreg._save_registry(immediate=True)  # Legacy API
     assert isinstance(model_id, str) and model_id
     # Registry JSON should be created
     assert (reg_dir / "registry.json").exists()

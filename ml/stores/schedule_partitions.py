@@ -29,6 +29,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from ml.common.logging_config import configure_logging
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -45,11 +46,7 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     """
     level = logging.DEBUG if verbose else logging.INFO
 
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    configure_logging(level=logging.getLevelName(level))
 
     return logging.getLogger("partition_scheduler")
 

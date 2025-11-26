@@ -10,7 +10,6 @@ consistent model lifecycle management across different storage backends.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -18,9 +17,6 @@ from dataclasses import field
 from enum import Enum
 from pathlib import Path
 from typing import Any
-
-
-logger = logging.getLogger(__name__)
 
 
 class DeploymentStatus(Enum):
@@ -457,10 +453,6 @@ class DummyRegistry:
         """
         Dummy feature retrieval.
         """
-        logger.debug(
-            "Dummy registry get_feature invoked",
-            extra={"feature_id": feature_id},
-        )
         return None
 
     def list_features(self) -> list[dict[str, Any]]:

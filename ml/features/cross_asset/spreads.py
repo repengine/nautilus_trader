@@ -21,13 +21,10 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
-import numpy.typing as npt
 
 
 if TYPE_CHECKING:
     from ml.features.cross_asset.state import ZScoreSpreadState
-
-FloatArray = npt.NDArray[np.float64]
 
 # ===== Module metrics (idempotent) =====
 _metrics_init = False
@@ -147,10 +144,10 @@ def compute_zscore_spread_incremental(
 
 
 def compute_zscore_spread_batch(
-    prices_a: FloatArray,
-    prices_b: FloatArray,
+    prices_a: np.ndarray,
+    prices_b: np.ndarray,
     window: int | None = None,
-) -> FloatArray:
+) -> np.ndarray:
     """
     Compute z-scored spreads in batch (cold path - vectorized).
 
@@ -201,7 +198,7 @@ def compute_zscore_spread_batch(
 
     n = len(prices_a)
     if n == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([])
 
     if window is not None and (window < 2 or window > n):
         msg = f"window must be in [2, {n}], got {window}"

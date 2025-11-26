@@ -169,7 +169,7 @@ class SchemaValidatorComponent:
 
     Example
     -------
-    >>> from ml.stores.components.schema_validator import SchemaValidatorComponent
+    >>> from ml.stores.common.schema_validator import SchemaValidatorComponent
     >>> validator = SchemaValidatorComponent(data_registry=registry)
     >>> success, error, details = validator.preflight_check(
     ...     dataset_id="bars_eurusd_1m",

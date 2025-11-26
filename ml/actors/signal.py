@@ -71,7 +71,6 @@ Notes:
 
 from __future__ import annotations
 
-import itertools
 import os
 import time
 from abc import ABC
@@ -112,9 +111,9 @@ from ml.config.names import METRIC_PREDICTION_DISTRIBUTION
 from ml.config.names import METRIC_SIGNAL_GENERATION_SECONDS
 from ml.config.names import METRIC_SIGNALS_GENERATED_TOTAL
 from ml.config.names import SIGNAL_LATENCY_BUCKETS
-from ml.features.config import FeatureConfig
-from ml.features.facade import FeatureEngineer
-from ml.features.indicators import IndicatorManager
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import IndicatorManager
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
@@ -566,14 +565,7 @@ class MomentumStrategy(SignalGenerationStrategy):
             history = context.get("prediction_history", [])
             if len(history) < look:
                 return None
-            
-            if isinstance(history, deque):
-                # Efficiently slice the last 'look' elements from deque
-                start_idx = len(history) - look
-                recent_predictions = list(itertools.islice(history, start_idx, len(history)))
-            else:
-                recent_predictions = history[-look:]
-                
+            recent_predictions = history[-look:]
             momentum = np.mean(np.diff(recent_predictions))
 
         if abs(momentum) > self.momentum_threshold and confidence >= self.threshold:
@@ -1201,7 +1193,8 @@ class MLSignalActor(BaseMLInferenceActor):
             is_optimized = (
                 getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
             )
-        except Exception:
+        except Exception as exc:
+            self.log.debug("Optimization level check failed; defaulting to non-optimized", exc_info=exc)
             is_optimized = False
         if is_optimized:
             self._persist_features = False
@@ -1225,7 +1218,6 @@ class MLSignalActor(BaseMLInferenceActor):
                     "ml_actor.feature_registry_load_failed "
                     f"registry_path={config.registry_path} "
                     f"feature_set_id={config.feature_set_id} error={exc!r}",
-                    exc_info=True,
                 )
             if manifest is not None:
                 expected = list(manifest.feature_names)
@@ -1275,10 +1267,8 @@ class MLSignalActor(BaseMLInferenceActor):
         self._parity_checked: bool = False
 
         # Signal generation state
-        # Use deque with maxlen to avoid unbounded memory growth
-        hist_limit = max(getattr(config, "adaptive_window", 1000), 2000)
-        self._prediction_history: deque[float] = deque(maxlen=hist_limit)
-        self._confidence_history: deque[float] = deque(maxlen=hist_limit)
+        self._prediction_history: list[float] = []
+        self._confidence_history: list[float] = []
         self._last_signal_bar: int = -config.min_signal_separation_bars
         self._adaptive_threshold = config.prediction_threshold
         self._market_regime = "unknown"
@@ -1336,7 +1326,8 @@ class MLSignalActor(BaseMLInferenceActor):
             self._actor_bus_bridge = bridge
             self._topic_scheme = scheme
             self._topic_prefix = prefix
-        except Exception:
+        except Exception as exc:
+            self.log.debug("Actor bus bridge initialization failed; skipping bridge setup", exc_info=exc)
             self._actor_bus_bridge = None
 
         # Handle both enum and string for logging
@@ -1404,8 +1395,9 @@ class MLSignalActor(BaseMLInferenceActor):
                 },
             }
             bridge.publish(topic, payload)
-        except Exception:
+        except Exception as exc:
             # Do not impact hot path
+            self.log.debug("Bridge publish failed", exc_info=exc)
             return
 
     def get_signal_statistics(self) -> dict[str, Any]:
@@ -1560,7 +1552,6 @@ class MLSignalActor(BaseMLInferenceActor):
             # Silent fallback to built-ins; keep hot path clean — telemetry debug
             self.log.debug(
                 f"ml_actor.decision_policy_load_failed error={exc!r}",
-                exc_info=True,
             )
 
         # 2) Built-in strategy mapping (backwards compatibility)
@@ -1700,7 +1691,6 @@ class MLSignalActor(BaseMLInferenceActor):
                 _logging.getLogger(__name__).debug(
                     "Logging decision policy application failure also failed: %s",
                     log_exc,
-                    exc_info=True,
                 )
 
     def _apply_strategy_swap_if_pending(self) -> None:
@@ -1750,11 +1740,7 @@ class MLSignalActor(BaseMLInferenceActor):
         # Load model (ensure onnxruntime is available)
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])  # ensure clear error if missing
-        if ort is None:
-            raise RuntimeError(
-                "onnxruntime is required to load optimized ONNX models; "
-                "ensure ml._imports.ort resolved correctly.",
-            )
+        assert ort is not None
         model = ort.InferenceSession(
             self._config.model_path,
             sess_options=session_options,
@@ -1788,10 +1774,7 @@ class MLSignalActor(BaseMLInferenceActor):
             try:
                 self._predict(dummy_features)
             except Exception as e:
-                self.log.debug(
-                    f"Warm-up iteration {i} failed: {e}",
-                    exc_info=True,
-                )
+                self.log.debug(f"Warm-up iteration {i} failed: {e}")
             warm_up_times.append((time.perf_counter_ns() - start) / 1_000_000)
 
         if warm_up_times:
@@ -1847,12 +1830,8 @@ class MLSignalActor(BaseMLInferenceActor):
                     self._opt_config.reservoir_sample_size,
                 )
                 self.log.info("Initialized lock-free buffers for optimized performance")
-            except ImportError as exc:
-                self.log.warning(
-                    "Lock-free buffers not available, using standard buffers: %s",
-                    exc,
-                    exc_info=True,
-                )
+            except ImportError:
+                self.log.warning("Lock-free buffers not available, using standard buffers")
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
@@ -1879,10 +1858,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 return features
         except Exception as exc:
             # Fall back to local feature engineer on any store failure
-            self.log.debug(
-                f"FeatureStore compute_realtime failed; falling back: {exc}",
-                exc_info=True,
-            )
+            self.log.debug(f"FeatureStore compute_realtime failed; falling back: {exc}")
 
         # Ensure indicator manager is initialized (may not have been if on_start hasn't run yet)
         if self._indicator_manager is None:
@@ -1926,10 +1902,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 ).observe(feature_time / 1000.0)
             except Exception as exc:
                 # Swallow metrics failures but keep visibility for debugging
-                self.log.debug(
-                    f"Feature time metric observe failed: {exc}",
-                    exc_info=True,
-                )
+                self.log.debug(f"Feature time metric observe failed: {exc}")
 
         return features
 
@@ -1942,9 +1915,10 @@ class MLSignalActor(BaseMLInferenceActor):
 
         try:
             # Check if this is a Mock object (for testing)
-            from unittest.mock import MagicMock, Mock
+            from unittest.mock import MagicMock
+            from unittest.mock import Mock
 
-            if isinstance(self._model, (Mock, MagicMock)):
+            if isinstance(self._model, Mock | MagicMock):
                 # Let the test mocks work as before; prefer predict_proba/predict over run
                 if hasattr(self._model, "predict_proba"):
                     # Copy into pre-allocated buffer to avoid per-call allocations
@@ -2024,10 +1998,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.error(f"Unsupported model type: {type(self._model)}")
                 return 0.0, 0.0
         except Exception as e:
-            self.log.error(
-                f"Prediction failed: {e}",
-                exc_info=True,
-            )
+            self.log.error(f"Prediction failed: {e}")
             # Re-raise to let base class handle circuit breaker and health monitoring
             raise
 
@@ -2083,13 +2054,9 @@ class MLSignalActor(BaseMLInferenceActor):
                     ts_event=bar.ts_event,
                     is_live=True,
                 )
-            except Exception as exc:
-                # Non-fatal; continue to signal generation (best-effort persistence)
-                self.log.debug(
-                    "Prediction persistence skipped due to error: %s",
-                    exc,
-                    exc_info=True,
-                )
+            except Exception:
+                # Non-fatal; continue to signal generation
+                pass
 
             # Try to generate signal
             self._try_generate_signal(bar, prediction, confidence, features)
@@ -2112,11 +2079,15 @@ class MLSignalActor(BaseMLInferenceActor):
                         self._run_parity_smoke_check()
                 except Exception as exc:
                     # Never impact hot path — debug only
-                    self.log.debug(
-                        "Ring metadata attach failed: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                    try:
+                        self.log.debug(f"Ring metadata attach failed: {exc}")
+                    except Exception as log_exc:
+                        import logging as _logging
+
+                        _logging.getLogger(__name__).debug(
+                            "Logging ring metadata attach failure also failed: %s",
+                            log_exc,
+                        )
         except Exception as e:
             self._handle_prediction_error(e)
 
@@ -2137,11 +2108,15 @@ class MLSignalActor(BaseMLInferenceActor):
                 _swap()
         except Exception as exc:
             # Never impact hot path — debug only
-            self.log.debug(
-                "Strategy swap apply failed: %s",
-                exc,
-                exc_info=True,
-            )
+            try:
+                self.log.debug(f"Strategy swap apply failed: {exc!r}")
+            except Exception as log_exc:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Logging strategy swap failure also failed: %s",
+                    log_exc,
+                )
         # Check signal separation
         if (
             self._bars_processed - self._last_signal_bar
@@ -2176,17 +2151,13 @@ class MLSignalActor(BaseMLInferenceActor):
         except Exception as exc:
             # Never impact hot path — debug only
             try:
-                self.log.debug(
-                    f"Attach ring metadata failed: {exc!r}",
-                    exc_info=True,
-                )
+                self.log.debug(f"Attach ring metadata failed: {exc!r}")
             except Exception as log_exc:
                 import logging as _logging
 
                 _logging.getLogger(__name__).debug(
                     "Logging ring metadata attach failure also failed: %s",
                     log_exc,
-                    exc_info=True,
                 )
 
         # Generate signal using strategy
@@ -2328,7 +2299,7 @@ class MLSignalActor(BaseMLInferenceActor):
             self._model_mtime = current_mtime
 
         except Exception as e:
-            self.log.error(f"Failed to hot reload model: {e}", exc_info=True)
+            self.log.error(f"Failed to hot reload model: {e}")
 
     def _handle_prediction_error(self, error: Exception) -> None:
         """

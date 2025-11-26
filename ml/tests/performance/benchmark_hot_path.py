@@ -7,9 +7,9 @@ Benchmark to verify hot path performance improvements from zero-allocation fixes
 import time
 import tracemalloc
 
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
+from ml.features import IndicatorManager
 
 
 def benchmark_feature_calculation(n_iterations: int = 1000) -> dict[str, float]:

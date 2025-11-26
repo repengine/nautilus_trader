@@ -37,7 +37,7 @@ from ml.config.events import Source
 from ml.data.coverage.manager import BucketSpec
 from ml.data.coverage.types import DAY_NS
 from ml.ml_types import DataFrameLike
-from ml.stores.data_store import DataStore
+from ml.stores import DataStore
 from ml.stores.providers import ParquetCoverageSpec
 
 

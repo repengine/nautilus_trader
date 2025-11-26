@@ -12,7 +12,6 @@ Notes:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -27,9 +26,6 @@ from ml.data.ingest.resume import DatabentoLikeClient
 if TYPE_CHECKING:  # pragma: no cover - type hints only
     from ml.data.ingest.service import DatabentoMetadataClient
     from ml.data.ingest.symbology import DatabentoSymbologyClient
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -105,12 +101,8 @@ class DatabentoAPIClient(DatabentoLikeClient):
                 else:
                     try:
                         df["ts_event"] = pd.to_datetime(df["ts"], utc=True).astype("int64")
-                    except Exception as conversion_exc:  # pragma: no cover - defensive
-                        logger.debug(
-                            "Failed to parse Databento 'ts' column",
-                            exc_info=True,
-                            extra={"error": repr(conversion_exc)},
-                        )
+                    except Exception:
+                        pass
         # Map schema-specific columns to canonical writer columns where possible
         s = schema.lower()
         if "tbbo" in s or "quote" in s:
@@ -154,12 +146,8 @@ class DatabentoAPIClient(DatabentoLikeClient):
                 else:
                     try:
                         df["ts_event"] = pd.to_numeric(event_series, errors="raise").astype("int64")
-                    except Exception as numeric_exc:  # pragma: no cover - defensive
-                        logger.debug(
-                            "Failed to coerce Databento 'ts_event' column",
-                            exc_info=True,
-                            extra={"error": repr(numeric_exc)},
-                        )
+                    except Exception:
+                        pass
         if "ts_init" in df.columns:
             init_series = df["ts_init"]
             if not pd.api.types.is_integer_dtype(init_series):
@@ -169,12 +157,8 @@ class DatabentoAPIClient(DatabentoLikeClient):
                 else:
                     try:
                         df["ts_init"] = pd.to_numeric(init_series, errors="raise").astype("int64")
-                    except Exception as init_numeric_exc:  # pragma: no cover - defensive
-                        logger.debug(
-                            "Failed to coerce Databento 'ts_init' column",
-                            exc_info=True,
-                            extra={"error": repr(init_numeric_exc)},
-                        )
+                    except Exception:
+                        pass
         elif "ts_event" in df.columns:
             df["ts_init"] = df["ts_event"]
         return df

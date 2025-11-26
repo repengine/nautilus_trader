@@ -18,8 +18,8 @@ import numpy.typing as npt
 from ml._imports import HAS_POLARS
 from ml._imports import pl as pl_runtime
 from ml.config.constants import MLConstants
-from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
+from ml.features import FeatureEngineer
+from ml.features import IndicatorManager
 
 MockPolarsModule: Any
 

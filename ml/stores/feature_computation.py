@@ -16,7 +16,7 @@ from concurrent.futures import as_completed
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -33,14 +33,10 @@ from ml.config.events import Stage
 if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
 
-    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
-    from ml.features.engineering import IndicatorManager
-    from ml.features.facade import FeatureEngineer as FacadeFeatureEngineer
+    from ml.features import IndicatorManager
     from ml.registry.protocols import RegistryProtocol
 
-    FeatureEngineerLike = LegacyFeatureEngineer | FacadeFeatureEngineer
-else:
-    FeatureEngineerLike = Any
+FeatureEngineerLike: TypeAlias = Any
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +96,7 @@ class FeatureComputation:
         feature_versioning: Any,
         persistence: Any | None = None,
         retrieval: Any | None = None,
-        indicator_manager: IndicatorManager | None = None,
+        indicator_manager: "IndicatorManager | None" = None,  # type: ignore[valid-type]  # noqa: UP037
         data_registry: RegistryProtocol | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -134,7 +130,7 @@ class FeatureComputation:
         self._logger = logger or logging.getLogger(__name__)
 
         # Internal indicator managers for online computation
-        self._indicator_managers: dict[str, IndicatorManager] = {}
+        self._indicator_managers: dict[str, "IndicatorManager"] = {}  # type: ignore[valid-type]  # noqa: UP037
 
     def compute_and_store_historical(
         self,
@@ -315,7 +311,7 @@ class FeatureComputation:
     def compute_realtime(
         self,
         bar: Bar,
-        indicator_manager: IndicatorManager,
+        indicator_manager: "IndicatorManager",  # type: ignore[valid-type]  # noqa: UP037
         feature_set_id: str,
         feature_names_online: list[str],
         store: bool = True,
@@ -345,8 +341,8 @@ class FeatureComputation:
 
         """
         # Update indicators from bar and compute online features (indicator_manager is required)
-        indicator_manager.update_from_bar(bar)
-        if not indicator_manager.all_initialized():
+        indicator_manager.update_from_bar(bar)  # type: ignore[attr-defined]
+        if not indicator_manager.all_initialized():  # type: ignore[attr-defined]
             # Not enough history yet - return empty array
             return np.zeros(0, dtype=np.float32)
 
@@ -357,10 +353,13 @@ class FeatureComputation:
             "low": float(bar.low),
         }
 
-        features = self._feature_engineer.calculate_features_online(
-            current_bar=current_bar,
-            indicator_manager=indicator_manager,
-            scaler=None,
+        features = cast(
+            npt.NDArray[np.float32],
+            self._feature_engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_manager,
+                scaler=None,
+            ),
         )
 
         # Optionally store for future training

@@ -224,11 +224,11 @@ def mock_registry_factory():
         Returns:
             MagicMock with appropriate spec and configuration
         """
-        from ml.registry.model_registry import ModelRegistry
-        from ml.registry.feature_registry import FeatureRegistry
-        from ml.registry.data_registry import DataRegistry
-        from ml.registry.strategy_registry import StrategyRegistry
-        from ml.registry.protocols import RegistryProtocol
+        from ml.registry import DataRegistry
+        from ml.registry import FeatureRegistry
+        from ml.registry import ModelRegistry
+        from ml.registry import RegistryProtocol
+        from ml.registry import StrategyRegistry
 
         specs = {
             "model": ModelRegistry,

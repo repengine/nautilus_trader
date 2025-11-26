@@ -29,7 +29,6 @@ def test_model_v1_vs_model_v2_metadata_tracked() -> None:
     - v2_metadata version == "1.1.0"
     - Both models exist in registry
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -49,7 +48,6 @@ def test_semantic_versioning_incremented() -> None:
     - Versions list includes "1.0.0", "1.0.1", "1.1.0"
     - Semantic versioning rules followed
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -71,4 +69,3 @@ def test_model_lineage_preserved() -> None:
     - Student metadata includes distillation_method
     - Student accuracy <= parent accuracy
     """
-    pass

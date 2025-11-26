@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder

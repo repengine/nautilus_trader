@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import DataRequirements
+from ml.registry import ModelManifest
+from ml.registry import ModelRegistry
+from ml.registry import ModelRole
 
 
 def test_manifest_round_trip_with_decision_policy(tmp_path: Path) -> None:

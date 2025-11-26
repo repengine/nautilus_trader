@@ -35,7 +35,7 @@ class _QueuedEvent(NamedTuple):
     payload: dict[str, Any]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TopicThrottleConfig:
     """
     Configuration for per-topic rate limiting.
@@ -228,7 +228,6 @@ class DomainEventBridge:
             logging.getLogger(__name__).debug(
                 "Drop metric emit failed: %s",
                 exc,
-                exc_info=True,
             )
 
     def _record_queue_depth_metric(self) -> None:
@@ -283,7 +282,6 @@ class DomainEventBridge:
             logging.getLogger(__name__).debug(
                 "Topic metric emit failed: %s",
                 exc,
-                exc_info=True,
             )
 
     def _record_throttle_efficiency_metrics(self) -> None:
@@ -316,7 +314,6 @@ class DomainEventBridge:
             logging.getLogger(__name__).debug(
                 "Throttle efficiency metric emit failed: %s",
                 exc,
-                exc_info=True,
             )
 
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
@@ -461,12 +458,10 @@ def _parse_per_topic_throttles() -> dict[str, TopicThrottleConfig]:
             logging.getLogger(__name__).debug(
                 "Warning metric emit failed (parse_topic_throttles): %s",
                 metric_exc,
-                exc_info=True,
             )
         logging.getLogger(__name__).debug(
             "Failed to parse ML_BUS_TOPIC_THROTTLES: %s",
             exc,
-            exc_info=True,
         )
 
     return topic_throttles
@@ -541,14 +536,12 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
                         logging.getLogger(__name__).debug(
                             "Failed to disable store-level publishing: %s",
                             set_exc,
-                            exc_info=True,
                         )
         except Exception as exc:
             # Never impact initialization on optional convenience — log debug
             logging.getLogger(__name__).debug(
                 "Actor bus mutual exclusion setup failed: %s",
                 exc,
-                exc_info=True,
             )
 
         return bridge, topic_scheme, topic_prefix
@@ -571,11 +564,9 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
             logging.getLogger(__name__).debug(
                 "Warning metric emit failed (init_actor_bus_bridge): %s",
                 metric_exc,
-                exc_info=True,
             )
         logging.getLogger(__name__).debug(
             "init_actor_bus_bridge failed: %s",
             exc,
-            exc_info=True,
         )
         return None, topic_scheme, topic_prefix

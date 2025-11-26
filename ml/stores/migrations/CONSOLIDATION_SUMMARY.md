@@ -14,19 +14,19 @@
 All store migrations have been merged into `001_bootstrap_schema.sql`:
 
 **Archived files** (moved to `archive/`):
-- `002_stores_schema.sql` → Merged
-- `003_auto_partitioning.sql` → Merged (triggers removed, pre-created partitions used)
-- `004_market_data.sql` → Merged
-- `005_data_registry.sql` → Merged
-- `007_schema_hardening.sql` → Merged
-- `008_views.sql` → Merged
-- `006_feature_values_dedupe.sql` → Removed (was diagnostic, not migration)
-- `009_disable_partition_triggers.sql` → Obsolete (no triggers in bootstrap)
-- `010_add_event_metadata.sql` → Merged
-- `011_brin_indexes.sql` → Merged
-- `012_predictions_alias.sql` → Merged
-- `013_test_seed_features_dataset.sql` → Removed (test-only)
-- `014_update_parents_predictions.sql` → Merged
+- `001_stores_schema.sql` → Merged
+- `002_auto_partitioning.sql` → Merged (triggers removed, pre-created partitions used)
+- `003_market_data.sql` → Merged
+- `004_data_registry.sql` → Merged
+- `005_schema_hardening.sql` → Merged
+- `005_views.sql` → Merged
+- `005a_feature_values_dedupe.sql` → Removed (was diagnostic, not migration)
+- `006_disable_partition_triggers.sql` → Obsolete (no triggers in bootstrap)
+- `007_add_event_metadata.sql` → Merged
+- `007_brin_indexes.sql` → Merged
+- `008_predictions_alias.sql` → Merged
+- `008_test_seed_features_dataset.sql` → Removed (test-only)
+- `009_update_parents_predictions.sql` → Merged
 - `010_backfill_market_data_provenance.sql` → Removed (no data to backfill)
 - `999_fix_partitions_immediate.sql` → Obsolete (no triggers to fix)
 
@@ -57,7 +57,7 @@ Key docs mentioning old migrations:
 
 **Action items for doc updates:**
 - Replace migration lists with: "Apply `001_bootstrap_schema.sql`"
-- Update table references from "`004_market_data.sql`" to "`001_bootstrap_schema.sql`"
+- Update table references from "`003_market_data.sql`" to "`001_bootstrap_schema.sql`"
 - Note that partition triggers were removed (race conditions)
 
 ## How to Apply Bootstrap Schema
@@ -185,10 +185,10 @@ Bootstrap consolidation is **irreversible** for existing databases. However, sin
 If you need to reference old migration logic:
 ```bash
 # View archived migration
-cat ml/stores/migrations/archive/004_market_data.sql
+cat ml/stores/migrations/archive/003_market_data.sql
 
 # Extract specific table
-sed -n '/CREATE TABLE market_data/,/;/p' ml/stores/migrations/archive/004_market_data.sql
+sed -n '/CREATE TABLE market_data/,/;/p' ml/stores/migrations/archive/003_market_data.sql
 ```
 
 ## Future Migrations
@@ -209,9 +209,9 @@ When adding new schema changes:
 ## Documentation Updates Needed
 
 Search and replace in docs:
-- `002_stores_schema.sql` → `001_bootstrap_schema.sql`
-- `004_market_data.sql` → `001_bootstrap_schema.sql` (market_data table)
-- `005_data_registry.sql` → `001_bootstrap_schema.sql` (registry tables)
+- `001_stores_schema.sql` → `001_bootstrap_schema.sql`
+- `003_market_data.sql` → `001_bootstrap_schema.sql` (market_data table)
+- `004_data_registry.sql` → `001_bootstrap_schema.sql` (registry tables)
 - Lists of 001-010 migrations → "Apply `001_bootstrap_schema.sql`"
 
 Note: This is purely documentation cleanup - code already uses new schema.

@@ -16,9 +16,7 @@ The implementation is intentionally side-effect free beyond lightweight health
 from __future__ import annotations
 
 import json
-import logging
 import os
-import tempfile
 import threading
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -34,16 +32,13 @@ from typing import Any, TypeVar
 from ml.core.integration import MLIntegrationManager
 
 
-_STATE_PATH = Path(tempfile.gettempdir()) / "dashboard_control_state.json"
+_STATE_PATH = Path("/tmp/dashboard_control_state.json")
 
 _PYTEST_ENV_FLAG = "PYTEST_CURRENT_TEST"
 _DEFAULT_INTEGRATION_TIMEOUT = 10.0
 _DEFAULT_HEALTH_TIMEOUT = 5.0
 
 T = TypeVar("T")
-
-
-logger = logging.getLogger(__name__)
 
 
 def _timeout_from_env(env_var: str, fallback: float | None) -> float | None:
@@ -213,41 +208,21 @@ class SimpleControlPanel:
         try:
             raw = json.loads(self._state_path.read_text(encoding="utf-8"))
         except Exception:
-            logger.debug(
-                "Failed to parse dashboard control state file",
-                extra={"path": str(self._state_path)},
-                exc_info=True,
-            )
             return
         for actor_id, payload in raw.get("actors", {}).items():
             try:
                 self._actors[str(actor_id)] = _ActorRecord.from_dict(payload)
             except Exception:
-                logger.debug(
-                    "Skipping invalid actor record during state load",
-                    extra={"actor_id": actor_id},
-                    exc_info=True,
-                )
                 continue
         for run_id, payload in raw.get("pipelines", {}).items():
             try:
                 self._pipelines[str(run_id)] = _PipelineRecord.from_dict(payload)
             except Exception:
-                logger.debug(
-                    "Skipping invalid pipeline record during state load",
-                    extra={"pipeline_run_id": run_id},
-                    exc_info=True,
-                )
                 continue
         for task_id, payload in raw.get("ingestion", {}).items():
             try:
                 self._ingestion[str(task_id)] = _IngestionRecord.from_dict(payload)
             except Exception:
-                logger.debug(
-                    "Skipping invalid ingestion record during state load",
-                    extra={"task_id": task_id},
-                    exc_info=True,
-                )
                 continue
 
     def _save_state(self) -> None:
@@ -261,11 +236,7 @@ class SimpleControlPanel:
             self._state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except Exception:
             # Persisting control state is best effort only.
-            logger.debug(
-                "Failed to write dashboard control state",
-                extra={"path": str(self._state_path)},
-                exc_info=True,
-            )
+            pass
 
     # ------------------------------------------------------------------
     # Integration helpers

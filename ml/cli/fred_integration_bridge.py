@@ -193,8 +193,8 @@ def test_ml_integration() -> bool:
         # Test importing ML components (introspection only)
         from ml.data.loaders.fred_loader import FREDConfig  # noqa: F401
         from ml.data.loaders.fred_loader import FREDDataLoader  # noqa: F401
-        from ml.registry.data_registry import DataRegistry  # noqa: F401
-        from ml.stores.data_store import DataStore  # noqa: F401
+        from ml.registry import DataRegistry  # noqa: F401
+        from ml.stores import DataStore  # noqa: F401
 
         print("✅ ML imports successful")
 

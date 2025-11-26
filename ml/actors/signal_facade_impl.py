@@ -60,13 +60,12 @@ from ml.common.metrics_bootstrap import get_histogram
 
 
 if TYPE_CHECKING:
-    from ml.actors.components.adaptive_threshold import AdaptiveThresholdComponent
-    from ml.actors.components.model_warmup import ModelWarmUpComponent
-    from ml.actors.components.performance_monitoring import PerformanceMonitoringComponent
-    from ml.actors.components.prediction_buffer import PredictionBufferComponent
-    from ml.actors.components.signal_strategy import SignalStrategyComponent
+    from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
+    from ml.actors.common.model_warmup import ModelWarmUpComponent
+    from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
+    from ml.actors.common.prediction_buffer import PredictionBufferComponent
+    from ml.actors.common.signal_strategy import SignalStrategyComponent
     from ml.config.actors import MLSignalActorConfig
-    from ml.features.config import FeatureConfig
     from ml.features.indicators import IndicatorManager
 
 
@@ -155,11 +154,11 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         self._signal_config = config
 
         # 2. Runtime imports (avoid circular dependencies at module level)
-        from ml.actors.components.adaptive_threshold import AdaptiveThresholdComponent
-        from ml.actors.components.model_warmup import ModelWarmUpComponent
-        from ml.actors.components.performance_monitoring import PerformanceMonitoringComponent
-        from ml.actors.components.prediction_buffer import PredictionBufferComponent
-        from ml.actors.components.signal_strategy import SignalStrategyComponent
+        from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
+        from ml.actors.common.model_warmup import ModelWarmUpComponent
+        from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
+        from ml.actors.common.prediction_buffer import PredictionBufferComponent
+        from ml.actors.common.signal_strategy import SignalStrategyComponent
         from ml.config.actors import OptimizationConfig
         from ml.config.actors import StrategyConfig
         from ml.features.engineering import FeatureConfig
@@ -194,7 +193,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         # Determine if optimized mode
         try:
             is_optimized = getattr(opt_config.level, "value", str(opt_config.level)) == "optimized"
-        except Exception:
+        except Exception as exc:
             is_optimized = False
 
         # Feature configuration
@@ -282,7 +281,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 )
 
         # 6. Initialize strategy via component
-        from ml.actors.components.signal_strategy import SignalGenerationStrategy
+        from ml.actors.common.signal_strategy import SignalGenerationStrategy
 
         self._signal_strategy: SignalGenerationStrategy = (
             self._signal_strategy_component.create_strategy(config=config)
@@ -469,7 +468,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             else:
                 try:
                     timestamp_ns = int(clock_obj.timestamp_ns())
-                except Exception:
+                except Exception as exc:
                     timestamp_ns = bar.ts_init
 
             # 4. Build context (Component 2 + Component 3)
@@ -730,10 +729,11 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         try:
             # Build feature dictionary with names if available
             feature_dict: dict[str, float]
-            try:
-                names = list(getattr(self._feature_engineer.config, "get_feature_names")())
-            except Exception:
-                names = []
+        try:
+            names = list(getattr(self._feature_engineer.config, "get_feature_names")())
+        except Exception as exc:
+            self.log.debug("Failed to fetch feature names; continuing", exc_info=exc)
+            names = []
 
             if names and len(names) == features.shape[0]:
                 feature_dict = {names[i]: float(features[i]) for i in range(len(names))}
@@ -756,9 +756,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 ts_event=bar.ts_event,
                 is_live=True,
             )
-        except Exception:
+        except Exception as exc:
             # Non-fatal; continue to signal generation
-            pass
+            self.log.debug("Model inference context build failed; continuing", exc_info=exc)
 
     def _should_hot_reload(self) -> bool:
         """
@@ -964,9 +964,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         from ml.features.indicators import IndicatorManager
 
         if not hasattr(self, "_indicator_manager") or self._indicator_manager is None:
-            self._indicator_manager = IndicatorManager(
-                cast("FeatureConfig", self._feature_config_internal)
-            )
+            self._indicator_manager = IndicatorManager(self._feature_config_internal)
 
         start_time = time.perf_counter()
         self._indicator_manager.update_from_bar(bar)
@@ -981,13 +979,10 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             "low": float(bar.low),
         }
 
-        features_result = cast(
-            npt.NDArray[np.float32] | None,
-            self._feature_engineer.calculate_features_online(
+        features_result = self._feature_engineer.calculate_features_online(
             current_bar=current_bar,
             indicator_manager=self._indicator_manager,
             scaler=None,
-            ),
         )
 
         feature_time = (time.perf_counter() - start_time) * 1000

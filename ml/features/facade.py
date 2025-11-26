@@ -35,34 +35,30 @@ Status: Production-ready facade with component delegation
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
+from typing import TYPE_CHECKING, Literal, Self, overload
 
 import numpy as np
 import numpy.typing as npt
-import polars as pl
+from nautilus_trader.model.data import Bar
 
 # Import ML dependencies
 # Import extracted components
-from ml.features.components.data_extractor import DataExtractor
-from ml.features.components.feature_calculator import FeatureCalculator
-from ml.features.components.feature_metrics_collector import FeatureMetricsCollector
-from ml.features.components.feature_registry_accessor import FeatureRegistryAccessor
-from ml.features.components.feature_store_accessor import FeatureStoreAccessor
+from ml.features.common.data_extractor import DataExtractor
+from ml.features.common.feature_calculator import FeatureCalculator
+from ml.features.common.feature_metrics_collector import FeatureMetricsCollector
+from ml.features.common.feature_registry_accessor import FeatureRegistryAccessor
+from ml.features.common.feature_store_accessor import FeatureStoreAccessor
 
-# Import configuration and indicators
-from ml.features.config import FeatureConfig
-from ml.features.config import build_pipeline_spec_from_feature_config
-from ml.features.indicators import IndicatorManager
+# Import legacy implementation for delegation
+from ml.features.engineering import FeatureConfig as LegacyFeatureConfig
+from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineSpec
-from ml.features.pipeline import _hash_pipeline
 from ml.ml_types import DataFrameLike
-from ml.ml_types import PolarsSeries
-from ml.ml_types import PolarsSeries
 from ml.ml_types import StandardScaler as StandardScalerT
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -87,6 +83,9 @@ if TYPE_CHECKING:
             **kwargs: object,
         ) -> None: ...
 
+
+# Re-export FeatureConfig from legacy for compatibility
+FeatureConfig = LegacyFeatureConfig
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +166,6 @@ class FeatureEngineer:
     >>> stores = init_ml_stores_and_registries(db_config)
     >>> engineer = FeatureEngineer(config, stores=stores)
     >>> # Now can persist features and register schemas
-
     """
 
     def __init__(
@@ -215,7 +213,16 @@ class FeatureEngineer:
         self.registry_accessor = FeatureRegistryAccessor(stores=stores)
 
         # Component 5: FeatureMetricsCollector (metrics calculation)
-        self.metrics_collector_component = FeatureMetricsCollector(logger=self._logger)
+        self.metrics_collector_component = FeatureMetricsCollector()
+
+        # Legacy implementation for delegation
+        # This provides full backward compatibility while components are being integrated
+        self._legacy_impl: LegacyFeatureEngineer = LegacyFeatureEngineer(
+            config=config,
+            metrics_collector=metrics_collector,
+            feature_store=feature_store,
+            stores=stores,
+        )
 
         # Store references for backward compatibility
         self._stores = stores
@@ -228,89 +235,76 @@ class FeatureEngineer:
         Reset all stateful components to initial state.
 
         This clears any cached state in components and resets the scaler.
+        Delegates to legacy implementation which manages indicator state.
 
         Examples
         --------
         >>> engineer = FeatureEngineer(config)
         >>> # ... compute features ...
         >>> engineer.reset()  # Clear all state
-
         """
+        self._legacy_impl.reset()
         self.scaler = None
 
     # Property accessors for 4-store + 4-registry pattern (via accessor components)
 
     @property
     def feature_store(self) -> object | None:
-        """
-        Access feature store via store accessor component.
-        """
+        """Access feature store via store accessor component."""
         return self.store_accessor._feature_store
 
     @property
     def model_store(self) -> object | None:
-        """
-        Access model store via registry accessor component.
-        """
+        """Access model store via registry accessor component."""
         return self.registry_accessor.model_registry  # Note: legacy uses registry for store access
 
     @property
     def strategy_store(self) -> object | None:
-        """
-        Access strategy store via registry accessor component.
-        """
+        """Access strategy store via registry accessor component."""
         return self.registry_accessor.strategy_registry
 
     @property
     def data_store(self) -> object | None:
-        """
-        Access data store via registry accessor component.
-        """
+        """Access data store via registry accessor component."""
         return self.registry_accessor.data_registry
 
     @property
     def feature_registry(self) -> object | None:
-        """
-        Access feature registry via registry accessor component.
-        """
+        """Access feature registry via registry accessor component."""
         return self.registry_accessor.feature_registry
 
     @property
     def model_registry(self) -> object | None:
-        """
-        Access model registry via registry accessor component.
-        """
+        """Access model registry via registry accessor component."""
         return self.registry_accessor.model_registry
 
     @property
     def strategy_registry(self) -> object | None:
-        """
-        Access strategy registry via registry accessor component.
-        """
+        """Access strategy registry via registry accessor component."""
         return self.registry_accessor.strategy_registry
 
     @property
     def data_registry(self) -> object | None:
-        """
-        Access data registry via registry accessor component.
-        """
+        """Access data registry via registry accessor component."""
         return self.registry_accessor.data_registry
-
-    # Public API methods - delegate to components
-
-    @property
-    def n_features(self) -> int:
-        """
-        Access total number of features from calculator component.
-        """
-        return self.calculator.n_features
 
     @property
     def feature_buffer(self) -> npt.NDArray[np.float32]:
+        """Access pre-allocated feature buffer (HOT PATH).
+
+        Returns a view of the internal feature buffer used by calculate_features_online.
+        Used for zero-allocation feature computation.
+
+        Returns
+        -------
+        npt.NDArray[np.float32]
+            Pre-allocated buffer for feature values
         """
-        Access feature buffer from calculator component (hot path optimization).
-        """
-        return self.calculator.feature_buffer
+        # Delegate to legacy impl since calculate_features_online uses it
+        return self._legacy_impl.feature_buffer
+
+    # Public API methods - delegate to legacy implementation for now
+    # Future: Migrate to use extracted components directly
 
     def build_pipeline_spec_from_config(self) -> PipelineSpec:
         """
@@ -322,7 +316,7 @@ class FeatureEngineer:
             Pipeline specification for feature computation
 
         """
-        return build_pipeline_spec_from_feature_config(self.config)
+        return self._legacy_impl.build_pipeline_spec_from_config()
 
     def generate_feature_manifest(
         self,
@@ -375,29 +369,19 @@ class FeatureEngineer:
             Manifest ready for registry registration
 
         """
-        spec = self.build_pipeline_spec_from_config()
-        feature_names = self.get_feature_names()
-
-        signature = _hash_pipeline(spec.transforms)
-
-        return FeatureManifest(
-            feature_set_id="",  # Registry will generate if empty
+        return self._legacy_impl.generate_feature_manifest(
             name=name,
             version=version,
             role=role,
-            data_requirements=data_requirements or self.config.resolved_data_requirements(),
-            feature_names=feature_names,
-            feature_dtypes=["float32"] * len(feature_names),
-            schema_hash="",  # Will be computed by registry
-            pipeline_signature=signature,
+            data_requirements=data_requirements,
             pipeline_version=pipeline_version,
-            capability_flags=cast(dict[str, bool], capability_flags or {}),
-            constraints=cast(dict[str, Any], constraints or {}),
+            capability_flags=capability_flags,
+            constraints=constraints,
             parity_tolerance=parity_tolerance,
-            parity_digest=cast(dict[str, Any], parity_digest or {}),
-            perf_digest=cast(dict[str, Any], perf_digest or {}),
+            parity_digest=parity_digest,
+            perf_digest=perf_digest,
             parent_feature_set_id=parent_feature_set_id,
-            metadata=metadata or {},
+            metadata=metadata,
         )
 
     def validate_feature_quality(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:
@@ -415,41 +399,14 @@ class FeatureEngineer:
             Quality metrics per feature column
 
         """
-        metrics = {}
-
-        # Detect if Polars or Pandas
-        if isinstance(features_df, pl.DataFrame):
-            columns = features_df.columns
-            total_rows = len(features_df)
-            for col in columns:
-                col_data = features_df[col]
-                metrics[col] = self.metrics_collector_component._calculate_column_metrics(
-                    cast(PolarsSeries, col_data),
-                    total_rows,
-                )
-            return metrics
-
-        try:
-            pl_df = pl.DataFrame(features_df)
-            columns = pl_df.columns
-            total_rows = len(pl_df)
-            for col in columns:
-                col_data = pl_df[col]
-                metrics[col] = self.metrics_collector_component._calculate_column_metrics(
-                    cast(PolarsSeries, col_data),
-                    total_rows,
-                )
-        except Exception as e:
-            self._logger.warning("Failed to convert DataFrame for quality validation: %s", e)
-            # Return empty metrics or basic Pandas metrics if needed
-
-        return metrics
+        return self._legacy_impl.validate_feature_quality(features_df)
 
     def get_feature_names(self) -> list[str]:
         """
         Get list of feature names in order.
 
-        Delegates to config for guaranteed parity.
+        Delegates to legacy implementation for guaranteed parity with
+        feature computation logic.
 
         Returns
         -------
@@ -465,14 +422,15 @@ class FeatureEngineer:
         Will compute 15 features: ['return_1', 'return_5', 'return_10']
 
         """
-        return self.config.get_feature_names()
+        return self._legacy_impl.get_feature_names()
 
     def compute_features(self, bars: list[Bar]) -> dict[str, float]:
         """
         Compute features from bars (legacy compatibility method).
 
-        Converts Bar objects to DataFrame, computes batch features, and returns
-        the latest row as a dict.
+        Delegates to legacy implementation for guaranteed parity. This is a
+        compatibility shim that converts Bar objects to DataFrame, computes
+        batch features, and returns the latest row as a dict.
 
         Parameters
         ----------
@@ -502,32 +460,7 @@ class FeatureEngineer:
         and indicator state management.
 
         """
-        if not bars:
-            return dict.fromkeys(self.get_feature_names(), 0.0)
-
-        # Convert bars to Polars DataFrame
-        data = {
-            "timestamp": [b.ts_event for b in bars],
-            "open": [float(b.open) for b in bars],
-            "high": [float(b.high) for b in bars],
-            "low": [float(b.low) for b in bars],
-            "close": [float(b.close) for b in bars],
-            "volume": [float(b.volume) for b in bars],
-        }
-        bars_df = pl.DataFrame(data)
-
-        # Calculate features (returns Polars DataFrame because input is Polars)
-        features_df, _ = self.calculate_features_batch(bars_df, fit_scaler=False)
-
-        # Get last row
-        if len(features_df) > 0:
-            if isinstance(features_df, pl.DataFrame):
-                last_row = features_df.tail(1).to_dicts()[0]
-            else:
-                last_row = features_df.iloc[-1].to_dict()
-            return {k: float(v) for k, v in last_row.items()}
-
-        return dict.fromkeys(self.get_feature_names(), 0.0)
+        return self._legacy_impl.compute_features(bars)
 
     @overload
     def calculate_features(
@@ -556,7 +489,7 @@ class FeatureEngineer:
     def calculate_features(
         self: Self,
         data: DataFrameLike | dict[str, float],
-        mode: Literal["batch", "online"] = "batch",
+        mode: str = "batch",
         indicator_manager: IndicatorManager | None = None,
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
@@ -613,26 +546,14 @@ class FeatureEngineer:
         ... )
 
         """
-        if mode == "batch":
-            return self.calculator.calculate_features(
-                data=cast(Any, data),
-                mode="batch",
-                fit_scaler=fit_scaler,
-                scaler_fit_ratio=scaler_fit_ratio,
-            )
-        elif mode == "online":
-            if indicator_manager is None:
-                msg = "indicator_manager is required for online mode"
-                raise ValueError(msg)
-            return self.calculator.calculate_features(
-                data=cast(dict[str, float], data),
-                mode="online",
-                indicator_manager=indicator_manager,
-                scaler=scaler,
-            )
-        else:
-            msg = f"Invalid mode: {mode}. Must be 'batch' or 'online'"
-            raise ValueError(msg)
+        return self._legacy_impl.calculate_features(  # type: ignore[no-any-return,call-overload]
+            data=data,
+            mode=mode,
+            indicator_manager=indicator_manager,
+            fit_scaler=fit_scaler,
+            scaler_fit_ratio=scaler_fit_ratio,
+            scaler=scaler,
+        )
 
     def calculate_features_batch(
         self: Self,
@@ -671,9 +592,8 @@ class FeatureEngineer:
         >>> print(f"Computed {len(features_df.columns)} features for {len(features_df)} rows")
 
         """
-        return self.calculator.calculate_features(
-            data=df,
-            mode="batch",
+        return self._legacy_impl.calculate_features_batch(
+            df=df,
             fit_scaler=fit_scaler,
             scaler_fit_ratio=scaler_fit_ratio,
         )
@@ -723,17 +643,14 @@ class FeatureEngineer:
         >>> assert features.shape == (engineer.config.get_feature_names().__len__(),)
 
         """
-        return self.calculator.calculate_features(
-            data=current_bar,
-            mode="online",
+        return self._legacy_impl.calculate_features_online(
+            current_bar=current_bar,
             indicator_manager=indicator_manager,
             scaler=scaler,
         )
 
     def __repr__(self) -> str:
-        """
-        Return string representation of the facade.
-        """
+        """Return string representation of the facade."""
         return (
             f"FeatureEngineer(facade, "
             f"config={self.config}, "

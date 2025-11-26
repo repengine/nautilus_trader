@@ -17,6 +17,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ml.stores import DataStore
+
+# Check if we're in legacy mode for skipif conditions
+_USE_LEGACY = os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
@@ -189,6 +192,10 @@ class TestHealthAndMetrics:
     Test health status and metrics reporting.
     """
 
+    @pytest.mark.skipif(
+        _USE_LEGACY,
+        reason="Flat health status keys are facade-only; legacy uses mixin format",
+    )
     def test_get_health_status_includes_all_components(
         self,
         connection_string,
@@ -270,8 +277,12 @@ class TestConfigurationValidation:
         """
         # DataRegistryMixin requires connection_string to be non-empty if used
         # But DataStore init requires it explicitly
-        pass  # This test is covered by type checking mostly, skipping runtime check for brevity
+        # This test is covered by type checking mostly, skipping runtime check for brevity
 
+    @pytest.mark.skipif(
+        _USE_LEGACY,
+        reason="batch_size validation is facade-only; legacy doesn't validate this",
+    )
     def test_validate_configuration_checks_batch_size(
         self,
         connection_string,

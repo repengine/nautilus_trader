@@ -10,29 +10,25 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntFlag
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from sqlalchemy import MetaData
-from sqlalchemy import Table
-from sqlalchemy import bindparam
-from sqlalchemy import func
-from sqlalchemy import select
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
 
 from ml.common.db_utils import get_or_create_engine
 from ml.common.timestamps import sanitize_timestamp_ns
-from ml.core.db_engine import EngineManager
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 
 class QualityFlags(IntFlag):
@@ -107,7 +103,6 @@ class DataProcessor:
         self._metadata_cache: dict[str, Any] = {}
         self._statistics_cache: dict[str, Any] = {}
         self._cache_timestamp: int = 0
-        self._market_data_table: Table | None = None
 
     # =========================================================================
     # Market Data Processing
@@ -784,26 +779,28 @@ class DataProcessor:
 
         try:
             with self.engine.connect() as conn:
-                cutoff = sanitize_timestamp_ns(
-                    int(time.time_ns() - 86_400 * 1_000_000_000),
-                    context="DataProcessor._get_price_statistics:cutoff",
-                    logger=logger,
-                )
-                table = self._get_market_data_table()
-                mid_price = (table.c.bid + table.c.ask) / 2
-                stmt = (
-                    select(
-                        func.avg(mid_price).label("mean"),
-                        func.stddev(mid_price).label("std"),
-                    )
-                    .where(table.c.instrument_id == bindparam("instrument_id"))
-                    .where(table.c.ts_event > bindparam("cutoff"))
-                )
+                from ml.stores.services.common_stats import select_avg_std as _avgstd
+
+                expr = "(bid + ask) / 2"
+                frag = _avgstd(expr, avg_alias="mean", std_alias="std")
                 result = conn.execute(
-                    stmt,
+                    text(
+                        f"""
+                        SELECT
+                            {frag}
+                        FROM market_data
+                        WHERE instrument_id = :instrument_id
+                        AND ts_event > :cutoff
+                        """,
+                    ),
                     {
                         "instrument_id": instrument_id,
-                        "cutoff": cutoff,
+                        # Use ns clock and sanitizer for cutoff (last 24 hours)
+                        "cutoff": sanitize_timestamp_ns(
+                            int(time.time_ns() - 86_400 * 1_000_000_000),
+                            context="DataProcessor._get_price_statistics:cutoff",
+                            logger=logger,
+                        ),
                     },
                 )
 
@@ -815,34 +812,15 @@ class DataProcessor:
                     }
                 else:
                     stats = {}
-        except Exception as exc:
+        except Exception:
             # Gracefully handle missing tables or permissions in test environments
             stats = {}
-            logger.debug(
-                "data_processor.price_stats_failed instrument_id=%s",
-                instrument_id,
-                exc_info=True,
-                extra={"instrument_id": instrument_id, "error": repr(exc)},
-            )
 
         if self.enable_caching:
             self._statistics_cache[cache_key] = stats
             self._cache_timestamp = int(time.time())
 
         return stats
-
-    def _get_market_data_table(self) -> Table:
-        """
-        Lazily load the market_data table metadata for statistics queries.
-        """
-        if self._market_data_table is None:
-            metadata = MetaData()
-            self._market_data_table = Table(
-                "market_data",
-                metadata,
-                autoload_with=self.engine,
-            )
-        return self._market_data_table
 
     def _get_feature_statistics(self, feature_set_id: str) -> dict[str, Any]:
         """
@@ -1008,17 +986,24 @@ class DataProcessor:
         return processed, total_metrics
 
 
-def create_engine(connection_string: str, **kwargs: object) -> Engine:
+# Module-level delegation function for EngineManager integration
+def create_engine(connection_string: str) -> Engine:
     """
-    Return the shared SQLAlchemy engine for ``connection_string``.
+    Create a database engine via centralized EngineManager.
 
-    Args:
-        connection_string: Database URL (for example ``postgresql://...``).
-        **kwargs: Optional SQLAlchemy engine overrides forwarded to
-            :meth:`ml.core.db_engine.EngineManager.get_engine`.
+    This function delegates to EngineManager to ensure connection pooling
+    and single-engine-per-URL behavior across all stores.
 
-    Returns:
-        Engine: Shared engine instance from the central EngineManager cache.
+    Parameters
+    ----------
+    connection_string : str
+        Database connection string (e.g., postgresql://...)
+
+    Returns
+    -------
+    Engine
+        SQLAlchemy Engine instance from centralized pool
+
     """
-    engine_getter = cast(Callable[..., Engine], EngineManager.get_engine)
-    return engine_getter(connection_string, **kwargs)
+    from ml.core.db_engine import EngineManager
+    return EngineManager.get_engine(connection_string)

@@ -25,10 +25,10 @@ from ml._imports import HAS_PROMETHEUS
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.protocols import EarningsStoreProtocol
-    from ml.stores.protocols import FeatureStoreProtocol
-    from ml.stores.protocols import ModelStoreProtocol
-    from ml.stores.protocols import StrategyStoreProtocol
+    from ml.stores.protocols import EarningsStoreStrictProtocol
+    from ml.stores.protocols import FeatureStoreStrictProtocol
+    from ml.stores.protocols import ModelStoreStrictProtocol
+    from ml.stores.protocols import StrategyStoreStrictProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class StoreOperationsComponent:
 
     Example
     -------
-    >>> from ml.stores.components.store_operations import StoreOperationsComponent
+    >>> from ml.stores.common.store_operations import StoreOperationsComponent
     >>> operations = StoreOperationsComponent(
     ...     connection_string="postgresql://...",
     ...     feature_store=feature_store,
@@ -131,10 +131,10 @@ class StoreOperationsComponent:
         self,
         connection_string: str,
         *,
-        feature_store: FeatureStoreProtocol | None = None,
-        model_store: ModelStoreProtocol | None = None,
-        strategy_store: StrategyStoreProtocol | None = None,
-        earnings_store: EarningsStoreProtocol | None = None,
+        feature_store: FeatureStoreStrictProtocol | None = None,
+        model_store: ModelStoreStrictProtocol | None = None,
+        strategy_store: StrategyStoreStrictProtocol | None = None,
+        earnings_store: EarningsStoreStrictProtocol | None = None,
         data_registry: RegistryProtocol | None = None,
         feature_registry: Any | None = None,
         model_registry: Any | None = None,

@@ -29,9 +29,9 @@ from ml.strategies.portfolio import PortfolioConfig as _PortfolioConfig
 from ml.strategies.risk import RiskConfig as _RiskConfig
 from ml.strategies.sizing import SizingConfig as _SizingConfig
 from ml.config.registry import ModelRegistryConfig
-from ml.registry.feature_registry import FeatureManifest
-from ml.registry.model_registry import ModelManifest
-from ml.registry.strategy_registry import StrategyManifest
+from ml.registry import FeatureManifest
+from ml.registry import ModelManifest
+from ml.registry import StrategyManifest
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore

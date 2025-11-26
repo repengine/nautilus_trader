@@ -344,131 +344,14 @@ PARTITIONED_TABLES = [
 
 
 def _ensure_helper_functions(conn: Any) -> None:
-    """
-    Deploy (or refresh) the partition helper PL/pgSQL functions.
-
-    The statements rely on CREATE OR REPLACE so repeated executions keep the
-    database definitions aligned with the repository copy without requiring a
-    dedicated migration each time the function body changes.
-    """
     try:
-        conn.execute(
-            text(
-                """
-CREATE OR REPLACE FUNCTION attach_partition_with_data(
-    table_name TEXT,
-    partition_name TEXT,
-    start_ns BIGINT,
-    end_ns BIGINT
-)
-RETURNS VOID AS $$
-DECLARE
-    default_partition TEXT := table_name || '_default';
-    column_list TEXT;
-BEGIN
-    SELECT string_agg(format('%I', column_name), ', ')
-    INTO column_list
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = attach_partition_with_data.table_name
-      AND (is_generated = 'NEVER' OR is_generated IS NULL);
-
-    IF column_list IS NULL THEN
-        RAISE EXCEPTION 'Unable to resolve column list for %', table_name;
-    END IF;
-
-    EXECUTE format(
-        'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
-        partition_name,
-        table_name
-    );
-    EXECUTE format(
-        'INSERT INTO %I (%s) SELECT %s FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        partition_name,
-        column_list,
-        column_list,
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'DELETE FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
-        table_name,
-        partition_name,
-        start_ns,
-        end_ns
-    );
-EXCEPTION
-    WHEN duplicate_object THEN
-        NULL;
-    WHEN object_in_use THEN
-        NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION attach_partition_with_data(
-    target_table TEXT,
-    partition_name TEXT,
-    start_ns BIGINT,
-    end_ns BIGINT
-)
-RETURNS VOID AS $$
-DECLARE
-    default_partition TEXT := target_table || '_default';
-    column_list TEXT;
-BEGIN
-    SELECT string_agg(format('%I', column_name), ', ')
-    INTO column_list
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = target_table
-      AND (is_generated = 'NEVER' OR is_generated IS NULL);
-
-    IF column_list IS NULL THEN
-        RAISE EXCEPTION 'Unable to resolve column list for %', target_table;
-    END IF;
-
-    EXECUTE format(
-        'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
-        partition_name,
-        target_table
-    );
-    EXECUTE format(
-        'INSERT INTO %I (%s) SELECT %s FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        partition_name,
-        column_list,
-        column_list,
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'DELETE FROM %I WHERE ts_event >= %L AND ts_event < %L',
-        default_partition,
-        start_ns,
-        end_ns
-    );
-    EXECUTE format(
-        'ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
-        target_table,
-        partition_name,
-        start_ns,
-        end_ns
-    );
-EXCEPTION
-    WHEN duplicate_object THEN
-        NULL;
-    WHEN object_in_use THEN
-        NULL;
-END;
-$$ LANGUAGE plpgsql;
-
+        exists = conn.execute(
+            text("SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')"),
+        ).scalar()
+        if not bool(exists):
+            conn.execute(
+                text(
+                    """
 CREATE OR REPLACE FUNCTION create_monthly_partitions(
     table_name TEXT,
     start_date DATE,
@@ -486,45 +369,18 @@ BEGIN
         partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
         start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
         end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
-        BEGIN
-            EXECUTE format(
-                'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-                partition_name, table_name, start_ns, end_ns
-            );
-        EXCEPTION
-            WHEN check_violation THEN
-                PERFORM attach_partition_with_data(table_name, partition_name, start_ns, end_ns);
-            WHEN duplicate_table THEN
-                NULL;
-            WHEN object_in_use THEN
-                NULL;
-            WHEN invalid_object_definition THEN
-                NULL;
-            WHEN SQLSTATE '42P17' THEN
-                NULL;
-        END;
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+            partition_name, table_name, start_ns, end_ns
+        );
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
                     """,
-            ),
-        )
+                ),
+            )
     except Exception as exc:
         logger.debug("Helper function ensure failed (ignored): %s", exc, exc_info=True)
-
-
-def ensure_partition_helpers(connection_string: str) -> None:
-    """
-    Ensure the helper functions required by the partition bootstrap exist.
-
-    Parameters
-    ----------
-    connection_string:
-        SQLAlchemy connection string for the target PostgreSQL instance.
-    """
-    engine = get_or_create_engine(connection_string)
-    with engine.begin() as conn:
-        _ensure_helper_functions(conn)
 
 
 def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
@@ -622,6 +478,5 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
 __all__ = [
     "PartitionManager",
     "check_db_prereqs",
-    "ensure_partition_helpers",
     "run_partition_maintenance",
 ]

@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 
 """
-Model deployment management and lifecycle tracking.
+Model deployment management and lifecycle tracking (DEPRECATED).
+
+.. deprecated::
+    This is the legacy implementation. Use package-level imports instead:
+
+        # Old (deprecated):
+        from ml.registry.model_deployment_mgr import ModelDeploymentManager
+
+        # New (preferred):
+        from ml.registry import DeploymentManagerComponent
+
+    The canonical implementation is :class:`ml.registry.common.deployment_manager.DeploymentManagerComponent`
+    which provides thread-safety via RLock and uses the persistence component pattern.
 """
 
 from __future__ import annotations

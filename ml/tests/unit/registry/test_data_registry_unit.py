@@ -160,7 +160,7 @@ def test_model_feature_schema_enforcement(tmp_path: Path, monkeypatch: pytest.Mo
     model_path.write_bytes(b"onnx")
 
     # Register using the concrete ModelRegistry
-    from ml.registry.model_registry import ModelRegistry
+    from ml.registry import ModelRegistry
 
     mreg = ModelRegistry(
         registry_path=reg_dir,

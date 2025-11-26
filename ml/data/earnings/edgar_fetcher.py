@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from datetime import datetime
@@ -117,55 +116,6 @@ class EarningsActual:
     filing_type: str
     fiscal_year: int
     fiscal_quarter: int
-
-    @property
-    def fiscal_period(self) -> str:
-        """Human readable fiscal period label (e.g., ``Q4``)."""
-        if self.fiscal_quarter <= 0:
-            return ""
-        return f"Q{self.fiscal_quarter}"
-
-
-def _coerce_date(value: Any) -> date | None:
-    """Convert common filing date inputs to ``date`` objects."""
-    if value is None:
-        return None
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, str):
-        raw = value.strip()
-        if not raw:
-            return None
-        try:
-            return datetime.strptime(raw, "%Y-%m-%d").date()
-        except ValueError:
-            return None
-    return None
-
-
-def _parse_quarter_label(label: Any) -> int | None:
-    """Parse quarter labels such as 'Q4'."""
-    if not isinstance(label, str):
-        return None
-    normalized = label.strip().upper()
-    if normalized.startswith("Q") and normalized[1:].isdigit():
-        quarter = int(normalized[1:])
-        if 1 <= quarter <= 4:
-            return quarter
-    return None
-
-
-def _parse_fiscal_year(value: Any) -> int | None:
-    """Parse fiscal year values from filings."""
-    try:
-        year = int(str(value))
-    except (TypeError, ValueError):
-        return None
-    if 1900 <= year <= 9999:
-        return year
-    return None
 
 
 class EdgarFetcher:
@@ -363,59 +313,75 @@ class EdgarFetcher:
     def _extract_xbrl_facts(self, filing: Any) -> dict[str, Any]:
         """Extract XBRL facts dictionary from filing."""
         try:
+            # edgartools provides xbrl() method
             xbrl = filing.xbrl()
             if xbrl is None:
                 return {}
-            return getattr(xbrl, "facts", {})
+
+            # Convert to dict
+            facts = xbrl.facts if hasattr(xbrl, "facts") else {}
+            return facts if isinstance(facts, dict) else {}
+
         except Exception as e:
-            logger.debug("Failed to extract XBRL: %s", e, exc_info=True)
+            logger.debug("Failed to extract XBRL: %s", e)
             return {}
 
     def _extract_period_end(self, filing: Any) -> date | None:
         """Extract period end date from filing."""
-        date_attrs: Iterable[str] = ("period_of_report", "report_date")
-        for attr in date_attrs:
-            candidate = _coerce_date(getattr(filing, attr, None))
-            if candidate is not None:
-                return candidate
+        try:
+            # Try to get period of report
+            if hasattr(filing, "period_of_report"):
+                period_str = filing.period_of_report
+                if period_str:
+                    return datetime.strptime(period_str, "%Y-%m-%d").date()
 
-        fallback = _coerce_date(getattr(filing, "filing_date", None))
-        if fallback is not None:
-            return fallback
+            # Fallback: try filing date
+            if hasattr(filing, "filing_date"):
+                filing_date_str = filing.filing_date
+                if filing_date_str:
+                    return datetime.strptime(filing_date_str, "%Y-%m-%d").date()
 
-        acceptance = getattr(filing, "acceptance_datetime", None)
-        if isinstance(acceptance, datetime):
-            return acceptance.date()
-        return None
+            return None
+
+        except Exception as e:
+            logger.debug("Failed to extract period end: %s", e)
+            return None
 
     def _extract_filing_date(self, filing: Any) -> date | None:
         """Extract filing date from filing."""
-        filing_date = _coerce_date(getattr(filing, "filing_date", None))
-        if filing_date is not None:
-            return filing_date
+        try:
+            if hasattr(filing, "filing_date"):
+                filing_date_str = filing.filing_date
+                if filing_date_str:
+                    return datetime.strptime(filing_date_str, "%Y-%m-%d").date()
+            return None
 
-        acceptance = getattr(filing, "acceptance_datetime", None)
-        if isinstance(acceptance, datetime):
-            return acceptance.date()
-
-        # Fallback: use the period end when explicit filing dates are missing.
-        return _coerce_date(getattr(filing, "period_of_report", None))
+        except Exception as e:
+            logger.debug("Failed to extract filing date: %s", e)
+            return None
 
     def _extract_fiscal_period(self, filing: Any) -> tuple[int, int]:
         """Extract fiscal year and quarter from filing."""
-        period_end = self._extract_period_end(filing)
-        period_label = _parse_quarter_label(getattr(filing, "fiscal_period", None))
-        labelled_year = _parse_fiscal_year(getattr(filing, "fiscal_year_end", None))
+        try:
+            # Try to get fiscal year and period
+            fiscal_year = 0
+            fiscal_quarter = 0
 
-        fiscal_year = labelled_year
-        fiscal_quarter = period_label
+            if hasattr(filing, "fiscal_year_end"):
+                fiscal_year = int(filing.fiscal_year_end) if filing.fiscal_year_end else 0
 
-        if fiscal_year is None and period_end is not None:
-            fiscal_year = period_end.year
-        if fiscal_quarter is None and period_end is not None:
-            fiscal_quarter = ((period_end.month - 1) // 3) + 1
+            if hasattr(filing, "fiscal_period"):
+                period = filing.fiscal_period
+                if period and period.startswith("Q"):
+                    fiscal_quarter = int(period[1])  # "Q1" -> 1
+                elif period == "FY":
+                    fiscal_quarter = 4  # Full year = Q4
 
-        return fiscal_year or 0, fiscal_quarter or 0
+            return fiscal_year, fiscal_quarter
+
+        except Exception as e:
+            logger.debug("Failed to extract fiscal period: %s", e)
+            return 0, 0
 
 
 __all__ = [

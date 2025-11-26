@@ -34,7 +34,6 @@ def test_build_ohlcv_dataset_single_instrument_spy() -> None:
     - All timestamps monotonic increasing
     - No NaN values in OHLCV columns
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -52,7 +51,6 @@ def test_dataset_has_mandatory_columns_timestamp_close() -> None:
     - Dataset MUST have "instrument_id" column
     - These are mandatory for TFT compatibility
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -69,4 +67,3 @@ def test_dataset_row_count_matches_coverage() -> None:
     - For 1-minute OHLCV: 30 trading days * 390 minutes = 11,700 rows
     - For 1-second OHLCV: 30 trading days * 23,400 seconds = 702,000 rows
     """
-    pass

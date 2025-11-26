@@ -19,8 +19,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
-from ml.actors.signal import MLSignalActor
-from ml.actors.signal import MLSignalActorConfig
+from ml.actors import MLSignalActor
+from ml.actors import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy

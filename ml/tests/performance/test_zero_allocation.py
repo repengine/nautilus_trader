@@ -244,7 +244,7 @@ class TestZeroAllocationHotPath:
         # Verify it's a view of the feature buffer, not a copy
         assert np.shares_memory(
             features,
-            engineer.calculator.feature_buffer,
+            engineer.feature_buffer,
         ), "calculate_features_online should return a view of feature_buffer"
 
     def test_hot_path_memory_stability(self, setup_bar_data: tuple[BarType, list[Bar]]) -> None:

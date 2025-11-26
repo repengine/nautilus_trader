@@ -522,7 +522,7 @@ class FeatureEngineeringService(BaseIntegrationService):
 
             # Get feature manifest
             def _get_feature_set() -> Any:
-                return registry.get_feature_set(request.feature_set_id)
+                return registry.get_feature_set(request.feature_set_id)  # type: ignore[attr-defined]
 
             manifest = await self._run_async(_get_feature_set)
 
@@ -842,7 +842,7 @@ class FeatureEngineeringService(BaseIntegrationService):
         # Convert dict to manifest object if needed
         # This is a placeholder - actual implementation depends on registry API
         def _register_feature_set() -> None:
-            registry.register_feature_set(feature_set_id, manifest_dict)  # type: ignore[arg-type]
+            registry.register_feature_set(feature_set_id, manifest_dict)  # type: ignore[attr-defined]
 
         await self._run_async(_register_feature_set)
 

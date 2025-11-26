@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from ml.config.actors import MLSignalActorConfig
 
 
-def _get_ml_signal_class() -> type["MLSignal"]:
+def _get_ml_signal_class() -> type:
     """
     Get MLSignal class with deferred import to avoid circular imports.
 

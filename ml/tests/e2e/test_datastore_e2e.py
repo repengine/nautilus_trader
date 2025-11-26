@@ -38,6 +38,7 @@ from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
+from ml.stores.data_store_facade import DataStoreConfig
 
 
 # ============================================================================
@@ -586,8 +587,8 @@ class TestE2EHealthAndConfiguration:
         """
         E2E Test: Health status includes all components.
         """
-        # Create DataStore
-        store = DataStore(
+        # Create DataStore with DataStoreConfig
+        config = DataStoreConfig(
             connection_string="postgresql://dummy",
             registry=mock_registry,
             feature_store=mock_stores["feature_store"],
@@ -595,6 +596,7 @@ class TestE2EHealthAndConfiguration:
             strategy_store=mock_stores["strategy_store"],
             earnings_store=mock_stores["earnings_store"],
         )
+        store = DataStore(config)
 
         # Get health status
         health = store.get_health_status()

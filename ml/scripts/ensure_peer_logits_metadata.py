@@ -32,6 +32,7 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 
+from ml.common.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -170,10 +171,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(level="INFO")
 
 
 def run(reference_path: Path, peer_paths: Iterable[Path], *, dry_run: bool, backup_suffix: str) -> int:

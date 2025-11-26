@@ -8,14 +8,12 @@ existing collected market data.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from collections.abc import Callable
 from collections.abc import Iterable
 from datetime import UTC
 from datetime import datetime
-from datetime import timedelta
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any, SupportsFloat, cast
 
@@ -56,200 +54,8 @@ PD: Any = cast(Any, pd_runtime)
 pl = PL
 pd = PD
 
-if not TYPE_CHECKING:
-    _pl = pl  # type: ignore[assignment]
-    _pd = pd  # type: ignore[assignment]
-
 
 logger = logging.getLogger(__name__)
-
-
-class _DatasetSerializer:
-    """
-    Minimal dataset serializer used by tests and CLI helpers.
-    """
-
-    _METADATA_SUFFIX = ".meta.json"
-
-    def save_dataset(
-        self,
-        *,
-        df: Any,
-        path: _Path | str,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        dest = _Path(path)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-
-        if isinstance(df, pl.DataFrame):
-            df.write_parquet(dest)
-        else:
-            import pandas as _pd
-
-            if isinstance(df, _pd.DataFrame):
-                df.to_parquet(dest)
-            else:
-                raise TypeError(f"Unsupported frame type for serialization: {type(df)}")
-
-        if metadata:
-            meta_path = dest.with_suffix(dest.suffix + self._METADATA_SUFFIX)
-            meta_path.write_text(json.dumps(metadata, indent=2, sort_keys=True))
-
-    def load_dataset(
-        self,
-        *,
-        path: _Path | str,
-        use_polars: bool = True,
-    ) -> tuple[Any, dict[str, Any]]:
-        src = _Path(path)
-        if use_polars and pl is not None:
-            df = pl.read_parquet(src)
-        else:
-            import pandas as _pd
-
-            df = _pd.read_parquet(src)
-
-        meta_path = src.with_suffix(src.suffix + self._METADATA_SUFFIX)
-        metadata: dict[str, Any] = {}
-        if meta_path.exists():
-            metadata = json.loads(meta_path.read_text())
-        return df, metadata
-
-
-class _ValidationSplitter:
-    """
-    Backwards-compatible dataset splitting helper.
-    """
-
-    def split_dataset(
-        self,
-        *,
-        df: Any,
-        train_ratio: float,
-        val_ratio: float,
-        test_ratio: float,
-    ) -> tuple[Any, Any, Any]:
-        if not np.isclose(train_ratio + val_ratio + test_ratio, 1.0):
-            raise ValueError("train/val/test ratios must sum to 1.0")
-
-        total = len(df)
-        if total == 0:
-            raise ValueError("Cannot split empty dataset")
-
-        train_end = int(total * train_ratio)
-        val_end = train_end + int(total * val_ratio)
-
-        # Ensure at least one row per split when possible
-        train_end = max(1, min(train_end, total - 2))
-        val_end = max(train_end + 1, min(val_end, total - 1))
-
-        train = self._slice(df, 0, train_end)
-        val = self._slice(df, train_end, val_end)
-        test = self._slice(df, val_end, total)
-        return train, val, test
-
-    def validate_splits(self, train: Any, val: Any, test: Any) -> None:
-        """
-        Basic temporal validation using timestamp ordering when available.
-        """
-        column = "timestamp"
-        try:
-            train_max = self._max_timestamp(train, column)
-            val_min = self._min_timestamp(val, column)
-            val_max = self._max_timestamp(val, column)
-            test_min = self._min_timestamp(test, column)
-        except Exception:
-            return  # Missing timestamp information; skip validation
-
-        if train_max is None or val_min is None or val_max is None or test_min is None:
-            return
-
-        if not (train_max <= val_min <= val_max <= test_min):
-            raise ValueError("Validation split ordering violated (overlapping timestamps)")
-
-    @staticmethod
-    def _slice(df: Any, start: int, end: int) -> Any:
-        length = max(0, end - start)
-        if hasattr(df, "slice"):
-            return df.slice(start, length)
-        if hasattr(df, "iloc"):
-            return df.iloc[start:end]
-        raise TypeError(f"Unsupported frame type for splitting: {type(df)}")
-
-    @staticmethod
-    def _min_timestamp(df: Any, column: str) -> int | None:
-        if hasattr(df, "select"):
-            result = df.select(pl.col(column).min())
-            return None if result.is_empty() else int(result[0, 0])
-        if hasattr(df, "__getitem__"):
-            series = df[column]
-            if hasattr(series, "min"):
-                value = series.min()
-                return None if value is None else int(value)
-        return None
-
-    @staticmethod
-    def _max_timestamp(df: Any, column: str) -> int | None:
-        if hasattr(df, "select"):
-            result = df.select(pl.col(column).max())
-            return None if result.is_empty() else int(result[0, 0])
-        if hasattr(df, "__getitem__"):
-            series = df[column]
-            if hasattr(series, "max"):
-                value = series.max()
-                return None if value is None else int(value)
-        return None
-
-
-from ml._imports import HAS_PANDAS_MARKET_CALENDARS
-from ml._imports import mcal
-
-
-class _TradingDayCalendar:
-    """
-    Real trading day calendar using pandas_market_calendars with fallback.
-    """
-
-    def __init__(self, exchange: str = "NYSE") -> None:
-        self._calendar = None
-        if HAS_PANDAS_MARKET_CALENDARS and mcal is not None:
-            try:
-                self._calendar = mcal.get_calendar(exchange)
-            except Exception as e:
-                logger.warning(f"Failed to initialize market calendar for {exchange}: {e}")
-
-    def is_trading_day(self, timestamp_ns: int) -> bool:
-        """
-        Check if the given timestamp falls on a trading day.
-        
-        Parameters
-        ----------
-        timestamp_ns : int
-            Timestamp in nanoseconds (UTC).
-            
-        Returns
-        -------
-        bool
-            True if trading day or calendar unavailable, False otherwise.
-        """
-        if self._calendar is None or pd is None:
-            return True
-
-        try:
-            # Convert ns timestamp to pandas Timestamp (UTC)
-            ts = pd.Timestamp(timestamp_ns, unit="ns", tz="UTC")
-            # Check if date is in valid schedule
-            # valid_days returns a DatetimeIndex of trading days in range
-            # We check just this one day [ts, ts]
-            start_date = ts.normalize()
-            end_date = start_date
-            schedule = self._calendar.valid_days(start_date=start_date, end_date=end_date)
-            return not schedule.empty
-        except Exception as e:
-            # Log once per unique error type to avoid spamming? 
-            # For now, debug log and fail open (True) to avoid blocking data
-            logger.debug(f"Calendar check failed for ts={timestamp_ns}: {e}", exc_info=True)
-            return True
 
 
 class TFTDatasetBuilder:
@@ -275,10 +81,6 @@ class TFTDatasetBuilder:
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
         include_events: bool = False,
-        include_macro_deltas: bool = False,
-        include_calendar_lags: bool = False,
-        include_clustering_tags: bool = False,
-        include_context_features: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
         include_l2: bool = False,
@@ -344,14 +146,6 @@ class TFTDatasetBuilder:
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
         self.include_events = include_events
-        if include_macro_deltas and not include_macro:
-            logger.debug(
-                "include_macro_deltas requested but include_macro is False; disabling delta enrichment",
-            )
-        self.include_macro_deltas = include_macro and include_macro_deltas
-        self.include_calendar_lags = include_calendar_lags
-        self.include_clustering_tags = include_clustering_tags
-        self.include_context_features = include_context_features
         if earnings_lag_days < 0:
             raise ValueError("earnings_lag_days must be >= 0")
         if include_earnings and data_store is None:
@@ -362,7 +156,6 @@ class TFTDatasetBuilder:
         self.earnings_lag_days = earnings_lag_days
         self.include_l2 = include_l2
         self.l2_base_dir = l2_base_dir
-        self._force_micro_cache = os.getenv("ML_TFT_FORCE_MICRO_CACHE", "0") == "1"
         self.vintage_base_dir = _Path(vintage_base_dir).expanduser() if vintage_base_dir else None
         self.events_base_dir = (
             _Path(events_base_dir).expanduser() if events_base_dir else _Path("data/events")
@@ -383,19 +176,9 @@ class TFTDatasetBuilder:
 
         if self.student_mode:
             self.include_macro = False
-            self.include_macro_deltas = False
             self.include_events = False
-            self.include_calendar_lags = False
-            self.include_clustering_tags = False
-            self.include_context_features = False
             self.include_l2 = False
             self.include_earnings = False
-
-        if self.include_l2 and not self.include_micro:
-            logger.debug(
-                "include_l2 requested; enabling include_micro to reuse microstructure cache",
-            )
-            self.include_micro = True
 
         self._binding_index: dict[str, ResolvedMarketBinding] = {}
         self._binding_stats: dict[str, MarketBindingStats] = {}
@@ -417,20 +200,6 @@ class TFTDatasetBuilder:
             self._binding_index.setdefault(binding.symbol.upper(), binding)
             base_symbol = binding.symbol.split(".")[0]
             self._binding_index.setdefault(base_symbol.upper(), binding)
-
-        self._event_feature_required = any(
-            (
-                self.include_events,
-                self.include_calendar_lags,
-                self.include_clustering_tags,
-                self.include_context_features,
-            ),
-        )
-
-        # Backwards-compatible helper components (used by tests & CLI)
-        self._dataset_serializer = _DatasetSerializer()
-        self._validation_splitter = _ValidationSplitter()
-        self._trading_day_calendar = _TradingDayCalendar()
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -639,67 +408,6 @@ class TFTDatasetBuilder:
         base = key.split(".")[0]
         return self._binding_index.get(base)
 
-    def _restrict_df_to_window(
-        self,
-        df: _pl.DataFrame,
-        *,
-        symbol: str,
-        start: datetime | None,
-        end: datetime | None,
-        lookback_periods: int,
-        horizon_minutes: int,
-    ) -> _pl.DataFrame:
-        """
-        Limit fallback data to the requested window (with a small history buffer).
-        """
-        if pl is None or ("timestamp" not in df.columns) or (start is None and end is None):
-            return df
-
-        working = df
-        try:
-            if working["timestamp"].dtype != pl.Datetime:
-                working = working.with_columns(
-                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
-                )
-        except Exception:  # pragma: no cover - defensive normalization
-            logger.debug(
-                "Failed to normalize timestamps while trimming window",
-                extra={"symbol": symbol},
-                exc_info=True,
-            )
-            return working
-
-        # Ensure enough pre-history for rolling features + horizon lookahead
-        lookback_buffer = max(lookback_periods + horizon_minutes, lookback_periods, 0)
-        start_bound = start
-        if start_bound is not None:
-            start_bound = start_bound - timedelta(minutes=lookback_buffer)
-
-        end_bound = end
-        if end_bound is not None:
-            end_bound = end_bound + timedelta(minutes=max(horizon_minutes, 0))
-
-        cond = pl.lit(True)
-        ts_expr = pl.col("timestamp")
-        if start_bound is not None:
-            cond = cond & (ts_expr >= start_bound)
-        if end_bound is not None:
-            cond = cond & (ts_expr < end_bound)
-
-        filtered = working.filter(cond)
-        if filtered.height != working.height:
-            logger.debug(
-                "Trimmed fallback bars for %s",
-                symbol,
-                extra={
-                    "rows_before": int(working.height),
-                    "rows_after": int(filtered.height),
-                    "window_start": start_bound.isoformat() if start_bound else None,
-                    "window_end": end_bound.isoformat() if end_bound else None,
-                },
-            )
-        return filtered
-
     def _frame_time_bounds(self, frame: _pl.DataFrame) -> tuple[int | None, int | None]:
         if frame.is_empty():
             return (None, None)
@@ -795,12 +503,8 @@ class TFTDatasetBuilder:
                     iso_val = iso_callable()
                     if isinstance(iso_val, str):
                         return iso_val
-                except Exception:  # pragma: no cover - defensive
-                    logger.debug(
-                        "Failed to convert value to ISO representation",
-                        extra={"value_type": type(value).__name__},
-                        exc_info=True,
-                    )
+                except Exception:
+                    pass
             return str(value)
 
         eps_series = np.array([
@@ -881,12 +585,8 @@ class TFTDatasetBuilder:
             try:
                 if earnings_joined.schema[col].is_numeric():
                     fills.append(pl.col(col).fill_null(0))
-            except Exception:  # pragma: no cover - defensive
-                logger.debug(
-                    "Earnings feature schema inspection failed",
-                    extra={"column": col, "ticker": base_ticker},
-                    exc_info=True,
-                )
+            except Exception:
+                pass
             availability.append(pl.col(col).is_not_null())
 
         if fills:
@@ -902,23 +602,6 @@ class TFTDatasetBuilder:
         else:
             earnings_joined = earnings_joined.with_columns(
                 pl.lit(0).alias("is_earnings_available"),
-            )
-
-        try:
-            from ml.features.validation import validate_known_future_effective_times
-        except ImportError:  # pragma: no cover - optional dependency
-            validate_known_future_effective_times = None  # type: ignore[assignment]
-        if validate_known_future_effective_times is not None and "effective_date" in earnings_joined.columns:
-            evaluation_values = (
-                earnings_joined.select(pl.col("timestamp").cast(pl.Int64)).to_series().to_list()
-            )
-            effective_values = (
-                earnings_joined.select(pl.col("effective_date").cast(pl.Int64)).to_series().to_list()
-            )
-            validate_known_future_effective_times(
-                evaluation_series=evaluation_values,
-                effective_series=effective_values,
-                context="earnings_features",
             )
 
         logger.debug(
@@ -1087,26 +770,29 @@ class TFTDatasetBuilder:
         final_df = pl.concat(all_data, how="vertical")
         # Optionally join macro features (as-of with lag)
         if self.include_macro:
+            from typing import cast
+
             from ml.data.fred_join import join_fred_asof
 
-            final_df = join_fred_asof(
-                final_df,
-                timestamp_col="ts_event",
-                lag_days=self.macro_lag_days,
-                fred_path=self.fred_path,
-                vintage_base_dir=self.vintage_base_dir,
-                series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
-                vintage_policy=self.vintage_policy,
-                vintage_cutoff=self.vintage_as_of,
+            final_df = cast(
+                "_pl.DataFrame",
+                join_fred_asof(
+                    final_df,
+                    timestamp_col="ts_event",
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
+                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
+                ),
             )
-        final_df_polars = cast("_pl.DataFrame", final_df)
-        final_df_polars = self._append_macro_delta_features_polars(final_df_polars)
         logger.info(
-            "Loaded %d rows from FeatureStore with %d columns",
-            len(final_df_polars),
-            len(final_df_polars.columns),
+            f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
         )
-        return final_df_polars
+        from typing import cast as _cast
+
+        return _cast("_pl.DataFrame", final_df)
 
     def prepare_training_data(
         self,
@@ -1227,12 +913,8 @@ class TFTDatasetBuilder:
                         try:
                             if direct_df.schema[c].is_numeric():
                                 fills.append(pl.col(c).fill_null(0))
-                        except Exception:  # pragma: no cover - defensive
-                            logger.debug(
-                                "Macro feature schema inspection failed",
-                                extra={"column": c},
-                                exc_info=True,
-                            )
+                        except Exception:
+                            pass
                         exprs.append(pl.col(c).is_not_null())
                     if fills:
                         # Narrow type for polars operations
@@ -1254,10 +936,6 @@ class TFTDatasetBuilder:
                             ],
                         )
                         direct_df = direct_df_pl2
-                direct_df_polars = self._append_macro_delta_features_polars(
-                    cast("_pl.DataFrame", direct_df),
-                )
-                direct_df = direct_df_polars
             else:
                 # Pandas path — apply join and compute mask with pandas ops
                 direct_df = join_fred_asof(
@@ -1283,12 +961,8 @@ class TFTDatasetBuilder:
                         direct_df["is_macro_available"] = (
                             direct_df[macro_cols].notna().any(axis=1).astype("int32")
                         )
-                        direct_df = self._append_macro_delta_features_pandas(direct_df)
-                except Exception:  # pragma: no cover - defensive
-                    logger.debug(
-                        "Macro pandas join post-processing failed",
-                        exc_info=True,
-                    )
+                except Exception:
+                    pass
 
         logger.info(
             f"Successfully computed {len(direct_df) if hasattr(direct_df, '__len__') else 'N/A'} rows using {source}",
@@ -1378,7 +1052,7 @@ class TFTDatasetBuilder:
         """
         Lazily initialize the event schedule provider.
         """
-        if not self._event_feature_required:
+        if not self.include_events:
             return None
         if self._event_provider is not None:
             return self._event_provider
@@ -1413,8 +1087,7 @@ class TFTDatasetBuilder:
         """
         Build training dataset using direct feature computation.
 
-        This method exclusively uses Polars for efficient processing ("Polars Core").
-        If Pandas output is requested, the final result is converted.
+        This is the original implementation, renamed for clarity.
 
         Parameters
         ----------
@@ -1425,8 +1098,7 @@ class TFTDatasetBuilder:
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation
         use_polars : bool, default True
-            Whether to return Polars DataFrame (True) or Pandas DataFrame (False).
-            Processing is always done in Polars.
+            Whether to use Polars for faster processing
 
         Returns
         -------
@@ -1434,8 +1106,9 @@ class TFTDatasetBuilder:
             TFT-compatible training dataset
 
         """
-        # Collect results (always Polars)
+        # Collect results separately to keep typing precise
         all_data_pl: list[_pl.DataFrame] = []
+        all_data_pd: list[_pd.DataFrame] = []
 
         # Candidate venues to try per symbol (ETFs frequently ARCA/ARCX)
         candidate_venues = [
@@ -1468,12 +1141,6 @@ class TFTDatasetBuilder:
                         last_err = e_inner
                         continue
                 if df.is_empty():
-                    if not self._allow_parquet_fallback:
-                        logger.warning(
-                            "No bars found for %s and parquet fallback disabled; skipping symbol",
-                            symbol,
-                        )
-                        continue
                     # Fallback: read OHLCV minute parquet directly under base dir
                     try:
                         base = _Path(self.micro_base_dir or "data/tier1")
@@ -1512,11 +1179,7 @@ class TFTDatasetBuilder:
                                                 part = part.with_columns(
                                                     pl.col("timestamp").dt.replace_time_zone("UTC"),
                                                 )
-                                            except Exception:  # pragma: no cover - defensive
-                                                logger.debug(
-                                                    "Polars timezone replacement failed",
-                                                    exc_info=True,
-                                                )
+                                            except Exception:
                                                 try:
                                                     part = part.with_columns(
                                                         pl.col("timestamp").dt.convert_time_zone(
@@ -1524,10 +1187,6 @@ class TFTDatasetBuilder:
                                                         ),
                                                     )
                                                 except Exception:
-                                                    logger.debug(
-                                                        "Polars timezone conversion failed",
-                                                        exc_info=True,
-                                                    )
                                                     try:
                                                         part = part.with_columns(
                                                             pl.col("timestamp").cast(
@@ -1535,10 +1194,7 @@ class TFTDatasetBuilder:
                                                             ),
                                                         )
                                                     except Exception:
-                                                        logger.debug(
-                                                            "Polars timestamp cast failed",
-                                                            exc_info=True,
-                                                        )
+                                                        pass
                                     frames.append(part)
                         # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
                         l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
@@ -1560,20 +1216,12 @@ class TFTDatasetBuilder:
                                         part = part.with_columns(
                                             pl.col("timestamp").dt.replace_time_zone("UTC"),
                                         )
-                                    except Exception:  # pragma: no cover - defensive
-                                        logger.debug(
-                                            "Polars timezone replacement failed",
-                                            exc_info=True,
-                                        )
+                                    except Exception:
                                         try:
                                             part = part.with_columns(
                                                 pl.col("timestamp").dt.convert_time_zone("UTC"),
                                             )
                                         except Exception:
-                                            logger.debug(
-                                                "Polars timezone conversion failed",
-                                                exc_info=True,
-                                            )
                                             try:
                                                 part = part.with_columns(
                                                     pl.col("timestamp").cast(
@@ -1581,10 +1229,7 @@ class TFTDatasetBuilder:
                                                     ),
                                                 )
                                             except Exception:
-                                                logger.debug(
-                                                    "Polars timestamp cast failed",
-                                                    exc_info=True,
-                                                )
+                                                pass
                                 frames.append(part)
                         if frames:
                             # Concatenate standardized frames
@@ -1617,50 +1262,75 @@ class TFTDatasetBuilder:
                 logger.warning(f"Failed to load data for {symbol}: {e}")
                 continue
 
-            df = self._restrict_df_to_window(
-                df,
-                symbol=symbol,
-                start=start,
-                end=end,
-                lookback_periods=lookback_periods,
-                horizon_minutes=horizon_minutes,
-            )
-
             if df.is_empty():
                 logger.warning(f"No data found for {symbol}, skipping")
                 continue
 
-            # Process with Polars
-            if not isinstance(df, pl.DataFrame):
-                logger.warning(f"Expected Polars DataFrame for {symbol}, skipping")
+            # Process with Polars or Pandas
+            processed: _pl.DataFrame | _pd.DataFrame | None = None
+            if use_polars:
+                if not isinstance(df, pl.DataFrame):
+                    logger.warning(f"Expected Polars DataFrame for {symbol}, skipping")
+                else:
+                    processed = self._process_symbol_polars(
+                        df,
+                        symbol,
+                        horizon_minutes,
+                        min_return_threshold,
+                        lookback_periods,
+                        start=start,
+                        end=end,
+                    )
+                    if processed is not None:
+                        # Optional date filtering
+                        if (
+                            start is not None or end is not None
+                        ) and "timestamp" in processed.columns:
+                            ts = pl.col("timestamp").cast(pl.Int64)
+                            cond = pl.lit(True)
+                            if start is not None:
+                                start_ns = int(start.timestamp() * 1_000_000_000)
+                                cond = cond & (ts >= start_ns)
+                            if end is not None:
+                                end_ns = int(end.timestamp() * 1_000_000_000)
+                                cond = cond & (ts < end_ns)
+                            processed = processed.filter(cond)
+                        # processed is a Polars DataFrame here
+                        all_data_pl.append(processed)
             else:
-                processed = self._process_symbol_polars(
-                    df,
+                # Convert to pandas if needed
+                if isinstance(df, pl.DataFrame):
+                    df_pandas = df.to_pandas()
+                else:
+                    # Assume already pandas
+                    from typing import cast
+
+                    df_pandas = cast("_pd.DataFrame", df)
+                processed = self._process_symbol_pandas(
+                    df_pandas,
                     symbol,
                     horizon_minutes,
                     min_return_threshold,
                     lookback_periods,
-                    start=start,
-                    end=end,
                 )
                 if processed is not None:
                     # Optional date filtering
-                    if (
-                        start is not None or end is not None
-                    ) and "timestamp" in processed.columns:
-                        ts = pl.col("timestamp").cast(pl.Int64)
-                        cond = pl.lit(True)
-                        if start is not None:
-                            start_ns = int(start.timestamp() * 1_000_000_000)
-                            cond = cond & (ts >= start_ns)
-                        if end is not None:
-                            end_ns = int(end.timestamp() * 1_000_000_000)
-                            cond = cond & (ts < end_ns)
-                        processed = processed.filter(cond)
-                    # processed is a Polars DataFrame here
-                    all_data_pl.append(processed)
+                    if (start is not None or end is not None) and "timestamp" in processed.columns:
+                        try:
+                            import pandas as _pd
 
-        if not all_data_pl:
+                            s_ts = _pd.Timestamp(start, tz="UTC") if start is not None else None
+                            e_ts = _pd.Timestamp(end, tz="UTC") if end is not None else None
+                            if s_ts is not None:
+                                processed = processed[processed["timestamp"] >= s_ts]
+                            if e_ts is not None:
+                                processed = processed[processed["timestamp"] < e_ts]
+                        except Exception:
+                            pass
+                    if processed is not None:
+                        all_data_pd.append(processed)
+
+        if (use_polars and not all_data_pl) or (not use_polars and not all_data_pd):
             logger.error("No data processed for any symbol")
             from typing import cast as _cast
 
@@ -1669,80 +1339,101 @@ class TFTDatasetBuilder:
             return _cast("_pl.DataFrame", pl.DataFrame())
 
         # Combine all symbols with proper typing
-        final_df: _pl.DataFrame
-        
-        lazy_frames = [df.lazy() for df in all_data_pl]
-        final_df = pl.concat(lazy_frames).collect(streaming=True)
-        all_data_pl.clear()
+        final_df: _pl.DataFrame | _pd.DataFrame
+        if use_polars:
+            lazy_frames = [df.lazy() for df in all_data_pl]
+            final_df = pl.concat(lazy_frames).collect(streaming=True)
+            all_data_pl.clear()
 
-        if self.include_macro:
-            from ml.data.fred_join import join_fred_asof
+            if self.include_macro:
+                from ml.data.fred_join import join_fred_asof
 
-            if "timestamp_right" in final_df.columns:
-                final_df = final_df.drop("timestamp_right")
-            base_cols = set(final_df.columns)
-            joined = _cast(
-                "_pl.DataFrame",
-                join_fred_asof(
-                    final_df,
-                    timestamp_col="timestamp",
-                    lag_days=self.macro_lag_days,
-                    fred_path=self.fred_path,
-                    vintage_base_dir=self.vintage_base_dir,
-                    series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
-                    vintage_policy=self.vintage_policy,
-                    vintage_cutoff=self.vintage_as_of,
-                    include_revisions=self.include_macro_revisions,
-                    revision_mode=self.macro_revision_mode,
-                    revision_windows=self.macro_revision_windows,
-                ),
-            )
-            macro_cols = [
-                col
-                for col in joined.columns
-                if col not in base_cols and col != "timestamp_right"
-            ]
-            if "timestamp_right" in joined.columns:
-                joined = joined.drop("timestamp_right")
-            if macro_cols:
-                # Use Polars fill_null logic if possible, else fallback to pandas trick
-                # Polars fill_null is efficient
-                fills = []
-                for c in macro_cols:
-                    try:
-                        if joined.schema[c].is_numeric():
-                            fills.append(pl.col(c).fill_null(0.0))
-                    except Exception:
-                        pass
-                if fills:
-                    joined = joined.with_columns(fills)
-                
-                # Add is_macro_available
-                # We can do this efficiently in Polars
-                exprs = [pl.col(c).is_not_null() for c in macro_cols]
-                if exprs:
-                    any_macro = exprs[0]
-                    for ex in exprs[1:]:
-                        any_macro = any_macro | ex
-                    joined = joined.with_columns(
-                        any_macro.cast(pl.Int32).alias("is_macro_available")
-                    )
+                base_cols = set(final_df.columns)
+                joined = _cast(
+                    "_pl.DataFrame",
+                    join_fred_asof(
+                        final_df,
+                        timestamp_col="timestamp",
+                        lag_days=self.macro_lag_days,
+                        fred_path=self.fred_path,
+                        vintage_base_dir=self.vintage_base_dir,
+                        series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                        vintage_policy=self.vintage_policy,
+                        vintage_cutoff=self.vintage_as_of,
+                        include_revisions=self.include_macro_revisions,
+                        revision_mode=self.macro_revision_mode,
+                        revision_windows=self.macro_revision_windows,
+                    ),
+                )
+                macro_cols = [
+                    col
+                    for col in joined.columns
+                    if col not in base_cols and col != "timestamp_right"
+                ]
+                if "timestamp_right" in joined.columns:
+                    joined = joined.drop("timestamp_right")
+                if macro_cols:
+                    df_pd = joined.to_pandas()
+                    value_cols = [
+                        col
+                        for col in macro_cols
+                        if col.endswith((
+                            "__value",
+                            "__value_real_time",
+                            "__value_final",
+                        ))
+                    ]
+                    if value_cols:
+                        fill_map = dict.fromkeys(value_cols, 0.0)
+                        df_pd = df_pd.fillna(fill_map)
+                        df_pd["is_macro_available"] = (
+                            df_pd[value_cols].notna().any(axis=1).astype("int32")
+                        )
+                    else:
+                        df_pd["is_macro_available"] = np.zeros(len(df_pd), dtype="int32")
+                    joined = pl.from_pandas(df_pd)
                 else:
                     joined = joined.with_columns(pl.lit(0).alias("is_macro_available"))
-            else:
-                joined = joined.with_columns(pl.lit(0).alias("is_macro_available"))
-            final_df = joined
-        
-        final_df_polars = self._append_macro_delta_features_polars(
-            cast("_pl.DataFrame", final_df),
-        )
-        final_df = final_df_polars
+                final_df = joined
+        else:
+            # all_data_pd contains Pandas DataFrames
+            final_df = pd.concat(all_data_pd, ignore_index=True)
+            if self.include_macro:
+                from ml.data.fred_join import join_fred_asof
+
+                base_cols = set(final_df.columns)
+                final_df_pd: PandasDataFrame = cast(PandasDataFrame, final_df)
+                final_df_pd = cast(
+                    PandasDataFrame,
+                    join_fred_asof(
+                        final_df_pd,
+                        timestamp_col="timestamp",
+                        lag_days=self.macro_lag_days,
+                        fred_path=self.fred_path,
+                        vintage_base_dir=self.vintage_base_dir,
+                        series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                        vintage_policy=self.vintage_policy,
+                        vintage_cutoff=self.vintage_as_of,
+                        include_revisions=self.include_macro_revisions,
+                        revision_mode=self.macro_revision_mode,
+                        revision_windows=self.macro_revision_windows,
+                    ),
+                )
+                macro_cols = [
+                    col
+                    for col in final_df_pd.columns
+                    if col not in base_cols and col != "timestamp_right"
+                ]
+                if "timestamp_right" in final_df_pd.columns:
+                    final_df_pd = final_df_pd.drop(columns=["timestamp_right"])
+                if macro_cols:
+                    final_df_pd = final_df_pd.fillna(dict.fromkeys(macro_cols, 0.0))
+                    final_df_pd["is_macro_available"] = (
+                        final_df_pd[macro_cols].notna().any(axis=1).astype("int32")
+                    )
+                final_df = final_df_pd
 
         logger.info(f"Built dataset with shape: {final_df.shape}")
-
-        # Convert to Pandas if requested ("Pandas Edge")
-        if not use_polars:
-            return final_df.to_pandas()
 
         return final_df
 
@@ -1783,7 +1474,7 @@ class TFTDatasetBuilder:
         # Combine (retain timestamp for macro joins)
         dataset = pl.concat(
             [
-                df.select(["timestamp", "time_index", "instrument_id", "close"]),
+                df.select(["timestamp", "time_index", "instrument_id"]),
                 features,
                 targets,
             ],
@@ -1799,40 +1490,34 @@ class TFTDatasetBuilder:
 
         # Optionally join microstructure features (per-minute)
         if self.include_micro:
-            aggregator_succeeded = False
-            if not self._force_micro_cache:
-                try:
-                    from ml.features.micro_aggregate import MicrostructureAggregator
+            # Prefer aggregator (matches unit test monkeypatch), then fallback to cache
+            try:
+                from ml.features.micro_aggregate import MicrostructureAggregator
 
-                    base_dir = self.micro_base_dir or "data/tier1"
-                    agg = MicrostructureAggregator(_Path(base_dir))
-                    micro = agg.compute_for_symbol(symbol)
-                    if micro.shape[0] > 0:
-                        if micro["timestamp"].dtype != pl.Datetime:
-                            micro = micro.with_columns(
-                                pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
-                            )
-                        before_cols = set(dataset.columns)
-                        dataset = dataset.join(micro, on="timestamp", how="left")
-                        micro_cols = [c for c in dataset.columns if c not in before_cols]
-                        if micro_cols:
-                            fills = []
-                            for c in micro_cols:
-                                try:
-                                    if dataset.schema[c].is_numeric():
-                                        fills.append(pl.col(c).fill_null(0))
-                                except Exception:  # pragma: no cover - defensive
-                                    logger.debug(
-                                        "Microstructure schema inspection failed",
-                                        extra={"column": c},
-                                        exc_info=True,
-                                    )
-                            if fills:
-                                dataset = dataset.with_columns(fills)
-                    aggregator_succeeded = True
-                except Exception as exc:
-                    logger.debug(f"Microstructure aggregator join failed for {symbol}: {exc}")
-            if not aggregator_succeeded:
+                base_dir = self.micro_base_dir or "data/tier1"
+                agg = MicrostructureAggregator(_Path(base_dir))
+                micro = agg.compute_for_symbol(symbol)
+                if micro.shape[0] > 0:
+                    if micro["timestamp"].dtype != pl.Datetime:
+                        micro = micro.with_columns(
+                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                        )
+                    before_cols = set(dataset.columns)
+                    dataset = dataset.join(micro, on="timestamp", how="left")
+                    # Fill newly added numeric micro columns with 0 for stability
+                    micro_cols = [c for c in dataset.columns if c not in before_cols]
+                    if micro_cols:
+                        fills = []
+                        for c in micro_cols:
+                            try:
+                                if dataset.schema[c].is_numeric():
+                                    fills.append(pl.col(c).fill_null(0))
+                            except Exception:
+                                pass
+                        if fills:
+                            dataset = dataset.with_columns(fills)
+            except Exception as exc:
+                logger.debug(f"Microstructure aggregator join failed for {symbol}: {exc}")
                 try:  # fallback to cache-based join
                     base_dir_path = _Path(self.micro_base_dir or "data/tier1")
                     micro_cache = MicroMinuteCache(_Path("data/features/micro_minute"))
@@ -1861,12 +1546,8 @@ class TFTDatasetBuilder:
                                     try:
                                         if dataset.schema[c].is_numeric():
                                             fills.append(pl.col(c).fill_null(0))
-                                    except Exception:  # pragma: no cover - defensive
-                                        logger.debug(
-                                            "Microstructure cache schema inspection failed",
-                                            extra={"column": c},
-                                            exc_info=True,
-                                        )
+                                    except Exception:
+                                        pass
                                 if fills:
                                     dataset = dataset.with_columns(fills)
                 except Exception as exc2:  # pragma: no cover
@@ -1902,12 +1583,8 @@ class TFTDatasetBuilder:
                                 try:
                                     if dataset.schema[c].is_numeric():
                                         fills.append(pl.col(c).fill_null(0))
-                                except Exception:  # pragma: no cover - defensive
-                                    logger.debug(
-                                        "L2 schema inspection failed",
-                                        extra={"column": c},
-                                        exc_info=True,
-                                    )
+                                except Exception:
+                                    pass
                                 expr = pl.col(c).is_not_null()
                                 has_any = expr if has_any is None else (has_any | expr)
                             if has_any is not None:
@@ -1965,11 +1642,8 @@ class TFTDatasetBuilder:
                                             .alias("session_rel_spread"),
                                         ],
                                     ).drop(["_day", "_med_spread"], strict=False)
-                        except Exception:  # pragma: no cover - defensive
-                            logger.debug(
-                                "L2 derived feature computation failed",
-                                exc_info=True,
-                            )
+                        except Exception:
+                            pass
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"L2 cache join failed for {symbol}: {exc}")
 
@@ -1998,12 +1672,8 @@ class TFTDatasetBuilder:
                             try:
                                 if dataset.schema[col].is_numeric():
                                     earnings_fills.append(pl.col(col).fill_null(0))
-                            except Exception:  # pragma: no cover - defensive
-                                logger.debug(
-                                    "Earnings feature schema inspection failed",
-                                    extra={"column": col},
-                                    exc_info=True,
-                                )
+                            except Exception:
+                                pass
                             earnings_availability.append(pl.col(col).is_not_null())
                         if earnings_fills:
                             dataset = dataset.with_columns(earnings_fills)
@@ -2030,7 +1700,7 @@ class TFTDatasetBuilder:
                 )
 
         # Optionally add event-based known-future features
-        if self._event_feature_required:
+        if self.include_events:
             provider = self._get_event_provider()
             if provider is not None:
                 try:
@@ -2040,86 +1710,156 @@ class TFTDatasetBuilder:
                         ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
                         dataset = dataset.join(ev, on="timestamp", how="left")
                 except Exception as exc:  # pragma: no cover
-                    logger.debug(
-                        "Event feature join failed for %s",
-                        symbol,
-                        exc_info=True,
-                        extra={"reason": str(exc)},
-                    )
+                    logger.debug(f"Event feature join failed for {symbol}: {exc}")
 
         return dataset
 
     def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:
         return tuple(self._binding_stats.values())
 
-    def _candidate_macro_series(self, columns: Iterable[str]) -> list[str]:
+    def _process_symbol_pandas(
+        self,
+        df: _pd.DataFrame,
+        symbol: str,
+        horizon_minutes: int,
+        threshold: float,
+        lookback_periods: int,
+    ) -> _pd.DataFrame | None:
         """
-        Return macro series identifiers inferred from the configured series or dataset columns.
-
-        Args:
-            columns: Column names present in the dataset.
-
-        Returns:
-            Sorted list of candidate macro series identifiers.
+        Process single symbol with Pandas.
         """
-        candidates: set[str] = set()
-        if self.macro_series_ids:
-            candidates.update(self.macro_series_ids)
-        else:
-            for name in columns:
-                if "__" not in name:
-                    continue
-                prefix = name.split("__", 1)[0]
-                if prefix and prefix.isupper():
-                    candidates.add(prefix)
-        return sorted(candidates)
+        if pd_runtime is None:
+            check_ml_dependencies(["pandas"])  # Ensure pandas present when used
+        # Ensure we have required columns
+        required_cols = ["open", "high", "low", "close", "volume"]
+        if not all(col in df.columns for col in required_cols):
+            logger.warning(f"Missing required columns for {symbol}")
+            return None
 
-    def _append_macro_delta_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
-        """
-        Append macro delta enrichment columns to a Polars DataFrame when enabled.
-        """
-        if not self.include_macro_deltas:
-            return df
-        candidates = self._candidate_macro_series(df.columns)
-        if not candidates:
-            logger.debug(
-                "Macro delta enrichment requested but no candidate macro series detected",
-            )
-            return df
-        has_instrument = "instrument_id" in df.columns
-        expressions: list[_pl.Expr] = []
-        delta_names: list[str] = []
-        for series in candidates:
-            source_col = None
-            for candidate_name in (
-                series,
-                f"{series}__value_real_time",
-                f"{series}__value_final",
-            ):
-                if candidate_name in df.columns:
-                    source_col = candidate_name
-                    break
-            if source_col is None:
-                continue
-            expr = _pl.col(source_col) - _pl.col(source_col).shift(1)
-            if has_instrument:
-                expr = expr.over("instrument_id")
-            delta_name = f"{series}_delta_1d"
-            expressions.append(expr.cast(_pl.Float32).fill_null(0.0).alias(delta_name))
-            delta_names.append(delta_name)
-        if not expressions:
-            logger.debug(
-                "Macro delta enrichment skipped; no source macro columns located",
-                extra={"macro_candidates": candidates},
-            )
-            return df
-        enriched = df.with_columns(expressions)
-        # Ensure any remaining nulls are zeroed for deterministic behaviour
-        return enriched.with_columns([_pl.col(name).fill_null(0.0) for name in delta_names])
+        # Sort by index (timestamps) and create sequential index
+        df = df.sort_index().reset_index(drop=False)
+        # Rename the index to timestamp if it's called ts_event
+        if "ts_event" in df.columns:
+            df = df.rename(columns={"ts_event": "timestamp"})
+        elif df.index.name == "ts_event":
+            df = df.reset_index().rename(columns={"ts_event": "timestamp"})
 
+        df["time_index"] = range(len(df))
+        df["instrument_id"] = symbol
 
+        # Generate features
+        features = self._compute_features_pandas(df)
 
+        # Generate targets
+        targets = self._generate_targets_pandas(df, horizon_minutes, threshold)
 
+        # Combine (retain timestamp for macro joins)
+        dataset = pd.concat(
+            [
+                df[["timestamp", "time_index", "instrument_id"]],
+                features,
+                targets,
+            ],
+            axis=1,
+        )
+
+        # Filter for sufficient history
+        dataset = dataset.iloc[lookback_periods:].copy()
+
+        # Add static and known-future features
+        dataset = self._add_static_features_pandas(dataset)
+        dataset = self._add_known_future_features_pandas(dataset)
+
+        # Optionally join microstructure features (per-minute)
+        if self.include_micro:
+            try:
+                from ml.features.micro_aggregate import MicrostructureAggregator
+
+                base_dir = self.micro_base_dir or "data/tier1"
+                agg = MicrostructureAggregator(_Path(base_dir))
+                micro_pl = agg.compute_for_symbol(symbol)
+                if micro_pl.shape[0] > 0:
+                    micro_pd = micro_pl.to_pandas()
+                    dataset = dataset.merge(micro_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Microstructure join failed for {symbol}: {exc}")
+
+        # Optionally join L2 features (per-minute)
+        if self.include_l2:
+            try:
+                from ml.features.l2_aggregate import L2Aggregator
+
+                base_dir = self.l2_base_dir or "data/tier1"
+                agg_l2 = L2Aggregator(_Path(base_dir))
+                l2_pl = agg_l2.compute_for_symbol(symbol)
+                if l2_pl.shape[0] > 0:
+                    l2_pl = l2_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    l2_pd = l2_pl.to_pandas()
+                    dataset = dataset.merge(l2_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"L2 feature join failed for {symbol}: {exc}")
+
+        if self.include_earnings and "timestamp" in dataset.columns:
+            if pl is None:
+                logger.debug("Polars unavailable; skipping earnings features for %s", symbol)
+            else:
+                try:
+                    ts_series_pl = pl.Series(
+                        "timestamp",
+                        dataset["timestamp"].astype("datetime64[ns]"),
+                    )
+                    earnings_df_pl = self._fetch_earnings_features(
+                        ticker=symbol,
+                        timestamps=ts_series_pl,
+                        as_of_date=None,
+                    )
+                    if earnings_df_pl is not None and not earnings_df_pl.is_empty():
+                        earnings_df_pd = earnings_df_pl.to_pandas()
+                        dataset = dataset.merge(earnings_df_pd, on="timestamp", how="left")
+                        new_cols = [c for c in earnings_df_pd.columns if c != "timestamp"]
+                        numeric_cols = [c for c in new_cols if c != "is_earnings_available"]
+                        if numeric_cols:
+                            dataset[numeric_cols] = dataset[numeric_cols].fillna(0)
+                        if "is_earnings_available" in new_cols:
+                            dataset["is_earnings_available"] = (
+                                dataset["is_earnings_available"].fillna(0).astype("int32")
+                            )
+                        elif numeric_cols:
+                            dataset["is_earnings_available"] = (
+                                dataset[numeric_cols].notna().any(axis=1).astype("int32")
+                            )
+                        else:
+                            dataset["is_earnings_available"] = 0
+                    else:
+                        logger.debug("No earnings features available for %s", symbol)
+                except Exception as exc:
+                    logger.warning(
+                        "Earnings feature join failed for %s: %s",
+                        symbol,
+                        exc,
+                        exc_info=True,
+                    )
+
+        # Optionally add event-based known-future features
+        if self.include_events:
+            try:
+                from ml.data.providers.events import EventScheduleProvider
+                from ml.data.sources.events import SimpleEventSource
+
+                provider = EventScheduleProvider(SimpleEventSource())
+                if "timestamp" in dataset.columns:
+                    ts_series = pl.Series(
+                        "timestamp",
+                        dataset["timestamp"].astype("datetime64[ns]"),
+                    ).cast(pl.Int64)
+                    ev_pl = provider.compute_features(ts_series, [symbol])
+                    ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    ev_pd = ev_pl.to_pandas()
+                    dataset = dataset.merge(ev_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Event feature join failed for {symbol}: {exc}")
+
+        return dataset
 
     def _compute_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
@@ -2153,7 +1893,38 @@ class TFTDatasetBuilder:
         ).fill_null(0)
         return features
 
+    def _compute_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
+        """
+        Compute technical features using Pandas.
+        """
+        features = pd.DataFrame()
 
+        # Price-based features
+        features["return_1"] = df["close"].pct_change(1)
+        features["return_5"] = df["close"].pct_change(5)
+        features["return_20"] = df["close"].pct_change(20)
+
+        # Volume features
+        features["volume_ratio"] = df["volume"] / df["volume"].rolling(20).mean()
+
+        # Volatility
+        features["volatility_20"] = features["return_1"].rolling(20).std()
+
+        # Simple moving averages
+        features["sma_5"] = df["close"].rolling(5).mean()
+        features["sma_20"] = df["close"].rolling(20).mean()
+
+        # Price position
+        rolling_min = df["low"].rolling(20).min()
+        rolling_max = df["high"].rolling(20).max()
+        features["price_position"] = (df["close"] - rolling_min) / (rolling_max - rolling_min)
+
+        # Fill NaN values
+        features = features.fillna(0)
+
+        from typing import cast as _cast
+
+        return _cast("_pd.DataFrame", features)
 
     def _generate_targets_polars(
         self,
@@ -2187,7 +1958,34 @@ class TFTDatasetBuilder:
 
         return targets
 
+    def _generate_targets_pandas(
+        self,
+        df: _pd.DataFrame,
+        horizon_minutes: int,
+        threshold: float,
+    ) -> _pd.DataFrame:
+        """
+        Generate binary targets using Pandas.
+        """
+        # Calculate forward returns
+        future_prices = df["close"].shift(-horizon_minutes)
+        current_prices = df["close"]
+        forward_returns = (future_prices - current_prices) / current_prices
 
+        # Binary classification + forward return sidecar for downstream Sharpe metrics
+        targets = pd.DataFrame(
+            {
+                "y": (forward_returns > threshold).astype(int),
+                "forward_return": forward_returns.astype(float),
+            },
+        )
+
+        # Fill trailing NaNs introduced by the horizon shift
+        targets = targets.fillna({"y": 0, "forward_return": 0.0})
+
+        from typing import cast as _cast
+
+        return _cast("_pd.DataFrame", targets)
 
     def _add_static_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
@@ -2243,7 +2041,37 @@ class TFTDatasetBuilder:
 
         return df
 
+    def _add_static_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
+        """
+        Add static instrument features using Pandas.
+        """
+        # Simple static feature mapping
+        static_map = {
+            "SPY": {"asset_class": "ETF", "tick_size": 0.01, "exchange": "ARCA"},
+            "QQQ": {"asset_class": "ETF", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "AAPL": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "MSFT": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "NVDA": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "AMZN": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "META": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "GOOGL": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+            "TSLA": {"asset_class": "STOCK", "tick_size": 0.01, "exchange": "NASDAQ"},
+        }
 
+        # Add static features
+        for col in ["asset_class", "tick_size", "exchange"]:
+            df[col] = df["instrument_id"].map(
+                lambda x: static_map.get(
+                    x,
+                    {
+                        "asset_class": "STOCK",
+                        "tick_size": 0.01,
+                        "exchange": "UNKNOWN",
+                    },
+                ).get(col),
+            )
+
+        return df
 
     def _add_known_future_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
@@ -2322,4 +2150,59 @@ class TFTDatasetBuilder:
 
         return df
 
+    def _add_known_future_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
+        """
+        Add known-future time and calendar features using Pandas.
+        """
+        # Create hour and minute from time_index (assuming minute bars)
+        df["hour"] = (df["time_index"] // 60) % 24
+        df["minute"] = df["time_index"] % 60
 
+        # Time of day features (cyclical encoding)
+        time_in_minutes = df["hour"] * 60 + df["minute"]
+        # Use centralized cyclic_encode for clarity and DRY
+        sincos = time_in_minutes.apply(lambda v: cyclic_encode(float(v), 24 * 60))
+        df["tod_sin"] = sincos.apply(lambda t: t[0])
+        df["tod_cos"] = sincos.apply(lambda t: t[1])
+
+        # Day of week (simplified - assuming continuous trading for now)
+        df["dow"] = (df["time_index"] // (24 * 60)) % 7
+        # Day-of-week cyclic encoding via centralized helper
+        dowsc = df["dow"].apply(lambda d: cyclic_encode(float(d), 7))
+        df["dow_sin"] = dowsc.apply(lambda t: t[0])
+        df["dow_cos"] = dowsc.apply(lambda t: t[1])
+
+        # Market session flags
+        df["is_market_open"] = ((df["hour"] >= 9) & (df["hour"] < 16)).astype(int)
+        df["is_premarket"] = ((df["hour"] >= 4) & (df["hour"] < 9)).astype(int)
+        df["is_aftermarket"] = ((df["hour"] >= 16) & (df["hour"] < 20)).astype(int)
+
+        # Optional: precise market calendar features via provider (converted to pandas)
+        if self.include_calendar:
+            try:
+                import polars as _pl
+
+                from ml.data.providers.calendar import MarketCalendarProvider
+                from ml.data.sources.calendar import PandasCalendarSource
+
+                provider = MarketCalendarProvider(PandasCalendarSource())
+                ts_series = _pl.Series(df["timestamp"].astype("int64").to_numpy())
+                instruments = (
+                    list({str(v) for v in df["instrument_id"].astype(str).tolist()})
+                    if "instrument_id" in df.columns
+                    else ["GLOBAL"]
+                )
+                cal_pl = provider.load_timeseries(instruments, ts_series)
+                if cal_pl.shape[0] > 0:
+                    cal_pl = cal_pl.with_columns(
+                        _pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")),
+                    )
+                    cal_pd = cal_pl.to_pandas()
+                    join_cols = ["timestamp"] + (
+                        ["instrument_id"] if "instrument_id" in df.columns else []
+                    )
+                    df = df.merge(cal_pd, on=join_cols, how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Calendar feature join skipped: {exc}")
+
+        return df

@@ -31,13 +31,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ml.common.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

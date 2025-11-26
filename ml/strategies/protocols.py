@@ -70,8 +70,7 @@ class PositionSizerProtocol(Protocol):
             Calculated position size, or None if should not trade.
 
         """
-        del signal, account, current_positions
-        raise NotImplementedError
+        ...
 
 
 @runtime_checkable

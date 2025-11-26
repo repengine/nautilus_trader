@@ -29,7 +29,6 @@ def test_build_dataset_with_technical_indicators() -> None:
     - Features aligned with bars (same row count)
     - No look-ahead bias in feature calculation
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -47,7 +46,6 @@ def test_feature_engineer_integration_in_dataset_build() -> None:
     - Features read from FeatureStore and merged with OHLCV
     - Feature computation respects lookback periods
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -65,4 +63,3 @@ def test_features_align_with_bars_no_lookahead_bias() -> None:
     - Features have same timestamp as bars
     - No off-by-one errors
     """
-    pass

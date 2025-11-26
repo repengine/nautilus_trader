@@ -1,7 +1,28 @@
 #!/usr/bin/env python3
 
 """
-High-level ML pipeline orchestrator (cold path only).
+High-level ML pipeline orchestrator (cold path only) - LEGACY.
+
+.. deprecated::
+    This is the legacy monolithic implementation. Use package-level imports instead:
+
+        # Old (deprecated):
+        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+
+        # New (preferred):
+        from ml.orchestration import MLPipelineOrchestrator
+
+    The preferred import uses the ``ML_USE_LEGACY_PIPELINE_ORCHESTRATOR`` feature flag
+    to select between this legacy implementation (when ``=1``) or the component-based
+    facade ``MLPipelineOrchestratorFacade`` (when ``=0``, the default).
+
+    This file is retained for:
+    - Backward compatibility during migration
+    - The ``main()`` CLI entry point (not yet ported to facade)
+    - Parity testing (test_pipeline_orchestrator_parity.py)
+    - Reference during migration
+
+    It will be deprecated in a future release once migration is complete.
 
 Composes existing ingestion, dataset build, HPO, and training CLIs into a typed,
 testable interface suitable for a single long-running service or a nightly batch job.
@@ -3658,7 +3679,7 @@ def _execute_with_namespace(
                 "skipping datastore writer",
             )
         else:
-            from ml.stores.data_store import DataStore as _DataStore
+            from ml.stores import DataStore as _DataStore
 
             writer_chain.append(
                 DataStoreMarketDataWriter(
@@ -3678,7 +3699,7 @@ def _execute_with_namespace(
 
     if not writer_chain:
         if data_store is not None:
-            from ml.stores.data_store import DataStore as _DataStore
+            from ml.stores import DataStore as _DataStore
 
             writer_chain.append(
                 DataStoreMarketDataWriter(

@@ -141,9 +141,7 @@ class ProviderFactory:
             logger.debug("Created InstrumentMetadataProvider")
 
         provider = self._providers["metadata"]
-        if not isinstance(provider, InstrumentMetadataProvider):
-            msg = "metadata provider has unexpected type"
-            raise TypeError(msg)
+        assert isinstance(provider, InstrumentMetadataProvider)
         return provider
 
     def get_calendar_provider(self) -> MarketCalendarProvider:
@@ -161,9 +159,7 @@ class ProviderFactory:
             logger.debug("Created MarketCalendarProvider")
 
         provider = self._providers["calendar"]
-        if not isinstance(provider, MarketCalendarProvider):
-            msg = "calendar provider has unexpected type"
-            raise TypeError(msg)
+        assert isinstance(provider, MarketCalendarProvider)
         return provider
 
     def get_event_provider(self) -> EventScheduleProvider:
@@ -181,9 +177,7 @@ class ProviderFactory:
             logger.debug("Created EventScheduleProvider")
 
         provider = self._providers["events"]
-        if not isinstance(provider, EventScheduleProvider):
-            msg = "event provider has unexpected type"
-            raise TypeError(msg)
+        assert isinstance(provider, EventScheduleProvider)
         return provider
 
     def register_provider_creator(self, name: str, creator: Callable[[], DataProvider]) -> None:
@@ -391,9 +385,7 @@ class TransformProviderAdapter:
         """
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
-        if pl is None:
-            msg = "Polars runtime not available after dependency check"
-            raise RuntimeError(msg)
+        assert pl is not None
 
         # Get provider for transform
         provider = self.get_provider_for_transform(transform)
@@ -426,9 +418,7 @@ class TransformProviderAdapter:
         else:
             logger.warning(f"Static provider {type(provider).__name__} doesn't have load method")
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available for static provider fallback"
-                raise RuntimeError(msg)
+            assert _pl is not None
             from typing import cast as _cast
 
             return _cast(PolarsDF, _pl.DataFrame())
@@ -446,18 +436,14 @@ class TransformProviderAdapter:
         if timestamps is None:
             logger.warning(f"No timestamps provided for time series transform {transform.name}")
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available for timeseries fallback"
-                raise RuntimeError(msg)
+            assert _pl is not None
             from typing import cast as _cast
 
             return _cast(PolarsDF, _pl.DataFrame())
         if timestamps.is_empty():
             logger.warning(f"Empty timestamps for time series transform {transform.name}")
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available for timeseries fallback"
-                raise RuntimeError(msg)
+            assert _pl is not None
             from typing import cast as _cast
 
             return _cast(PolarsDF, _pl.DataFrame())
@@ -469,9 +455,7 @@ class TransformProviderAdapter:
             from typing import cast as _cast
 
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available for provider fallback"
-                raise RuntimeError(msg)
+            assert _pl is not None
             return _cast(PolarsDF, _pl.DataFrame())
 
         # Different providers have different methods
@@ -505,9 +489,7 @@ class TransformProviderAdapter:
                     "No timestamps provided for time series provider; returning empty DataFrame",
                 )
                 _pl = pl
-                if _pl is None:
-                    msg = "Polars runtime not available for custom provider fallback"
-                    raise RuntimeError(msg)
+                assert _pl is not None
                 from typing import cast as _cast
 
                 return _cast(PolarsDF, _pl.DataFrame())
@@ -519,9 +501,7 @@ class TransformProviderAdapter:
         else:
             logger.warning(f"Unknown provider type: {type(provider).__name__}")
             _pl = pl
-            if _pl is None:
-                msg = "Polars runtime not available for custom provider fallback"
-                raise RuntimeError(msg)
+            assert _pl is not None
             from typing import cast as _cast
 
             return _cast(PolarsDF, _pl.DataFrame())

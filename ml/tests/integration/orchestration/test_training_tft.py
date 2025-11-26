@@ -35,7 +35,6 @@ def test_train_tft_model() -> None:
     - Metadata model_type == "tft"
     - Config includes window_size, prediction_horizon
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -54,7 +53,6 @@ def test_tft_attention_weights_saved() -> None:
     - Shape[1] == prediction_horizon (10)
     - Weights sum to 1.0 (within tolerance)
     """
-    pass
 
 
 @pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
@@ -72,4 +70,3 @@ def test_tft_prediction_horizons_correct() -> None:
     - Predictions shape[1] == 10 (prediction_horizon)
     - Predictions shape[2] == len(target_features)
     """
-    pass

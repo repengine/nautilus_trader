@@ -61,9 +61,7 @@ class MicroMinuteCache:
     def ensure_day(self, symbol: str, day: date, raw_base_dir: Path) -> Path:
         ensure_polars()
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available for micro cache operations"
-            raise RuntimeError(msg)
+        assert _pl is not None
         out = self.path_for(symbol, day)
         if out.exists():
             return out
@@ -98,9 +96,7 @@ class MicroMinuteCache:
     ) -> PolarsDF:
         ensure_polars()
         _pl = pl
-        if _pl is None:
-            msg = "Polars runtime not available for micro cache operations"
-            raise RuntimeError(msg)
+        assert _pl is not None
         parts: list[PolarsDF] = []
         for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
