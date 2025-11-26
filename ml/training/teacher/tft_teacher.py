@@ -34,7 +34,7 @@ else:  # pragma: no cover - optional dependency fallback
     StreamingBatch = Any
 
 
-def _to_int_time_indices(values: np.ndarray) -> np.ndarray:
+def _to_int_time_indices(values: npt.NDArray[np.generic]) -> npt.NDArray[np.int64]:
     """Return integer time indices while preserving exact parquet values."""
     if np.issubdtype(values.dtype, np.floating):
         floored = np.rint(values.astype(np.float64, copy=False))
@@ -601,8 +601,8 @@ class TFTTeacher(BaseTeacher):
         device_type = getattr(model_device, "type", "cpu") if model_device is not None else "cpu"
         non_blocking = device_type != "cpu"
 
-        preds: list[np.ndarray] = []
-        targets: list[np.ndarray] = []
+        preds: list[npt.NDArray[np.float64]] = []
+        targets: list[npt.NDArray[np.float64]] = []
         row_instruments: list[str] = []
         row_times: list[int] = []
         metadata_enabled = True

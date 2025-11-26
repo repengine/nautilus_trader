@@ -15,8 +15,13 @@ from typing import TYPE_CHECKING, Protocol
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureConfig
+    from ml.features.config import FeatureConfig as FacadeFeatureConfig
+    from ml.features.engineering import FeatureConfig as EngineeringFeatureConfig
     from ml.features.pipeline import PipelineRunner
+
+    FeatureConfigLike = FacadeFeatureConfig | EngineeringFeatureConfig
+else:
+    FeatureConfigLike = object
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +64,7 @@ class FeatureVersioning:
 
     def __init__(
         self,
-        feature_config: FeatureConfig,
+        feature_config: FeatureConfigLike,
         pipeline_runner_offline: PipelineRunner | None = None,
         pipeline_runner_online: PipelineRunner | None = None,
         logger: logging.Logger | None = None,
@@ -69,7 +74,7 @@ class FeatureVersioning:
 
         Parameters
         ----------
-        feature_config : FeatureConfig
+        feature_config : FeatureConfigLike
             Feature engineering configuration
         pipeline_runner_offline : PipelineRunner | None
             Offline (batch) pipeline runner for feature names

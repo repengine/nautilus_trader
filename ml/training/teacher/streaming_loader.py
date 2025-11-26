@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import DTypeLike
 
 from ml import _imports as _ml_imports
@@ -37,6 +38,11 @@ from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
 
+
+FloatArray = npt.NDArray[np.float64]
+FloatArray32 = npt.NDArray[np.float32]
+IntArray = npt.NDArray[np.int64]
+GenericArray = npt.NDArray[np.generic]
 
 HAS_PANDAS: bool = getattr(_ml_imports, "HAS_PANDAS", False)
 HAS_PYARROW: bool = getattr(_ml_imports, "HAS_PYARROW", False)
@@ -223,7 +229,7 @@ def _arrow_to_numpy(
     *,
     dtype: DTypeLike,
     fill_value: float | None = None,
-) -> np.ndarray:
+) -> GenericArray:
     numpy_dtype = np.dtype(dtype)
     if array is None:
         return np.empty(0, dtype=numpy_dtype)
@@ -237,7 +243,8 @@ def _arrow_to_numpy(
             fill = 0.0
         else:
             fill = float(fill_value)
-        filled = np_array.filled(fill)
+        masked_array = cast(np.ma.MaskedArray[Any], np_array)
+        filled = masked_array.filled(fill)
         return np.asarray(filled, dtype=numpy_dtype)
     if not isinstance(np_array, np.ndarray):
         return np.asarray(np_array, dtype=numpy_dtype)
@@ -276,7 +283,7 @@ def _arrow_strings_preserve_length(array: Any) -> list[str]:
     return result
 
 
-def _update_running_stats(stats: RunningStats, values: np.ndarray) -> RunningStats:
+def _update_running_stats(stats: RunningStats, values: FloatArray) -> RunningStats:
     if values.ndim == 0:
         return stats
     if values.size == 0:
@@ -320,7 +327,7 @@ class RunningStats:
             return 0.0
         return self.m2 / (self.count - 1)
 
-    def update(self, values: np.ndarray) -> RunningStats:
+    def update(self, values: FloatArray) -> RunningStats:
         """Return a new ``RunningStats`` updated with ``values``."""
         if values.size == 0:
             return self
@@ -1004,7 +1011,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         *,
         worker_id: int,
         num_workers: int,
-        order: np.ndarray,
+        order: IntArray,
     ) -> list[TFTShardIndex]:
         shard_count = len(self._metadata.shard_indices)
         if shard_count == 0:
@@ -1131,7 +1138,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
             },
         )
 
-        numeric_arrays: dict[str, np.ndarray] = {}
+        numeric_arrays: dict[str, FloatArray32] = {}
         for column in self._encoder_cont_columns:
             column_data = _get_table_column(table, column)
             if column_data is None:
@@ -1147,7 +1154,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                 else:
                     array = array - mean
             array = np.nan_to_num(array, nan=0.0)
-            numeric_arrays[column] = array
+            numeric_arrays[column] = np.asarray(array, dtype=np.float32)
 
         static_reals_values: dict[str, float] = {}
         for column in self._config.static_reals:
@@ -1185,7 +1192,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                     raw_value = "__UNK__"
             static_cat_codes[column] = mapping.get(raw_value, mapping.get("__UNK__", 0))
 
-        cat_vector: np.ndarray | None = None
+        cat_vector: IntArray | None = None
         if self._static_cat_columns:
             cat_vector = np.asarray(
                 [static_cat_codes.get(column, 0) for column in self._static_cat_columns],
@@ -1203,18 +1210,18 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                 },
             )
 
-        batch_encoder_cont: list[np.ndarray] = []
-        batch_decoder_cont: list[np.ndarray] = []
-        batch_encoder_cat: list[np.ndarray] = []
-        batch_decoder_cat: list[np.ndarray] = []
-        batch_encoder_target: list[np.ndarray] = []
-        batch_decoder_target: list[np.ndarray] = []
+        batch_encoder_cont: list[FloatArray32] = []
+        batch_decoder_cont: list[FloatArray32] = []
+        batch_encoder_cat: list[IntArray] = []
+        batch_decoder_cat: list[IntArray] = []
+        batch_encoder_target: list[FloatArray32] = []
+        batch_decoder_target: list[FloatArray32] = []
         batch_encoder_lengths: list[int] = []
         batch_decoder_lengths: list[int] = []
-        batch_groups: list[np.ndarray] = []
-        batch_target_scale: list[np.ndarray] = []
-        batch_decoder_time: list[np.ndarray] = []
-        batch_decoder_group_ids: list[np.ndarray] = []
+        batch_groups: list[IntArray] = []
+        batch_target_scale: list[FloatArray32] = []
+        batch_decoder_time: list[IntArray] = []
+        batch_decoder_group_ids: list[IntArray] = []
 
         batch_size = max(1, self._config.batch_size)
         encoder_len = self._config.max_encoder_length
@@ -1330,18 +1337,18 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
 
     def _build_batch(
         self,
-        encoder_cont: list[np.ndarray],
-        decoder_cont: list[np.ndarray],
-        encoder_cat: list[np.ndarray],
-        decoder_cat: list[np.ndarray],
-        encoder_target: list[np.ndarray],
-        decoder_target: list[np.ndarray],
+        encoder_cont: list[FloatArray32],
+        decoder_cont: list[FloatArray32],
+        encoder_cat: list[IntArray],
+        decoder_cat: list[IntArray],
+        encoder_target: list[FloatArray32],
+        decoder_target: list[FloatArray32],
         encoder_lengths: list[int],
         decoder_lengths: list[int],
-        groups: list[np.ndarray],
-        target_scales: list[np.ndarray],
-        decoder_time: list[np.ndarray],
-        decoder_group_ids: list[np.ndarray],
+        groups: list[IntArray],
+        target_scales: list[FloatArray32],
+        decoder_time: list[IntArray],
+        decoder_group_ids: list[IntArray],
     ) -> BatchItem:
         batch_inputs: dict[str, TorchTensor] = {}
         batch_inputs["encoder_cont"] = torch.from_numpy(np.stack(encoder_cont, axis=0))

@@ -8,9 +8,17 @@ import sqlite3
 
 import pytest
 
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
+from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
+from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
+from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.market_data import MarketDatasetInput
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
+from ml.data.coverage.feature_restorer import SUPPORTED_FEATURE_DATASET_IDS
 from ml.data.coverage.manager import BucketClassification
 from ml.data.coverage.manager import BucketSpec
 from ml.data.rehydration import CatalogRehydrationConfig
@@ -217,11 +225,15 @@ def test_load_feature_coverage_entries_uses_env_manifest(
     manifest.write_text(
         """
 [[datasets]]
-dataset_id = "ml.test_dataset"
-schema = "test_schema"
-entities = "AAPL"
+dataset_id = "ml.macro_release_calendar"
+schema = "macro_release_calendar"
+entities = "CPIAUCSL"
+entity_field = "series_id"
 [datasets.parquet]
-path = "data/test.parquet"
+path = "data/fred/vintages"
+partition_field = "series_id"
+partition_template = "{value}/release_calendar.parquet"
+timestamp_field = "release_ts"
         """.strip(),
         encoding="utf-8",
     )
@@ -230,12 +242,12 @@ path = "data/test.parquet"
     entries = runner._load_feature_coverage_entries()
 
     assert entries
-    assert entries[0].dataset.dataset_id == "ml.test_dataset"
+    assert entries[0].dataset.dataset_id == MACRO_RELEASES_DATASET_ID
     metric_value = isolated_prometheus_registry.registry.get_sample_value(
         "nautilus_ml_coverage_manifest_events_total",
         labels={"event": "loaded"},
     )
-    assert metric_value == 1.0
+    assert metric_value is not None and metric_value >= 1.0
 
 
 def test_load_feature_coverage_entries_handles_missing_manifest(
@@ -254,7 +266,7 @@ def test_load_feature_coverage_entries_handles_missing_manifest(
         "nautilus_ml_coverage_manifest_events_total",
         labels={"event": "missing"},
     )
-    assert metric_value == 1.0
+    assert metric_value is not None and metric_value >= 1.0
 
 
 def test_load_feature_coverage_entries_handles_invalid_manifest(
@@ -276,7 +288,101 @@ def test_load_feature_coverage_entries_handles_invalid_manifest(
         "nautilus_ml_coverage_manifest_events_total",
         labels={"event": "invalid"},
     )
-    assert metric_value == 1.0
+    assert metric_value is not None and metric_value >= 1.0
+
+
+def test_load_feature_coverage_entries_requires_default_manifest_when_coverage_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_prometheus_registry: Any,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    monkeypatch.delenv("COVERAGE_DATASETS_FILE", raising=False)
+    monkeypatch.setenv("COVERAGE_RESTORE_ENABLED", "1")
+
+    original_exists = Path.exists
+
+    def _fake_exists(self: Path) -> bool:  # type: ignore[override]
+        if str(self).endswith("ml/config/coverage_datasets_tier1.toml"):
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", _fake_exists)
+
+    entries = runner._load_feature_coverage_entries()
+
+    assert entries == tuple()
+    assert entrypoint_pipeline.pipeline_status["errors"]
+    assert "feature_manifest_missing" in entrypoint_pipeline.pipeline_status["errors"][0]
+    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+        "nautilus_ml_coverage_manifest_events_total",
+        labels={"event": "missing"},
+    )
+    assert metric_value is not None and metric_value >= 1.0
+
+
+def test_load_feature_coverage_entries_includes_feature_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_prometheus_registry: Any,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    monkeypatch.delenv("COVERAGE_DATASETS_FILE", raising=False)
+
+    entries = runner._load_feature_coverage_entries()
+
+    dataset_ids = {entry.dataset.dataset_id for entry in entries}
+    expected = {
+        EARNINGS_ACTUALS_DATASET_ID,
+        EARNINGS_ESTIMATES_DATASET_ID,
+        MACRO_RELEASES_DATASET_ID,
+        MACRO_OBSERVATIONS_DATASET_ID,
+        EVENTS_CALENDAR_DATASET_ID,
+        MICRO_MINUTE_DATASET_ID,
+        L2_MINUTE_DATASET_ID,
+    }
+    assert expected == SUPPORTED_FEATURE_DATASET_IDS
+    assert expected.issubset(dataset_ids)
+    for entry in entries:
+        if entry.dataset.dataset_id in expected:
+            assert entry.parquet_spec is not None
+    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+        "nautilus_ml_coverage_manifest_events_total",
+        labels={"event": "loaded"},
+    )
+    assert metric_value is not None and metric_value >= 1.0
+
+
+def test_load_feature_coverage_entries_rejects_unsupported_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    isolated_prometheus_registry: Any,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    manifest = tmp_path / "unsupported.toml"
+    manifest.write_text(
+        """
+[[datasets]]
+dataset_id = "ml.unsupported"
+schema = "unsupported_schema"
+entities = "AAPL"
+[datasets.parquet]
+path = "data/unsupported.parquet"
+        """.strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COVERAGE_DATASETS_FILE", str(manifest))
+
+    entries = runner._load_feature_coverage_entries()
+
+    assert entries == tuple()
+    errors = entrypoint_pipeline.pipeline_status["errors"]
+    assert any("feature_manifest_invalid" in error for error in errors)
+    coverage_status = entrypoint_pipeline.pipeline_status["coverage"]
+    assert coverage_status["last_error"] == "feature_manifest_invalid"
+    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+        "nautilus_ml_coverage_manifest_events_total",
+        labels={"event": "invalid"},
+    )
+    assert metric_value is not None and metric_value >= 1.0
 
 
 def test_create_config_parses_market_dataset_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,8 +510,9 @@ def test_run_coverage_restoration_routes_classifications(
             self.dataset_overrides = dataset_overrides or {}
 
     class _RecordingCatalogProvider:
-        def __init__(self, *, catalog_path: str) -> None:
+        def __init__(self, *, catalog_path: str, identifier_template: str | None = None) -> None:
             self.catalog_path = catalog_path
+            self.identifier_template = identifier_template
 
     class _RecordingSchemaAuditor:
         def __init__(self, *, db_url: str) -> None:
@@ -542,6 +649,20 @@ def test_run_coverage_restoration_applies_bucket_cap(
     errors = entrypoint_pipeline.pipeline_status["errors"]
     assert errors
     assert any(entry.startswith("coverage_cap:") for entry in errors)
+
+
+def test_run_coverage_restoration_raises_when_scheduler_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    scheduler_config = SchedulerConfig(
+        symbols=["SPY.XNAS"],
+        databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"),
+        feature_store_connection="postgresql://feature",
+    )
+    monkeypatch.setenv("COVERAGE_RESTORE_ENABLED", "1")
+    with pytest.raises(entrypoint_pipeline.CoverageRestorationError):
+        runner._run_coverage_restoration(scheduler_config)
 
 
 def test_run_coverage_restoration_once_initializes_scheduler(

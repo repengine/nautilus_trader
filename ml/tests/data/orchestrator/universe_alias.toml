@@ -1,0 +1,17 @@
+stage = "dataset"
+
+[dataset]
+data_dir = "data/tier1"
+out_dir = "ml_out/test"
+symbols = "@tier1_full"
+
+[ingestion]
+enabled = true
+dataset_id = "EQUS.MINI"
+schema = "bars"
+instruments = "@tier1_full"
+
+[auto_fill]
+enabled = true
+dataset_id = "EQUS.MINI"
+instrument_ids = "@tier1_full"

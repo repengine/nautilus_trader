@@ -11,11 +11,17 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+import logging
+import time
 from typing import Any, cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common.timestamps import sanitize_timestamp_ns
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.events import Source
 from ml.ml_types import PolarsDF
+from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 if pl is None:
@@ -24,6 +30,7 @@ if pl is None:
 
     pl = _importlib.import_module("polars")
 POLARS = cast(Any, pl)
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_EVENT_TYPES: tuple[str, ...] = (
@@ -107,13 +114,21 @@ class EventIngestionUtility:
     Ingest scheduled events into a normalized Polars dataset.
     """
 
-    def __init__(self, config: EventIngestionConfig) -> None:
+    def __init__(
+        self,
+        config: EventIngestionConfig,
+        *,
+        data_store: DataStoreFacadeProtocol | None = None,
+        ingest_run_id: str | None = None,
+    ) -> None:
         if pl is None:
             check_ml_dependencies(["polars"])
         self._cfg = config
         self._start = _normalize_datetime(config.start)
         self._end = _normalize_datetime(config.end)
         self._latest_frame: PolarsDF | None = None
+        self._data_store = data_store
+        self._ingest_run_id = ingest_run_id or "event_ingestion"
 
     def ingest(self) -> Path:
         """
@@ -125,6 +140,8 @@ class EventIngestionUtility:
         out_dir.mkdir(parents=True, exist_ok=True)
         target = out_dir / "events.parquet"
         events_df.write_parquet(target)
+        if self._data_store is not None:
+            self._ingest_sql(events_df)
         return target
 
     def latest_frame(self) -> PolarsDF | None:
@@ -168,6 +185,55 @@ class EventIngestionUtility:
         )
         df = df.sort(["event_timestamp", "event_type", "name"])
         return cast(PolarsDF, df)
+
+    def _ingest_sql(self, frame: PolarsDF) -> None:
+        if frame.is_empty():
+            return
+        _pl = POLARS
+        ts_init = sanitize_timestamp_ns(time.time_ns(), context="events_ingest")
+        prepared = (
+            frame.with_columns(
+                [
+                    _pl.col("event_timestamp").cast(_pl.Datetime("ns")).alias("event_timestamp"),
+                    _pl.col("event_timestamp")
+                    .cast(_pl.Datetime("ns"))
+                    .cast(_pl.Int64)
+                    .alias("ts_event"),
+                    _pl.lit(ts_init).alias("ts_init"),
+                ],
+            )
+            .with_columns(
+                [
+                    _pl.col("instrument_id").fill_null("").cast(_pl.Utf8),
+                    _pl.col("metadata").fill_null("").cast(_pl.Utf8),
+                ],
+            )
+            .select(
+                [
+                    "event_timestamp",
+                    "event_type",
+                    "name",
+                    "instrument_id",
+                    "importance",
+                    "source",
+                    "metadata",
+                    "ts_event",
+                    "ts_init",
+                ],
+            )
+        )
+        try:
+            self._data_store.write_ingestion(  # type: ignore[union-attr]
+                dataset_id=EVENTS_CALENDAR_DATASET_ID,
+                records=prepared,
+                source=Source.HISTORICAL.value,
+                run_id=self._ingest_run_id,
+            )
+        except Exception:  # pragma: no cover - defensive logging
+            logger.warning(
+                "event_ingestion.sql_ingest_failed",
+                exc_info=True,
+            )
 
     def _generate_fomc_events(self) -> list[dict[str, Any]]:
         fomc_dates = [

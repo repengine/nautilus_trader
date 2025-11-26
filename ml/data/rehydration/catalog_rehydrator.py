@@ -19,6 +19,10 @@ from datetime import timedelta
 from typing import Final, cast
 
 import pandas as pd
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -27,11 +31,9 @@ from ml.data.ingest.orchestrator import _schema_to_dataset_type as _map_schema_t
 from ml.registry.dataclasses import DatasetType
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import InstrumentId
+from ml.stores.providers import resolve_catalog_identifier
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
 
 
 logger = logging.getLogger(__name__)
@@ -217,12 +219,16 @@ class ParquetCatalogRehydrator:
             if not instrument_normalized:
                 continue
             start_perf = time.perf_counter()
-            identifier = self._resolve_identifier(instrument_normalized, data_class=data_class)
+            identifier = self._resolve_identifier(
+                schema=schema,
+                instrument_id=instrument_normalized,
+            )
             effective_start_ns, effective_end_ns = self._resolve_effective_window(
                 identifier=identifier,
                 data_class=data_class,
                 start_ns=start_ns,
                 end_ns=end_ns,
+                target_buckets=bucket_map.get(instrument_normalized) if bucket_map else None,
             )
             try:
                 restored_buckets, restored_rows, considered = self._rehydrate_instrument(
@@ -376,143 +382,54 @@ class ParquetCatalogRehydrator:
     def _load_bucket_frame(
         self,
         *,
-        dataset_type: DatasetType,
-        instrument: InstrumentId,
-        dataset_id: str,
-        identifier: str,
-        bucket_start_ns: int,
-        bucket_end_ns: int,
-    ) -> pd.DataFrame:
-        import os
-
+            dataset_type: DatasetType,
+            instrument: InstrumentId,
+            dataset_id: str,
+            identifier: str,
+            bucket_start_ns: int,
+            bucket_end_ns: int,
+        ) -> pd.DataFrame:
         data_class = _data_class_for_dataset(dataset_type)
-        # Access internal catalog path construction
-        # Path structure: {catalog_path}/{Class}/{identifier}/*.parquet
-        # We can use the catalog's fs to glob
-
-        # Construct path manually to avoid protected member access if possible,
-        # but we need to know exactly how catalog constructs it.
-        # Assuming standard Nautilus structure:
-        cls_name = data_class.__name__
-        base_dir = os.path.join(self._catalog.path, cls_name)
-        directory = os.path.join(base_dir, identifier)
-
-        candidate_dirs = []
-        if self._catalog.fs.exists(directory):
-            candidate_dirs.append(directory)
-        else:
-            # If exact match doesn't exist, try globbing for directories starting with identifier
-            # This handles Bar types where directory is {instrument}-{spec}
-            # Only do this if identifier looks like an instrument ID (not already a specific spec)
-            # and we are looking for Bars (or potentially other types if they use suffixes)
-            if dataset_type == DatasetType.BARS:
-                # Glob for directories starting with identifier
-                # We use the filesystem glob
-                pattern = os.path.join(base_dir, f"{identifier}*")
-                matches = self._catalog.fs.glob(pattern)
-                # Filter for directories
-                candidate_dirs.extend([d for d in matches if self._catalog.fs.isdir(d)])
-
-        if not candidate_dirs:
-            return pd.DataFrame()
-
-        # Glob all parquet files from all candidate directories
-        files = []
-        for d in candidate_dirs:
-            files.extend(self._catalog.fs.glob(os.path.join(d, "*.parquet")))
-
-        if not files:
-            return pd.DataFrame()
-
-        # Filter files by timestamp range
-        # Filename format: {start}-{end}.parquet (int) or {start_iso}_{end_iso}.parquet (ISO)
-        relevant_files = []
-        for f in files:
-            basename = os.path.basename(f)
-            name_part = os.path.splitext(basename)[0]
-
-            # Try integer timestamp format {start}-{end}
+        objects = self._catalog.query(
+            data_cls=data_class,
+            identifiers=[identifier],
+            start=bucket_start_ns,
+            end=bucket_end_ns,
+        )
+        if not objects:
             try:
-                parts = name_part.split("-")
-                if len(parts) == 2:
-                    f_start = int(parts[0])
-                    f_end = int(parts[1])
-                    if f_end > bucket_start_ns and f_start < bucket_end_ns:
-                        relevant_files.append(f)
-                    continue
-            except ValueError:
-                pass
-
-            # Try ISO timestamp format {start_iso}_{end_iso}
-            try:
-                parts = name_part.split("_")
-                if len(parts) == 2:
-                    # Basic validation that it looks like ISO8601 (e.g. starts with year)
-                    if parts[0][0].isdigit() and parts[1][0].isdigit():
-                        # Parsing ISO strings to int ns is expensive and strict.
-                        # Since we already filtered by directory (identifier) and Catalog intervals,
-                        # and these files are typically partitioned by day or similar,
-                        # we can optimistically include them if they are in the right directory.
-                        # But to be safe, let's try to parse at least the year/month if possible,
-                        # or rely on pd.read_parquet filtering later.
-                        # For now, let's include it and let the dataframe time filter handle exact range.
-                        relevant_files.append(f)
-                        continue
+                objects = self._catalog.query(
+                    data_cls=data_class,
+                    identifiers=None,
+                    start=bucket_start_ns,
+                    end=bucket_end_ns,
+                )
             except Exception:
-                pass
-
-        if not relevant_files:
+                logger.debug(
+                    "catalog_rehydrate.bucket_query_failed",
+                    exc_info=True,
+                    extra={
+                        "identifier": identifier,
+                        "instrument_id": instrument.value,
+                        "bucket_start_ns": bucket_start_ns,
+                    },
+                )
+                objects = []
+        if not objects:
+            logger.debug(
+                "catalog_rehydrate.bucket_missing",
+                extra={
+                    "identifier": identifier,
+                    "instrument_id": instrument.value,
+                    "bucket_start_ns": bucket_start_ns,
+                },
+            )
             return pd.DataFrame()
 
-        # Read parquet files
-        dfs = []
-        for f in relevant_files:
-            try:
-                # We only need columns that map to SQL
-                # But we don't know exactly which columns are in the file vs what we need.
-                # We'll read all and rename/filter.
-                df_partial = pd.read_parquet(f, filesystem=self._catalog.fs)
-                dfs.append(df_partial)
-            except Exception:
-                logger.warning("Failed to read parquet file", extra={"path": f}, exc_info=True)
-                continue
-
-        if not dfs:
-            return pd.DataFrame()
-
-        frame = pd.concat(dfs, ignore_index=True)
-
-        # Filter by exact time range
-        if "ts_event" in frame.columns:
-            frame = frame[
-                (frame["ts_event"] >= bucket_start_ns) & (frame["ts_event"] < bucket_end_ns)
-            ]
-        elif "ts_init" in frame.columns:
-            frame = frame[
-                (frame["ts_init"] >= bucket_start_ns) & (frame["ts_init"] < bucket_end_ns)
-            ]
-
-        if frame.empty:
-            return pd.DataFrame()
-
-        # Normalize columns for SQL writer
-        # SQL writer expects: ts_event, ts_init, open, high, low, close, volume, etc.
-        # Parquet columns should match these mostly.
-
-        # Handle specific renames if necessary
-        # For Quotes: bid_price -> bid, ask_price -> ask
-        if dataset_type is DatasetType.TBBO:
-            rename_map = {
-                "bid_price": "bid",
-                "ask_price": "ask",
-            }
-            frame = frame.rename(columns=rename_map)
-
-        # Ensure instrument_id is set (it might not be in the file if partitioned)
-        # The writer adds it, but we can add it here to be safe or if writer expects it in df (it does not, it takes it as arg)
-
+        table = ArrowSerializer.serialize_batch(objects, data_cls=data_class)
+        frame = table.to_pandas()
         frame["source_dataset"] = dataset_id
-        return frame
+        return cast(pd.DataFrame, frame)
 
     def _catalog_bucket_set(
         self,
@@ -536,26 +453,12 @@ class ParquetCatalogRehydrator:
             buckets.update(range(int(bucket_start), int(bucket_end) + 1))
         return buckets
 
-    def _resolve_identifier(self, instrument_id: str, data_class: type | None = None) -> str:
-        identifier = self._config.identifier_template.format(instrument_id=instrument_id)
-
-        if data_class:
-            import os
-
-            cls_name = data_class.__name__
-            base_dir = os.path.join(self._catalog.path, cls_name)
-            exact_dir = os.path.join(base_dir, identifier)
-
-            if not self._catalog.fs.exists(exact_dir):
-                # Try globbing for directories starting with identifier
-                pattern = os.path.join(base_dir, f"{identifier}*")
-                matches = self._catalog.fs.glob(pattern)
-                dirs = [d for d in matches if self._catalog.fs.isdir(d)]
-                if dirs:
-                    # Return the basename of the first match
-                    return os.path.basename(dirs[0])
-
-        return identifier
+    def _resolve_identifier(self, *, schema: str, instrument_id: str) -> str:
+        return resolve_catalog_identifier(
+            schema=schema,
+            instrument_id=instrument_id,
+            identifier_template=self._config.identifier_template,
+        )
 
     def _resolve_effective_window(
         self,
@@ -564,7 +467,12 @@ class ParquetCatalogRehydrator:
         data_class: type[Bar | QuoteTick | TradeTick],
         start_ns: int,
         end_ns: int,
+        target_buckets: set[int] | None,
     ) -> tuple[int, int]:
+        if target_buckets:
+            bucket_start = min(target_buckets) * DAY_NS
+            bucket_end = (max(target_buckets) + 1) * DAY_NS
+            return bucket_start, bucket_end
         if not self._config.exhaustive:
             return start_ns, end_ns
 

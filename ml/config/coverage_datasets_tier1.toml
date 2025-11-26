@@ -1,0 +1,128 @@
+[[datasets]]
+dataset_id = "ml.earnings_actuals"
+schema = "earnings_actuals"
+entities = "@tier1_full"
+entity_field = "ticker"
+strip_venue = true
+
+[datasets.sql]
+table = "earnings_actuals"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "ticker"
+
+[datasets.parquet]
+path = "data/earnings_raw/earnings_actuals"
+partition_field = "ticker"
+timestamp_field = "ts_event"
+
+[[datasets]]
+dataset_id = "ml.earnings_estimates"
+schema = "earnings_estimates"
+entities = "@tier1_full"
+entity_field = "ticker"
+strip_venue = true
+
+[datasets.sql]
+table = "earnings_estimates"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "ticker"
+
+[datasets.parquet]
+path = "data/earnings_raw/earnings_estimates"
+partition_field = "ticker"
+timestamp_field = "ts_event"
+
+[[datasets]]
+dataset_id = "ml.macro_release_calendar"
+schema = "macro_release_calendar"
+entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
+entity_field = "series_id"
+
+[datasets.sql]
+table = "macro_release_calendar"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "series_id"
+
+[datasets.parquet]
+path = "data/fred/vintages"
+partition_field = "series_id"
+partition_template = "{value}/release_calendar.parquet"
+timestamp_field = "release_ts"
+
+[[datasets]]
+dataset_id = "ml.macro_observations"
+schema = "macro_observations"
+entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
+entity_field = "series_id"
+
+[datasets.sql]
+table = "macro_observations"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "series_id"
+
+[datasets.parquet]
+path = "data/fred/fred_indicators_ml_format.parquet"
+partition_field = "series_id"
+partition_template = ""
+timestamp_field = "timestamp"
+
+[[datasets]]
+dataset_id = "ml.events_calendar"
+schema = "events_calendar"
+entities = "@tier1_full"
+entity_field = "instrument_id"
+strip_venue = true
+
+[datasets.sql]
+table = "events_calendar"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "instrument_id"
+
+[datasets.parquet]
+path = "data/events/events.parquet"
+partition_field = "instrument_id"
+partition_template = ""
+timestamp_field = "event_timestamp"
+
+[[datasets]]
+dataset_id = "ml.microstructure_minute"
+schema = "microstructure_minute"
+entities = "@tier1_full"
+entity_field = "instrument_id"
+strip_venue = true
+
+[datasets.sql]
+table = "microstructure_minute"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "instrument_id"
+
+[datasets.parquet]
+path = "data/features/micro_minute"
+partition_field = "instrument_id"
+partition_template = "{value}"
+timestamp_field = "timestamp"
+
+[[datasets]]
+dataset_id = "ml.l2_minute"
+schema = "l2_minute"
+entities = "@tier1_full"
+entity_field = "instrument_id"
+strip_venue = true
+
+[datasets.sql]
+table = "l2_minute"
+schema = "ml"
+ts_field = "ts_event"
+entity_field = "instrument_id"
+
+[datasets.parquet]
+path = "data/features/l2_minute"
+partition_field = "instrument_id"
+partition_template = "{value}"
+timestamp_field = "timestamp"

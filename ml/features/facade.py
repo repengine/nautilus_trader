@@ -56,6 +56,8 @@ from ml.features.indicators import IndicatorManager
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import _hash_pipeline
 from ml.ml_types import DataFrameLike
+from ml.ml_types import PolarsSeries
+from ml.ml_types import PolarsSeries
 from ml.ml_types import StandardScaler as StandardScalerT
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
@@ -416,33 +418,30 @@ class FeatureEngineer:
         metrics = {}
 
         # Detect if Polars or Pandas
-        is_polars = hasattr(features_df, "to_numpy") and hasattr(features_df, "schema")
-
-        if is_polars:
+        if isinstance(features_df, pl.DataFrame):
             columns = features_df.columns
             total_rows = len(features_df)
             for col in columns:
                 col_data = features_df[col]
                 metrics[col] = self.metrics_collector_component._calculate_column_metrics(
-                    col_data,
+                    cast(PolarsSeries, col_data),
                     total_rows,
                 )
-        else:
-            # Convert to Polars for metrics calculation (FeatureMetricsCollector expects Polars)
-            # This might be expensive but it's for validation, not hot path
-            try:
-                pl_df = pl.DataFrame(features_df)
-                columns = pl_df.columns
-                total_rows = len(pl_df)
-                for col in columns:
-                    col_data = pl_df[col]
-                    metrics[col] = self.metrics_collector_component._calculate_column_metrics(
-                        col_data,
-                        total_rows,
-                    )
-            except Exception as e:
-                self._logger.warning(f"Failed to convert DataFrame for quality validation: {e}")
-                # Return empty metrics or basic Pandas metrics if needed
+            return metrics
+
+        try:
+            pl_df = pl.DataFrame(features_df)
+            columns = pl_df.columns
+            total_rows = len(pl_df)
+            for col in columns:
+                col_data = pl_df[col]
+                metrics[col] = self.metrics_collector_component._calculate_column_metrics(
+                    cast(PolarsSeries, col_data),
+                    total_rows,
+                )
+        except Exception as e:
+            self._logger.warning("Failed to convert DataFrame for quality validation: %s", e)
+            # Return empty metrics or basic Pandas metrics if needed
 
         return metrics
 
@@ -522,15 +521,10 @@ class FeatureEngineer:
 
         # Get last row
         if len(features_df) > 0:
-            if hasattr(features_df, "tail"):  # Pandas (fallback guard)
-                if hasattr(features_df, "iloc"):
-                    last_row = features_df.iloc[-1].to_dict()
-                else:
-                    # Polars
-                    last_row = features_df.tail(1).to_dicts()[0]
-            else:
-                # Polars
+            if isinstance(features_df, pl.DataFrame):
                 last_row = features_df.tail(1).to_dicts()[0]
+            else:
+                last_row = features_df.iloc[-1].to_dict()
             return {k: float(v) for k, v in last_row.items()}
 
         return dict.fromkeys(self.get_feature_names(), 0.0)

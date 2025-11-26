@@ -69,8 +69,13 @@ db = _DBStub()
 
 
 if TYPE_CHECKING:
-    from ml.features.facade import FeatureEngineer
+    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+    from ml.features.facade import FeatureEngineer as ComponentFeatureEngineer
     from ml.registry.protocols import RegistryProtocol
+
+    FeatureEngineerType = LegacyFeatureEngineer | ComponentFeatureEngineer
+else:
+    FeatureEngineerType = Any
 
 
 logger = logging.getLogger(__name__)
@@ -259,7 +264,7 @@ class DataScheduler:
         catalog: ParquetDataCatalog,
         config: SchedulerConfig | None = None,
         collector: DataCollector | None = None,
-        feature_engineer: FeatureEngineer | None = None,
+        feature_engineer: FeatureEngineerType | None = None,
         metrics_port: int | None = None,
         start_metrics_server: bool = True,
         connection: str | None = None,
@@ -277,7 +282,7 @@ class DataScheduler:
             Configuration for scheduler. If None, uses defaults.
         collector : DataCollector, optional
             Data collector for fetching from Databento
-        feature_engineer : FeatureEngineer, optional
+        feature_engineer : FeatureEngineerType, optional
             Feature engineer for computing features
         metrics_port : int, optional
             Port for metrics HTTP server. Defaults to 8000.

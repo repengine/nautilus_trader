@@ -33,9 +33,14 @@ from ml.config.events import Stage
 if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
 
-    from ml.features.engineering import FeatureEngineer
+    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
     from ml.features.engineering import IndicatorManager
+    from ml.features.facade import FeatureEngineer as FacadeFeatureEngineer
     from ml.registry.protocols import RegistryProtocol
+
+    FeatureEngineerLike = LegacyFeatureEngineer | FacadeFeatureEngineer
+else:
+    FeatureEngineerLike = Any
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +96,7 @@ class FeatureComputation:
 
     def __init__(
         self,
-        feature_engineer: FeatureEngineer,
+        feature_engineer: FeatureEngineerLike,
         feature_versioning: Any,
         persistence: Any | None = None,
         retrieval: Any | None = None,
@@ -104,7 +109,7 @@ class FeatureComputation:
 
         Parameters
         ----------
-        feature_engineer : FeatureEngineer
+        feature_engineer : FeatureEngineerLike
             Feature engineering pipeline
         feature_versioning : Any
             Feature versioning component for feature set IDs

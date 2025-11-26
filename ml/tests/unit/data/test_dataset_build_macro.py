@@ -68,6 +68,7 @@ def test_build_tft_dataset_invokes_macro_refresh(
 ) -> None:
     macro_calls: dict[str, object] = {}
     builder_records: dict[str, object] = {}
+    data_store = object()
 
     def _fake_macro(**kwargs: Any) -> MacroRefreshResult:
         macro_calls.update(kwargs)
@@ -111,10 +112,11 @@ def test_build_tft_dataset_invokes_macro_refresh(
         ),
     )
 
-    result = build_tft_dataset(cfg)
+    result = build_tft_dataset(cfg, data_store=data_store)
 
     assert macro_calls["fred_path"] == cfg.macro_fred_path
     assert macro_calls["vintage_dir"] == cfg.fred_vintage_dir
+    assert macro_calls["data_store"] is data_store
 
     builder_params = builder_records["builder_params"]
     assert isinstance(builder_params, dict)

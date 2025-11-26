@@ -1942,10 +1942,9 @@ class MLSignalActor(BaseMLInferenceActor):
 
         try:
             # Check if this is a Mock object (for testing)
-            from unittest.mock import MagicMock
-            from unittest.mock import Mock
+            from unittest.mock import MagicMock, Mock
 
-            if isinstance(self._model, Mock | MagicMock):
+            if isinstance(self._model, (Mock, MagicMock)):
                 # Let the test mocks work as before; prefer predict_proba/predict over run
                 if hasattr(self._model, "predict_proba"):
                     # Copy into pre-allocated buffer to avoid per-call allocations

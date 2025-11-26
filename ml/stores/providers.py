@@ -47,6 +47,25 @@ def _validate_identifier(identifier: str, *, label: str) -> str:
     return identifier
 
 
+def resolve_catalog_identifier(
+    *,
+    schema: str,
+    instrument_id: str,
+    identifier_template: str | None = None,
+) -> str:
+    """
+    Resolve the catalog identifier used for parquet interval lookups.
+
+    Bars typically store the bar_type (template) while tick datasets key on instrument_id.
+    """
+    normalized_schema = schema.lower()
+    if "tbbo" in normalized_schema or "quote" in normalized_schema or "trade" in normalized_schema:
+        return instrument_id
+    if identifier_template:
+        return identifier_template.format(instrument_id=instrument_id)
+    return instrument_id
+
+
 def _schema_to_dataclass(schema: str) -> type[Any]:
     s = schema.lower()
     if "bar" in s or "ohlcv" in s:
@@ -77,6 +96,7 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
     """
 
     catalog_path: str
+    identifier_template: str | None = None
 
     def __post_init__(self) -> None:
         self._catalog = ParquetDataCatalog(self.catalog_path)
@@ -92,7 +112,12 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
         entity_field: str = "instrument_id",
     ) -> set[int]:
         data_cls = _schema_to_dataclass(schema)
-        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=instrument_id)
+        identifier = resolve_catalog_identifier(
+            schema=schema,
+            instrument_id=instrument_id,
+            identifier_template=self.identifier_template,
+        )
+        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=identifier)
         if not intervals:
             return set()
         buckets: set[int] = set()
@@ -470,6 +495,10 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         if df.empty:
             return 0
+
+        return self._write_standard(df, instrument_id)
+
+    def _write_standard(self, df: pd.DataFrame, instrument_id: str) -> int:
         cols = set(map(str, df.columns))
 
         def _maybe(val: object) -> object | None:

@@ -371,6 +371,8 @@ class TestMLSignalActorParameterized:
         )
 
         actor = self.create_test_actor(config)
+        # Manually trigger on_start to load the model, as the base class does this in lifecycle
+        actor.on_start()
         assert actor._model is not None
 
         # Process bars to test prediction

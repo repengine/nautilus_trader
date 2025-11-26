@@ -24,10 +24,15 @@ from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+FloatArray = npt.NDArray[np.float64]
+DatetimeArray = npt.NDArray[np.datetime64]
+IntArray = npt.NDArray[np.int64]
 
 # ===== Module metrics (idempotent) =====
 _metrics_init = False
@@ -268,9 +273,9 @@ def compute_earnings_surprise_incremental(
 
 
 def compute_earnings_surprise_batch(
-    actuals: np.ndarray,
-    estimates: np.ndarray,
-) -> dict[str, np.ndarray]:
+    actuals: FloatArray,
+    estimates: FloatArray,
+) -> dict[str, FloatArray]:
     """
     Compute earnings surprise in batch (cold path - vectorized).
 
@@ -329,8 +334,8 @@ def compute_earnings_surprise_batch(
     n = len(actuals)
     if n == 0:
         return {
-            "eps_surprise_q0": np.array([]),
-            "eps_surprise_pct_q0": np.array([]),
+            "eps_surprise_q0": np.array([], dtype=np.float64),
+            "eps_surprise_pct_q0": np.array([], dtype=np.float64),
         }
 
     # Calculate dollar surprise (vectorized)
@@ -445,8 +450,8 @@ def compute_earnings_growth_incremental(
 
 
 def compute_earnings_growth_batch(
-    eps_series: np.ndarray,
-) -> dict[str, np.ndarray]:
+    eps_series: FloatArray,
+) -> dict[str, FloatArray]:
     """
     Compute earnings growth in batch (cold path - vectorized).
 
@@ -491,8 +496,8 @@ def compute_earnings_growth_batch(
     n = len(eps_series)
     if n == 0:
         return {
-            "eps_growth_yoy": np.array([]),
-            "eps_growth_qoq": np.array([]),
+            "eps_growth_yoy": np.array([], dtype=np.float64),
+            "eps_growth_qoq": np.array([], dtype=np.float64),
         }
 
     # Pre-allocate output arrays
@@ -632,9 +637,9 @@ def compute_earnings_momentum_incremental(
 
 
 def compute_earnings_momentum_batch(
-    surprises_series: np.ndarray,
-    eps_series: np.ndarray,
-) -> dict[str, np.ndarray]:
+    surprises_series: FloatArray,
+    eps_series: FloatArray,
+) -> dict[str, FloatArray]:
     """
     Compute earnings momentum in batch (cold path - vectorized).
 
@@ -685,8 +690,8 @@ def compute_earnings_momentum_batch(
     n = len(surprises_series)
     if n == 0:
         return {
-            "earnings_beat_streak": np.array([]),
-            "eps_volatility_4q": np.array([]),
+            "earnings_beat_streak": np.array([], dtype=np.float64),
+            "eps_volatility_4q": np.array([], dtype=np.float64),
         }
 
     # Pre-allocate output arrays
@@ -782,9 +787,9 @@ def compute_calendar_features_incremental(
 
 
 def compute_calendar_features_batch(
-    next_earnings_dates: np.ndarray,
-    current_dates: np.ndarray,
-) -> dict[str, np.ndarray]:
+    next_earnings_dates: DatetimeArray,
+    current_dates: DatetimeArray,
+) -> dict[str, IntArray]:
     """
     Compute earnings calendar features in batch (cold path - vectorized).
 
@@ -837,7 +842,7 @@ def compute_calendar_features_batch(
     delta = next_earnings_dates - current_dates
 
     # Convert timedelta64 to days (integer)
-    days_to_earnings = delta.astype("timedelta64[D]").astype(np.int64)
+    days_to_earnings: IntArray = delta.astype("timedelta64[D]").astype(np.int64)
 
     return {
         "days_to_next_earnings": days_to_earnings,

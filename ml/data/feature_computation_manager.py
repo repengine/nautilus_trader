@@ -23,8 +23,13 @@ if TYPE_CHECKING:
 
     from ml.config.scheduler_config import SchedulerConfig
     from ml.data.trading_day_calculator import TradingDayCalculator
-    from ml.features.engineering import FeatureEngineer
+    from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+    from ml.features.facade import FeatureEngineer as FacadeFeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+    FeatureEngineerLike = LegacyFeatureEngineer | FacadeFeatureEngineer
+else:
+    FeatureEngineerLike = Any
 
 
 # =============================================================================
@@ -119,7 +124,7 @@ class FeatureComputationManager:
         self,
         catalog: ParquetDataCatalog,
         config: SchedulerConfig,
-        feature_engineer: FeatureEngineer | None,
+        feature_engineer: FeatureEngineerLike | None,
         feature_store: Any | None,
         trading_day_calc: TradingDayCalculator,
         logger: logging.Logger | None = None,
@@ -133,7 +138,7 @@ class FeatureComputationManager:
             Nautilus data catalog for querying bars
         config : SchedulerConfig
             Scheduler configuration (symbols, feature store settings)
-        feature_engineer : FeatureEngineer | None
+        feature_engineer : FeatureEngineerLike | None
             Feature engineer for computing features
         feature_store : Any | None
             Feature store instance for persisting features

@@ -33,22 +33,17 @@ from flask import Flask
 from flask import Response
 from flask import jsonify
 
+
+# Add the parent directory to the path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from ml._imports import check_ml_dependencies
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
-from ml.deployment.scheduling_utils import DailyTime
-from ml.deployment.scheduling_utils import compute_next_utc_run
-from ml.deployment.scheduling_utils import parse_bool_env
-from ml.deployment.scheduling_utils import parse_daily_spec
-
-
-# Add the parent directory to the path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from ml._imports import check_ml_dependencies
 from ml.config.dataset_coverage import CoverageDatasetEntry
 from ml.config.dataset_coverage import load_dataset_coverage_entries
 from ml.config.market_data import MarketDatasetInput
@@ -59,6 +54,7 @@ from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.config.scheduler_config import UniverseConfig
 from ml.core.integration import MLIntegrationManager
+from ml.data.coverage.feature_restorer import SUPPORTED_FEATURE_DATASET_IDS
 from ml.data.coverage.feature_restorer import FeatureCoverageRestorer
 from ml.data.coverage.manager import BucketClassification
 from ml.data.coverage.manager import BucketSpec
@@ -69,6 +65,10 @@ from ml.data.coverage.manager import DatasetCoverageConfig
 from ml.data.rehydration import CatalogRehydrationConfig
 from ml.data.rehydration import ParquetCatalogRehydrator
 from ml.data.scheduler import DataScheduler
+from ml.deployment.scheduling_utils import DailyTime
+from ml.deployment.scheduling_utils import compute_next_utc_run
+from ml.deployment.scheduling_utils import parse_bool_env
+from ml.deployment.scheduling_utils import parse_daily_spec
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.stores.feature_store import FeatureStore
 from ml.stores.migrations_runner import MigrationRunner
@@ -120,6 +120,10 @@ _coverage_latency_seconds = get_histogram(
     "End-to-end coverage restoration latency in seconds.",
     buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
+
+
+class CoverageRestorationError(RuntimeError):
+    """Raised when coverage restoration cannot complete and gating is enforced."""
 
 
 # Health check Flask app
@@ -637,9 +641,13 @@ class PipelineRunner:
             else:
                 logger.warning("coverage.feature_config_missing", extra={"path": str(default_path)})
                 _coverage_manifest_events_total.labels(event="missing").inc()
+                if self._coverage_restore_enabled():
+                    self._record_coverage_error(reason="feature_manifest_missing")
+                    pipeline_status["errors"].append(f"feature_manifest_missing:{default_path}")
                 return tuple()
         try:
             entries = load_dataset_coverage_entries(str(resolved_path))
+            validated = self._validate_feature_manifest(entries)
         except FileNotFoundError:
             logger.warning("coverage.feature_config_missing", extra={"path": str(resolved_path)})
             _coverage_manifest_events_total.labels(event="missing").inc()
@@ -659,6 +667,22 @@ class PipelineRunner:
                 pipeline_status["errors"].append(f"feature_manifest_invalid:{resolved_path}")
             return tuple()
         _coverage_manifest_events_total.labels(event="loaded").inc()
+        return validated
+
+    def _validate_feature_manifest(
+        self,
+        entries: tuple[CoverageDatasetEntry, ...],
+    ) -> tuple[CoverageDatasetEntry, ...]:
+        """
+        Ensure the feature coverage manifest only references supported dataset IDs.
+        """
+        if not entries:
+            return entries
+        dataset_ids = {entry.dataset.dataset_id for entry in entries}
+        unsupported = sorted(dataset_ids - SUPPORTED_FEATURE_DATASET_IDS)
+        if unsupported:
+            msg = f"Unsupported feature coverage datasets in manifest: {unsupported}"
+            raise ValueError(msg)
         return entries
 
     def _compose_coverage_entries(
@@ -680,7 +704,12 @@ class PipelineRunner:
 
         providers: list[CoverageProviderProtocol] = []
         if self._catalog_path:
-            providers.append(CatalogCoverageProvider(catalog_path=str(self._catalog_path)))
+            providers.append(
+                CatalogCoverageProvider(
+                    catalog_path=str(self._catalog_path),
+                    identifier_template=self._rehydrator_config.identifier_template if self._rehydrator_config else None,
+                ),
+            )
         if parquet_specs:
             providers.append(PartitionedParquetCoverageProvider(specs=parquet_specs))
         if not providers:
@@ -941,16 +970,19 @@ class PipelineRunner:
         if self.scheduler is None:
             logger.warning("Coverage restoration enabled but scheduler is missing")
             self._record_coverage_error(reason="scheduler_unavailable")
+            self._maybe_raise_coverage_failure(reason="scheduler_unavailable")
             return
         db_connection = self._resolve_db_connection(scheduler_config)
         if not db_connection:
             logger.warning("Coverage restoration enabled but DB connection missing")
             self._record_coverage_error(reason="db_connection_missing")
+            self._maybe_raise_coverage_failure(reason="db_connection_missing")
             return
         entries = self._compose_coverage_entries(scheduler_config)
         if not entries:
             logger.warning("Coverage restoration enabled but no dataset configs resolved")
             self._record_coverage_error(reason="dataset_configs_empty")
+            self._maybe_raise_coverage_failure(reason="dataset_configs_empty")
             return
 
         from ml.stores.providers import SqlCoverageProvider
@@ -969,6 +1001,7 @@ class PipelineRunner:
         if needs_catalog and self._catalog_path is None:
             logger.warning("Catalog path required for market dataset coverage restoration")
             self._record_coverage_error(reason="catalog_path_missing")
+            self._maybe_raise_coverage_failure(reason="catalog_path_missing")
             return
         dataset_configs = tuple(entry.dataset for entry in entries)
         lookback = self._get_int_env("COVERAGE_RESTORE_LOOKBACK_DAYS", 5)
@@ -990,7 +1023,11 @@ class PipelineRunner:
             logger.error("coverage_manager.restore_failed", exc_info=True)
             self._record_coverage_error(reason=f"coverage_manager_failed:{exc.__class__.__name__}")
             _coverage_restore_failures_total.labels(stage="classification").inc()
-            raise
+            self._maybe_raise_coverage_failure(
+                reason=f"coverage_manager_failed:{exc.__class__.__name__}",
+                raise_immediately=True,
+            )
+            return
         self._record_coverage_summary(classifications)
         if not classifications:
             return
@@ -1065,8 +1102,24 @@ class PipelineRunner:
                 logger.warning("scheduler.targeted_update_failed", exc_info=True)
                 self._record_coverage_error(reason="targeted_update_failed")
                 _coverage_restore_failures_total.labels(stage="targeted_update").inc()
+                self._maybe_raise_coverage_failure(reason="targeted_update_failed")
         for classification in classifications:
             _coverage_buckets_total.labels(status=classification.status.name.lower()).inc()
+        last_error = self._coverage_status().get("last_error")
+        if last_error:
+            self._maybe_raise_coverage_failure(reason=last_error)
+
+    def _maybe_raise_coverage_failure(self, *, reason: str, raise_immediately: bool = False) -> None:
+        if not self._coverage_restore_enabled():
+            return
+        allow_failure = parse_bool_env(os.environ.get("COVERAGE_RESTORE_ALLOW_FAILURE"))
+        if allow_failure and not raise_immediately:
+            logger.warning(
+                "coverage_restore.allow_failure",
+                extra={"reason": reason},
+            )
+            return
+        raise CoverageRestorationError(reason)
 
     def _restore_catalog_buckets(
         self,
@@ -1103,8 +1156,8 @@ class PipelineRunner:
                 rehydrator.rehydrate_missing_data(
                     dataset_id=dataset_id,
                     schema=schema,
-                    instrument_ids=instrument_ids,
-                    buckets=tuple(bucket_specs),
+                    instrument_ids=list(instrument_ids),
+                    buckets=list(bucket_specs),
                 )
             except Exception:
                 logger.warning(
@@ -1142,6 +1195,7 @@ class PipelineRunner:
             logger.warning("coverage.feature_restore.failed", exc_info=True)
             _coverage_restore_failures_total.labels(stage="feature_restore").inc()
             pipeline_status["errors"].append("feature_restore_failed")
+            self._record_coverage_error(reason="feature_restore_failed")
             return
         logger.info(
             "coverage.feature_restore.completed",
@@ -1159,6 +1213,7 @@ class PipelineRunner:
                 extra={"failures": result.failures},
             )
             pipeline_status["errors"].append(f"feature_restore_partial:{len(result.failures)}")
+            self._record_coverage_error(reason="feature_restore_partial")
 
     def _should_rescan_catalog(self) -> bool:
         return bool(self._rehydrator_config and self._rehydrator_config.rescan_on_schedule)
@@ -1235,7 +1290,8 @@ class PipelineRunner:
 
             self._build_catalog_rehydrator(catalog=catalog, scheduler_config=config)
             self._run_coverage_restoration(config)
-            self._run_catalog_rehydration(config, note="startup")
+            if not self._coverage_restore_enabled():
+                self._run_catalog_rehydration(config, note="startup")
 
             # Update health status
             pipeline_status["healthy"] = True
@@ -1274,7 +1330,11 @@ class PipelineRunner:
         # Backfill is currently mapped to a single daily update for simplicity.
         # A full backfill loop should iterate dates and call collection per day.
         scheduler = self._require_scheduler()
-        if self._scheduler_config is not None and self._should_rescan_catalog():
+        if (
+            self._scheduler_config is not None
+            and self._should_rescan_catalog()
+            and not self._coverage_restore_enabled()
+        ):
             self._run_catalog_rehydration(self._scheduler_config, note="backfill")
         scheduler.run_daily_update()
 
@@ -1288,7 +1348,11 @@ class PipelineRunner:
         self.running = True
         scheduler = self._require_scheduler()
 
-        if self._scheduler_config is not None and self._should_rescan_catalog():
+        if (
+            self._scheduler_config is not None
+            and self._should_rescan_catalog()
+            and not self._coverage_restore_enabled()
+        ):
             self._run_catalog_rehydration(self._scheduler_config, note="daily-initial")
 
         # Always perform an immediate daily update on entering daily mode
@@ -1326,7 +1390,11 @@ class PipelineRunner:
                 break
 
             try:
-                if self._scheduler_config is not None and self._should_rescan_catalog():
+                if (
+                    self._scheduler_config is not None
+                    and self._should_rescan_catalog()
+                    and not self._coverage_restore_enabled()
+                ):
                     self._run_catalog_rehydration(self._scheduler_config, note="daily-loop")
                 scheduler.run_daily_update()
                 pipeline_status["last_run"] = datetime.now(UTC).isoformat()
@@ -1348,7 +1416,11 @@ class PipelineRunner:
             try:
                 scheduler = self._require_scheduler()
 
-                if self._scheduler_config is not None and self._should_rescan_catalog():
+                if (
+                    self._scheduler_config is not None
+                    and self._should_rescan_catalog()
+                    and not self._coverage_restore_enabled()
+                ):
                     self._run_catalog_rehydration(self._scheduler_config, note="realtime")
 
                 # Use standardized retry/backoff for transient realtime update failures

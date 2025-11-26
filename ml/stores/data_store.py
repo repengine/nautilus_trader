@@ -41,6 +41,7 @@ from ml.config.events import Stage
 
 # Re-export EngineManager for test mocking
 from ml.core.db_engine import EngineManager
+from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -444,9 +445,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.model_store = model_store or ModelStore(connection_string)
         self.strategy_store = strategy_store or StrategyStore(connection_string)
         self._earnings_store: EarningsStoreProtocol = (
-            earnings_store
-            if earnings_store is not None
-            else self._create_earnings_store(connection_string)
+            earnings_store if earnings_store is not None else self._create_earnings_store(connection_string)
         )
 
         # Propagate circuit breaker to created stores if provided
@@ -499,18 +498,12 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             return DummyEarningsStore()
 
     def _try_file_earnings_store(self) -> EarningsStoreProtocol | None:
-        """
-        Attempt to initialize the file-backed earnings store fallback.
-        """
+        """Attempt to initialize the file-backed earnings store fallback."""
         if not HAS_POLARS:
             logger.debug("Skipping file earnings fallback because polars is not available")
             return None
         file_root_str = os.getenv("ML_FILE_STORE_PATH")
-        file_root = (
-            Path(file_root_str)
-            if file_root_str
-            else Path.home() / ".nautilus" / "ml" / "file_store"
-        )
+        file_root = Path(file_root_str) if file_root_str else Path.home() / ".nautilus" / "ml" / "file_store"
         earnings_path = file_root / "earnings"
         try:
             store = FileEarningsStore(base_path=earnings_path)
@@ -523,9 +516,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
     @staticmethod
     def _record_fallback_metric(*, level: str) -> None:
-        """
-        Increment the fallback activation counter when available.
-        """
+        """Increment the fallback activation counter when available."""
         try:  # pragma: no cover - metrics optional
             from ml.common.metrics_manager import MetricsManager as _MM
 
@@ -537,6 +528,16 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             )
         except Exception:
             logger.debug("Failed to record fallback activation metric", exc_info=True)
+
+    def flush(self) -> None:
+        """
+        Flush pending writes across managed stores and registry.
+        """
+        self.feature_store.flush()
+        self.model_store.flush()
+        self.strategy_store.flush()
+        self._earnings_store.flush()
+        self.registry.flush()
 
     # ---------------------------------------------------------------------
     # Typed, minimal read facades (cold-path only; for actors/services)
@@ -677,17 +678,13 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         Return earnings actuals visible at the specified timestamp.
 
         Records are filtered point-in-time and truncated to ``limit`` entries.
-
         """
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
 
         if limit <= 0:
             return []
 
-        as_of_ts = _sanitize_ts(
-            int(ts_event),
-            context="data_store.get_earnings_actuals_at_or_before:ts_event",
-        )
+        as_of_ts = _sanitize_ts(int(ts_event), context="data_store.get_earnings_actuals_at_or_before:ts_event")
         records = self._earnings_store.get_actuals(
             ticker=ticker,
             start_date=start_date,
@@ -710,10 +707,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         """
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
 
-        as_of_ts = _sanitize_ts(
-            int(ts_event),
-            context="data_store.get_earnings_estimate_at_or_before:ts_event",
-        )
+        as_of_ts = _sanitize_ts(int(ts_event), context="data_store.get_earnings_estimate_at_or_before:ts_event")
         return self._earnings_store.get_estimates(
             ticker=ticker,
             period_end=period_end,
@@ -770,34 +764,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         from ml.common.protocols import MLComponentMixin as _MM
 
-        # Get base health
-        status = _MM.get_health_status(_cast("MLComponentMixin", self))
-        status["implementation"] = "component_based"
-
-        # Add component health
-        components = {
-            "feature_store": self.feature_store,
-            "model_store": self.model_store,
-            "strategy_store": self.strategy_store,
-            "earnings_store": self._earnings_store,
-        }
-
-        for name, component in components.items():
-            if hasattr(component, "get_health_status"):
-                try:
-                    status[name] = component.get_health_status()
-                except Exception as e:
-                    status[name] = {"status": "unhealthy", "error": str(e)}
-            else:
-                status[name] = {"status": "unknown", "error": "no_health_check"}
-
-        # Legacy/Facade compatibility keys
-        status["schema_validator"] = "healthy"  # Embedded in facade
-        status["contract_enforcer"] = "healthy"  # Embedded in facade
-        status["data_reader"] = "healthy"
-        status["data_writer"] = "healthy"
-
-        return status
+        return _MM.get_health_status(_cast("MLComponentMixin", self))
 
     def get_performance_metrics(self) -> dict[str, float]:
         """
@@ -813,34 +780,11 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         """
         Validate configuration and return any issues.
         """
-        errors = []
+        from typing import cast as _cast
 
-        if not self.connection_string:
-            errors.append("Missing connection_string")
+        from ml.common.protocols import MLComponentMixin as _MM
 
-        if self.batch_size <= 0:
-            errors.append("batch_size must be positive")
-
-        if self.schema_migration_window_hours <= 0:
-            errors.append("schema_migration_window_hours must be positive")
-
-        return errors
-
-    def flush(self) -> None:
-        """
-        Flush all underlying stores.
-        """
-        for store in (
-            self.feature_store,
-            self.model_store,
-            self.strategy_store,
-            self._earnings_store,
-        ):
-            if hasattr(store, "flush"):
-                try:
-                    store.flush()
-                except Exception as exc:
-                    logger.warning("Failed to flush %s: %s", store.__class__.__name__, exc)
+        return _MM.validate_configuration(_cast("MLComponentMixin", self))
 
     # =========================================================================
     # Write Operations
@@ -913,8 +857,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         )
         event_metadata: dict[str, Any] = {"correlation_id": corr_id}
         if metadata:
-            # Allow external metadata to override correlation_id if explicitly provided
-            event_metadata.update(metadata)
+            event_metadata.update({k: v for k, v in metadata.items() if k != "correlation_id"})
 
         # Emit directly to registry (robust against tests that monkeypatch the helper)
         try:
@@ -1215,11 +1158,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             if manifest.constraints and "nullability" in manifest.constraints:
                 validation_details["checks_performed"].append("required_fields")
                 for field, nullable in manifest.constraints["nullability"].items():
-                    if (
-                        not nullable
-                        and hasattr(data_frame, "columns")
-                        and field in data_frame.columns
-                    ):
+                    if not nullable and hasattr(data_frame, "columns") and field in data_frame.columns:
                         # Handle both Polars and pandas
                         if hasattr(data_frame[field], "is_null"):
                             # Polars
@@ -1368,9 +1307,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             else:
                 data_frame_for_meta = None
             if data_frame_for_meta is not None:
-                extra_metadata = self._extract_ingestion_metadata_from_dataframe(
-                    data_frame_for_meta,
-                )
+                extra_metadata = self._extract_ingestion_metadata_from_dataframe(data_frame_for_meta)
 
         # Extract instrument_id if not provided
         if instrument_id is None:
@@ -1770,7 +1707,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             return metadata
 
         if "source_dataset" in data_frame.columns:
-            values = data_frame["source_dataset"].dropna().astype(str).unique().tolist()
+            values = (
+                data_frame["source_dataset"].dropna().astype(str).unique().tolist()
+            )
             normalized = [value for value in values if value]
             if normalized:
                 metadata["source_datasets"] = sorted(dict.fromkeys(normalized))
@@ -2113,10 +2052,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         dataset_id = EARNINGS_ACTUALS_DATASET_ID
         run_id_local = run_id or f"earnings_actual_{time.time_ns()}"
-        ts_event_s = _sanitize_ts(
-            int(ts_event),
-            context="data_store.write_earnings_actual:ts_event",
-        )
+        ts_event_s = _sanitize_ts(int(ts_event), context="data_store.write_earnings_actual:ts_event")
         ts_init_s = _sanitize_ts(int(ts_init), context="data_store.write_earnings_actual:ts_init")
 
         self._ensure_dataset_registered(
@@ -2151,25 +2087,21 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
-        raw_writer_status = "skipped"
-        # Raw writer persistence (if configured)
+        # Delegate to optional raw writer if configured
+        raw_writer_status = None
         if self._raw_writer is not None:
             try:
-                # Add data_source for raw persistence context (e.g. EDGAR)
-                raw_record = record.copy()
-                raw_record["data_source"] = "EDGAR"
-
-                # Wrap in list or DataFrame-like structure as expected by raw_writer
-                # (Using list of dicts which is compatible with _to_dataframe inside raw_writer if needed,
-                # or if raw_writer handles lists directly)
+                # Enrich record with source metadata for raw writer
+                record_with_meta = record.copy()
+                record_with_meta["data_source"] = "EDGAR"  # Default/Implied source for actuals
+                
                 self._raw_writer.write(
                     dataset_type=DatasetType.EARNINGS_ACTUALS,
-                    data=[raw_record],
+                    data=[record_with_meta],
                 )
                 raw_writer_status = "ok"
-            except Exception:
-                # Best-effort persistence; logging handled by raw_writer or ignored to not block DB write
-                logger.warning("Raw writer failed for earnings actual", exc_info=True)
+            except Exception as exc:
+                logger.warning("Raw writer failed for earnings actual: %s", exc)
                 raw_writer_status = "failed"
 
         try:
@@ -2193,6 +2125,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             logger.exception("Earnings actual write failed for %s", ticker)
             raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
 
+        event_metadata: dict[str, float | str] = {"quality_score": quality_report.quality_score}
+        if raw_writer_status:
+            event_metadata["raw_writer_status"] = raw_writer_status
+
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -2204,10 +2140,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={
-                "quality_score": quality_report.quality_score,
-                "raw_writer_status": raw_writer_status,
-            },
+            metadata=event_metadata,
         )
 
         self._emit_success_event_and_update(
@@ -2244,10 +2177,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         dataset_id = EARNINGS_ESTIMATES_DATASET_ID
         run_id_local = run_id or f"earnings_estimate_{time.time_ns()}"
-        ts_event_s = _sanitize_ts(
-            int(ts_event),
-            context="data_store.write_earnings_estimate:ts_event",
-        )
+        ts_event_s = _sanitize_ts(int(ts_event), context="data_store.write_earnings_estimate:ts_event")
         ts_init_s = _sanitize_ts(int(ts_init), context="data_store.write_earnings_estimate:ts_init")
 
         self._ensure_dataset_registered(
@@ -2275,21 +2205,21 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             quality_report=quality_report,
         )
 
-        raw_writer_status = "skipped"
-        # Raw writer persistence (if configured)
+        # Delegate to optional raw writer if configured
+        raw_writer_status = None
         if self._raw_writer is not None:
             try:
-                # Add data_source for raw persistence context (e.g. YAHOO)
-                raw_record = record.copy()
-                raw_record["data_source"] = "YAHOO"
-
+                # Enrich record with source metadata for raw writer
+                record_with_meta = record.copy()
+                record_with_meta["data_source"] = "YAHOO"  # Default/Implied source for estimates
+                
                 self._raw_writer.write(
                     dataset_type=DatasetType.EARNINGS_ESTIMATES,
-                    data=[raw_record],
+                    data=[record_with_meta],
                 )
                 raw_writer_status = "ok"
-            except Exception:
-                logger.warning("Raw writer failed for earnings estimate", exc_info=True)
+            except Exception as exc:
+                logger.warning("Raw writer failed for earnings estimate: %s", exc)
                 raw_writer_status = "failed"
 
         try:
@@ -2307,6 +2237,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             logger.exception("Earnings estimate write failed for %s", ticker)
             raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
 
+        event_metadata: dict[str, float | str] = {"quality_score": quality_report.quality_score}
+        if raw_writer_status:
+            event_metadata["raw_writer_status"] = raw_writer_status
+
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -2318,10 +2252,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={
-                "quality_score": quality_report.quality_score,
-                "raw_writer_status": raw_writer_status,
-            },
+            metadata=event_metadata,
         )
 
         self._emit_success_event_and_update(
@@ -2630,9 +2561,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             data_frame_any = cast(Any, data_frame)
             null_count_total: int = _total_nulls(data_frame_any)
 
-            base_count = (
-                (total_records * len(cast(Any, data_frame).columns)) if total_records > 0 else 0
-            )
+            base_count = (total_records * len(cast(Any, data_frame).columns)) if total_records > 0 else 0
             null_rate = float(null_count_total) / float(base_count) if base_count else 0.0
 
             if "null_rate" in contract.quality_thresholds:
@@ -3015,11 +2944,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         field_name = rule.field_name
         params = rule.parameters
         pattern = str(params.get("pattern", ""))
-        if (
-            not pattern
-            or not hasattr(data_frame_any, "columns")
-            or field_name not in data_frame_any.columns
-        ):
+        if not pattern or not hasattr(data_frame_any, "columns") or field_name not in data_frame_any.columns:
             return None
 
         try:
@@ -3080,11 +3005,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             )
         return None
 
-    def _validate_range(
-        self,
-        rule: ValidationRule,
-        data_frame: object,
-    ) -> ValidationViolation | None:
+    def _validate_range(self, rule: ValidationRule, data_frame: object) -> ValidationViolation | None:
         """
         Validate values are within specified range.
         """
@@ -3345,9 +3266,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 from ml.common.dataframe_utils import total_nulls as _total
 
                 total_nulls = _total(data_frame_any)
-                fields_with_nulls = [
-                    col for col in data_frame_any.columns if _col_nulls(data_frame_any, col) > 0
-                ]
+                fields_with_nulls = [col for col in data_frame_any.columns if _col_nulls(data_frame_any, col) > 0]
 
                 if total_nulls > 0:
                     return ValidationViolation(
@@ -3505,11 +3424,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 violations_str,
             )
 
-    def _data_frame_to_feature_data(
-        self,
-        data_frame: DataFrameLike,
-        instrument_id: str,
-    ) -> list[FeatureData]:
+    def _data_frame_to_feature_data(self, data_frame: DataFrameLike, instrument_id: str) -> list[FeatureData]:
         """
         Convert DataFrame to list of FeatureData.
         """
@@ -3572,10 +3487,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return features
 
-    def _data_frame_to_predictions(
-        self,
-        data_frame: DataFrameLike | list[dict[str, Any]],
-    ) -> list[ModelPrediction]:
+    def _data_frame_to_predictions(self, data_frame: DataFrameLike | list[dict[str, Any]]) -> list[ModelPrediction]:
         """
         Convert DataFrame to list of ModelPrediction.
         """
@@ -3632,10 +3544,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         return predictions
 
-    def _data_frame_to_signals(
-        self,
-        data_frame: DataFrameLike | list[dict[str, Any]],
-    ) -> list[StrategySignal]:
+    def _data_frame_to_signals(self, data_frame: DataFrameLike | list[dict[str, Any]]) -> list[StrategySignal]:
         """
         Convert DataFrame to list of StrategySignal.
         """
@@ -3710,7 +3619,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         Historically the unit tests referenced `_df_to_predictions`; retain the typed
         wrapper so existing imports continue to work.
-
         """
         return self._data_frame_to_predictions(data_frame)
 
@@ -3732,8 +3640,6 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         """
         Ensure dataset is registered in the registry.
         """
-        from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
-
         try:
             self.registry.get_manifest(dataset_id)
         except ValueError:
@@ -3895,6 +3801,5 @@ def create_engine(connection_string: str) -> Any:
     -------
     Engine
         SQLAlchemy engine instance
-
     """
     return EngineManager.get_engine(connection_string)

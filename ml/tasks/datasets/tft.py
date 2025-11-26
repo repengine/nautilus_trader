@@ -21,6 +21,7 @@ from ml.data.vintage import VintagePolicy
 from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
 from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
 from ml.preprocessing.vintage_age import write_metadata
+from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 FeatureRoleName = Literal["teacher", "student", "inference_support"]
@@ -78,7 +79,11 @@ class TFTDatasetTaskConfig:
     macro_revision_windows: tuple[int, ...] | None = None
 
 
-def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
+def build_tft_dataset(
+    cfg: TFTDatasetTaskConfig,
+    *,
+    data_store: DataStoreFacadeProtocol | None = None,
+) -> BuildResult:
     """
     Build a TFT dataset using :mod:`ml.data` helpers.
     """
@@ -127,7 +132,7 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         macro_revision_mode=cfg.macro_revision_mode,
         macro_revision_windows=cfg.macro_revision_windows,
     )
-    result = _build_tft_dataset(dataset_cfg)
+    result = _build_tft_dataset(dataset_cfg, data_store=data_store)
     if not cfg.convert_vintage_to_age:
         return result
 

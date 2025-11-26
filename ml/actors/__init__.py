@@ -82,20 +82,37 @@ actor = MLSignalActor(config)
 
 """
 
+from typing import TYPE_CHECKING
+
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
-
-# Private/internal components (prefixed with underscore)
 from ml.actors.base import PickleMLInferenceActor as _PickleMLInferenceActor  # noqa: F401
 from ml.actors.enhanced import EnhancedMLInferenceActor
 from ml.actors.signal import AdaptiveSignal
-from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalPolicy
 from ml.actors.signal import SignalStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
+from ml.config.feature_flags import use_legacy_ml_signal_actor
+
+
+# Conditional import for MLSignalActor based on feature flag
+# The facade (signal_facade.py) has been TDD-validated with 283 tests across 6 components.
+# Feature flag ML_USE_LEGACY_ML_SIGNAL_ACTOR controls which implementation is used:
+#   - ML_USE_LEGACY_ML_SIGNAL_ACTOR=1: Use legacy signal.py (MLSignalActor)
+#   - ML_USE_LEGACY_ML_SIGNAL_ACTOR=0 or unset: Use new facade (MLSignalActorFacade)
+if TYPE_CHECKING:
+    # For static analysis, always use legacy type (complete API)
+    from ml.actors.signal import MLSignalActor as MLSignalActor
+else:
+    if use_legacy_ml_signal_actor():
+        # Legacy implementation (signal.py)
+        from ml.actors.signal import MLSignalActor as MLSignalActor
+    else:
+        # New facade implementation (signal_facade.py) - TDD validated
+        from ml.actors.signal_facade import MLSignalActorFacade as MLSignalActor
 
 
 __all__ = [

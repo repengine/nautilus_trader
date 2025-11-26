@@ -27,9 +27,8 @@ Notes
 
 from __future__ import annotations
 
-# Core orchestrator classes
-from ml.orchestration.binding_resolver import BindingResolver
-from ml.orchestration.binding_resolver import BindingResolverProtocol
+from ml.orchestration.checkpoint import PipelineCheckpoint
+from ml.orchestration.checkpoint import PipelineCheckpointProtocol
 from ml.orchestration.config_loader import IngestionStageConfig
 from ml.orchestration.config_loader import OrchestratorRunConfig
 from ml.orchestration.config_loader import Stage
@@ -37,8 +36,6 @@ from ml.orchestration.config_loader import TrainingStageConfig
 from ml.orchestration.config_loader import load_orchestrator_config
 from ml.orchestration.config_loader import load_orchestrator_run_config
 from ml.orchestration.config_loader import to_pipeline_args
-from ml.orchestration.config_resolver import ConfigResolver
-from ml.orchestration.config_resolver import ConfigResolverProtocol
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
@@ -48,14 +45,19 @@ from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import PromotionsConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
-from ml.orchestration.dataset_builder import BuildArtifacts
-from ml.orchestration.dataset_builder import DatasetBuilder
-from ml.orchestration.dataset_builder import DatasetBuilderProtocol
-from ml.orchestration.discovery_client import DiscoveryClient
-from ml.orchestration.discovery_client import DiscoveryClientProtocol
-from ml.orchestration.ingestion_coordinator import IngestionCoordinator
-from ml.orchestration.ingestion_coordinator import IngestionCoordinatorProtocol
-from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+from ml.orchestration.feature_flags import use_legacy_orchestrator
+
+
+# Core orchestrator classes - feature flag based selection
+# When ML_USE_LEGACY_ORCHESTRATOR=1/true/yes: use legacy implementation
+# When ML_USE_LEGACY_ORCHESTRATOR=0/false/no (default): use facade
+if use_legacy_orchestrator():
+    from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+else:
+    from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade as MLPipelineOrchestrator  # type: ignore[assignment]
+
+# Also export the facade directly for explicit usage
+from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
 
 # Promotion helpers
 from ml.orchestration.promotions import register_and_promote_model
@@ -65,37 +67,39 @@ from ml.orchestration.promotions import register_or_refresh_features
 from ml.orchestration.scheduler import compute_next_run
 from ml.orchestration.scheduler import run_forever
 
+# Pipeline signature validation
+from ml.orchestration.signature import PipelineSignatureValidator
+from ml.orchestration.signature import compute_pipeline_signature
+
+# Vintage policy enforcement
+from ml.orchestration.vintage import VintagePolicy
+
 # Configuration loading utilities
 from . import config_loader
 
 
 __all__ = [
     "AutoFillUniverseConfig",
-    "BindingResolver",
-    "BindingResolverProtocol",
-    "BuildArtifacts",
-    "ConfigResolver",
-    "ConfigResolverProtocol",
     "DatasetBuildConfig",
-    "DatasetBuilder",
-    "DatasetBuilderProtocol",
-    "DiscoveryClient",
-    "DiscoveryClientProtocol",
     "HPOConfig",
-    "IngestionCoordinator",
-    "IngestionCoordinatorProtocol",
     "IngestionStageConfig",
     "IntegrationConfig",
     "MLPipelineOrchestrator",
+    "MLPipelineOrchestratorFacade",
     "OrchestratorConfig",
     "OrchestratorRunConfig",
+    "PipelineCheckpoint",
+    "PipelineCheckpointProtocol",
+    "PipelineSignatureValidator",
     "PreIngestionOptions",
     "PromotionsConfig",
     "Stage",
     "StudentDistillConfig",
     "TeacherTrainConfig",
     "TrainingStageConfig",
+    "VintagePolicy",
     "compute_next_run",
+    "compute_pipeline_signature",
     "config_loader",
     "load_orchestrator_config",
     "load_orchestrator_run_config",
@@ -103,4 +107,5 @@ __all__ = [
     "register_or_refresh_features",
     "run_forever",
     "to_pipeline_args",
+    "use_legacy_orchestrator",
 ]

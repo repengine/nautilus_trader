@@ -8,6 +8,7 @@ import polars as pl
 
 from ml.preprocessing.event_ingestion import EventIngestionConfig
 from ml.preprocessing.event_ingestion import EventIngestionUtility
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 
 
 def _write_stub_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -88,3 +89,42 @@ def test_event_ingestion_creates_normalized_events(tmp_path: Path) -> None:
     # Ensure metadata for corporate event preserved
     earnings_rows = events_df.filter(pl.col("event_type") == "earnings")
     assert not earnings_rows.is_empty()
+
+
+def test_event_ingestion_writes_sql_when_data_store_provided(tmp_path: Path) -> None:
+    economic_stub = tmp_path / "economic.csv"
+    _write_stub_csv(
+        economic_stub,
+        [
+            {
+                "timestamp": "2024-02-15T13:30:00",
+                "event_type": "economic_release",
+                "name": "Retail Sales",
+                "importance": "HIGH",
+            },
+        ],
+    )
+    cfg = EventIngestionConfig(
+        start=datetime(2024, 2, 15, tzinfo=UTC),
+        end=datetime(2024, 2, 16, tzinfo=UTC),
+        out_dir=tmp_path / "events",
+        economic_stub_path=economic_stub,
+        include_options_expiry=False,
+    )
+
+    class _StubStore:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, pl.DataFrame]] = []
+
+        def write_ingestion(self, *, dataset_id: str, records: pl.DataFrame, source: str, run_id: str, instrument_id: str | None = None) -> None:  # type: ignore[override]
+            self.calls.append((dataset_id, records))
+
+    stub = _StubStore()
+    utility = EventIngestionUtility(cfg, data_store=stub, ingest_run_id="event_test")
+    path = utility.ingest()
+
+    assert path.exists()
+    assert stub.calls
+    dataset_id, records = stub.calls[0]
+    assert dataset_id == EVENTS_CALENDAR_DATASET_ID
+    assert "ts_event" in records.columns

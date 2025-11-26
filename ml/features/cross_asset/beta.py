@@ -20,10 +20,13 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
     from ml.features.cross_asset.state import EWMABetaState
+
+FloatArray = npt.NDArray[np.float64]
 
 # ===== Module metrics (idempotent) =====
 _metrics_init = False
@@ -144,10 +147,10 @@ def compute_ewma_beta_incremental(
 
 
 def compute_ewma_beta_batch(
-    asset_returns: np.ndarray,
-    market_returns: np.ndarray,
+    asset_returns: FloatArray,
+    market_returns: FloatArray,
     alpha: float = 0.94,
-) -> np.ndarray:
+) -> FloatArray:
     """
     Compute EWMA beta in batch (cold path - vectorized).
 
@@ -203,7 +206,7 @@ def compute_ewma_beta_batch(
 
     n = len(asset_returns)
     if n == 0:
-        return np.array([])
+        return np.array([], dtype=np.float64)
 
     # Pre-allocate output arrays
     ewma_cov = np.zeros(n, dtype=np.float64)

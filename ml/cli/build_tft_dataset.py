@@ -13,12 +13,16 @@ import uuid as _uuid
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
 from ml.data.vintage import VintagePolicy
+from ml.stores.data_store import DataStore
+from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.tasks.datasets import TFTDatasetTaskConfig
 from ml.tasks.datasets import build_tft_dataset
 
@@ -115,6 +119,24 @@ def _parse_market_inputs(value: str | None) -> tuple[MarketDatasetInput, ...] | 
     return tuple(inputs) if inputs else None
 
 
+def _resolve_dsn(args: argparse.Namespace) -> str:
+    candidates = (
+        getattr(args, "dsn", None),
+        os.getenv("FEATURE_STORE_CONNECTION"),
+        os.getenv("DB_CONNECTION"),
+        os.getenv("NAUTILUS_DB"),
+        os.getenv("DATABASE_URL"),
+    )
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    msg = (
+        "Database connection string required (use --dsn or set FEATURE_STORE_CONNECTION,"
+        " DB_CONNECTION, or DATABASE_URL)."
+    )
+    raise SystemExit(msg)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build TFT dataset artifacts")
     parser.add_argument("--data_dir", default="data/tier1")
@@ -154,6 +176,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--register_features", action="store_true")
     parser.add_argument("--feature_registry_dir")
     parser.add_argument(
+        "--dsn",
+        help="PostgreSQL DSN for SQL ingestion (default: FEATURE_STORE_CONNECTION / DB_CONNECTION / DATABASE_URL)",
+    )
+    parser.add_argument(
         "--convert-vintage-age",
         action="store_true",
         help="Convert *_value_vintage_ts columns into *_vintage_age_minutes after build.",
@@ -192,6 +218,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    events_dir = Path(args.events_dir) if args.events_dir else None
+    micro_base_dir = Path(args.micro_base_dir) if args.micro_base_dir else None
+    l2_base_dir = Path(args.l2_base_dir) if args.l2_base_dir else None
+    raw_writer = FeatureDatasetParquetRawWriter(
+        events_path=events_dir,
+        micro_base_dir=micro_base_dir,
+        l2_base_dir=l2_base_dir,
+    )
+    dsn = _resolve_dsn(args)
+    data_store: DataStoreFacadeProtocol = cast(
+        DataStoreFacadeProtocol,
+        DataStore(connection_string=dsn, raw_writer=raw_writer),
+    )
 
     try:
         vintage_policy = VintagePolicy(args.vintage_policy)
@@ -217,8 +256,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_context_features=args.include_context_features,
         include_earnings=args.include_earnings,
         earnings_lag_days=args.earnings_lag_days,
-        micro_base_dir=Path(args.micro_base_dir) if args.micro_base_dir else None,
-        l2_base_dir=Path(args.l2_base_dir) if args.l2_base_dir else None,
+        micro_base_dir=micro_base_dir,
+        l2_base_dir=l2_base_dir,
         chunk_days=args.chunk_days,
         start=_parse_optional_date(args.start),
         end=_parse_optional_date(args.end),
@@ -227,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         feature_role=args.feature_role,
         emit_dataset_events=args.emit_dataset_events,
         fred_vintage_dir=Path(args.fred_vintage_dir) if args.fred_vintage_dir else None,
-        events_base_dir=Path(args.events_dir) if args.events_dir else None,
+        events_base_dir=events_dir,
         student_mode=args.student_mode,
         market_dataset_id=args.market_dataset_id,
         market_inputs=_parse_market_inputs(args.market_inputs_json),
@@ -237,7 +276,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     LOGGER.info("Building TFT dataset %s", cfg)
-    result = build_tft_dataset(cfg)
+    result = build_tft_dataset(cfg, data_store=data_store)
 
     print(
         "Saved dataset to"

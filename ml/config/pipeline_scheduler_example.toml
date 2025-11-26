@@ -1,0 +1,72 @@
+stage = "full"
+
+[dataset]
+data_dir = "data/tier1"
+out_dir = "ml_out/tier1_full_dataset"
+# Use the Tier-1 universe alias; resolver expands this into 95 symbols.
+symbols = "@tier1_full"
+dataset_id = "tft_tier1_full"
+include_macro = true
+include_macro_deltas = true
+include_macro_revisions = true
+macro_revision_mode = "core"
+macro_lag_days = 1
+macro_staleness_hours = 12
+macro_series_ids = ["CPIAUCSL", "PCEPI", "PAYEMS", "UNRATE", "GDP", "FEDFUNDS"]
+include_micro = true
+include_l2 = true
+include_events = true
+include_calendar = true
+include_calendar_lags = true
+include_context_features = true
+include_earnings = true
+earnings_lag_days = 1
+horizon_minutes = 15
+threshold = 0.001
+lookback_periods = 45
+chunk_days = 30
+register_features = true
+feature_registry_dir = "ml_registry/features"
+emit_dataset_events = true
+
+[ingestion]
+enabled = true
+dataset_id = "EQUS.MINI"
+schema = "bars"
+instruments = "@tier1_full"
+lookback_days = 30
+coverage_mode = "catalog"
+write_mode = "sql+parquet"
+catalog_path = "data/catalog"
+catalog_clean_mode = "archive"
+catalog_backup_dir = "ml_out/catalog_archives"
+
+[auto_fill]
+enabled = true
+dataset_id = "EQUS.MINI"
+include_bars = true
+include_tbbo = true
+include_trades = true
+include_l2 = true
+l2_dataset_id = "DBEQ.BASIC"
+l2_schema = "mbp-10"
+l2_days = 14
+instrument_ids = "@tier1_full"
+
+[training.teacher]
+enabled = true
+model_id = "tft_teacher_tier1_full"
+feature_registry_dir = "ml_registry/features"
+feature_set_id = "tft_tier1_full"
+max_epochs = 5
+
+[training.hpo]
+enabled = false
+
+[integration]
+enabled = true
+db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
+auto_start_postgres = false
+auto_migrate = false
+ensure_healthy = true
+run_validators = false

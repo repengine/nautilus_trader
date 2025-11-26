@@ -230,9 +230,10 @@ class TestDataStoreEmitEvent:
         assert kwargs["source"] == "live"
         meta = cast(dict[str, Any], kwargs["metadata"])
         assert meta["custom"] == 1
-        assert meta["correlation_id"] == "SHOULD_NOT_WIN"
+        # Phase 0 behavior: correlation_id is enforced and cannot be overridden by metadata
+        assert meta["correlation_id"] != "SHOULD_NOT_WIN"
         assert len(capture.calls) == 1
         topic, payload = capture.calls[0]
         assert topic.startswith("ml.models.created.")
         assert payload["metadata"]["custom"] == 1
-        assert payload["metadata"]["correlation_id"] == "SHOULD_NOT_WIN"
+        assert payload["metadata"]["correlation_id"] != "SHOULD_NOT_WIN"

@@ -415,7 +415,12 @@ class MLIntegrationManager:
             logger.error("Event ingestion utility unavailable: %s", exc, exc_info=True)
             raise
 
-        utility = EventIngestionUtility(config)
+        run_id = f"event_ingest_{int(time.time())}"
+        utility = EventIngestionUtility(
+            config,
+            data_store=getattr(self, "data_store", None),
+            ingest_run_id=run_id,
+        )
         try:
             target = utility.ingest()
         except Exception as exc:  # pragma: no cover - runtime failure path
@@ -423,11 +428,11 @@ class MLIntegrationManager:
             logger.error("Event ingestion failed: %s", exc, exc_info=True)
             raise
         frame = utility.latest_frame()
-        if frame is not None:
+        if frame is not None and getattr(self, "data_store", None) is None:
             try:
                 self._persist_events_frame(
                     frame=frame,
-                    run_id=f"event_ingest_{int(time.time())}",
+                    run_id=run_id,
                 )
             except Exception:
                 logger.warning("Event SQL ingestion skipped due to failure", exc_info=True)
