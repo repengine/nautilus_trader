@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     FeatureConfigLike = FacadeFeatureConfig | EngineeringFeatureConfig
 else:
     # Runtime placeholder - actual type validation is structural
-    FeatureConfigLike: type = object  # type: ignore[misc]
+    FeatureConfigLike = Any
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class FeatureVersioning:
 
     def __init__(
         self,
-        feature_config: "FeatureConfigLike",  # type: ignore[valid-type]  # noqa: UP037
+        feature_config: "FeatureConfigLike",  # noqa: UP037
         pipeline_runner_offline: "PipelineRunner | None" = None,  # noqa: UP037
         pipeline_runner_online: "PipelineRunner | None" = None,  # noqa: UP037
         logger: logging.Logger | None = None,
@@ -124,7 +124,7 @@ class FeatureVersioning:
         """
         # Handle both dict-like and dataclass objects
         if hasattr(self._feature_config, "__dict__"):
-            config_dict = self._feature_config.__dict__  # type: ignore[attr-defined]
+            config_dict = self._feature_config.__dict__
         else:
             # For frozen dataclasses, convert to dict
             try:
@@ -193,7 +193,7 @@ class FeatureVersioning:
         # Import locally to avoid circular dependencies
         from ml.features import FeatureEngineer
 
-        engineer = FeatureEngineer(cast(Any, self._feature_config))  # type: ignore[operator]
+        engineer = FeatureEngineer(cast(Any, self._feature_config))
         return list(engineer.get_feature_names())
 
     def _get_feature_names_online(self) -> list[str]:
@@ -214,6 +214,6 @@ class FeatureVersioning:
         from ml.features.pipeline import PipelineRunner
         from ml.registry.base import DataRequirements
 
-        engineer = FeatureEngineer(cast(Any, self._feature_config))  # type: ignore[operator]
+        engineer = FeatureEngineer(cast(Any, self._feature_config))
         spec = engineer.build_pipeline_spec_from_config()
         return PipelineRunner(spec, allowable=DataRequirements.L1_ONLY).compute_feature_names()

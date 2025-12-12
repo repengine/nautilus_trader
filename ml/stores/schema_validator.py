@@ -3,6 +3,9 @@
 """
 Schema validation for ML data contracts.
 
+DEPRECATED: This module is deprecated. Use ml.stores.common.schema_validator instead.
+This file exists for backward compatibility and will be removed in a future release.
+
 This module provides comprehensive validation of data against schema contracts,
 including type checking, range validation, regex patterns, nullability, uniqueness,
 monotonicity, and lateness checks.
@@ -12,9 +15,12 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
 from typing import Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -25,49 +31,33 @@ from ml.stores.validation_types import QualityReport
 from ml.stores.validation_types import ValidationViolation
 
 
+warnings.warn(
+    "ml.stores.schema_validator is deprecated. "
+    "Use ml.stores.common.schema_validator instead. "
+    "This module will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
 logger = logging.getLogger(__name__)
 
-
-# ========================================================================
-# Prometheus Metrics (using centralized bootstrap pattern)
-# ========================================================================
-
-class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike: ...
-    def inc(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _HistogramLike(Protocol):
-    def labels(self, **kwargs: object) -> _HistogramLike: ...
-    def observe(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _NoOpMetric:
-    def labels(self, **_: object) -> _NoOpMetric:
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        return None
-
-    def observe(self, *_: object, **__: object) -> None:
-        return None
-
-
-# Declare metric variables
-validation_violations_counter: Any = _NoOpMetric()
-validation_duration_histogram: Any = _NoOpMetric()
-quality_score_histogram: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import quality_score_histogram as _qsh
-    from ml.common.metrics import validation_duration_histogram as _vd
-    from ml.common.metrics import validation_violations_counter as _vvc
-
-    quality_score_histogram = _qsh
-    validation_duration_histogram = _vd
-    validation_violations_counter = _vvc
-except Exception:
-    logger.debug("Metrics import failed; using no-op counters/histograms", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+validation_violations_counter = get_counter(
+    "ml_validation_violations_total",
+    "Total number of validation violations",
+    labelnames=["dataset_id", "rule_type", "severity"],
+)
+validation_duration_histogram = get_histogram(
+    "ml_validation_duration_seconds",
+    "Time taken for data validation",
+    labelnames=["dataset_id", "operation"],
+)
+quality_score_histogram = get_histogram(
+    "ml_quality_score",
+    "Distribution of data quality scores",
+    labelnames=["dataset_id"],
+)
 
 
 # ========================================================================
@@ -254,9 +244,10 @@ class SchemaValidator:
                 },
             )
             quality_score_histogram.labels(dataset_id=manifest.dataset_id).observe(quality_score)
-            validation_duration_histogram.labels(dataset_id=manifest.dataset_id).observe(
-                validation_time_ms / 1000
-            )
+            validation_duration_histogram.labels(
+                dataset_id=manifest.dataset_id,
+                operation="validate_batch",
+            ).observe(validation_time_ms / 1000)
 
             for violation in violations:
                 validation_violations_counter.labels(
@@ -781,8 +772,6 @@ class SchemaValidator:
         ValueError
             If validation fails and enforcement mode requires failure
         """
-        from ml._imports import HAS_PROMETHEUS
-
         if quality_report.quality_score >= 1.0:
             return
 

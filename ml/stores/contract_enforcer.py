@@ -3,6 +3,9 @@
 """
 Contract enforcement for ML data operations.
 
+DEPRECATED: This module is deprecated. Use ml.stores.common.contract_enforcer instead.
+This file exists for backward compatibility and will be removed in a future release.
+
 This module enforces data contracts and manages schema versions, including
 manifest/contract retrieval, caching, preflight validation, and schema
 migration window management.
@@ -12,10 +15,12 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
 from typing import Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import pd
+from ml.common.metrics_bootstrap import get_counter
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -24,35 +29,24 @@ from ml.stores.schema_validator import SchemaValidator
 from ml.stores.validation_types import QualityReport
 
 
+warnings.warn(
+    "ml.stores.contract_enforcer is deprecated. "
+    "Use ml.stores.common.contract_enforcer instead. "
+    "This module will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
 logger = logging.getLogger(__name__)
 
 
-# ========================================================================
-# Prometheus Metrics (using centralized bootstrap pattern)
-# ========================================================================
-
-class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike: ...
-    def inc(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _NoOpMetric:
-    def labels(self, **_: object) -> _NoOpMetric:
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        return None
-
-
-# Declare metric variables
-schema_mismatch_counter: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import schema_mismatch_counter as _smc
-
-    schema_mismatch_counter = _smc
-except Exception:
-    logger.debug("Metrics import failed; using no-op counter", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+schema_mismatch_counter = get_counter(
+    "ml_schema_mismatch_total",
+    "Total number of schema mismatches detected",
+    labelnames=["dataset", "mismatch_type"],
+)
 
 
 # ========================================================================

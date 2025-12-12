@@ -37,21 +37,21 @@ from ml.stores.common.data_writer import DataEvent
 from ml.stores.common.data_writer import DataWriterComponent
 from ml.stores.common.event_emitter import EventEmitterComponent
 from ml.stores.common.feature_computation import FeatureComputationComponent
-from ml.stores.common.feature_event import FeatureEventComponent
-from ml.stores.common.feature_event import FeatureEventConfig
-from ml.stores.common.feature_event import FeatureEventProtocol
 from ml.stores.common.feature_computation import FeatureComputationConfig
 from ml.stores.common.feature_computation import FeatureComputationProtocol
 from ml.stores.common.feature_computation import FeatureSchemaProtocol
+from ml.stores.common.feature_event import FeatureEventComponent
+from ml.stores.common.feature_event import FeatureEventConfig
+from ml.stores.common.feature_event import FeatureEventProtocol
 from ml.stores.common.feature_health import FeatureHealthComponent
 from ml.stores.common.feature_health import FeatureHealthConfig
 from ml.stores.common.feature_health import FeatureHealthProtocol
 from ml.stores.common.feature_reader import FeatureReaderComponent
+from ml.stores.common.feature_reader import FeatureReaderConfig
+from ml.stores.common.feature_reader import FeatureReaderProtocol
 from ml.stores.common.feature_schema import FeatureSchemaComponent
 from ml.stores.common.feature_schema import FeatureSchemaConfig
 from ml.stores.common.feature_schema import FeatureSchemaProtocol as FeatureSchemaComponentProtocol
-from ml.stores.common.feature_reader import FeatureReaderConfig
-from ml.stores.common.feature_reader import FeatureReaderProtocol
 from ml.stores.common.feature_writer import FeatureWriterComponent
 from ml.stores.common.feature_writer import FeatureWriterConfig
 from ml.stores.common.feature_writer import FeatureWriterProtocol
@@ -69,7 +69,6 @@ from ml.stores.common.store_operations import StoreOperationsComponent
 
 
 __all__ = [
-    # DataStore components
     "ContractEnforcerComponent",
     "ContractEnforcerProtocol",
     "DataEvent",
@@ -79,13 +78,6 @@ __all__ = [
     "DataWriterProtocol",
     "EventEmitterComponent",
     "EventEmitterProtocol",
-    "QualityReport",
-    "SchemaValidatorComponent",
-    "SchemaValidatorProtocol",
-    "StoreOperationsComponent",
-    "StoreOperationsProtocol",
-    "ValidationViolation",
-    # FeatureStore components (Phase 3.7.1, 3.7.2, 3.7.3, 3.7.4, 3.7.5, 3.7.6)
     "FeatureComputationComponent",
     "FeatureComputationConfig",
     "FeatureComputationProtocol",
@@ -106,4 +98,10 @@ __all__ = [
     "FeatureWriterConfig",
     "FeatureWriterProtocol",
     "MessagePublisherProtocol",
+    "QualityReport",
+    "SchemaValidatorComponent",
+    "SchemaValidatorProtocol",
+    "StoreOperationsComponent",
+    "StoreOperationsProtocol",
+    "ValidationViolation",
 ]

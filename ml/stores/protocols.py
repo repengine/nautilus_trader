@@ -131,6 +131,7 @@ class CoverageProviderProtocol(Protocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = ...,
         start_ns: int,
         end_ns: int,
     ) -> set[int]: ...
@@ -254,6 +255,15 @@ class DataStoreFacadeProtocol(Protocol):
         ts_event: int,
         model_id: str | None = ...,
     ) -> PredictionRecord | None: ...
+
+    def write_ingestion(
+        self,
+        dataset_id: str,
+        records: object,
+        source: str,
+        run_id: str,
+        instrument_id: str | None = ...,
+    ) -> object: ...
 
     def get_latest_signal_at_or_before(
         self,

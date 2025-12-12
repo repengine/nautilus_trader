@@ -18,8 +18,6 @@ import logging
 import os
 import time
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
-from dataclasses import field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
@@ -28,18 +26,21 @@ from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
 from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.events_util import build_bus_payload
+from ml.common.events_util import to_source_enum
 from ml.common.events_util import to_source_str
+from ml.common.events_util import to_stage_enum
+from ml.common.events_util import to_status_enum
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 from ml.common.protocols import MLComponentMixin
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-
-# Re-export EngineManager for test mocking
 from ml.core.db_engine import EngineManager
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.ml_types import DataFrameLike
@@ -68,6 +69,9 @@ from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import PredictionRecord
 from ml.stores.protocols import SignalRecord
 from ml.stores.strategy_store import StrategyStore
+from ml.stores.validation_types import DataEvent
+from ml.stores.validation_types import QualityReport
+from ml.stores.validation_types import ValidationViolation
 
 
 if TYPE_CHECKING:
@@ -112,178 +116,49 @@ else:  # pragma: no cover - pandas optional in some environments
 
 logger = logging.getLogger(__name__)
 
-# ========================================================================
-# Prometheus Metrics
-# ========================================================================
+
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+validation_violations_counter = get_counter(
+    "ml_validation_violations_total",
+    "Total number of validation violations",
+    labelnames=["dataset_id", "rule_type", "severity"],
+)
+validation_duration_histogram = get_histogram(
+    "ml_validation_duration_seconds",
+    "Time taken for data validation",
+    labelnames=["dataset_id", "operation"],
+)
+schema_mismatch_counter = get_counter(
+    "ml_schema_mismatch_total",
+    "Total number of schema mismatches detected",
+    labelnames=["dataset", "mismatch_type"],
+)
+write_rejection_counter = get_counter(
+    "ml_write_rejections_total",
+    "Total number of write rejections",
+    labelnames=["dataset_id", "reason"],
+)
+quality_score_histogram = get_histogram(
+    "ml_quality_score",
+    "Distribution of data quality scores",
+    labelnames=["dataset_id"],
+)
 
 
-class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike: ...
-
-    def inc(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _HistogramLike(Protocol):
-    def labels(self, **kwargs: object) -> _HistogramLike: ...
-
-    def observe(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _NoOpMetric:
-    def labels(self, **_: object) -> _NoOpMetric:
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        return None
-
-    def observe(self, *_: object, **__: object) -> None:
-        return None
-
-
-# Declare metric variables once; assign real or no-op implementations below
-validation_violations_counter: Any = _NoOpMetric()
-validation_duration_histogram: Any = _NoOpMetric()
-schema_mismatch_counter: Any = _NoOpMetric()
-write_rejection_counter: Any = _NoOpMetric()
-quality_score_histogram: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import quality_score_histogram as _qsh
-    from ml.common.metrics import schema_mismatch_counter as _smc
-    from ml.common.metrics import validation_duration_histogram as _vd
-    from ml.common.metrics import validation_violations_counter as _vvc
-    from ml.common.metrics import write_rejection_counter as _wrc
-
-    quality_score_histogram = _qsh
-    schema_mismatch_counter = _smc
-    validation_duration_histogram = _vd
-    validation_violations_counter = _vvc
-    write_rejection_counter = _wrc
-except Exception:
-    # Keep no-ops assigned
-    logger.debug("Metrics import failed; using no-op counters/histograms", exc_info=True)
-
-
-# ========================================================================
-# Data Events and Quality Reports
-# ========================================================================
-
-
-@dataclass(frozen=True)
-class DataEvent:
-    """
-    Event tracking data operations in the store.
-
-    Attributes
-    ----------
-    event_id : str
-        Unique event identifier
-    dataset_id : str
-        Dataset identifier
-    instrument_id : str
-        Instrument identifier
-    operation : str
-        Operation type (write_ingestion, write_features, etc.)
-    source : str
-        Data source (live, historical, backfill)
-    run_id : str
-        Processing run identifier
-    ts_min : int
-        Minimum timestamp in nanoseconds
-    ts_max : int
-        Maximum timestamp in nanoseconds
-    record_count : int
-        Number of records processed
-    status : str
-        Operation status (success, failed, partial)
-    error_message : str | None
-        Error message if failed
-    created_at : int
-        Event creation timestamp in nanoseconds
-    metadata : dict[str, Any]
-        Additional event metadata
-
-    """
-
-    event_id: str
-    dataset_id: str
-    instrument_id: str
-    operation: str
-    source: str
-    run_id: str
-    ts_min: int
-    ts_max: int
-    record_count: int
-    status: str
-    error_message: str | None = None
-    created_at: int = field(default_factory=time.time_ns)
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class QualityReport:
-    """
-    Quality validation report for a batch of data.
-
-    Attributes
-    ----------
-    dataset_id : str
-        Dataset identifier
-    total_records : int
-        Total number of records validated
-    passed_records : int
-        Number of records that passed validation
-    failed_records : int
-        Number of records that failed validation
-    quality_score : float
-        Overall quality score (0-1)
-    violations : list[ValidationViolation]
-        List of validation rule violations
-    validation_time_ms : float
-        Time taken for validation in milliseconds
-    metadata : dict[str, Any]
-        Additional metadata
-
-    """
-
-    dataset_id: str
-    total_records: int
-    passed_records: int
-    failed_records: int
-    quality_score: float
-    violations: list[ValidationViolation]
-    validation_time_ms: float
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ValidationViolation:
-    """
-    Details of a validation rule violation.
-
-    Attributes
-    ----------
-    rule_type : ValidationRuleType
-        Type of validation rule violated
-    field_name : str
-        Field that failed validation
-    severity : QualityFlag
-        Severity of the violation
-    violation_count : int
-        Number of records with this violation
-    sample_values : list[Any]
-        Sample of violating values (max 5)
-    description : str
-        Human-readable description
-
-    """
-
-    rule_type: ValidationRuleType
-    field_name: str
-    severity: QualityFlag
-    violation_count: int
-    sample_values: list[Any]
-    description: str
+__all__ = [
+    "EARNINGS_ACTUALS_DATASET_ID",
+    "EARNINGS_ESTIMATES_DATASET_ID",
+    "DataEvent",
+    "DataStore",
+    "EngineManager",
+    "QualityReport",
+    "ValidationViolation",
+    "quality_score_histogram",
+    "schema_mismatch_counter",
+    "validation_duration_histogram",
+    "validation_violations_counter",
+    "write_rejection_counter",
+]
 
 
 # ========================================================================
@@ -828,13 +703,13 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             Additional metadata to attach to the event.
 
         """
-        # Normalize inputs (be tolerant of unknown sources by defaulting to 'live')
-        stage_enum = stage if isinstance(stage, Stage) else Stage(str(stage).upper())
+        # Normalize inputs (robust to historical aliases)
+        stage_enum = self._coerce_stage(stage)
+        source_enum = to_source_enum(source)
         try:
-            source_enum = Source(source) if not isinstance(source, Source) else source
-        except Exception:
-            source_enum = Source.LIVE
-        status_enum = EventStatus(status) if not isinstance(status, EventStatus) else status
+            status_enum = to_status_enum(status)
+        except ValueError:
+            status_enum = EventStatus.SUCCESS
 
         # Build correlation_id and merged metadata once
         corr_id = make_correlation_id(
@@ -927,12 +802,12 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         """
         # Lightweight path for tests: avoid registry round-trip and focus on bus publish
-        stage_enum = stage if isinstance(stage, Stage) else Stage(str(stage).upper())
+        stage_enum = self._coerce_stage(stage)
+        source_enum = to_source_enum(source)
         try:
-            source_enum = Source(source) if not isinstance(source, Source) else source
-        except Exception:
-            source_enum = Source.LIVE
-        status_enum = EventStatus(status) if not isinstance(status, EventStatus) else status
+            status_enum = to_status_enum(status)
+        except ValueError:
+            status_enum = EventStatus.SUCCESS
 
         # Deterministic correlation id for payload metadata
         corr_id = make_correlation_id(
@@ -1564,17 +1439,15 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
             # Centralized event + watermark emission via helper (best-effort)
             try:
-                # Map source string to enum for helper
-                try:
-                    src_enum = Source(source) if not isinstance(source, Source) else source
-                except Exception:
-                    src_enum = Source.LIVE
+                # Normalize inputs for helper
+                src_enum = to_source_enum(source)
+                stage_enum = self._coerce_stage(stage)
 
                 emit_dataset_event_and_watermark(
                     self.registry,
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=Stage(stage) if not isinstance(stage, Stage) else stage,
+                    stage=stage_enum,
                     source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min_s,
@@ -1594,11 +1467,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 # Publish to message bus on success (non-blocking best-effort)
                 if self._enable_publishing and self.publisher is not None:
                     try:
-                        stage_enum = Stage(stage) if not isinstance(stage, Stage) else stage
-                        # Normalize source
-                        src_norm = str(source).lower()
-                        if src_norm not in {"live", "historical", "backfill"}:
-                            src_norm = "live"
+                        src_norm = to_source_str(src_enum)
                         # Deterministic correlation id
                         correlation_id = make_correlation_id(
                             run_id=run_id,
@@ -1614,18 +1483,18 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                             scheme=self._topic_scheme,
                             prefix=self._topic_prefix,
                         )
-                        payload: dict[str, Any] = {
-                            "dataset_id": dataset_id,
-                            "instrument_id": instrument_id,
-                            "stage": stage_enum.value,
-                            "source": src_norm,
-                            "run_id": run_id,
-                            "ts_min": ts_min_s,
-                            "ts_max": ts_max_s,
-                            "count": len(data_frame),
-                            "status": EventStatus.SUCCESS.value,
-                            "metadata": {"correlation_id": correlation_id},
-                        }
+                        payload = build_bus_payload(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            stage=stage_enum,
+                            source=src_norm,
+                            run_id=run_id,
+                            ts_min=ts_min_s,
+                            ts_max=ts_max_s,
+                            count=len(data_frame),
+                            status=EventStatus.SUCCESS,
+                            metadata={"correlation_id": correlation_id},
+                        )
                         self.publisher.publish(topic, payload)
                     except Exception:
                         logger.exception("Message bus publish failed for dataset %s", dataset_id)
@@ -2253,14 +2122,14 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 source_norm = "live"
 
             # Centralized event + watermark (best-effort)
-            # Normalize source and map to enum for helper
-            src_enum = Source(source_norm) if not isinstance(source_norm, Source) else source_norm
+            src_enum = to_source_enum(source_norm)
+            stage_enum = self._coerce_stage(stage)
 
             emit_dataset_event_and_watermark(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                stage=Stage(stage) if not isinstance(stage, Stage) else stage,
+                stage=stage_enum,
                 source=src_enum,
                 run_id=run_id,
                 ts_min=ts_min,
@@ -2275,7 +2144,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             if self._enable_publishing and self.publisher is not None:
                 try:
                     topic = build_topic_for_stage(
-                        Stage(stage),
+                        stage_enum,
                         instrument_id,
                         scheme=self._topic_scheme,
                         prefix=self._topic_prefix,
@@ -2290,8 +2159,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 payload = build_bus_payload(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=stage,
-                    source=source_norm,
+                    stage=stage_enum,
+                    source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
@@ -2531,6 +2400,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         if HAS_PROMETHEUS:
             validation_duration_histogram.labels(
                 dataset_id=dataset_id,
+                operation="validate_batch",
             ).observe(validation_time_ms / 1000.0)
 
             quality_score_histogram.labels(
@@ -2677,7 +2547,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         try:
             # Normalize inputs (robust to historical aliases)
             stage_enum = self._coerce_stage(stage)
-            source_enum = Source(source) if not isinstance(source, Source) else source
+            source_enum = to_source_enum(source)
 
             # Use centralized helper to ensure correlation_id is attached consistently
             from ml.common.event_emitter import emit_dataset_event as _emit
@@ -2720,7 +2590,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         try:
             # Normalize inputs (robust to historical aliases)
             stage_enum = self._coerce_stage(stage)
-            source_enum = Source(source) if not isinstance(source, Source) else source
+            source_enum = to_source_enum(source)
 
             # Use centralized helper to ensure correlation_id is attached consistently
             from ml.common.event_emitter import emit_dataset_event as _emit
@@ -2764,41 +2634,16 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             Canonical Stage enum value.
 
         """
-        if isinstance(stage, Stage):
-            return stage
-        s_raw = str(stage).strip()
-        if not s_raw:
-            return Stage.DATA_INGESTED
-        s = s_raw.upper()
-        # Direct match on enum values
         try:
-            return Stage(s)
-        except Exception as exc:
+            return to_stage_enum(stage)
+        except ValueError as exc:
             logger.debug(
-                "Coerce Stage(%s) failed; using alias mapping: %s",
-                s,
+                "Coerce stage(%s) failed; defaulting to DATA_INGESTED: %s",
+                stage,
                 exc,
                 exc_info=True,
             )
-        # Historical aliases (lowercased for matching)
-        sl = s_raw.lower()
-        if sl in {
-            "feature_engineering",
-            "features_engineered",
-            "features_computed",
-            "feature_computed",
-        }:
-            return Stage.FEATURE_COMPUTED
-        if sl in {"model_inference", "prediction", "predictions_emitted", "prediction_emitted"}:
-            return Stage.PREDICTION_EMITTED
-        if sl in {"data_ingested", "ingested", "ingest", "data_ingest"}:
             return Stage.DATA_INGESTED
-        if sl in {"catalog_written", "catalog_write", "catalog"}:
-            return Stage.CATALOG_WRITTEN
-        if sl in {"signal_emitted", "signal_generation", "signal_generated", "emit_signal"}:
-            return Stage.SIGNAL_EMITTED
-        # Conservative default
-        return Stage.DATA_INGESTED
 
     def _apply_validation_rule(
         self,

@@ -383,6 +383,31 @@ $$ LANGUAGE plpgsql;
         logger.debug("Helper function ensure failed (ignored): %s", exc, exc_info=True)
 
 
+def ensure_partition_helpers(connection_string: str) -> None:
+    """
+    Deploy partition helper functions to the database.
+
+    This function ensures the necessary SQL helper functions for partition
+    management are installed in the target database. It should be called
+    during orchestrator bootstrap to ensure partitioning infrastructure
+    is available.
+
+    Parameters
+    ----------
+    connection_string : str
+        PostgreSQL connection string.
+
+    Raises
+    ------
+    RuntimeError
+        If deploying helper functions fails.
+
+    """
+    engine = get_or_create_engine(connection_string)
+    with engine.begin() as conn:
+        _ensure_helper_functions(conn)
+
+
 def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
     engine = get_or_create_engine(connection_string)
     summary: dict[str, bool | str] = {"ok": True}

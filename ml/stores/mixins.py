@@ -31,11 +31,12 @@ from sqlalchemy import text as _satext
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml.common.db_utils import get_or_create_engine
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_manager import MetricsManager
 from ml.config.events import EventStatus
 from ml.config.events import Stage
-from ml.common.db_utils import get_or_create_engine
+from ml.core.db_engine import EngineManager
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.utils import get_default_registry_path

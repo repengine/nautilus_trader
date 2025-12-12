@@ -30,6 +30,7 @@ import numpy.typing as npt
 from ml._imports import HAS_PROMETHEUS
 from ml.common.error_handlers import with_fallback
 from ml.common.event_emitter import emit_dataset_event_and_watermark
+from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -43,48 +44,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# No-op Metrics for when Prometheus is unavailable
-# =========================================================================
-
-
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-
-# Declare metric variables once
-feature_event_emission_counter: Any = _NoOpMetric()
-feature_event_emission_errors: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics_bootstrap import get_counter
-
-    feature_event_emission_counter = get_counter(
-        "ml_feature_event_emissions_total",
-        "Total number of feature events emitted by FeatureStore",
-        labelnames=["event_type", "status"],
-    )
-    feature_event_emission_errors = get_counter(
-        "ml_feature_event_emission_errors_total",
-        "Total number of feature event emission errors",
-        labelnames=["event_type", "error_type"],
-    )
-except Exception:
-    logger.debug("Metrics bootstrap failed; using no-op counters", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+feature_event_emission_counter = get_counter(
+    "ml_feature_event_emissions_total",
+    "Total number of feature events emitted by FeatureStore",
+    labelnames=["event_type", "status"],
+)
+feature_event_emission_errors = get_counter(
+    "ml_feature_event_emission_errors_total",
+    "Total number of feature event emission errors",
+    labelnames=["event_type", "error_type"],
+)
 
 
 # =========================================================================

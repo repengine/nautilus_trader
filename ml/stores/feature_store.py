@@ -166,17 +166,26 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         # Optional persistence manager (mock-friendly)
         self.persistence: object | None = persistence_manager
         # Accept both FeatureConfig and MLFeatureConfig; normalize to FeatureConfig
-        if isinstance(feature_config, FeatureConfig):
-            self.feature_config: FeatureConfig = feature_config
-        elif isinstance(feature_config, MLFeatureConfig):
+        def _coerce_feature_config(cfg: object) -> FeatureConfig:
+            from ml.registry.base import DataRequirements as _DR
+
             try:
                 import msgspec as _msgspec
 
-                self.feature_config = FeatureConfig(**_msgspec.to_builtins(feature_config))
+                raw = _msgspec.to_builtins(cfg)
             except Exception:
-                self.feature_config = FeatureConfig(**getattr(feature_config, "__dict__", {}))
-        else:
-            self.feature_config = FeatureConfig()
+                raw = getattr(cfg, "__dict__", {}) or {}
+            allowed_fields = set(FeatureConfig.__annotations__.keys())
+            filtered: dict[str, Any] = {k: v for k, v in raw.items() if k in allowed_fields}
+            data_req = filtered.get("data_requirements")
+            if isinstance(data_req, str):
+                try:
+                    filtered["data_requirements"] = _DR(data_req)
+                except Exception:
+                    pass
+            return FeatureConfig(**filtered) if filtered else FeatureConfig()
+
+        self.feature_config = FeatureConfig() if feature_config is None else _coerce_feature_config(feature_config)
         self.pipeline_spec = pipeline_spec
 
         # Create engine and setup tables (reflect partitioned table created by migrations)
@@ -1678,6 +1687,10 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             ts_event=int(cast(int, ts_event)),
             ts_init=int(cast(int, ts_init)),
         )
+
+
+# Backwards-compat alias for tests that reference the old name
+ComponentFeatureStore = FeatureStore
 
 
 # Module-level delegation function for EngineManager integration

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
 from ml.common.message_topics import build_topic_for_stage
+from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -31,48 +32,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# No-op Metrics for when Prometheus is unavailable
-# =========================================================================
-
-
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-
-# Declare metric variables once
-event_emission_counter: Any = _NoOpMetric()
-event_emission_errors: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics_bootstrap import get_counter
-
-    event_emission_counter = get_counter(
-        "ml_datastore_event_emissions_total",
-        "Total number of events emitted by DataStore",
-        labelnames=["event_type", "status"],
-    )
-    event_emission_errors = get_counter(
-        "ml_datastore_event_emission_errors_total",
-        "Total number of event emission errors",
-        labelnames=["event_type", "error_type"],
-    )
-except Exception:
-    logger.debug("Metrics bootstrap failed; using no-op counters", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+event_emission_counter = get_counter(
+    "ml_datastore_event_emissions_total",
+    "Total number of events emitted by DataStore",
+    labelnames=["event_type", "status"],
+)
+event_emission_errors = get_counter(
+    "ml_datastore_event_emission_errors_total",
+    "Total number of event emission errors",
+    labelnames=["event_type", "error_type"],
+)
 
 
 # =========================================================================

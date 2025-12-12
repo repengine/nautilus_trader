@@ -17,6 +17,7 @@ from typing import Any, Protocol, cast
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import pd
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -32,6 +33,7 @@ from ml.stores.contract_enforcer import ContractEnforcer
 from ml.stores.feature_dataset_store import FeatureDatasetStore
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.schema_validator import SchemaValidator
+from ml.stores.validation_types import DataEvent
 
 
 logger = logging.getLogger(__name__)
@@ -41,68 +43,12 @@ EARNINGS_ACTUALS_DATASET_ID = "earnings_actuals"
 EARNINGS_ESTIMATES_DATASET_ID = "earnings_estimates"
 
 
-# ========================================================================
-# Prometheus Metrics (using centralized bootstrap pattern)
-# ========================================================================
-
-class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike: ...
-    def inc(self, *args: object, **kwargs: object) -> None: ...
-
-
-class _NoOpMetric:
-    def labels(self, **_: object) -> _NoOpMetric:
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        return None
-
-
-# Declare metric variables
-write_rejection_counter: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import write_rejection_counter as _wrc
-
-    write_rejection_counter = _wrc
-except Exception:
-    logger.debug("Metrics import failed; using no-op counter", exc_info=True)
-
-
-# ========================================================================
-# Helper Types for Event Emission
-# ========================================================================
-
-class DataEvent:
-    """Simple data event container for write operations."""
-
-    def __init__(
-        self,
-        event_id: str,
-        dataset_id: str,
-        instrument_id: str,
-        operation: str,
-        source: str,
-        run_id: str,
-        ts_min: int,
-        ts_max: int,
-        record_count: int,
-        status: str,
-        metadata: dict[str, Any] | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        self.event_id = event_id
-        self.dataset_id = dataset_id
-        self.instrument_id = instrument_id
-        self.operation = operation
-        self.source = source
-        self.run_id = run_id
-        self.ts_min = ts_min
-        self.ts_max = ts_max
-        self.record_count = record_count
-        self.status = status
-        self.metadata = metadata or {}
-        self.error_message = error_message
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+write_rejection_counter = get_counter(
+    "ml_write_rejections_total",
+    "Total number of write rejections",
+    labelnames=["dataset_id", "reason"],
+)
 
 
 # ========================================================================

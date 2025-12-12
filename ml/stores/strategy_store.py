@@ -20,6 +20,7 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
+from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml.common.message_bus import BusPublisherMixin
@@ -45,10 +46,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
+    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -784,7 +785,7 @@ class StrategyStore(
 
 
 # Module-level delegation function for EngineManager integration
-def create_engine(connection_string: str):
+def create_engine(connection_string: str) -> Engine:
     """
     Create database engine delegating to EngineManager.
 

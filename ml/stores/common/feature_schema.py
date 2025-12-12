@@ -18,7 +18,7 @@ import json
 import logging
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from sqlalchemy import BIGINT
 from sqlalchemy import BOOLEAN
@@ -361,11 +361,11 @@ class FeatureSchemaComponent:
 
         """
         if self.pipeline_runner_offline is not None:
-            return self.pipeline_runner_offline.compute_feature_names()
+            return list(self.pipeline_runner_offline.compute_feature_names())
 
         # Fallback to FeatureEngineer
         if self._feature_engineer is not None:
-            return self._feature_engineer.get_feature_names()
+            return cast(list[str], self._feature_engineer.get_feature_names())
 
         # Last resort: create FeatureEngineer from config
         if self.feature_config is not None:
@@ -378,6 +378,7 @@ class FeatureSchemaComponent:
                     "Failed to get feature names from FeatureEngineer",
                     exc_info=True,
                 )
+        return []
 
         return []
 

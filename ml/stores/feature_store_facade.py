@@ -30,7 +30,6 @@ import numpy as np
 import numpy.typing as npt
 
 from ml.common.db_utils import get_or_create_engine
-from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.base import MLFeatureConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
@@ -48,6 +47,7 @@ from ml.stores.common.feature_schema import FeatureSchemaComponent
 from ml.stores.common.feature_schema import FeatureSchemaConfig
 from ml.stores.common.feature_writer import FeatureWriterComponent
 from ml.stores.common.feature_writer import FeatureWriterConfig
+from ml.stores.common.feature_writer import MessagePublisherProtocol
 from ml.stores.mixins import DataRegistryMixin
 
 
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from ml.features.engineering import IndicatorManager
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.protocols import CircuitBreakerProtocol
+    from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,11 @@ class FeatureStoreFacade(DataRegistryMixin):
             publisher=publisher,
             config=self._writer_config,
         )
+
+        # Store the original component execute method and redirect through facade
+        # This enables mocking store._execute_write in tests (backward compat)
+        self._component_execute_write = self._writer_component._execute_write
+        self._writer_component._execute_write = self._facade_execute_write_redirect  # type: ignore[method-assign]
 
         # Initialize reader component
         self._reader_component = FeatureReaderComponent(
@@ -786,14 +792,26 @@ class FeatureStoreFacade(DataRegistryMixin):
         """
         return None
 
+    def _facade_execute_write_redirect(self, row: dict[str, Any]) -> None:
+        """
+        Redirect from component to facade's _execute_write.
+
+        This method is assigned to the component's _execute_write to enable
+        mocking store._execute_write in tests while still affecting the
+        component's internal calls.
+
+        """
+        self._execute_write(row)
+
     def _execute_write(self, row: dict[str, Any]) -> None:  # pragma: no cover
         """
         Upsert a single feature row (patchable in tests).
 
-        Delegates to writer component.
+        Calls the original component execute method. When this method is mocked
+        in tests, the mock will be called instead of the real SQL execution.
 
         """
-        self._writer_component._execute_write(row)
+        self._component_execute_write(row)
 
     def _execute_query(self, sql: str) -> list[Any]:  # pragma: no cover (test hook)
         """
@@ -894,6 +912,41 @@ class FeatureStoreFacade(DataRegistryMixin):
             ts_stage_end=ts_stage_end,
             row_count=row_count,
         )
+
+    # =========================================================================
+    # Cross-Asset Service (lazy-initialized)
+    # =========================================================================
+
+    @property
+    def cross_asset(self) -> CrossAssetFeatureService:
+        """
+        Access the cross-asset feature service for beta, spread, and correlation storage.
+
+        Lazy-initialized on first access.
+
+        Returns
+        -------
+        CrossAssetFeatureService
+            Service for cross-asset relationship features.
+
+        Example:
+            >>> store = FeatureStoreFacade(connection_string="postgresql://...")
+            >>> store.cross_asset.write_beta(
+            ...     asset_id="AAPL",
+            ...     benchmark_id="SPY",
+            ...     ts_event=1234567890000000000,
+            ...     ts_init=1234567890000000000,
+            ...     beta=1.25,
+            ...     lookback_periods=60,
+            ...     ewma_span=30,
+            ... )
+
+        """
+        if not hasattr(self, "_cross_asset_service"):
+            from ml.stores.services.cross_asset_service import CrossAssetFeatureService
+
+            self._cross_asset_service = CrossAssetFeatureService(deps=self)
+        return self._cross_asset_service
 
 
 # Module-level delegation function for EngineManager integration

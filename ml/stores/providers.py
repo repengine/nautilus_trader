@@ -3,14 +3,12 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any, Final, cast
 
 import pandas as pd
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
 from sqlalchemy import BIGINT
 from sqlalchemy import Column
 from sqlalchemy import MetaData
@@ -25,10 +23,18 @@ from sqlalchemy.sql import table as sa_table
 
 from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
+from ml.schema import default_identifier_template_for_dataset_type
+from ml.schema import map_schema_to_dataset_type
+from ml.schema import schema_to_dataclass
+from ml.schema import schema_to_identifier_template
+from ml.schema import validate_dataset_type_templates
+from ml.schema import validate_identifier_template
+from ml.schema import validate_schema_identifier_templates
 from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.persistence.funcs import urisafe_identifier
 
 
 DAY_NS: Final[int] = 86_400_000_000_000
@@ -45,14 +51,7 @@ def _validate_identifier(identifier: str, *, label: str) -> str:
 
 
 def _schema_to_dataclass(schema: str) -> type[Any]:
-    s = schema.lower()
-    if "bar" in s or "ohlcv" in s:
-        return cast(type[Any], Bar)
-    if "tbbo" in s or "quote" in s:
-        return cast(type[Any], QuoteTick)
-    if "trade" in s:
-        return cast(type[Any], TradeTick)
-    return cast(type[Any], Bar)
+    return schema_to_dataclass(schema)
 
 
 @dataclass(slots=True)
@@ -62,9 +61,24 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
     """
 
     catalog_path: str
+    identifier_template: str | None = None
+    schema_identifier_templates: Mapping[str, str] | None = None
+    dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None
+    use_uri_safe_identifiers: bool = True
 
     def __post_init__(self) -> None:
         self._catalog = ParquetDataCatalog(self.catalog_path)
+        self._schema_templates: dict[str, str] = validate_schema_identifier_templates(
+            self.schema_identifier_templates,
+        )
+        self._dataset_templates: dict[DatasetType, str] = validate_dataset_type_templates(
+            self.dataset_type_identifier_templates,
+        )
+        self._identifier_template: str | None = (
+            validate_identifier_template(self.identifier_template, label="identifier_template")
+            if self.identifier_template is not None
+            else None
+        )
 
     def read_bucket_coverage(
         self,
@@ -72,11 +86,22 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = None,
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
         data_cls = _schema_to_dataclass(schema)
-        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=instrument_id)
+        dataset_type = map_schema_to_dataset_type(schema)
+        identifier = resolve_catalog_identifier(
+            schema=schema,
+            instrument_id=instrument_id,
+            identifier_template=self._identifier_template,
+            schema_templates=self._schema_templates,
+            dataset_type=dataset_type,
+            dataset_templates=self._dataset_templates,
+            uri_safe=self.use_uri_safe_identifiers,
+        )
+        intervals = self._catalog.get_intervals(data_cls=data_cls, identifier=identifier)
         if not intervals:
             return set()
         buckets: set[int] = set()
@@ -108,6 +133,7 @@ class SqlCoverageProvider(CoverageProviderProtocol):
     connection_string: str
     table_name: str = "market_data"
     ts_field: str = "ts_event"
+    dataset_overrides: dict[str, object] | None = None
     _engine: Engine = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -121,6 +147,7 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = None,
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
@@ -144,6 +171,25 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         with self._engine.connect() as conn:
             rows = conn.execute(stmt, params).fetchall()
         return {int(r[0]) for r in rows}
+
+    def latest_timestamp_ns(self, *, dataset_id: str, instrument_id: str) -> int | None:
+        """
+        Return the latest timestamp seen for an instrument, or None when missing.
+        """
+        _ = dataset_id
+        table = sa_table(
+            self.table_name,
+            sa_column("instrument_id"),
+            sa_column(self.ts_field),
+        )
+        stmt: Any = (
+            sa_select(sa_func.max(sa_column(self.ts_field)))
+            .select_from(table)
+            .where(sa_column("instrument_id") == bindparam("instrument_id"))
+        )
+        with self._engine.connect() as conn:
+            result = conn.execute(stmt, {"instrument_id": instrument_id}).scalar()
+        return int(result) if result is not None else None
 
 
 @dataclass(slots=True)
@@ -442,11 +488,12 @@ class NullCoverageProvider(CoverageProviderProtocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = None,
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
         """Return empty coverage set."""
-        _ = dataset_id, schema, instrument_id, start_ns, end_ns
+        _ = dataset_id, schema, instrument_id, entity_field, start_ns, end_ns
         return set()
 
 
@@ -463,8 +510,21 @@ class ParquetCoverageSpec:
         Field used for partitioning (default: "date")
     """
 
+    dataset_id: str
     base_path: str
     partition_field: str = "date"
+    timestamp_field: str = "ts_event"
+    partition_template: str | None = None
+
+    def files_for_instrument(self, instrument_id: str) -> list[str]:
+        """
+        Return parquet files for a given instrument.
+
+        The default implementation returns an empty list so callers can safely
+        handle missing mirrors without raising.
+        """
+        _ = instrument_id
+        return []
 
 
 @dataclass(slots=True)
@@ -473,7 +533,14 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
     Coverage provider for partitioned parquet files.
     """
 
-    spec: ParquetCoverageSpec
+    specs: Mapping[str, ParquetCoverageSpec] | None = None
+    spec: ParquetCoverageSpec | None = None
+
+    def __post_init__(self) -> None:
+        if self.specs is None and self.spec is not None:
+            self.specs = {self.spec.dataset_id: self.spec}
+        elif self.specs is None:
+            self.specs = {}
 
     def read_bucket_coverage(
         self,
@@ -481,12 +548,19 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = None,
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
         """Read coverage from partitioned parquet files."""
-        # TODO: Implement actual parquet reading
-        _ = dataset_id, schema, instrument_id, start_ns, end_ns
+        _ = schema, instrument_id, entity_field, start_ns, end_ns
+        if not self.specs:
+            return set()
+        spec = self.specs.get(dataset_id)
+        if spec is None:
+            return set()
+        # TODO: Implement actual parquet reading using spec.base_path/partition_field/timestamp_field
+        _ = spec
         return set()
 
 
@@ -504,6 +578,9 @@ class SqlCoverageOverride:
     """
 
     table_name: str | None = None
+    schema: str | None = None
+    ts_field: str | None = None
+    entity_field: str | None = None
     date_column: str | None = None
 
 
@@ -521,6 +598,7 @@ class UnionCoverageProvider(CoverageProviderProtocol):
         dataset_id: str,
         schema: str,
         instrument_id: str,
+        entity_field: str | None = None,
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
@@ -531,6 +609,7 @@ class UnionCoverageProvider(CoverageProviderProtocol):
                 dataset_id=dataset_id,
                 schema=schema,
                 instrument_id=instrument_id,
+                entity_field=entity_field,
                 start_ns=start_ns,
                 end_ns=end_ns,
             )
@@ -542,6 +621,10 @@ def resolve_catalog_identifier(
     schema: str,
     instrument_id: str,
     identifier_template: str | None = None,
+    schema_templates: Mapping[str, str] | None = None,
+    dataset_type: DatasetType | None = None,
+    dataset_templates: Mapping[DatasetType, str] | None = None,
+    uri_safe: bool = False,
 ) -> str:
     """
     Resolve catalog identifier from schema and instrument_id.
@@ -553,18 +636,32 @@ def resolve_catalog_identifier(
     instrument_id : str
         Instrument identifier (e.g., "AAPL.NASDAQ")
     identifier_template : str | None
-        Template for identifier resolution. If None, uses default format.
+        Template for identifier resolution. Falls back to the registry default when None.
         Supports {schema} and {instrument_id} placeholders.
+    schema_templates : Mapping[str, str] | None
+        Optional per-schema identifier templates (case-insensitive keys).
+    dataset_type : DatasetType | None
+        Dataset type derived from schema. Used when a dataset-level template is provided.
+    dataset_templates : Mapping[DatasetType, str] | None
+        Optional per-dataset-type templates, used when a schema-specific template is
+        not present.
+    uri_safe : bool
+        When True, normalize the resolved identifier using ``urisafe_identifier``.
 
     Returns
     -------
     str
         Resolved identifier string
 
+    Raises
+    ------
+    ValueError
+        If the schema is not registered in the schema registry.
+
     Examples
     --------
     >>> resolve_catalog_identifier(schema="bar_1_minute", instrument_id="AAPL.NASDAQ")
-    'AAPL.NASDAQ'
+    'AAPL.NASDAQ-1-MINUTE-LAST-EXTERNAL'
     >>> resolve_catalog_identifier(
     ...     schema="bar_1_minute",
     ...     instrument_id="AAPL.NASDAQ",
@@ -572,9 +669,24 @@ def resolve_catalog_identifier(
     ... )
     'AAPL.NASDAQ_bar_1_minute'
     """
-    if identifier_template is None:
-        return instrument_id
-    return identifier_template.format(schema=schema, instrument_id=instrument_id)
+    normalized_schema = schema.strip().lower()
+    resolved_dataset_type = dataset_type or map_schema_to_dataset_type(normalized_schema)
+    template = None
+    if schema_templates is not None:
+        template = schema_templates.get(normalized_schema)
+    if template is None and dataset_templates is not None:
+        template = dataset_templates.get(resolved_dataset_type)
+    if template is None and identifier_template is not None:
+        template = validate_identifier_template(identifier_template, label="identifier_template")
+    if template is None:
+        try:
+            template = schema_to_identifier_template(normalized_schema)
+        except ValueError:
+            template = default_identifier_template_for_dataset_type(resolved_dataset_type)
+    resolved = template.format(schema=normalized_schema, instrument_id=instrument_id)
+    if uri_safe:
+        return urisafe_identifier(resolved)
+    return resolved
 
 
 __all__ = [

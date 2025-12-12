@@ -21,11 +21,13 @@ from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.protocols import EarningsStoreStrictProtocol
+    from ml.stores.protocols import EarningsStoreProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
@@ -33,61 +35,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# No-op Metrics for when Prometheus is unavailable
-# =========================================================================
-
-
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-    def observe(self, *_: object, **__: object) -> None:
-        """
-        No-op observe method.
-        """
-        return None
-
-
-# Declare metric variables once
-fallback_activation_counter: Any = _NoOpMetric()
-health_check_counter: Any = _NoOpMetric()
-operation_latency_histogram: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics_bootstrap import get_counter
-    from ml.common.metrics_bootstrap import get_histogram
-
-    fallback_activation_counter = get_counter(
-        "ml_fallback_activations_total",
-        "Total number of fallback activations for store operations",
-        labelnames=["component", "level"],
-    )
-    health_check_counter = get_counter(
-        "ml_health_checks_total",
-        "Total number of health checks performed",
-        labelnames=["component", "status"],
-    )
-    operation_latency_histogram = get_histogram(
-        "ml_store_operation_latency_seconds",
-        "Latency of store operations in seconds",
-        labelnames=["operation"],
-    )
-except Exception:
-    logger.debug("Metrics bootstrap failed; using no-op metrics", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+fallback_activation_counter = get_counter(
+    "ml_fallback_activations_total",
+    "Total number of fallback activations for store operations",
+    labelnames=["component", "level"],
+)
+health_check_counter = get_counter(
+    "ml_health_checks_total",
+    "Total number of health checks performed",
+    labelnames=["component", "status"],
+)
+operation_latency_histogram = get_histogram(
+    "ml_store_operation_latency_seconds",
+    "Latency of store operations in seconds",
+    labelnames=["operation"],
+)
 
 
 # =========================================================================
@@ -134,7 +97,7 @@ class StoreOperationsComponent:
         feature_store: FeatureStoreStrictProtocol | None = None,
         model_store: ModelStoreStrictProtocol | None = None,
         strategy_store: StrategyStoreStrictProtocol | None = None,
-        earnings_store: EarningsStoreStrictProtocol | None = None,
+        earnings_store: EarningsStoreProtocol | None = None,
         data_registry: RegistryProtocol | None = None,
         feature_registry: Any | None = None,
         model_registry: Any | None = None,

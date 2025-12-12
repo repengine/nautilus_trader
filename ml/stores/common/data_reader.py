@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_histogram
 from ml.registry.dataclasses import DatasetType
 
 
@@ -31,11 +32,6 @@ if TYPE_CHECKING:
     from ml.stores.strategy_store import StrategyStore
 
 logger = logging.getLogger(__name__)
-
-
-# =========================================================================
-# Dataclasses for Query Results
-# =========================================================================
 
 
 class PredictionRecord:
@@ -119,41 +115,16 @@ class SignalRecord:
 
 
 # =========================================================================
-# No-op Metrics for when Prometheus is unavailable
+# Prometheus Metrics (using centralized bootstrap - CLAUDE.md Pattern 5)
 # =========================================================================
 
 
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def observe(self, *_: object, **__: object) -> None:
-        """
-        No-op observe method.
-        """
-        return None
-
-
-# Declare metric variables once
-read_latency_histogram: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics_bootstrap import get_histogram
-
-    read_latency_histogram = get_histogram(
-        "ml_datastore_read_latency_seconds",
-        "Data read operation latency in seconds",
-        labelnames=["operation", "store"],
-    )
-except Exception:
-    logger.debug("Metrics bootstrap failed; using no-op histogram", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+read_latency_histogram = get_histogram(
+    "ml_datastore_read_latency_seconds",
+    "Data read operation latency in seconds",
+    labelnames=["operation", "store"],
+)
 
 
 # =========================================================================

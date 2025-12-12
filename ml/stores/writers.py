@@ -35,7 +35,10 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
+from ml.schema import map_schema_to_dataset_type
 from ml.stores.data_store import DataStore
+from ml.stores.io_raw import ParquetCatalogRawWriter
+from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 
 
@@ -52,7 +55,7 @@ class DataStoreMarketDataWriter(MarketDataWriterProtocol):
     Write raw market data using DataStore.write_ingestion.
     """
 
-    store: DataStore
+    store: DataStore | DataStoreFacadeProtocol
 
     def write(
         self,
@@ -277,6 +280,42 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
 
 
 @dataclass(slots=True)
+class ParquetCatalogRawMarketDataWriter(MarketDataWriterProtocol):
+    """
+    Write market data DataFrames into the Parquet catalog via ``ParquetCatalogRawWriter``.
+
+    This wrapper resolves dataset types from schemas (bars/tbbo/trades/mbp) and reuses
+    the raw writer conversions to persist the appropriate Nautilus domain objects.
+    """
+
+    catalog: Any
+    replace_on_overlap: bool = False
+
+    def __post_init__(self) -> None:
+        self._raw_writer = ParquetCatalogRawWriter(
+            self.catalog,
+            replace_on_overlap=self.replace_on_overlap,
+        )
+
+    def write(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        df: pd.DataFrame,
+    ) -> int:
+        _ = (dataset_id, instrument_id)
+        dataset_type = map_schema_to_dataset_type(schema)
+        return int(
+            self._raw_writer.write(
+                dataset_type=dataset_type,
+                data=df,
+            ),
+        )
+
+
+@dataclass(slots=True)
 class FanoutMarketDataWriter(MarketDataWriterProtocol):
     """
     Route market data writes to a primary writer with optional mirror writers.
@@ -343,7 +382,7 @@ class LiveDataRecorder:
 
     def __init__(
         self,
-        data_store: DataStore,
+        data_store: DataStore | DataStoreFacadeProtocol,
         data_registry: DataRegistry,
         buffer_size: int = 1000,
         flush_interval_ms: int = 1000,
@@ -716,9 +755,11 @@ class LiveDataInterceptor:
 
 
 __all__ = [
+    "CatalogWriteFacade",
     "DataStoreMarketDataWriter",
     "FanoutMarketDataWriter",
     "LiveDataInterceptor",
     "LiveDataRecorder",
     "ParquetCatalogMarketDataWriter",
+    "ParquetCatalogRawMarketDataWriter",
 ]

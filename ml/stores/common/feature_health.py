@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_counter
 
 
 if TYPE_CHECKING:
@@ -27,54 +28,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# No-op Metrics for when Prometheus is unavailable
-# =========================================================================
-
-
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-    def observe(self, *_: object, **__: object) -> None:
-        """
-        No-op observe method.
-        """
-        return None
-
-
-# Declare metric variables once
-health_check_counter: Any = _NoOpMetric()
-clear_features_counter: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics_bootstrap import get_counter
-
-    health_check_counter = get_counter(
-        "ml_feature_health_checks_total",
-        "Total number of feature store health checks",
-        labelnames=["status"],
-    )
-    clear_features_counter = get_counter(
-        "ml_feature_clear_operations_total",
-        "Total number of feature clear operations",
-        labelnames=["scope"],
-    )
-except Exception:
-    logger.debug("Metrics bootstrap failed; using no-op metrics", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+health_check_counter = get_counter(
+    "ml_feature_health_checks_total",
+    "Total number of feature store health checks",
+    labelnames=["status"],
+)
+clear_features_counter = get_counter(
+    "ml_feature_clear_operations_total",
+    "Total number of feature clear operations",
+    labelnames=["scope"],
+)
 
 
 # =========================================================================

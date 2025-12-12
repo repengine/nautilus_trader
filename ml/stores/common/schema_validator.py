@@ -15,12 +15,11 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass
-from dataclasses import field
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_counter
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -28,6 +27,8 @@ from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.utils import compute_dataset_schema_hash
+from ml.stores.validation_types import QualityReport
+from ml.stores.validation_types import ValidationViolation
 
 
 if TYPE_CHECKING:
@@ -36,118 +37,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# Dataclasses for Validation Results
-# =========================================================================
+__all__ = [
+    "QualityReport",
+    "SchemaValidatorComponent",
+    "ValidationViolation",
+]
 
 
-@dataclass(frozen=True)
-class ValidationViolation:
-    """
-    Details of a validation rule violation.
-
-    Attributes
-    ----------
-    rule_type : ValidationRuleType
-        Type of validation rule violated
-    field_name : str
-        Field that failed validation
-    severity : QualityFlag
-        Severity of the violation
-    violation_count : int
-        Number of records with this violation
-    sample_values : list[Any]
-        Sample of violating values (max 5)
-    description : str
-        Human-readable description of the violation
-
-    """
-
-    rule_type: ValidationRuleType
-    field_name: str
-    severity: QualityFlag
-    violation_count: int
-    sample_values: list[Any]
-    description: str
-
-
-@dataclass(frozen=True)
-class QualityReport:
-    """
-    Quality validation report for a batch of data.
-
-    Attributes
-    ----------
-    dataset_id : str
-        Dataset identifier
-    total_records : int
-        Total number of records validated
-    passed_records : int
-        Number of records that passed validation
-    failed_records : int
-        Number of records that failed validation
-    quality_score : float
-        Overall quality score (0-1)
-    violations : list[ValidationViolation]
-        List of validation violations found
-    validation_time_ms : float
-        Time taken for validation in milliseconds
-    metadata : dict[str, Any]
-        Additional metadata
-
-    """
-
-    dataset_id: str
-    total_records: int
-    passed_records: int
-    failed_records: int
-    quality_score: float
-    violations: list[ValidationViolation]
-    validation_time_ms: float
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-# =========================================================================
-# No-op Metrics for when Prometheus is unavailable
-# =========================================================================
-
-
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-    def observe(self, *_: object, **__: object) -> None:
-        """
-        No-op observe method.
-        """
-        return None
-
-
-# Declare metric variables once
-validation_violations_counter: Any = _NoOpMetric()
-schema_mismatch_counter: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import schema_mismatch_counter as _smc
-    from ml.common.metrics import validation_violations_counter as _vvc
-
-    schema_mismatch_counter = _smc
-    validation_violations_counter = _vvc
-except Exception:
-    logger.debug("Metrics import failed; using no-op counters", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+validation_violations_counter = get_counter(
+    "ml_validation_violations_total",
+    "Total number of validation violations",
+    labelnames=["dataset_id", "rule_type", "severity"],
+)
+schema_mismatch_counter = get_counter(
+    "ml_schema_mismatch_total",
+    "Total number of schema mismatches detected",
+    labelnames=["dataset", "mismatch_type"],
+)
 
 
 # =========================================================================

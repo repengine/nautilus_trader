@@ -33,6 +33,7 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
+from ml.stores.io_raw import RawIngestionWriterProtocol
 
 
 if TYPE_CHECKING:
@@ -94,6 +95,8 @@ class DataStoreConfig:
         Cache manifest lookups
     cache_ttl_seconds : int
         Manifest cache TTL
+    batch_size : int
+        Default batch size for write operations
 
     """
 
@@ -103,6 +106,7 @@ class DataStoreConfig:
     model_store: ModelStore | None = None
     strategy_store: StrategyStore | None = None
     earnings_store: EarningsStore | None = None
+    raw_writer: RawIngestionWriterProtocol | None = None
     publisher: MessagePublisherProtocol | None = None
     enable_publishing: bool = False
     schema_migration_window_hours: int = 24
@@ -110,6 +114,7 @@ class DataStoreConfig:
     auto_register_datasets: bool = True
     cache_manifests: bool = True
     cache_ttl_seconds: int = 60
+    batch_size: int = 10000
 
     def __post_init__(self) -> None:
         """Validate configuration constraints."""
@@ -117,6 +122,8 @@ class DataStoreConfig:
             raise ValueError("schema_migration_window_hours must be >= 0")
         if self.cache_ttl_seconds < 0:
             raise ValueError("cache_ttl_seconds must be >= 0")
+        if self.batch_size < 0:
+            raise ValueError("batch_size must be >= 0")
 
 
 # =========================================================================
@@ -170,31 +177,79 @@ class DataStoreFacade:
 
     def __init__(
         self,
-        config: DataStoreConfig,
+        config: DataStoreConfig | None = None,
         *,
+        # Legacy kwargs for backward compatibility
+        connection_string: str | None = None,
+        registry: RegistryProtocol | None = None,
+        feature_store: FeatureStore | None = None,
+        model_store: ModelStore | None = None,
+        strategy_store: StrategyStore | None = None,
+        earnings_store: EarningsStore | None = None,
+        raw_writer: RawIngestionWriterProtocol | None = None,
+        publisher: MessagePublisherProtocol | None = None,
+        enable_publishing: bool = False,
+        fail_on_validation_error: bool = True,
+        schema_migration_window_hours: int = 24,
+        # Component overrides
         schema_validator: SchemaValidatorProtocol | None = None,
         data_writer: DataWriterProtocol | None = None,
         data_reader: DataReaderProtocol | None = None,
         event_emitter: EventEmitterProtocol | None = None,
         contract_enforcer: ContractEnforcerProtocol | None = None,
         store_operations: StoreOperationsProtocol | None = None,
+        # Additional legacy kwargs (ignored but accepted for compatibility)
+        **kwargs: Any,
     ) -> None:
         """
         Initialize DataStore facade with components.
 
+        Supports both the new config-based API and legacy kwargs for backward compatibility.
+
         Args:
-            config: DataStore configuration
+            config: DataStore configuration (new API)
+            connection_string: PostgreSQL connection string (legacy)
+            registry: Data registry (legacy)
+            feature_store: Feature store instance (legacy)
+            model_store: Model store instance (legacy)
+            strategy_store: Strategy store instance (legacy)
+            earnings_store: Earnings store instance (legacy)
+            publisher: Message bus publisher (legacy)
+            enable_publishing: Enable message bus publishing (legacy)
+            fail_on_validation_error: Fail-closed mode (legacy)
+            schema_migration_window_hours: Schema migration window (legacy)
+            batch_size: Default write batch size (legacy, forwarded to config)
             schema_validator: Schema validation component (auto-created if None)
             data_writer: Data writer component (auto-created if None)
             data_reader: Data reader component (auto-created if None)
             event_emitter: Event emitter component (auto-created if None)
             contract_enforcer: Contract enforcer component (auto-created if None)
             store_operations: Store operations component (auto-created if None)
+            **kwargs: Additional kwargs (ignored for forward compatibility)
 
         Raises:
-            ValueError: If configuration is invalid
+            ValueError: If neither config nor connection_string is provided
 
         """
+        # Handle backward compatibility: build config from legacy kwargs if needed
+        if config is None:
+            if connection_string is None:
+                raise ValueError("Either config or connection_string must be provided")
+            config = DataStoreConfig(
+                connection_string=connection_string,
+                registry=registry,
+                feature_store=feature_store,
+                model_store=model_store,
+                strategy_store=strategy_store,
+                earnings_store=earnings_store,
+                raw_writer=raw_writer,
+                publisher=publisher,
+                enable_publishing=enable_publishing,
+                fail_closed=fail_on_validation_error,
+                schema_migration_window_hours=schema_migration_window_hours,
+                batch_size=int(kwargs.get("batch_size", 10000)),
+            )
+
         self._config = config
         self._logger = logger
 
@@ -220,11 +275,19 @@ class DataStoreFacade:
     # =====================================================================
 
     def _create_schema_validator(self) -> SchemaValidatorProtocol:
-        """Create schema validator component."""
+        """
+        Create schema validator component.
+
+        Raises:
+            ValueError: If registry is not provided.
+        """
         from ml.stores.common.schema_validator import SchemaValidatorComponent
 
         if self._config.registry is None:
-            raise ValueError("registry is required for SchemaValidatorComponent")
+            raise ValueError(
+                "registry is required for SchemaValidatorComponent. "
+                "DataStoreFacade requires explicit registry for schema validation."
+            )
 
         return SchemaValidatorComponent(
             data_registry=self._config.registry,
@@ -233,11 +296,19 @@ class DataStoreFacade:
         )
 
     def _create_contract_enforcer(self) -> ContractEnforcerProtocol:
-        """Create contract enforcer component."""
+        """
+        Create contract enforcer component.
+
+        Raises:
+            ValueError: If registry is not provided.
+        """
         from ml.stores.common.contract_enforcer import ContractEnforcerComponent
 
         if self._config.registry is None:
-            raise ValueError("registry is required for ContractEnforcerComponent")
+            raise ValueError(
+                "registry is required for ContractEnforcerComponent. "
+                "DataStoreFacade requires explicit registry for contract enforcement."
+            )
 
         return ContractEnforcerComponent(
             registry=self._config.registry,
@@ -247,11 +318,19 @@ class DataStoreFacade:
         )
 
     def _create_event_emitter(self) -> EventEmitterProtocol:
-        """Create event emitter component."""
+        """
+        Create event emitter component.
+
+        Raises:
+            ValueError: If registry is not provided.
+        """
         from ml.stores.common.event_emitter import EventEmitterComponent
 
         if self._config.registry is None:
-            raise ValueError("registry is required for EventEmitterComponent")
+            raise ValueError(
+                "registry is required for EventEmitterComponent. "
+                "DataStoreFacade requires explicit registry for event emission."
+            )
 
         return EventEmitterComponent(
             registry=self._config.registry,
@@ -260,44 +339,81 @@ class DataStoreFacade:
         )
 
     def _create_data_writer(self) -> DataWriterProtocol:
-        """Create data writer component."""
+        """
+        Create data writer component.
+
+        Raises:
+            ValueError: If registry or any required store is not provided.
+        """
         from ml.stores.common.data_writer import DataWriterComponent
 
-        if self._config.feature_store is None:
-            raise ValueError("feature_store is required for DataWriterComponent")
-        if self._config.model_store is None:
-            raise ValueError("model_store is required for DataWriterComponent")
-        if self._config.strategy_store is None:
-            raise ValueError("strategy_store is required for DataWriterComponent")
-        if self._config.earnings_store is None:
-            raise ValueError("earnings_store is required for DataWriterComponent")
+        # Validate all required dependencies are provided
+        missing: list[str] = []
         if self._config.registry is None:
-            raise ValueError("registry is required for DataWriterComponent")
+            missing.append("registry")
+        if self._config.feature_store is None:
+            missing.append("feature_store")
+        if self._config.model_store is None:
+            missing.append("model_store")
+        if self._config.strategy_store is None:
+            missing.append("strategy_store")
+        if self._config.earnings_store is None:
+            missing.append("earnings_store")
+
+        if missing:
+            raise ValueError(
+                f"DataWriterComponent requires: {', '.join(missing)}. "
+                "DataStoreFacade requires explicit stores and registry for write operations."
+            )
+        assert self._config.feature_store is not None
+        assert self._config.model_store is not None
+        assert self._config.strategy_store is not None
+        assert self._config.earnings_store is not None
+        assert self._config.registry is not None
 
         return DataWriterComponent(
             feature_store=self._config.feature_store,
             model_store=self._config.model_store,
             strategy_store=self._config.strategy_store,
             earnings_store=self._config.earnings_store,
+            raw_writer=self._config.raw_writer,
             validator=self._schema_validator,
             registry=self._config.registry,
             fail_on_validation_error=self._config.fail_closed,
         )
 
     def _create_data_reader(self) -> DataReaderProtocol:
-        """Create data reader component."""
+        """
+        Create data reader component.
+
+        Raises:
+            ValueError: If registry or any required store is not provided.
+        """
         from ml.stores.common.data_reader import DataReaderComponent
 
-        if self._config.feature_store is None:
-            raise ValueError("feature_store is required for DataReaderComponent")
-        if self._config.model_store is None:
-            raise ValueError("model_store is required for DataReaderComponent")
-        if self._config.strategy_store is None:
-            raise ValueError("strategy_store is required for DataReaderComponent")
-        if self._config.earnings_store is None:
-            raise ValueError("earnings_store is required for DataReaderComponent")
+        # Validate all required dependencies are provided
+        missing: list[str] = []
         if self._config.registry is None:
-            raise ValueError("registry is required for DataReaderComponent")
+            missing.append("registry")
+        if self._config.feature_store is None:
+            missing.append("feature_store")
+        if self._config.model_store is None:
+            missing.append("model_store")
+        if self._config.strategy_store is None:
+            missing.append("strategy_store")
+        if self._config.earnings_store is None:
+            missing.append("earnings_store")
+
+        if missing:
+            raise ValueError(
+                f"DataReaderComponent requires: {', '.join(missing)}. "
+                "DataStoreFacade requires explicit stores and registry for read operations."
+            )
+        assert self._config.feature_store is not None
+        assert self._config.model_store is not None
+        assert self._config.strategy_store is not None
+        assert self._config.earnings_store is not None
+        assert self._config.registry is not None
 
         return DataReaderComponent(
             feature_store=self._config.feature_store,
@@ -308,7 +424,9 @@ class DataStoreFacade:
         )
 
     def _create_store_operations(self) -> StoreOperationsProtocol:
-        """Create store operations component."""
+        """
+        Create store operations component.
+        """
         from ml.stores.common.store_operations import StoreOperationsComponent
 
         return StoreOperationsComponent(
@@ -860,6 +978,65 @@ class DataStoreFacade:
             as_of_ts=as_of_ts,
         )
 
+    def get_earnings_actuals_at_or_before(
+        self,
+        *,
+        ticker: str,
+        ts_event: int,
+        limit: int = 5,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Return earnings actuals visible at ``ts_event``.
+
+        Delegates to the data reader; used in earnings-aware pipelines to enforce
+        point-in-time correctness.
+        """
+        if limit <= 0:
+            return []
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        as_of_ts = _sanitize_ts(
+            int(ts_event),
+            context="data_store_facade.get_earnings_actuals_at_or_before:ts_event",
+        )
+        earnings_store = self._config.earnings_store
+        assert earnings_store is not None
+        records = earnings_store.get_actuals(
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            as_of_ts=as_of_ts,
+        )
+        if len(records) <= limit:
+            return list(records)
+        return list(records[:limit])
+
+    def get_earnings_estimate_at_or_before(
+        self,
+        *,
+        ticker: str,
+        period_end: str,
+        ts_event: int,
+    ) -> dict[str, Any] | None:
+        """
+        Return the latest consensus estimate for ``period_end`` at ``ts_event``.
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize_ts
+
+        as_of_ts = _sanitize_ts(
+            int(ts_event),
+            context="data_store_facade.get_earnings_estimate_at_or_before:ts_event",
+        )
+        earnings_store = self._config.earnings_store
+        assert earnings_store is not None
+        return earnings_store.get_estimates(
+            ticker=ticker,
+            period_end=period_end,
+            as_of_ts=as_of_ts,
+        )
+
     def read_range(
         self,
         *,
@@ -1115,7 +1292,15 @@ class DataStoreFacade:
             >>> assert "components" in health
 
         """
-        return self._store_operations.health_check()
+        health = self._store_operations.health_check()
+
+        # Flatten component status keys for legacy expectations
+        components = health.get("components", {})
+        for key in ("feature_store", "model_store", "strategy_store", "earnings_store"):
+            if key in components:
+                health.setdefault(key, components[key].get("status"))
+
+        return health
 
     def get_performance_metrics(self) -> dict[str, float]:
         """
@@ -1146,6 +1331,8 @@ class DataStoreFacade:
             issues.append("schema_migration_window_hours must be >= 0")
         if self._config.cache_ttl_seconds < 0:
             issues.append("cache_ttl_seconds must be >= 0")
+        if self._config.batch_size <= 0:
+            issues.append("batch_size must be positive")
 
         # Delegate to store operations for store-level validation
         store_issues = self._store_operations.validate_configuration() if hasattr(

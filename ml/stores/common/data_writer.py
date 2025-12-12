@@ -14,15 +14,15 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-from dataclasses import field
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
+from ml.stores.validation_types import DataEvent
 
 
 if TYPE_CHECKING:
@@ -33,66 +33,16 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
     from ml.stores.feature_store import FeatureStore
+    from ml.stores.io_raw import RawIngestionWriterProtocol
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
 
 logger = logging.getLogger(__name__)
 
-
-# =========================================================================
-# Dataclasses
-# =========================================================================
-
-
-@dataclass(frozen=True)
-class DataEvent:
-    """
-    Event tracking data operations in the store.
-
-    Attributes
-    ----------
-    event_id : str
-        Unique event identifier
-    dataset_id : str
-        Dataset identifier
-    instrument_id : str
-        Instrument identifier
-    operation : str
-        Operation type (write_ingestion, write_features, etc.)
-    source : str
-        Data source (live, historical, backfill)
-    run_id : str
-        Processing run identifier
-    ts_min : int
-        Minimum timestamp in nanoseconds
-    ts_max : int
-        Maximum timestamp in nanoseconds
-    record_count : int
-        Number of records processed
-    status : str
-        Operation status (success, failed, partial)
-    error_message : str | None
-        Error message if failed
-    created_at : int
-        Event creation timestamp in nanoseconds
-    metadata : dict[str, Any]
-        Additional event metadata
-
-    """
-
-    event_id: str
-    dataset_id: str
-    instrument_id: str
-    operation: str
-    source: str
-    run_id: str
-    ts_min: int
-    ts_max: int
-    record_count: int
-    status: str
-    error_message: str | None = None
-    created_at: int = field(default_factory=time.time_ns)
-    metadata: dict[str, Any] = field(default_factory=dict)
+__all__ = [
+    "DataEvent",
+    "DataWriterComponent",
+]
 
 
 # =========================================================================
@@ -104,37 +54,16 @@ EARNINGS_ESTIMATES_DATASET_ID = "earnings_estimates"
 
 
 # =========================================================================
-# No-op Metrics for when Prometheus is unavailable
+# Prometheus Metrics (using centralized bootstrap - CLAUDE.md Pattern 5)
 # =========================================================================
 
 
-class _NoOpMetric:
-    """
-    No-op metric for when Prometheus is unavailable.
-    """
-
-    def labels(self, **_: Any) -> _NoOpMetric:
-        """
-        No-op labels method.
-        """
-        return self
-
-    def inc(self, *_: object, **__: object) -> None:
-        """
-        No-op inc method.
-        """
-        return None
-
-
-# Declare metric variables once
-write_rejection_counter: Any = _NoOpMetric()
-
-try:
-    from ml.common.metrics import write_rejection_counter as _wrc
-
-    write_rejection_counter = _wrc
-except Exception:
-    logger.debug("Metrics import failed; using no-op counter", exc_info=True)
+# Get metrics via bootstrap (returns dummy metrics if Prometheus unavailable)
+write_rejection_counter = get_counter(
+    "ml_write_rejections_total",
+    "Total number of write rejections",
+    labelnames=["dataset_id", "reason"],
+)
 
 
 # =========================================================================
@@ -185,6 +114,7 @@ class DataWriterComponent:
         validator: SchemaValidatorProtocol,
         registry: RegistryProtocol,
         *,
+        raw_writer: RawIngestionWriterProtocol | None = None,
         fail_on_validation_error: bool = True,
     ) -> None:
         """
@@ -197,6 +127,7 @@ class DataWriterComponent:
             earnings_store: EarningsStore for earnings data
             validator: Schema validator component
             registry: Data registry for manifest/contract lookup
+            raw_writer: Raw ingestion writer for Parquet backup (dual-write)
             fail_on_validation_error: If True, raise on validation failures
 
         """
@@ -204,6 +135,7 @@ class DataWriterComponent:
         self._model_store = model_store
         self._strategy_store = strategy_store
         self._earnings_store = earnings_store
+        self._raw_writer = raw_writer
         self._validator = validator
         self._registry = registry
         self._fail_on_validation_error = fail_on_validation_error
@@ -771,7 +703,7 @@ class DataWriterComponent:
             quality_report=quality_report,
         )
 
-        # Write to earnings store
+        # Write to earnings store (SQL)
         try:
             self._earnings_store.write_actuals(
                 ticker=ticker,
@@ -793,6 +725,24 @@ class DataWriterComponent:
             logger.error("Earnings actual write failed for %s", ticker, exc_info=True)
             raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
 
+        # Dual-write to raw_writer (Parquet backup) if available
+        raw_writer_status = "skipped"
+        if self._raw_writer is not None:
+            try:
+                self._raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ACTUALS,
+                    data=[record],
+                )
+                raw_writer_status = "ok"
+            except Exception as exc:
+                logger.warning(
+                    "Raw writer backup failed for earnings actual %s (non-fatal): %s",
+                    ticker,
+                    exc,
+                    exc_info=True,
+                )
+                raw_writer_status = "failed"
+
         # Create success event
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
@@ -805,7 +755,10 @@ class DataWriterComponent:
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata={
+                "quality_score": quality_report.quality_score,
+                "raw_writer_status": raw_writer_status,
+            },
         )
 
         logger.debug("Wrote earnings actual for %s", ticker)
@@ -896,7 +849,7 @@ class DataWriterComponent:
             quality_report=quality_report,
         )
 
-        # Write to earnings store
+        # Write to earnings store (SQL)
         try:
             self._earnings_store.write_estimates(
                 ticker=ticker,
@@ -912,6 +865,24 @@ class DataWriterComponent:
             logger.error("Earnings estimate write failed for %s", ticker, exc_info=True)
             raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
 
+        # Dual-write to raw_writer (Parquet backup) if available
+        raw_writer_status = "skipped"
+        if self._raw_writer is not None:
+            try:
+                self._raw_writer.write(
+                    dataset_type=DatasetType.EARNINGS_ESTIMATES,
+                    data=[record],
+                )
+                raw_writer_status = "ok"
+            except Exception as exc:
+                logger.warning(
+                    "Raw writer backup failed for earnings estimate %s (non-fatal): %s",
+                    ticker,
+                    exc,
+                    exc_info=True,
+                )
+                raw_writer_status = "failed"
+
         # Create success event
         event = DataEvent(
             event_id=f"{run_id_local}_{dataset_id}_{time.time_ns()}",
@@ -924,7 +895,10 @@ class DataWriterComponent:
             ts_max=ts_event_s,
             record_count=1,
             status=EventStatus.SUCCESS.value,
-            metadata={"quality_score": quality_report.quality_score},
+            metadata={
+                "quality_score": quality_report.quality_score,
+                "raw_writer_status": raw_writer_status,
+            },
         )
 
         logger.debug("Wrote earnings estimate for %s", ticker)
