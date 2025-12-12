@@ -35,7 +35,7 @@ Status: Production-ready facade with component delegation
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Self, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -201,12 +201,30 @@ class FeatureEngineer:
         if isinstance(config, LegacyFeatureConfig):
             normalized_config = config
         else:
+            raw: dict[str, object]
             try:
                 import msgspec
 
-                normalized_config = LegacyFeatureConfig(**msgspec.to_builtins(config))
+                raw = cast(dict[str, object], msgspec.to_builtins(config))
             except Exception:
-                normalized_config = LegacyFeatureConfig(**getattr(config, "__dict__", {}))
+                raw = cast(dict[str, object], getattr(config, "__dict__", {}) or {})
+
+            allowed_fields = set(LegacyFeatureConfig.__annotations__.keys())
+            filtered: dict[str, object] = {k: v for k, v in raw.items() if k in allowed_fields}
+
+            # Coerce enum-like fields from persisted strings
+            data_req = filtered.get("data_requirements")
+            if isinstance(data_req, str):
+                try:
+                    filtered["data_requirements"] = DataRequirements(data_req)
+                except Exception:
+                    ...
+
+            normalized_config = (
+                LegacyFeatureConfig(**cast(dict[str, Any], filtered))
+                if filtered
+                else LegacyFeatureConfig()
+            )
 
         self.config = normalized_config
         self._logger = logger if logger is not None else globals()["logger"]

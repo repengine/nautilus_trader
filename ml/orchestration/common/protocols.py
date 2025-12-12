@@ -308,7 +308,6 @@ class TrainingCoordinatorProtocol(Protocol):
     def distill_student(
         self,
         cfg: StudentDistillConfig | None,
-        *,
         dataset_dir: Path,
         teacher_cfg: TeacherTrainConfig | None,
     ) -> int:

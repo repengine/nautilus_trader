@@ -172,7 +172,7 @@ class MLPipelineOrchestratorFacade:
 
         # Match legacy structure for parity, add components as additional info
         return {
-            "implementation": "component-based",
+            "implementation": "component_based",
             "coverage_provider": "healthy" if self.coverage else "unavailable",
             "writer": "healthy" if self.writer else "unavailable",
             "build_main": "healthy" if self.build_main else "unavailable",
@@ -388,8 +388,12 @@ class MLPipelineOrchestratorFacade:
             raise RuntimeError("TrainingCoordinator not initialized")
         return self._training_coordinator.train_teacher(cfg, dataset_csv, out_dir)
 
-    def distill_student(self, cfg: StudentDistillConfig | None, *, dataset_dir: Path,
-                       teacher_cfg: TeacherTrainConfig | None) -> int:
+    def distill_student(
+        self,
+        cfg: StudentDistillConfig | None,
+        dataset_dir: Path,
+        teacher_cfg: TeacherTrainConfig | None,
+    ) -> int:
         if use_legacy_orchestrator():
             result: int = getattr(self._get_legacy(), "distill_student")(
                 cfg, dataset_dir=dataset_dir, teacher_cfg=teacher_cfg)

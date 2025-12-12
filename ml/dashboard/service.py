@@ -487,7 +487,37 @@ class DashboardService:
             if plan_id not in dataset_plans:
                 dataset_plans.append(plan_id)
         elif "model_training_completed" in topic_lower and plan_id:
-            results[plan_id] = message
+            payload = message.get("payload")
+            if isinstance(payload, dict):
+                flattened: dict[str, Any] = {**message, **payload}
+                telemetry = payload.get("telemetry")
+                if isinstance(telemetry, dict):
+                    flattened["telemetry"] = telemetry
+                    for key, value in telemetry.items():
+                        flattened.setdefault(key, value)
+                    caps_payload = telemetry.get("caps")
+                    if isinstance(caps_payload, Mapping):
+                        for key, value in caps_payload.items():
+                            flattened.setdefault(str(key), value)
+                metrics_obj = flattened.get("metrics")
+                if isinstance(metrics_obj, Mapping):
+                    calibration_summary: list[dict[str, Any]] = []
+                    for prefix, kind in (
+                        ("temperature_calibration", "Temperature"),
+                        ("platt_calibration", "Platt"),
+                        ("isotonic_calibration", "Isotonic"),
+                    ):
+                        entry: dict[str, Any] = {"kind": kind}
+                        for key, value in metrics_obj.items():
+                            if key.startswith(f"{prefix}_"):
+                                entry[key[len(prefix) + 1 :]] = value
+                        if len(entry) > 1:
+                            calibration_summary.append(entry)
+                    if calibration_summary:
+                        flattened["calibration_summary"] = calibration_summary
+                results[plan_id] = flattened
+            else:
+                results[plan_id] = message
         elif "worker_heartbeat" in topic_lower and plan_id:
             heartbeats[plan_id] = message
 

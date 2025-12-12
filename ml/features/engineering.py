@@ -683,6 +683,46 @@ class IndicatorManager:
 
         return all_values
 
+    def _fill_values(self, values: dict[str, float], current_price: float | None = None) -> None:
+        """
+        Populate a mapping with current indicator values.
+
+        Hot-path callers may pass a preallocated dict to avoid per-call allocations.
+        """
+        for name, indicator in self.indicators.items():
+            if indicator is not None and indicator.initialized:
+                if name == "bb":
+                    values[IndicatorNames.BB_UPPER] = indicator.upper
+                    values[IndicatorNames.BB_MIDDLE] = indicator.middle
+                    values[IndicatorNames.BB_LOWER] = indicator.lower
+                elif name == "macd":
+                    macd_value = indicator.value
+                    if current_price and current_price > 0:
+                        macd_value = safe_divide(macd_value, current_price)
+                    values[IndicatorNames.MACD_LINE] = macd_value
+                    values[IndicatorNames.MACD_SIGNAL] = 0.0
+                    values[IndicatorNames.MACD_DIFF] = 0.0
+                else:
+                    if name == "rsi":
+                        raw_rsi = indicator.value
+                        assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
+                        normalized = (raw_rsi - 0.5) * 2.0
+                        assert -1 <= normalized <= 1, f"Normalized RSI out of bounds: {normalized}"
+                        values[name] = normalized
+                    else:
+                        values[name] = indicator.value
+            else:
+                if name == "bb":
+                    values[IndicatorNames.BB_UPPER] = 0.0
+                    values[IndicatorNames.BB_MIDDLE] = 0.0
+                    values[IndicatorNames.BB_LOWER] = 0.0
+                elif name == "macd":
+                    values[IndicatorNames.MACD_LINE] = 0.0
+                    values[IndicatorNames.MACD_SIGNAL] = 0.0
+                    values[IndicatorNames.MACD_DIFF] = 0.0
+                else:
+                    values[name] = 0.0
+
     def get_values(self, current_price: float | None = None) -> dict[str, float]:
         """
         Get current values from all indicators.
@@ -698,53 +738,8 @@ class IndicatorManager:
             Dictionary of indicator names to their current values.
 
         """
-        values = {}
-
-        for name, indicator in self.indicators.items():
-            if indicator is not None and indicator.initialized:
-                if name == "bb":
-                    # Bollinger Bands has multiple outputs
-                    values[IndicatorNames.BB_UPPER] = indicator.upper
-                    values[IndicatorNames.BB_MIDDLE] = indicator.middle
-                    values[IndicatorNames.BB_LOWER] = indicator.lower
-                elif name == "macd":
-                    # MACD in Nautilus only provides the MACD line (difference between EMAs)
-                    # Normalize by price if provided to match batch processing
-                    macd_value = indicator.value
-                    if current_price and current_price > 0:
-                        macd_value = safe_divide(macd_value, current_price)
-                    values[IndicatorNames.MACD_LINE] = macd_value
-                    # For now, set signal and diff to 0 as Nautilus MACD doesn't compute them
-                    values[IndicatorNames.MACD_SIGNAL] = 0.0
-                    values[IndicatorNames.MACD_DIFF] = 0.0
-                else:
-                    # Apply same normalization as batch processing
-                    if name == "rsi":
-                        # Nautilus RSI returns values in [0, 1] range, not [0, 100]
-                        # Normalize to [-1, 1] for ML: (RSI - 0.5) * 2
-                        raw_rsi = indicator.value
-                        # Runtime assertion: RSI must be in [0, 1]
-                        assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
-                        values[name] = (raw_rsi - 0.5) * 2.0
-                        # Runtime assertion: Normalized RSI must be in [-1, 1]
-                        assert (
-                            -1 <= values[name] <= 1
-                        ), f"Normalized RSI out of bounds: {values[name]}"
-                    else:
-                        values[name] = indicator.value
-            else:
-                # Not initialized yet
-                if name == "bb":
-                    values[IndicatorNames.BB_UPPER] = 0.0
-                    values[IndicatorNames.BB_MIDDLE] = 0.0
-                    values[IndicatorNames.BB_LOWER] = 0.0
-                elif name == "macd":
-                    values[IndicatorNames.MACD_LINE] = 0.0
-                    values[IndicatorNames.MACD_SIGNAL] = 0.0
-                    values[IndicatorNames.MACD_DIFF] = 0.0
-                else:
-                    values[name] = 0.0
-
+        values: dict[str, float] = {}
+        self._fill_values(values, current_price=current_price)
         return values
 
     def all_initialized(self) -> bool:

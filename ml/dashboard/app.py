@@ -5,6 +5,7 @@ Flask app factory for the Dashboard API.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Mapping
 from typing import Any, cast
@@ -43,11 +44,12 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
     app = Flask(__name__, static_folder=static_folder, static_url_path="/static")
     # Light, idempotent logging configuration for API usage
+    logger = logging.getLogger(__name__)
     try:
         configure_logging()
         bind_log_context(component="ml.dashboard.api")
     except Exception:  # pragma: no cover - defensive
-        ...
+        logger.debug("dashboard_logging_config_failed", exc_info=True)
     cfg = config or DashboardConfig.from_env()
     svc = DashboardService.from_config(cfg)
     if cfg.events_poll_interval_seconds > 0.0:
@@ -156,6 +158,11 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         payload = cast(dict[str, Any], request.get_json(silent=True) or {})
         res = svc.trigger_orchestrator_task(task, payload)
         return jsonify(res), 202 if res.get("ok") else 200
+
+    @app.get("/api/training/streaming/state")
+    def streaming_training_state() -> tuple[Any, int]:
+        data = svc.get_streaming_training_state()
+        return jsonify(data), 200
 
     @app.get("/api/registry/models")
     def registry_models() -> tuple[Any, int]:

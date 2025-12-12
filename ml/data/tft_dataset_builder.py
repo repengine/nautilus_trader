@@ -8,6 +8,7 @@ existing collected market data.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -56,6 +57,127 @@ pd = PD
 
 
 logger = logging.getLogger(__name__)
+
+
+class _DatasetSerializer:
+    """
+    Helper for saving/loading TFT datasets with lightweight metadata sidecars.
+
+    This is a private compatibility shim expected by E2E tests and legacy callers.
+    """
+
+    _metadata_suffix: str = ".metadata.json"
+
+    def save_dataset(
+        self,
+        *,
+        df: DataFrameLike,
+        path: _Path,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Persist a dataset to Parquet and optionally store metadata.
+
+        Args:
+            df: Dataset to persist (Polars or Pandas).
+            path: Target parquet path.
+            metadata: Optional JSON-serializable metadata.
+        """
+        if pl is not None and isinstance(df, pl.DataFrame):
+            df.write_parquet(str(path))
+        elif pd is not None and isinstance(df, pd.DataFrame):
+            df.to_parquet(path)
+        else:
+            raise TypeError(f"Unsupported dataset type for save: {type(df)!r}")
+
+        if metadata is not None:
+            meta_path = _Path(f"{path}{self._metadata_suffix}")
+            meta_path.write_text(json.dumps(metadata))
+
+    def load_dataset(
+        self,
+        *,
+        path: _Path,
+        use_polars: bool = False,
+    ) -> tuple[DataFrameLike, dict[str, Any]]:
+        """
+        Load a dataset previously persisted by ``save_dataset``.
+
+        Args:
+            path: Parquet path for the dataset.
+            use_polars: When True, return a Polars DataFrame.
+
+        Returns:
+            Tuple of (dataset, metadata).
+        """
+        if use_polars:
+            if pl_runtime is None:
+                check_ml_dependencies(["polars"])
+            df_loaded: DataFrameLike = cast(DataFrameLike, pl.read_parquet(str(path)))
+        else:
+            if pd_runtime is None:
+                check_ml_dependencies(["pandas"])
+            df_loaded = cast(DataFrameLike, pd.read_parquet(path))
+
+        metadata: dict[str, Any] = {}
+        meta_path = _Path(f"{path}{self._metadata_suffix}")
+        if meta_path.exists():
+            try:
+                metadata = cast(dict[str, Any], json.loads(meta_path.read_text()))
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug(f"Failed reading dataset metadata for {path}: {exc}", exc_info=True)
+
+        return df_loaded, metadata
+
+
+class _ValidationSplitter:
+    """
+    Simple temporal train/validation/test splitter.
+
+    Private compatibility shim expected by E2E tests.
+    """
+
+    def split_dataset(
+        self,
+        *,
+        df: DataFrameLike,
+        train_ratio: float,
+        val_ratio: float,
+        test_ratio: float,
+    ) -> tuple[DataFrameLike, DataFrameLike, DataFrameLike]:
+        """
+        Split dataset sequentially by ratios.
+
+        Args:
+            df: Dataset to split.
+            train_ratio: Fraction for training set.
+            val_ratio: Fraction for validation set.
+            test_ratio: Fraction for test set.
+
+        Returns:
+            Tuple of (train_df, val_df, test_df).
+        """
+        total_ratio = train_ratio + val_ratio + test_ratio
+        if total_ratio <= 0:
+            raise ValueError("Ratios must sum to a positive value")
+
+        n_rows = len(df)
+        train_end = int(n_rows * (train_ratio / total_ratio))
+        val_end = train_end + int(n_rows * (val_ratio / total_ratio))
+
+        if pl is not None and isinstance(df, pl.DataFrame):
+            train_df = cast(DataFrameLike, df.slice(0, train_end))
+            val_df = cast(DataFrameLike, df.slice(train_end, val_end - train_end))
+            test_df = cast(DataFrameLike, df.slice(val_end, n_rows - val_end))
+            return train_df, val_df, test_df
+
+        if pd is not None and isinstance(df, pd.DataFrame):
+            train_df = cast(DataFrameLike, df.iloc[:train_end].copy())
+            val_df = cast(DataFrameLike, df.iloc[train_end:val_end].copy())
+            test_df = cast(DataFrameLike, df.iloc[val_end:].copy())
+            return train_df, val_df, test_df
+
+        raise TypeError(f"Unsupported dataset type for split: {type(df)!r}")
 
 
 class TFTDatasetBuilder:
@@ -204,6 +326,9 @@ class TFTDatasetBuilder:
             self._binding_index.setdefault(binding.symbol.upper(), binding)
             base_symbol = binding.symbol.split(".")[0]
             self._binding_index.setdefault(base_symbol.upper(), binding)
+
+        self._dataset_serializer = _DatasetSerializer()
+        self._validation_splitter = _ValidationSplitter()
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -1144,7 +1269,7 @@ class TFTDatasetBuilder:
                     except Exception as e_inner:  # pragma: no cover - catalog differences
                         last_err = e_inner
                         continue
-                if df.is_empty():
+                if df.is_empty() and self._allow_parquet_fallback:
                     # Fallback: read OHLCV minute parquet directly under base dir
                     try:
                         base = _Path(self.micro_base_dir or "data/tier1")
@@ -1478,7 +1603,7 @@ class TFTDatasetBuilder:
         # Combine (retain timestamp for macro joins)
         dataset = pl.concat(
             [
-                df.select(["timestamp", "time_index", "instrument_id"]),
+                df.select(["timestamp", "time_index", "instrument_id", "close"]),
                 features,
                 targets,
             ],
@@ -1760,7 +1885,7 @@ class TFTDatasetBuilder:
         # Combine (retain timestamp for macro joins)
         dataset = pd.concat(
             [
-                df[["timestamp", "time_index", "instrument_id"]],
+                df[["timestamp", "time_index", "instrument_id", "close"]],
                 features,
                 targets,
             ],

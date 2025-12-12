@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.config._env_utils import ensure_env as _ensure_env
 from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
@@ -28,9 +31,6 @@ from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import ComponentId
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 LOGGER = logging.getLogger(__name__)

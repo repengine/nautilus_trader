@@ -147,13 +147,43 @@ class FeatureCalculator:
         self.config = config
         self._logger = logger if logger is not None else globals()["logger"]
 
-        # Calculate total number of features
-        self.n_features = self._count_total_features()
+        # Cache feature names/count once to avoid repeated pipeline compilation in hot paths
+        self._feature_names: list[str] = self.config.get_feature_names()
+        self.n_features = len(self._feature_names)
+
+        # Resolve volume ratio periods consistent with pipeline spec
+        ma_periods = getattr(self.config, "ma_periods", None)
+        self._volume_ratio_periods: list[int] = (
+            list(ma_periods) if ma_periods is not None else list(self.config.volume_ma_periods)
+        )
 
         # Pre-allocate feature_buffer (HOT PATH OPTIMIZATION)
         # Size: n_features * 2 (safety margin for edge cases)
-        # Reused across all calls - zero allocations per call
         self.feature_buffer = np.zeros(self.n_features * 2, dtype=np.float32)
+
+        # Pre-allocate indicator values buffer for hot path (avoids per-call dict allocations).
+        indicator_specs = self.config.get_indicator_specs()
+        indicator_keys: list[str] = []
+        for name in indicator_specs:
+            if name == "bb":
+                indicator_keys.extend(
+                    [
+                        IndicatorNames.BB_UPPER,
+                        IndicatorNames.BB_MIDDLE,
+                        IndicatorNames.BB_LOWER,
+                    ],
+                )
+            elif name == "macd":
+                indicator_keys.extend(
+                    [
+                        IndicatorNames.MACD_LINE,
+                        IndicatorNames.MACD_SIGNAL,
+                        IndicatorNames.MACD_DIFF,
+                    ],
+                )
+            else:
+                indicator_keys.append(name)
+        self._indicator_values_buffer: dict[str, float] = dict.fromkeys(indicator_keys, 0.0)
 
     def _count_total_features(self) -> int:
         """
@@ -421,90 +451,74 @@ class FeatureCalculator:
         npt.NDArray[np.float32]
             Feature array of shape (n_features,)
         """
-        # Reset feature buffer (fill with zeros)
         self.feature_buffer.fill(0.0)
 
-        # Get feature names to determine correct positions
-        feature_names = self.config.get_feature_names()
+        close = float(current_bar["close"])
+        volume = float(current_bar["volume"])
 
-        # Create position mapping for each feature type based on feature names
-        return_idx = 0 if any("return" in name for name in feature_names[:2]) else -1
-        momentum_idx = next((i for i, name in enumerate(feature_names) if "momentum" in name), -1)
-        volatility_idx = next((i for i, name in enumerate(feature_names) if "volatility" in name), -1)
-        volume_ratio_idx = next((i for i, name in enumerate(feature_names) if "volume_ratio" in name), -1)
-
-        # Extract current values
-        close = current_bar["close"]
-        volume = current_bar["volume"]
-
-        # Get indicator values and price history
-        indicator_values = indicator_manager.get_values()
+        indicator_manager._fill_values(self._indicator_values_buffer, current_price=close)
+        indicator_values = self._indicator_values_buffer
         closes = indicator_manager.price_history.get("closes", [])
 
-        # Calculate returns at correct position
-        # Note: enable_returns=None (default) means enabled; only False disables
-        if getattr(self.config, "enable_returns", None) is not False and return_idx >= 0:
-            _ = self._calculate_return_features(
+        feature_idx = 0
+
+        if getattr(self.config, "enable_returns", None) is not False:
+            feature_idx = self._calculate_return_features(
                 close=close,
                 closes=closes,
-                feature_idx=return_idx,
+                feature_idx=feature_idx,
             )
 
-        # Calculate momentum at correct position
-        # Note: enable_momentum=None (default) means enabled; only False disables
-        if getattr(self.config, "enable_momentum", None) is not False and momentum_idx >= 0:
-            _ = self._calculate_momentum_features(
+        if getattr(self.config, "enable_momentum", None) is not False:
+            feature_idx = self._calculate_momentum_features(
                 close=close,
                 closes=closes,
-                feature_idx=momentum_idx,
+                feature_idx=feature_idx,
             )
 
-        # Calculate volatility at correct position
-        # Note: enable_volatility=None (default) means enabled; only False disables
-        if getattr(self.config, "enable_volatility", None) is not False and volatility_idx >= 0:
-            _ = self._calculate_volatility_features(
+        if getattr(self.config, "enable_volatility", None) is not False:
+            feature_idx = self._calculate_volatility_features(
                 closes=closes,
-                feature_idx=volatility_idx,
+                feature_idx=feature_idx,
             )
 
-        # Calculate volume ratios at correct position (always calculated)
-        if volume_ratio_idx >= 0:
-            _ = self._calculate_volume_ratio_features(
-                volume=volume,
-                indicator_values=indicator_values,
-                feature_idx=volume_ratio_idx,
-            )
-        else:
-            # Fallback if no volume_ratio in feature names (shouldn't happen)
-            _ = self._calculate_volume_ratio_features(
-                volume=volume,
-                indicator_values=indicator_values,
-                feature_idx=len(feature_names) - 2,  # Use last 2 positions
-            )
+        feature_idx = self._calculate_volume_ratio_features(
+            volume=volume,
+            indicator_values=indicator_values,
+            feature_idx=feature_idx,
+        )
 
-        # Calculate technical indicators at correct position
-        # Note: enable_technical=None (default) means enabled; only False disables
         if getattr(self.config, "enable_technical", None) is not False:
-            # Find first technical indicator position
-            tech_idx = next((i for i, name in enumerate(feature_names)
-                            if any(ind in name for ind in ["sma_", "ema_", "rsi", "macd", "atr"])), -1)
-            if tech_idx >= 0:
-                _ = self._calculate_technical_indicator_features(
-                    close=close,
-                    current_bar=current_bar,
-                    indicator_values=indicator_values,
-                    indicator_manager=indicator_manager,
-                    feature_idx=tech_idx,
-                )
+            feature_idx = self._calculate_technical_indicator_features(
+                close=close,
+                current_bar=current_bar,
+                indicator_values=indicator_values,
+                indicator_manager=indicator_manager,
+                feature_idx=feature_idx,
+            )
 
-        # Return view of feature_buffer (no copy)
-        features = self.feature_buffer[:self.n_features].copy()
+        if getattr(self.config, "include_microstructure", False):
+            feature_idx = self._calculate_microstructure_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_manager,
+                feature_idx=feature_idx,
+            )
 
-        # Apply scaler if provided
+        if getattr(self.config, "include_trade_flow", False):
+            feature_idx = self._calculate_trade_flow_features_online(
+                current_bar=current_bar,
+                indicator_manager=indicator_manager,
+                feature_idx=feature_idx,
+            )
+
+        features_view = self.feature_buffer[:feature_idx]
+
         if scaler is not None:
-            features = scaler.transform(features.reshape(1, -1)).astype(np.float32).ravel()
+            scaled = scaler.transform(features_view.reshape(1, -1))
+            self.feature_buffer[:feature_idx] = np.asarray(scaled[0], dtype=np.float32)
+            return self.feature_buffer[:feature_idx]
 
-        return features
+        return features_view
 
     def _calculate_return_features(
         self,
@@ -659,7 +673,7 @@ class FeatureCalculator:
         int
             Next available feature_idx
         """
-        for period in self.config.volume_ma_periods:
+        for period in self._volume_ratio_periods:
             key = f"volume_sma_{period}"
             # Get indicator value, defaulting to volume if not available
             ind_value = indicator_values.get(key, volume)
@@ -789,6 +803,109 @@ class FeatureCalculator:
         feature_idx += 1
 
         return feature_idx
+
+    def _calculate_microstructure_features_online(
+        self,
+        *,
+        current_bar: dict[str, float],
+        indicator_manager: IndicatorManager,
+        feature_idx: int,
+    ) -> int:
+        """
+        Calculate microstructure features in online mode.
+
+        Uses OHLCV-based approximations (no L2 required) to maintain parity with batch
+        transforms while keeping hot-path allocations minimal.
+        """
+        close = float(current_bar["close"])
+        high = float(current_bar["high"])
+        low = float(current_bar["low"])
+
+        closes = indicator_manager.price_history.get("closes", [])
+        highs = indicator_manager.price_history.get("highs", [])
+        lows = indicator_manager.price_history.get("lows", [])
+
+        window_size = min(20, len(closes))
+        if window_size < 2:
+            self.feature_buffer[feature_idx : feature_idx + 7] = 0.0
+            return feature_idx + 7
+
+        recent_closes = closes[-window_size:]
+        recent_highs = highs[-window_size:]
+        recent_lows = lows[-window_size:]
+
+        hl_spreads: list[float] = []
+        for h_val, l_val, c_val in zip(recent_highs, recent_lows, recent_closes):
+            hl_spreads.append(safe_divide(float(h_val) - float(l_val), float(c_val), default=0.0))
+
+        self.feature_buffer[feature_idx] = np.float32(np.mean(hl_spreads))
+        self.feature_buffer[feature_idx + 1] = (
+            np.float32(np.std(hl_spreads)) if len(hl_spreads) > 1 else 0.0
+        )
+
+        current_spread_rel = safe_divide(high - low, close, default=0.0)
+        self.feature_buffer[feature_idx + 2] = np.float32(current_spread_rel)
+
+        self.feature_buffer[feature_idx + 3] = 0.0
+        self.feature_buffer[feature_idx + 4] = 0.0
+
+        if len(recent_closes) > 1:
+            returns: list[float] = []
+            for i in range(1, len(recent_closes)):
+                prev = float(recent_closes[i - 1])
+                if prev > 0:
+                    returns.append((float(recent_closes[i]) - prev) / prev)
+            self.feature_buffer[feature_idx + 5] = (
+                np.float32(np.std(returns)) if len(returns) > 1 else 0.0
+            )
+        else:
+            self.feature_buffer[feature_idx + 5] = 0.0
+
+        self.feature_buffer[feature_idx + 6] = 0.0
+        return feature_idx + 7
+
+    def _calculate_trade_flow_features_online(
+        self,
+        *,
+        current_bar: dict[str, float],
+        indicator_manager: IndicatorManager,
+        feature_idx: int,
+    ) -> int:
+        """
+        Calculate trade flow features in online mode.
+
+        Uses OHLCV-based approximations when trade-level data is unavailable.
+        """
+        close = float(current_bar["close"])
+        high = float(current_bar["high"])
+        low = float(current_bar["low"])
+        volume = float(current_bar["volume"])
+
+        volumes = indicator_manager.price_history.get("volumes", [])
+
+        self.feature_buffer[feature_idx] = 0.0
+        self.feature_buffer[feature_idx + 1] = np.float32(close)
+
+        window_size = min(20, len(volumes))
+        if window_size > 0:
+            recent_volumes = volumes[-window_size:]
+            avg_volume = float(np.mean(recent_volumes))
+            if avg_volume > 0:
+                intensity = min(volume / avg_volume, 5.0)
+                self.feature_buffer[feature_idx + 2] = np.float32(intensity)
+            else:
+                self.feature_buffer[feature_idx + 2] = 1.0
+        else:
+            self.feature_buffer[feature_idx + 2] = 1.0
+
+        if volume > 0 and close > 0:
+            hl_range = high - low
+            impact = safe_divide(hl_range / close, volume / 1000.0, default=0.0)
+            self.feature_buffer[feature_idx + 3] = np.float32(min(float(impact), 0.01))
+        else:
+            self.feature_buffer[feature_idx + 3] = 0.0
+
+        return feature_idx + 4
 
     def _calculate_return_momentum_features(
         self,

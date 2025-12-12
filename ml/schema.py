@@ -8,10 +8,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ml.registry.dataclasses import DatasetType
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+
+from ml.registry.dataclasses import DatasetType
 
 
 __all__ = [

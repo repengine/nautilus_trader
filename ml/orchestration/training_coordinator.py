@@ -103,7 +103,6 @@ class TrainingCoordinatorProtocol(Protocol):
     def distill_student(
         self,
         cfg: StudentDistillConfig | None,
-        *,
         dataset_dir: Path,
         teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
@@ -330,7 +329,11 @@ class TrainingCoordinator:
             try:
                 metadata_source = load_dataset_metadata(metadata_path)
             except Exception as exc:
-                logger.debug("Failed to load dataset metadata prior to training: %s", exc)
+                logger.debug(
+                    "Failed to load dataset metadata prior to training: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
@@ -363,7 +366,6 @@ class TrainingCoordinator:
     def distill_student(
         self,
         cfg: StudentDistillConfig | None,
-        *,
         dataset_dir: Path,
         teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
@@ -459,8 +461,16 @@ class TrainingCoordinator:
             args += ["--use_val_for_distill"]
 
         from ml.training.distillation.cli import main as distill_main
-
-        return distill_main(args)
+        try:
+            return distill_main(args)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.error(
+                "Student distillation failed for model_id=%s: %s",
+                cfg.model_id,
+                exc,
+                exc_info=True,
+            )
+            return 1
 
     # ------------------------------------------------------------------
     # Structural compatibility helpers (Phase0 placeholders)

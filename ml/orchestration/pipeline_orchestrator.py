@@ -1942,10 +1942,17 @@ class MLPipelineOrchestrator:
         guarantee the dataset builder has catalog data while preserving SQL coverage.
 
         """
+        from ml.config.scheduler_config import SchedulerConfig as _SchedulerConfig
         from ml.data.scheduler import DataScheduler
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
         opts = options or PreIngestionOptions()
+        if not isinstance(scheduler_cfg, _SchedulerConfig):
+            logger.debug(
+                "run_pre_ingestion received non-SchedulerConfig; skipping DataScheduler setup",
+                extra={"scheduler_cfg_type": type(scheduler_cfg).__name__},
+            )
+            return
         catalog = ParquetDataCatalog(str(catalog_path))
         scheduler = DataScheduler(
             catalog=catalog,
@@ -1995,6 +2002,12 @@ class MLPipelineOrchestrator:
         binding: ResolvedMarketBinding,
         lookback_days: int,
     ) -> dict[str, BackfillWindowList]:
+        if not isinstance(binding, ResolvedMarketBinding):
+            logger.debug(
+                "backfill_binding received non-ResolvedMarketBinding; skipping ingestion backfill",
+                extra={"binding_type": type(binding).__name__},
+            )
+            return {}
         orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_binding(
             binding=binding,
@@ -2016,7 +2029,13 @@ class MLPipelineOrchestrator:
         identifier and delegates to IngestionOrchestrator.
 
         """
-        days = get_max_lookback_days(dataset_id, policy)
+        effective_policy: CoveragePolicy | None = policy if isinstance(policy, CoveragePolicy) else None
+        if policy is not None and effective_policy is None:
+            logger.debug(
+                "backfill_coverage received non-CoveragePolicy; ignoring policy",
+                extra={"policy_type": type(policy).__name__},
+            )
+        days = get_max_lookback_days(dataset_id, effective_policy)
         return self.backfill(
             dataset_id=dataset_id,
             schema=schema,
@@ -2661,7 +2680,11 @@ class MLPipelineOrchestrator:
             try:
                 metadata_source = load_dataset_metadata(metadata_path)
             except Exception as exc:
-                logger.debug("Failed to load dataset metadata prior to training: %s", exc)
+                logger.debug(
+                    "Failed to load dataset metadata prior to training: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
@@ -2695,7 +2718,6 @@ class MLPipelineOrchestrator:
     def distill_student(
         self,
         cfg: StudentDistillConfig | None,
-        *,
         dataset_dir: Path,
         teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
@@ -2766,8 +2788,16 @@ class MLPipelineOrchestrator:
             args += ["--use_val_for_distill"]
 
         from ml.training.distillation.cli import main as distill_main
-
-        return distill_main(args)
+        try:
+            return distill_main(args)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.error(
+                "Student distillation failed for model_id=%s: %s",
+                cfg.model_id,
+                exc,
+                exc_info=True,
+            )
+            return 1
 
     def run(
         self,
@@ -3105,7 +3135,15 @@ class MLPipelineOrchestrator:
 
         # 3) Train teacher / calibration
         if "TRAIN" not in completed_stages:
-            rc = self.train_teacher(cfg.teacher, dataset_csv=dataset_csv, out_dir=out_dir)
+            try:
+                rc = self.train_teacher(cfg.teacher, dataset_csv=dataset_csv, out_dir=out_dir)
+            except (FileNotFoundError, ValueError) as exc:
+                logger.error(
+                    "Teacher training failed during pipeline run: %s",
+                    exc,
+                    exc_info=True,
+                )
+                return 1
             if rc != 0:
                 return rc
             completed_stages.append("TRAIN")

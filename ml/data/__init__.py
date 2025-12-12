@@ -539,7 +539,14 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
     """Load dataset metadata from a JSON file."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     try:
-        policy = VintagePolicy(raw.get("vintage_policy", VintagePolicy.REAL_TIME.value))
+        policy_raw = raw.get("vintage_policy", VintagePolicy.REAL_TIME.value)
+        if not policy_raw:
+            policy_token = VintagePolicy.REAL_TIME.value
+        elif isinstance(policy_raw, VintagePolicy):
+            policy_token = policy_raw.value
+        else:
+            policy_token = str(policy_raw).strip().lower()
+        policy = VintagePolicy(policy_token)
     except ValueError as exc:  # pragma: no cover - defensive guard
         raise ValueError(f"Invalid vintage_policy in metadata: {raw.get('vintage_policy')}") from exc
 

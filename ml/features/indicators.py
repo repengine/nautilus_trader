@@ -518,45 +518,28 @@ class IndicatorManager:
         )
         return cast(list[dict[str, float]], df.to_dicts())
 
-    def get_values(self, current_price: float | None = None) -> dict[str, float]:
+    def _fill_values(self, values: dict[str, float], current_price: float | None = None) -> None:
         """
-        Get current values from all indicators.
+        Populate a mapping with current indicator values.
 
-        Parameters
-        ----------
-        current_price : float, optional
-            Current price for normalization.
-
-        Returns
-        -------
-        dict[str, float]
-            Dictionary of indicator names to their current values.
-
+        This helper allows hot-path callers to reuse a preallocated dict to avoid
+        per-call allocations while preserving the public get_values snapshot API.
         """
-        values = {}
-
         for name, indicator in self.indicators.items():
             if indicator is not None and indicator.initialized:
                 if name == "bb":
-                    # Bollinger Bands has multiple outputs
                     values[IndicatorNames.BB_UPPER] = indicator.upper
                     values[IndicatorNames.BB_MIDDLE] = indicator.middle
                     values[IndicatorNames.BB_LOWER] = indicator.lower
                 elif name == "macd":
-                    # MACD in Nautilus only provides the MACD line (difference between EMAs)
-                    # Normalize by price if provided to match batch processing
                     macd_value = indicator.value
                     if current_price and current_price > 0:
                         macd_value = safe_divide(macd_value, current_price)
                     values[IndicatorNames.MACD_LINE] = macd_value
-                    # For now, set signal and diff to 0 as Nautilus MACD doesn't compute them
                     values[IndicatorNames.MACD_SIGNAL] = 0.0
                     values[IndicatorNames.MACD_DIFF] = 0.0
                 else:
-                    # Apply same normalization as batch processing
                     if name == "rsi":
-                        # Nautilus RSI returns values in [0, 1] range, not [0, 100]
-                        # Normalize to [-1, 1] for ML: (RSI - 0.5) * 2
                         raw_rsi = indicator.value
                         if not 0.0 <= raw_rsi <= 1.0:
                             logger.warning(
@@ -583,7 +566,6 @@ class IndicatorManager:
                     else:
                         values[name] = indicator.value
             else:
-                # Not initialized yet
                 if name == "bb":
                     values[IndicatorNames.BB_UPPER] = 0.0
                     values[IndicatorNames.BB_MIDDLE] = 0.0
@@ -595,6 +577,23 @@ class IndicatorManager:
                 else:
                     values[name] = 0.0
 
+    def get_values(self, current_price: float | None = None) -> dict[str, float]:
+        """
+        Get current values from all indicators.
+
+        Parameters
+        ----------
+        current_price : float, optional
+            Current price for normalization.
+
+        Returns
+        -------
+        dict[str, float]
+            Dictionary of indicator names to their current values.
+
+        """
+        values: dict[str, float] = {}
+        self._fill_values(values, current_price=current_price)
         return values
 
     def all_initialized(self) -> bool:
