@@ -28,12 +28,13 @@ class MarketFeedDescriptor(msgspec.Struct, kw_only=True, frozen=True):
     license_end: str | None = None
 
 
-class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=True):
+class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=False):
     """Dataset build configuration entry referencing a feed descriptor."""
 
     descriptor_id: str | None = None
     dataset_id: str | None = None
     symbols: tuple[str, ...] | None = None
+    schema: str | None = None
     schema_override: str | None = None
     storage_kind_override: StorageKind | None = None
     start: str | None = None
@@ -43,6 +44,8 @@ class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=True):
         if not self.descriptor_id and not self.dataset_id:
             msg = "MarketDatasetInput requires descriptor_id or dataset_id"
             raise ValueError(msg)
+        if self.schema is not None and self.schema_override is None:
+            self.schema_override = self.schema
 
 
 @dataclass(slots=True, frozen=True)

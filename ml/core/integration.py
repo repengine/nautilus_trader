@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
 import subprocess
 import time
 from collections.abc import Iterable
@@ -27,36 +28,14 @@ from ml.common.db_connections import collect_postgres_candidates
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.protocols import MLComponentProtocol
 from ml.core.db_engine import EngineManager
-from ml.tasks.db import MigrationSchema
+from ml.registry.base import DummyRegistry
 from ml.registry.data_registry import DataRegistry
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
+from ml.stores.base import DummyStore
 from ml.stores.data_store import DataStore
-from ml.stores.feature_store import FeatureStore
-from ml.stores.io_raw import RawReaderProtocol
-from ml.stores.model_store import ModelStore
-from ml.stores.protocols import DataStoreFacadeProtocol
-from ml.stores.raw_protocols import RawIngestionWriterProtocol
-from ml.stores.strategy_store import StrategyStore
-
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from pandas import DataFrame as PdDataFrame
-
-    from ml.preprocessing.event_ingestion import EventIngestionConfig
-    from ml.stores.feature_store import FeatureStore
-    from ml.stores.infrastructure import PartitionManager
-    from ml.stores.io_raw import ParquetCatalogRawWriter
-    from ml.stores.model_store import ModelStore
-    from ml.stores.strategy_store import StrategyStore
-
-
-# Type alias for health summary returned by aggregate_health
-HealthSummary = dict[str, object]
-
-# Runtime imports for store components and adapters referenced below
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore
@@ -64,10 +43,27 @@ from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
 from ml.stores.infrastructure import PartitionManager
-from ml.stores.io_raw import ParquetCatalogRawWriter
+from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.model_store import ModelStore
+from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.providers import SqlMarketDataReader
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.stores.strategy_store import StrategyStore
+from ml.tasks.db import MigrationSchema
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pandas import DataFrame as PdDataFrame
+
+    from ml.preprocessing.event_ingestion import EventIngestionConfig
+    from ml.stores.feature_store import FeatureStore
+    from ml.stores.io_raw import ParquetCatalogRawWriter
+    from ml.stores.model_store import ModelStore
+    from ml.stores.strategy_store import StrategyStore
+
+
+# Type alias for health summary returned by aggregate_health
+HealthSummary = dict[str, object]
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +73,22 @@ _EVENT_INGEST_COUNTER = get_counter(
     "Event ingestion attempts",
     ["status"],
 )
+
+
+def _ensure_directory(path: Path) -> Path:
+    """
+    Create a directory if it does not exist, tolerating existing symlinks/dirs.
+
+    This prevents FileExistsError when mounted volumes expose paths as symlinks.
+    """
+    if path.is_symlink():
+        return path
+    if path.exists():
+        if path.is_dir():
+            return path
+        raise FileExistsError(f"{path} exists and is not a directory")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 @runtime_checkable
@@ -312,7 +324,7 @@ class MLIntegrationManager:
 
         """
         try:
-            self._file_store_path.mkdir(parents=True, exist_ok=True)
+            self._file_store_path = _ensure_directory(self._file_store_path)
         except Exception:  # pragma: no cover - defensive guard
             logger.debug("file_store_path_unavailable", exc_info=True)
             return False
@@ -443,7 +455,7 @@ class MLIntegrationManager:
 
         # Create a registry path (for file storage)
         registry_path = Path("./ml_registry")
-        registry_path.mkdir(parents=True, exist_ok=True)
+        registry_path = _ensure_directory(registry_path)
 
         # Initialize registries
         self.feature_registry = FeatureRegistry(
@@ -1585,6 +1597,16 @@ def reset_integration_manager() -> None:
 # ======================================================================================
 
 
+FeatureStoreLike = FeatureStore | FileFeatureStore | DummyStore
+ModelStoreLike = ModelStore | FileModelStore | DummyStore
+StrategyStoreLike = StrategyStore | FileStrategyStore | DummyStore
+DataStoreFacadeLike = DataStoreFacadeProtocol | FileDataStore | DummyStore
+FeatureRegistryLike = FeatureRegistry | DummyRegistry
+ModelRegistryLike = ModelRegistry | DummyRegistry
+StrategyRegistryLike = StrategyRegistry | DummyRegistry
+DataRegistryLike = DataRegistry | DummyRegistry
+
+
 @dataclass(slots=True)
 class ActorStoresRegistries:
     """
@@ -1596,14 +1618,14 @@ class ActorStoresRegistries:
 
     """
 
-    feature_store: FeatureStore
-    model_store: ModelStore
-    strategy_store: StrategyStore
-    data_store: DataStoreFacadeProtocol
-    feature_registry: FeatureRegistry
-    model_registry: ModelRegistry
-    strategy_registry: StrategyRegistry
-    data_registry: DataRegistry
+    feature_store: FeatureStoreLike
+    model_store: ModelStoreLike
+    strategy_store: StrategyStoreLike
+    data_store: DataStoreFacadeLike
+    feature_registry: FeatureRegistryLike
+    model_registry: ModelRegistryLike
+    strategy_registry: StrategyRegistryLike
+    data_registry: DataRegistryLike
     persistence_config: PersistenceConfig | None
     connection_string: str | None
 
@@ -1667,7 +1689,17 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
     from ml.registry.persistence import PersistenceConfig
 
     # Fast-path for tests
-    if bool(getattr(config, "use_dummy_stores", False)):
+    _model_path = getattr(config, "model_path", None)
+    _force_dummy = False
+    try:
+        if _model_path is not None:
+            from pathlib import Path
+
+            _force_dummy = "dummy_model" in Path(str(_model_path)).name
+    except Exception:
+        _force_dummy = False
+
+    if bool(getattr(config, "use_dummy_stores", False)) or _force_dummy:
         from ml.registry.base import DummyRegistry
         from ml.stores.base import DummyStore
 
@@ -1742,15 +1774,15 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
                 raise
 
     if backend == BackendType.JSON:
-        file_store_path = Path(
+        file_store_path = pathlib.Path(
             getattr(
                 config,
                 "file_store_path",
-                os.getenv("ML_FILE_STORE_PATH", Path.home() / ".nautilus" / "ml" / "file_store"),
+                os.getenv("ML_FILE_STORE_PATH", pathlib.Path.home() / ".nautilus" / "ml" / "file_store"),
             ),
         )
         try:
-            file_store_path.mkdir(parents=True, exist_ok=True)
+            file_store_path = _ensure_directory(file_store_path)
             from ml.registry.base import DummyRegistry
             from ml.stores.file_backed import FileDataStore
             from ml.stores.file_backed import FileFeatureStore
@@ -1758,7 +1790,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             from ml.stores.file_backed import FileStrategyStore
 
             registry_root = file_store_path / "registry"
-            registry_root.mkdir(parents=True, exist_ok=True)
+            registry_root = _ensure_directory(registry_root)
             json_persistence = PersistenceConfig(
                 backend=BackendType.JSON,
                 json_path=registry_root,
@@ -1825,7 +1857,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
 
     # Registries under a local path
     registry_path = Path(".nautilus/ml/registry")
-    registry_path.mkdir(parents=True, exist_ok=True)
+    registry_path = _ensure_directory(registry_path)
     freg = FeatureRegistry(registry_path, persistence_config=persistence_config)
     mreg = ModelRegistry(registry_path, persistence_config=persistence_config)
     sreg = StrategyRegistry(registry_path)

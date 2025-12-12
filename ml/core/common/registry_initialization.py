@@ -32,9 +32,12 @@ import os
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from ml.common.metrics_bootstrap import get_counter
+from ml.registry import DataRegistry
+from ml.stores.io_raw import RawIngestionWriterProtocol
+from ml.stores.io_raw import RawReaderProtocol
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -285,11 +288,12 @@ class RegistryInitializationComponent:
         # Use the module-level factory to avoid mypy issues
         from ml.core.integration import create_data_store as _create_data_store
 
+        connection_string = self.db_connection or ""
         data_store = _create_data_store(
-            registry=self.data_registry,
-            connection_string=self.db_connection,
-            raw_reader=raw_reader,
-            raw_writer=raw_writer,
+            registry=cast(DataRegistry, self.data_registry),
+            connection_string=connection_string,
+            raw_reader=cast(RawReaderProtocol | None, raw_reader),
+            raw_writer=cast(RawIngestionWriterProtocol | None, raw_writer),
         )
 
         return data_store

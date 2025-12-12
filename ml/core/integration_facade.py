@@ -991,10 +991,19 @@ init_actor_stores_and_registries = init_ml_stores_and_registries
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ml.registry.data_registry import DataRegistry
+    from ml.stores.io_raw import RawIngestionWriterProtocol
+    from ml.stores.io_raw import RawReaderProtocol
     from ml.stores.protocols import DataStoreFacadeProtocol
 
 
-def create_data_store(**kwargs: object) -> DataStoreFacadeProtocol:
+def create_data_store(
+    *,
+    registry: DataRegistry,
+    connection_string: str,
+    raw_reader: RawReaderProtocol | None = None,
+    raw_writer: RawIngestionWriterProtocol | None = None,
+) -> DataStoreFacadeProtocol:
     """
     Create a DataStore instance and return it as a narrow facade protocol.
 
@@ -1003,21 +1012,25 @@ def create_data_store(**kwargs: object) -> DataStoreFacadeProtocol:
     """
     from ml.core.integration import create_data_store as _legacy_create
 
-    return _legacy_create(**kwargs)
+    return _legacy_create(
+        registry=registry,
+        connection_string=connection_string,
+        raw_reader=raw_reader,
+        raw_writer=raw_writer,
+    )
 
 class MLIntegrationManager(MLIntegrationManagerFacade):
     """
     Backward-compatible alias to present the facade under the legacy class name.
     """
 
-    pass
 
 
 __all__ = [
     "ActorStoresRegistries",
     "HasDBConnection",
-    "MLIntegrationManagerFacade",
     "MLIntegrationManager",
+    "MLIntegrationManagerFacade",
     "create_data_store",
     "get_integration_manager",
     "init_actor_stores_and_registries",

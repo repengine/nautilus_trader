@@ -146,6 +146,8 @@ class EngineManager:
             msg = "Connection string cannot be empty"
             raise ValueError(msg)
 
+        connection_string = cls._apply_test_port_override(connection_string)
+
         # Fast path: check if engine exists without locking
         if connection_string in cls._instances:
             return cls._instances[connection_string]
@@ -372,6 +374,28 @@ class EngineManager:
 
             if errors:
                 logger.warning(f"Encountered {len(errors)} error(s) during disposal")
+
+    @staticmethod
+    def _apply_test_port_override(connection_string: str) -> str:
+        """
+        Override localhost Postgres port during tests when TEST_DB_PORT is set.
+
+        This keeps production defaults intact while allowing the test suite to
+        redirect hardcoded localhost URLs (e.g., :5432) to a test instance on a
+        different port such as 5434.
+        """
+        test_port = os.getenv("TEST_DB_PORT")
+        if not test_port:
+            return connection_string
+        try:
+            parsed = make_url(connection_string)
+            if parsed.host in {"localhost", "127.0.0.1", "postgres"}:
+                if parsed.port is None or str(parsed.port) != test_port:
+                    parsed = parsed.set(port=int(test_port))
+                    return str(parsed)
+        except Exception:
+            logger.debug("test_db_port_override_failed", exc_info=True)
+        return connection_string
 
     @classmethod
     def get_engine_count(cls) -> int:

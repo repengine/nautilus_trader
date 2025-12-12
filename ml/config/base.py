@@ -567,6 +567,9 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     Signal actor configuration placeholder for backward-compat imports.
     """
 
+    optimization_config: OptimizationConfig | None = None
+    strategy_config: MLStrategyConfig | None = None
+
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     """

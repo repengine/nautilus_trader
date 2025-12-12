@@ -20,12 +20,12 @@ if TYPE_CHECKING:
 
 
 __all__ = [
-    "RingBufferProtocol",
     "FeatureCacheProtocol",
-    "SamplerProtocol",
     "LockFreeRingBuffer",
-    "ReservoirSampler",
     "PreAllocatedFeatureCache",
+    "ReservoirSampler",
+    "RingBufferProtocol",
+    "SamplerProtocol",
 ]
 
 
@@ -48,11 +48,11 @@ class FeatureCacheProtocol(Protocol):
     @property
     def n_features(self) -> int: ...
 
-    def get_current_buffer(self) -> npt.NDArray[np.float64]: ...
+    def get_current_buffer(self) -> npt.NDArray[np.float32]: ...
 
-    def store_current_features(self, features: npt.NDArray[np.float64]) -> None: ...
+    def store_current_features(self) -> None: ...
 
-    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float64]: ...
+    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float32]: ...
 
     def reset(self) -> None: ...
 

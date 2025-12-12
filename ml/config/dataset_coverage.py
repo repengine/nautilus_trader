@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ml.schema import schema_spec_for
+
 
 try:  # Python 3.11+
     import tomllib
@@ -80,6 +82,7 @@ def load_dataset_coverage_entries(path: str | Path) -> tuple[CoverageDatasetEntr
 def _parse_dataset_entry(payload: dict[str, Any], *, base_dir: Path) -> CoverageDatasetEntry:
     dataset_id = _require_str(payload.get("dataset_id"), "dataset_id")
     schema = _require_str(payload.get("schema"), "schema")
+    schema_spec_for(schema)
     strip_venue = bool(payload.get("strip_venue", False))
     entity_field = payload.get("entity_field", "instrument_id")
     if not isinstance(entity_field, str) or not entity_field.strip():
@@ -135,7 +138,7 @@ def _parse_parquet_spec(
     path_raw = _optional_str(payload.get("path"))
     if not path_raw:
         return None
-    base_path = (base_dir / Path(path_raw)).resolve()
+    base_path = str((base_dir / Path(path_raw)).resolve())
     partition_field = _optional_str(payload.get("partition_field")) or "instrument_id"
     timestamp_field = _optional_str(payload.get("timestamp_field")) or "ts_event"
     template_raw = payload.get("partition_template")

@@ -162,8 +162,9 @@ def collect_postgres_candidates(
             os.getenv("ML_DB_PORT"),
             os.getenv("POSTGRES_HOST_PORT"),
             os.getenv("NAUTILUS_DB_PORT"),
-            "5433",
             "5432",
+            "5433",
+            "5434",
         ),
     )
 
