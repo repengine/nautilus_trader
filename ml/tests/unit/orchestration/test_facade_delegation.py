@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 class TestFacadeDelegation:
     """Tests for facade delegation patterns."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController delegation")
     def test_facade_run_delegates_to_stage_controller(
         self,
         mock_coverage_provider: Mock,
@@ -74,7 +73,6 @@ class TestFacadeDelegation:
             mock_controller.run_pipeline.assert_called_once()
             assert result == 0
 
-    @pytest.mark.skip(reason="Pending implementation - delegation verification")
     def test_facade_build_dataset_delegates_to_dataset_builder(
         self,
         mock_coverage_provider: Mock,
@@ -115,7 +113,6 @@ class TestFacadeDelegation:
             mock_builder.build_dataset.assert_called_once_with(sample_dataset_config)
             assert result == 0
 
-    @pytest.mark.skip(reason="Pending implementation - delegation verification")
     def test_facade_train_teacher_delegates_to_training_coordinator(
         self,
         mock_coverage_provider: Mock,
@@ -160,7 +157,6 @@ class TestFacadeDelegation:
             mock_coordinator.train_teacher.assert_called_once()
             assert result == 0
 
-    @pytest.mark.skip(reason="Pending implementation - delegation verification")
     def test_facade_run_pre_ingestion_delegates_to_ingestion_coordinator(
         self,
         mock_coverage_provider: Mock,
@@ -206,7 +202,6 @@ class TestFacadeDelegation:
 
             mock_coordinator.run_pre_ingestion.assert_called_once()
 
-    @pytest.mark.skip(reason="Pending implementation - legacy delegation removal")
     def test_facade_has_no_legacy_delegation_when_flag_off(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -276,7 +271,6 @@ class TestFacadeLineCount:
 
         assert line_count < 400, f"Facade has {line_count} lines, should be <400"
 
-    @pytest.mark.skip(reason="Pending implementation - static analysis")
     def test_facade_methods_are_thin_wrappers(self) -> None:
         """
         Verify facade methods are thin wrappers (< 20 lines each).
@@ -321,7 +315,6 @@ class TestFacadeLineCount:
 class TestComponentInitialization:
     """Tests for component initialization in facade."""
 
-    @pytest.mark.skip(reason="Pending implementation - component initialization")
     def test_all_components_initialized(
         self,
         mock_coverage_provider: Mock,
@@ -359,8 +352,9 @@ class TestComponentInitialization:
         assert facade._runtime_attacher is not None
         assert facade._config_resolver is not None
         assert facade._discovery_client is not None
+        # Legacy orchestration should not be initialized by default
+        assert facade._legacy_orchestrator is None
 
-    @pytest.mark.skip(reason="Pending implementation - StageController initialization")
     def test_stage_controller_initialized(
         self,
         mock_coverage_provider: Mock,

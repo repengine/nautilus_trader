@@ -63,14 +63,6 @@ def mock_earnings_store():
 
 
 @pytest.fixture
-def mock_data_registry():
-    """Create mock DataRegistry."""
-    registry = MagicMock()
-    registry.get_health_status.return_value = {"healthy": True}
-    return registry
-
-
-@pytest.fixture
 def store_operations(
     mock_feature_store,
     mock_model_store,

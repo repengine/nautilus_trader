@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
+from pathlib import Path
 from threading import Event as ThreadEvent
 from threading import Lock
 from threading import Thread
@@ -33,7 +34,7 @@ from sqlalchemy.engine import Engine
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.message_bus import publisher_from_config
-from ml.common.message_topics import build_stage_topic
+from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.retry_utils import retry_with_backoff
@@ -350,6 +351,7 @@ class DashboardService:
     _store_clients: _StoreClients | None = field(default=None, init=False, repr=False)
     _store_lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _store_summary_cache: _TTLCache[dict[str, Any]] = field(init=False, repr=False)
+    _streaming_state: dict[str, Any] = field(init=False, repr=False)
     _prometheus_helper: PrometheusQueryHelper | None = field(init=False, repr=False)
     _grafana_status: _GrafanaStatus = field(init=False, repr=False)
     _last_orchestrator: MLPipelineOrchestrator | None = field(default=None, init=False, repr=False)
@@ -405,9 +407,102 @@ class DashboardService:
             ttl_seconds=self.config.store_health_cache_ttl_seconds,
             max_entries=self.config.store_health_cache_max_entries,
         )
+        self._streaming_state: dict[str, Any] = {
+            "plans": {},
+            "results": {},
+            "heartbeats": {},
+            "datasets": {},
+            "outstanding_plan_ids": [],
+            "stream_cursor": None,
+        }
         self._last_orchestrator: MLPipelineOrchestrator | None = None
         self._pipeline_service = None
         self._pipeline_integration_manager = None
+
+    def get_streaming_training_state(self) -> dict[str, Any]:
+        """
+        Load streaming training state from an optional snapshot file.
+
+        Returns a structured summary with per-dataset backlog/worker counts.
+        """
+        state = dict(self._streaming_state)
+        path = self.config.streaming_state_path
+        if path is not None:
+            snapshot_path = Path(path)
+            if snapshot_path.exists():
+                try:
+                    loaded = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                    state.update(loaded)
+                except Exception:
+                    logger.debug("failed to read streaming state snapshot", exc_info=True)
+
+        plans = state.get("plans", {}) or {}
+        results = state.get("results", {}) or {}
+        heartbeats = state.get("heartbeats", {}) or {}
+        datasets = state.get("datasets", {}) or {}
+
+        outstanding_plan_ids = [pid for pid in plans if pid not in results]
+
+        dataset_details: dict[str, dict[str, Any]] = {}
+        for dataset_id, plan_ids in datasets.items():
+            plan_list = list(plan_ids)
+            latest_result = next(
+                (results[pid] for pid in reversed(plan_list) if pid in results),
+                None,
+            )
+            dataset_details[dataset_id] = {
+                "plan_ids": plan_list,
+                "latest_result": latest_result,
+            }
+
+        return {
+            "enabled": True,
+            "plans": plans,
+            "results": results,
+            "heartbeats": heartbeats,
+            "datasets": datasets,
+            "outstanding_plan_ids": outstanding_plan_ids,
+            "dataset_details": dataset_details,
+            "stream_cursor": state.get("stream_cursor"),
+        }
+
+    def _process_streaming_event(self, topic: str, message: dict[str, Any]) -> None:
+        """
+        Update streaming training state with an incoming event payload.
+
+        This maintains a lightweight snapshot used by the dashboard streaming monitor.
+        """
+        plans = self._streaming_state.setdefault("plans", {})
+        results = self._streaming_state.setdefault("results", {})
+        heartbeats = self._streaming_state.setdefault("heartbeats", {})
+        datasets = self._streaming_state.setdefault("datasets", {})
+
+        topic_lower = topic.lower()
+        plan_id = str(message.get("plan_id", "") or "")
+        dataset_id = str(message.get("dataset_id", "") or "")
+
+        if "dataset_planned" in topic_lower and plan_id:
+            plans[plan_id] = message
+            dataset_plans = datasets.setdefault(dataset_id or "unknown", [])
+            if plan_id not in dataset_plans:
+                dataset_plans.append(plan_id)
+        elif "model_training_completed" in topic_lower and plan_id:
+            results[plan_id] = message
+        elif "worker_heartbeat" in topic_lower and plan_id:
+            heartbeats[plan_id] = message
+
+        if "cursor" in message:
+            self._streaming_state["stream_cursor"] = message.get("cursor")
+
+        path = self.config.streaming_state_path
+        if path:
+            try:
+                Path(path).write_text(
+                    json.dumps(self._streaming_state, default=str),
+                    encoding="utf-8",
+                )
+            except Exception:
+                logger.debug("failed to persist streaming state snapshot", exc_info=True)
 
     # -----------------
     # Health & metadata
@@ -1282,11 +1377,16 @@ class DashboardService:
             self._record_registry_error(name="feature", reason="promote_failed")
             ok = False
 
-        # Best-effort bus publish (stage-first topic)
+        # Best-effort bus publish (env-configured topic scheme)
         try:
             cfg = MessageBusConfig.from_env()
             pub = publisher_from_config(cfg)
-            topic = build_stage_topic(Stage.FEATURE_COMPUTED, prefix=cfg.topic_prefix)
+            topic = build_topic_for_stage(
+                Stage.FEATURE_COMPUTED,
+                feature_set_id,
+                scheme=cfg.scheme,
+                prefix=cfg.topic_prefix,
+            )
             _ = pub.publish(
                 topic,
                 {
@@ -1297,7 +1397,7 @@ class DashboardService:
                 },
             )
         except Exception:
-            pass
+            logger.debug("Failed to publish promote_feature event", exc_info=True)
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id, "stage": new_stage}
@@ -1322,7 +1422,12 @@ class DashboardService:
         try:
             cfg = MessageBusConfig.from_env()
             pub = publisher_from_config(cfg)
-            topic = build_stage_topic(Stage.FEATURE_COMPUTED, prefix=cfg.topic_prefix)
+            topic = build_topic_for_stage(
+                Stage.FEATURE_COMPUTED,
+                feature_set_id,
+                scheme=cfg.scheme,
+                prefix=cfg.topic_prefix,
+            )
             _ = pub.publish(
                 topic,
                 {
@@ -1333,7 +1438,7 @@ class DashboardService:
                 },
             )
         except Exception:
-            pass
+            logger.debug("Failed to publish deprecate_feature event", exc_info=True)
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id}

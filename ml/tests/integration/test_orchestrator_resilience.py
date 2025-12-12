@@ -29,7 +29,6 @@ class TestOrchestratorResilience:
     These tests validate Universal Pattern #4: Progressive Fallback Chains.
     """
 
-    @pytest.mark.skip(reason="Awaiting production implementation of backfill coordinator and caching layer")
     def test_fallback_chain_primary_to_cached(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -110,7 +109,6 @@ class TestOrchestratorResilience:
         # counter = get_counter("ml_fallback_activations_total", "Fallback activations")
         # assert counter.labels(source="cached")._value._value > 0
 
-    @pytest.mark.skip(reason="Awaiting production implementation of circuit breaker integration")
     def test_circuit_breaker_activates_on_repeated_failures(
         self,
     ) -> None:
@@ -190,7 +188,6 @@ class TestOrchestratorResilience:
         # gauge = get_gauge("ml_circuit_breaker_state", "Circuit breaker state")
         # assert gauge.labels(component="DataStore", state="open").get() == 1
 
-    @pytest.mark.skip(reason="Awaiting production implementation of complete fallback chain")
     def test_fallback_chain_to_dummy_when_all_fail(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -282,7 +279,6 @@ class TestOrchestratorResilience:
         # counter = get_counter("ml_fallback_activations_total", "Fallback activations")
         # assert counter.labels(source="dummy")._value._value > 0
 
-    @pytest.mark.skip(reason="Awaiting production implementation of graceful degradation")
     def test_graceful_degradation_maintains_partial_functionality(
         self,
         caplog: pytest.LogCaptureFixture,

@@ -355,7 +355,10 @@ class TestValidateBatch:
 
         mock_quality_histogram.labels.assert_called_once_with(dataset_id="test_dataset")
         mock_quality_labels.observe.assert_called_once()
-        mock_duration_histogram.labels.assert_called_once_with(dataset_id="test_dataset")
+        mock_duration_histogram.labels.assert_called_once_with(
+            dataset_id="test_dataset",
+            operation="validate_batch",
+        )
         mock_duration_labels.observe.assert_called_once()
 
 # ========================================================================

@@ -6,6 +6,7 @@ instances describing which dataset/instrument pairs should be inspected. Feature
 families such as earnings or macro data need additional metadata that tells the
 system how to inspect SQL tables and where the parquet mirrors live. This module
 parses TOML configuration files that capture those details.
+
 """
 
 from __future__ import annotations
@@ -92,7 +93,9 @@ def _parse_dataset_entry(payload: dict[str, Any], *, base_dir: Path) -> Coverage
         raise ValueError(f"dataset {dataset_id} must define 'entities'")
     instruments = _parse_entities(entities_value, strip_venue=strip_venue)
     sql_override = _parse_sql_override(payload.get("sql"), dataset_id=dataset_id)
-    parquet_spec = _parse_parquet_spec(payload.get("parquet"), dataset_id=dataset_id, base_dir=base_dir)
+    parquet_spec = _parse_parquet_spec(
+        payload.get("parquet"), dataset_id=dataset_id, base_dir=base_dir
+    )
     dataset_cfg = DatasetCoverageConfig(
         dataset_id=dataset_id,
         schema=schema,

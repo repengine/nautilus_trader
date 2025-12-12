@@ -23,6 +23,9 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.actors.common.model import ModelComponent
 from ml.config.base import MLActorConfig
+from ml.tests.utils.db import build_postgres_url
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 # Helper function to create config with model_path
@@ -33,7 +36,7 @@ def create_config(model_path: str | None = None) -> MLActorConfig:
         model_id=None,
         bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         use_dummy_stores=True,
     )
 
@@ -58,7 +61,7 @@ def valid_actor_config() -> MLActorConfig:
         model_id=None,
         bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         use_dummy_stores=True,
     )
 
@@ -231,7 +234,7 @@ def model_component_with_loaded_model(
         model_id=None,
         bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         use_dummy_stores=True,
     )
     logger = logging.getLogger("test_model_component")
@@ -282,7 +285,6 @@ def test_model_loading_from_path(onnx_model_file: Path) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="Production code missing _try_load_from_registry method - requires implementation")
 def test_model_loading_from_registry(valid_actor_config: MLActorConfig, onnx_model_file: Path):
     """
     Verify model loads from ModelRegistry (preferred method).
@@ -951,7 +953,6 @@ def test_model_id_from_path_final_fallback(
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="Production code missing _schedule_model_checks method - requires implementation")
 def test_hot_reload_timer_scheduling(valid_actor_config: MLActorConfig, onnx_model_file: Path):
     """
     Verify hot reload timer can be scheduled (method exists).
@@ -986,7 +987,6 @@ def test_hot_reload_preserves_state(valid_actor_config: MLActorConfig, onnx_mode
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="Production code missing manifest warm-up integration - requires implementation")
 def test_manifest_warm_up_when_enabled(
     valid_actor_config: MLActorConfig,
     onnx_model_file: Path,

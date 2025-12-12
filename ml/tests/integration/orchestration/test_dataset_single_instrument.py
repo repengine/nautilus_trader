@@ -16,7 +16,6 @@ from unittest.mock import Mock
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_build_ohlcv_dataset_single_instrument_spy() -> None:
     """
@@ -36,7 +35,6 @@ def test_build_ohlcv_dataset_single_instrument_spy() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_dataset_has_mandatory_columns_timestamp_close() -> None:
     """
@@ -53,7 +51,6 @@ def test_dataset_has_mandatory_columns_timestamp_close() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_dataset_row_count_matches_coverage() -> None:
     """

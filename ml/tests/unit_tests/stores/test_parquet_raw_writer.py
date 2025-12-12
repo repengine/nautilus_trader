@@ -1,5 +1,7 @@
 from typing import Any
+from unittest.mock import MagicMock
 
+from ml.stores.io_raw import FilteredRawWriter
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.registry.dataclasses import DatasetType
 
@@ -49,3 +51,14 @@ def test_parquet_raw_writer_converts_rows_to_bars() -> None:
     assert isinstance(written, list)
     assert isinstance(written[0], _Bar)
     assert isinstance(written[1], _Bar)
+
+
+def test_filtered_raw_writer_skips_disabled_dataset_type() -> None:
+    inner = MagicMock()
+    writer = FilteredRawWriter(inner, {DatasetType.TRADES: False})
+
+    result = writer.write(dataset_type=DatasetType.TRADES, data=[])
+
+    assert result == 0
+    assert writer.is_enabled(DatasetType.TRADES) is False
+    inner.write.assert_not_called()

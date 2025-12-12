@@ -67,7 +67,6 @@ class MockModelWithGetScore:
 class MockModelNoImportance:
     """Mock model without feature importance support."""
 
-    pass
 
 
 @dataclass

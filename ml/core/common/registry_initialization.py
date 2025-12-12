@@ -57,19 +57,27 @@ _FALLBACK_COUNTER = get_counter(
 
 @runtime_checkable
 class RegistryProtocol(Protocol):
-    """Protocol for ML registry components."""
+    """
+    Protocol for ML registry components.
+    """
 
     def list_all(self) -> list[Any]:
-        """List all registered items."""
+        """
+        List all registered items.
+        """
         ...
 
 
 @runtime_checkable
 class StoreWithDataRegistryProtocol(Protocol):
-    """Protocol for stores that can receive a DataRegistry injection."""
+    """
+    Protocol for stores that can receive a DataRegistry injection.
+    """
 
     def set_data_registry(self, registry: object) -> None:
-        """Set the shared DataRegistry reference."""
+        """
+        Set the shared DataRegistry reference.
+        """
         ...
 
 
@@ -252,14 +260,14 @@ class RegistryInitializationComponent:
         """
         if self.data_registry is None:
             raise RuntimeError(
-                "Cannot create DataStore before init_registries() is called"
+                "Cannot create DataStore before init_registries() is called",
             )
 
         if self.file_fallback or self.json_fallback:
             # In fallback mode, DataStore is handled by StoreInitializationComponent
             raise RuntimeError(
                 "DataStore creation not supported in fallback mode. "
-                "Use StoreInitializationComponent for file/dummy stores."
+                "Use StoreInitializationComponent for file/dummy stores.",
             )
 
         # Create SQL reader if not provided
@@ -325,7 +333,7 @@ class RegistryInitializationComponent:
         """
         if self.data_registry is None:
             logger.debug(
-                "Cannot inject DataRegistry - registries not initialized"
+                "Cannot inject DataRegistry - registries not initialized",
             )
             return
 

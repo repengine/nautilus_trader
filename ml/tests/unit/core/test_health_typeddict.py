@@ -268,17 +268,14 @@ def test_typeddict_enables_ide_autocomplete() -> None:
     - Verifies type definitions exist and are accessible
     - Does not depend on runtime type checking
     """
-    # Import TypedDict definitions (will be added in Phase 2)
-    try:
-        from ml.core.integration import (
-            ComponentHealthStatus,
-            DomainHealth,
-            HealthDomains,
-            HealthSummary,
-            SystemHealth,
-        )
-    except ImportError:
-        pytest.skip("TypedDict definitions not yet implemented")
+    # Import TypedDict definitions
+    from ml.core.integration import (
+        ComponentHealthStatus,
+        DomainHealth,
+        HealthDomains,
+        HealthSummary,
+        SystemHealth,
+    )
 
     # Verify HealthSummary has expected fields
     hints = get_type_hints(HealthSummary)

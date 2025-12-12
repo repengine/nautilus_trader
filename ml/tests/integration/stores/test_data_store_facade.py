@@ -34,11 +34,11 @@ pytestmark = pytest.mark.usefixtures(
 
 
 @pytest.fixture
-def connection_string():
+def connection_string(cloned_test_database: str) -> str:
     """
-    Provide test PostgreSQL connection string.
+    Provide isolated Postgres connection string via cloned test database.
     """
-    return "postgresql://test:test@localhost:5432/test_db"
+    return cloned_test_database
 
 
 # Note: mock_feature_store, mock_model_store, and mock_strategy_store

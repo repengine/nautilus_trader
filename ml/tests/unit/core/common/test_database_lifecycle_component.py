@@ -22,6 +22,11 @@ import pytest
 
 from ml.core.common.database_lifecycle import DatabaseLifecycleComponent
 from ml.core.db_engine import EngineManager
+from ml.tests.utils.db import build_postgres_url, get_test_db_port
+
+TEST_DB_CONNECTION = build_postgres_url()
+ALT_DB_CONNECTION = build_postgres_url(port="5433")
+DEFAULT_CANDIDATES = (TEST_DB_CONNECTION, ALT_DB_CONNECTION)
 
 
 if TYPE_CHECKING:
@@ -36,10 +41,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def default_candidates() -> tuple[str, ...]:
     """Provide default connection candidates for tests."""
-    return (
-        "postgresql://postgres:postgres@localhost:5432/nautilus",
-        "postgresql://postgres:postgres@localhost:5433/nautilus",
-    )
+    return DEFAULT_CANDIDATES
 
 
 @pytest.fixture
@@ -94,10 +96,7 @@ class TestHappyPath:
         Input: Connection candidates with primary unreachable, secondary reachable.
         Expected Behavior: Returns True, db_connection updated to secondary.
         """
-        candidates = (
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
-            "postgresql://postgres:postgres@localhost:5433/nautilus",
-        )
+        candidates = DEFAULT_CANDIDATES
         component = DatabaseLifecycleComponent(
             connection_candidates=candidates,
             auto_start_postgres=False,
@@ -105,7 +104,7 @@ class TestHappyPath:
 
         # Mock can_connect to fail for primary, succeed for secondary
         def fake_can_connect(self: DatabaseLifecycleComponent, conn: str) -> bool:
-            return conn.endswith(":5433/nautilus")
+            return conn == ALT_DB_CONNECTION
 
         monkeypatch.setattr(DatabaseLifecycleComponent, "can_connect", fake_can_connect)
 
@@ -120,7 +119,7 @@ class TestHappyPath:
         assert result is True
         assert component.db_connection.endswith(":5433/nautilus")
         assert len(disposed) > 0
-        assert disposed[0].endswith(":5432/nautilus")
+        assert disposed[0].endswith(f":{get_test_db_port()}/nautilus")
 
     def test_can_connect_when_valid_connection_returns_true(
         self,
@@ -145,7 +144,7 @@ class TestHappyPath:
         )
 
         result = mock_database_lifecycle.can_connect(
-            "postgresql://postgres:postgres@localhost:5432/nautilus"
+            TEST_DB_CONNECTION
         )
 
         assert result is True
@@ -162,7 +161,7 @@ class TestHappyPath:
         """
         component = DatabaseLifecycleComponent(
             connection_candidates=(
-                "postgresql://postgres:postgres@localhost:5432/nautilus",
+                TEST_DB_CONNECTION,
             ),
             auto_migrate=True,
             allow_dummy=False,
@@ -311,7 +310,7 @@ class TestErrorConditions:
         )
 
         result = mock_database_lifecycle.can_connect(
-            "postgresql://postgres:postgres@localhost:5432/nautilus"
+            TEST_DB_CONNECTION
         )
 
         assert result is False
@@ -464,7 +463,7 @@ class TestEdgeCases:
         """
         component = DatabaseLifecycleComponent(
             connection_candidates=(
-                "postgresql://postgres:postgres@localhost:5432/nautilus",
+                TEST_DB_CONNECTION,
             ),
             auto_migrate=True,
             allow_dummy=True,
@@ -496,7 +495,7 @@ class TestEdgeCases:
         """
         candidates = (
             "postgresql://postgres:postgres@localhost:5433/nautilus",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
+            TEST_DB_CONNECTION,
         )
         component = DatabaseLifecycleComponent(
             connection_candidates=candidates,
@@ -507,21 +506,21 @@ class TestEdgeCases:
     def test_auto_start_postgres_default_false(self) -> None:
         """Verify auto_start_postgres defaults to False."""
         component = DatabaseLifecycleComponent(
-            connection_candidates=("postgresql://localhost:5432/nautilus",),
+            connection_candidates=(TEST_DB_CONNECTION,),
         )
         assert component.auto_start_postgres is False
 
     def test_auto_migrate_default_false(self) -> None:
         """Verify auto_migrate defaults to False."""
         component = DatabaseLifecycleComponent(
-            connection_candidates=("postgresql://localhost:5432/nautilus",),
+            connection_candidates=(TEST_DB_CONNECTION,),
         )
         assert component.auto_migrate is False
 
     def test_allow_dummy_default_false(self) -> None:
         """Verify allow_dummy defaults to False."""
         component = DatabaseLifecycleComponent(
-            connection_candidates=("postgresql://localhost:5432/nautilus",),
+            connection_candidates=(TEST_DB_CONNECTION,),
         )
         assert component.allow_dummy is False
 

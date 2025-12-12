@@ -18,6 +18,17 @@ import pytest
 from ml._imports import HAS_PANDERA
 from ml._imports import check_ml_dependencies
 
+# Some pandas builds ship without a __class_getitem__ on Series, which breaks
+# Pandera annotations like Series[int]. Patch in a no-op implementation so
+# schemas remain subscriptable in tests regardless of pandas version.
+try:
+    import pandas as _pd
+
+    if not hasattr(_pd.Series, "__class_getitem__"):
+        _pd.Series.__class_getitem__ = classmethod(lambda cls, _item: cls)  # type: ignore[misc,assignment]
+except Exception:  # pragma: no cover - defensive; absence just leaves types unpatched
+    _pd = cast("ModuleType | None", None)
+
 if TYPE_CHECKING:
     import pandera as _pandera_module
     from pandera.typing import DataFrame as PanderaDataFrame

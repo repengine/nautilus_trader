@@ -93,7 +93,7 @@ class TestGodClassAnalysisE2E:
         """Verify full analysis of all 15 god classes completes within 5 minutes."""
         start_time = time.time()
 
-        analyses, shared_patterns = analyzer.analyze_all(all_god_class_paths)
+        analyses, _shared_patterns = analyzer.analyze_all(all_god_class_paths)
 
         elapsed_time = time.time() - start_time
 
@@ -240,7 +240,7 @@ class TestGodClassAnalysisE2E:
         tmp_path: Path
     ) -> None:
         """Verify cross-class pattern report has correct structure."""
-        analyses, shared_patterns = analyzer.analyze_all(all_god_class_paths[:5])
+        _analyses, shared_patterns = analyzer.analyze_all(all_god_class_paths[:5])
 
         output_dir = tmp_path / "reports"
         pattern_path = output_dir / "patterns.md"

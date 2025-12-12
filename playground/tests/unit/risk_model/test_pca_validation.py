@@ -19,8 +19,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from playground.risk_model.dataset import SectorDataset
 from playground.risk_model.dataset import CoverageSummary
+from playground.risk_model.dataset import SectorDataset
 from playground.risk_model.pca_validation import SectorPCAResult
 from playground.risk_model.pca_validation import compare_pc_loadings_to_betas
 from playground.risk_model.pca_validation import compute_sector_pca
@@ -96,7 +96,7 @@ def synthetic_three_factor_dataset() -> SectorDataset:
         calendar_name="XNYS",
         sector_expected_days=252,
         factor_expected_days=252,
-        sector_coverage={name: 1.0 for name in sector_names},
+        sector_coverage=dict.fromkeys(sector_names, 1.0),
         factor_coverage={"factor_duration": 1.0, "factor_credit": 1.0, "factor_liquidity": 1.0},
     )
 
@@ -138,7 +138,7 @@ def simple_dataset() -> SectorDataset:
         calendar_name="XNYS",
         sector_expected_days=50,
         factor_expected_days=50,
-        sector_coverage={s: 1.0 for s in sectors},
+        sector_coverage=dict.fromkeys(sectors, 1.0),
         factor_coverage={"factor_duration": 1.0},
     )
 
@@ -220,7 +220,7 @@ def test_pca_variance_explained_sum_to_one() -> None:
         calendar_name="XNYS",
         sector_expected_days=100,
         factor_expected_days=100,
-        sector_coverage={s: 1.0 for s in sectors},
+        sector_coverage=dict.fromkeys(sectors, 1.0),
         factor_coverage={"dummy": 1.0},
     )
 

@@ -244,7 +244,7 @@ class MLIntegrationManagerFacade:
             os.getenv(
                 "ML_FILE_STORE_PATH",
                 str(Path.home() / ".nautilus" / "ml" / "file_store"),
-            )
+            ),
         )
 
         # Initialize partition_manager (will be set later if PostgreSQL available)
@@ -416,7 +416,9 @@ class MLIntegrationManagerFacade:
             logger.warning("Backfill bootstrap skipped: %s", exc)
 
     def _wire_component_attributes(self) -> None:
-        """Wire component attributes to facade for public access."""
+        """
+        Wire component attributes to facade for public access.
+        """
         # Stores
         self.feature_store = self._store_init.feature_store
         self.model_store = self._store_init.model_store
@@ -430,7 +432,9 @@ class MLIntegrationManagerFacade:
         self.data_registry = self._registry_init.data_registry
 
     def _init_partition_manager(self) -> PartitionManager | None:
-        """Initialize partition management for PostgreSQL tables."""
+        """
+        Initialize partition management for PostgreSQL tables.
+        """
         try:
             from ml.stores.infrastructure import PartitionManager
 
@@ -484,7 +488,9 @@ class MLIntegrationManagerFacade:
         return self._event_ingestion.ingest_events(config)
 
     def _maybe_run_backfill_on_start(self) -> None:
-        """Optionally run a gap backfill on startup using CLI."""
+        """
+        Optionally run a gap backfill on startup using CLI.
+        """
         self._event_ingestion.maybe_run_backfill_on_start()
 
     # =========================================================================
@@ -504,7 +510,9 @@ class MLIntegrationManagerFacade:
         self._health_monitoring.ensure_healthy()
 
     def _validate_protocol_compliance(self, strict: bool | None = None) -> None:
-        """Validate MLComponentProtocol compliance for core components."""
+        """
+        Validate MLComponentProtocol compliance for core components.
+        """
         self._health_monitoring.validate_protocol_compliance(strict=strict)
 
     def aggregate_health(self) -> dict[str, object]:
@@ -535,19 +543,27 @@ class MLIntegrationManagerFacade:
         return self._health_monitoring.check_health()
 
     def _check_store_health(self, store: object) -> bool:
-        """Check health of a store component."""
+        """
+        Check health of a store component.
+        """
         return self._health_monitoring.check_store_health(store)
 
     def _check_registry_health(self, registry: object, method_name: str) -> bool:
-        """Check health of a registry component."""
+        """
+        Check health of a registry component.
+        """
         return self._health_monitoring.check_registry_health(registry, method_name)
 
     def _check_data_store_health(self) -> bool:
-        """Check health of DataStore component."""
+        """
+        Check health of DataStore component.
+        """
         return self._health_monitoring.check_data_store_health()
 
     def _check_partition_health(self) -> bool:
-        """Check health of partition manager."""
+        """
+        Check health of partition manager.
+        """
         return self._health_monitoring.check_partition_health()
 
     # =========================================================================
@@ -578,7 +594,9 @@ class MLIntegrationManagerFacade:
         return self._actor_factory.create_integrated_actor(actor_class, config)
 
     def shutdown(self) -> None:
-        """Gracefully shutdown all components."""
+        """
+        Gracefully shutdown all components.
+        """
         self._actor_factory.shutdown()
         # Also stop observability if running
         self._observability.stop_observability_flush()
@@ -592,7 +610,9 @@ class MLIntegrationManagerFacade:
         retention_hours: int | None = None,
         max_size_mb: int | None = None,
     ) -> None:
-        """No-op configuration stub for message bus (for tests)."""
+        """
+        No-op configuration stub for message bus (for tests).
+        """
         return self._actor_factory.configure_message_bus(
             backend=backend,
             topic_prefix=topic_prefix,
@@ -608,7 +628,9 @@ class MLIntegrationManagerFacade:
         flush_interval_ms: int | None = None,
         correlation_strategy: str | None = None,
     ) -> None:
-        """No-op configuration stub for event emission (for tests)."""
+        """
+        No-op configuration stub for event emission (for tests).
+        """
         return self._actor_factory.configure_event_emission(
             batching_enabled=batching_enabled,
             batch_size=batch_size,
@@ -617,15 +639,21 @@ class MLIntegrationManagerFacade:
         )
 
     def configure_event_system(self, **_: object) -> None:
-        """No-op aggregate configuration for event system (for tests)."""
+        """
+        No-op aggregate configuration for event system (for tests).
+        """
         return self._actor_factory.configure_event_system(**_)
 
     def configure_domain_bookkeeping(self, _config: object) -> None:
-        """No-op configuration stub for domain bookkeeping (for tests)."""
+        """
+        No-op configuration stub for domain bookkeeping (for tests).
+        """
         return self._actor_factory.configure_domain_bookkeeping(_config)
 
     def emit_cross_domain_event(self, _event: dict[str, object]) -> None:
-        """No-op cross-domain event emitter stub (for tests)."""
+        """
+        No-op cross-domain event emitter stub (for tests).
+        """
         return self._actor_factory.emit_cross_domain_event(_event)
 
     def emit_cascade(
@@ -660,7 +688,9 @@ class MLIntegrationManagerFacade:
         )
 
     def set_message_publisher(self, publisher: object) -> None:
-        """Configure the message publisher for ML stores which support it."""
+        """
+        Configure the message publisher for ML stores which support it.
+        """
         self._actor_factory.set_message_publisher(publisher)
 
     # =========================================================================
@@ -668,17 +698,23 @@ class MLIntegrationManagerFacade:
     # =========================================================================
 
     def initialize_observability_pipeline(self) -> None:
-        """Initialize a lightweight observability service (off hot-path)."""
+        """
+        Initialize a lightweight observability service (off hot-path).
+        """
         self._observability.initialize_observability_pipeline()
         # Sync the service reference to facade
         self.observability_service = self._observability.observability_service
 
     def start_end_to_end_tracking(self) -> None:
-        """No-op start of E2E tracking (for tests)."""
+        """
+        No-op start of E2E tracking (for tests).
+        """
         return self._observability.start_end_to_end_tracking()
 
     def start_health_checks(self) -> None:
-        """No-op start of health monitoring (for tests)."""
+        """
+        No-op start of health monitoring (for tests).
+        """
         return self._observability.start_health_checks()
 
     def collect_observability_dataframes(self) -> dict[str, PdDataFrame | None]:
@@ -787,11 +823,15 @@ class MLIntegrationManagerFacade:
         return result
 
     def stop_observability_flush(self) -> None:
-        """Stop background flush if running (idempotent)."""
+        """
+        Stop background flush if running (idempotent).
+        """
         self._observability.stop_observability_flush()
 
     def _inject_observability_service_into_stores(self) -> None:
-        """Inject the observability service into all stores."""
+        """
+        Inject the observability service into all stores.
+        """
         self._observability.inject_observability_service_into_stores()
 
     def start_observability_from_config(self, cfg: object) -> None:
@@ -810,7 +850,9 @@ class MLIntegrationManagerFacade:
         self._obs_async_worker = getattr(self._observability, "_obs_async_worker", None)
 
     def stop_observability_async(self) -> None:
-        """Stop async observability worker if running (idempotent)."""
+        """
+        Stop async observability worker if running (idempotent).
+        """
         self._observability.stop_observability_async()
 
     def get_observability_async_status(self) -> dict[str, object]:
@@ -826,7 +868,9 @@ class MLIntegrationManagerFacade:
         return self._observability.get_observability_async_status()
 
     def start_observability_from_env(self) -> None:
-        """Start observability flushing using environment-driven config."""
+        """
+        Start observability flushing using environment-driven config.
+        """
         self._observability.start_observability_from_env()
         # Sync service reference
         self.observability_service = self._observability.observability_service
@@ -836,41 +880,59 @@ class MLIntegrationManagerFacade:
     # =========================================================================
 
     def _init_database(self) -> None:
-        """Initialize database connection and run migrations."""
+        """
+        Initialize database connection and run migrations.
+        """
         self._db_lifecycle.init_database()
 
     def _enable_file_fallback(self) -> bool:
-        """Attempt to enable file-backed fallback stores."""
+        """
+        Attempt to enable file-backed fallback stores.
+        """
         return self._store_init.enable_file_fallback()
 
     def _init_dummy_components(self) -> None:
-        """Initialize in-memory dummy components for testing fallback."""
+        """
+        Initialize in-memory dummy components for testing fallback.
+        """
         self._store_init.init_dummy_components()
 
     def _init_stores(self) -> None:
-        """Initialize all store components."""
+        """
+        Initialize all store components.
+        """
         self._store_init.init_stores()
         self._wire_component_attributes()
 
     def _init_registries(self) -> None:
-        """Initialize all registry components."""
+        """
+        Initialize all registry components.
+        """
         self._registry_init.init_registries()
         self._wire_component_attributes()
 
     def _is_postgres_running(self) -> bool:
-        """Check whether any candidate PostgreSQL connection is reachable."""
+        """
+        Check whether any candidate PostgreSQL connection is reachable.
+        """
         return self._db_lifecycle.is_postgres_running()
 
     def _can_connect(self, connection_string: str) -> bool:
-        """Probe whether a database connection string is usable."""
+        """
+        Probe whether a database connection string is usable.
+        """
         return self._db_lifecycle.can_connect(connection_string)
 
     def _start_postgres_container(self) -> None:
-        """Start PostgreSQL using Docker Compose if available."""
+        """
+        Start PostgreSQL using Docker Compose if available.
+        """
         self._db_lifecycle.start_postgres_container()
 
     def _run_migrations(self) -> None:
-        """Run database migrations using the shared CLI plan builder."""
+        """
+        Run database migrations using the shared CLI plan builder.
+        """
         self._db_lifecycle.run_migrations()
 
     # =========================================================================
@@ -879,27 +941,37 @@ class MLIntegrationManagerFacade:
 
     @property
     def _json_fallback(self) -> bool:
-        """Whether JSON/dummy fallback is active."""
+        """
+        Whether JSON/dummy fallback is active.
+        """
         return self._store_init.json_fallback
 
     @property
     def _file_fallback(self) -> bool:
-        """Whether file-backed fallback is active."""
+        """
+        Whether file-backed fallback is active.
+        """
         return self._store_init.file_fallback
 
     @property
     def _file_store_path(self) -> Path:
-        """Base path for file-backed stores."""
+        """
+        Base path for file-backed stores.
+        """
         return self._store_init.file_store_path
 
     @property
     def _connection_candidates(self) -> tuple[str, ...]:
-        """Ordered list of PostgreSQL connection URLs."""
+        """
+        Ordered list of PostgreSQL connection URLs.
+        """
         return self._db_lifecycle.connection_candidates
 
     @property
     def _allow_dummy(self) -> bool:
-        """Whether to allow dummy mode when PostgreSQL is unavailable."""
+        """
+        Whether to allow dummy mode when PostgreSQL is unavailable.
+        """
         return self._db_lifecycle.allow_dummy
 
 
@@ -937,7 +1009,9 @@ def get_integration_manager(
 
 
 def reset_integration_manager() -> None:
-    """Reset the global integration manager."""
+    """
+    Reset the global integration manager.
+    """
     global _integration_manager
 
     if _integration_manager is not None:
@@ -1019,11 +1093,11 @@ def create_data_store(
         raw_writer=raw_writer,
     )
 
+
 class MLIntegrationManager(MLIntegrationManagerFacade):
     """
     Backward-compatible alias to present the facade under the legacy class name.
     """
-
 
 
 __all__ = [

@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
+from ml.tests.utils.db import build_postgres_url
+
 ORCHESTRATOR_ENV_VARS: tuple[str, ...] = (
     "ORCH_CONFIG",
     "ORCH_DRY_RUN",
@@ -94,7 +96,10 @@ def configure_test_logging() -> Generator[None, None, None]:
 def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide a minimal valid environment for deployment entrypoint tests."""
 
-    monkeypatch.setenv("DB_CONNECTION", "postgresql://test:test@localhost:5432/test")
+    monkeypatch.setenv(
+        "DB_CONNECTION",
+        build_postgres_url(user="test", password="test", database="test"),
+    )
     monkeypatch.setenv("STRATEGY_ID", "MLStrategy-TEST-001")
     monkeypatch.setenv("ML_SIGNAL_SOURCE", "MLSignalActor-001")
     monkeypatch.setenv("INSTRUMENT_ID", "BTC-USDT.DATABENTO")

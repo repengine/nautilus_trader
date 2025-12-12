@@ -540,8 +540,11 @@ def test_handle_ingestion_fallback_chain(
     """
     from ml.orchestration.ingestion_coordinator import IngestionCoordinator
 
-    # Create mock orchestrator
+    # Create mock orchestrator with backfill_coverage configured
     mock_orchestrator = Mock()
+    mock_orchestrator.backfill_coverage.return_value = [
+        (1672531200000000000, 1675209600000000000),
+    ]
 
     # Create component
     coordinator = IngestionCoordinator(
@@ -1754,3 +1757,925 @@ def test_resume_interrupted_ingestion_no_duplicates(
     # - Data store only has 1500 rows total (500 from checkpoint + 1000 new)
     # - No duplicate ts_event values for same instrument_id
     # - Checkpoint file marked as completed
+
+
+# ============================================================================
+# FRED/MACRO INGESTION WIRING TESTS (Task 2.2a)
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_ingest_from_fred_calls_ensure_macro_ready(
+    mock_data_store,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Verify ingest_from_fred wires to ensure_macro_ready correctly.
+    """
+    from ml.data.ingest.macro_refresh import MacroRefreshResult
+    from ml.orchestration.config_types import MacroIngestionConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    # Track calls to ensure_macro_ready
+    calls: list[dict[str, Any]] = []
+
+    def _fake_ensure_macro_ready(**kwargs: Any) -> MacroRefreshResult:
+        calls.append(kwargs)
+        return MacroRefreshResult(
+            fred_refreshed=True,
+            alfred_refreshed=False,
+            fred_path=kwargs["fred_path"],
+            alfred_base_dir=kwargs.get("vintage_dir"),
+        )
+
+    monkeypatch.setattr(
+        "ml.data.ingest.macro_refresh.ensure_macro_ready",
+        _fake_ensure_macro_ready,
+    )
+
+    # Create coordinator with custom macro config
+    macro_config = MacroIngestionConfig(
+        fred_path=str(tmp_path / "fred.parquet"),
+        vintage_dir=str(tmp_path / "vintages"),
+        max_staleness_hours=12,
+        series_ids=("DGS10", "FEDFUNDS"),
+    )
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        macro_config=macro_config,
+    )
+
+    # Call ingest_from_fred with specific series
+    result = coordinator.ingest_from_fred(
+        series_ids=["CPIAUCSL", "UNRATE"],
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    # Verify ensure_macro_ready was called with correct parameters
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["fred_path"] == tmp_path / "fred.parquet"
+    assert call["vintage_dir"] == tmp_path / "vintages"
+    assert call["max_age"].total_seconds() == 12 * 3600  # 12 hours
+    # Method series_ids should take precedence over config
+    assert call["series_ids"] == ("CPIAUCSL", "UNRATE")
+
+    # Verify return value (1 = refresh happened)
+    assert result == 1
+
+
+@pytest.mark.unit
+def test_ingest_from_fred_returns_zero_when_no_refresh(
+    mock_data_store,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Verify ingest_from_fred returns 0 when no refresh was needed.
+    """
+    from ml.data.ingest.macro_refresh import MacroRefreshResult
+    from ml.orchestration.config_types import MacroIngestionConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    def _fake_ensure_macro_ready(**kwargs: Any) -> MacroRefreshResult:
+        return MacroRefreshResult(
+            fred_refreshed=False,
+            alfred_refreshed=False,
+            fred_path=kwargs["fred_path"],
+            alfred_base_dir=kwargs.get("vintage_dir"),
+        )
+
+    monkeypatch.setattr(
+        "ml.data.ingest.macro_refresh.ensure_macro_ready",
+        _fake_ensure_macro_ready,
+    )
+
+    macro_config = MacroIngestionConfig(
+        fred_path=str(tmp_path / "fred.parquet"),
+        vintage_dir=None,  # Disable ALFRED
+        max_staleness_hours=24,
+    )
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        macro_config=macro_config,
+    )
+
+    result = coordinator.ingest_from_fred(
+        series_ids=["DGS10"],
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    # No refresh = return 0
+    assert result == 0
+
+
+@pytest.mark.unit
+def test_ingest_from_fred_uses_config_series_when_empty_list(
+    mock_data_store,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Verify ingest_from_fred falls back to config series_ids when method receives empty list.
+    """
+    from ml.data.ingest.macro_refresh import MacroRefreshResult
+    from ml.orchestration.config_types import MacroIngestionConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    calls: list[dict[str, Any]] = []
+
+    def _fake_ensure_macro_ready(**kwargs: Any) -> MacroRefreshResult:
+        calls.append(kwargs)
+        return MacroRefreshResult(
+            fred_refreshed=True,
+            alfred_refreshed=True,
+            fred_path=kwargs["fred_path"],
+            alfred_base_dir=kwargs.get("vintage_dir"),
+        )
+
+    monkeypatch.setattr(
+        "ml.data.ingest.macro_refresh.ensure_macro_ready",
+        _fake_ensure_macro_ready,
+    )
+
+    # Config has series_ids
+    macro_config = MacroIngestionConfig(
+        fred_path=str(tmp_path / "fred.parquet"),
+        vintage_dir=str(tmp_path / "vintages"),
+        max_staleness_hours=24,
+        series_ids=("GDP", "CPI"),
+    )
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        macro_config=macro_config,
+    )
+
+    # Empty list should fall back to config
+    result = coordinator.ingest_from_fred(
+        series_ids=[],
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert len(calls) == 1
+    # Should use config series_ids
+    assert calls[0]["series_ids"] == ("GDP", "CPI")
+    assert result == 1
+
+
+@pytest.mark.unit
+def test_ingest_from_fred_handles_errors_gracefully(
+    mock_data_store,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Verify ingest_from_fred returns 0 on exceptions (Pattern 4 fallback).
+    """
+    from ml.orchestration.config_types import MacroIngestionConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    def _failing_ensure_macro_ready(**kwargs: Any) -> None:
+        raise RuntimeError("FRED API unavailable")
+
+    monkeypatch.setattr(
+        "ml.data.ingest.macro_refresh.ensure_macro_ready",
+        _failing_ensure_macro_ready,
+    )
+
+    macro_config = MacroIngestionConfig(
+        fred_path=str(tmp_path / "fred.parquet"),
+    )
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        macro_config=macro_config,
+    )
+
+    # Should not raise, should return 0
+    result = coordinator.ingest_from_fred(
+        series_ids=["DGS10"],
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert result == 0
+
+
+@pytest.mark.unit
+def test_macro_ingestion_config_from_dataset_config():
+    """
+    Verify MacroIngestionConfig.from_dataset_config extracts settings correctly.
+    """
+    from ml.orchestration.config_types import DatasetBuildConfig
+    from ml.orchestration.config_types import MacroIngestionConfig
+
+    dataset_cfg = DatasetBuildConfig(
+        data_dir="data/tier1",
+        symbols="SPY,QQQ",
+        out_dir="ml_out",
+        macro_fred_path="custom/fred.parquet",
+        fred_vintage_dir="custom/vintages",
+        macro_staleness_hours=6,
+        macro_series_ids=("GDP", "UNRATE", "CPI"),
+    )
+
+    macro_cfg = MacroIngestionConfig.from_dataset_config(dataset_cfg)
+
+    assert macro_cfg.fred_path == "custom/fred.parquet"
+    assert macro_cfg.vintage_dir == "custom/vintages"
+    assert macro_cfg.max_staleness_hours == 6
+    assert macro_cfg.series_ids == ("GDP", "UNRATE", "CPI")
+
+
+@pytest.mark.unit
+def test_macro_ingestion_config_defaults():
+    """
+    Verify MacroIngestionConfig has sensible defaults.
+    """
+    from ml.orchestration.config_types import MacroIngestionConfig
+
+    cfg = MacroIngestionConfig()
+
+    assert cfg.fred_path == "data/fred/fred_indicators_ml_format.parquet"
+    assert cfg.vintage_dir == "data/fred/vintages"
+    assert cfg.max_staleness_hours == 24
+    assert cfg.series_ids is None
+
+
+# ============================================================================
+# EARNINGS INGESTION WIRING TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_calls_earnings_ingestion_service(
+    test_database,
+    mock_data_store,
+    monkeypatch,
+):
+    """
+    Verify ingest_earnings_data wires to EarningsIngestionService.
+    """
+    from ml.orchestration.config_types import EarningsCoordinatorConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    # Track service instantiation
+    service_created = []
+
+    class MockEarningsIngestionResult:
+        def __init__(self):
+            self.actuals_written = 5
+            self.estimates_written = 2
+            self.duration_seconds = 1.5
+            self.failures = {}
+
+    class MockEarningsIngestionService:
+        def __init__(self, *, config, writer):
+            service_created.append({"config": config, "writer": writer})
+
+        def run(self):
+            return MockEarningsIngestionResult()
+
+    # Patch EarningsIngestionService
+    monkeypatch.setattr(
+        "ml.features.earnings.ingestion.service.EarningsIngestionService",
+        MockEarningsIngestionService,
+    )
+
+    earnings_config = EarningsCoordinatorConfig(
+        edgar_quarters=4,
+        enable_yahoo=False,
+    )
+
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        earnings_config=earnings_config,
+    )
+
+    result = coordinator.ingest_earnings_data(
+        symbol="AAPL",
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    # Should have created service with correct config
+    assert len(service_created) == 1
+    config = service_created[0]["config"]
+    assert config.override_symbols == ("AAPL",)
+    assert config.edgar_quarters == 4
+    assert config.enable_yahoo is False
+
+    # Should have passed DataStore as writer
+    assert service_created[0]["writer"] is mock_data_store
+
+    # Should return sum of actuals + estimates
+    assert result == 7
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_returns_zero_without_data_store(
+    test_database,
+):
+    """
+    Verify ingest_earnings_data returns 0 when no DataStore is available.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=None,
+    )
+
+    result = coordinator.ingest_earnings_data(
+        symbol="AAPL",
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert result == 0
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_uses_default_config(
+    test_database,
+    mock_data_store,
+    monkeypatch,
+):
+    """
+    Verify ingest_earnings_data uses default EarningsCoordinatorConfig values.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    captured_config = []
+
+    class MockEarningsIngestionResult:
+        def __init__(self):
+            self.actuals_written = 1
+            self.estimates_written = 1
+            self.duration_seconds = 0.5
+            self.failures = {}
+
+    class MockEarningsIngestionService:
+        def __init__(self, *, config, writer):
+            captured_config.append(config)
+
+        def run(self):
+            return MockEarningsIngestionResult()
+
+    monkeypatch.setattr(
+        "ml.features.earnings.ingestion.service.EarningsIngestionService",
+        MockEarningsIngestionService,
+    )
+
+    # Create coordinator without explicit earnings_config
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+    )
+
+    result = coordinator.ingest_earnings_data(
+        symbol="MSFT",
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert result == 2
+    assert len(captured_config) == 1
+    config = captured_config[0]
+    # Should use defaults
+    assert config.edgar_quarters == 8  # default
+    assert config.enable_yahoo is True  # default
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_handles_errors_gracefully(
+    test_database,
+    mock_data_store,
+    monkeypatch,
+):
+    """
+    Verify ingest_earnings_data handles errors gracefully (Pattern 4).
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    def raise_error(**kwargs):
+        raise RuntimeError("Simulated EDGAR failure")
+
+    class MockEarningsIngestionService:
+        def __init__(self, *, config, writer):
+            pass
+
+        def run(self):
+            raise RuntimeError("Simulated ingestion failure")
+
+    monkeypatch.setattr(
+        "ml.features.earnings.ingestion.service.EarningsIngestionService",
+        MockEarningsIngestionService,
+    )
+
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+    )
+
+    # Should not raise, should return 0
+    result = coordinator.ingest_earnings_data(
+        symbol="FAIL",
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert result == 0
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_normalizes_symbol_to_uppercase(
+    test_database,
+    mock_data_store,
+    monkeypatch,
+):
+    """
+    Verify ingest_earnings_data normalizes symbol to uppercase.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    captured_config = []
+
+    class MockEarningsIngestionResult:
+        def __init__(self):
+            self.actuals_written = 1
+            self.estimates_written = 0
+            self.duration_seconds = 0.1
+            self.failures = {}
+
+    class MockEarningsIngestionService:
+        def __init__(self, *, config, writer):
+            captured_config.append(config)
+
+        def run(self):
+            return MockEarningsIngestionResult()
+
+    monkeypatch.setattr(
+        "ml.features.earnings.ingestion.service.EarningsIngestionService",
+        MockEarningsIngestionService,
+    )
+
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+    )
+
+    result = coordinator.ingest_earnings_data(
+        symbol="aapl",  # lowercase
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    assert result == 1
+    config = captured_config[0]
+    assert config.override_symbols == ("AAPL",)  # normalized to uppercase
+
+
+@pytest.mark.unit
+def test_ingest_earnings_data_merges_skip_tickers(
+    test_database,
+    mock_data_store,
+    monkeypatch,
+):
+    """
+    Verify ingest_earnings_data merges custom skip_tickers with defaults.
+    """
+    from ml.orchestration.config_types import EarningsCoordinatorConfig
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    captured_config = []
+
+    class MockEarningsIngestionResult:
+        def __init__(self):
+            self.actuals_written = 0
+            self.estimates_written = 0
+            self.duration_seconds = 0.1
+            self.failures = {}
+
+    class MockEarningsIngestionService:
+        def __init__(self, *, config, writer):
+            captured_config.append(config)
+
+        def run(self):
+            return MockEarningsIngestionResult()
+
+    monkeypatch.setattr(
+        "ml.features.earnings.ingestion.service.EarningsIngestionService",
+        MockEarningsIngestionService,
+    )
+
+    earnings_config = EarningsCoordinatorConfig(
+        skip_tickers=("CUSTOM1", "CUSTOM2"),
+    )
+
+    coordinator = IngestionCoordinator(
+        data_store=mock_data_store,
+        earnings_config=earnings_config,
+    )
+
+    result = coordinator.ingest_earnings_data(
+        symbol="AAPL",
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+    )
+
+    config = captured_config[0]
+    # Should include both default ETFs and custom skips
+    assert "CUSTOM1" in config.skip_actuals
+    assert "CUSTOM2" in config.skip_actuals
+    assert "SPY" in config.skip_actuals  # default ETF skip
+
+
+@pytest.mark.unit
+def test_earnings_coordinator_config_defaults():
+    """
+    Verify EarningsCoordinatorConfig has sensible defaults.
+    """
+    from ml.orchestration.config_types import EarningsCoordinatorConfig
+
+    cfg = EarningsCoordinatorConfig()
+
+    assert cfg.edgar_quarters == 8
+    assert cfg.enable_yahoo is True
+    assert cfg.edgar_rate_limit == 1.0
+    assert cfg.yahoo_rate_limit == 0.5
+    assert cfg.sec_identity is None
+    assert cfg.skip_tickers is None
+
+
+# ============================================================================
+# TASK 2.2d: SUPPORTING INFRASTRUCTURE WIRING TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_emit_ingestion_event_publishes_to_message_bus(
+    mock_message_bus,
+):
+    """
+    Verify _emit_ingestion_event wires to message bus using build_topic_for_stage.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    # Create coordinator with message bus
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+        message_bus=mock_message_bus,
+    )
+
+    # Call emit event
+    coordinator._emit_ingestion_event(
+        event_type="ingestion_completed",
+        dataset_id="databento.ohlcv-1s",
+        rows_written=12000,
+        instrument_id="SPY.NASDAQ",
+        status="success",
+    )
+
+    # Verify publish was called
+    assert mock_message_bus.publish.called
+    call_args = mock_message_bus.publish.call_args
+    topic = call_args[0][0]
+    payload = call_args[0][1]
+
+    # Verify topic format
+    assert isinstance(topic, str)
+    assert len(topic) > 0
+
+    # Verify payload structure
+    assert isinstance(payload, dict)
+    assert payload["event_type"] == "ingestion_completed"
+    assert payload["dataset_id"] == "databento.ohlcv-1s"
+    assert payload["rows_written"] == 12000
+    assert payload["instrument_id"] == "SPY.NASDAQ"
+    assert payload["status"] == "success"
+    assert "ts_event" in payload
+
+
+@pytest.mark.unit
+def test_emit_ingestion_event_handles_no_message_bus():
+    """
+    Verify _emit_ingestion_event gracefully handles no message bus (Pattern 4).
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    # Create coordinator without message bus
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+        message_bus=None,
+    )
+
+    # Should not raise
+    coordinator._emit_ingestion_event(
+        event_type="ingestion_completed",
+        dataset_id="databento.ohlcv-1s",
+        rows_written=12000,
+    )
+
+    # Test passed if no exception raised
+
+
+@pytest.mark.unit
+def test_validate_ingestion_data_detects_missing_columns(
+    mock_feature_registry,
+):
+    """
+    Verify _validate_ingestion_data detects missing required columns.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+        data_registry=mock_feature_registry,  # Required for SchemaValidatorComponent
+    )
+
+    # Create DataFrame-like mock with missing columns
+    mock_data = Mock()
+    mock_data.columns = ["close", "volume"]  # Missing ts_event, instrument_id
+
+    is_valid, errors = coordinator._validate_ingestion_data(
+        data=mock_data,
+        instrument_id="SPY.NASDAQ",
+    )
+
+    assert is_valid is False
+    assert len(errors) > 0
+    # Should report missing columns
+    assert any("ts_event" in err or "instrument_id" in err for err in errors)
+
+
+@pytest.mark.unit
+def test_validate_ingestion_data_accepts_valid_dataframe():
+    """
+    Verify _validate_ingestion_data accepts valid DataFrame with required columns.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    # Create valid DataFrame-like mock
+    mock_data = Mock()
+    mock_data.columns = ["ts_event", "instrument_id", "close", "volume"]
+    mock_ts_col = Mock()
+    mock_ts_col.isna.return_value = Mock(any=Mock(return_value=False))
+    mock_ts_col.min.return_value = 100
+    mock_ts_col.max.return_value = 200
+    mock_data.__getitem__ = Mock(return_value=mock_ts_col)
+
+    is_valid, errors = coordinator._validate_ingestion_data(
+        data=mock_data,
+        instrument_id="SPY.NASDAQ",
+    )
+
+    assert is_valid is True
+    assert len(errors) == 0
+
+
+@pytest.mark.unit
+def test_validate_ingestion_data_handles_none():
+    """
+    Verify _validate_ingestion_data rejects None data.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    is_valid, errors = coordinator._validate_ingestion_data(
+        data=None,
+        instrument_id="SPY.NASDAQ",
+    )
+
+    assert is_valid is False
+    assert "Data is None" in errors
+
+
+@pytest.mark.unit
+def test_validate_ingestion_data_handles_dict_missing_keys(
+    mock_feature_registry,
+):
+    """
+    Verify _validate_ingestion_data detects missing keys in dict data.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+        data_registry=mock_feature_registry,  # Required for SchemaValidatorComponent
+    )
+
+    # Dict missing required keys
+    data = {"close": [100.0], "volume": [1000]}
+
+    is_valid, errors = coordinator._validate_ingestion_data(
+        data=data,
+        instrument_id="SPY.NASDAQ",
+    )
+
+    assert is_valid is False
+    assert any("ts_event" in err or "instrument_id" in err for err in errors)
+
+
+@pytest.mark.unit
+def test_handle_ingestion_fallback_returns_dummy_level():
+    """
+    Verify _handle_ingestion_fallback returns dummy level when all fail.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    result = coordinator._handle_ingestion_fallback(
+        dataset_id="databento.ohlcv-1s",
+        instrument_ids=["SPY.NASDAQ"],
+        lookback_days=30,
+        level="dummy",
+    )
+
+    assert isinstance(result, dict)
+    assert result["fallback_level"] == "dummy"
+    assert result["rows_written"] == 0
+
+
+@pytest.mark.unit
+def test_handle_ingestion_fallback_emits_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Verify _handle_ingestion_fallback emits ml_fallback_activations_total metric.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    # Track metric calls
+    metric_calls: list[dict[str, Any]] = []
+
+    class MockCounter:
+        def labels(self, **kwargs: Any) -> MockCounter:
+            metric_calls.append({"method": "labels", "kwargs": kwargs})
+            return self
+
+        def inc(self) -> None:
+            metric_calls.append({"method": "inc"})
+
+    def mock_get_counter(name: str, desc: str, labels: list[str] | None = None) -> MockCounter:
+        return MockCounter()
+
+    # Patch at both possible locations
+    monkeypatch.setattr(
+        "ml.common.metrics_bootstrap.get_counter",
+        mock_get_counter,
+    )
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    coordinator._handle_ingestion_fallback(
+        dataset_id="databento.ohlcv-1s",
+        instrument_ids=["SPY.NASDAQ"],
+        lookback_days=30,
+        level="cached",
+    )
+
+    # Verify metric was called with correct labels
+    label_calls = [c for c in metric_calls if c["method"] == "labels"]
+    assert len(label_calls) > 0
+    assert label_calls[0]["kwargs"]["level"] == "cached"
+    assert label_calls[0]["kwargs"]["component"] == "ingestion"
+
+
+@pytest.mark.unit
+def test_handle_ingestion_fallback_tries_primary_level(
+    mock_data_store,
+):
+    """
+    Verify _handle_ingestion_fallback attempts PRIMARY level via orchestrator.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+    from types import SimpleNamespace
+
+    mock_orchestrator = Mock()
+    mock_orchestrator.backfill_binding.return_value = {
+        "SPY.NASDAQ": SimpleNamespace(rows_written=5000, frames_written=50),
+    }
+
+    coordinator = IngestionCoordinator(
+        orchestrator=mock_orchestrator,
+        data_store=mock_data_store,
+    )
+
+    result = coordinator._handle_ingestion_fallback(
+        dataset_id="databento.ohlcv-1s",
+        instrument_ids=["SPY.NASDAQ"],
+        lookback_days=30,
+        level="primary",
+    )
+
+    assert result["fallback_level"] == "primary"
+    assert result["rows_written"] == 5000
+
+
+@pytest.mark.unit
+def test_get_ingestion_state_returns_state_dict():
+    """
+    Verify _get_ingestion_state returns state from IngestState.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    # Initially empty
+    state = coordinator._get_ingestion_state()
+    assert isinstance(state, dict)
+    assert "last_ts_ns_by_instrument" in state
+    assert state["last_ts_ns_by_instrument"] == {}
+
+
+@pytest.mark.unit
+def test_update_ingestion_state_updates_ingest_state():
+    """
+    Verify _update_ingestion_state updates IngestState for resume.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    # Update state with timestamp
+    coordinator._update_ingestion_state(
+        rows_written=1000,
+        current_instrument="SPY.NASDAQ",
+        ts_ns=1672531200000000000,  # 2023-01-01
+    )
+
+    # Verify state was updated
+    state = coordinator._get_ingestion_state()
+    assert state["last_ts_ns_by_instrument"]["SPY.NASDAQ"] == 1672531200000000000
+
+
+@pytest.mark.unit
+def test_update_ingestion_state_skips_when_no_ts_ns():
+    """
+    Verify _update_ingestion_state handles missing ts_ns gracefully.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    # Update without ts_ns
+    coordinator._update_ingestion_state(
+        rows_written=1000,
+        current_instrument="SPY.NASDAQ",
+        ts_ns=None,
+    )
+
+    # State should remain empty
+    state = coordinator._get_ingestion_state()
+    assert "SPY.NASDAQ" not in state["last_ts_ns_by_instrument"]
+
+
+@pytest.mark.unit
+def test_coordinator_initializes_with_message_bus():
+    """
+    Verify IngestionCoordinator accepts message_bus parameter.
+    """
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    mock_bus = Mock()
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+        message_bus=mock_bus,
+    )
+
+    assert coordinator._message_bus is mock_bus
+
+
+@pytest.mark.unit
+def test_coordinator_initializes_ingest_state():
+    """
+    Verify IngestionCoordinator initializes IngestState for state management.
+    """
+    from ml.data.ingest.resume import IngestState
+    from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+
+    coordinator = IngestionCoordinator(
+        data_store=Mock(),
+    )
+
+    assert hasattr(coordinator, "_ingest_state")
+    assert isinstance(coordinator._ingest_state, IngestState)

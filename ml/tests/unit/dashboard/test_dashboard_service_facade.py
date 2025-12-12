@@ -8,7 +8,7 @@ and maintains exact API compatibility with legacy DashboardService.
 from __future__ import annotations
 
 from datetime import datetime
-from datetime import timezone
+from datetime import timezone, UTC
 from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -624,7 +624,7 @@ class TestAuthenticationDelegation:
             mock_component.validate_token.return_value = True
             mock_getter.return_value = mock_component
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             result = facade.validate_token("test_token", now=now)
 
             mock_component.validate_token.assert_called_once_with("test_token", now=now)

@@ -59,7 +59,6 @@ valid_lookback_periods = st.integers(min_value=5, max_value=100)
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.property
 class TestConfigInvariants:
     """
@@ -151,7 +150,6 @@ class TestConfigInvariants:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.property
 class TestPipelineInvariants:
     """
@@ -224,7 +222,6 @@ class TestPipelineInvariants:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.property
 class TestDelegationInvariants:
     """
@@ -276,7 +273,6 @@ class TestDelegationInvariants:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.property
 class TestDeterminismProperties:
     """
@@ -334,7 +330,6 @@ class TestDeterminismProperties:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.property
 class TestErrorBoundsProperties:
     """

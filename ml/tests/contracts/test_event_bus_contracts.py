@@ -23,9 +23,7 @@ from unittest.mock import Mock
 
 import pandas as pd
 import pytest
-from ml.tests.fixtures.pandera import DataFrame
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import DataFrame, Series, ensure_pandera_available
 from ml.common.message_topics import build_topic_for_stage
 from ml.config.events import EventStatus
 from ml.config.events import Source

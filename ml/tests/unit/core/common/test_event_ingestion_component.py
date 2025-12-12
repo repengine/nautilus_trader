@@ -25,6 +25,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.event_ingestion import EventIngestionComponent
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 if TYPE_CHECKING:
@@ -40,7 +44,7 @@ if TYPE_CHECKING:
 def event_ingestion_component() -> EventIngestionComponent:
     """Provide a basic EventIngestionComponent."""
     return EventIngestionComponent(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
     )
 
 
@@ -58,7 +62,7 @@ def component_with_partition_manager(
 ) -> EventIngestionComponent:
     """Provide a component with partition manager."""
     return EventIngestionComponent(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         partition_manager=mock_partition_manager,
     )
 
@@ -485,7 +489,7 @@ class TestEdgeCases:
             return mock_manager
 
         component = EventIngestionComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             partition_manager=None,
             init_partition_manager=init_pm,
         )
@@ -525,7 +529,7 @@ class TestEdgeCases:
         mock_manager.run_maintenance.side_effect = RuntimeError("Maintenance failed")
 
         component = EventIngestionComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             partition_manager=mock_manager,
         )
 

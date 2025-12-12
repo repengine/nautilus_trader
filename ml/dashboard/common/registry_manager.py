@@ -17,7 +17,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
 from ml.common.message_bus import publisher_from_config
-from ml.common.message_topics import build_stage_topic
+from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.retry_utils import retry_with_backoff
@@ -338,12 +338,16 @@ class RegistryManagerComponent:
         import os
         from pathlib import Path as _Path
 
-        db = os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL")
-        path = _Path("./ml_registry/datasets")
-        if db:
-            pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=db)
+        db_cfg = self.config.db_connection
+        if db_cfg is not None:
+            db = db_cfg.strip()
         else:
-            pc = PersistenceConfig(backend=BackendType.JSON, json_path=path)
+            db = (os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL") or "").strip()
+        if not db:
+            # Avoid implicitly loading local/ambient registries when no backend is configured.
+            return None
+        path = _Path("./ml_registry/datasets")
+        pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=db)
         return DataRegistry(registry_path=path, persistence_config=pc)
 
     # -----------------
@@ -669,11 +673,16 @@ class RegistryManagerComponent:
             logger.warning("promote feature failed", exc_info=True)
             ok = False
 
-        # Best-effort bus publish (stage-first topic)
+        # Best-effort bus publish (env-configured topic scheme)
         try:
             cfg = MessageBusConfig.from_env()
             pub = publisher_from_config(cfg)
-            topic = build_stage_topic(Stage.FEATURE_COMPUTED, prefix=cfg.topic_prefix)
+            topic = build_topic_for_stage(
+                Stage.FEATURE_COMPUTED,
+                feature_set_id,
+                scheme=cfg.scheme,
+                prefix=cfg.topic_prefix,
+            )
             _ = pub.publish(
                 topic,
                 {
@@ -684,7 +693,7 @@ class RegistryManagerComponent:
                 },
             )
         except Exception:
-            pass
+            logger.debug("Failed to publish promote_feature event", exc_info=True)
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id, "stage": new_stage}
@@ -725,7 +734,12 @@ class RegistryManagerComponent:
         try:
             cfg = MessageBusConfig.from_env()
             pub = publisher_from_config(cfg)
-            topic = build_stage_topic(Stage.FEATURE_COMPUTED, prefix=cfg.topic_prefix)
+            topic = build_topic_for_stage(
+                Stage.FEATURE_COMPUTED,
+                feature_set_id,
+                scheme=cfg.scheme,
+                prefix=cfg.topic_prefix,
+            )
             _ = pub.publish(
                 topic,
                 {
@@ -736,7 +750,7 @@ class RegistryManagerComponent:
                 },
             )
         except Exception:
-            pass
+            logger.debug("Failed to publish deprecate_feature event", exc_info=True)
         if ok:
             self._invalidate_cache(self._cache_key("features"))
         return {"ok": ok, "feature_set_id": feature_set_id}

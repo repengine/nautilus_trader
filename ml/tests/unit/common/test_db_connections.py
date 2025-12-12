@@ -6,6 +6,7 @@ import pytest
 
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
+from ml.tests.utils.db import get_test_db_port
 
 
 @pytest.fixture(autouse=True)
@@ -33,12 +34,15 @@ def _clear_db_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
-def test_collect_candidates_prefers_compose_port() -> None:
+def test_collect_candidates_prefers_compose_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    test_port = get_test_db_port()
+    monkeypatch.setenv("POSTGRES_HOST_PORT", test_port)
+
     candidates = collect_postgres_candidates(ConnectionRole.PRIMARY)
     assert candidates.urls
     first = candidates.urls[0]
-    assert first.startswith("postgresql://postgres:postgres@localhost:5433/nautilus")
-    assert any(":5432/" in url for url in candidates.urls)
+    assert first.startswith(f"postgresql://postgres:postgres@localhost:{test_port}/nautilus")
+    assert any(f":{test_port}/" in url for url in candidates.urls)
 
 
 def test_collect_candidates_respects_explicit_override() -> None:

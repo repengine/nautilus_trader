@@ -190,7 +190,7 @@ def generate_markdown_report(summary, output_path: Path) -> None:
         "**Phase 2.2.2: Structural Break Testing for Sector Factor Betas**",
         "",
         f"**Test Date**: {datetime.now(UTC).strftime('%Y-%m-%d')}",
-        f"**Data Period**: 2010-01-01 to 2024-06-30",
+        "**Data Period**: 2010-01-01 to 2024-06-30",
         f"**Total Tests**: {summary.n_total_tests}",
         f"**Breaks Detected**: {summary.n_breaks_detected} ({summary.break_detection_rate:.1%})",
         "",
@@ -405,17 +405,17 @@ def generate_markdown_report(summary, output_path: Path) -> None:
 
     if summary.break_detection_rate < 0.30:
         reconciliation = (
-            "The low break detection rate (**{}** structural breaks detected) is **consistent** "
+            f"The low break detection rate (**{summary.n_breaks_detected}** structural breaks detected) is **consistent** "
             "with the Phase 2.2.1 finding that stable betas outperform rolling betas. "
             "If betas were truly unstable across regime changes, we would expect:\n\n"
             "1. High Chow test rejection rates (>50% of tests detecting breaks)\n"
             "2. Superior performance of rolling betas (capturing time-variation)\n\n"
             "Since neither is observed, this provides **strong evidence** that sector factor betas "
             "are sufficiently stable for risk modeling purposes."
-        ).format(summary.n_breaks_detected)
+        )
     else:
         reconciliation = (
-            "The moderate-to-high break detection rate (**{}** structural breaks) appears to "
+            f"The moderate-to-high break detection rate (**{summary.n_breaks_detected}** structural breaks) appears to "
             "**contradict** the Phase 2.2.1 finding that stable betas outperform. However, "
             "this can be reconciled by noting:\n\n"
             "1. **Detection ≠ Economic Significance**: Some structural breaks may be statistically "
@@ -426,7 +426,7 @@ def generate_markdown_report(summary, output_path: Path) -> None:
             "out-of-sample performance despite correctly detecting regime changes.\n\n"
             "This suggests that while some beta instability exists, the **stable beta approach** "
             "remains superior for practical risk modeling due to its simplicity and robustness."
-        ).format(summary.n_breaks_detected)
+        )
 
     lines.append(reconciliation)
 
@@ -512,8 +512,8 @@ def generate_markdown_report(summary, output_path: Path) -> None:
         "**Data Processing**: polars",
         "**Test Implementation**: `playground.risk_model.structural_break_tests`",
         "",
-        f"**Minimum Observations per Period**: 20 days",
-        f"**Total Observations**: ~3,500 daily returns per sector (2010-2024)",
+        "**Minimum Observations per Period**: 20 days",
+        "**Total Observations**: ~3,500 daily returns per sector (2010-2024)",
         "",
         "**Critical Value (F-distribution, α=0.05)**:",
         "- Numerator df: 4 (number of parameters)",

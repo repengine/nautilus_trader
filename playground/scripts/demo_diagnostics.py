@@ -17,11 +17,13 @@ import numpy as np
 import polars as pl
 import structlog
 
+
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from playground.risk_model.diagnostics import compute_regression_diagnostics
 from playground.risk_model.diagnostics import create_diagnostics_summary
+
 
 structlog.configure(
     processors=[
@@ -181,7 +183,7 @@ def main() -> None:
         print(f"  R²: {diag.r_squared:.4f}")
         print(f"  Adjusted R²: {diag.adj_r_squared:.4f}")
         print(f"  F-statistic: {diag.f_statistic:.2f} (p={diag.f_pvalue:.6f})")
-        print(f"\n  Factor Coefficients:")
+        print("\n  Factor Coefficients:")
         print(
             f"    Duration:   β={diag.beta_duration:7.4f}, t={diag.t_stat_duration:7.2f}, "
             f"p={diag.p_value_duration:.6f} {'✓' if diag.p_value_duration < 0.05 else '✗'}"
@@ -194,13 +196,13 @@ def main() -> None:
             f"    Liquidity:  β={diag.beta_liquidity:7.4f}, t={diag.t_stat_liquidity:7.2f}, "
             f"p={diag.p_value_liquidity:.6f} {'✓' if diag.p_value_liquidity < 0.05 else '✗'}"
         )
-        print(f"\n  Diagnostics:")
+        print("\n  Diagnostics:")
         print(f"    VIF (Duration): {diag.vif_duration:.2f}")
         print(f"    VIF (Credit): {diag.vif_credit:.2f}")
         print(f"    VIF (Liquidity): {diag.vif_liquidity:.2f}")
         print(f"    Durbin-Watson: {diag.durbin_watson:.2f}")
         print(f"    Breusch-Pagan: {diag.bp_test_statistic:.2f} (p={diag.bp_p_value:.4f})")
-        print(f"\n  Residuals:")
+        print("\n  Residuals:")
         print(f"    Mean: {diag.residual_mean:.6f}")
         print(f"    Std Dev: {diag.residual_std:.6f}")
         print(f"    Skewness: {diag.residual_skewness:.4f}")

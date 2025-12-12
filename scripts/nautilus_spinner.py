@@ -7,10 +7,11 @@ import math
 import shutil
 import sys
 import time
-from typing import Sequence, Tuple
+from collections.abc import Sequence
+
 
 # Existing Nautilus logo lifted from crates/common/src/logging/headers.rs
-ART_LINES: Tuple[str, ...] = (
+ART_LINES: tuple[str, ...] = (
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⠀⢸⣿⣿⣿⣿⣶⣶⣤⣀⠀⠀⠀⠀⠀",
     "⠀⠀⠀⠀⠀⠀⢀⣴⡇⢀⣾⣿⣿⣿⣿⣿⠀⣾⣿⣿⣿⣿⣿⣿⣿⠿⠓⠀⠀⠀⠀",
@@ -30,7 +31,7 @@ ART_HEIGHT = len(ART_LINES)
 ART_WIDTH = max(len(line) for line in ART_LINES)
 CENTER_X = (ART_WIDTH - 1) / 2
 CENTER_Y = (ART_HEIGHT - 1) / 2
-RELATIVE_POINTS: Tuple[Tuple[float, float, str], ...] = tuple(
+RELATIVE_POINTS: tuple[tuple[float, float, str], ...] = tuple(
     (float(x) - CENTER_X, float(y) - CENTER_Y, ch)
     for y, line in enumerate(ART_LINES)
     for x, ch in enumerate(line.ljust(ART_WIDTH))
@@ -82,8 +83,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_frames(step_count: int, mode: str) -> Sequence[Tuple[str, ...]]:
-    frames: list[Tuple[str, ...]] = []
+def build_frames(step_count: int, mode: str) -> Sequence[tuple[str, ...]]:
+    frames: list[tuple[str, ...]] = []
     total_steps = max(1, step_count)
 
     for step in range(total_steps):
@@ -96,7 +97,7 @@ def build_frames(step_count: int, mode: str) -> Sequence[Tuple[str, ...]]:
     return tuple(frames)
 
 
-def _points_to_frame(points: Sequence[Tuple[int, int, str]]) -> Tuple[str, ...]:
+def _points_to_frame(points: Sequence[tuple[int, int, str]]) -> tuple[str, ...]:
     if not points:
         return ("",)
 
@@ -119,11 +120,11 @@ def _points_to_frame(points: Sequence[Tuple[int, int, str]]) -> Tuple[str, ...]:
     return trim_blank_rows(lines)
 
 
-def _rotate_flat(step: int, step_count: int) -> Sequence[Tuple[int, int, str]]:
+def _rotate_flat(step: int, step_count: int) -> Sequence[tuple[int, int, str]]:
     angle = 2.0 * math.pi * (step / step_count)
     cos_a = math.cos(angle)
     sin_a = math.sin(angle)
-    rotated: list[Tuple[int, int, str]] = []
+    rotated: list[tuple[int, int, str]] = []
     for rel_x, rel_y, ch in RELATIVE_POINTS:
         x = rel_x * cos_a - rel_y * sin_a
         y = rel_x * sin_a + rel_y * cos_a
@@ -131,7 +132,7 @@ def _rotate_flat(step: int, step_count: int) -> Sequence[Tuple[int, int, str]]:
     return rotated
 
 
-def _rotate_gyro(step: int, step_count: int) -> Sequence[Tuple[int, int, str]]:
+def _rotate_gyro(step: int, step_count: int) -> Sequence[tuple[int, int, str]]:
     t = step / step_count
     theta = 2.0 * math.pi * t
     cos_theta = math.cos(theta)
@@ -141,7 +142,7 @@ def _rotate_gyro(step: int, step_count: int) -> Sequence[Tuple[int, int, str]]:
     lift_bias = 0.08  # hint at raised relief while keeping internals stable
     global_scale = 1.04
 
-    rotated: list[Tuple[int, int, str]] = []
+    rotated: list[tuple[int, int, str]] = []
     for rel_x, rel_y, ch in RELATIVE_POINTS:
         x = rel_x * cos_theta
         width_scale = 1.0 - squash_bias * (1.0 - abs(cos_theta))
@@ -156,7 +157,7 @@ def _rotate_gyro(step: int, step_count: int) -> Sequence[Tuple[int, int, str]]:
     return rotated
 
 
-def trim_blank_rows(lines: Sequence[str]) -> Tuple[str, ...]:
+def trim_blank_rows(lines: Sequence[str]) -> tuple[str, ...]:
     def is_blank(line: str) -> bool:
         return all(ch in BLANK_CHARS for ch in line) or not line
 
@@ -189,7 +190,7 @@ def center_frame(frame: Sequence[str], columns: int, lines: int) -> str:
 
 
 def animate(
-    frames: Sequence[Tuple[str, ...]],
+    frames: Sequence[tuple[str, ...]],
     fps: float,
     duration: float | None,
     play_once: bool,

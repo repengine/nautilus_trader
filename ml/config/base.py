@@ -14,9 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import ComponentId
-from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.config._env_utils import ensure_env as _ensure_env
 from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
@@ -31,6 +28,9 @@ from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 LOGGER = logging.getLogger(__name__)
@@ -150,6 +150,7 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
             Toggle manifest feature usage.
         USE_DUMMY_STORES / ML_USE_DUMMY_STORES
             Toggle dummy store usage (testing only).
+
         """
         source = _ensure_env(env)
 
@@ -161,7 +162,9 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
 
         registry_path = source.get("MODEL_REGISTRY_DIR") or source.get("ML_MODEL_REGISTRY_DIR")
         if model_id_env and not registry_path:
-            raise ValueError("MODEL_REGISTRY_DIR environment variable is required when MODEL_ID is set")
+            raise ValueError(
+                "MODEL_REGISTRY_DIR environment variable is required when MODEL_ID is set"
+            )
 
         prediction_threshold = _env_positive_float(
             source,
@@ -358,6 +361,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             Optional runtime tunables aligned with config fields.
         COMPONENT_ID / ML_COMPONENT_ID
             Optional component identifier.
+
         """
         source = _ensure_env(env)
 
@@ -668,6 +672,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Toggle persistence of HOLD/neutral signals.
         ML_EXECUTE_TRADES
             Toggle live order submission.
+
         """
         source = _ensure_env(env)
 

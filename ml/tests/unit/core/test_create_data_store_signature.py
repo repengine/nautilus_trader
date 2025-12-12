@@ -25,9 +25,13 @@ from typing import TYPE_CHECKING
 from typing import get_type_hints
 
 import pytest
+from ml.tests.utils.db import build_postgres_url
 
 if TYPE_CHECKING:
     from unittest.mock import Mock
+
+
+TEST_DB_CONNECTION = build_postgres_url(user="test", password="test", database="test")
 
 
 class TestCreateDataStoreSignature:
@@ -333,7 +337,7 @@ class TestCreateDataStoreRuntime:
             # Call function with all parameters
             result = create_data_store(
                 registry=mock_registry,
-                connection_string="postgresql://test:test@localhost:5432/test",
+                connection_string=TEST_DB_CONNECTION,
                 raw_reader=mock_reader,
                 raw_writer=mock_writer,
             )
@@ -387,7 +391,7 @@ class TestCreateDataStoreRuntime:
             # Call with only required parameters (defaults for optional)
             result = create_data_store(
                 registry=mock_registry,
-                connection_string="postgresql://test:test@localhost:5432/test",
+                connection_string=TEST_DB_CONNECTION,
             )
 
             # Verify function executed

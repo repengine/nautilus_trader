@@ -34,6 +34,7 @@ import numpy.typing as npt
 
 from ml.common.logging_config import configure_logging
 
+
 logger = logging.getLogger(__name__)
 
 _TRAIN_METADATA_KEYS: tuple[str, ...] = (

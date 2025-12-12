@@ -56,6 +56,7 @@ def mock_components() -> dict[str, Any]:
         "data_store": MagicMock(),
         "feature_registry": MagicMock(),
         "model_registry": MagicMock(),
+        "ingestor": MagicMock(),  # Required for backfill/ingestion methods
     }
 
 
@@ -278,7 +279,6 @@ class TestLegacyVsNewParity:
     for safe production rollout.
     """
 
-    @pytest.mark.skip(reason="Awaiting production implementation of backfill")
     def test_coordinate_ingestion_parity_legacy_vs_new(
         self, mock_components: dict[str, Any]
     ) -> None:
@@ -322,7 +322,6 @@ class TestLegacyVsNewParity:
             f"Backfill results differ: legacy={legacy_result}, new={new_result}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of dataset builder")
     def test_build_dataset_parity_legacy_vs_new(
         self, mock_components: dict[str, Any], sample_orchestrator_config: OrchestratorConfig
     ) -> None:
@@ -353,7 +352,6 @@ class TestLegacyVsNewParity:
             f"Build dataset results differ: legacy={legacy_result}, new={new_result}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of training coordinator")
     def test_train_model_parity_legacy_vs_new(
         self, mock_components: dict[str, Any], sample_orchestrator_config: OrchestratorConfig, tmp_path: Path
     ) -> None:
@@ -366,9 +364,12 @@ class TestLegacyVsNewParity:
         Property: Training determinism with same random seed
         """
         # Given: Same configuration for both
-        cfg = sample_orchestrator_config.teacher_train
+        cfg = sample_orchestrator_config.teacher
         dataset_csv = tmp_path / "dataset.csv"
         dataset_csv.write_text("timestamp,close\n2024-01-01,100.0\n")
+        # Create required metadata file
+        metadata_path = tmp_path / "dataset_metadata.json"
+        metadata_path.write_text('{"version": "1.0", "rows": 1, "dataset_id": "test-dataset-001"}')
         out_dir = tmp_path / "models"
         out_dir.mkdir()
 
@@ -396,7 +397,6 @@ class TestLegacyVsNewParity:
             f"Train teacher results differ: legacy={legacy_result}, new={new_result}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of backfill")
     def test_feature_flag_switching_maintains_behavior(
         self, mock_components: dict[str, Any]
     ) -> None:
@@ -444,7 +444,6 @@ class TestLegacyVsNewParity:
             f"result_1={result_1}, result_2={result_2}, result_3={result_3}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of dataset builder")
     def test_parity_with_same_config_produces_identical_output(
         self, mock_components: dict[str, Any], sample_orchestrator_config: OrchestratorConfig
     ) -> None:
@@ -475,7 +474,6 @@ class TestLegacyVsNewParity:
             f"legacy={legacy_result}, new={new_result}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of dataset builder")
     def test_parity_store_interactions_match(
         self, mock_components: dict[str, Any], sample_orchestrator_config: OrchestratorConfig
     ) -> None:
@@ -562,7 +560,6 @@ class TestLegacyVsNewParity:
             f"new raised={new_raised}"
         )
 
-    @pytest.mark.skip(reason="Awaiting production implementation of dataset builder")
     def test_parity_metadata_generation_matches(
         self, mock_components: dict[str, Any], sample_orchestrator_config: OrchestratorConfig
     ) -> None:

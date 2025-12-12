@@ -16,9 +16,6 @@ import pytest
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_model_metadata_synchronized_to_registry() -> None:
     """Synchronize model metadata to ModelRegistry.
@@ -54,9 +51,6 @@ def test_model_metadata_synchronized_to_registry() -> None:
     # synchronizer._synchronize_model_metadata(model_metadata)
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_model_lineage_tracked_correctly() -> None:
     """Track model parent-child relationships in ModelRegistry.
@@ -90,9 +84,6 @@ def test_model_lineage_tracked_correctly() -> None:
     # }
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_model_version_incremented() -> None:
     """Verify model version increments correctly.

@@ -102,7 +102,7 @@ except ImportError:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestEndToEndPipeline:
     """
     Test complete end-to-end ML data pipeline.
@@ -301,7 +301,7 @@ class TestEndToEndPipeline:
     @pytest.mark.integration
     def test_feature_computation_and_storage(
         self,
-        test_database: _Any,
+        cloned_test_database: str,
         temp_data_dir: Path,
     ) -> None:
         """
@@ -328,7 +328,7 @@ class TestEndToEndPipeline:
         from ml.stores.protocols import FeatureStoreStrictProtocol
         from typing import cast as _cast
 
-        feature_store = FeatureStore(connection_string=test_database.connection_string)
+        feature_store = FeatureStore(connection_string=cloned_test_database)
         engineer = FeatureEngineer(
             config,
             feature_store=_cast(FeatureStoreStrictProtocol, feature_store),
@@ -446,7 +446,7 @@ class TestEndToEndPipeline:
     @pytest.mark.integration
     def test_persistence_verification(
         self,
-        test_database: _Any,
+        cloned_test_database: str,
         temp_data_dir: Path,
     ) -> None:
         """
@@ -458,9 +458,9 @@ class TestEndToEndPipeline:
         from ml.stores.strategy_store import StrategyStore
 
         # Initialize stores with real database
-        feature_store = FeatureStore(connection_string=test_database.connection_string)
-        model_store = ModelStore(connection_string=test_database.connection_string)
-        strategy_store = StrategyStore(connection_string=test_database.connection_string)
+        feature_store = FeatureStore(connection_string=cloned_test_database)
+        model_store = ModelStore(connection_string=cloned_test_database)
+        strategy_store = StrategyStore(connection_string=cloned_test_database)
 
         # Simulate pipeline operations
 

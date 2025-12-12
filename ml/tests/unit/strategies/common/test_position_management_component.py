@@ -355,7 +355,7 @@ def position_management_component(
     instrument_id: InstrumentId,
     mock_cache: MockCache,
     mock_logger: MockLogger,
-) -> "PositionManagementComponent":
+) -> PositionManagementComponent:
     """Create position management component with standard configuration."""
     from ml.strategies.common.position_management import PositionManagementComponent
 
@@ -378,7 +378,7 @@ class TestCalculatePositionSizeBasic:
 
     def test_calculate_position_size_basic(
         self,
-        position_management_component: "PositionManagementComponent",
+        position_management_component: PositionManagementComponent,
     ) -> None:
         """Verify basic position sizing from balance percentage."""
         # Account balance: 10,000
@@ -978,7 +978,7 @@ class TestComponentConfiguration:
 
     def test_properties_accessible(
         self,
-        position_management_component: "PositionManagementComponent",
+        position_management_component: PositionManagementComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Verify all properties are accessible."""
@@ -990,7 +990,7 @@ class TestComponentConfiguration:
 
     def test_update_config(
         self,
-        position_management_component: "PositionManagementComponent",
+        position_management_component: PositionManagementComponent,
     ) -> None:
         """Verify configuration can be updated."""
         new_instrument_id = InstrumentId(Symbol("GBPUSD"), Venue("SIM"))

@@ -50,7 +50,7 @@ class MockModel:
         *,
         eval_set: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] | None = None,
         verbose: bool = False,
-    ) -> "MockModel":
+    ) -> MockModel:
         self.fitted = True
         return self
 

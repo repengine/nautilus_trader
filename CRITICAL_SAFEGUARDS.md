@@ -27,15 +27,17 @@
 
 ## 🆕 CATEGORY 0: Codex MCP Verification (Phase 2.3 Proven Essential)
 
-### ⚠️ RISK: Test specifications contain invented/incorrect APIs
+### ⚠️ RISK: Test specifications contain invented/incorrect APIs or fixture violations
 
 **Phase 2.3 Evidence:** 50 API mismatches caught; 100% compilation after V2 corrections; 20-30 hours saved.
+**Task 1.1 Evidence:** 6/7 test files had fixture violations (missing pytest_plugins, duplicate fixtures).
 
 **SAFEGUARD:**
 ```yaml
 Rule: ALL test designs MUST be Codex-verified BEFORE implementation
 
-Error Patterns (from 127 tests):
+## Part A: API Error Patterns (from 127 tests)
+
   - Invented methods (35%): Methods don't exist (e.g., `_buffer_bar()` → actual `on_bar()`)
   - Wrong signatures (25%): Parameters/return types wrong
   - Invented metrics (20%): Assertions for non-existent metrics
@@ -43,16 +45,80 @@ Error Patterns (from 127 tests):
   - Attribute vs method (5%): Callable vs property confusion
   - Invented classes (5%): Component classes don't exist
 
+## Part B: 🆕 Fixture Violation Patterns (from Task 1.1 audit)
+
+  - Missing pytest_plugins (85%): Test packages don't register shared fixtures
+    ❌ WRONG: No pytest_plugins in conftest.py
+    ✅ CORRECT: pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+  - Duplicate fixtures (71%): Same fixture defined in multiple test files
+    ❌ WRONG: @pytest.fixture def feature_config() in 5+ files
+    ✅ CORRECT: Single definition in conftest.py or ml/tests/fixtures/
+
+  - Inline fixture definitions (57%): Fixtures defined in test files
+    ❌ WRONG: @pytest.fixture in test_*.py files
+    ✅ CORRECT: Fixtures in conftest.py or shared fixture modules
+
+  - Direct fixture imports (14%): Importing fixtures instead of injection
+    ❌ WRONG: from ml.tests.fixtures import mock_feature_store
+    ✅ CORRECT: def test_something(mock_feature_store):
+
+## Part C: 🆕 Test Anti-Patterns (from ml/tests/docs/TEST_ANTI_PATTERNS.md)
+
+  - Config equality (common): assert config == expected_config
+    ✅ CORRECT: assert msgspec.to_builtins(config) == msgspec.to_builtins(expected)
+
+  - Enum identity (common): assert status == DeploymentStatus.ACTIVE
+    ✅ CORRECT: assert status.value == "active"
+
+  - Missing serial markers: DB tests without @pytest.mark.serial
+    ✅ CORRECT: @pytest.mark.database\n@pytest.mark.serial
+
+  - Module-level patches: @patch at class/module level
+    ✅ CORRECT: with patch(...) inside test function
+
+## Part D: 🆕 Value Testing (from Task 1.1 lesson - 2025-12-01)
+
+  WHY: Parity tests must verify NUMERICAL EQUIVALENCE, not container types.
+       Hot path (numpy) and cold path (dict/DataFrame) must produce SAME VALUES.
+
+  - Wrong approach (assumes return type):
+    ❌ WRONG:
+      legacy_features = legacy.compute_features(bars)
+      facade_features = facade.compute_features(bars)
+      np.testing.assert_allclose(legacy_features, facade_features)
+      # Fails if one returns dict and other returns numpy!
+
+  - Correct approach (compares values):
+    ✅ CORRECT:
+      for feature_name in ["rsi_14", "bb_upper", "ema_12"]:
+          legacy_val = legacy_features[feature_name]
+          facade_val = facade_features[feature_name]
+          assert legacy_val == pytest.approx(facade_val, rel=1e-10)
+
+  - Training/Serving Skew Prevention:
+    ✅ REQUIRED: Batch mode values == Online mode values
+    ✅ REQUIRED: Legacy mode values == Facade mode values
+    ✅ REQUIRED: All modes produce identical feature computations
+
 Verification Process:
   1. Test Design Agent creates specs
-  2. Codex verifies: methods, signatures, attributes, config fields, exceptions, metrics
+  2. Codex verifies:
+     a) API: methods, signatures, attributes, config fields, exceptions, metrics
+     b) Fixtures: pytest_plugins, no duplicates, proper placement
+     c) Anti-patterns: config equality, enum identity, serial markers, patch scope
+     d) Value testing: parity tests compare VALUES not container types
   3. Issues found → Create V2 with corrections
   4. Implementation uses V2 (corrected)
 
 Decision Tree:
-  0 issues → ✅ PASS → Implement | 1-5 issues → ⚠️ Create V2 | 6+ issues → ❌ Major revision
+  0 issues → ✅ PASS → Implement
+  1-5 API issues → ⚠️ Create V2 with API corrections
+  1+ fixture issues → ⚠️ Fix conftest.py before implementation
+  6+ API issues OR structural fixture problems → ❌ Major revision → Phase 1
 
-Phase 2.3 Results: 11→8→14→15→2 issues (87% improvement by Phase 2.3.5)
+Phase 2.3 Results: 11→8→14→15→2 API issues (87% improvement by Phase 2.3.5)
+Task 1.1 Results: 6/7 files had fixture violations → Fixed to 0 violations
 ROI: 2-8 hours invested → 20-30 hours saved (250-1500% ROI)
 ```
 
@@ -791,12 +857,21 @@ Before starting ANY god class decomposition, print this checklist:
 ```markdown
 # Pre-Flight Checklist for Phase [X.Y]: [God Class Name]
 
-## 🆕 Codex MCP Verification (Phase 2.3 Proven Essential)
+## 🆕 Codex MCP Verification (Phase 2.3 + Task 1.1 Proven Essential)
 - [ ] Codex verification will run AFTER Phase 1 (Test Design)
 - [ ] ALL API calls will be verified against legacy code
+- [ ] ALL test files will be verified for FIXTURE_GUIDE.md compliance
 - [ ] V2 documents will be created if Codex finds issues
 - [ ] Implementation will use V2 (corrected), not V1 (raw)
-- [ ] Understand: 50 API errors caught across Phase 2.3 - this step is NON-NEGOTIABLE
+- [ ] Understand: 50 API errors + 6/7 fixture violations caught - this step is NON-NEGOTIABLE
+
+## 🆕 Fixture Compliance (Task 1.1 Proven Essential)
+- [ ] `pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)` in conftest.py
+- [ ] No inline `@pytest.fixture` definitions in test files
+- [ ] Fixtures consolidated in package conftest.py (not scattered)
+- [ ] No duplicate fixture definitions across test files
+- [ ] Shared fixtures in ml/tests/fixtures/{module}.py
+- [ ] No test anti-patterns (config equality, enum identity, missing serial markers)
 
 ## Code Preservation
 - [ ] Legacy code will NOT be modified until Phase 4 passes
@@ -863,6 +938,7 @@ ANY BOX UNCHECKED? ❌ STOP and address missing safeguard
 
 🆕 SPECIAL NOTES:
 - Codex verification is MANDATORY (proven in Phase 2.3) - 50 API errors caught
+- Fixture compliance is MANDATORY (proven in Task 1.1) - 6/7 test files had violations
 - Decomposition quality checks are MANDATORY (proven in 2025-11-26 audit) - 7/16 were shallow
 ```
 
@@ -891,7 +967,7 @@ ANY BOX UNCHECKED? ❌ STOP and address missing safeguard
 **Pattern Proven:**
 ```
 Phase 1: Test Design Agent → Creates specifications
-Phase 1.5: Codex MCP → Verifies APIs (NEW - MANDATORY)
+Phase 1.5: Codex MCP → Verifies APIs + Fixtures (NEW - MANDATORY)
 Phase 2: Implementation Agent → Uses corrected V2
 Phase 3: Static Validation → Code quality
 Phase 4: Integration Validation → Runtime behavior
@@ -902,10 +978,45 @@ Phase 5: System Validation → Deployment (optional)
 
 ---
 
+## 🆕 Summary of Task 1.1 Lessons (2025-12-01)
+
+**What We Learned:**
+1. **Fixture compliance is NON-NEGOTIABLE** - 6/7 test files had violations
+2. **pytest_plugins registration is essential** - Without it, shared fixtures aren't available
+3. **Fixture duplication is common** - Same fixtures defined 3-5 times across files
+4. **conftest.py consolidation works** - Single source of truth for package fixtures
+5. **Anti-patterns cause flaky tests** - Config equality, enum identity, missing markers
+6. **FIXTURE_GUIDE.md exists but wasn't followed** - Need Phase 1.5 enforcement
+7. **🆕 Value testing prevents training/serving skew** - Parity tests must compare VALUES not containers
+
+**Statistics:**
+- Test files reviewed: 7
+- Files with violations: 6 (86%)
+- Duplicate fixtures found: 20+ (12 unique)
+- Fixtures consolidated: 12 to conftest.py
+- Missing pytest_plugins: 6/7 files
+- Wrong parity tests: 13 tests assumed numpy return type
+- Final result: 27 passed, 53 skipped, 0 failed, 0 errors
+
+**Common Violation Patterns:**
+- Missing `pytest_plugins` registration (85%)
+- Duplicate `feature_config` fixture (5 files)
+- Duplicate `sample_ohlcv_dataframe` fixture (4 files)
+- Inline fixtures in test files (57%)
+- **🆕 Parity tests assuming container type instead of comparing values** (100% of parity file)
+
+**Key Takeaway:** Phase 1.5 must verify:
+1. FIXTURE_GUIDE.md compliance (pytest_plugins, no duplicates)
+2. VALUE TESTING for parity (compare numerical values, not container types)
+3. Anti-pattern avoidance (config equality, enum identity, serial markers)
+
+---
+
 **This document MUST be reviewed before starting any refactoring work.**
 
 **Updates Applied:**
 - **Phase 2.3 (2025-10-29):** Codex verification now mandatory (Category 0)
 - **Audit (2025-11-26):** Decomposition quality gates added (Category 14) - 7/16 shallow decompositions caught
+- **Task 1.1 (2025-12-01):** Fixture compliance added to Category 0 - 6/7 test files had violations
 
 Any violation of these safeguards → AUTOMATIC REJECTION.

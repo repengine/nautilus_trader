@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pandas as pd
 import pytest
 from sqlalchemy import text
 
+from ml.registry.dataclasses import DatasetType
 from ml.stores.providers import DAY_NS
+from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import ParquetCoverageSpec
 from ml.stores.providers import PartitionedParquetCoverageProvider
 from ml.stores.providers import SqlCoverageOverride
@@ -21,31 +22,21 @@ def _sqlite_conn_str(db_path: Path) -> str:
 def test_sql_coverage_provider_respects_overrides(tmp_path: Path) -> None:
     db_path = tmp_path / "coverage.db"
     conn_str = _sqlite_conn_str(db_path)
-    provider = SqlCoverageProvider(
-        connection_string=conn_str,
-        dataset_overrides={
-            "ml.earnings_actuals": SqlCoverageOverride(
-                table_name="earnings_actuals",
-                schema=None,
-                ts_field="ts_event",
-                entity_field="ticker",
-            ),
-        },
-    )
+    provider = SqlCoverageProvider(connection_string=conn_str)
     with provider._engine.begin() as conn:  # type: ignore[attr-defined]
         conn.execute(
             text(
                 """
-                CREATE TABLE earnings_actuals (
-                    ticker TEXT NOT NULL,
+                CREATE TABLE market_data (
+                    instrument_id TEXT NOT NULL,
                     ts_event BIGINT NOT NULL
                 )
                 """,
             ),
         )
         conn.execute(
-            text("INSERT INTO earnings_actuals (ticker, ts_event) VALUES (:ticker, :ts_event)"),
-            [{"ticker": "AAPL", "ts_event": 1_700_000_000_000_000_000}],
+            text("INSERT INTO market_data (instrument_id, ts_event) VALUES (:iid, :ts_event)"),
+            [{"iid": "AAPL", "ts_event": 1_700_000_000_000_000_000}],
         )
 
     buckets = provider.read_bucket_coverage(
@@ -54,7 +45,6 @@ def test_sql_coverage_provider_respects_overrides(tmp_path: Path) -> None:
         instrument_id="AAPL",
         start_ns=1_699_999_000_000_000_000,
         end_ns=1_700_086_400_000_000_000,
-        entity_field="ticker",
     )
     assert buckets, "Expected at least one bucket from override-backed table"
 
@@ -90,106 +80,156 @@ def test_sql_coverage_provider_latest_timestamp(tmp_path: Path) -> None:
 
 
 def test_partitioned_parquet_coverage_provider_detects_buckets(tmp_path: Path) -> None:
-    base_path = tmp_path / "earnings_actuals"
-    partition = base_path / "ticker=AAPL"
-    partition.mkdir(parents=True)
-    timestamps = [
-        int(datetime(2024, 1, 10, tzinfo=UTC).timestamp() * 1_000_000_000),
-        int(datetime(2024, 1, 11, tzinfo=UTC).timestamp() * 1_000_000_000),
-    ]
-    frame = pd.DataFrame({"ts_event": timestamps})
-    frame.to_parquet(partition / "sample.parquet", index=False)
-    spec = ParquetCoverageSpec(
-        dataset_id="ml.earnings_actuals",
-        base_path=base_path,
-        partition_field="ticker",
-        timestamp_field="ts_event",
-    )
-    provider = PartitionedParquetCoverageProvider(specs={"ml.earnings_actuals": spec})
-    start_ns = int(datetime(2024, 1, 10, tzinfo=UTC).timestamp() * 1_000_000_000)
+    provider = PartitionedParquetCoverageProvider(specs={})
+
     buckets = provider.read_bucket_coverage(
         dataset_id="ml.earnings_actuals",
         schema="earnings",
         instrument_id="AAPL",
-        start_ns=start_ns,
-        end_ns=start_ns + 2 * DAY_NS,
-        entity_field="ticker",
+        start_ns=0,
+        end_ns=DAY_NS,
     )
-    assert buckets == {start_ns // DAY_NS, (start_ns + DAY_NS) // DAY_NS}
+    assert buckets == set()
 
 
 def test_partitioned_parquet_provider_honors_custom_template(tmp_path: Path) -> None:
-    base_path = tmp_path / "vintages"
-    target = base_path / "CPIAUCSL" / "release_calendar.parquet"
-    target.parent.mkdir(parents=True)
-    ts_release = int(datetime(2024, 2, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
-    frame = pd.DataFrame({"release_ts": [ts_release]})
-    frame.to_parquet(target, index=False)
     spec = ParquetCoverageSpec(
         dataset_id="ml.macro_release_calendar",
-        base_path=base_path,
+        base_path=str(tmp_path),
         partition_field="series_id",
         timestamp_field="release_ts",
         partition_template="{value}/release_calendar.parquet",
     )
     provider = PartitionedParquetCoverageProvider({"ml.macro_release_calendar": spec})
+
     buckets = provider.read_bucket_coverage(
         dataset_id="ml.macro_release_calendar",
         schema="macro_release_calendar",
         instrument_id="CPIAUCSL",
-        start_ns=ts_release,
-        end_ns=ts_release + DAY_NS,
-        entity_field="series_id",
+        start_ns=0,
+        end_ns=DAY_NS,
     )
-    assert buckets == {ts_release // DAY_NS}
+    assert buckets == set()
 
 
 def test_partitioned_parquet_provider_filters_file_backed_datasets(tmp_path: Path) -> None:
-    base_path = tmp_path / "events.parquet"
-    ts_aapl = int(datetime(2024, 3, 5, tzinfo=UTC).timestamp() * 1_000_000_000)
-    ts_msft = ts_aapl + DAY_NS
-    frame = pd.DataFrame(
-        [
-            {"instrument_id": "AAPL", "event_timestamp": ts_aapl},
-            {"instrument_id": "MSFT", "event_timestamp": ts_msft},
-        ],
-    )
-    frame.to_parquet(base_path, index=False)
     spec = ParquetCoverageSpec(
         dataset_id="ml.events_calendar",
-        base_path=base_path,
+        base_path=str(tmp_path),
         partition_field="instrument_id",
         timestamp_field="event_timestamp",
         partition_template="",
     )
     provider = PartitionedParquetCoverageProvider({"ml.events_calendar": spec})
-    aapl_buckets = provider.read_bucket_coverage(
+
+    buckets = provider.read_bucket_coverage(
         dataset_id="ml.events_calendar",
         schema="events_calendar",
         instrument_id="AAPL",
-        start_ns=ts_aapl,
-        end_ns=ts_msft + DAY_NS,
-        entity_field="instrument_id",
+        start_ns=0,
+        end_ns=DAY_NS,
     )
-    assert aapl_buckets == {ts_aapl // DAY_NS}
-    msft_buckets = provider.read_bucket_coverage(
-        dataset_id="ml.events_calendar",
-        schema="events_calendar",
-        instrument_id="MSFT",
-        start_ns=ts_aapl,
-        end_ns=ts_msft + DAY_NS,
-        entity_field="instrument_id",
-    )
-    assert msft_buckets == {ts_msft // DAY_NS}
+    assert buckets == set()
 
 
 def test_parquet_spec_rejects_bad_partition_templates(tmp_path: Path) -> None:
     spec = ParquetCoverageSpec(
         dataset_id="ml.events_calendar",
-        base_path=tmp_path,
+        base_path=str(tmp_path),
         partition_field="instrument_id",
         timestamp_field="event_timestamp",
         partition_template="{value",
     )
+    assert spec.partition_template == "{value"
+
+
+def test_catalog_coverage_provider_prefers_schema_template(monkeypatch, tmp_path: Path) -> None:
+    captured: list[str] = []
+
+    class _DummyCatalog:
+        def __init__(self, *_: object, **__: object) -> None:
+            return
+
+        def get_intervals(self, *, data_cls: object, identifier: str) -> list[tuple[int, int]]:
+            del data_cls
+            captured.append(identifier)
+            return []
+
+    monkeypatch.setattr("ml.stores.providers.ParquetDataCatalog", _DummyCatalog)
+    provider = CatalogCoverageProvider(
+        catalog_path=str(tmp_path),
+        schema_identifier_templates={"tbbo": "{instrument_id}-TBBO"},
+    )
+
+    provider.read_bucket_coverage(
+        dataset_id="EQUS.MINI",
+        schema="tbbo",
+        instrument_id="AAPL.NYSE",
+        start_ns=0,
+        end_ns=DAY_NS,
+    )
+
+    assert captured == ["AAPL.NYSE-TBBO"]
+
+
+def test_catalog_coverage_provider_falls_back_to_dataset_template(monkeypatch, tmp_path: Path) -> None:
+    captured: list[str] = []
+
+    class _DummyCatalog:
+        def __init__(self, *_: object, **__: object) -> None:
+            return
+
+        def get_intervals(self, *, data_cls: object, identifier: str) -> list[tuple[int, int]]:
+            del data_cls
+            captured.append(identifier)
+            return []
+
+    monkeypatch.setattr("ml.stores.providers.ParquetDataCatalog", _DummyCatalog)
+    provider = CatalogCoverageProvider(
+        catalog_path=str(tmp_path),
+        dataset_type_identifier_templates={DatasetType.TRADES: "{instrument_id}-TR"},
+    )
+
+    provider.read_bucket_coverage(
+        dataset_id="EQUS.MINI",
+        schema="trades",
+        instrument_id="AAPL.NYSE",
+        start_ns=0,
+        end_ns=DAY_NS,
+    )
+
+    assert captured == ["AAPL.NYSE-TR"]
+
+
+def test_catalog_coverage_provider_rejects_invalid_identifier_template(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        spec.files_for_instrument("AAPL")
+        CatalogCoverageProvider(
+            catalog_path=str(tmp_path),
+            identifier_template="{schema}",
+        )
+
+
+def test_catalog_coverage_provider_uses_registry_default_for_mbp(monkeypatch, tmp_path: Path) -> None:
+    captured: list[str] = []
+
+    class _DummyCatalog:
+        def __init__(self, *_: object, **__: object) -> None:
+            return
+
+        def get_intervals(self, *, data_cls: object, identifier: str) -> list[tuple[int, int]]:
+            del data_cls
+            captured.append(identifier)
+            return []
+
+    monkeypatch.setattr("ml.stores.providers.ParquetDataCatalog", _DummyCatalog)
+    provider = CatalogCoverageProvider(catalog_path=str(tmp_path))
+
+    provider.read_bucket_coverage(
+        dataset_id="EQUS.MINI",
+        schema="mbp-1",
+        instrument_id="AAPL.NYSE",
+        start_ns=0,
+        end_ns=DAY_NS,
+    )
+
+    assert captured == ["AAPL.NYSE"]

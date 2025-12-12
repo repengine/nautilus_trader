@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_build_dataset_ten_instruments() -> None:
     """
@@ -32,7 +31,6 @@ def test_build_dataset_ten_instruments() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_multi_instrument_time_alignment() -> None:
     """
@@ -49,7 +47,6 @@ def test_multi_instrument_time_alignment() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_multi_instrument_missing_data_handling() -> None:
     """

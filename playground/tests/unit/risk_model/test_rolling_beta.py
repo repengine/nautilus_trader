@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 
-import math
 import numpy as np
 import polars as pl
 import pytest

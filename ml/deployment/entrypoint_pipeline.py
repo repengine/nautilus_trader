@@ -70,6 +70,13 @@ from ml.deployment.scheduling_utils import compute_next_utc_run
 from ml.deployment.scheduling_utils import parse_bool_env
 from ml.deployment.scheduling_utils import parse_daily_spec
 from ml.observability.bootstrap import auto_start_if_configured
+from ml.registry.dataclasses import DatasetType
+from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
+from ml.schema import DEFAULT_BAR_IDENTIFIER_TEMPLATE
+from ml.schema import schema_spec_for
+from ml.schema import validate_dataset_type_templates
+from ml.schema import validate_identifier_template
+from ml.schema import validate_schema_identifier_templates
 from ml.stores.feature_store import FeatureStore
 from ml.stores.migrations_runner import MigrationRunner
 from ml.stores.migrations_runner import MigrationRunnerError
@@ -83,6 +90,7 @@ from ml.stores.schema_audit import SchemaAuditor
 
 
 # Provide a patchable symbol for tests; resolved lazily at runtime.
+# Runtime Parquet catalog type (resolved lazily) to avoid import-time overhead.
 _ParquetDataCatalogRT: type[_Any] | None = None
 # Public alias for tests to patch directly (e.g., via unittest.mock.patch)
 # When None, the runtime will lazily import ParquetDataCatalog.
@@ -184,6 +192,23 @@ def _market_descriptor_resources() -> (
     return descriptor_map, normalized
 
 
+def _ensure_directory(path: Path) -> Path:
+    """
+    Ensure a directory exists, tolerating existing directories and symlinks.
+
+    This avoids spurious FileExistsError when the path is a symlink (common in
+    mounted volumes) by treating existing symlinks as acceptable.
+    """
+    if path.is_symlink():
+        return path
+    if path.exists():
+        if path.is_dir():
+            return path
+        raise FileExistsError(f"{path} exists and is not a directory")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 @app.route("/health")
 def health_check() -> tuple[Any, int]:
     """
@@ -245,6 +270,8 @@ class PipelineRunner:
         raw_symbols = os.environ.get("UNIVERSE_SYMBOLS", "SPY.XNAS")
         symbols = [s.strip() for s in raw_symbols.split(",") if s.strip()]
 
+        expand_universe = parse_bool_env(os.environ.get("UNIVERSE_EXPAND", "1"))
+
         # Create Databento config (API key consumed by underlying loader via env)
         databento_config = DatabentoConfig(
             dataset=os.environ.get("DATABENTO_DATASET", "EQUS.MINI"),
@@ -253,11 +280,28 @@ class PipelineRunner:
         )
 
         # Universe expansion (optional)
-        universe = UniverseConfig(
-            expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate"),  # type: ignore[arg-type]
-        )
-        # Merge user-provided symbols with expanded lists
-        full_universe = list(dict.fromkeys(symbols + universe.get_full_universe()))
+        full_universe = symbols
+        if expand_universe:
+            universe = UniverseConfig(
+                expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate"),  # type: ignore[arg-type]
+            )
+            # Merge user-provided symbols with expanded lists
+            full_universe = list(dict.fromkeys(symbols + universe.get_full_universe()))
+
+        # Normalize instrument suffixes for EQUS.MINI to use .EQUS by default
+        if databento_config.dataset.upper() == "EQUS.MINI":
+            normalized: list[str] = []
+            for sym in full_universe:
+                token = sym.strip()
+                if not token:
+                    continue
+                if "." in token:
+                    base, _sep, _suffix = token.partition(".")
+                    normalized.append(f"{base}.EQUS")
+                else:
+                    normalized.append(f"{token}.EQUS")
+            full_universe = list(dict.fromkeys(normalized))
+
         market_inputs = self._parse_market_dataset_inputs()
         market_lookback_days = self._get_int_env("MARKET_BACKFILL_LOOKBACK_DAYS", 1)
         dynamic_backfill = parse_bool_env(os.environ.get("MARKET_BACKFILL_DYNAMIC_LOOKBACK", "1"))
@@ -321,7 +365,7 @@ class PipelineRunner:
         Initialize the data catalog.
         """
         catalog_path = Path(os.environ.get("CATALOG_PATH", "/app/data/catalog"))
-        catalog_path.mkdir(parents=True, exist_ok=True)
+        catalog_path = _ensure_directory(catalog_path)
         self._catalog_path = catalog_path
         # Resolve catalog class: prefer patched module-level alias if present
         global _ParquetDataCatalogRT, ParquetDataCatalog
@@ -351,6 +395,91 @@ class PipelineRunner:
                 default,
             )
             return default
+
+    def _parse_template_map_env(self, raw: str | None) -> dict[str, str]:
+        """
+        Parse a schema→template mapping from environment payloads.
+        """
+        if raw is None:
+            return {}
+        text = raw.strip()
+        if not text:
+            return {}
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to parse identifier template map (JSON decode)",
+                    extra={"payload": raw[:200]},
+                )
+                return {}
+            if not isinstance(parsed, Mapping):
+                return {}
+            return {
+                str(key).strip().lower(): str(value)
+                for key, value in parsed.items()
+                if str(key).strip() and str(value)
+            }
+        templates: dict[str, str] = {}
+        for token in text.split(","):
+            candidate = token.strip()
+            if not candidate:
+                continue
+            if "=" in candidate:
+                key, value = candidate.split("=", 1)
+            elif ":" in candidate:
+                key, value = candidate.split(":", 1)
+            else:
+                continue
+            key_normalized = key.strip().lower()
+            value_normalized = value.strip()
+            if not key_normalized or not value_normalized:
+                continue
+            templates[key_normalized] = value_normalized
+        return templates
+
+    def _parse_dataset_template_map_env(self, raw: str | None) -> dict[DatasetType, str]:
+        """
+        Parse a dataset-type→template mapping from environment payloads.
+        """
+        parsed = self._parse_template_map_env(raw)
+        resolved: dict[DatasetType, str] = {}
+        for key, value in parsed.items():
+            try:
+                dataset_type = DatasetType(key)
+            except ValueError:
+                logger.warning(
+                    "Ignoring unknown dataset type in identifier template map",
+                    extra={"dataset_type": key},
+                )
+                continue
+            resolved[dataset_type] = value
+        return resolved
+
+    def _dual_write_dataset_types_from_env(self) -> dict[DatasetType, bool]:
+        """
+        Parse per-schema dual-write toggles; defaults stay enabled.
+        """
+
+        def _flag(env_name: str, default: bool = True) -> bool:
+            raw = os.environ.get(env_name)
+            return parse_bool_env(raw) if raw is not None else default
+
+        return {
+            DatasetType.BARS: _flag("DUAL_WRITE_BARS"),
+            DatasetType.TRADES: _flag("DUAL_WRITE_TRADES"),
+            DatasetType.TBBO: _flag("DUAL_WRITE_TBBO"),
+            DatasetType.MBP1: _flag("DUAL_WRITE_MBP"),
+        }
+
+    def _resolve_rehydrator_config(self) -> CatalogRehydrationConfig:
+        """
+        Return (and cache) the catalog rehydration config.
+        """
+        if self._rehydrator_config is None:
+            self._rehydrator_config = self._build_catalog_rehydration_config()
+        return self._rehydrator_config
 
     def _parse_market_dataset_inputs(self) -> tuple[MarketDatasetInput, ...] | None:
         file_path = os.environ.get("MARKET_DATASET_INPUTS_FILE")
@@ -559,7 +688,21 @@ class PipelineRunner:
         batch_size = self._get_int_env("CATALOG_REHYDRATE_BATCH_SIZE", 1_000)
         identifier_template = os.environ.get(
             "CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE",
-            "{instrument_id}-1-MINUTE-LAST-EXTERNAL",
+            DEFAULT_BAR_IDENTIFIER_TEMPLATE,
+        )
+        identifier_template = validate_identifier_template(
+            identifier_template,
+            label="CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE",
+        )
+        schema_template_map = validate_schema_identifier_templates(
+            self._parse_template_map_env(
+                os.environ.get("CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP"),
+            ),
+        )
+        dataset_template_map = validate_dataset_type_templates(
+            self._parse_dataset_template_map_env(
+                os.environ.get("CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES"),
+            ),
         )
         table_name = os.environ.get("CATALOG_REHYDRATE_TABLE", "market_data")
         rescan = parse_bool_env(os.environ.get("CATALOG_REHYDRATE_RESCAN"))
@@ -569,6 +712,10 @@ class PipelineRunner:
             lookback_days=lookback,
             batch_size=batch_size,
             identifier_template=identifier_template,
+            schema_identifier_templates=schema_template_map,
+            dataset_type_identifier_templates=(
+                dataset_template_map or DATASET_TYPE_IDENTIFIER_DEFAULTS.copy()
+            ),
             table_name=table_name,
             rescan_on_schedule=rescan,
             exhaustive=exhaustive,
@@ -597,6 +744,9 @@ class PipelineRunner:
                     or (descriptor.schema if descriptor is not None else None)
                     or config.databento.schema
                 )
+                if schema:
+                    schema = schema.strip().lower()
+                    schema_spec_for(schema)
                 symbols = entry.symbols or tuple(config.symbols)
                 if not dataset_id or not schema or not symbols:
                     continue
@@ -612,11 +762,13 @@ class PipelineRunner:
         else:
             symbols = tuple(config.symbols)
             if symbols:
+                schema = config.databento.schema.strip().lower()
+                schema_spec_for(schema)
                 datasets.append(
                     CoverageDatasetEntry(
                         dataset=DatasetCoverageConfig(
                             dataset_id=config.databento.dataset,
-                            schema=config.databento.schema,
+                            schema=schema,
                             instruments=symbols,
                         ),
                     ),
@@ -704,19 +856,46 @@ class PipelineRunner:
 
         providers: list[CoverageProviderProtocol] = []
         if self._catalog_path:
-            providers.append(
-                CatalogCoverageProvider(
-                    catalog_path=str(self._catalog_path),
-                    identifier_template=self._rehydrator_config.identifier_template if self._rehydrator_config else None,
-                ),
+            identifier_template = (
+                self._rehydrator_config.identifier_template
+                if self._rehydrator_config
+                else DEFAULT_BAR_IDENTIFIER_TEMPLATE
             )
+            schema_templates = (
+                self._rehydrator_config.schema_identifier_templates
+                if self._rehydrator_config
+                else {}
+            )
+            dataset_templates = (
+                self._rehydrator_config.dataset_type_identifier_templates
+                if self._rehydrator_config
+                else DATASET_TYPE_IDENTIFIER_DEFAULTS
+            )
+            try:
+                providers.append(
+                    CatalogCoverageProvider(
+                        catalog_path=str(self._catalog_path),
+                        identifier_template=identifier_template,
+                        schema_identifier_templates=schema_templates,
+                        dataset_type_identifier_templates=dataset_templates,
+                        use_uri_safe_identifiers=True,
+                    ),
+                )
+            except TypeError:
+                # Backward compatibility with test doubles or legacy providers.
+                providers.append(
+                    CatalogCoverageProvider(
+                        catalog_path=str(self._catalog_path),
+                        identifier_template=identifier_template,
+                    ),
+                )
         if parquet_specs:
             providers.append(PartitionedParquetCoverageProvider(specs=parquet_specs))
         if not providers:
             return NullCoverageProvider()
         if len(providers) == 1:
             return providers[0]
-        return UnionCoverageProvider(tuple(providers))
+        return UnionCoverageProvider(list(providers))
 
     def _resolve_db_connection(self, config: SchedulerConfig) -> str | None:
         candidates = (
@@ -773,7 +952,8 @@ class PipelineRunner:
         catalog: _PDC_T,
         scheduler_config: SchedulerConfig,
     ) -> None:
-        self._rehydrator_config = self._build_catalog_rehydration_config()
+        if self._rehydrator_config is None:
+            self._rehydrator_config = self._build_catalog_rehydration_config()
         if not self._rehydrator_config.enabled:
             logger.debug("Catalog rehydration disabled via configuration")
             return
@@ -997,6 +1177,11 @@ class PipelineRunner:
             for entry in entries
             if entry.sql_override is not None
         }
+        dataset_overrides: dict[str, object] | None = (
+            {dataset_id: override for dataset_id, override in sql_overrides.items()}
+            if sql_overrides
+            else None
+        )
         needs_catalog = any(entry.parquet_spec is None for entry in entries)
         if needs_catalog and self._catalog_path is None:
             logger.warning("Catalog path required for market dataset coverage restoration")
@@ -1009,7 +1194,7 @@ class PipelineRunner:
             config=CoverageManagerConfig(datasets=dataset_configs, lookback_days=lookback),
             sql_provider=SqlCoverageProvider(
                 connection_string=db_connection,
-                dataset_overrides=sql_overrides or None,
+                dataset_overrides=dataset_overrides,
             ),
             catalog_provider=self._build_catalog_provider(parquet_specs),
             schema_auditor=SchemaAuditor(db_url=db_connection),
@@ -1231,11 +1416,14 @@ class PipelineRunner:
             catalog = self._initialize_catalog(config)
             use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
             dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
+            rehydrator_config = self._resolve_rehydrator_config()
             self.scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
                 use_orchestrator=use_orchestrator,
                 dual_write=dual_write,
+                dual_write_dataset_types=self._dual_write_dataset_types_from_env(),
+                dataset_type_identifier_templates=rehydrator_config.dataset_type_identifier_templates,
             )
             self._build_catalog_rehydrator(catalog=catalog, scheduler_config=config)
             self._run_coverage_restoration(config)
@@ -1281,11 +1469,14 @@ class PipelineRunner:
             # Create scheduler with unified ingestion flags (env truthy: 1,true,yes,on)
             use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
             dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
+            rehydrator_config = self._resolve_rehydrator_config()
             self.scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
                 use_orchestrator=use_orchestrator,
                 dual_write=dual_write,
+                dual_write_dataset_types=self._dual_write_dataset_types_from_env(),
+                dataset_type_identifier_templates=rehydrator_config.dataset_type_identifier_templates,
             )
 
             self._build_catalog_rehydrator(catalog=catalog, scheduler_config=config)

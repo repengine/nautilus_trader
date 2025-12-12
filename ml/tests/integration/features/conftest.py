@@ -1,14 +1,27 @@
 """
 Test fixtures for feature component integration tests.
+
+Fixtures are registered via the shared pytest plug-in defined in ``ml/tests/__init__.py``.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import numpy as np
+import pandas as pd
 import polars as pl
 import pytest
+
+from ml.features.engineering import FeatureConfig, IndicatorManager
+
+
+if TYPE_CHECKING:
+    pass
+
+
+# ==================== Registry Mock Fixtures ====================
 
 
 @pytest.fixture
@@ -52,6 +65,87 @@ def mock_stores_partial() -> Mock:
     mock_stores.model_registry = Mock(spec=["register", "get", "list"])
 
     return mock_stores
+
+
+# ==================== FeatureConfig Fixtures ====================
+
+
+@pytest.fixture
+def feature_config() -> FeatureConfig:
+    """
+    Standard FeatureConfig for integration tests.
+
+    Provides a comprehensive configuration with extended return/momentum
+    periods suitable for integration test workflows.
+    """
+    return FeatureConfig(
+        return_periods=[1, 2, 5, 10],
+        momentum_periods=[1, 3, 5],
+        volume_ma_periods=[10, 20],
+        ema_fast=12,
+        ema_slow=26,
+        rsi_period=14,
+        bb_period=20,
+        bb_std=2.0,
+        atr_period=14,
+        enable_returns=True,
+        enable_momentum=True,
+        enable_volatility=True,
+        enable_technical=True,
+    )
+
+
+# ==================== DataFrame Fixtures ====================
+
+
+@pytest.fixture
+def training_dataframe() -> pd.DataFrame:
+    """
+    DataFrame simulating training data (1000 bars).
+
+    Uses seed 42 for reproducibility. Suitable for integration tests
+    that require a larger dataset for scaler fitting and training workflows.
+    """
+    np.random.seed(42)
+    n_bars = 1000
+    dates = pd.date_range("2023-01-01", periods=n_bars, freq="1min")
+    close_prices = 100.0 + np.cumsum(np.random.randn(n_bars) * 0.5)
+
+    return pd.DataFrame(
+        {
+            "timestamp": dates,
+            "open": close_prices + np.random.randn(n_bars) * 0.2,
+            "high": close_prices + np.abs(np.random.randn(n_bars) * 0.3),
+            "low": close_prices - np.abs(np.random.randn(n_bars) * 0.3),
+            "close": close_prices,
+            "volume": np.random.uniform(900000, 1100000, n_bars),
+        }
+    )
+
+
+@pytest.fixture
+def inference_bars() -> list[dict[str, float]]:
+    """
+    List of bars simulating real-time inference data.
+
+    Returns 100 bars with seed 123 for reproducibility. Suitable for
+    testing online workflow with warmup and inference phases.
+    """
+    np.random.seed(123)
+    bars = []
+    price = 100.0
+    for i in range(100):
+        price += np.random.randn() * 0.1
+        bars.append(
+            {
+                "open": price - 0.05,
+                "high": price + 0.1,
+                "low": price - 0.1,
+                "close": price,
+                "volume": 1000000.0 + np.random.uniform(-100000, 100000),
+            }
+        )
+    return bars
 
 
 # ==================== FeatureMetricsCollector Fixtures (Phase 2.1.3) ====================

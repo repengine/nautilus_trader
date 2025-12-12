@@ -19,6 +19,7 @@ from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
+from ml.tests.utils.db import build_postgres_url
 from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, StrategyStoreNoOp
 
 
@@ -57,7 +58,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
     mock_strat = cast(StrategyStore, StrategyStoreNoOp())
 
     # Use a POSTGRES-looking DSN to exercise registry fallback, without DB I/O
-    dsn = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    dsn = build_postgres_url()
     # Ensure DataProcessor does not establish a real DB connection in unit tests
     import ml.common.db_utils as _db
     from ml.core.db_engine import EngineManager as _EM

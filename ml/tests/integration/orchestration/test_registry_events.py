@@ -13,12 +13,13 @@ from unittest.mock import Mock
 
 import pytest
 
+from ml.common.message_topics import build_topic_for_stage
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_feature_refresh_event_emitted_to_message_bus() -> None:
     """Emit feature refresh event to message bus.
@@ -37,6 +38,7 @@ def test_feature_refresh_event_emitted_to_message_bus() -> None:
     feature_registry = Mock()
     model_registry = Mock()
     message_bus = Mock()
+    data_registry.get_manifest.side_effect = Exception("missing")
 
     synchronizer = RegistrySynchronizer(
         data_registry=data_registry,
@@ -50,16 +52,17 @@ def test_feature_refresh_event_emitted_to_message_bus() -> None:
     # Execute
     synchronizer._emit_feature_refresh_event("spy_2024_ohlcv", features)
 
-    # Verify (Phase 2.2.8 - currently placeholder)
-    # message_bus.publish.assert_called_once()
-    # args = message_bus.publish.call_args
-    # assert args[0][0] == "ml.features.refresh"
-    # assert "dataset_id" in args[0][1]
+    message_bus.publish.assert_called_once()
+    topic, payload = message_bus.publish.call_args.args
+    assert topic == build_topic_for_stage(Stage.FEATURE_COMPUTED, "spy_2024_ohlcv")
+    assert payload["dataset_id"] == "spy_2024_ohlcv"
+    assert payload["features"] == features
+    assert payload["stage"] == Stage.FEATURE_COMPUTED.value
+    assert payload["source"] == Source.HISTORICAL.value
+    assert payload["status"] == EventStatus.SUCCESS.value
+    assert isinstance(payload["timestamp_ns"], int)
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_dataset_registered_event_emitted() -> None:
     """Emit dataset registered event after registration.
@@ -77,6 +80,7 @@ def test_dataset_registered_event_emitted() -> None:
     feature_registry = Mock()
     model_registry = Mock()
     message_bus = Mock()
+    data_registry.get_manifest.side_effect = Exception("missing")
 
     synchronizer = RegistrySynchronizer(
         data_registry=data_registry,
@@ -90,13 +94,9 @@ def test_dataset_registered_event_emitted() -> None:
     # Execute
     synchronizer._ensure_dataset_registered("spy_2024_ohlcv", metadata)
 
-    # Verify (Phase 2.2.8 - currently placeholder)
-    # message_bus.publish.assert_called()
+    assert data_registry.register_dataset.called
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_event_payload_contains_metadata() -> None:
     """Verify event payload structure.
@@ -127,10 +127,8 @@ def test_event_payload_contains_metadata() -> None:
     # Execute
     synchronizer._emit_feature_refresh_event("spy_2024_ohlcv", features)
 
-    # Verify (Phase 2.2.8 - currently placeholder)
-    # payload = message_bus.publish.call_args[0][1]
-    # assert "event_type" in payload
-    # assert payload["event_type"] == "feature_refresh"
-    # assert "dataset_id" in payload
-    # assert "features" in payload
-    # assert "timestamp" in payload
+    payload = message_bus.publish.call_args.args[1]
+    assert payload["event_type"] == "feature_refresh"
+    assert payload["dataset_id"] == "spy_2024_ohlcv"
+    assert payload["features"] == features
+    assert isinstance(payload["timestamp_ns"], int)

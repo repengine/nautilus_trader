@@ -26,9 +26,9 @@ from unittest.mock import patch
 
 import pytest
 
-from ml.data.common.feature_computation import FeatureComputationComponent
-from ml.data.common.feature_computation import FeatureComputationProtocol
-from ml.data.common.feature_computation import VENUE_MAP
+from ml.data.common.scheduler_feature_job import FeatureComputationComponent
+from ml.data.common.scheduler_feature_job import FeatureComputationProtocol
+from ml.data.common.scheduler_feature_job import VENUE_MAP
 
 
 # -----------------------------------------------------------------------------
@@ -274,7 +274,7 @@ class TestSymbolParsingAndVenueMapping:
         config.feature_store_enabled = True
         config.symbols = ["INVALID_NO_DOT"]  # Invalid format
 
-        total, failed = component.compute_features(
+        _total, failed = component.compute_features(
             config=config,
             catalog=mock_catalog,
             feature_engineer=mock_feature_engineer,
@@ -485,13 +485,13 @@ class TestMetricsTracking:
             mock_instrument_id_cls.from_str.return_value = mock_instrument_id
 
             with patch(
-                "ml.data.common.feature_computation.feature_store_operations_total"
+                "ml.data.common.scheduler_feature_job.feature_store_operations_total"
             ) as mock_ops_counter:
                 with patch(
-                    "ml.data.common.feature_computation.feature_store_latency"
+                    "ml.data.common.scheduler_feature_job.feature_store_latency"
                 ) as mock_latency:
                     with patch(
-                        "ml.data.common.feature_computation.feature_computation_store_latency"
+                        "ml.data.common.scheduler_feature_job.feature_computation_store_latency"
                     ) as mock_comp_latency:
                         component.compute_features(
                             config=config,
@@ -530,7 +530,7 @@ class TestMetricsTracking:
             mock_instrument_id_cls.from_str.return_value = mock_instrument_id
 
             with patch(
-                "ml.data.common.feature_computation.active_feature_tasks"
+                "ml.data.common.scheduler_feature_job.active_feature_tasks"
             ) as mock_gauge:
                 component.compute_features(
                     config=config,
@@ -580,7 +580,7 @@ class TestErrorHandling:
             mock_instrument_id.__str__ = MagicMock(return_value="SPY.NASDAQ")
             mock_instrument_id_cls.from_str.return_value = mock_instrument_id
 
-            total, failed = component.compute_features(
+            _total, failed = component.compute_features(
                 config=config,
                 catalog=mock_catalog,
                 feature_engineer=mock_feature_engineer,
@@ -589,7 +589,7 @@ class TestErrorHandling:
                 get_previous_day_fn=mock_get_previous_day,
             )
 
-            assert total == 0
+            assert _total == 0
             assert "SPY.NASDAQ" in failed
 
     def test_compute_features_failed_instruments(
@@ -621,7 +621,7 @@ class TestErrorHandling:
             mock_instrument_id.__str__ = MagicMock(return_value="SPY.NASDAQ")
             mock_instrument_id_cls.from_str.return_value = mock_instrument_id
 
-            total, failed = component.compute_features(
+            _total, failed = component.compute_features(
                 config=config,
                 catalog=mock_catalog,
                 feature_engineer=mock_feature_engineer,

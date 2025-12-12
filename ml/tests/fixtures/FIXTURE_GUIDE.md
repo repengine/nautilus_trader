@@ -8,6 +8,10 @@ need to be declared as parameters or requested via `pytest.mark.usefixtures`.
 `ml/tests/fixtures/test_exports.py` to ensure alphabetical ordering and that no
 exports go missing.
 
+Do not declare `pytest_plugins` inside non-top-level ``conftest.py`` files;
+keep registration in package ``__init__.py`` modules or the top-level
+`ml/tests/conftest.py` to avoid pytest deprecation warnings.
+
 ## Author Workflow (TL;DR)
 
 1. **Discover** – look up the fixture name in `ml/tests/fixtures/__init__.py` (or
@@ -139,6 +143,14 @@ def test_engine_manager_records_connection_strings(
     call = engine_mock._engine_manager_calls[0]
     assert call[1]["connection_string"].startswith("postgresql://")
 ```
+
+### Performance without pollution (PostgreSQL on :5434)
+
+- A session-scoped template DB (default name: `nautilus_template`) can be built once on the 5434 test instance; it is **read-only**. Use the `template_database` fixture only as a seed, never mutate it.
+- For writable tests, request `cloned_test_database`: it clones the template into a fresh schema/DB per test and drops it on teardown; EngineManager caches are disposed after each test.
+- Store bundles (`fresh_store_bundle`, `component_data_store_factory`) should point at the cloned DB for isolation. Do not write directly to the template.
+- Artifacts follow the same pattern: session-scoped creation is immutable; copy into `tmp_path` before mutation.
+- Hypothesis/property tests that hit the DB must keep example counts/deadlines bounded to avoid long-lived connections and contention.
 
 ## Orchestrator & Scheduler Examples
 

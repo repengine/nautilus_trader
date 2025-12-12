@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_build_dataset_with_technical_indicators() -> None:
     """
@@ -31,7 +30,6 @@ def test_build_dataset_with_technical_indicators() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_feature_engineer_integration_in_dataset_build() -> None:
     """
@@ -48,7 +46,6 @@ def test_feature_engineer_integration_in_dataset_build() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_features_align_with_bars_no_lookahead_bias() -> None:
     """

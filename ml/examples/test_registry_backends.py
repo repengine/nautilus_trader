@@ -39,7 +39,7 @@ def test_persistence_layer() -> bool:
 
         postgres_config = PersistenceConfig(
             backend=BackendType.POSTGRES,
-            connection_string="postgresql://postgres:postgres@localhost:5432/nautilus",
+            connection_string="postgresql://postgres:postgres@localhost:5434/nautilus",
         )
         print(f"✓ Created PostgreSQL config: backend={postgres_config.backend.value}")
 

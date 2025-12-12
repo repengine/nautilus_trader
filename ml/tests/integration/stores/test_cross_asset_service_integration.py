@@ -12,12 +12,9 @@ Integration Points:
 
 Design: These tests require a real PostgreSQL database and verify that the service
 integrates correctly with the existing FeatureStore infrastructure.
-
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import column as _column
@@ -26,15 +23,13 @@ from sqlalchemy import table as _table
 
 from ml.stores.table_factory import get_schema_name
 
+
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
     "isolated_orchestrator_env",
     "real_engine_manager",
 )
-
-if TYPE_CHECKING:
-    from ml.stores.feature_store import ComponentFeatureStore
 
 
 # ============================================================================
@@ -45,9 +40,9 @@ if TYPE_CHECKING:
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 def test_cross_asset_property_returns_service_instance(
-    component_feature_store: ComponentFeatureStore,
+    component_feature_store: Any,
 ) -> None:
     """
     Verify that ComponentFeatureStore.cross_asset property returns service instance.
@@ -58,7 +53,7 @@ def test_cross_asset_property_returns_service_instance(
     - Service has access to engine and feature_values_table
 
     """
-    from ml.stores.services.feature_services import CrossAssetFeatureService
+    from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 
     service = component_feature_store.cross_asset
 
@@ -75,9 +70,9 @@ def test_cross_asset_property_returns_service_instance(
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 def test_facade_reuses_service_instance(
-    component_feature_store: ComponentFeatureStore,
+    component_feature_store: Any,
 ) -> None:
     """
     Verify that ComponentFeatureStore reuses same service instance on repeated access.
@@ -97,9 +92,9 @@ def test_facade_reuses_service_instance(
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 def test_end_to_end_beta_compute_persist_retrieve(
-    component_feature_store: ComponentFeatureStore,
+    component_feature_store: Any,
 ) -> None:
     """
     Verify end-to-end workflow: compute beta → persist → retrieve.
@@ -135,7 +130,7 @@ def test_end_to_end_beta_compute_persist_retrieve(
     assert results[0]["ewma_span"] == 30
 
     # Create new feature store instance and verify data persists
-    from ml.stores.feature_store import ComponentFeatureStore
+    from ml.stores import ComponentFeatureStore
 
     new_store = ComponentFeatureStore(connection_string=component_feature_store.connection_string)
 
@@ -153,9 +148,9 @@ def test_end_to_end_beta_compute_persist_retrieve(
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 def test_end_to_end_spread_workflow(
-    component_feature_store: ComponentFeatureStore,
+    component_feature_store: Any,
 ) -> None:
     """
     Verify end-to-end spread workflow: write → read via database query.
@@ -208,9 +203,9 @@ def test_end_to_end_spread_workflow(
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 def test_end_to_end_correlation_workflow(
-    component_feature_store: ComponentFeatureStore,
+    component_feature_store: Any,
 ) -> None:
     """
     Verify end-to-end correlation workflow: write → read via database query.

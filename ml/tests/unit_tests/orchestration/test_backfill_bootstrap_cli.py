@@ -7,6 +7,7 @@ import shlex
 from pytest import MonkeyPatch
 
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.db import build_postgres_url
 
 
 def test_backfill_bootstrap_builds_cli_args(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -28,7 +29,7 @@ def test_backfill_bootstrap_builds_cli_args(monkeypatch: MonkeyPatch, tmp_path: 
     monkeypatch.setattr("subprocess.run", fake_run)
 
     mgr = MLIntegrationManager.__new__(MLIntegrationManager)
-    setattr(mgr, "db_connection", "postgresql://postgres:postgres@localhost:5432/nautilus")
+    setattr(mgr, "db_connection", build_postgres_url())
 
     # Act
     MLIntegrationManager._maybe_run_backfill_on_start(mgr)

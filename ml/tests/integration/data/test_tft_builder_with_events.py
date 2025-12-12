@@ -21,7 +21,7 @@ def test_builder_includes_event_features(
 ) -> None:
     patch_dataset_bars(
         modules=("ml.data.tft_dataset_builder",),
-        config=sample_bar_series_config_factory(instrument_id="SPY", rows=60),
+        config=sample_bar_series_config_factory(instrument_id="SPY", rows=20),
     )
     builder = TFTDatasetBuilder(
         ParquetDataCatalog(path=str(tmp_path)),

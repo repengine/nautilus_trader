@@ -494,13 +494,13 @@ def test_facade_ensure_dataset_registered_delegates(
 
 
 __all__ = [
+    "test_create_data_scheduler_factory",
+    "test_facade_get_status_delegates",
     "test_facade_init_creates_components",
     "test_facade_init_stores_public_attributes",
     "test_facade_run_daily_update_delegates",
-    "test_facade_get_status_delegates",
-    "test_facade_stop_delegates",
     "test_facade_schedule_updates_delegates",
-    "test_use_legacy_scheduler_returns_true",
+    "test_facade_stop_delegates",
     "test_use_legacy_scheduler_returns_false",
-    "test_create_data_scheduler_factory",
+    "test_use_legacy_scheduler_returns_true",
 ]

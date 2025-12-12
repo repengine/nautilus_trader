@@ -236,6 +236,7 @@ class TestFacadeLegacyParity:
         self,
         mock_parquet_catalog: MagicMock,
         sample_ohlcv_polars_df: pl.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         E17. Verify parity when include_macro=True.
@@ -246,6 +247,10 @@ class TestFacadeLegacyParity:
         """
         import polars as pl
 
+        # Set env var to enable legacy mode
+        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
+
+        # Patch TFTDatasetBuilder to return mock result
         with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
 
@@ -279,6 +284,7 @@ class TestFacadeLegacyParity:
         self,
         mock_parquet_catalog: MagicMock,
         sample_ohlcv_polars_df: pl.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         E18. Verify parity when include_micro=True.
@@ -289,6 +295,10 @@ class TestFacadeLegacyParity:
         """
         import polars as pl
 
+        # Set env var to enable legacy mode
+        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
+
+        # Patch TFTDatasetBuilder to return mock result
         with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
 
@@ -318,6 +328,7 @@ class TestFacadeLegacyParity:
         self,
         mock_parquet_catalog: MagicMock,
         sample_ohlcv_polars_df: pl.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         E19. Verify parity when include_l2=True.
@@ -328,6 +339,10 @@ class TestFacadeLegacyParity:
         """
         import polars as pl
 
+        # Set env var to enable legacy mode
+        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
+
+        # Patch TFTDatasetBuilder to return mock result
         with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
 
@@ -358,6 +373,7 @@ class TestFacadeLegacyParity:
         self,
         mock_parquet_catalog: MagicMock,
         sample_ohlcv_polars_df: pl.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         E20. Verify parity when include_earnings=True.
@@ -370,6 +386,10 @@ class TestFacadeLegacyParity:
 
         mock_data_store = MagicMock()
 
+        # Set env var to enable legacy mode
+        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
+
+        # Patch TFTDatasetBuilder to return mock result
         with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
 
@@ -401,6 +421,7 @@ class TestFacadeLegacyParity:
         self,
         mock_parquet_catalog: MagicMock,
         sample_ohlcv_polars_df: pl.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         E21. Verify parity when include_calendar=True.
@@ -408,9 +429,17 @@ class TestFacadeLegacyParity:
         Input: Both implementations with calendar features
         Expected: Calendar columns match
 
+        Note: We use the legacy builder with a mock because the facade's direct
+        implementation calls the real calendar provider, which has a known issue
+        with pandas_market_calendars timezone handling that causes hangs in tests.
+
         """
         import polars as pl
 
+        # Enable legacy mode so the facade uses TFTDatasetBuilder
+        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
+
+        # Mock the legacy builder at its source module (imported inside _get_legacy_builder)
         with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
 

@@ -19,10 +19,7 @@ from decimal import Decimal
 
 import pandas as pd
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.data.aggregation import BarBuilder
 from nautilus_trader.data.aggregation import TickBarAggregator
 from nautilus_trader.data.aggregation import TimeBarAggregator
@@ -33,16 +30,19 @@ from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.enums import AggregationSource
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.loaders import ParquetTickDataLoader
-from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
-from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.data import UNIX_EPOCH

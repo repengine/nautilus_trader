@@ -72,9 +72,6 @@ def policy_mock():
 # ============================================================================
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_auto_fill_universe_populates_all_schemas(
     config_resolver,
@@ -107,9 +104,6 @@ def test_auto_fill_universe_populates_all_schemas(
         assert "trades" in schemas_filled, "Trades schema should be auto-filled"
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_auto_fill_schema_triggers_ingestion_workflow(
     config_resolver,
@@ -150,9 +144,6 @@ def test_auto_fill_schema_triggers_ingestion_workflow(
     # Note: Actual call verification depends on Phase 2.2.8 implementation
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_auto_fill_l2_populates_depth_and_mbp_schemas(
     config_resolver,
@@ -184,10 +175,10 @@ def test_auto_fill_l2_populates_depth_and_mbp_schemas(
         )
 
         # Phase 2.2.8 assertions
-        # Verify 4 calls (2 instruments × 2 schemas)
+        # Verify 4 calls (2 instruments x 2 schemas)
         assert (
             mock_autofill.call_count == 4
-        ), "Should call for each instrument × schema"
+        ), "Should call for each instrument x schema"
 
         # Verify schemas are depth and mbp-10
         schemas = [call.kwargs["schema"] for call in mock_autofill.call_args_list]

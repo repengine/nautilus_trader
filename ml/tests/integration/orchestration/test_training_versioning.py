@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_model_v1_vs_model_v2_metadata_tracked() -> None:
     """Train model v1, then v2, verify both versions tracked.
@@ -31,7 +30,6 @@ def test_model_v1_vs_model_v2_metadata_tracked() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_semantic_versioning_incremented() -> None:
     """Verify semantic versioning increments correctly.
@@ -50,7 +48,6 @@ def test_semantic_versioning_incremented() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_model_lineage_preserved() -> None:
     """Verify lineage tracking (student distilled from teacher).

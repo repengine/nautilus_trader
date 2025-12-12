@@ -25,12 +25,13 @@ from ml.stores.providers import DAY_NS
 def dataset_config() -> DatasetBuildConfig:
     """Provides minimal DatasetBuildConfig for testing."""
     return DatasetBuildConfig(
+        data_dir="/tmp/test_data",
+        out_dir="/tmp/test_out",
         dataset_id="test.dataset",
         start_iso=None,  # Test default resolution
         end_iso=None,  # Test default resolution
         symbols="SPY,QQQ",
-        instrument_ids=["SPY.NASDAQ", "QQQ.NASDAQ"],
-        schema="ohlcv-1m",
+        instrument_ids=("SPY.NASDAQ", "QQQ.NASDAQ"),
         market_dataset_id="databento.equities.us",
     )
 
@@ -48,9 +49,6 @@ def config_resolver():
 # ============================================================================
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_resolve_window_bounds_with_defaults(config_resolver, dataset_config):
     """
@@ -64,7 +62,7 @@ def test_resolve_window_bounds_with_defaults(config_resolver, dataset_config):
     """
     resolver = config_resolver
 
-    start_ns, end_ns = resolver._resolve_window_bounds_ns(dataset_config)
+    start_ns, end_ns = resolver.resolve_window_bounds_ns(dataset_config)
 
     # Phase 2.2.8 assertions
     assert start_ns > 0, "start_ns must be positive nanoseconds"
@@ -72,9 +70,6 @@ def test_resolve_window_bounds_with_defaults(config_resolver, dataset_config):
     assert end_ns - start_ns > DAY_NS, "Window must be at least 1 day"
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_resolve_instruments_from_multiple_sources(config_resolver):
     """
@@ -90,26 +85,22 @@ def test_resolve_instruments_from_multiple_sources(config_resolver):
     resolver = config_resolver
 
     dataset_config = DatasetBuildConfig(
+        data_dir="/tmp/test_data",
+        out_dir="/tmp/test_out",
         dataset_id="test.dataset",
-        instrument_ids=["SPY.NASDAQ"],
+        instrument_ids=("SPY.NASDAQ",),
+        symbols="SPY",
     )
 
-    result = resolver._resolve_instrument_ids(
+    result = resolver.resolve_instrument_ids(
         dataset_config,
-        instrument_ids=["QQQ.NASDAQ", "SPY.NASDAQ"],  # Duplicate SPY
+        override=("QQQ.NASDAQ", "SPY.NASDAQ"),  # Duplicate SPY
     )
 
-    # Phase 2.2.8 assertions
-    assert len(result) == 2, "Should deduplicate SPY"
-    assert "SPY.NASDAQ" in result
-    assert "QQQ.NASDAQ" in result
-    # Order preservation: SPY first (from config), then QQQ (from parameter)
-    assert result[0] == "SPY.NASDAQ", "First occurrence should be preserved"
+    # Override wins and preserves provided order
+    assert result == ("QQQ.NASDAQ", "SPY.NASDAQ")
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
 def test_symbol_to_instruments_mapping_workflow(config_resolver):
     """
@@ -125,12 +116,14 @@ def test_symbol_to_instruments_mapping_workflow(config_resolver):
     resolver = config_resolver
 
     dataset_config = DatasetBuildConfig(
+        data_dir="/tmp/test_data",
+        out_dir="/tmp/test_out",
         dataset_id="test.dataset",
         symbols="SPY,QQQ",
-        instrument_ids=["SPY.NASDAQ", "SPY.ARCA", "QQQ.NASDAQ"],
+        instrument_ids=("SPY.NASDAQ", "SPY.ARCA", "QQQ.NASDAQ"),
     )
 
-    result = resolver._symbol_to_instruments(dataset_config)
+    result = resolver.symbol_to_instruments(dataset_config)
 
     # Phase 2.2.8 assertions
     assert isinstance(result, OrderedDict)
@@ -142,11 +135,8 @@ def test_symbol_to_instruments_mapping_workflow(config_resolver):
     assert result["QQQ"] == ("QQQ.NASDAQ",), "QQQ should map to one instrument"
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
-def test_infer_default_schema_from_config_hints():
+def test_infer_default_schema_from_config_hints(config_resolver):
     """
     Verify schema inference analyzes config for appropriate default.
 
@@ -156,15 +146,17 @@ def test_infer_default_schema_from_config_hints():
     - Returns "trades" if trades are primary
     - Falls back to "ohlcv-1m" if no hints
     """
-    from ml.orchestration.config_resolver import ConfigResolver
-
     # Test different config variations
     # Note: DatasetBuildConfig may not have bars/quotes fields yet
     # This test documents expected behavior for Phase 2.2.8
 
-    config_empty = DatasetBuildConfig(dataset_id="test")
-    assert (
-        ConfigResolver._infer_default_schema(config_empty) == "ohlcv-1m"
-    ), "Default should be ohlcv-1m"
+    config_empty = DatasetBuildConfig(
+        data_dir="/tmp/test_data",
+        out_dir="/tmp/test_out",
+        dataset_id="test",
+        symbols="SPY",
+    )
+    resolver = config_resolver
+    assert resolver.infer_default_schema(config_empty) == "ohlcv-1m"
 
     # Phase 2.2.8: Add tests for bars=True, quotes=True when fields exist

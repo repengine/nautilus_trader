@@ -12,6 +12,7 @@ from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = PROJECT_ROOT / "playground" / "docs"
 REPORTS_DIR = PROJECT_ROOT / "playground" / "reports" / "phase2"

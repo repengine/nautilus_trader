@@ -15,7 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pytest
 
@@ -31,9 +31,6 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
@@ -45,7 +42,7 @@ pytestmark = pytest.mark.usefixtures(
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.slow
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestDataSchedulerIntegration:
     """
     Test DataScheduler with Databento integration.
@@ -53,7 +50,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_scheduler_initialization(self, test_database: TestDatabase) -> None:
+    def test_scheduler_initialization(self, cloned_test_database: str) -> None:
         """
         Test scheduler initializes correctly with configuration.
         """
@@ -65,18 +62,18 @@ class TestDataSchedulerIntegration:
             config = SchedulerConfig(
                 symbols=["SPY.XNAS", "QQQ.XNAS"],
                 retention_days=30,
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
 
             # Initialize scheduler with PostgreSQL
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             cast(Any, scheduler)._data_store = DataStore(
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
 
             # Verify initialization
@@ -87,19 +84,19 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_get_previous_trading_day(self, test_database: TestDatabase) -> None:
+    def test_get_previous_trading_day(self, cloned_test_database: str) -> None:
         """
         Test getting previous trading day logic.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
             config = SchedulerConfig(
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             # Mock different days
@@ -122,7 +119,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_scheduler_status(self, test_database: TestDatabase) -> None:
+    def test_scheduler_status(self, cloned_test_database: str) -> None:
         """
         Test scheduler status reporting.
         """
@@ -135,13 +132,13 @@ class TestDataSchedulerIntegration:
                     dataset="GLBX.MDP3",
                     schema="ohlcv-1m",
                 ),
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
 
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             status = scheduler.get_status()
@@ -157,10 +154,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_collect_symbol_data_success(
-        self,
-        test_database: TestDatabase,
-    ) -> None:
+    def test_collect_symbol_data_success(self, cloned_test_database: str) -> None:
         """
         Test successful data collection for a symbol.
         """
@@ -174,13 +168,13 @@ class TestDataSchedulerIntegration:
                         use_temporary_files=True,
                         temp_data_dir=temp_dir,
                     ),
-                    connection_string=test_database.connection_string,
+                    connection_string=cloned_test_database,
                 )
 
                 scheduler = DataScheduler(
                     catalog=catalog,
                     config=config,
-                    connection=test_database.connection_string,
+                    connection=cloned_test_database,
                 )
 
                 # Mock Databento client

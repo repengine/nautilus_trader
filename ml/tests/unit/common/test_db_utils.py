@@ -17,6 +17,7 @@ from ml.common.db_utils import (
     get_or_create_engine,
     get_default_pool_config,
 )
+from ml.tests.utils.db import build_postgres_url
 
 pytestmark = pytest.mark.serial
 
@@ -79,7 +80,13 @@ def test_get_or_create_engine_handles_engine_manager_error(patch_engine_manager:
 def test_connection_string_sanitized_in_logs(caplog, patch_engine_manager: PatchEngineManager):
     """Connection string credentials not leaked in logs."""
     with patch_engine_manager():
-        get_or_create_engine("postgresql://user:secret@localhost:5432/testdb")
+        get_or_create_engine(
+            build_postgres_url(
+                user="user",
+                password="secret",
+                database="testdb",
+            ),
+        )
 
     for record in caplog.records:
         assert "secret" not in record.message

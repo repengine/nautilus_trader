@@ -6,9 +6,7 @@ from typing import cast
 
 import pandas as pd
 import pytest
-from ml.tests.fixtures.pandera import DataFrame
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import DataFrame, Series, ensure_pandera_available
 
 from ml.config.events import Source
 

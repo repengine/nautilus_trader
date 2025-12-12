@@ -12,6 +12,9 @@ import pytest
 
 from ml.dashboard.common.health_aggregator import HealthAggregatorComponent
 from ml.dashboard.config import DashboardConfig
+from ml.tests.utils.db import build_postgres_url
+
+TEST_DB_CONNECTION = build_postgres_url(user="test", password="test", database="test_db")
 
 
 @pytest.fixture
@@ -27,7 +30,7 @@ def dashboard_config() -> DashboardConfig:
         prometheus_url="http://localhost:9090",
         request_timeout_seconds=2.5,
         store_health_enabled=True,
-        db_connection="postgresql://test:test@localhost:5432/test_db",
+        db_connection=TEST_DB_CONNECTION,
         store_health_top_datasets=5,
     )
 
@@ -202,7 +205,7 @@ class TestGetStoreSummary:
         """Store summary returns disabled status when store_health_enabled is False."""
         config = DashboardConfig(
             store_health_enabled=False,
-            db_connection="postgresql://test:test@localhost:5432/test_db",
+            db_connection=TEST_DB_CONNECTION,
         )
         aggregator = HealthAggregatorComponent(config=config)
 

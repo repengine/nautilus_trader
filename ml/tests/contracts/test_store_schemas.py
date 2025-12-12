@@ -15,10 +15,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 import pytest
-
-from ml.tests.fixtures.pandera import DataFrame
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import DataFrame, Series, ensure_pandera_available
 
 pa = ensure_pandera_available()
 Check = pa.Check
@@ -192,17 +189,18 @@ class ModelMetricsSchema(pa.DataFrameModel):
     metric_value: Series[float] = pa.Field(nullable=False)
     evaluation_ts: Series[int] = pa.Field(nullable=False, ge=0)
 
-    @pa.check("metric_value", name="valid_percentage_metrics")
-    def check_percentage_metrics(cls, df: DataFrame[Any]) -> Series[bool]:
+    @pa.dataframe_check()
+    def check_percentage_metrics(cls, df: DataFrame[Any]) -> bool:
         """
         Ensure percentage metrics are in [0, 1].
         """
         percentage_metrics = {"accuracy", "precision", "recall", "f1"}
         mask = df["metric_name"].isin(percentage_metrics)
-        if mask.any():
-            values = df.loc[mask, "metric_value"]
-            return cast(Series[bool], (values >= 0) & (values <= 1))
-        return cast(Series[bool], pd.Series([True] * len(df)))
+        if not mask.any():
+            return True
+
+        values = df.loc[mask, "metric_value"]
+        return bool(((values >= 0) & (values <= 1)).all())
 
 
 # ============================================================================
@@ -297,22 +295,20 @@ class WatermarkSchema(pa.DataFrameModel):
     processed_count: Series[int] = pa.Field(nullable=False, ge=0)
     update_ts: Series[int] = pa.Field(nullable=False, ge=0)
 
-    @pa.check("watermark_ts", "update_ts", name="watermark_progression")
-    def check_watermark_progression(cls, df: DataFrame[Any]) -> Series[bool]:
+    @pa.dataframe_check()
+    def check_watermark_progression(cls, df: DataFrame[Any]) -> bool:
         """
-        Watermarks should only move forward.
+        Watermarks should only move forward per pipeline_id.
         """
         if len(df) <= 1:
-            return cast(Series[bool], pd.Series([True] * len(df)))
+            return True
 
-        # Group by pipeline and check monotonicity
-        for pipeline_id in df["pipeline_id"].unique():
-            pipeline_df = df[df["pipeline_id"] == pipeline_id].sort_values("update_ts")
+        for _, pipeline_df in df.sort_values("update_ts").groupby("pipeline_id"):
             watermarks = pipeline_df["watermark_ts"].to_numpy()
             if not all(watermarks[i] <= watermarks[i + 1] for i in range(len(watermarks) - 1)):
-                return cast(Series[bool], pd.Series([False] * len(df)))
+                return False
 
-        return cast(Series[bool], pd.Series([True] * len(df)))
+        return True
 
 
 class EventLogSchema(pa.DataFrameModel):
@@ -351,9 +347,6 @@ class EventLogSchema(pa.DataFrameModel):
 
 
 @pytest.mark.parallel_safe
-@pytest.mark.skip(
-    reason="Schema tests need rework for event-driven refactor - will be rebuilt with new event schemas",
-)
 class TestStoreSchemaContracts:
     """
     Test that store inputs/outputs conform to schemas.
@@ -564,7 +557,6 @@ class TestStoreSchemaContracts:
         assert signal_df["signal_strength"].iloc[0] == prediction_df["prediction"].iloc[0]
 
 
-@pytest.mark.skip(reason="Schema evolution tests will be rebuilt for event-driven architecture")
 class TestSchemaEvolution:
     """
     Test schema evolution and backwards compatibility.

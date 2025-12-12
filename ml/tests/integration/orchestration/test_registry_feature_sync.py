@@ -13,14 +13,12 @@ from unittest.mock import Mock
 
 import pytest
 
+from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
-def test_export_feature_manifest_to_feature_registry() -> None:
+def test_export_feature_manifest_to_feature_registry(tmp_path) -> None:
     """Export feature manifest to FeatureRegistry.
 
     Phase 2.2.4: Test skipped (structural phase).
@@ -44,10 +42,18 @@ def test_export_feature_manifest_to_feature_registry() -> None:
         model_registry=model_registry,
     )
 
-    features = ["sma_20", "ema_50", "rsi_14"]
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+        register_features=True,
+        feature_registry_dir=str(tmp_path / "registry"),
+    )
+    result = Mock()
+    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
 
     # Execute
-    synchronizer._export_feature_manifest(features)
+    synchronizer._export_feature_manifest(cfg, result)
 
     # Verify (Phase 2.2.8 - currently placeholder)
     # manifest = feature_registry.get_feature_manifest("spy_2024_ohlcv")
@@ -56,11 +62,8 @@ def test_export_feature_manifest_to_feature_registry() -> None:
     # assert "schema_hash" in manifest
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
-def test_feature_schema_hash_computed_correctly() -> None:
+def test_feature_schema_hash_computed_correctly(tmp_path) -> None:
     """Verify feature schema hash is deterministic and consistent.
 
     Phase 2.2.4: Test skipped (structural phase).
@@ -83,14 +86,22 @@ def test_feature_schema_hash_computed_correctly() -> None:
         model_registry=model_registry,
     )
 
-    features = ["sma_20", "ema_50", "rsi_14"]
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+        register_features=True,
+        feature_registry_dir=str(tmp_path / "registry"),
+    )
+    result = Mock()
+    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
 
     # Execute (Phase 2.2.8)
     # Export feature manifest twice
-    synchronizer._export_feature_manifest(features)
+    synchronizer._export_feature_manifest(cfg, result)
     # hash1 = feature_registry.get_feature_manifest("spy_2024_ohlcv")["schema_hash"]
 
-    synchronizer._export_feature_manifest(features)
+    synchronizer._export_feature_manifest(cfg, result)
     # hash2 = feature_registry.get_feature_manifest("spy_2024_ohlcv")["schema_hash"]
 
     # Verify (Phase 2.2.8 - currently placeholder)
@@ -99,11 +110,8 @@ def test_feature_schema_hash_computed_correctly() -> None:
     # assert len(hash1) == 64  # SHA256 hex
 
 
-@pytest.mark.skip(
-    reason="Structural phase - requires full implementation in Phase 2.2.8",
-)
 @pytest.mark.integration
-def test_feature_manifest_queryable_from_registry() -> None:
+def test_feature_manifest_queryable_from_registry(tmp_path) -> None:
     """Verify feature manifest queryable from FeatureRegistry after export.
 
     Phase 2.2.4: Test skipped (structural phase).
@@ -125,10 +133,18 @@ def test_feature_manifest_queryable_from_registry() -> None:
         model_registry=model_registry,
     )
 
-    features = ["sma_20", "ema_50", "rsi_14"]
+    cfg = DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
+        register_features=True,
+        feature_registry_dir=str(tmp_path / "registry"),
+    )
+    result = Mock()
+    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
 
     # Execute
-    synchronizer._export_feature_manifest(features)
+    synchronizer._export_feature_manifest(cfg, result)
 
     # Verify (Phase 2.2.8 - currently placeholder)
     # manifest = feature_registry.get_feature_manifest("spy_2024_ohlcv")

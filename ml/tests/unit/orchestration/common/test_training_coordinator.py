@@ -10,6 +10,7 @@ Phase 2.2.3 Status: STRUCTURAL PHASE
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -217,14 +218,19 @@ def test_training_coordinator_has_correct_method_signatures(
 def test_run_hpo_returns_success_placeholder(
     training_coordinator: TrainingCoordinator,
     sample_hpo_config: Mock,
+    tmp_path: Path,
 ) -> None:
-    """Verify run_hpo() returns 0 (success) in structural phase.
+    """Verify run_hpo() returns 0 (success) when disabled.
 
     Phase 2.2.3: Returns 0 placeholder
     Phase 2.2.8: Will invoke hpo_main CLI and return actual exit code
     """
-    result = training_coordinator.run_hpo(sample_hpo_config)
-    assert result == 0  # Success placeholder
+    # Create a mock config that returns False for enabled
+    sample_hpo_config.enabled = False
+    dataset_csv = tmp_path / "dataset.csv"
+    dataset_csv.touch()
+    result = training_coordinator.run_hpo(sample_hpo_config, dataset_csv, tmp_path)
+    assert result == 0  # Success (disabled skips)
     assert isinstance(result, int)
 
 
@@ -232,14 +238,19 @@ def test_run_hpo_returns_success_placeholder(
 def test_train_teacher_returns_success_placeholder(
     training_coordinator: TrainingCoordinator,
     sample_training_config: Mock,
+    tmp_path: Path,
 ) -> None:
-    """Verify train_teacher() returns 0 (success) in structural phase.
+    """Verify train_teacher() returns 0 (success) when disabled.
 
     Phase 2.2.3: Returns 0 placeholder
     Phase 2.2.8: Will invoke teacher_main CLI and save model to ModelStore
     """
-    result = training_coordinator.train_teacher(sample_training_config)
-    assert result == 0  # Success placeholder
+    # Create a mock config that returns False for enabled
+    sample_training_config.enabled = False
+    dataset_csv = tmp_path / "dataset.csv"
+    dataset_csv.touch()
+    result = training_coordinator.train_teacher(sample_training_config, dataset_csv, tmp_path)
+    assert result == 0  # Success (disabled skips)
     assert isinstance(result, int)
 
 
@@ -247,14 +258,21 @@ def test_train_teacher_returns_success_placeholder(
 def test_distill_student_returns_success_placeholder(
     training_coordinator: TrainingCoordinator,
     sample_distillation_config: Mock,
+    tmp_path: Path,
 ) -> None:
-    """Verify distill_student() returns 0 (success) in structural phase.
+    """Verify distill_student() returns 0 (success) when disabled.
 
     Phase 2.2.3: Returns 0 placeholder
     Phase 2.2.8: Will invoke distill CLI and save student model
     """
-    result = training_coordinator.distill_student(sample_distillation_config)
-    assert result == 0  # Success placeholder
+    # Create a mock config that returns False for enabled
+    sample_distillation_config.enabled = False
+    result = training_coordinator.distill_student(
+        sample_distillation_config,
+        dataset_dir=tmp_path,
+        teacher_cfg=None,
+    )
+    assert result == 0  # Success (disabled skips)
     assert isinstance(result, int)
 
 

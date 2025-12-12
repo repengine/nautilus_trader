@@ -70,7 +70,7 @@ def sample_dataset_manifest() -> DatasetManifest:
 
 
 @pytest.fixture
-def legacy_data_registry(tmp_path: Path) -> "DataRegistry":
+def legacy_data_registry(tmp_path: Path) -> DataRegistry:
     """Create legacy DataRegistry for parity testing."""
     from ml.registry.data_registry import DataRegistry
 
@@ -87,7 +87,7 @@ def legacy_data_registry(tmp_path: Path) -> "DataRegistry":
 
 
 @pytest.fixture
-def data_registry_facade(tmp_path: Path) -> "DataRegistryFacade":
+def data_registry_facade(tmp_path: Path) -> DataRegistryFacade:
     """Create DataRegistryFacade for parity testing."""
     from ml.registry.data_registry_facade import DataRegistryFacade
 
@@ -113,8 +113,8 @@ class TestManifestParity:
 
     def test_register_dataset_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify legacy and facade produce identical results."""
@@ -154,8 +154,8 @@ class TestManifestParity:
 
     def test_update_manifest_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify update produces identical results."""
@@ -195,8 +195,8 @@ class TestManifestParity:
 
     def test_list_manifests_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify manifest listing identical."""
         # Register multiple manifests in both
@@ -248,8 +248,8 @@ class TestManifestParity:
 
     def test_deprecate_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify deprecation identical."""
@@ -296,8 +296,8 @@ class TestContractParity:
 
     def test_get_contract_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify contract retrieval identical."""
@@ -342,8 +342,8 @@ class TestEventParity:
 
     def test_emit_event_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify event emission identical."""
         event_params = {
@@ -386,8 +386,8 @@ class TestWatermarkParity:
 
     def test_update_watermark_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify watermark updates identical."""
         watermark_params = {
@@ -414,8 +414,8 @@ class TestWatermarkParity:
 
     def test_iter_watermarks_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify watermark iteration identical."""
         for i in range(3):
@@ -446,8 +446,8 @@ class TestLineageParity:
 
     def test_link_lineage_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify lineage linking identical."""
         lineage_params = {
@@ -468,8 +468,8 @@ class TestLineageParity:
 
     def test_iter_lineage_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
     ) -> None:
         """Verify lineage iteration identical."""
         for i in range(3):
@@ -504,8 +504,8 @@ class TestPipelineSignatureParity:
 
     def test_get_pipeline_signature_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify signature retrieval identical."""
@@ -537,8 +537,8 @@ class TestPipelineSignatureParity:
 
     def test_set_pipeline_signature_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Verify signature setting identical."""
@@ -584,8 +584,8 @@ class TestFullWorkflowParity:
 
     def test_roundtrip_parity(
         self,
-        legacy_data_registry: "DataRegistry",
-        data_registry_facade: "DataRegistryFacade",
+        legacy_data_registry: DataRegistry,
+        data_registry_facade: DataRegistryFacade,
         sample_dataset_manifest: DatasetManifest,
     ) -> None:
         """Full workflow roundtrip parity."""

@@ -201,7 +201,9 @@ class EngineManager:
                     # Use appropriate settings for parallel test execution
                     # 4 workers × 2 connections minimum = 8, plus overhead
                     actual_pool_size = min(pool_size, int(os.getenv("ML_TEST_POOL_SIZE", "5")))
-                    actual_max_overflow = min(max_overflow, int(os.getenv("ML_TEST_MAX_OVERFLOW", "10")))
+                    actual_max_overflow = min(
+                        max_overflow, int(os.getenv("ML_TEST_MAX_OVERFLOW", "10"))
+                    )
                     logger.debug(
                         f"Test environment detected, using test pool settings: "
                         f"pool_size={actual_pool_size}, max_overflow={actual_max_overflow}",
@@ -380,9 +382,10 @@ class EngineManager:
         """
         Override localhost Postgres port during tests when TEST_DB_PORT is set.
 
-        This keeps production defaults intact while allowing the test suite to
-        redirect hardcoded localhost URLs (e.g., :5432) to a test instance on a
-        different port such as 5434.
+        This keeps production defaults intact while allowing the test suite to redirect
+        hardcoded localhost URLs (e.g., :5432) to a test instance on a different port
+        such as 5434.
+
         """
         test_port = os.getenv("TEST_DB_PORT")
         if not test_port:

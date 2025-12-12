@@ -25,10 +25,14 @@ from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 from ml.stores.data_store import DataStore as LegacyDataStore
 from ml.stores.data_store_facade import DataStoreFacade, DataStoreConfig
+from ml.tests.utils.db import build_postgres_url
 
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
+
+
+TEST_CONNECTION_STRING = build_postgres_url(user="test", password="test", database="test")
 
 
 # =========================================================================
@@ -263,7 +267,7 @@ def test_write_ingestion_parity(
     - Return DataEvent with same attributes
 
     """
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     # Skip actual DataStore initialization for now (requires full component stack)
     # This is a skeleton test showing the expected pattern
@@ -305,7 +309,7 @@ def test_write_features_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify write_features produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -347,7 +351,7 @@ def test_write_predictions_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify write_predictions produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -390,7 +394,7 @@ def test_write_signals_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify write_signals produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -434,7 +438,7 @@ def test_write_earnings_actual_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify write_earnings_actual produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -470,7 +474,7 @@ def test_write_earnings_estimate_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify write_earnings_estimate produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -509,7 +513,7 @@ def test_get_features_at_or_before_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify get_features_at_or_before produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -539,7 +543,7 @@ def test_get_latest_prediction_at_or_before_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify get_latest_prediction_at_or_before produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -568,7 +572,7 @@ def test_get_latest_signal_at_or_before_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify get_latest_signal_at_or_before produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -597,7 +601,7 @@ def test_read_features_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify read_features produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -634,7 +638,7 @@ def test_preflight_check_parity(
     test_bars: list[dict[str, Any]],
 ) -> None:
     """Verify preflight_check produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -666,7 +670,7 @@ def test_validate_batch_parity(
     test_bars: list[dict[str, Any]],
 ) -> None:
     """Verify validate_batch produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -702,7 +706,7 @@ def test_emit_event_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify emit_event produces identical side effects."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -738,7 +742,7 @@ def test_emit_dataset_event_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify emit_dataset_event produces identical side effects."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -773,7 +777,7 @@ def test_health_check_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify get_health_status produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -801,7 +805,7 @@ def test_get_metrics_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify get_performance_metrics produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -827,7 +831,7 @@ def test_validate_configuration_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify validate_configuration produces identical results."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,
@@ -854,7 +858,7 @@ def test_close_parity(
     mock_earnings_store: MagicMock,
 ) -> None:
     """Verify close produces identical side effects."""
-    connection_string = "postgresql://test:test@localhost:5432/test"
+    connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
         connection_string,

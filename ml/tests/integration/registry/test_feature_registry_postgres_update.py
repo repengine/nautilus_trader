@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -20,22 +19,8 @@ pytestmark = pytest.mark.usefixtures(
 
 
 @pytest.mark.integration
-def test_update_manifest_persists_postgres(tmp_path: Path) -> None:
-    # Use default or env-provided connection string
-    conn = os.getenv(
-        "NAUTILUS_REGISTRY_DB_URL",
-        "postgresql://postgres:postgres@localhost:5432/nautilus",
-    )
-    pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=conn)
-    # Skip if DB is not reachable
-    try:
-        from ml.core.db_engine import EngineManager
-
-        eng = EngineManager.get_engine(conn)
-        with eng.connect() as _:
-            pass
-    except Exception:
-        pytest.skip("PostgreSQL is not available for integration test")
+def test_update_manifest_persists_postgres(cloned_test_database: str, tmp_path: Path) -> None:
+    pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=cloned_test_database)
 
     reg = FeatureRegistry(tmp_path, persistence_config=pc)
 

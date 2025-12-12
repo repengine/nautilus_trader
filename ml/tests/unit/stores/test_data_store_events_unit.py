@@ -119,8 +119,6 @@ def test_data_store_emits_feature_events(
     test_timestamps: tuple[int, int],
     use_component_datastore: bool,
 ) -> None:
-    if use_component_datastore:
-        pytest.skip("Component DataStore currently bypasses direct event emission")
     ds, reg = stubbed_data_store
     from ml.stores.base import FeatureData
 
@@ -144,8 +142,6 @@ def test_data_store_emits_prediction_events(
     test_timestamps: tuple[int, int],
     use_component_datastore: bool,
 ) -> None:
-    if use_component_datastore:
-        pytest.skip("Component DataStore currently bypasses direct event emission")
     ds, reg = stubbed_data_store
     from ml.stores.base import ModelPrediction
 
@@ -172,8 +168,6 @@ def test_data_store_emits_signal_events(
     test_timestamps: tuple[int, int],
     use_component_datastore: bool,
 ) -> None:
-    if use_component_datastore:
-        pytest.skip("Component DataStore currently bypasses direct event emission")
     ds, reg = stubbed_data_store
     from ml.stores.base import StrategySignal
 

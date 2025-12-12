@@ -56,7 +56,7 @@ pytestmark = [
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestL2L3RegistryStoreIntegration:
     """
     Test that L2/L3 features integrate properly with registry and store.
@@ -93,14 +93,14 @@ class TestL2L3RegistryStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_registry_manifest_with_l2_features(self, test_database) -> None:
+    def test_feature_registry_manifest_with_l2_features(self, cloned_test_database: str) -> None:
         """
         Test creating feature manifest with L2/L3 capabilities.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             persistence_config = PersistenceConfig(
                 backend=BackendType.POSTGRES,
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             registry = FeatureRegistry(
                 registry_path=Path(tmpdir),
@@ -172,7 +172,7 @@ class TestL2L3RegistryStoreIntegration:
     @pytest.mark.serial
     def test_feature_store_computes_l2_features(
         self,
-        test_database,
+        cloned_test_database: str,
     ) -> None:
         """
         Test that FeatureStore properly computes L2/L3 features.
@@ -185,7 +185,7 @@ class TestL2L3RegistryStoreIntegration:
         )
 
         store = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=config,
         )
 

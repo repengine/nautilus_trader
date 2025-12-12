@@ -45,10 +45,12 @@ from sqlalchemy.pool import StaticPool
 from ml.core.db_engine import EngineManager
 
 
+_DEFAULT_TEST_DB_PORT = os.getenv("TEST_DB_PORT", "5434")
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus",
+    f"postgresql://postgres:postgres@localhost:{_DEFAULT_TEST_DB_PORT}/nautilus",
 )
+_TEMPLATE_DB_NAME = os.getenv("TEST_DB_TEMPLATE_NAME", "nautilus_template")
 
 _ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
     "ml.common.db_utils.EngineManager.get_engine",
@@ -63,6 +65,20 @@ _ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
     "ml.stores.model_store.EngineManager.get_engine",
     "ml.stores.strategy_store.EngineManager.get_engine",
 )
+
+
+def _template_engine_url() -> str:
+    """
+    Build a connection string pointing at the template database.
+    """
+    try:
+        from sqlalchemy.engine import make_url
+
+        url = make_url(DATABASE_URL)
+        template_url = url.set(database=_TEMPLATE_DB_NAME)
+        return template_url.render_as_string(hide_password=False)
+    except Exception:
+        return DATABASE_URL.replace("/nautilus", f"/{_TEMPLATE_DB_NAME}")
 
 
 @contextmanager
@@ -148,6 +164,74 @@ def real_engine_manager() -> Generator[None, None, None]:
         EngineManager.dispose_all()
 
 
+@pytest.fixture(scope="session")
+def template_database() -> Generator[str, None, None]:
+    """
+    Create a session-scoped template database for clones (PostgreSQL only).
+
+    Returns the connection string pointing to the template DB.
+    """
+    if "sqlite" in DATABASE_URL:
+        # SQLite path uses the base URL directly
+        yield DATABASE_URL
+        return
+
+    template_url = _template_engine_url()
+    # Ensure template database exists (create if missing)
+    from sqlalchemy.engine import make_url
+
+    base_url = make_url(DATABASE_URL)
+    admin_engine = EngineManager.get_engine(
+        base_url.render_as_string(hide_password=False),
+        pool_size=1,
+        max_overflow=0,
+    )
+    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text("DROP DATABASE IF EXISTS nautilus_template"))
+        conn.execute(text("CREATE DATABASE nautilus_template"))
+
+    template_engine = EngineManager.get_engine(template_url, pool_size=2, max_overflow=0)
+    # Initialize schema once
+    td = TestDatabase(engine=template_engine, connection_string=template_url)
+    td.init_schema()
+    try:
+        yield template_url
+    finally:
+        # Keep template alive for the session; cleanup handled by EngineManager
+        EngineManager.dispose_all()
+
+
+@pytest.fixture
+def cloned_test_database(template_database: str) -> Generator[str, None, None]:
+    """
+    Provide a per-test clone of the session template database.
+
+    Yields a connection string pointing to an isolated clone. Drops the clone and
+    disposes EngineManager caches on teardown.
+    """
+    if "sqlite" in template_database:
+        yield template_database
+        return
+
+    # Build clone name and clone DB from template
+    from uuid import uuid4
+
+    clone_name = f"nautilus_clone_{uuid4().hex}"
+    template_engine = EngineManager.get_engine(template_database, pool_size=2, max_overflow=0)
+    clone_url = _clone_database(
+        source_db=_TEMPLATE_DB_NAME,
+        clone_db=clone_name,
+        template_engine=template_engine,
+    )
+
+    try:
+        yield clone_url
+    finally:
+        # Drop clone and clear engine caches
+        _drop_database(clone_name, template_engine)
+        EngineManager.dispose_all()
+
+
 def _connect_timeout_seconds() -> int:
     try:
         return max(1, int(os.getenv("TEST_DB_CONNECT_TIMEOUT", "15")))
@@ -170,6 +254,69 @@ def is_postgresql_running() -> bool:
         return True
     except Exception:
         return False
+
+
+def _clone_database(
+    *,
+    source_db: str,
+    clone_db: str,
+    template_engine: Engine,
+) -> str:
+    """
+    Clone a PostgreSQL database from a template into a new database.
+
+    Returns the connection string for the clone.
+    """
+    with template_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        # Ensure no active sessions on the template before cloning
+        try:
+            conn.execute(
+                text(
+                    """
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = :db_name
+                      AND pid <> pg_backend_pid()
+                    """,
+                ),
+                {"db_name": source_db},
+            )
+        except Exception:
+            pass
+        # Drop if exists to keep clones idempotent in test teardown reruns
+        conn.execute(text(f"DROP DATABASE IF EXISTS {clone_db}"))
+        conn.execute(text(f"CREATE DATABASE {clone_db} TEMPLATE {source_db}"))
+
+    url = template_engine.url
+    try:
+        clone_url = url.set(database=clone_db).render_as_string(hide_password=False)
+    except Exception:
+        clone_url = f"postgresql://{url.username}:{url.password}@{url.host}:{url.port}/{clone_db}"
+    return clone_url
+
+
+def _drop_database(db_name: str, engine: Engine) -> None:
+    """
+    Drop a PostgreSQL database safely (best-effort).
+    """
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        try:
+            conn.execute(
+                text(
+                    """
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = :db_name
+""",
+                ),
+                {"db_name": db_name},
+            )
+        except Exception:
+            pass
+        try:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+        except Exception:
+            pass
 
 
 def start_postgresql() -> None:
@@ -1667,6 +1814,7 @@ __all__ = sorted(
         "clean_postgres_db",
         "clean_postgres_db_class",
         "clean_postgres_db_module",
+        "cloned_test_database",
         "connection_monitor",
         "database_engine",
         "database_session",
@@ -1682,6 +1830,7 @@ __all__ = sorted(
         "real_engine_manager",
         "seeded_database",
         "start_postgresql",
+        "template_database",
         "temp_database",
         "test_database",
         "test_db_engine",

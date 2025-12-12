@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_train_xgboost_model() -> None:
     """Train XGBoost classifier model end-to-end.
@@ -33,7 +32,6 @@ def test_train_xgboost_model() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_xgboost_onnx_export() -> None:
     """Verify XGBoost model exported to ONNX format.
@@ -52,7 +50,6 @@ def test_xgboost_onnx_export() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_xgboost_metrics_logged_to_model_store() -> None:
     """Verify training metrics logged to ModelStore.

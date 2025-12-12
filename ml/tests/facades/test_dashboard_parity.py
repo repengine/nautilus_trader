@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from datetime import timedelta
-from datetime import timezone
+from datetime import timezone, UTC
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -671,7 +671,7 @@ class TestParityAuthenticationMethods:
 
     def test_validate_token_accepts_now_parameter(self, service: DashboardService) -> None:
         """Test validate_token accepts now parameter."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = service.validate_token("test_token", now=now)
 
         assert isinstance(result, bool)

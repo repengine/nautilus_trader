@@ -155,8 +155,8 @@ def __getattr__(name: str) -> object:
     """
     Lazy import integration symbols to avoid import-time cycles.
 
-    Uses feature flag ML_USE_LEGACY_INTEGRATION_MANAGER to determine
-    which implementation module to import from.
+    Uses feature flag ML_USE_LEGACY_INTEGRATION_MANAGER to determine which
+    implementation module to import from.
 
     """
     if name in {

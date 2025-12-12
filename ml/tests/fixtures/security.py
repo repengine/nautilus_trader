@@ -106,12 +106,24 @@ def patch_onnx_runtime(
     )
     target_modules = tuple(modules) if modules is not None else default_modules
 
+    # Create mocks for onnx and onnxruntime
     ort_mock = MagicMock(name="onnxruntime")
     ort_mock.InferenceSession = MagicMock(name="InferenceSession")
+
+    onnx_mock = MagicMock(name="onnx")
+    onnx_mock.load = MagicMock(return_value="mock_onnx_model")
+    onnx_mock.checker = MagicMock()
+    onnx_mock.checker.check_model = MagicMock()
+
     check_mock = MagicMock(name="check_ml_dependencies")
     availability_modules: list[Any] = []
 
     with ExitStack() as stack:
+        # Patch sys.modules["onnx"] to intercept local imports
+        stack.enter_context(patch.dict(sys.modules, {"onnx": onnx_mock}))
+        # Patch sys.modules["onnxruntime"] to intercept local imports
+        stack.enter_context(patch.dict(sys.modules, {"onnxruntime": ort_mock}))
+
         for module_path in target_modules:
             module = importlib.import_module(module_path)
 
@@ -138,6 +150,7 @@ def patch_onnx_runtime(
             yield harness
         finally:
             ort_mock.reset_mock()
+            onnx_mock.reset_mock()
             check_mock.reset_mock()
 
 

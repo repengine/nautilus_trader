@@ -15,6 +15,7 @@ from ml.config.market_data import MarketDatasetInput
 from ml.data.ingest.discovery import DatasetDiscoveryService
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.discovery_service import DiscoveryService
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 
@@ -34,10 +35,7 @@ def discovery_service():
     Phase 2.2.7: Placeholder implementation.
     Phase 2.2.8: Full implementation.
     """
-    # Uncomment after implementation:
-    # from ml.orchestration.discovery_service import DiscoveryService
-    # return DiscoveryService()
-    return None  # Placeholder for Phase 2.2.7
+    return DiscoveryService()
 
 
 @pytest.fixture
@@ -142,7 +140,6 @@ def resolved_bindings() -> tuple[ResolvedMarketBinding, ...]:
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="Structural phase - placeholder implementation")
 def test_service_discovery_workflow(
     discovery_service,
     mock_dataset_service,
@@ -186,7 +183,6 @@ def test_service_discovery_workflow(
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="Structural phase - placeholder implementation")
 def test_resource_discovery_workflow(
     discovery_service,
     dataset_config,
@@ -235,7 +231,6 @@ def test_resource_discovery_workflow(
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="Structural phase - placeholder implementation")
 def test_schema_discovery_and_mapping_workflow(
     discovery_service,
     dataset_config,

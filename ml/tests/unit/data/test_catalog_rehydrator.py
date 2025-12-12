@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 from ml.data.coverage.manager import BucketSpec
+from ml.registry.dataclasses import DatasetType
 
 if TYPE_CHECKING:
     from ml.tests.fixtures.model_factory import TestDataFactory
@@ -30,6 +31,18 @@ except ModuleNotFoundError:  # pragma: no cover - module under test not yet impl
     CatalogRehydrationConfig = None  # type: ignore[assignment]
     CatalogRehydrationResult = None  # type: ignore[assignment]
     ParquetCatalogRehydrator = None  # type: ignore[assignment]
+
+
+class _StubWriter:
+    def write(self, *args: object, **kwargs: object) -> int:
+        _ = args, kwargs
+        return 0
+
+
+class _StubCoverage:
+    def read_bucket_coverage(self, *args: object, **kwargs: object) -> set[int]:
+        _ = args, kwargs
+        return set()
 
 @contextmanager
 def _patched_sqlite_engine(connection: str, patch_engine_manager) -> Iterator[None]:
@@ -59,6 +72,71 @@ def _build_catalog_with_bars(
 
 @pytest.mark.skipif(ParquetCatalogRehydrator is None, reason="rehydrator not implemented yet")
 class TestParquetCatalogRehydrator:
+    def test_resolve_identifier_prefers_schema_template(self) -> None:
+        config = CatalogRehydrationConfig(
+            enabled=True,
+            lookback_days=1,
+            batch_size=10,
+            schema_identifier_templates={"tbbo": "{instrument_id}-TBBO"},
+        )
+        rehydrator = ParquetCatalogRehydrator(
+            catalog=ParquetDataCatalog(":memory:"),
+            db_connection="sqlite://",
+            config=config,
+            writer=_StubWriter(),
+            coverage_provider=_StubCoverage(),
+        )
+
+        identifier = rehydrator._resolve_identifier(
+            schema="tbbo",
+            instrument_id="SPY.XNAS",
+        )
+
+        assert identifier == "SPY.XNAS-TBBO"
+
+    def test_resolve_identifier_prefers_dataset_template(self) -> None:
+        config = CatalogRehydrationConfig(
+            enabled=True,
+            lookback_days=1,
+            batch_size=10,
+            dataset_type_identifier_templates={DatasetType.TRADES: "{instrument_id}-TR"},
+        )
+        rehydrator = ParquetCatalogRehydrator(
+            catalog=ParquetDataCatalog(":memory:"),
+            db_connection="sqlite://",
+            config=config,
+            writer=_StubWriter(),
+            coverage_provider=_StubCoverage(),
+        )
+
+        identifier = rehydrator._resolve_identifier(
+            schema="trades",
+            instrument_id="SPY.XNAS",
+        )
+
+        assert identifier == "SPY.XNAS-TR"
+
+    def test_resolve_identifier_defaults_to_registry_template(self) -> None:
+        config = CatalogRehydrationConfig(
+            enabled=True,
+            lookback_days=1,
+            batch_size=10,
+        )
+        rehydrator = ParquetCatalogRehydrator(
+            catalog=ParquetDataCatalog(":memory:"),
+            db_connection="sqlite://",
+            config=config,
+            writer=_StubWriter(),
+            coverage_provider=_StubCoverage(),
+        )
+
+        identifier = rehydrator._resolve_identifier(
+            schema="mbp-1",
+            instrument_id="SPY.XNAS",
+        )
+
+        assert identifier == "SPY.XNAS"
+
     def test_rehydrate_restores_missing_buckets(
         self,
         tmp_path: Path,

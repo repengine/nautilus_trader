@@ -18,12 +18,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import Series, ensure_pandera_available
 
 pa = ensure_pandera_available()
-
-globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
 
 from nautilus_trader.core.uuid import UUID4
 

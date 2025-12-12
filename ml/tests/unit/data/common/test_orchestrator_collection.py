@@ -24,6 +24,16 @@ import pytest
 
 from ml.data.common.orchestrator_collection import OrchestratorCollectionComponent
 from ml.data.common.orchestrator_collection import OrchestratorCollectionProtocol
+from ml.stores.io_raw import FilteredRawWriter
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_ORCHESTRATOR_CONNECTION = build_postgres_url(
+    user="user",
+    password="pass",
+    host="host",
+    database="db",
+)
 
 
 # -----------------------------------------------------------------------------
@@ -125,7 +135,7 @@ class TestCollectViaOrchestrator:
         mock_catalog: MagicMock,
     ) -> None:
         """Test basic collection via orchestrator succeeds."""
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         with (
             patch.object(
@@ -163,7 +173,7 @@ class TestCollectViaOrchestrator:
         """Test collect_via_orchestrator raises ValueError when no API key."""
         # Ensure no env var is set
         monkeypatch.delenv("DATABENTO_API_KEY", raising=False)
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         with pytest.raises(ValueError, match="DATABENTO_API_KEY required"):
             component.collect_via_orchestrator(
@@ -204,7 +214,7 @@ class TestCollectViaOrchestrator:
         mock_catalog: MagicMock,
     ) -> None:
         """Test collect_via_orchestrator raises RuntimeError when no registry."""
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         with pytest.raises(RuntimeError, match="DataRegistry not initialized"):
             component.collect_via_orchestrator(
@@ -232,7 +242,7 @@ class TestDualWrite:
         mock_catalog: MagicMock,
     ) -> None:
         """Test collection with dual_write creates raw_writer and domain_loader."""
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         with (
             patch.object(
@@ -259,7 +269,11 @@ class TestDualWrite:
             )
 
             # Verify dual-write components were created
-            mock_raw_writer.assert_called_once_with(mock_catalog)
+            mock_raw_writer.assert_called_once_with(
+                mock_catalog,
+                dataset_type_toggles=None,
+                dataset_type_identifier_templates=None,
+            )
             mock_domain_loader.assert_called_once_with(
                 "test_api_key_123",
                 config_with_api_key,
@@ -282,7 +296,7 @@ class TestMarketBindings:
         mock_catalog: MagicMock,
     ) -> None:
         """Test collection resolves and uses market bindings."""
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         # Create mock binding
         mock_binding = MagicMock()
@@ -323,7 +337,7 @@ class TestMarketBindings:
         mock_catalog: MagicMock,
     ) -> None:
         """Test collection uses backfill_gaps when no market bindings."""
-        connection = "postgresql://user:pass@host:5432/db"
+        connection = TEST_ORCHESTRATOR_CONNECTION
 
         with (
             patch.object(
@@ -398,13 +412,13 @@ class TestSqlProviderInit:
             mock_class.return_value = mock_provider
 
             result = component.create_sql_coverage_provider(
-                "postgresql://user:pass@host:5432/db",
+                TEST_ORCHESTRATOR_CONNECTION,
                 "market_data",
             )
 
             assert result is mock_provider
             mock_class.assert_called_once_with(
-                connection_string="postgresql://user:pass@host:5432/db",
+                connection_string=TEST_ORCHESTRATOR_CONNECTION,
                 table_name="market_data",
             )
 
@@ -422,8 +436,12 @@ class TestSqlProviderInit:
 
             result = component.create_raw_writer(mock_catalog)
 
-            assert result is mock_writer
-            mock_class.assert_called_once_with(mock_catalog)
+            assert isinstance(result, FilteredRawWriter)
+            assert result._writer is mock_writer  # noqa: SLF001
+            mock_class.assert_called_once_with(
+                mock_catalog,
+                dataset_type_identifier_templates=None,
+            )
 
 
 # -----------------------------------------------------------------------------

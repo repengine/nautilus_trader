@@ -15,10 +15,8 @@
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.messages import DataResponse
 from nautilus_trader.data.messages import RequestData
 from nautilus_trader.data.messages import SubscribeData
@@ -30,6 +28,8 @@ from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
+
+from nautilus_trader.core.uuid import UUID4
 
 
 BINANCE = Venue("BINANCE")

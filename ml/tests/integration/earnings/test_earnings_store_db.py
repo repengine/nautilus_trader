@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from uuid import uuid4
 
 import pytest
@@ -23,18 +22,12 @@ pytestmark = [
 ]
 
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus_trader",
-)
-
-
 @pytest.fixture
-def temporary_earnings_store() -> EarningsStore:
+def temporary_earnings_store(cloned_test_database: str) -> EarningsStore:
     """Provision an isolated schema for exercising PostgreSQL DDL."""
 
     schema = f"ml_test_earnings_{uuid4().hex[:8]}"
-    store = EarningsStore(connection_string=DATABASE_URL, schema=schema)
+    store = EarningsStore(connection_string=cloned_test_database, schema=schema)
     try:
         yield store
     finally:

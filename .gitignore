@@ -12,6 +12,11 @@ htmlcov/
 
 !ml/dashboard/templates/*.html
 
+.claude/
+.playwright-mcp/
+.import_linter_cache/
+
+
 # Git
 *.diff
 

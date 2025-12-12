@@ -5,20 +5,16 @@ Integration test for StrategyStore performance aggregation helpers.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 
 import pytest
 
 from ml.stores.strategy_store import StrategyStore
 
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -27,8 +23,8 @@ pytestmark = [
 ]
 
 
-def test_strategy_performance_update_and_read(test_database: TestDatabase) -> None:
-    store = StrategyStore(connection_string=test_database.connection_string)
+def test_strategy_performance_update_and_read(cloned_test_database: str) -> None:
+    store = StrategyStore(connection_string=cloned_test_database)
 
     strategy_id = "strat_perf"
     instrument_id = "EUR/USD"

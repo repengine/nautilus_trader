@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
+from ml.tests.utils.db import build_postgres_url
 
 if TYPE_CHECKING:
     from ml.stores.feature_store import FeatureStore
@@ -173,7 +174,12 @@ class TestStorePersistence:
     def test_store_failure_handling(self) -> None:
         """Test that stores handle connection failures gracefully."""
 
-        bad_connection = "postgresql://invalid:invalid@nonexistent:5432/none"
+        bad_connection = build_postgres_url(
+            user="invalid",
+            password="invalid",
+            host="nonexistent",
+            database="none",
+        )
 
         with pytest.raises(Exception):
             ModelStore(connection_string=bad_connection)

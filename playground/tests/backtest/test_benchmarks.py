@@ -14,18 +14,19 @@ Test Categories:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, UTC
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 
 import numpy as np
 import polars as pl
 import pytest
 
-from playground.backtest.benchmarks import (
-    MinimumVarianceStrategy,
-    RiskParityStrategy,
-    SixtyFortyStrategy,
-)
-from playground.risk_model.dataset import SectorDataset, CoverageSummary
+from playground.backtest.benchmarks import MinimumVarianceStrategy
+from playground.backtest.benchmarks import RiskParityStrategy
+from playground.backtest.benchmarks import SixtyFortyStrategy
+from playground.risk_model.dataset import CoverageSummary
+from playground.risk_model.dataset import SectorDataset
 
 
 # ===== Test Fixtures =====
@@ -74,7 +75,7 @@ def simple_sector_dataset() -> SectorDataset:
         calendar_name="XNYS",
         sector_expected_days=30,
         factor_expected_days=30,
-        sector_coverage={s: 1.0 for s in sectors},
+        sector_coverage=dict.fromkeys(sectors, 1.0),
         factor_coverage={"factor_duration": 1.0, "factor_credit": 1.0, "factor_liquidity": 1.0},
     )
 
@@ -173,7 +174,7 @@ def correlated_dataset() -> SectorDataset:
         calendar_name="XNYS",
         sector_expected_days=100,
         factor_expected_days=100,
-        sector_coverage={s: 1.0 for s in sectors},
+        sector_coverage=dict.fromkeys(sectors, 1.0),
         factor_coverage={"factor_duration": 1.0, "factor_credit": 1.0, "factor_liquidity": 1.0},
     )
 
@@ -673,11 +674,9 @@ def test_min_variance_regularization_effect() -> None:
 
 def test_benchmark_strategies_export() -> None:
     """Test that all benchmark strategies are properly exported."""
-    from playground.backtest.benchmarks import (
-        MinimumVarianceStrategy,
-        RiskParityStrategy,
-        SixtyFortyStrategy,
-    )
+    from playground.backtest.benchmarks import MinimumVarianceStrategy
+    from playground.backtest.benchmarks import RiskParityStrategy
+    from playground.backtest.benchmarks import SixtyFortyStrategy
 
     # Should be able to instantiate all strategies
     sixty_forty = SixtyFortyStrategy()

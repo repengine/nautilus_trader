@@ -20,6 +20,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.registry_initialization import RegistryInitializationComponent
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 if TYPE_CHECKING:
@@ -41,7 +45,7 @@ def tmp_registry_path(tmp_path: Path) -> Path:
 def postgres_component(tmp_registry_path: Path) -> RegistryInitializationComponent:
     """Provide a RegistryInitializationComponent configured for PostgreSQL."""
     return RegistryInitializationComponent(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         registry_path=tmp_registry_path,
     )
 
@@ -85,14 +89,6 @@ def mock_model_registry() -> MagicMock:
 @pytest.fixture
 def mock_strategy_registry() -> MagicMock:
     """Provide a mock StrategyRegistry."""
-    mock = MagicMock()
-    mock.list_all.return_value = []
-    return mock
-
-
-@pytest.fixture
-def mock_data_registry() -> MagicMock:
-    """Provide a mock DataRegistry."""
     mock = MagicMock()
     mock.list_all.return_value = []
     return mock
@@ -415,7 +411,7 @@ class TestEdgeCases:
         assert not registry_path.exists()
 
         component = RegistryInitializationComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             registry_path=registry_path,
         )
 
@@ -586,7 +582,7 @@ class TestProtocolCompliance:
         config = postgres_component.persistence_config
         assert hasattr(config, "backend")
         assert hasattr(config, "connection_string")
-        assert config.connection_string == "postgresql://postgres:postgres@localhost:5432/nautilus"
+        assert config.connection_string == TEST_DB_CONNECTION
 
 
 # =============================================================================

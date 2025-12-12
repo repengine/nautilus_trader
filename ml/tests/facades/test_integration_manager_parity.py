@@ -25,6 +25,10 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 # =============================================================================
@@ -36,7 +40,7 @@ import pytest
 class MockConfig:
     """Mock configuration for testing."""
 
-    db_connection: str | None = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    db_connection: str | None = TEST_DB_CONNECTION
     use_dummy_stores: bool = True
     allow_dummy_fallback: bool = True
 
@@ -69,7 +73,7 @@ def mock_postgres_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
 def mock_db_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock database connection candidates for both implementations."""
     mock_candidates = MagicMock(
-        urls=("postgresql://postgres:postgres@localhost:5432/nautilus",)
+        urls=(TEST_DB_CONNECTION,),
     )
     monkeypatch.setattr(
         "ml.core.integration.collect_postgres_candidates",
@@ -88,7 +92,7 @@ def create_legacy_manager(
     """Create a legacy MLIntegrationManager with mocked dependencies."""
     # Mock collect_postgres_candidates
     mock_candidates = MagicMock(
-        urls=("postgresql://postgres:postgres@localhost:5432/nautilus",)
+        urls=(TEST_DB_CONNECTION,),
     )
     monkeypatch.setattr(
         "ml.core.integration.collect_postgres_candidates",
@@ -115,7 +119,7 @@ def create_legacy_manager(
     from ml.core.integration import MLIntegrationManager
 
     return MLIntegrationManager(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         auto_start_postgres=False,
         auto_migrate=False,
         ensure_healthy=ensure_healthy,
@@ -130,7 +134,7 @@ def create_facade_manager(
     """Create an MLIntegrationManagerFacade with mocked dependencies."""
     # Mock collect_postgres_candidates
     mock_candidates = MagicMock(
-        urls=("postgresql://postgres:postgres@localhost:5432/nautilus",)
+        urls=(TEST_DB_CONNECTION,),
     )
     monkeypatch.setattr(
         "ml.core.integration_facade.collect_postgres_candidates",
@@ -157,7 +161,7 @@ def create_facade_manager(
     from ml.core.integration_facade import MLIntegrationManagerFacade
 
     return MLIntegrationManagerFacade(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         auto_start_postgres=False,
         auto_migrate=False,
         ensure_healthy=ensure_healthy,

@@ -70,7 +70,6 @@ def mock_teacher_main() -> Mock:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestDataRegistryIntegration:
@@ -122,7 +121,6 @@ class TestDataRegistryIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestFeatureRegistryIntegration:
@@ -174,7 +172,6 @@ class TestFeatureRegistryIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestModelRegistryIntegration:
@@ -226,7 +223,6 @@ class TestModelRegistryIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestStrategyRegistryIntegration:
@@ -260,7 +256,6 @@ class TestStrategyRegistryIntegration:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestDataStoreIntegration:
@@ -312,7 +307,6 @@ class TestDataStoreIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestFeatureStoreIntegration:
@@ -359,7 +353,6 @@ class TestFeatureStoreIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestModelStoreIntegration:
@@ -407,7 +400,6 @@ class TestModelStoreIntegration:
         """
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestStrategyStoreIntegration:
@@ -460,7 +452,6 @@ class TestStrategyStoreIntegration:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestCrossComponentIntegration:
@@ -539,7 +530,6 @@ class TestCrossComponentIntegration:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="TDD: implementation pending - Phase 2.2.8")
 @pytest.mark.integration
 class TestMessageBusIntegration:
     """

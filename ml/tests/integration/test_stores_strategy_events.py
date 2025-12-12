@@ -8,7 +8,6 @@ operations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -19,16 +18,13 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.stores.strategy_store import StrategyStore
 
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-
 
 # Integration markers and module-scoped cleanup to reduce DB overhead
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -37,13 +33,13 @@ pytestmark = [
 ]
 
 
-def test_strategy_store_emits_signal_events(test_database: TestDatabase) -> None:
+def test_strategy_store_emits_signal_events(cloned_test_database: str) -> None:
     """
     Test that StrategyStore emits SIGNAL_EMITTED events after flush.
     """
     # Create store with PostgreSQL connection
     store = StrategyStore(
-        connection_string=test_database.connection_string,
+        connection_string=cloned_test_database,
         batch_size=10,
     )
 
@@ -98,13 +94,13 @@ def test_strategy_store_emits_signal_events(test_database: TestDatabase) -> None
 
 
 def test_strategy_store_groups_signals_by_strategy_and_instrument(
-    test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> None:
     """
     Test that signals are grouped by strategy_id and instrument_id for event emission.
     """
     store = StrategyStore(
-        connection_string=test_database.connection_string,
+        connection_string=cloned_test_database,
         batch_size=100,
     )
 
@@ -171,12 +167,12 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(
         )
 
 
-def test_strategy_store_handles_event_emission_failure_gracefully(test_database):
+def test_strategy_store_handles_event_emission_failure_gracefully(cloned_test_database: str) -> None:
     """
     Test that event emission failures don't break signal storage.
     """
     store = StrategyStore(
-        connection_string=test_database.connection_string,
+        connection_string=cloned_test_database,
         batch_size=10,
     )
 
@@ -205,12 +201,12 @@ def test_strategy_store_handles_event_emission_failure_gracefully(test_database)
         assert len(store._write_buffer) == 0
 
 
-def test_strategy_store_no_events_when_registry_unavailable(test_database):
+def test_strategy_store_no_events_when_registry_unavailable(cloned_test_database: str) -> None:
     """
     Test that store works normally when DataRegistry is unavailable.
     """
     store = StrategyStore(
-        connection_string=test_database.connection_string,
+        connection_string=cloned_test_database,
         batch_size=10,
     )
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_train_tft_model() -> None:
     """Train Temporal Fusion Transformer model.
@@ -37,7 +36,6 @@ def test_train_tft_model() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_tft_attention_weights_saved() -> None:
     """Verify TFT attention weights persisted.
@@ -55,7 +53,6 @@ def test_tft_attention_weights_saved() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_tft_prediction_horizons_correct() -> None:
     """Verify TFT multi-step predictions have correct horizon.

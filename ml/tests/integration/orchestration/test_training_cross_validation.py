@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_purged_walk_forward_cross_validation() -> None:
     """Verify purged walk-forward CV used for training.
@@ -32,7 +31,6 @@ def test_purged_walk_forward_cross_validation() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_no_data_leakage_across_folds() -> None:
     """Verify no data leakage across CV folds.
@@ -49,7 +47,6 @@ def test_no_data_leakage_across_folds() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_embargo_period_respected() -> None:
     """Verify embargo period between train and validation folds.

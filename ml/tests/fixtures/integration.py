@@ -210,11 +210,9 @@ def test_ml_config() -> dict[str, Any]:
 def xgboost_test_model(test_ml_config: dict[str, Any]) -> Any:
     """
     Create a simple XGBoost model for testing.
+
+    Requires XGBoost to be installed.
     """
-
-    if not HAS_XGBOOST:
-        pytest.skip("XGBoost not installed")
-
     n_samples = 100
     n_features = 10
     rng = np.random.default_rng(42)
@@ -230,11 +228,9 @@ def xgboost_test_model(test_ml_config: dict[str, Any]) -> Any:
 def lightgbm_test_model(test_ml_config: dict[str, Any]) -> Any:
     """
     Create a simple LightGBM model for testing.
+
+    Requires LightGBM to be installed.
     """
-
-    if not HAS_LIGHTGBM:
-        pytest.skip("LightGBM not installed")
-
     n_samples = 100
     n_features = 10
     rng = np.random.default_rng(42)
@@ -259,73 +255,36 @@ def create_onnx_model_for_features(
 ) -> Path:
     """
     Create an ONNX model that matches the given feature count.
+
+    Requires ONNX Runtime, XGBoost, and onnxmltools to be installed.
     """
+    import numpy as _np
+    import xgboost as _xgb
+    from onnxmltools import convert_xgboost
+    from onnxmltools.convert.common.data_types import FloatTensorType
 
-    if not HAS_ONNX:
-        pytest.skip("ONNX not installed")
+    rng = _np.random.default_rng(42)
+    X_train = rng.standard_normal((200, n_features)).astype(_np.float32)
+    y_train = rng.integers(0, 2, 200)
 
-    try:
-        import numpy as _np
-        import xgboost as _xgb
-        from skl2onnx import to_onnx
-        from skl2onnx.common.data_types import FloatTensorType
-        from skl2onnx.helpers.onnx_helper import save_onnx_model
-        from skl2onnx.helpers.onnx_helper import select_model_inputs_outputs
-        from skl2onnx.helpers.onnx_helper import set_model_input_types
+    model = _xgb.XGBClassifier(
+        n_estimators=10,
+        max_depth=3,
+        learning_rate=0.1,
+        objective="binary:logistic",
+        random_state=42,
+        device="cpu",
+        tree_method="hist",
+    )
+    model.fit(X_train, y_train)
 
-        rng = _np.random.default_rng(42)
-        X_train = rng.standard_normal((200, n_features)).astype(_np.float32)
-        y_train = rng.integers(0, 2, 200)
+    initial_type = [("float_input", FloatTensorType([None, n_features]))]
+    onnx_model = convert_xgboost(model, initial_types=initial_type, target_opset=12)
 
-        model = _xgb.XGBClassifier(
-            n_estimators=10,
-            max_depth=3,
-            learning_rate=0.1,
-            objective="binary:logistic",
-            random_state=42,
-            device="cpu",
-            tree_method="hist",
-            predictor="cpu_predictor",
-        )
-        model.fit(X_train, y_train)
-
-        initial_type = [("float_input", FloatTensorType([None, n_features]))]
-        onnx_model = to_onnx(model, X_train[:1], target_opset=12, initial_types=initial_type)
-        onnx_model = select_model_inputs_outputs(onnx_model, ["float_input", "probabilities"])
-        set_model_input_types(onnx_model, initial_type)
-
-        model_path = tmp_path / model_name
-        save_onnx_model(onnx_model, str(model_path))
-        return model_path
-    except Exception:
-        # Fallback older converter path (best-effort)
-        try:
-            from skl2onnx.common.data_types import FloatTensorType
-            from skl2onnx import convert_sklearn as convert_xgboost
-
-            rng = np.random.default_rng(42)
-            X = rng.standard_normal((200, n_features)).astype(np.float32)
-            y = rng.integers(0, 2, 200)
-            import xgboost as _xgb2
-
-            model = _xgb2.XGBClassifier(
-                n_estimators=10,
-                max_depth=3,
-                learning_rate=0.1,
-                device="cpu",
-                tree_method="hist",
-                predictor="cpu_predictor",
-            )
-            model.fit(X, y)
-            initial_type2 = [("float_input", FloatTensorType([None, n_features]))]
-            onnx_model2 = convert_xgboost(model, initial_types=initial_type2)
-            model_path2 = tmp_path / model_name
-            with open(model_path2, "wb") as f:
-                f.write(onnx_model2.SerializeToString())
-            return model_path2
-        except Exception:
-            # As a last resort, skip integration tests that require ONNX export
-            pytest.skip("ONNX export for XGBoost unavailable in this environment")
+    model_path = tmp_path / model_name
+    with open(model_path, "wb") as f:
+        f.write(onnx_model.SerializeToString())
+    return model_path
 
 
 @pytest.fixture

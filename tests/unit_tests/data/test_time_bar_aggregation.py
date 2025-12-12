@@ -16,23 +16,23 @@
 from decimal import Decimal
 
 import pandas as pd
-
 from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.config import BacktestEngineConfig
-from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.core.nautilus_pyo3 import NANOSECONDS_IN_SECOND
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Quantity
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.config import BacktestEngineConfig
+from nautilus_trader.core.datetime import dt_to_unix_nanos
+from nautilus_trader.core.nautilus_pyo3 import NANOSECONDS_IN_SECOND
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import OmsType
 from nautilus_trader.test_kit.providers import TestDataGenerator
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
-from nautilus_trader.trading.strategy import Strategy
 
 
 class BarAggregationStrategy(Strategy):

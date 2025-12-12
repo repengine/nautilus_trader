@@ -163,7 +163,7 @@ class TestFeatureCalculatorPerformance:
 
         # Report results
         print(f"\n{'='*60}")
-        print(f"calculate_features_online Performance:")
+        print("calculate_features_online Performance:")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"  P50:   {results['p50_us']:.1f} μs")
         print(f"  P90:   {results['p90_us']:.1f} μs")
@@ -225,7 +225,7 @@ class TestFeatureCalculatorPerformance:
         latency_per_bar_us = (elapsed / total_bars_processed) * 1_000_000
 
         print(f"\n{'='*60}")
-        print(f"Batch Mode Throughput:")
+        print("Batch Mode Throughput:")
         print(f"  Bars/second:      {bars_per_second:.1f}")
         print(f"  Latency/bar:      {latency_per_bar_us:.1f} μs")
         print(f"  Total bars:       {total_bars_processed}")
@@ -264,7 +264,7 @@ class TestFeatureCalculatorPerformance:
         bytes_per_call = total_allocated / 100
 
         print(f"\n{'='*60}")
-        print(f"Feature Buffer Reuse:")
+        print("Feature Buffer Reuse:")
         print(f"  Total allocated:  {total_allocated} bytes (100 calls)")
         print(f"  Bytes/call:       {bytes_per_call:.1f} bytes")
         print(f"  Buffer ID:        {id(calculator.feature_buffer)}")
@@ -297,7 +297,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_return_features Performance:")
+        print("_calculate_return_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 1000 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -326,7 +326,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_momentum_features Performance:")
+        print("_calculate_momentum_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 1000 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -353,7 +353,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_volatility_features Performance:")
+        print("_calculate_volatility_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 1500 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -382,7 +382,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_volume_ratio_features Performance:")
+        print("_calculate_volume_ratio_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 500 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -420,7 +420,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_technical_indicator_features Performance (MOST COMPLEX):")
+        print("_calculate_technical_indicator_features Performance (MOST COMPLEX):")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 2500 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -450,7 +450,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_return_momentum_features Performance:")
+        print("_calculate_return_momentum_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 1000 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -475,7 +475,7 @@ class TestFeatureCalculatorPerformance:
         )
 
         print(f"\n{'='*60}")
-        print(f"_calculate_mid_return_features Performance:")
+        print("_calculate_mid_return_features Performance:")
         print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 800 μs)")
         print(f"  Mean:  {results['mean_us']:.1f} μs")
         print(f"{'='*60}")
@@ -514,7 +514,7 @@ class TestFeatureCalculatorPerformance:
             )
 
             print(f"\n{'='*60}")
-            print(f"compute_features (legacy shim) Performance:")
+            print("compute_features (legacy shim) Performance:")
             print(f"  P99:   {results['p99_us']:.1f} μs (threshold: 10000 μs)")
             print(f"  Mean:  {results['mean_us']:.1f} μs")
             print(f"{'='*60}")

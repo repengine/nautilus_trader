@@ -25,7 +25,7 @@ class CapturePublisher:
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -35,10 +35,10 @@ pytestmark = [
 
 
 
-def test_strategy_store_publishes_batch_event(postgres_connection: str) -> None:
+def test_strategy_store_publishes_batch_event(cloned_test_database: str) -> None:
     pub = CapturePublisher()
     store = StrategyStore(
-        connection_string=postgres_connection,
+        connection_string=cloned_test_database,
         batch_size=2,
         flush_interval_seconds=0.01,
         enable_publishing=True,

@@ -14,13 +14,10 @@ import numpy as np
 import polars as pl
 import pytest
 
-from playground.backtest.benchmarks import (
-    MinimumVarianceStrategy,
-    RiskParityStrategy,
-    SixtyFortyStrategy,
-)
+from playground.backtest.benchmarks import MinimumVarianceStrategy
+from playground.backtest.benchmarks import RiskParityStrategy
+from playground.backtest.benchmarks import SixtyFortyStrategy
 from playground.backtest.engine import BacktestConfig
-from playground.backtest.engine import FactorBacktester
 from playground.risk_model.dataset import CoverageSummary
 from playground.risk_model.dataset import SectorDataset
 
@@ -62,7 +59,7 @@ def sample_dataset() -> SectorDataset:
         calendar_name="XNYS",
         sector_expected_days=num_days,
         factor_expected_days=num_days,
-        sector_coverage={s: 1.0 for s in sectors},
+        sector_coverage=dict.fromkeys(sectors, 1.0),
         factor_coverage={
             "factor_duration": 1.0,
             "factor_credit": 1.0,

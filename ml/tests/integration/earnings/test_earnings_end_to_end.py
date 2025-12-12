@@ -25,15 +25,15 @@ from dataclasses import dataclass
 from datetime import date
 from datetime import datetime
 from datetime import timedelta
-import numpy as np
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-import pytest
 from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, cast
 
-from typing import cast
+import numpy as np
+import pytest
+
 from ml.stores.data_store import DataStore
+from ml.tests.utils.db import build_postgres_url
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
@@ -108,7 +108,10 @@ class TestEarningsEndToEnd:
         """
         import os
 
-        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_trader")
+        db_url = os.getenv(
+            "DATABASE_URL",
+            build_postgres_url(database="nautilus_trader"),
+        )
 
         feature_store = cast(FeatureStore, MagicMock(spec=FeatureStore))
         model_store = cast(ModelStore, MagicMock(spec=ModelStore))

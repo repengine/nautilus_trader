@@ -84,17 +84,6 @@ def mock_hpo_main() -> Mock:
 
 
 @pytest.fixture
-def mock_data_registry() -> Mock:
-    """
-    Mock DataRegistry for testing.
-    """
-    registry = Mock()
-    registry.register_dataset.return_value = True
-    registry.get_dataset.return_value = None
-    return registry
-
-
-@pytest.fixture
 def mock_feature_registry() -> Mock:
     """
     Mock FeatureRegistry for testing.
@@ -394,7 +383,6 @@ class TestComponentDelegation:
     Tests for component delegation from facade.
     """
 
-    @pytest.mark.skip(reason="Integration test - requires DataScheduler with complex imports")
     def test_run_pre_ingestion_delegates_to_ingestion_coordinator(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -456,7 +444,6 @@ class TestComponentDelegation:
         # BackfillWindowList type check
         assert result is not None
 
-    @pytest.mark.skip(reason="Integration test - requires properly configured ingestor")
     def test_backfill_binding_delegates_to_ingestion_coordinator(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -488,7 +475,6 @@ class TestComponentDelegation:
 
         assert isinstance(result, dict)
 
-    @pytest.mark.skip(reason="Integration test - requires properly configured ingestor")
     def test_backfill_coverage_delegates_with_policy(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -571,9 +557,6 @@ class TestComponentDelegation:
         result = mock_orchestrator_full.run_hpo(hpo_config, dataset_csv, out_dir)
         assert isinstance(result, int)
 
-    @pytest.mark.skip(
-        reason="Integration test - requires valid dataset metadata with proper vintage policy"
-    )
     def test_train_teacher_delegates_to_training_coordinator(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -604,7 +587,6 @@ class TestComponentDelegation:
         )
         assert isinstance(result, int)
 
-    @pytest.mark.skip(reason="Integration test - requires proper NPZ file structure")
     def test_distill_student_delegates_to_training_coordinator(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -647,7 +629,6 @@ class TestComponentDelegation:
         )
         assert isinstance(result, int)
 
-    @pytest.mark.skip(reason="Integration test - requires output directory with dataset files")
     def test_run_delegates_pipeline_stages(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,
@@ -670,9 +651,6 @@ class TestComponentDelegation:
         result = mock_orchestrator_full.run(sample_orchestrator_config)
         assert isinstance(result, int)
 
-    @pytest.mark.skip(
-        reason="Integration test - requires valid dataset metadata with proper vintage policy"
-    )
     def test_run_training_only_delegates_correctly(
         self,
         mock_orchestrator_full: MLPipelineOrchestrator,

@@ -16,19 +16,23 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ml.tests.utils.db import build_postgres_url
 
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
+TEST_DB_CONNECTION = build_postgres_url()
+ALT_DB_CONNECTION = build_postgres_url(port="5433")
+
 
 @pytest.fixture
 def mock_db_candidates() -> tuple[str, ...]:
     """Provide mock database connection candidates."""
     return (
-        "postgresql://postgres:postgres@localhost:5432/nautilus",
-        "postgresql://postgres:postgres@localhost:5433/nautilus",
+        TEST_DB_CONNECTION,
+        ALT_DB_CONNECTION,
     )
 
 
@@ -68,7 +72,7 @@ def mock_registries_bundle() -> dict[str, MagicMock]:
 class MockConfig:
     """Mock configuration for testing."""
 
-    db_connection: str | None = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    db_connection: str | None = TEST_DB_CONNECTION
     use_dummy_stores: bool = False
     allow_dummy_fallback: bool = True
 
@@ -111,7 +115,7 @@ def create_mocked_facade(
     monkeypatch.setattr(
         "ml.core.integration_facade.collect_postgres_candidates",
         lambda *args, **kwargs: MagicMock(
-            urls=("postgresql://postgres:postgres@localhost:5432/nautilus",)
+            urls=(TEST_DB_CONNECTION,),
         ),
     )
 
@@ -177,7 +181,7 @@ def create_mocked_facade(
     from ml.core.integration_facade import MLIntegrationManagerFacade
 
     return MLIntegrationManagerFacade(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         auto_start_postgres=False,
         auto_migrate=False,
         ensure_healthy=ensure_healthy,
@@ -244,7 +248,11 @@ class TestFacadeInit:
         This ensures backward compatibility with legacy config patterns.
 
         """
-        test_db_conn = "postgresql://test:test@localhost:5432/db"
+        test_db_conn = build_postgres_url(
+            user="test",
+            password="test",
+            database="db",
+        )
 
         # Mock dependencies - return the config's db_connection
         monkeypatch.setattr(
@@ -459,7 +467,7 @@ class TestFacadeObservability:
         )
 
         expected_keys = {"latency", "metrics", "correlation", "health"}
-        mock_result = {k: None for k in expected_keys}
+        mock_result = dict.fromkeys(expected_keys)
         facade._observability.collect_observability_dataframes = MagicMock(
             return_value=mock_result
         )

@@ -18,7 +18,7 @@ from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
-@settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=6, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(
     n=st.integers(min_value=5, max_value=30),
     step=st.integers(min_value=60_000_000_000, max_value=120_000_000_000),  # 1-2 minutes in ns

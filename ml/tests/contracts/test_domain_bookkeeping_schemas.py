@@ -18,12 +18,11 @@ import pandas as pd
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from pandera.typing import Series  # type: ignore[attr-defined]
 
-from ml.tests.fixtures.pandera import Series
 from ml.tests.fixtures.pandera import ensure_pandera_available
 
 pa = ensure_pandera_available()
-
 globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
 
 from ml.stores.data_store import DataStore

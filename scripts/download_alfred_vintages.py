@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ml.common.env import load_project_dotenv
 from ml.common.logging_config import configure_logging
-from ml.config.macro_universe import MARKET_BASED_MACRO_SERIES, TIER1_MACRO_SERIES_UNIVERSE
+from ml.config.macro_universe import MARKET_BASED_MACRO_SERIES
+from ml.config.macro_universe import TIER1_MACRO_SERIES_UNIVERSE
 from ml.data.loaders.alfred_loader import ALFREDConfig
 from ml.data.loaders.alfred_loader import ALFREDDataLoader
 

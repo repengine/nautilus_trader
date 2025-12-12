@@ -108,9 +108,9 @@ def _truncate_store_tables(engine: Engine) -> None:
                 )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def module_store_bundle(
-    module_test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> Generator[ModuleStoreBundle, None, None]:
     """
     Create shared Feature/Model/Strategy stores backed by PostgreSQL.
@@ -125,17 +125,18 @@ def module_store_bundle(
     _EM.dispose_all()
 
     persistence_manager = MagicMock()
-    persistence_manager.connection_string = module_test_database.connection_string
+    persistence_manager.connection_string = cloned_test_database
     persistence_manager.session = MagicMock()
 
     store_kwargs: dict[str, Any] = {
-        "connection_string": module_test_database.connection_string,
+        "connection_string": cloned_test_database,
         "batch_size": 1,
         "flush_interval_seconds": 1.0,
         "persistence_manager": persistence_manager,
     }
 
-    with module_test_database.engine.begin() as conn:
+    engine = _EM.get_engine(cloned_test_database)
+    with engine.begin() as conn:
         try:
             conn.execute(
                 text(
@@ -177,7 +178,7 @@ $$ LANGUAGE plpgsql;
         model_store=model_store,
         strategy_store=strategy_store,
         persistence_manager=persistence_manager,
-        engine=module_test_database.engine,
+        engine=engine,
     )
 
     try:
@@ -251,12 +252,13 @@ def store_bundle(module_store_bundle: ModuleStoreBundle) -> ModuleStoreBundle:
 
 @pytest.fixture(scope="function")
 def fresh_store_bundle(
-    test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> Generator[ModuleStoreBundle, None, None]:
     """
     Provide fresh store instances per test with complete isolation.
     """
 
+    from ml.core.db_engine import EngineManager as _EM
     from ml.stores.feature_store import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
@@ -264,11 +266,13 @@ def fresh_store_bundle(
     logger = logging.getLogger(__name__)
 
     persistence_manager = MagicMock()
-    persistence_manager.connection_string = test_database.connection_string
+    persistence_manager.connection_string = cloned_test_database
     persistence_manager.session = MagicMock()
 
+    engine: Engine | None = None
     try:
-        with test_database.engine.begin() as conn:
+        engine = _EM.get_engine(cloned_test_database)
+        with engine.begin() as conn:
             conn.execute(
                 text(
                     """
@@ -287,7 +291,7 @@ def fresh_store_bundle(
         )
 
     store_kwargs: dict[str, Any] = {
-        "connection_string": test_database.connection_string,
+        "connection_string": cloned_test_database,
         "batch_size": 1,
         "flush_interval_seconds": 1.0,
         "persistence_manager": persistence_manager,
@@ -302,7 +306,7 @@ def fresh_store_bundle(
         model_store=model_store,
         strategy_store=strategy_store,
         persistence_manager=persistence_manager,
-        engine=test_database.engine,
+        engine=engine,
     )
 
     try:
@@ -365,7 +369,8 @@ def fresh_store_bundle(
             )
 
         try:
-            _truncate_store_tables(test_database.engine)
+            if engine is not None:
+                _truncate_store_tables(engine)
         except Exception as exc:
             logger.debug(
                 "fresh_store_bundle: table truncation failed: %s",
@@ -587,17 +592,16 @@ def store_integration_metrics_database(
 
 @pytest.fixture
 def component_feature_store(
-    test_database: TestDatabase,
-    clean_postgres_db: None,
+    cloned_test_database: str,
     real_engine_manager: None,
 ) -> Generator[Any, None, None]:
     """
     Provide a ComponentFeatureStore instance backed by the shared PostgreSQL database.
     """
 
-    from ml.stores.feature_store import ComponentFeatureStore as _ComponentFeatureStore
+    from ml.stores import ComponentFeatureStore as _ComponentFeatureStore
 
-    store = _ComponentFeatureStore(connection_string=test_database.connection_string)
+    store = _ComponentFeatureStore(connection_string=cloned_test_database)
     logger = logging.getLogger(__name__)
 
     try:

@@ -23,7 +23,7 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",

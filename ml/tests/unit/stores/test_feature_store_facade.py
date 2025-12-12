@@ -74,10 +74,17 @@ def mock_feature_config() -> FeatureConfig:
 
 
 @pytest.fixture
+def connection_string(cloned_test_database: str) -> str:
+    """Provide isolated Postgres connection string for facade initialization."""
+    return cloned_test_database
+
+
+@pytest.fixture
 def facade_with_mocks(
     mock_engine: MagicMock,
     mock_table: MagicMock,
     mock_feature_config: FeatureConfig,
+    connection_string: str,
 ) -> Generator[FeatureStoreFacade, None, None]:
     """Create a FeatureStoreFacade with mocked components."""
     with (
@@ -133,7 +140,7 @@ def facade_with_mocks(
         mock_comp_cls.return_value = mock_computation
 
         facade = FeatureStoreFacade(
-            connection_string="postgresql://test:test@localhost/test",
+            connection_string=connection_string,
             feature_config=mock_feature_config,
         )
 
@@ -166,12 +173,13 @@ class TestFacadeComponentWiring:
     def test_facade_initializes_engine(
         self,
         facade_with_mocks: FeatureStoreFacade,
+        connection_string: str,
     ) -> None:
         """Verify facade creates SQLAlchemy engine."""
         facade = facade_with_mocks
 
         assert facade.engine is not None
-        assert facade.connection_string == "postgresql://test:test@localhost/test"
+        assert facade.connection_string == connection_string
 
     def test_facade_initializes_feature_engineer(
         self,
@@ -554,7 +562,7 @@ class TestRegistryIntegration:
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
-    def test_facade_with_none_feature_config(self) -> None:
+    def test_facade_with_none_feature_config(self, connection_string: str) -> None:
         """Verify facade handles None feature_config."""
         with (
             patch("ml.stores.feature_store_facade.get_or_create_engine") as mock_get_engine,
@@ -576,7 +584,7 @@ class TestEdgeCases:
             mock_schema_cls.return_value = mock_schema
 
             facade = FeatureStoreFacade(
-                connection_string="postgresql://test:test@localhost/test",
+                connection_string=connection_string,
                 feature_config=None,
             )
 
@@ -584,7 +592,7 @@ class TestEdgeCases:
             assert facade.feature_config is not None
             assert isinstance(facade.feature_config, FeatureConfig)
 
-    def test_facade_with_ml_feature_config(self) -> None:
+    def test_facade_with_ml_feature_config(self, connection_string: str) -> None:
         """Verify facade handles MLFeatureConfig."""
         from ml.config.base import MLFeatureConfig
 
@@ -610,7 +618,7 @@ class TestEdgeCases:
             ml_config = MLFeatureConfig(lookback_window=100)
 
             facade = FeatureStoreFacade(
-                connection_string="postgresql://test:test@localhost/test",
+                connection_string=connection_string,
                 feature_config=ml_config,
             )
 

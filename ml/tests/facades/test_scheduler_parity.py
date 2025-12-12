@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ml.tests.utils.db import build_postgres_url
 
 
 if TYPE_CHECKING:
@@ -345,7 +346,7 @@ def test_init_with_connection_parity(
     scheduler_config: MagicMock,
 ) -> None:
     """Test that connection parameter is handled identically."""
-    connection_str = "postgresql://user:pass@localhost:5432/nautilus"
+    connection_str = build_postgres_url(user="user", password="pass", database="nautilus")
 
     legacy, facade = create_mocked_schedulers(
         mock_catalog,
@@ -441,16 +442,16 @@ def test_run_daily_update_calls_internal_methods(
 
 
 __all__ = [
-    "test_init_parity_legacy_vs_facade",
-    "test_get_status_parity",
-    "test_get_previous_trading_day_parity",
-    "test_stop_parity",
     "test_attribute_parity",
     "test_feature_flag_both_modes_pass",
+    "test_get_previous_trading_day_parity",
+    "test_get_status_parity",
     "test_get_status_type_parity",
-    "test_schedule_updates_parity",
+    "test_init_parity_legacy_vs_facade",
     "test_init_with_connection_parity",
     "test_init_with_orchestrator_flags_parity",
     "test_method_signatures_parity",
     "test_run_daily_update_calls_internal_methods",
+    "test_schedule_updates_parity",
+    "test_stop_parity",
 ]

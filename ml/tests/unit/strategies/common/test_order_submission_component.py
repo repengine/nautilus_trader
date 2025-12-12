@@ -270,7 +270,7 @@ class MockMetric:
         self.label_calls: list[dict[str, str]] = []
         self.inc_calls: int = 0
 
-    def labels(self, **kwargs: str) -> "MockMetric":
+    def labels(self, **kwargs: str) -> MockMetric:
         """Add labels to metric."""
         self.label_calls.append(kwargs)
         return self
@@ -426,7 +426,7 @@ def order_submission_component(
     mock_clock: MockClock,
     mock_trader_id: TraderId,
     mock_strategy_id: StrategyId,
-) -> "OrderSubmissionComponent":
+) -> OrderSubmissionComponent:
     """Create order submission component with standard configuration."""
     from ml.strategies.common.order_submission import OrderSubmissionComponent
 
@@ -459,7 +459,7 @@ class TestPlaceMarketOrder:
 
     def test_place_market_order_basic(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Test case 1: Verify basic market order creation."""
@@ -556,7 +556,7 @@ class TestPlaceMarketOrder:
 
     def test_place_market_order_reduce_only(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Test case 4: Verify reduce_only flag passed correctly."""
@@ -573,7 +573,7 @@ class TestPlaceMarketOrder:
 
     def test_place_market_order_returns_client_order_id(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Test case 15: Verify client order ID returned."""
@@ -873,7 +873,7 @@ class TestPlaceStopLoss:
 
     def test_place_stop_loss_basic(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Test case 10: Verify stop loss order creation."""
@@ -899,7 +899,7 @@ class TestPlaceStopLoss:
 
     def test_place_stop_loss_correct_trigger_type(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Test case 11: Verify stop loss uses correct trigger type."""
@@ -959,7 +959,7 @@ class TestComponentConfiguration:
 
     def test_properties_accessible(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
     ) -> None:
         """Verify all properties are accessible."""
         assert str(order_submission_component.strategy_id) == "test_strategy-001"
@@ -971,7 +971,7 @@ class TestComponentConfiguration:
 
     def test_update_config(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
     ) -> None:
         """Verify configuration can be updated."""
         new_instrument_id = InstrumentId(Symbol("GBPUSD"), Venue("SIM"))
@@ -1138,7 +1138,7 @@ class TestEdgeCases:
 
     def test_trades_executed_counter_increments(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Verify trades_executed counter increments on order submission."""
@@ -1154,7 +1154,7 @@ class TestEdgeCases:
 
     def test_pending_orders_counter_increments(
         self,
-        order_submission_component: "OrderSubmissionComponent",
+        order_submission_component: OrderSubmissionComponent,
         instrument_id: InstrumentId,
     ) -> None:
         """Verify pending_orders counter increments on order submission."""

@@ -13,7 +13,6 @@ import tempfile
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -34,9 +33,6 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -112,7 +108,7 @@ def create_test_bars(
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestSchedulerFeatureStoreIntegration:
     """
     Test DataScheduler with FeatureStore integration.
@@ -165,7 +161,7 @@ class TestSchedulerFeatureStoreIntegration:
     @pytest.mark.serial
     def test_feature_computation_with_catalog_data(
         self,
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test feature computation when bars are available in catalog.
@@ -175,7 +171,7 @@ class TestSchedulerFeatureStoreIntegration:
 
         self.config = _replace(
             self.config,
-            feature_store_connection=test_database.connection_string,
+            feature_store_connection=cloned_test_database,
         )
         # Create scheduler
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:

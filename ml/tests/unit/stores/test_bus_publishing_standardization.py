@@ -17,7 +17,23 @@ from unittest.mock import Mock, patch
 from ml.common.message_bus import BusPublisherMixin, NoopPublisher
 from ml.config.bus import MessageBusConfig
 from ml.stores import DataStore, FeatureStore
+from ml.stores.data_store import DataStore as LegacyDataStore
+from ml.stores.feature_store import FeatureStore as LegacyFeatureStore
 from ml.stores.base import FeatureData
+from ml.tests.utils.db import build_postgres_url
+
+MOCK_CONNECTION = build_postgres_url(user="mock", password="mock", database="mock")
+
+
+def _create_mock_store_deps() -> dict:
+    """Create mock dependencies required by DataStoreFacade."""
+    return {
+        "registry": Mock(),
+        "feature_store": Mock(),
+        "model_store": Mock(),
+        "strategy_store": Mock(),
+        "earnings_store": Mock(),
+    }
 
 
 class TestBusPublishingStandardization:
@@ -83,11 +99,25 @@ class TestBusPublishingStandardization:
         """
         mock_publisher = Mock() if publisher_exists else None
 
-        # Create minimal DataStore instance for testing
+        # Create mock dependencies (required by facade)
+        mock_registry = Mock()
+        mock_feature_store = Mock()
+        mock_model_store = Mock()
+        mock_strategy_store = Mock()
+        mock_earnings_store = Mock()
+
+        # Create DataStore with explicit dependencies
         with patch_engine_manager():
-            store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
-            store._enable_publishing = enable_flag
-            store.publisher = mock_publisher
+            store = DataStore(
+                connection_string=MOCK_CONNECTION,
+                registry=mock_registry,
+                feature_store=mock_feature_store,
+                model_store=mock_model_store,
+                strategy_store=mock_strategy_store,
+                earnings_store=mock_earnings_store,
+                enable_publishing=enable_flag,
+                publisher=mock_publisher,
+            )
             store._topic_scheme = "domain_op"
             store._topic_prefix = "events.ml"
 
@@ -137,7 +167,7 @@ class TestBusPublishingStandardization:
         # Create minimal FeatureStore instance for testing
         with patch_engine_manager():
             store = FeatureStore(
-                connection_string="postgresql://mock:mock@localhost:5432/mock",
+                connection_string=MOCK_CONNECTION,
                 enable_publishing=enable_flag,
                 publisher=mock_publisher,
             )
@@ -224,6 +254,9 @@ class TestBusPublishingStandardization:
     def test_topic_scheme_consistency(self, patch_engine_manager):
         """
         Test that all stores use consistent topic scheme/prefix from MessageBusConfig.
+
+        Note: This tests internal mixin behavior using LegacyDataStore since the
+        facade delegates publishing to EventEmitterComponent.
         """
         test_cases = [
             ("domain_op", "events.ml"),
@@ -238,10 +271,11 @@ class TestBusPublishingStandardization:
                     "ML_BUS_TOPIC_PREFIX": prefix,
                 },
             ):
-                # Test DataStore
+                # Test LegacyDataStore (mixin behavior)
                 with patch_engine_manager():
-                    data_store = DataStore(
-                        connection_string="postgresql://mock:mock@localhost:5432/mock"
+                    data_store = LegacyDataStore(
+                        connection_string=MOCK_CONNECTION,
+                        **_create_mock_store_deps(),
                     )
                     data_store._init_bus_publishing(
                         enable_publishing=True,
@@ -251,10 +285,10 @@ class TestBusPublishingStandardization:
                     assert data_store._topic_scheme == scheme
                     assert data_store._topic_prefix == prefix
 
-                # Test FeatureStore
+                # Test LegacyFeatureStore (mixin behavior)
                 with patch_engine_manager():
-                    feature_store = FeatureStore(
-                        connection_string="postgresql://mock:mock@localhost:5432/mock",
+                    feature_store = LegacyFeatureStore(
+                        connection_string=MOCK_CONNECTION,
                         enable_publishing=True,
                         publisher=Mock(),
                     )
@@ -264,14 +298,19 @@ class TestBusPublishingStandardization:
     def test_hot_path_performance_preservation(self, patch_engine_manager):
         """
         Test that publishing doesn't significantly impact hot-path performance.
+
+        Note: Uses LegacyDataStore for testing legacy emit_dataset_event signature.
         """
         # This is a smoke test to ensure we don't add heavy operations
         mock_publisher = Mock()
 
         with patch_engine_manager():
-            store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
-            store._enable_publishing = True
-            store.publisher = mock_publisher
+            store = LegacyDataStore(
+                connection_string=MOCK_CONNECTION,
+                enable_publishing=True,
+                publisher=mock_publisher,
+                **_create_mock_store_deps(),
+            )
 
         # Time a simple operation - should complete quickly even with publishing
         import time
@@ -311,21 +350,27 @@ class TestBusPublishingStandardization:
         """
         Test that all stores use consistent error logging levels for publishing
         failures.
+
+        Note: Uses LegacyDataStore for testing legacy emit_dataset_event signature.
         """
         test_stores = []
 
-        # DataStore
+        # LegacyDataStore (tests mixin behavior)
+        mock_publisher = Mock()
+        mock_publisher.publish.side_effect = Exception("Test error")
         with patch_engine_manager():
-            data_store = DataStore(connection_string="postgresql://mock:mock@localhost:5432/mock")
-            data_store._enable_publishing = True
-            data_store.publisher = Mock()
-            data_store.publisher.publish.side_effect = Exception("Test error")
+            data_store = LegacyDataStore(
+                connection_string=MOCK_CONNECTION,
+                enable_publishing=True,
+                publisher=mock_publisher,
+                **_create_mock_store_deps(),
+            )
             test_stores.append(("DataStore", data_store))
 
         # FeatureStore
         with patch_engine_manager():
             feature_store = FeatureStore(
-                connection_string="postgresql://mock:mock@localhost:5432/mock",
+                connection_string=MOCK_CONNECTION,
                 enable_publishing=True,
                 publisher=Mock(),
             )
@@ -335,7 +380,6 @@ class TestBusPublishingStandardization:
         # Map store names to their actual module paths for patching
         module_paths = {
             "DataStore": [
-                "ml.stores.data_store_facade",  # Facade module
                 "ml.stores.data_store",  # Legacy module
             ],
             "FeatureStore": ["ml.stores.feature_store"],

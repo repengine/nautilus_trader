@@ -588,7 +588,7 @@ class TestModelInferenceBenchmarks:
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestStoreBenchmarks:
     """
     Benchmarks for store read/write operations.
@@ -599,7 +599,7 @@ class TestStoreBenchmarks:
     def test_feature_store_read_latency(
         self,
         benchmark: Any,
-        test_database,
+        cloned_test_database: str,
     ) -> None:
         """
         Benchmark FeatureStore read operation latency.
@@ -609,7 +609,7 @@ class TestStoreBenchmarks:
         """
         # Create PostgreSQL store for testing
         store = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=FeatureConfig(),
         )
 
@@ -638,7 +638,7 @@ class TestStoreBenchmarks:
     def test_store_write_buffering(
         self,
         benchmark: Any,
-        test_database,
+        cloned_test_database: str,
     ) -> None:
         """
         Benchmark store write buffering performance.
@@ -648,7 +648,7 @@ class TestStoreBenchmarks:
         """
         # Create PostgreSQL store
         store = StrategyStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
         )
 
         # Create write buffer
@@ -690,7 +690,7 @@ class TestStoreBenchmarks:
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db_class")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestEndToEndBenchmarks:
     """
     Benchmarks for complete signal generation pipeline.
@@ -704,7 +704,7 @@ class TestEndToEndBenchmarks:
         feature_config: FeatureConfig,
         test_bars: list[Bar],
         mock_onnx_model: Path,
-        test_database,
+        cloned_test_database: str,
         instrument_id: InstrumentId,
         bar_type: BarType,
     ) -> None:
@@ -738,14 +738,14 @@ class TestEndToEndBenchmarks:
 
         # Create stores with PostgreSQL
         feature_store = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=feature_config,
         )
         model_store = ModelStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
         )
         strategy_store = StrategyStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
         )
         data_store = DataStore(
             connection_string=test_database.connection_string,

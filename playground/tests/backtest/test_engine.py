@@ -13,18 +13,17 @@ Tests cover:
 
 from __future__ import annotations
 
+# Direct import from playground module files to avoid circular dependencies in ml.stores
+import importlib.util
+import sys
 from datetime import UTC
 from datetime import datetime
-from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pytest
 
-# Direct import from playground module files to avoid circular dependencies in ml.stores
-import importlib.util
-import sys
-from pathlib import Path
 
 playground_dir = Path(__file__).parent.parent.parent
 

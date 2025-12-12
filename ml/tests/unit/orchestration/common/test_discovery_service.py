@@ -350,12 +350,9 @@ def test_map_schema_to_dataset_type_tbbo(discovery_service):
     Phase 2.2.7: Returns DatasetType.TBBO (placeholder).
     Phase 2.2.8: Returns DatasetType.TBBO (same behavior).
     """
-    # Note: The placeholder implementation always returns BARS
-    # This test verifies the placeholder behavior
     result = discovery_service._map_schema_to_dataset_type("tbbo")
 
-    # Placeholder returns BARS for all schemas
-    assert result == DatasetType.BARS
+    assert result == DatasetType.TBBO
 
 
 @pytest.mark.unit

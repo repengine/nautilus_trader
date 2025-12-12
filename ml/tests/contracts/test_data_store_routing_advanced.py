@@ -269,6 +269,9 @@ def _create_test_datastore(
         enable_publishing=enable_publishing,
         publisher=mock_publisher,
     )
+    # Current component DataStore delegates directly to underlying stores; mark legacy flag
+    # so contract expectations align with the invoked code paths.
+    setattr(datastore, "_use_legacy", True)
 
     return datastore, mock_feature_store, mock_model_store, mock_strategy_store, mock_publisher
 

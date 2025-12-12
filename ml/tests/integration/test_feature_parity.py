@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -36,10 +36,6 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-
-
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
@@ -54,7 +50,7 @@ def feature_config() -> FeatureConfig:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_class", "real_engine_manager")
+@pytest.mark.usefixtures("cloned_test_database", "real_engine_manager")
 class TestFeatureParity:
     """
     Test suite for training/inference feature parity.
@@ -189,13 +185,13 @@ class TestFeatureParity:
         self,
         feature_config: FeatureConfig,
         mock_bars: list[Bar],
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test that FeatureStore produces consistent features.
         """
         store = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=feature_config,
         )
 

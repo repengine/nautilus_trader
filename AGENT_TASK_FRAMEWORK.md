@@ -43,7 +43,7 @@ This framework now enforces:
 |-------|-------|---------|------------|
 | **0** | Planning Agent | Research codebase, design components BEFORE code | DECOMPOSITION_MAP.md |
 | **1** | Test Design Agent | Design tests using decomposition map (TDD) | TEST_DESIGN_REPORT.md |
-| **1.5** | Codex MCP | Verify ALL APIs against legacy code (MANDATORY) | CODEX_VERIFICATION_REPORT.md |
+| **1.5** | Codex MCP | Verify APIs + FIXTURE_GUIDE compliance (MANDATORY) | CODEX_VERIFICATION_REPORT.md |
 | **2** | Implementation Agent | Write code to satisfy test specs | IMPLEMENTATION_REPORT.md |
 | **3** | Static Validation | ruff, mypy, imports, API preservation | STATIC_VALIDATION_REPORT.md |
 | **4** | Integration Validation | Runtime tests, parity, Category 14 checks | INTEGRATION_VALIDATION_REPORT.md |
@@ -61,6 +61,11 @@ This framework now enforces:
 - Growth <200% of baseline
 
 **Codex Verification Stats:** 50 API errors caught in Phase 2.3 (11+8+14+15+2 across 5 sub-phases)
+
+**🆕 Fixture Compliance (2025-12-01):** Phase 1.5 now also verifies FIXTURE_GUIDE.md adherence:
+- `pytest_plugins` registration required in test packages
+- No inline fixture definitions (use `ml/tests/fixtures/`)
+- Fixture reuse from shared modules (no duplication)
 
 ---
 
@@ -526,6 +531,7 @@ Reference these before creating duplicates:
 
 ## TEST DESIGN CHECKLIST
 
+### Test Coverage
 - [ ] Unit tests for each new function/method
 - [ ] Integration tests if touching stores/DB/external systems
 - [ ] E2E tests if workflow changes
@@ -535,6 +541,18 @@ Reference these before creating duplicates:
 - [ ] Error condition tests (invalid inputs handled)
 - [ ] Edge case tests (boundaries, nulls, empty arrays)
 - [ ] Performance tests for hot paths (if applicable)
+
+### 🆕 Fixture Compliance (MANDATORY - Phase 1.5 will verify)
+- [ ] `pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)` in conftest.py
+- [ ] No inline `@pytest.fixture` definitions (use shared fixtures)
+- [ ] Fixtures consolidated in package conftest.py (not scattered)
+- [ ] Shared fixtures in ml/tests/fixtures/{module}.py
+
+### 🆕 Anti-Pattern Avoidance (See ml/tests/docs/TEST_ANTI_PATTERNS.md)
+- [ ] No `assert config == other_config` (use msgspec.to_builtins)
+- [ ] No `assert status == EnumMember` (use .value comparison)
+- [ ] All DB tests marked `@pytest.mark.serial`
+- [ ] No class/module-scoped `@patch` decorators
 
 ## CONSTRAINTS
 
@@ -550,14 +568,18 @@ Generate TEST_DESIGN_REPORT.md with:
 
 1. Test strategy overview
 2. **Fixture Reuse Plan** (REQUIRED)
-   - Existing fixtures to be used (name, source, purpose)
+   - Existing fixtures to be used (name + source module)
    - New fixtures proposed (with justification for why existing don't suffice)
-   - Where new fixtures will be placed (ml/tests/fixtures/{module}.py)
+   - Where new fixtures will be placed (ml/tests/fixtures/{module}.py or conftest.py)
+   - `pytest_plugins` registration confirmation
 3. List of test files created/modified
 4. Test cases with expected outcomes
 5. Fixtures and test data requirements
 6. Coverage expectations
-7. Handoff notes for Codex verification (list ALL APIs to verify)
+7. **Handoff notes for Codex verification (Phase 1.5)** - MUST include:
+   - ALL API methods to verify against legacy code
+   - Fixture compliance checklist status
+   - Anti-pattern avoidance confirmation
 8. Handoff notes for implementation agent
 
 BEGIN TEST DESIGN:
@@ -1263,11 +1285,29 @@ BEGIN SYSTEM VALIDATION:
 **No exceptions.**
 
 ### 🆕 Rule 0.5: Codex Verification is NON-NEGOTIABLE
-**ALL test designs MUST be verified against legacy code before implementation.**
+**ALL test designs MUST be verified against legacy code AND FIXTURE_GUIDE.md before implementation.**
 
 **Details:** See CRITICAL_SAFEGUARDS.md Category 0 for error patterns and decision tree.
 
-**Summary:** Phase 2.3 caught 50 API mismatches across 5 sub-phases; 87% error reduction by Phase 2.3.5.
+**Scope (updated 2025-12-01):**
+1. **API Verification** - Method names, signatures, return types match legacy code
+2. **Fixture Compliance** - Tests follow FIXTURE_GUIDE.md patterns (pytest_plugins, no duplicates)
+3. **Anti-Pattern Detection** - No config equality, enum identity, missing serial markers
+4. **🆕 Value Testing** - Parity tests compare NUMERICAL VALUES, not container types
+
+**Value Testing Requirement:**
+```python
+# ❌ WRONG - assumes specific return type
+legacy_features = legacy.compute_features(bars)
+facade_features = facade.compute_features(bars)
+np.testing.assert_allclose(legacy_features, facade_features)  # Fails if dict vs array
+
+# ✅ CORRECT - compares VALUES regardless of container
+for feature_name in feature_names:
+    assert legacy_features[feature_name] == pytest.approx(facade_features[feature_name], rel=1e-10)
+```
+
+**Summary:** Phase 2.3 caught 50 API mismatches; Task 1.1 caught 6/7 files with fixture violations + wrong parity test assumptions.
 
 ### Rule 1: Phases 3 and 4 are MANDATORY
 **Every refactoring task MUST pass both validation phases:**
@@ -1355,10 +1395,21 @@ Output: PLANNING_DOCUMENT.md (or DECOMPOSITION_MAP.md) with:
 Test Design Agent (Phase 1)
     ↓ (designs tests FOR the mapped components, uses DECOMPOSITION_MAP.md)
 🆕 Codex MCP Verification (Phase 1.5) - MANDATORY
+    ↓ (verifies APIs + FIXTURE_GUIDE.md compliance)
     ├─ 0 issues → ✅ PASS → Proceed to Phase 2
-    ├─ Minor issues → ⚠️ PARTIAL → Create V2 with corrections → Phase 2
+    ├─ API issues → ⚠️ PARTIAL → Create V2 with API corrections → Phase 2
+    ├─ Fixture issues → ⚠️ PARTIAL → Fix conftest.py/plugins → Phase 2
     └─ Major issues → ❌ FAIL → Major revision → Phase 1
 ```
+
+**Phase 1.5 Verification Checklist:**
+1. ✅ API methods exist in legacy code
+2. ✅ Method signatures match (params, return types)
+3. ✅ `pytest_plugins` registered in test package
+4. ✅ No inline fixture definitions (use `ml/tests/fixtures/`)
+5. ✅ No duplicate fixtures across test files
+6. ✅ No test anti-patterns (config equality, enum identity, missing serial markers)
+7. ✅ **Value Testing** - Parity tests compare VALUES not container types
 
 ### Implementation & Validation Workflow (Phases 2-5)
 
@@ -1383,7 +1434,7 @@ System Validation Agent (Phase 5, optional)
 
 - **Phase 0: Decomposition design - maps concerns BEFORE any code (PROVEN ESSENTIAL)**
 - Phase 1: Test-first approach (TDD) - tests FOR the designed components
-- **Phase 1.5: Codex verification - prevents 50+ API errors (PROVEN ESSENTIAL)**
+- **Phase 1.5: Codex verification - prevents 50+ API errors + fixture violations (PROVEN ESSENTIAL)**
 - Phase 2: Implementation follows DECOMPOSITION_MAP.md + test specifications
 - Phase 3: Quick validation (seconds) - Syntax, types, imports
 - Phase 4: Runtime validation (minutes) - Test execution + **Category 14 decomposition quality**

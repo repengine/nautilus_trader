@@ -2,23 +2,19 @@ from __future__ import annotations
 
 from datetime import UTC
 from datetime import datetime
-from typing import TYPE_CHECKING
-
 import pandas as pd
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ml.core.db_engine import EngineManager
 from ml.observability.migrations import ensure_monthly_partitions
-
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -28,9 +24,9 @@ pytestmark = [
 
 
 def test_partition_creation_on_empty_table(
-    test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> None:
-    eng: Engine = test_database.engine
+    eng: Engine = EngineManager.get_engine(cloned_test_database)
     table = "obs_part_test_latency"
     ts_col = "ts_stage_end"
     with eng.begin() as conn:
@@ -65,9 +61,9 @@ def test_partition_creation_on_empty_table(
 
 
 def test_skip_partition_when_not_empty(
-    test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> None:
-    eng: Engine = test_database.engine
+    eng: Engine = EngineManager.get_engine(cloned_test_database)
     table = "obs_part_test_metrics"
     ts_col = "timestamp"
     with eng.begin() as conn:

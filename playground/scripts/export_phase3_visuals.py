@@ -30,8 +30,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ml.config.playground import ThreeDRiskBacktestDefaults  # noqa: E402
-from playground.backtest.monitoring import log_walk_forward_metadata  # noqa: E402
 from playground.backtest.liquidity_controls import LiquidityScalingConfig  # noqa: E402
+from playground.backtest.monitoring import log_walk_forward_metadata  # noqa: E402
 
 
 DEFAULT_DATA_DIR = Path("playground/reports/backtesting")

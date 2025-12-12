@@ -110,8 +110,9 @@ active environment to maintain accurate detection and automated replays.
   (not recommended for Tier‑1).
 - Catalog coverage uses the same identifier resolver as the rehydrator. Bars default to
   `{instrument_id}-1-MINUTE-LAST-EXTERNAL` (override via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE`);
-  TBBO/trade schemas key directly on `instrument_id`. This alignment keeps parquet interval
-  scans fast and prevents redundant Databento backfills when the catalog already contains data.
+  TBBO/Trades/MBP default to raw `instrument_id`, and per-schema overrides can be supplied
+  via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP`. This alignment keeps parquet interval scans
+  fast and prevents redundant Databento backfills when the catalog already contains data.
 
 ### Databento Discovery (dynamic dataset selection)
 

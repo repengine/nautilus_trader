@@ -8,7 +8,7 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -25,10 +25,6 @@ from ml.stores.feature_store import FeatureStore
 from ml.training.base import BaseMLTrainer
 from nautilus_trader.model.data import Bar
 
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-
-
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
@@ -38,7 +34,7 @@ pytestmark = pytest.mark.usefixtures(
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db_class", "real_engine_manager")
+@pytest.mark.usefixtures("cloned_test_database", "real_engine_manager")
 class TestFeatureStoreIntegration:
     """
     Test FeatureStore integration with existing components.
@@ -55,7 +51,7 @@ class TestFeatureStoreIntegration:
     def test_ml_signal_actor_with_feature_store(
         self,
         mock_bar: Bar,
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test that MLSignalActor uses FeatureStore when configured.
@@ -72,7 +68,7 @@ class TestFeatureStoreIntegration:
             bar_type=cast(BarType, object()),
             instrument_id=cast(InstrumentId, object()),
             use_feature_store=True,
-            db_connection=test_database.connection_string,
+            db_connection=cloned_test_database,
             persist_features=True,
             prediction_threshold=0.7,
         )
@@ -111,7 +107,6 @@ class TestFeatureStoreIntegration:
     def test_ml_signal_actor_without_feature_store(
         self,
         mock_bar: Bar,
-        test_database: TestDatabase,
     ) -> None:
         """
         Test that MLSignalActor works without FeatureStore (backward compatibility).
@@ -141,7 +136,7 @@ class TestFeatureStoreIntegration:
             # Verify actor still has FeatureEngineer
             assert actor._feature_engineer is not None
 
-    def test_training_with_feature_store(self, test_database: TestDatabase) -> None:
+    def test_training_with_feature_store(self, cloned_test_database: str) -> None:
         """
         Test training pipeline with FeatureStore integration.
         """
@@ -221,7 +216,7 @@ class TestFeatureStoreIntegration:
         # Create config with FeatureStore
         config = MLTrainingConfig(
             data_source="test_data",
-            db_connection=test_database.connection_string,
+            db_connection=cloned_test_database,
         )
 
         # Create trainer
@@ -260,7 +255,7 @@ class TestFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_store_config_propagation(self, test_database: TestDatabase) -> None:
+    def test_feature_store_config_propagation(self, cloned_test_database: str) -> None:
         """
         Test that FeatureStore configuration is properly propagated.
         """
@@ -275,7 +270,7 @@ class TestFeatureStoreIntegration:
             model_path="./test_model.onnx",
             bar_type=cast(BarType, object()),
             instrument_id=cast(InstrumentId, object()),
-            db_connection=test_database.connection_string,
+            db_connection=cloned_test_database,
             persist_features=False,
             feature_config=feature_config,
         )
@@ -286,9 +281,7 @@ class TestFeatureStoreIntegration:
             # Verify custom configuration
             assert actor._feature_store is not None
             assert actor._persist_features is False
-            assert (
-                cast(Any, actor._feature_store).connection_string == test_database.connection_string
-            )
+            assert cast(Any, actor._feature_store).connection_string == cloned_test_database
             # Compare config values, not object identity (prevents pollution from other tests)
             import msgspec
 
@@ -300,13 +293,13 @@ class TestFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_parity_validation_in_training(self, test_database: TestDatabase) -> None:
+    def test_parity_validation_in_training(self, cloned_test_database: str) -> None:
         """
         Test that training pipeline can validate parity.
         """
         # Create FeatureStore
         feature_store = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=FeatureConfig(),
         )
 

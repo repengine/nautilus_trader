@@ -33,6 +33,7 @@ from typing import Any
 
 from ml.common.logging_config import configure_logging
 
+
 # Configure logging
 configure_logging()
 logger = logging.getLogger(__name__)

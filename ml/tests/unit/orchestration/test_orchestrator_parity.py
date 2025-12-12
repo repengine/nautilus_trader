@@ -39,7 +39,6 @@ if TYPE_CHECKING:
 class TestMethodParity:
     """Tests for method parity between legacy and facade implementations."""
 
-    @pytest.mark.skip(reason="Pending implementation - parity verification")
     def test_build_dataset_parity(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -97,7 +96,6 @@ class TestMethodParity:
         assert legacy_result == facade_result
         assert legacy_call_args == facade_call_args
 
-    @pytest.mark.skip(reason="Pending implementation - parity verification")
     def test_run_hpo_parity(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -157,7 +155,6 @@ class TestMethodParity:
 
         assert legacy_result == facade_result
 
-    @pytest.mark.skip(reason="Pending implementation - parity verification")
     def test_train_teacher_disabled_parity(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -215,7 +212,6 @@ class TestMethodParity:
         assert legacy_result == facade_result == 0
         assert not mock_teacher_main.called
 
-    @pytest.mark.skip(reason="Pending implementation - parity verification")
     def test_distill_student_disabled_parity(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -270,7 +266,6 @@ class TestMethodParity:
 
         assert legacy_result == facade_result == 0
 
-    @pytest.mark.skip(reason="Pending implementation - parity verification")
     def test_get_health_status_structure_parity(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -336,7 +331,6 @@ class TestMethodParity:
 class TestFeatureFlagBehavior:
     """Tests for feature flag switching behavior."""
 
-    @pytest.mark.skip(reason="Pending implementation - feature flag parity")
     def test_feature_flag_default_uses_component_mode(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -374,7 +368,6 @@ class TestFeatureFlagBehavior:
         # Should indicate component-based implementation
         assert health.get("implementation") == "component_based"
 
-    @pytest.mark.skip(reason="Pending implementation - feature flag parity")
     def test_feature_flag_1_uses_legacy_mode(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -412,7 +405,6 @@ class TestFeatureFlagBehavior:
         # Should indicate legacy implementation
         assert health.get("implementation") == "legacy"
 
-    @pytest.mark.skip(reason="Pending implementation - feature flag parity")
     def test_feature_flag_switching_preserves_behavior(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -470,7 +462,6 @@ class TestFeatureFlagBehavior:
 class TestPublicAPIParity:
     """Tests for public API preservation between legacy and facade."""
 
-    @pytest.mark.skip(reason="Pending implementation - API parity")
     def test_all_public_methods_exist_on_facade(
         self,
         mock_coverage_provider: Mock,
@@ -524,7 +515,6 @@ class TestPublicAPIParity:
                 getattr(facade, method_name)
             ), f"Not callable: {method_name}"
 
-    @pytest.mark.skip(reason="Pending implementation - API parity")
     def test_all_public_attributes_exist_on_facade(
         self,
         mock_coverage_provider: Mock,
@@ -579,7 +569,6 @@ class TestPublicAPIParity:
         for attr_name in public_attrs:
             assert hasattr(facade, attr_name), f"Missing attribute: {attr_name}"
 
-    @pytest.mark.skip(reason="Pending implementation - API parity")
     def test_registry_backward_compat_alias(
         self,
         mock_coverage_provider: Mock,
@@ -652,15 +641,6 @@ def mock_teacher_main() -> Mock:
 def mock_hpo_main() -> Mock:
     """Mock CLI main function for HPO."""
     return Mock(return_value=0)
-
-
-@pytest.fixture
-def mock_data_registry() -> Mock:
-    """Mock DataRegistry."""
-    registry = Mock()
-    registry.register_dataset.return_value = True
-    registry.get_dataset.return_value = None
-    return registry
 
 
 @pytest.fixture

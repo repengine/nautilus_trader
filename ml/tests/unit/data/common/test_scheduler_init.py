@@ -24,6 +24,33 @@ import pytest
 
 from ml.data.common.scheduler_init import SchedulerInitComponent
 from ml.data.common.scheduler_init import SchedulerInitProtocol
+from ml.tests.utils.db import build_postgres_url
+
+
+DEFAULT_CONNECTION = build_postgres_url(
+    user="user",
+    password="pass",
+    host="host",
+    database="db",
+)
+LEGACY_CONNECTION = build_postgres_url(
+    user="legacy",
+    password="pass",
+    host="host",
+    database="db",
+)
+EXPLICIT_CONNECTION = build_postgres_url(
+    user="explicit",
+    password="pass",
+    host="host",
+    database="db",
+)
+ENV_CONNECTION = build_postgres_url(
+    user="env",
+    password="pass",
+    host="envhost",
+    database="envdb",
+)
 
 
 # -----------------------------------------------------------------------------
@@ -57,7 +84,7 @@ def config_with_feature_store_connection() -> Any:
     return SchedulerConfig(
         symbols=["SPY.XNAS"],
         feature_store_enabled=True,
-        feature_store_connection="postgresql://user:pass@host:5432/db",
+        feature_store_connection=DEFAULT_CONNECTION,
     )
 
 
@@ -69,7 +96,7 @@ def config_with_connection_string() -> Any:
     return SchedulerConfig(
         symbols=["SPY.XNAS"],
         feature_store_enabled=True,
-        connection_string="postgresql://legacy:pass@host:5432/db",
+        connection_string=LEGACY_CONNECTION,
     )
 
 
@@ -97,7 +124,7 @@ class TestResolveConnection:
         minimal_config: Any,
     ) -> None:
         """Test connection resolved from explicit parameter."""
-        connection = "postgresql://explicit:pass@host:5432/db"
+        connection = EXPLICIT_CONNECTION
 
         result = component.resolve_connection(minimal_config, connection)
 
@@ -114,7 +141,7 @@ class TestResolveConnection:
             None,
         )
 
-        assert result == "postgresql://user:pass@host:5432/db"
+        assert result == DEFAULT_CONNECTION
 
     def test_resolve_connection_from_config_connection_string(
         self,
@@ -127,7 +154,7 @@ class TestResolveConnection:
             None,
         )
 
-        assert result == "postgresql://legacy:pass@host:5432/db"
+        assert result == LEGACY_CONNECTION
 
     def test_resolve_connection_none_when_all_missing(
         self,
@@ -161,7 +188,7 @@ class TestInitDataRegistry:
             mock_registry_class.return_value = mock_registry
 
             result = component.init_data_registry(
-                "postgresql://user:pass@host:5432/db"
+                DEFAULT_CONNECTION
             )
 
             assert result is mock_registry
@@ -204,7 +231,7 @@ class TestInitDataRegistry:
             mock_registry_class.side_effect = RuntimeError("DB connection failed")
 
             result = component.init_data_registry(
-                "postgresql://user:pass@host:5432/db"
+                DEFAULT_CONNECTION
             )
 
             assert result is None
@@ -234,7 +261,7 @@ class TestInitFeatureStore:
 
             result = component.init_feature_store(
                 config,
-                "postgresql://user:pass@host:5432/db",
+                DEFAULT_CONNECTION,
                 mock_feature_engineer,
             )
 
@@ -251,7 +278,7 @@ class TestInitFeatureStore:
         from ml.config.scheduler_config import SchedulerConfig
 
         config = SchedulerConfig(feature_store_enabled=True)
-        env_connection = "postgresql://env:pass@envhost:5432/envdb"
+        env_connection = ENV_CONNECTION
         monkeypatch.setenv("NAUTILUS_DB_CONNECTION", env_connection)
 
         with patch("ml.stores.feature_store.FeatureStore") as mock_fs_class:
@@ -282,7 +309,7 @@ class TestInitFeatureStore:
 
         result = component.init_feature_store(
             config,
-            "postgresql://user:pass@host:5432/db",
+            DEFAULT_CONNECTION,
             mock_feature_engineer,
         )
 
@@ -299,7 +326,7 @@ class TestInitFeatureStore:
 
         result = component.init_feature_store(
             config,
-            "postgresql://user:pass@host:5432/db",
+            DEFAULT_CONNECTION,
             None,  # No feature engineer
         )
 
@@ -320,7 +347,7 @@ class TestInitFeatureStore:
 
             result = component.init_feature_store(
                 config,
-                "postgresql://user:pass@host:5432/db",
+                DEFAULT_CONNECTION,
                 mock_feature_engineer,
             )
 

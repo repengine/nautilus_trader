@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_build_tft_specific_dataset() -> None:
     """
@@ -31,7 +30,6 @@ def test_build_tft_specific_dataset() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_tft_static_vs_time_varying_features() -> None:
     """
@@ -47,7 +45,6 @@ def test_tft_static_vs_time_varying_features() -> None:
     """
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
 def test_tft_windowing_correct() -> None:
     """

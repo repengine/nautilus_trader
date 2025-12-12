@@ -35,6 +35,7 @@ from ml.registry.base import ModelRole
 from ml.registry.common.model_persistence import ModelPersistenceComponent
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.utils.db import build_postgres_url
 
 
 # =============================================================================
@@ -857,7 +858,11 @@ class TestPostgresBackend:
             with patch.object(PersistenceConfig, "__post_init__"):
                 config = PersistenceConfig(
                     backend=BackendType.POSTGRES,
-                    connection_string="postgresql://test:test@localhost:5432/test",
+                    connection_string=build_postgres_url(
+                        user="test",
+                        password="test",
+                        database="test",
+                    ),
                 )
 
             component = ModelPersistenceComponent.__new__(ModelPersistenceComponent)

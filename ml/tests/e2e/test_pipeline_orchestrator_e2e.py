@@ -1,13 +1,13 @@
 import os
-import pytest
-
-if os.getenv("ML_ENABLE_COMPONENT_FACADES", "0") != "1":
-    pytest.skip("component orchestrator tests disabled", allow_module_level=True)
 
 # Ensure component facade stays active before importing orchestrator module.
 os.environ["ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR"] = "1"
 os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
 import importlib
+
+# Placeholder defaults for legacy parity paths; fixtures supply concrete values when used.
+mock_data_registry = None
+mock_data_store = None
 
 #!/usr/bin/env python3
 
@@ -195,7 +195,7 @@ def mock_dataset_discovery() -> Any:
                 MarketDatasetInput(
                     descriptor_id="test_descriptor",
                     dataset_id="EQUS.MINI",
-                    symbols=(req.symbol,),
+                    symbols=(req.symbol, ),
                     schema_override=req.schema,
                     storage_kind_override=StorageKind.PARQUET,
                 )
@@ -212,6 +212,63 @@ def mock_dataset_discovery() -> Any:
     service.policy = policy_mock
 
     return service
+
+
+@pytest.fixture
+def mock_writer() -> Any:
+    """Create mock MarketDataWriter."""
+    writer = MagicMock()
+    writer.write_bars = MagicMock(return_value=0)
+    writer.write_trades = MagicMock(return_value=0)
+    return writer
+
+
+@pytest.fixture
+def mock_build_main() -> Any:
+    """Create mock build_main CLI function."""
+    return MagicMock(return_value=0)
+
+
+@pytest.fixture
+def mock_teacher_main() -> Any:
+    """Create mock teacher_main CLI function."""
+    return MagicMock(return_value=0)
+
+
+@pytest.fixture
+def orchestrator_factory(
+    mock_coverage_provider: Any,
+    mock_writer: Any,
+    mock_build_main: Any,
+    mock_teacher_main: Any,
+    mock_data_registry: Any,
+    mock_data_store: Any,
+    mock_dataset_discovery: Any,
+    mock_ingestion_service: Any,
+) -> Any:
+    """
+    Factory fixture that creates MLPipelineOrchestrator with all required dependencies.
+
+    Usage:
+        def test_something(orchestrator_factory):
+            orchestrator = orchestrator_factory()
+            # or with overrides:
+            orchestrator = orchestrator_factory(data_registry=custom_registry)
+    """
+    def _create(**overrides: Any) -> Any:
+        defaults = {
+            "coverage": mock_coverage_provider,
+            "writer": mock_writer,
+            "build_main": mock_build_main,
+            "teacher_main": mock_teacher_main,
+            "data_registry": mock_data_registry,
+            "data_store": mock_data_store,
+            "dataset_discovery": mock_dataset_discovery,
+            "service": mock_ingestion_service,
+        }
+        defaults.update(overrides)
+        return MLPipelineOrchestrator(**defaults)
+    return _create
 
 
 @pytest.fixture
@@ -267,18 +324,14 @@ class TestE2EConfigResolution:
 
     def test_e2e_apply_default_market_inputs(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
+        orchestrator_factory: Any,
         sample_dataset_config: DatasetBuildConfig,
     ):
         """
         E2E Test: Apply default market inputs to configuration.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Apply defaults
         updated_cfg = orchestrator.apply_default_market_inputs(sample_dataset_config)
@@ -289,18 +342,14 @@ class TestE2EConfigResolution:
 
     def test_e2e_collect_symbol_map(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
+        orchestrator_factory: Any,
         sample_dataset_config: DatasetBuildConfig,
     ):
         """
         E2E Test: Collect symbol to instrument ID mapping.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Collect symbol map
         symbol_map = orchestrator.collect_symbol_map(
@@ -314,17 +363,12 @@ class TestE2EConfigResolution:
 
     def test_e2e_compute_window_start(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-    ):
+        orchestrator_factory: Any, ):
         """
         E2E Test: Compute window start date from end date.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Compute window start
         end_iso = "2024-01-31"
@@ -340,18 +384,13 @@ class TestE2EConfigResolution:
 
     def test_e2e_resolve_window_bounds(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        sample_dataset_config: DatasetBuildConfig,
+        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
     ):
         """
         E2E Test: Resolve window bounds in nanoseconds.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Resolve bounds
         start_ns, end_ns = orchestrator.resolve_window_bounds_ns(sample_dataset_config)
@@ -375,9 +414,7 @@ class TestE2EDiscoveryOperations:
 
     def test_e2e_discover_market_inputs(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        mock_dataset_discovery: Any,
+        orchestrator_factory: Any, mock_dataset_discovery: Any,
         mock_ingestion_service: Any,
         sample_dataset_config: DatasetBuildConfig,
         timestamp_now: int,
@@ -386,15 +423,10 @@ class TestE2EDiscoveryOperations:
         E2E Test: Discover market inputs for symbols.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-            dataset_discovery=mock_dataset_discovery,
-            service=mock_ingestion_service,
-        )
+        orchestrator = orchestrator_factory()
 
         # Get symbol map
-        symbol_map = {"AAPL": ("AAPL.NASDAQ",), "MSFT": ("MSFT.NASDAQ",)}
+        symbol_map = {"AAPL": ("AAPL.NASDAQ", ), "MSFT": ("MSFT.NASDAQ", )}
 
         # Resolve bounds
         start_ns, end_ns = orchestrator.resolve_window_bounds_ns(sample_dataset_config)
@@ -426,9 +458,7 @@ class TestE2EBindingResolution:
 
     def test_e2e_resolve_market_inputs_with_config(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        mock_coverage_provider: Any,
+        orchestrator_factory: Any, mock_coverage_provider: Any,
         mock_ingestion_service: Any,
         mock_dataset_discovery: Any,
         sample_dataset_config: DatasetBuildConfig,
@@ -437,16 +467,10 @@ class TestE2EBindingResolution:
         E2E Test: Resolve market inputs with coverage validation.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-            coverage_provider=mock_coverage_provider,
-            service=mock_ingestion_service,
-            dataset_discovery=mock_dataset_discovery,
-        )
+        orchestrator = orchestrator_factory()
 
         # Get symbol map and bounds
-        symbol_map = {"AAPL": ("AAPL.NASDAQ",), "MSFT": ("MSFT.NASDAQ",)}
+        symbol_map = {"AAPL": ("AAPL.NASDAQ", ), "MSFT": ("MSFT.NASDAQ", )}
         start_ns, end_ns = orchestrator.resolve_window_bounds_ns(sample_dataset_config)
 
         # Resolve inputs
@@ -464,9 +488,7 @@ class TestE2EBindingResolution:
 
     def test_e2e_filter_candidate_bindings(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        mock_coverage_provider: Any,
+        orchestrator_factory: Any, mock_coverage_provider: Any,
         mock_ingestion_service: Any,
         timestamp_now: int,
     ):
@@ -477,12 +499,7 @@ class TestE2EBindingResolution:
         from ml.registry.dataclasses import StorageKind
 
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-            coverage_provider=mock_coverage_provider,
-            service=mock_ingestion_service,
-        )
+        orchestrator = orchestrator_factory()
 
         # Create candidate bindings
         now = datetime.fromtimestamp(timestamp_now / 1_000_000_000, tz=UTC)
@@ -493,7 +510,7 @@ class TestE2EBindingResolution:
             ResolvedMarketBinding(
                 binding_id="test_1",
                 symbol="AAPL",
-                instrument_ids=("AAPL.NASDAQ",),
+                instrument_ids=("AAPL.NASDAQ", ),
                 dataset_id="EQUS.MINI",
                 descriptor_id="test_desc",
                 schema="ohlcv-1m",
@@ -531,9 +548,7 @@ class TestE2EDatasetBuilding:
 
     def test_e2e_prepare_dataset_config(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        sample_dataset_config: DatasetBuildConfig,
+        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
     ):
         """
         E2E Test: Prepare dataset config with resolved values.
@@ -543,17 +558,14 @@ class TestE2EDatasetBuilding:
         from ml.registry.dataclasses import StorageKind
 
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Create resolved inputs and bindings
         resolved_inputs = (
             MarketDatasetInput(
                 descriptor_id="test_desc",
                 dataset_id="EQUS.MINI",
-                symbols=("AAPL",),
+                symbols=("AAPL", ),
                 schema_override="ohlcv-1m",
                 storage_kind_override=StorageKind.PARQUET,
             ),
@@ -563,7 +575,7 @@ class TestE2EDatasetBuilding:
             ResolvedMarketBinding(
                 binding_id="test_binding",
                 symbol="AAPL",
-                instrument_ids=("AAPL.NASDAQ",),
+                instrument_ids=("AAPL.NASDAQ", ),
                 dataset_id="EQUS.MINI",
                 descriptor_id="test_desc",
                 schema="ohlcv-1m",
@@ -600,9 +612,7 @@ class TestE2EComponentIntegration:
 
     def test_e2e_full_configuration_pipeline(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        mock_coverage_provider: Any,
+        orchestrator_factory: Any, mock_coverage_provider: Any,
         mock_ingestion_service: Any,
         mock_dataset_discovery: Any,
         sample_dataset_config: DatasetBuildConfig,
@@ -619,13 +629,7 @@ class TestE2EComponentIntegration:
         6. Prepare final config
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-            coverage_provider=mock_coverage_provider,
-            service=mock_ingestion_service,
-            dataset_discovery=mock_dataset_discovery,
-        )
+        orchestrator = orchestrator_factory()
 
         # Step 1: Apply defaults
         cfg = orchestrator.apply_default_market_inputs(sample_dataset_config)
@@ -686,17 +690,12 @@ class TestE2EHealthMonitoring:
 
     def test_e2e_health_status_all_components(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-    ):
+        orchestrator_factory: Any, ):
         """
         E2E Test: Health status includes all components.
         """
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Get health status
         health = orchestrator.get_health_status()
@@ -722,9 +721,7 @@ class TestE2ELegacyComponentParity:
 
     def test_e2e_config_resolution_parity(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        sample_dataset_config: DatasetBuildConfig,
+        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
         monkeypatch: pytest.MonkeyPatch,
     ):
         """
@@ -757,9 +754,7 @@ class TestE2ELegacyComponentParity:
 
     def test_e2e_window_bounds_parity(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        sample_dataset_config: DatasetBuildConfig,
+        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
         monkeypatch: pytest.MonkeyPatch,
     ):
         """
@@ -799,9 +794,7 @@ class TestE2ELegacyComponentParity:
 
     def test_e2e_health_status_structure_parity(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        monkeypatch: pytest.MonkeyPatch,
+        orchestrator_factory: Any, monkeypatch: pytest.MonkeyPatch,
     ):
         """
         E2E Test: Health status structure consistent between modes.
@@ -847,16 +840,12 @@ class TestE2EErrorHandling:
 
     def test_e2e_missing_registry_handled_gracefully(
         self,
-        mock_data_store: Any,
-    ):
+        orchestrator_factory: Any, ):
         """
         E2E Test: Missing registry handled gracefully.
         """
         # Create orchestrator without registry
-        orchestrator = MLPipelineOrchestrator(
-            registry=None,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Should still work for basic operations
         health = orchestrator.get_health_status()
@@ -864,9 +853,7 @@ class TestE2EErrorHandling:
 
     def test_e2e_invalid_window_bounds_handled(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-    ):
+        orchestrator_factory: Any, ):
         """
         E2E Test: Invalid window bounds handled gracefully.
         """
@@ -897,10 +884,7 @@ class TestE2EErrorHandling:
         )
 
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Should handle gracefully (may adjust dates or return minimum window)
         start_ns, end_ns = orchestrator.resolve_window_bounds_ns(invalid_cfg)
@@ -922,9 +906,7 @@ class TestE2EPerformance:
     @pytest.fixture(autouse=True)
     def test_e2e_config_resolution_performance(
         self,
-        mock_data_registry: Any,
-        mock_data_store: Any,
-        sample_dataset_config: DatasetBuildConfig,
+        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
     ):
         """
         E2E Test: Config resolution completes quickly.
@@ -932,10 +914,7 @@ class TestE2EPerformance:
         import time
 
         # Create orchestrator
-        orchestrator = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
 
         # Measure time
         start = time.perf_counter()

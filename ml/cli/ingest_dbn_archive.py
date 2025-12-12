@@ -4,13 +4,15 @@ CLI entrypoint for ingesting Databento DBN archives from disk.
 
 The command processes one or more ``.zip`` bundles under ``data/batch/`` (or a
 user-specified path), decodes the contained ``.dbn.zst`` members, and writes the
-resulting frames to the canonical SQL market-data store with an optional
-DataStore mirror.
+resulting frames to the canonical SQL market-data store with optional mirrors
+(DataStore and/or Parquet catalog). A catalog-only mode is available for offline
+rehydration workflows where SQL will be restored later from Parquet.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -19,9 +21,12 @@ import structlog
 
 from ml.data.ingest.dbn_archive import DBNArchiveIngestionConfig
 from ml.data.ingest.dbn_archive import DBNArchiveIngestor
-from ml.stores import DataStore
+from ml.stores.data_store import DataStore
+from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.writers import FanoutMarketDataWriter
+from ml.stores.writers import ParquetCatalogRawMarketDataWriter
 
 
 __all__ = ["main"]
@@ -42,8 +47,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--db-url",
         dest="db_url",
-        required=True,
-        help="PostgreSQL connection URL for the canonical market_data table.",
+        default=os.environ.get("DATABASE_URL"),
+        help="PostgreSQL connection URL for the canonical market_data table (required unless --catalog-only).",
     )
     parser.add_argument(
         "--dataset",
@@ -70,6 +75,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Also write records to the ML DataStore (requires DB connection).",
     )
     parser.add_argument(
+        "--catalog-path",
+        dest="catalog_path",
+        default=os.environ.get("CATALOG_PATH"),
+        help="Optional Parquet catalog root for mirroring writes.",
+    )
+    parser.add_argument(
+        "--catalog-overwrite",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Prune overlapping Parquet catalog files before writes "
+            "(use --no-catalog-overwrite to preserve existing files and skip overlaps)."
+        ),
+    )
+    parser.add_argument(
+        "--catalog-only",
+        dest="catalog_only",
+        action="store_true",
+        help="Write only to the Parquet catalog (skip SQL/DataStore). Requires --catalog-path.",
+    )
+    parser.add_argument(
         "--table-name",
         dest="table_name",
         default="market_data",
@@ -90,23 +116,64 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.catalog_only and not args.catalog_path:
+        parser.error("--catalog-only requires --catalog-path")
+    if not args.catalog_only and not args.db_url:
+        parser.error("--db-url is required unless --catalog-only is set")
+    if args.catalog_only and args.mirror:
+        parser.error("--mirror-data-store cannot be used with --catalog-only")
+
     archives = _resolve_archives(Path(args.input).expanduser())
     if not archives:
         logger.warning("offline.ingest.no_archives", input=args.input)
         return 0
 
-    writer = SqlMarketDataWriter(
-        connection_string=args.db_url,
-        table_name=args.table_name,
-    )
-
-    mirror_writer = None
-    if args.mirror:
-        mirror_writer = DataStoreMarketDataWriter(
-            store=DataStore(connection_string=args.db_url),
+    catalog_writer: ParquetCatalogRawMarketDataWriter | None = None
+    if args.catalog_path:
+        catalog_path = Path(args.catalog_path).expanduser()
+        catalog_path.mkdir(parents=True, exist_ok=True)
+        try:
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+        except Exception as exc:  # pragma: no cover - defensive import
+            logger.error("Unable to import ParquetDataCatalog", exc_info=True)
+            raise RuntimeError("ParquetDataCatalog import failed") from exc
+        catalog = ParquetDataCatalog(str(catalog_path))
+        catalog_writer = ParquetCatalogRawMarketDataWriter(
+            catalog=catalog,
+            replace_on_overlap=bool(args.catalog_overwrite),
         )
 
-    ingestor = DBNArchiveIngestor(writer=writer, mirror_writer=mirror_writer)
+    writer: MarketDataWriterProtocol
+    if args.catalog_only:
+        if catalog_writer is None:  # pragma: no cover - parser guards but keep defensive
+            parser.error("--catalog-only requires --catalog-path")
+        assert catalog_writer is not None
+        writer = catalog_writer
+    else:
+        primary_writer = SqlMarketDataWriter(
+            connection_string=args.db_url,
+            table_name=args.table_name,
+        )
+
+        mirrors: list[MarketDataWriterProtocol] = []
+        if args.mirror:
+            mirrors.append(
+                DataStoreMarketDataWriter(
+                    store=DataStore(connection_string=args.db_url),
+                ),
+            )
+        if catalog_writer is not None:
+            mirrors.append(catalog_writer)
+
+        if mirrors:
+            writer = FanoutMarketDataWriter(
+                primary=primary_writer,
+                mirrors=tuple(mirrors),
+            )
+        else:
+            writer = primary_writer
+
+    ingestor = DBNArchiveIngestor(writer=writer, mirror_writer=None)
 
     for archive_path in archives:
         config = DBNArchiveIngestionConfig(

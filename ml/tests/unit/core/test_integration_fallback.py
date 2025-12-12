@@ -8,6 +8,7 @@ import pytest
 
 from ml.core.db_engine import EngineManager
 from ml.core.integration import MLIntegrationManager
+from ml.tests.utils.db import build_postgres_url, get_test_db_port
 
 
 @contextmanager
@@ -62,10 +63,11 @@ def test_integration_manager_uses_env_connection(monkeypatch: pytest.MonkeyPatch
 def test_is_postgres_running_switches_to_alternate_port(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POSTGRES_HOST_PORT", raising=False)
     mgr = object.__new__(MLIntegrationManager)
-    mgr.db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    primary_port = get_test_db_port()
+    mgr.db_connection = build_postgres_url(port=primary_port)
     mgr._connection_candidates = (
-        "postgresql://postgres:postgres@localhost:5432/nautilus",
-        "postgresql://postgres:postgres@localhost:5433/nautilus",
+        build_postgres_url(port=primary_port),
+        build_postgres_url(port="5433"),
     )
 
     calls: list[str] = []
@@ -80,6 +82,6 @@ def test_is_postgres_running_switches_to_alternate_port(monkeypatch: pytest.Monk
 
     assert MLIntegrationManager._is_postgres_running(mgr) is True
     assert mgr.db_connection.endswith(":5433/nautilus")
-    assert disposed and disposed[0].endswith(":5432/nautilus")
-    assert calls[0].endswith(":5432/nautilus")
+    assert disposed and disposed[0].endswith(f":{primary_port}/nautilus")
+    assert calls[0].endswith(f":{primary_port}/nautilus")
     assert any(call.endswith(":5433/nautilus") for call in calls[1:])

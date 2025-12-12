@@ -16,24 +16,24 @@ import time
 from datetime import date
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pytest
-from unittest.mock import MagicMock
 
-from typing import cast
-from ml.stores.data_store import DataStore
 from ml.features.earnings import compute_earnings_growth_batch
 from ml.features.earnings import compute_earnings_surprise_batch
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.stores.data_processor import DataProcessor
+from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.utils.earnings_facade import build_test_data_store
+from ml.tests.utils.db import build_postgres_url
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
@@ -59,7 +59,10 @@ class TestEarningsDataQuality:
         """Provide DataStore with earnings support and fallback."""
         import os
 
-        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_trader")
+        db_url = os.getenv(
+            "DATABASE_URL",
+            build_postgres_url(database="nautilus_trader"),
+        )
 
         feature_store = cast(FeatureStore, MagicMock(spec=FeatureStore))
         model_store = cast(ModelStore, MagicMock(spec=ModelStore))

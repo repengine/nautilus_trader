@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 class TestIngestionCoordinatorProtocol:
     """Tests for IngestionCoordinator protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify IngestionCoordinator implements protocol.
@@ -56,7 +55,6 @@ class TestIngestionCoordinatorProtocol:
 
         assert isinstance(instance, IngestionCoordinatorProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_run_pre_ingestion_signature(self) -> None:
         """
         Verify run_pre_ingestion method signature matches protocol.
@@ -81,7 +79,6 @@ class TestIngestionCoordinatorProtocol:
         assert "scheduler_cfg" in params
         assert "options" in params
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_backfill_signature(self) -> None:
         """
         Verify backfill method signature matches protocol.
@@ -108,7 +105,6 @@ class TestIngestionCoordinatorProtocol:
         assert "instrument_id" in params
         assert "lookback_days" in params
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_backfill_binding_signature(self) -> None:
         """
         Verify backfill_binding method signature matches protocol.
@@ -141,7 +137,6 @@ class TestIngestionCoordinatorProtocol:
 class TestDatasetBuilderProtocol:
     """Tests for DatasetBuilder protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify DatasetBuilder implements protocol.
@@ -166,7 +161,6 @@ class TestDatasetBuilderProtocol:
 
         assert isinstance(instance, DatasetBuilderProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_build_dataset_signature(self) -> None:
         """
         Verify build_dataset method signature matches protocol.
@@ -188,29 +182,27 @@ class TestDatasetBuilderProtocol:
 
         assert "config" in params or "cfg" in params
         # Check return annotation
-        assert sig.return_annotation == int or "int" in str(sig.return_annotation)
+        assert sig.return_annotation is int or "int" in str(sig.return_annotation)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
-    def test_prepare_dataset_config_signature(self) -> None:
+    def test_validate_dataset_signature(self) -> None:
         """
-        Verify prepare_dataset_config method signature matches protocol.
+        Verify validate_dataset method signature exists.
 
         Given:
         - DatasetBuilder class
 
         When:
-        - Inspecting prepare_dataset_config signature
+        - Inspecting validate_dataset signature
 
         Then:
-        - Has cfg parameter
-        - Returns DatasetBuildConfig
+        - Method exists and is callable
         """
         from ml.orchestration.dataset_builder import DatasetBuilder
 
-        sig = inspect.signature(DatasetBuilder.prepare_dataset_config)
-        params = list(sig.parameters.keys())
-
-        assert "cfg" in params or "config" in params
+        # DatasetBuilder has validate_dataset, not prepare_dataset_config
+        # (prepare_dataset_config is on ConfigResolver)
+        assert hasattr(DatasetBuilder, "validate_dataset")
+        assert callable(getattr(DatasetBuilder, "validate_dataset", None))
 
 
 # ============================================================================
@@ -222,7 +214,6 @@ class TestDatasetBuilderProtocol:
 class TestTrainingCoordinatorProtocol:
     """Tests for TrainingCoordinator protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify TrainingCoordinator implements protocol.
@@ -245,7 +236,6 @@ class TestTrainingCoordinatorProtocol:
 
         assert isinstance(instance, TrainingCoordinatorProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_train_teacher_signature(self) -> None:
         """
         Verify train_teacher method signature matches protocol.
@@ -271,7 +261,6 @@ class TestTrainingCoordinatorProtocol:
         assert "dataset_csv" in params
         assert "out_dir" in params
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_distill_student_signature(self) -> None:
         """
         Verify distill_student method signature matches protocol.
@@ -296,7 +285,6 @@ class TestTrainingCoordinatorProtocol:
         assert "dataset_dir" in params
         assert "teacher_cfg" in params
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_run_hpo_signature(self) -> None:
         """
         Verify run_hpo method signature matches protocol.
@@ -331,7 +319,6 @@ class TestTrainingCoordinatorProtocol:
 class TestConfigResolverProtocol:
     """Tests for ConfigResolver protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify ConfigResolver implements protocol.
@@ -352,27 +339,27 @@ class TestConfigResolverProtocol:
 
         assert isinstance(instance, ConfigResolverProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
-    def test_resolve_signature(self) -> None:
+    def test_resolve_instrument_ids_signature(self) -> None:
         """
-        Verify resolve method signature matches protocol.
+        Verify resolve_instrument_ids method signature matches protocol.
 
         Given:
         - ConfigResolver class
 
         When:
-        - Inspecting resolve signature
+        - Inspecting resolve_instrument_ids signature
 
         Then:
-        - Has cfg parameter
-        - Returns resolved config
+        - Method exists and has cfg parameter
         """
         from ml.orchestration.config_resolver import ConfigResolver
 
-        # ConfigResolver should have a resolve method
-        assert hasattr(ConfigResolver, "resolve") or hasattr(
-            ConfigResolver, "parse_symbols"
-        )
+        # ConfigResolver has resolve_instrument_ids (per protocol)
+        assert hasattr(ConfigResolver, "resolve_instrument_ids")
+        sig = inspect.signature(ConfigResolver.resolve_instrument_ids)
+        params = list(sig.parameters.keys())
+        # Parameter name may be cfg or dataset_cfg depending on implementation
+        assert "cfg" in params or "dataset_cfg" in params
 
 
 # ============================================================================
@@ -384,7 +371,6 @@ class TestConfigResolverProtocol:
 class TestDiscoveryClientProtocol:
     """Tests for DiscoveryClient protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify DiscoveryClient implements protocol.
@@ -415,7 +401,6 @@ class TestDiscoveryClientProtocol:
 class TestRegistrySynchronizerProtocol:
     """Tests for RegistrySynchronizer protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify RegistrySynchronizer implements protocol.
@@ -436,43 +421,46 @@ class TestRegistrySynchronizerProtocol:
 
         assert isinstance(instance, RegistrySynchronizerProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
-    def test_sync_features_signature(self) -> None:
+    def test_synchronize_dataset_manifest_signature(self) -> None:
         """
-        Verify sync_features method signature matches protocol.
+        Verify synchronize_dataset_manifest method signature matches protocol.
 
         Given:
         - RegistrySynchronizer class
 
         When:
-        - Inspecting sync_features signature
+        - Inspecting synchronize_dataset_manifest signature
 
         Then:
-        - Method exists and is callable
+        - Method exists and has cfg and metadata parameters
         """
         from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
-        assert hasattr(RegistrySynchronizer, "sync_features")
-        assert callable(getattr(RegistrySynchronizer, "sync_features", None))
+        assert hasattr(RegistrySynchronizer, "synchronize_dataset_manifest")
+        sig = inspect.signature(RegistrySynchronizer.synchronize_dataset_manifest)
+        params = list(sig.parameters.keys())
+        assert "cfg" in params
+        assert "metadata" in params
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
-    def test_sync_model_signature(self) -> None:
+    def test_capture_cli_build_artifacts_signature(self) -> None:
         """
-        Verify sync_model method signature matches protocol.
+        Verify capture_cli_build_artifacts method signature matches protocol.
 
         Given:
         - RegistrySynchronizer class
 
         When:
-        - Inspecting sync_model signature
+        - Inspecting capture_cli_build_artifacts signature
 
         Then:
-        - Method exists and is callable
+        - Method exists and has cfg parameter
         """
         from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 
-        assert hasattr(RegistrySynchronizer, "sync_model")
-        assert callable(getattr(RegistrySynchronizer, "sync_model", None))
+        assert hasattr(RegistrySynchronizer, "capture_cli_build_artifacts")
+        sig = inspect.signature(RegistrySynchronizer.capture_cli_build_artifacts)
+        params = list(sig.parameters.keys())
+        assert "cfg" in params
 
 
 # ============================================================================
@@ -484,7 +472,6 @@ class TestRegistrySynchronizerProtocol:
 class TestRuntimeAttacherProtocol:
     """Tests for RuntimeAttacher protocol compliance."""
 
-    @pytest.mark.skip(reason="Pending implementation - protocol definition")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify RuntimeAttacher implements protocol.
@@ -505,7 +492,6 @@ class TestRuntimeAttacherProtocol:
 
         assert isinstance(instance, RuntimeAttacherProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - method signatures")
     def test_attach_runtime_signature(self) -> None:
         """
         Verify attach_runtime method signature matches protocol.
@@ -534,7 +520,6 @@ class TestRuntimeAttacherProtocol:
 class TestStageControllerProtocol:
     """Tests for StageController protocol compliance (NEW)."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_conforms_to_protocol(self) -> None:
         """
         Verify StageController implements protocol.
@@ -559,7 +544,6 @@ class TestStageControllerProtocol:
 
         assert isinstance(instance, StageControllerProtocol)
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_pipeline_signature(self) -> None:
         """
         Verify run_pipeline method signature matches protocol.
@@ -585,7 +569,6 @@ class TestStageControllerProtocol:
         assert "checkpoint_file" in params
         assert "resume" in params
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_training_only_signature(self) -> None:
         """
         Verify run_training_only method signature matches protocol.

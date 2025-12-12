@@ -12,18 +12,15 @@ Test Categories:
 - Empty results: Graceful handling when no data exists
 - Edge cases: Time range boundaries, JSON serialization
 - Protocol isolation: Minimal mock-based dependencies
-
-Design: These tests are initially marked @pytest.mark.skip and define the contract
-for implementation. Once CrossAssetFeatureService is implemented, remove skip markers.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Any
+import uuid
+from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import MagicMock
 
 import pytest
-import uuid
 from sqlalchemy import Column
 from sqlalchemy import Integer
 from sqlalchemy import JSON
@@ -31,10 +28,13 @@ from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 
+from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 from ml.stores.table_factory import get_schema_name
 
+
 if TYPE_CHECKING:
-    from ml.stores.services.feature_services import CrossAssetFeatureService
+    pass
+
 
 class _TestDatabase(Protocol):
     connection_string: str
@@ -54,7 +54,7 @@ def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureServic
 
     Uses ComponentFeatureStore to ensure proper table setup and dependency injection.
     """
-    from ml.stores.feature_store import ComponentFeatureStore
+    from ml.stores import ComponentFeatureStore
 
     store = ComponentFeatureStore(connection_string=test_database.connection_string)
     return store.cross_asset
@@ -574,8 +574,6 @@ def test_service_initialization_with_minimal_deps(
     - No database required for instantiation
     - All methods are accessible
     """
-    from ml.stores.services.feature_services import CrossAssetFeatureService
-
     service = CrossAssetFeatureService(deps=mock_cross_asset_deps)
 
     assert service is not None

@@ -7,9 +7,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from ml.tests.fixtures.pandera import DataFrame
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import DataFrame, Series, ensure_pandera_available
 
 pa = ensure_pandera_available()
 

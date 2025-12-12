@@ -1,4 +1,6 @@
-"""Market data feed descriptors and binding inputs."""
+"""
+Market data feed descriptors and binding inputs.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +18,9 @@ DEFAULT_FEED_DESCRIPTOR_PATH = Path(__file__).with_name("market_feed_descriptors
 
 
 class MarketFeedDescriptor(msgspec.Struct, kw_only=True, frozen=True):
-    """Declarative feed descriptor describing a raw market data source."""
+    """
+    Declarative feed descriptor describing a raw market data source.
+    """
 
     descriptor_id: str
     dataset_id: str
@@ -29,7 +33,9 @@ class MarketFeedDescriptor(msgspec.Struct, kw_only=True, frozen=True):
 
 
 class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=False):
-    """Dataset build configuration entry referencing a feed descriptor."""
+    """
+    Dataset build configuration entry referencing a feed descriptor.
+    """
 
     descriptor_id: str | None = None
     dataset_id: str | None = None
@@ -50,7 +56,9 @@ class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=False):
 
 @dataclass(slots=True, frozen=True)
 class MarketFeedDescriptorSet:
-    """Wrapper for serialized feed descriptors."""
+    """
+    Wrapper for serialized feed descriptors.
+    """
 
     descriptors: tuple[MarketFeedDescriptor, ...]
 
@@ -59,7 +67,9 @@ class MarketFeedDescriptorSet:
 
 
 def load_market_feed_descriptors(path: Path | None = None) -> MarketFeedDescriptorSet:
-    """Load feed descriptors from JSON file into typed structures."""
+    """
+    Load feed descriptors from JSON file into typed structures.
+    """
     descriptor_path = path or DEFAULT_FEED_DESCRIPTOR_PATH
     raw = json.loads(descriptor_path.read_text(encoding="utf-8"))
     items = raw.get("descriptors", [])
@@ -81,6 +91,7 @@ def coerce_storage_kind(value: StorageKind | str | None) -> StorageKind | None:
     Accepts enum members, enum names, or enum values in any case. Strings with
     the ``StorageKind.`` prefix (e.g. ``"StorageKind.POSTGRES"``) are also
     supported to account for serialized enum representations.
+
     """
     if value is None:
         return None

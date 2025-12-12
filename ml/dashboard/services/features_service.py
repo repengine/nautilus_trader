@@ -22,6 +22,11 @@ from typing import TYPE_CHECKING, Any
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.dashboard.services.base_service import BaseIntegrationService
+from ml.registry.base import DataRequirements
+from ml.registry.feature_registry import FeatureInfo
+from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import FeatureStage
 
 
 if TYPE_CHECKING:
@@ -521,19 +526,20 @@ class FeatureEngineeringService(BaseIntegrationService):
             registry = self._integration.feature_registry
 
             # Get feature manifest
-            def _get_feature_set() -> Any:
-                return registry.get_feature_set(request.feature_set_id)  # type: ignore[attr-defined]
+            def _get_feature_set() -> FeatureInfo | None:
+                return registry.get_feature_set(request.feature_set_id)
 
-            manifest = await self._run_async(_get_feature_set)
+            feature_info = await self._run_async(_get_feature_set)
 
-            if not manifest:
+            if feature_info is None:
                 return FeatureAnalysisResult(
                     success=False,
                     error=f"Feature set not found: {request.feature_set_id}",
                 )
 
             # Extract feature names from manifest
-            feature_names = getattr(manifest, "feature_names", [])
+            manifest = feature_info.manifest
+            feature_names = manifest.feature_names
 
             # Build analysis result
             result = FeatureAnalysisResult(
@@ -587,15 +593,15 @@ class FeatureEngineeringService(BaseIntegrationService):
             registry = self._integration.feature_registry
 
             # Get all manifests
-            def _list_feature_sets() -> Any:
-                return registry.list_feature_sets()  # type: ignore[attr-defined]
+            def _list_feature_sets() -> list[FeatureInfo]:
+                return registry.list_all()
 
             manifests = await self._run_async(_list_feature_sets)
 
             # Convert manifests to dict format
             manifest_list = []
-            for manifest in manifests:
-                manifest_dict = self._manifest_to_dict(manifest)
+            for info in manifests:
+                manifest_dict = self._manifest_to_dict(info.manifest)
                 manifest_list.append(manifest_dict)
 
             # Track metrics
@@ -779,8 +785,8 @@ class FeatureEngineeringService(BaseIntegrationService):
             "feature_set_id": feature_set_id,
             "name": f"Dashboard Generated: {feature_set_id}",
             "version": "1.0.0",
-            "role": "inference_support",
-            "data_requirements": "L1_ONLY",
+            "role": FeatureRole.INFERENCE_SUPPORT.value,
+            "data_requirements": DataRequirements.L1_ONLY.value,
             "feature_names": feature_names,
             "feature_dtypes": ["float32"] * len(feature_names),
             "schema_hash": schema_hash,
@@ -839,10 +845,32 @@ class FeatureEngineeringService(BaseIntegrationService):
 
         registry = self._integration.feature_registry
 
-        # Convert dict to manifest object if needed
-        # This is a placeholder - actual implementation depends on registry API
         def _register_feature_set() -> None:
-            registry.register_feature_set(feature_set_id, manifest_dict)  # type: ignore[attr-defined]
+            manifest = FeatureManifest(
+                feature_set_id=manifest_dict["feature_set_id"],
+                name=manifest_dict["name"],
+                version=manifest_dict["version"],
+                role=FeatureRole(manifest_dict["role"]),
+                data_requirements=DataRequirements(manifest_dict["data_requirements"]),
+                feature_names=list(manifest_dict["feature_names"]),
+                feature_dtypes=list(manifest_dict["feature_dtypes"]),
+                schema_hash=str(manifest_dict["schema_hash"]),
+                pipeline_signature=str(manifest_dict["pipeline_signature"]),
+                pipeline_version=str(manifest_dict["pipeline_version"]),
+                capability_flags=dict(manifest_dict.get("capability_flags", {})),
+                constraints=dict(manifest_dict.get("constraints", {})),
+                parity_tolerance=float(manifest_dict.get("parity_tolerance", 0.0)),
+                parity_digest=dict(manifest_dict.get("parity_digest", {})),
+                perf_digest=dict(manifest_dict.get("perf_digest", {})),
+                parent_feature_set_id=manifest_dict.get("parent_feature_set_id"),
+                metadata=dict(manifest_dict.get("metadata", {})),
+                created_at=float(manifest_dict.get("created_at", 0.0)),
+                last_modified=float(manifest_dict.get("last_modified", 0.0)),
+                stage=FeatureStage(
+                    manifest_dict.get("stage", FeatureStage.CANDIDATE.value),
+                ),
+            )
+            registry.register_feature_set(manifest)
 
         await self._run_async(_register_feature_set)
 

@@ -80,6 +80,7 @@ def _ensure_directory(path: Path) -> Path:
     Create a directory if it does not exist, tolerating existing symlinks/dirs.
 
     This prevents FileExistsError when mounted volumes expose paths as symlinks.
+
     """
     if path.is_symlink():
         return path
@@ -383,9 +384,13 @@ class MLIntegrationManager:
 
         if self._file_fallback:
             file_root = self._file_store_path
-            self.feature_store = cast(FeatureStore, FileFeatureStore(base_path=file_root / "features"))
+            self.feature_store = cast(
+                FeatureStore, FileFeatureStore(base_path=file_root / "features")
+            )
             self.model_store = cast(ModelStore, FileModelStore(base_path=file_root / "models"))
-            self.strategy_store = cast(StrategyStore, FileStrategyStore(base_path=file_root / "strategies"))
+            self.strategy_store = cast(
+                StrategyStore, FileStrategyStore(base_path=file_root / "strategies")
+            )
             earnings_store = FileEarningsStore(base_path=file_root / "earnings")
             logger.info("FileEarningsStore initialized at %s", file_root / "earnings")
             self.data_store = cast(
@@ -1778,7 +1783,9 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             getattr(
                 config,
                 "file_store_path",
-                os.getenv("ML_FILE_STORE_PATH", pathlib.Path.home() / ".nautilus" / "ml" / "file_store"),
+                os.getenv(
+                    "ML_FILE_STORE_PATH", pathlib.Path.home() / ".nautilus" / "ml" / "file_store"
+                ),
             ),
         )
         try:
@@ -1915,6 +1922,7 @@ def create_data_store(
 
     Explicit keyword-only parameters preserve type information and avoid **kwargs
     erasing type hints for static analysis.
+
     """
     return cast(
         DataStoreFacadeProtocol,

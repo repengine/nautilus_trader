@@ -22,6 +22,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.actor_factory import ActorFactoryComponent
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 if TYPE_CHECKING:
@@ -75,7 +79,7 @@ def actor_factory_component(
 ) -> ActorFactoryComponent:
     """Provide a fully configured ActorFactoryComponent."""
     return ActorFactoryComponent(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
@@ -269,7 +273,7 @@ class TestErrorConditions:
         mock_feature_store.flush.side_effect = RuntimeError("Flush failed!")
 
         component = ActorFactoryComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             feature_store=mock_feature_store,
             model_store=mock_model_store,
             strategy_store=mock_strategy_store,
@@ -351,7 +355,7 @@ class TestEdgeCases:
         Expected Behavior: No exception raised.
         """
         component = ActorFactoryComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             data_store=None,
         )
 
@@ -417,7 +421,7 @@ class TestEdgeCases:
         Expected Behavior: No exception raised.
         """
         component = ActorFactoryComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             feature_store=None,
             model_store=None,
             strategy_store=None,
@@ -438,7 +442,7 @@ class TestEdgeCases:
             pass
 
         component = ActorFactoryComponent(
-            db_connection="postgresql://localhost:5432/nautilus",
+            db_connection=TEST_DB_CONNECTION,
             feature_store=StoreWithoutFlush(),
             model_store=StoreWithoutFlush(),
             strategy_store=StoreWithoutFlush(),

@@ -58,8 +58,13 @@ def create_dummy_onnx_model(output_path: str | Path | None = None) -> Path:
             [Y],
         )
 
-        # Create model
-        model = helper.make_model(graph)
+        # Create model with an IR/opset version compatible with onnxruntime on CI
+        model = helper.make_model(
+            graph,
+            opset_imports=[helper.make_opsetid("", 11)],
+        )
+        # Cap IR version to avoid newer defaults that some runtimes reject
+        model.ir_version = 11
 
         # Save model
         if output_path is None:

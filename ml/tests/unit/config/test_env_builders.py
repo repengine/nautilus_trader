@@ -18,6 +18,7 @@ from ml.config.base import MLInferenceConfig
 from ml.config.base import MLStrategyConfig
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.xgboost import XGBoostTrainingConfig
+from ml.tests.utils.db import build_postgres_url
 
 
 def _mapping(env: dict[str, str]) -> Mapping[str, str]:
@@ -53,6 +54,12 @@ def test_ml_inference_config_from_env_requires_identifier() -> None:
 
 
 def test_ml_actor_config_from_env_resolves_core_fields() -> None:
+    db_connection = build_postgres_url(
+        user="user",
+        password="pass",
+        host="db",
+        database="ml",
+    )
     env = _mapping(
         {
             "MODEL_PATH": "/tmp/models/test_model.onnx",
@@ -60,7 +67,7 @@ def test_ml_actor_config_from_env_resolves_core_fields() -> None:
             "MODEL_REGISTRY_DIR": "/tmp/registry",
             "INSTRUMENT_ID": "SPY.EQUS",
             "BAR_TYPE": "SPY.EQUS-1-MINUTE-LAST-EXTERNAL",
-            "ML_DB_CONNECTION": "postgresql://user:pass@db:5432/ml",
+            "ML_DB_CONNECTION": db_connection,
             "ML_PUBLISH_SIGNALS": "false",
             "ML_ENABLE_ASYNC_PERSISTENCE": "false",
             "ML_PERSISTENCE_BATCH_SIZE": "64",
@@ -74,7 +81,7 @@ def test_ml_actor_config_from_env_resolves_core_fields() -> None:
     assert cfg.model_id == "signal-model-v1"
     assert str(cfg.instrument_id) == "SPY.EQUS"
     assert str(cfg.bar_type) == "SPY.EQUS-1-MINUTE-LAST-EXTERNAL"
-    assert cfg.db_connection == "postgresql://user:pass@db:5432/ml"
+    assert cfg.db_connection == db_connection
     assert cfg.publish_signals is False
     assert cfg.enable_async_persistence is False
     assert cfg.persistence_batch_size == 64

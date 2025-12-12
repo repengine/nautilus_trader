@@ -21,6 +21,7 @@ import pytest
 
 
 if TYPE_CHECKING:
+    from ml.data import DatasetMetadata
     from ml.orchestration.config_types import (
         DatasetBuildConfig,
         OrchestratorConfig,
@@ -322,6 +323,36 @@ def multi_symbol_config(tmp_path: Path) -> OrchestratorConfig:
     )
 
 
+@pytest.fixture
+def sample_dataset_metadata() -> DatasetMetadata:
+    """
+    Sample DatasetMetadata for testing registry synchronizer and validation.
+
+    Creates a minimal valid dataset metadata instance matching the default
+    sample_dataset_config fixture values.
+
+    Returns:
+        DatasetMetadata with test values matching sample_dataset_config
+    """
+    from ml.data import DatasetMetadata
+    from ml.data.vintage import VintagePolicy
+
+    return DatasetMetadata(
+        dataset_id="test_dataset",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2024-01-01T00:00:00Z",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={},
+        market_bindings=None,
+    )
+
+
 __all__ = [
     "existing_checkpoint",
     "mock_config_resolver",
@@ -335,5 +366,6 @@ __all__ = [
     "multi_symbol_config",
     "sample_checkpoint_file",
     "sample_dataset_config",
+    "sample_dataset_metadata",
     "sample_orchestrator_config",
 ]

@@ -18,16 +18,10 @@ import sys
 
 import pandas as pd
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.datetime import time_object_to_dt
-from nautilus_trader.core.datetime import unix_nanos_to_dt
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.data.engine import DataEngineConfig
 from nautilus_trader.data.messages import DataCommand
@@ -67,13 +61,6 @@ from nautilus_trader.model.data import DataType
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.enums import AssetClass
-from nautilus_trader.model.enums import BarAggregation
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OptionKind
-from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.enums import RecordFlag
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
@@ -85,8 +72,21 @@ from nautilus_trader.model.instruments.option_contract import OptionContract
 from nautilus_trader.model.objects import Currency
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.persistence.catalog.parquet import _timestamps_to_filename
 from nautilus_trader.portfolio.portfolio import Portfolio
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.core.datetime import time_object_to_dt
+from nautilus_trader.core.datetime import unix_nanos_to_dt
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import AssetClass
+from nautilus_trader.model.enums import BarAggregation
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import OptionKind
+from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.enums import RecordFlag
+from nautilus_trader.persistence.catalog.parquet import _timestamps_to_filename
 from nautilus_trader.test_kit.mocks.data import MockMarketDataClient
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 from nautilus_trader.test_kit.providers import TestInstrumentProvider

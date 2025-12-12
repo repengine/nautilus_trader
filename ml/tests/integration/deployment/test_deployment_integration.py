@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.integration
 @pytest.mark.database
 @pytest.mark.deployment
-@pytest.mark.usefixtures("clean_postgres_db_module")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestDeploymentIntegration:
     """
     Integration tests for deployment components.
@@ -119,7 +119,7 @@ class TestDeploymentIntegration:
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
-        test_database,
+        cloned_test_database: str,
         mock_onnx_runtime: Any,
         onnx_session_stub_factory: Callable[..., object],
     ):
@@ -146,8 +146,8 @@ class TestDeploymentIntegration:
 
         # Set comprehensive environment variables with PostgreSQL connection
         monkeypatch.setenv("DATABENTO_API_KEY", "test_api_key")
-        monkeypatch.setenv("DATABASE_URL", test_database.connection_string)
-        monkeypatch.setenv("DB_CONNECTION", test_database.connection_string)
+        monkeypatch.setenv("DATABASE_URL", cloned_test_database)
+        monkeypatch.setenv("DB_CONNECTION", cloned_test_database)
         monkeypatch.setenv("MODEL_PATH", str(model_path))
         monkeypatch.setenv("CATALOG_PATH", str(catalog_path))
         monkeypatch.setenv("INSTRUMENT_ID", "BTC-USDT.DATABENTO")
@@ -222,7 +222,6 @@ class TestDeploymentIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
-    @pytest.mark.skip(reason="Test creates real nodes that don't cleanup properly, causing timeouts")
     async def test_concurrent_node_startup(self, deployment_env):
         """
         Test concurrent startup of multiple nodes.

@@ -7,8 +7,7 @@ from ml.data.fixtures import make_mbp10_fixture
 from ml.data.fixtures import make_tbbo_fixture
 from ml.data.fixtures import make_trades_fixture
 from ml.data.fixtures.manifest import compute_schema_hash
-from ml.tests.fixtures.pandera import Series
-from ml.tests.fixtures.pandera import ensure_pandera_available
+from ml.tests.fixtures.pandera import Series, ensure_pandera_available
 
 pa = ensure_pandera_available()
 

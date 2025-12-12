@@ -1,4 +1,6 @@
-"""Centralized schema registry for schema→dataset/dataclass/template lookups."""
+"""
+Centralized schema registry for schema→dataset/dataclass/template lookups.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +8,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ml.registry.dataclasses import DatasetType
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-
-from ml.registry.dataclasses import DatasetType
 
 
 __all__ = [
@@ -31,14 +32,18 @@ __all__ = [
 
 @dataclass(frozen=True)
 class SchemaSpec:
-    """Registered schema metadata."""
+    """
+    Registered schema metadata.
+    """
 
     dataset_type: DatasetType
     data_class: type[Any]
     identifier_template: str
 
     def __post_init__(self) -> None:
-        """Validate spec configuration."""
+        """
+        Validate spec configuration.
+        """
         validate_identifier_template(self.identifier_template, label="schema identifier template")
 
 
@@ -55,6 +60,7 @@ def validate_identifier_template(template: str, *, label: str) -> str:
 
     Raises:
         ValueError: If the template is empty or missing ``{instrument_id}``.
+
     """
     if not template or "{instrument_id}" not in template:
         msg = f"{label} must include '{{instrument_id}}'"
@@ -220,6 +226,7 @@ def schema_spec_for(schema: str) -> SchemaSpec:
 
     Raises:
         ValueError: If the schema is not registered.
+
     """
     normalized = _normalize_schema(schema)
     try:
@@ -237,6 +244,7 @@ def map_schema_to_dataset_type(schema: str) -> DatasetType:
     ------
     ValueError
         If the schema is not registered.
+
     """
     return schema_spec_for(schema).dataset_type
 
@@ -249,6 +257,7 @@ def schema_to_dataclass(schema: str) -> type[Any]:
     ------
     ValueError
         If the schema is not registered.
+
     """
     return schema_spec_for(schema).data_class
 
@@ -261,6 +270,7 @@ def schema_to_identifier_template(schema: str) -> str:
     ------
     ValueError
         If the schema is not registered.
+
     """
     return schema_spec_for(schema).identifier_template
 
@@ -288,6 +298,7 @@ def default_identifier_template_for_dataset_type(dataset_type: DatasetType) -> s
 
     Raises:
         ValueError: If no default exists for the dataset type.
+
     """
     try:
         return DATASET_TYPE_IDENTIFIER_DEFAULTS[dataset_type]
@@ -304,7 +315,9 @@ for spec in _SCHEMA_REGISTRY.values():
 
 
 def dataset_type_to_dataclass(dataset_type: DatasetType) -> type[Any]:
-    """Return the Nautilus data class for a DatasetType."""
+    """
+    Return the Nautilus data class for a DatasetType.
+    """
     try:
         return _DATA_CLASS_BY_DATASET[dataset_type]
     except KeyError as exc:
@@ -326,6 +339,7 @@ def validate_schema_identifier_templates(
 
     Raises:
         ValueError: If a schema is unknown or a template is invalid.
+
     """
     if templates is None:
         return {}
@@ -354,13 +368,16 @@ def validate_dataset_type_templates(
 
     Raises:
         ValueError: If keys are not DatasetType or templates are invalid.
+
     """
     if templates is None:
         return {}
     normalized: dict[DatasetType, str] = {}
     for dataset_type, template in templates.items():
         if not isinstance(dataset_type, DatasetType):
-            msg = f"dataset_type_identifier_templates keys must be DatasetType (got {dataset_type!r})"
+            msg = (
+                f"dataset_type_identifier_templates keys must be DatasetType (got {dataset_type!r})"
+            )
             raise ValueError(msg)
         normalized[dataset_type] = validate_identifier_template(
             template,

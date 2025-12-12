@@ -11,7 +11,6 @@ from __future__ import annotations
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
 import time
-from typing import Any
 
 import pytest
 
@@ -23,7 +22,7 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -33,8 +32,8 @@ pytestmark = [
 
 
 
-def test_model_store_dedup_and_update(test_database: Any) -> None:
-    store = ModelStore(connection_string=test_database.connection_string)
+def test_model_store_dedup_and_update(cloned_test_database: str) -> None:
+    store = ModelStore(connection_string=cloned_test_database)
 
     model_id = "mdl_upsert"
     instrument_id = "EUR/USD"
@@ -97,8 +96,8 @@ def test_model_store_dedup_and_update(test_database: Any) -> None:
         assert pytest.approx(float(row[2])) == 7.5
 
 
-def test_strategy_store_dedup_and_update(test_database: Any) -> None:
-    store = StrategyStore(connection_string=test_database.connection_string)
+def test_strategy_store_dedup_and_update(cloned_test_database: str) -> None:
+    store = StrategyStore(connection_string=cloned_test_database)
 
     strategy_id = "strat_upsert"
     instrument_id = "EUR/USD"

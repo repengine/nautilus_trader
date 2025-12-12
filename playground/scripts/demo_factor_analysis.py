@@ -17,10 +17,9 @@ import polars as pl
 from rich.console import Console
 from rich.table import Table
 
-from playground.risk_model.factor_analysis import (
-    compute_factor_correlations,
-    compute_pca_analysis,
-)
+from playground.risk_model.factor_analysis import compute_factor_correlations
+from playground.risk_model.factor_analysis import compute_pca_analysis
+
 
 # Constants
 DATA_PATH = Path(__file__).parent.parent / "data" / "sector_dataset" / "factor_returns.parquet"
@@ -62,7 +61,7 @@ def display_correlation_results(
     console.print("[bold yellow]═" * 40)
 
     # Summary metrics
-    console.print(f"\n[bold]Summary Metrics:[/bold]")
+    console.print("\n[bold]Summary Metrics:[/bold]")
     console.print(f"  • Observations: {correlation_analysis.n_observations:,}")
     console.print(f"  • Max |r| (off-diagonal): {correlation_analysis.max_abs_correlation:.4f}")
     console.print(f"  • Mean |r| (off-diagonal): {correlation_analysis.mean_abs_correlation:.4f}")
@@ -117,7 +116,7 @@ def display_pca_results(pca_analysis) -> None:
     console.print("[bold yellow]═" * 40)
 
     # Summary metrics
-    console.print(f"\n[bold]Summary Metrics:[/bold]")
+    console.print("\n[bold]Summary Metrics:[/bold]")
     console.print(f"  • Number of components: {pca_analysis.n_components}")
     console.print(f"  • Variance by 3 PCs: {pca_analysis.variance_captured_by_3pc:.2%}")
     console.print(f"  • Threshold: {VARIANCE_THRESHOLD:.0%}")
@@ -171,7 +170,7 @@ def display_pca_results(pca_analysis) -> None:
     loadings_table.add_column("Principal Component", style="bold")
 
     # Get factor names from first PC
-    first_pc = f"PC1"
+    first_pc = "PC1"
     factor_names = list(pca_analysis.loadings[first_pc].keys())
 
     for factor in factor_names:

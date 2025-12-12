@@ -14,23 +14,23 @@
 # -------------------------------------------------------------------------------------------------
 
 import pandas as pd
-
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.client import DataClient
 from nautilus_trader.data.client import MarketDataClient
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.data.messages import RequestData
 from nautilus_trader.data.messages import SubscribeData
 from nautilus_trader.data.messages import UnsubscribeData
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.portfolio.portfolio import Portfolio
+
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import USD
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.data import TestDataStubs

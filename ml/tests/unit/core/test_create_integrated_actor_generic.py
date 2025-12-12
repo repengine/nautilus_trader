@@ -26,6 +26,7 @@ from typing import TypeVar
 from typing import get_type_hints
 
 import pytest
+from ml.tests.utils.db import build_postgres_url
 
 if TYPE_CHECKING:
     from unittest.mock import Mock
@@ -40,7 +41,11 @@ def mock_integration_manager():
     from unittest.mock import Mock
 
     manager = Mock()
-    manager.db_connection = "postgresql://test:test@localhost:5432/test"
+    manager.db_connection = build_postgres_url(
+        user="test",
+        password="test",
+        database="test",
+    )
     return manager
 
 

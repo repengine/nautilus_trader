@@ -40,6 +40,7 @@ from ml.actors.common.model import ModelComponent
 from ml.actors.common.registry import RegistryComponent
 from ml.actors.common.store_operations import StoreOperationsComponent
 from ml.config.base import MLActorConfig
+from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 
 
 # =======================================================================================
@@ -67,6 +68,20 @@ def base_ml_config() -> MLActorConfig:
         enable_health_monitoring=True,
         enable_async_persistence=False,  # Disable async for simpler testing
     )
+
+
+@pytest.fixture(scope="session")
+def onnx_test_model_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """
+    Provide a lightweight, session-reused ONNX model to avoid per-test training/export.
+    """
+    model_dir = tmp_path_factory.mktemp("facade_dummy_model")
+    model_path = create_dummy_onnx_model(model_dir / "test_model.onnx")
+    yield model_path
+    try:
+        model_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -665,7 +680,7 @@ def test_facade_mlsignalactor_subclass_still_works(
 
     """
     from ml.actors.signal import MLSignalActor
-    from ml.config.base import MLSignalActorConfig
+    from ml.config.actors import MLSignalActorConfig
 
     signal_config = MLSignalActorConfig(
         component_id="test_signal",

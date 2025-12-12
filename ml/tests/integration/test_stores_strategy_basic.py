@@ -2,8 +2,6 @@ from __future__ import annotations
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
-from typing import Any
-
 import pytest
 
 from ml.stores.strategy_store import StrategyStore
@@ -13,7 +11,7 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
     pytest.mark.serial,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -24,13 +22,12 @@ pytestmark = [
 
 
 def test_strategy_store_write_and_read(
-    clean_postgres_db: Any,
-    postgres_connection: str,
+    cloned_test_database: str,
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
 ) -> None:
     store = StrategyStore(
-        connection_string=postgres_connection,
+        connection_string=cloned_test_database,
         batch_size=2,
         flush_interval_seconds=0.01,
     )

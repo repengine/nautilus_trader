@@ -9,12 +9,12 @@ Invariants Tested:
 - Namespace uniqueness: Different feature types never collide
 
 Design: These tests use Hypothesis to generate test data and verify properties hold
-for all valid inputs. Initially marked @pytest.mark.skip until implementation exists.
+for all valid inputs.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
 from hypothesis import HealthCheck
@@ -26,15 +26,18 @@ from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy import table as _table
 
+from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 from ml.stores.table_factory import get_schema_name
 
+
 if TYPE_CHECKING:
-    from ml.stores.services.feature_services import CrossAssetFeatureService
+    pass
 
 
 class _TestDatabase(Protocol):
     connection_string: str
     engine: Any
+
 
 pytestmark = pytest.mark.serial
 
@@ -108,7 +111,7 @@ def lookback_periods(draw):
 @pytest.fixture
 def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureService:
     """Provide initialized CrossAssetFeatureService."""
-    from ml.stores.feature_store import ComponentFeatureStore
+    from ml.stores import ComponentFeatureStore
 
     store = ComponentFeatureStore(connection_string=test_database.connection_string)
     return store.cross_asset

@@ -53,6 +53,7 @@ class DashboardConfig:
 
     compose_enabled: bool = False
     compose_file: Path | None = None
+    streaming_state_path: Path | None = None
     request_timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS
 
     actor_port: int = 8000

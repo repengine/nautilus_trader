@@ -20,6 +20,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.store_initialization import StoreInitializationComponent
+from ml.tests.utils.db import build_postgres_url
+
+
+TEST_DB_CONNECTION = build_postgres_url()
 
 
 if TYPE_CHECKING:
@@ -41,7 +45,7 @@ def tmp_file_store_path(tmp_path: Path) -> Path:
 def default_component(tmp_file_store_path: Path) -> StoreInitializationComponent:
     """Provide a default StoreInitializationComponent for unit tests."""
     return StoreInitializationComponent(
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        db_connection=TEST_DB_CONNECTION,
         file_store_path=tmp_file_store_path,
     )
 

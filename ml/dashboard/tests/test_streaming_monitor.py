@@ -233,7 +233,8 @@ def test_dashboard_streaming_monitor_tracks_events(tmp_path: Path) -> None:
     assert plan.plan_id in state["results"]
     assert state["datasets"][plan.dataset_id] == [plan.plan_id]
     assert state["outstanding_plan_ids"] == []
-    assert Path(cfg.streaming_state_path).exists()
+    assert cfg.streaming_state_path is not None
+    assert cfg.streaming_state_path.exists()
     result_payload = state["results"][plan.plan_id]
     telemetry_payload = result_payload["telemetry"]
     assert telemetry_payload["resources"]["max_gpu_memory_mb"] == 512.0

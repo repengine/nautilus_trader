@@ -29,7 +29,7 @@ def app() -> Flask:
 
     config = DashboardConfig(
         auth_tokens=(DashboardToken(value="test-token-123"),),
-        db_connection="postgresql://test:test@localhost:5432/test",
+        db_connection="postgresql://test:test@localhost:5434/test",
     )
     return create_app(config)
 

@@ -1,279 +1,54 @@
-"""Integration tests for RuntimeAttacher runtime attachment workflows (Phase 2.2.5).
-
-All tests marked @pytest.mark.skip for structural phase.
-Full implementation in Phase 2.2.8 (facade integration).
-"""
+"""Integration-like tests for RuntimeAttacher."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-
-# ============================================================================
-# FIXTURES
-# ============================================================================
+from ml.orchestration.config_types import IntegrationConfig
+from ml.orchestration.runtime_attacher import RuntimeAttacher
 
 
 @pytest.fixture
 def integration_manager() -> Mock:
-    """Provides mock MLIntegrationManager for testing."""
-    manager = Mock()
-    manager.attach_stores.return_value = None
-    manager.attach_registries.return_value = None
-    return manager
+    mgr = Mock()
+    mgr.data_registry = Mock(name="data_registry")
+    mgr.feature_registry = Mock(name="feature_registry")
+    mgr.model_registry = Mock(name="model_registry")
+    mgr.strategy_registry = Mock(name="strategy_registry")
+    mgr.data_store = Mock(name="data_store")
+    mgr.feature_store = Mock(name="feature_store")
+    mgr.model_store = Mock(name="model_store")
+    mgr.strategy_store = Mock(name="strategy_store")
+    mgr.partition_manager = Mock(name="partition_manager")
+    return mgr
 
 
-@pytest.fixture
-def data_store() -> Mock:
-    """Provides mock DataStore for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def feature_store() -> Mock:
-    """Provides mock FeatureStore for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def model_store() -> Mock:
-    """Provides mock ModelStore for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def strategy_store() -> Mock:
-    """Provides mock StrategyStore for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def data_registry() -> Mock:
-    """Provides mock DataRegistry for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def feature_registry() -> Mock:
-    """Provides mock FeatureRegistry for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def model_registry() -> Mock:
-    """Provides mock ModelRegistry for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def strategy_registry() -> Mock:
-    """Provides mock StrategyRegistry for testing."""
-    return Mock()
-
-
-@pytest.fixture
-def runtime_attacher(integration_manager: Mock):
-    """Provides RuntimeAttacher instance for testing."""
-    from ml.orchestration.runtime_attacher import RuntimeAttacher
-
-    return RuntimeAttacher(
-        integration_manager=integration_manager,
-        validators=None,
-    )
-
-
-# ============================================================================
-# INTEGRATION TESTS: RUNTIME ATTACHMENT (4 tests)
-# ============================================================================
-
-
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
-def test_attach_runtime_attaches_stores_to_integration_manager(
-    runtime_attacher: Mock,
+def test_attach_runtime_uses_existing_manager(
     integration_manager: Mock,
-    data_store: Mock,
-    feature_store: Mock,
-    model_store: Mock,
-    strategy_store: Mock,
-    data_registry: Mock,
-    feature_registry: Mock,
-    model_registry: Mock,
-    strategy_registry: Mock,
+    tmp_path: Path,
 ) -> None:
-    """Verify _attach_runtime() attaches all 4 stores to integration manager.
+    """attach_runtime should reuse provided integration manager."""
+    attacher = RuntimeAttacher(integration_manager=integration_manager)
+    cfg = IntegrationConfig(enabled=True, run_validators=False)
 
-    Phase 2.2.8 (Full Implementation):
-    - RuntimeAttacher._attach_runtime() invoked
-    - integration_manager.attach_stores() called with all 4 stores
-    - Stores accessible via integration_manager after attachment
+    result = attacher.attach_runtime(cfg, dataset_out_dir=tmp_path)
 
-    Expected Behavior:
-    - Calls integration_manager.attach_stores(
-        data_store=data_store,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-      )
-    - All 4 stores attached successfully
-    """
-    runtime_attacher._attach_runtime(
-        data_store=data_store,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        data_registry=data_registry,
-        feature_registry=feature_registry,
-        model_registry=model_registry,
-        strategy_registry=strategy_registry,
-    )
-
-    # Verify stores attached
-    integration_manager.attach_stores.assert_called_once()
-    args = integration_manager.attach_stores.call_args[1]  # kwargs
-    assert args["data_store"] is data_store
-    assert args["feature_store"] is feature_store
-    assert args["model_store"] is model_store
-    assert args["strategy_store"] is strategy_store
+    assert result is integration_manager
+    assert attacher.data_store is integration_manager.data_store
+    assert attacher.model_registry is integration_manager.model_registry
 
 
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
 @pytest.mark.integration
-def test_attach_runtime_attaches_registries_to_integration_manager(
-    runtime_attacher: Mock,
+def test_attach_runtime_skips_when_disabled(
     integration_manager: Mock,
-    data_store: Mock,
-    feature_store: Mock,
-    model_store: Mock,
-    strategy_store: Mock,
-    data_registry: Mock,
-    feature_registry: Mock,
-    model_registry: Mock,
-    strategy_registry: Mock,
+    tmp_path: Path,
 ) -> None:
-    """Verify _attach_runtime() attaches all 4 registries to integration manager.
+    """Disabled integration config should short-circuit attachment."""
+    attacher = RuntimeAttacher(integration_manager=integration_manager)
+    cfg = IntegrationConfig(enabled=False)
 
-    Phase 2.2.8 (Full Implementation):
-    - RuntimeAttacher._attach_runtime() invoked
-    - integration_manager.attach_registries() called with all 4 registries
-    - Registries accessible via integration_manager after attachment
-
-    Expected Behavior:
-    - Calls integration_manager.attach_registries(
-        data_registry=data_registry,
-        feature_registry=feature_registry,
-        model_registry=model_registry,
-        strategy_registry=strategy_registry,
-      )
-    - All 4 registries attached successfully
-    """
-    runtime_attacher._attach_runtime(
-        data_store=data_store,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        data_registry=data_registry,
-        feature_registry=feature_registry,
-        model_registry=model_registry,
-        strategy_registry=strategy_registry,
-    )
-
-    # Verify registries attached
-    integration_manager.attach_registries.assert_called_once()
-    args = integration_manager.attach_registries.call_args[1]  # kwargs
-    assert args["data_registry"] is data_registry
-    assert args["feature_registry"] is feature_registry
-    assert args["model_registry"] is model_registry
-    assert args["strategy_registry"] is strategy_registry
-
-
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
-@pytest.mark.integration
-def test_attach_runtime_coordinates_with_integration_manager(
-    runtime_attacher: Mock,
-    integration_manager: Mock,
-    data_store: Mock,
-    feature_store: Mock,
-    model_store: Mock,
-    strategy_store: Mock,
-    data_registry: Mock,
-    feature_registry: Mock,
-    model_registry: Mock,
-    strategy_registry: Mock,
-) -> None:
-    """Verify _attach_runtime() coordinates full attachment workflow.
-
-    Phase 2.2.8 (Full Implementation):
-    - attach_stores() called first
-    - attach_registries() called second
-    - Both complete successfully
-    - Integration manager ready for pipeline execution
-
-    Expected Behavior:
-    - Call order: attach_stores → attach_registries
-    - Both methods called exactly once
-    - No exceptions raised
-    """
-    runtime_attacher._attach_runtime(
-        data_store=data_store,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        data_registry=data_registry,
-        feature_registry=feature_registry,
-        model_registry=model_registry,
-        strategy_registry=strategy_registry,
-    )
-
-    # Verify call order
-    assert integration_manager.attach_stores.call_count == 1
-    assert integration_manager.attach_registries.call_count == 1
-
-    # Verify order: stores before registries
-    assert integration_manager.mock_calls[0][0] == "attach_stores"
-    assert integration_manager.mock_calls[1][0] == "attach_registries"
-
-
-@pytest.mark.skip(reason="Structural phase - requires full implementation in Phase 2.2.8")
-@pytest.mark.integration
-def test_attach_runtime_handles_none_integration_manager(
-    data_store: Mock,
-    feature_store: Mock,
-    model_store: Mock,
-    strategy_store: Mock,
-    data_registry: Mock,
-    feature_registry: Mock,
-    model_registry: Mock,
-    strategy_registry: Mock,
-) -> None:
-    """Verify _attach_runtime() handles None integration manager gracefully.
-
-    Phase 2.2.8 (Full Implementation):
-    - _attach_runtime() detects None integration manager
-    - Logs warning: 'No integration manager available, skipping runtime attachment'
-    - Returns None (no attachment performed)
-    - No exceptions raised
-
-    Expected Behavior:
-    - No integration manager calls (manager is None)
-    - Warning logged
-    - Returns None gracefully
-    """
-    from ml.orchestration.runtime_attacher import RuntimeAttacher
-
-    attacher_no_manager = RuntimeAttacher(integration_manager=None)
-
-    result = attacher_no_manager._attach_runtime(
-        data_store=data_store,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        data_registry=data_registry,
-        feature_registry=feature_registry,
-        model_registry=model_registry,
-        strategy_registry=strategy_registry,
-    )
-
-    assert result is None  # No exception, graceful handling
+    assert attacher.attach_runtime(cfg, dataset_out_dir=tmp_path) is None

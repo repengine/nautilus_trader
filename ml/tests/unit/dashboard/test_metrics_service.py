@@ -14,6 +14,9 @@ from ml.dashboard.services.metrics_service import PerformanceMetricsAggregate
 from ml.dashboard.services.metrics_service import PortfolioSnapshot
 from ml.dashboard.services.metrics_service import StoreIntegrationService
 from ml.dashboard.services.metrics_service import StoreMetricsSnapshot
+from ml.tests.utils.db import build_postgres_url
+
+TEST_DB_CONNECTION = build_postgres_url(user="test", password="test", database="test")
 
 pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
 
@@ -22,7 +25,7 @@ pytestmark = pytest.mark.usefixtures("mock_tracing_backend")
 def mock_integration_manager() -> Mock:
     """Mock integration manager for testing."""
     mock = Mock()
-    mock.db_connection = "postgresql://test:test@localhost:5432/test"
+    mock.db_connection = TEST_DB_CONNECTION
     mock.model_registry = None
     mock.feature_registry = None
     mock.feature_store = None

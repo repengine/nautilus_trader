@@ -28,14 +28,14 @@ def test_component_instantiation_and_lifecycle():
     """
     # Given: Valid actor config
     config = MLActorConfig(
-        model_path='/tmp/dummy_model.onnx',
-        model_id='test_model',
-        bar_type=BarType.from_str('BTCUSDT.BINANCE-1-MINUTE-LAST-INTERNAL'),
-        instrument_id=InstrumentId.from_str('BTCUSDT.BINANCE')
+        model_path="/tmp/dummy_model.onnx",
+        model_id="test_model",
+        bar_type=BarType.from_str("BTCUSDT.BINANCE-1-MINUTE-LAST-INTERNAL"),
+        instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE")
     )
 
     # When: Component created
-    component = StoreOperationsComponent(config, actor_id='smoke_test_actor')
+    component = StoreOperationsComponent(config, actor_id="smoke_test_actor")
 
     # Then: Component instantiated successfully
     assert component is not None
@@ -49,10 +49,10 @@ def test_component_instantiation_and_lifecycle():
     # And: Health check works
     health = component.get_health_status()
     assert isinstance(health, dict)
-    assert 'feature_store' in health
-    assert 'model_store' in health
-    assert 'strategy_store' in health
-    assert 'data_store' in health
+    assert "feature_store" in health
+    assert "model_store" in health
+    assert "strategy_store" in health
+    assert "data_store" in health
 
     # And: Lifecycle hooks don't crash
     component.on_start()  # Should not raise
@@ -78,23 +78,23 @@ def test_component_progressive_fallback():
     """
     # Given: Invalid PostgreSQL config
     config = MLActorConfig(
-        model_path='/tmp/dummy_model.onnx',
-        model_id='test_model',
-        bar_type=BarType.from_str('BTCUSDT.BINANCE-1-MINUTE-LAST-INTERNAL'),
-        instrument_id=InstrumentId.from_str('BTCUSDT.BINANCE')
+        model_path="/tmp/dummy_model.onnx",
+        model_id="test_model",
+        bar_type=BarType.from_str("BTCUSDT.BINANCE-1-MINUTE-LAST-INTERNAL"),
+        instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE")
     )
 
     # When: Component created (should trigger fallback)
-    component = StoreOperationsComponent(config, actor_id='fallback_test_actor')
+    component = StoreOperationsComponent(config, actor_id="fallback_test_actor")
 
     # Then: Component instantiated (fallback activated)
     assert component is not None
 
     # And: Stores are DummyStore instances
     # (Name check - DummyStore classes have "Dummy" in name)
-    assert 'Dummy' in type(component.feature_store).__name__
-    assert 'Dummy' in type(component.model_store).__name__
-    assert 'Dummy' in type(component.strategy_store).__name__
+    assert "Dummy" in type(component.feature_store).__name__
+    assert "Dummy" in type(component.model_store).__name__
+    assert "Dummy" in type(component.strategy_store).__name__
 
     # And: Health check still works
     health = component.get_health_status()
@@ -103,13 +103,13 @@ def test_component_progressive_fallback():
 
     # And: All stores show degraded status
     for store_name, store_health in health.items():
-        assert store_health['status'] in ['healthy', 'degraded']
+        assert store_health["status"] in ["healthy", "degraded"]
 
     print("✓ Progressive fallback smoke test PASSED")
     print(f"  Fallback activated: {health}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run smoke tests directly
     print("=" * 70)
     print("SYSTEM VALIDATION SMOKE TESTS")

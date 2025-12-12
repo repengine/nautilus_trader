@@ -158,6 +158,8 @@ The `ml_pipeline` container can restore the canonical `market_data` table from t
 | `CATALOG_REHYDRATE_LOOKBACK_DAYS` | `5` | Rolling window (in days) to scan for missing coverage. |
 | `CATALOG_REHYDRATE_BATCH_SIZE` | `1000` | Maximum rows inserted per batch write. |
 | `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE` | `{instrument_id}-1-MINUTE-LAST-EXTERNAL` | Template used to resolve catalog identifiers for each instrument. |
+| `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP` | _empty_ | Optional schema→template map (JSON or comma-delimited `schema=template`) to override identifiers per schema. |
+| `CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES` | _defaults_ | Optional dataset_type→template map; defaults: bars=`{instrument_id}-1-MINUTE-LAST-EXTERNAL`, tbbo/trades/mbp1=`{instrument_id}`. |
 | `CATALOG_REHYDRATE_TABLE` | `market_data` | Target SQL table for restored rows. |
 | `CATALOG_REHYDRATE_RESCAN` | `0` | When `1`, re-run the rehydration pass before each scheduled ingestion cycle. |
 
@@ -165,7 +167,7 @@ When enabled, the pipeline compares catalog coverage with SQL coverage and only 
 
 ### Coverage Restoration Gate
 
-Set `COVERAGE_RESTORE_ENABLED=1` to require successful coverage classification/restoration before ingestion proceeds. The entrypoint treats failures as fatal unless `COVERAGE_RESTORE_ALLOW_FAILURE=1` is set (not recommended for Tier‑1). Catalog coverage and the rehydrator share the identifier template (`{instrument_id}-1-MINUTE-LAST-EXTERNAL` for bars; TBBO/trades use `instrument_id`) to keep parquet scans fast and avoid redundant Databento downloads when the catalog already holds the data.
+Set `COVERAGE_RESTORE_ENABLED=1` to require successful coverage classification/restoration before ingestion proceeds. The entrypoint treats failures as fatal unless `COVERAGE_RESTORE_ALLOW_FAILURE=1` is set (not recommended for Tier‑1). Catalog coverage and the rehydrator share identifier templates: bars use bar-type identifiers by default, TBBO/Trades/MBP use raw `instrument_id`, and you can override schemas via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP` when needed. This keeps parquet scans fast and avoids redundant Databento downloads when the catalog already holds the data.
 
 ### Cleaning Up Old Volumes
 

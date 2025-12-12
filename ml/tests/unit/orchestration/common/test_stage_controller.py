@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 class TestStageControllerPipelineExecution:
     """Tests for StageController pipeline execution logic."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_pipeline_executes_stages_in_order(
         self,
         mock_ingestion_coordinator: Mock,
@@ -74,7 +73,6 @@ class TestStageControllerPipelineExecution:
         assert mock_dataset_builder.build_dataset.called
         assert mock_training_coordinator.train_teacher.called
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_pipeline_respects_checkpoint_resume(
         self,
         mock_ingestion_coordinator: Mock,
@@ -129,7 +127,6 @@ class TestStageControllerPipelineExecution:
         # Training should be called (next stage)
         assert mock_training_coordinator.run_hpo.called
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_training_only_skips_ingestion_and_dataset(
         self,
         mock_ingestion_coordinator: Mock,
@@ -163,7 +160,7 @@ class TestStageControllerPipelineExecution:
         # Create metadata
         metadata = {
             "dataset_id": "test",
-            "vintage_policy": "REAL_TIME",
+            "vintage_policy": "real_time",  # Must match VintagePolicy enum value
             "feature_set_id": "test_features",
         }
         (out_dir / "dataset_metadata.json").write_text(json.dumps(metadata))
@@ -181,7 +178,6 @@ class TestStageControllerPipelineExecution:
         assert not mock_dataset_builder.build_dataset.called
         assert mock_training_coordinator.train_teacher.called
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_stage_failure_stops_pipeline(
         self,
         mock_ingestion_coordinator: Mock,
@@ -219,7 +215,6 @@ class TestStageControllerPipelineExecution:
         assert mock_dataset_builder.build_dataset.called
         assert not mock_training_coordinator.train_teacher.called
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_run_pipeline_handles_missing_pre_ingestion_config(
         self,
         mock_dataset_builder: Mock,
@@ -261,7 +256,6 @@ class TestStageControllerPipelineExecution:
 class TestStageControllerMultiSymbol:
     """Tests for StageController multi-symbol processing."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_multi_symbol_isolation(
         self,
         mock_dataset_builder: Mock,
@@ -301,7 +295,6 @@ class TestStageControllerMultiSymbol:
         assert "GOOGL" in out_dirs[1]
         assert "MSFT" in out_dirs[2]
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_multi_symbol_partial_failure(
         self,
         mock_dataset_builder: Mock,
@@ -351,7 +344,6 @@ class TestStageControllerMultiSymbol:
 class TestStageControllerCheckpoint:
     """Tests for StageController checkpoint functionality."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_checkpoint_saves_on_stage_completion(
         self,
         mock_dataset_builder: Mock,
@@ -391,7 +383,6 @@ class TestStageControllerCheckpoint:
         checkpoint = PipelineCheckpoint.load(sample_checkpoint_file)
         assert "DATASET" in checkpoint.completed_stages
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_checkpoint_load_failure_starts_fresh(
         self,
         mock_dataset_builder: Mock,
@@ -432,7 +423,6 @@ class TestStageControllerCheckpoint:
         # Should start from beginning (dataset called)
         assert mock_dataset_builder.build_dataset.called
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_checkpoint_not_saved_when_file_none(
         self,
         mock_dataset_builder: Mock,
@@ -480,7 +470,6 @@ class TestStageControllerCheckpoint:
 class TestStageControllerPromotions:
     """Tests for StageController promotion handling."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_promotions_called_after_successful_training(
         self,
         mock_dataset_builder: Mock,
@@ -499,8 +488,10 @@ class TestStageControllerPromotions:
         - Pipeline completes
 
         Then:
-        - RegistrySynchronizer.sync_model called
-        - RegistrySynchronizer.sync_features called
+        - RegistrySynchronizer synchronize_dataset_manifest or capture_cli_build_artifacts called
+
+        Note:
+        - Skipped until StageController.run_pipeline actually calls registry_synchronizer methods
         """
         from ml.orchestration.common.stage_controller import StageController
 
@@ -513,13 +504,12 @@ class TestStageControllerPromotions:
         result = controller.run_pipeline(sample_orchestrator_config)
 
         assert result == 0
-        # Promotions should be called
+        # Registry synchronization should be called after successful pipeline
         assert (
-            mock_registry_synchronizer.sync_model.called
-            or mock_registry_synchronizer.sync_features.called
+            mock_registry_synchronizer.synchronize_dataset_manifest.called
+            or mock_registry_synchronizer.capture_cli_build_artifacts.called
         )
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_promotions_skipped_on_training_failure(
         self,
         mock_dataset_builder: Mock,
@@ -565,7 +555,6 @@ class TestStageControllerPromotions:
 class TestStageControllerErrorHandling:
     """Tests for StageController error handling."""
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_missing_dataset_raises_for_training_only(
         self,
         mock_training_coordinator: Mock,
@@ -592,7 +581,6 @@ class TestStageControllerErrorHandling:
         with pytest.raises(FileNotFoundError, match="Dataset CSV not found"):
             controller.run_training_only(sample_orchestrator_config)
 
-    @pytest.mark.skip(reason="Pending implementation - StageController")
     def test_stage_exception_propagates(
         self,
         mock_dataset_builder: Mock,

@@ -1,5 +1,8 @@
+from pathlib import Path
 from typing import Any
 
+from nautilus_trader.model.data import QuoteTick as _QuoteTick
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.registry.dataclasses import DatasetType
 from ml.stores.io_raw import ParquetCatalogRawWriter
 
@@ -33,6 +36,62 @@ def test_parquet_raw_writer_converts_quotes_to_domain() -> None:
     from nautilus_trader.model.data import QuoteTick as _QuoteTick
 
     assert isinstance(catalog.items[0], _QuoteTick)
+
+
+def test_parquet_raw_writer_replaces_overlaps(tmp_path: Path) -> None:
+    catalog_root = tmp_path / "catalog"
+    catalog = ParquetDataCatalog(str(catalog_root))
+    writer = ParquetCatalogRawWriter(catalog, replace_on_overlap=True)
+
+    first = [
+        {
+            "instrument_id": "SPY.EQUS",
+            "ts_event": 1,
+            "ts_init": 1,
+            "bid": 1.0,
+            "ask": 1.1,
+            "bid_size": 10.0,
+            "ask_size": 20.0,
+        },
+        {
+            "instrument_id": "SPY.EQUS",
+            "ts_event": 2,
+            "ts_init": 2,
+            "bid": 1.2,
+            "ask": 1.3,
+            "bid_size": 11.0,
+            "ask_size": 21.0,
+        },
+    ]
+    second = [
+        {
+            "instrument_id": "SPY.EQUS",
+            "ts_event": 2,
+            "ts_init": 2,
+            "bid": 1.25,
+            "ask": 1.35,
+            "bid_size": 12.0,
+            "ask_size": 22.0,
+        },
+        {
+            "instrument_id": "SPY.EQUS",
+            "ts_event": 3,
+            "ts_init": 3,
+            "bid": 1.26,
+            "ask": 1.36,
+            "bid_size": 13.0,
+            "ask_size": 23.0,
+        },
+    ]
+
+    writer.write(dataset_type=DatasetType.QUOTES, data=first)
+    writer.write(dataset_type=DatasetType.QUOTES, data=second)
+
+    intervals = catalog.get_intervals(_QuoteTick, "SPY.EQUS")
+    assert intervals == [(2, 3)]
+
+    files = list((catalog_root / "data" / "quote_tick" / "SPY.EQUS").glob("*.parquet"))
+    assert len(files) == 1
 
 
 def test_parquet_raw_writer_converts_trades_to_domain() -> None:

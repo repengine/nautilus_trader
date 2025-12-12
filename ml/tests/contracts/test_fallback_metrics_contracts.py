@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from ml.core.integration import init_ml_stores_and_registries
+from ml.tests.utils.db import build_postgres_url
 
 
 class _LabelsCapture:
@@ -30,7 +31,11 @@ class _CounterCapture:
 
 @dataclass(slots=True)
 class _Cfg:
-    db_connection: str | None = "postgresql://invalid:invalid@localhost:5432/nautilus"
+    db_connection: str | None = build_postgres_url(
+        user="invalid",
+        password="invalid",
+        database="nautilus",
+    )
     allow_dummy_fallback: bool = True
     use_dummy_stores: bool = False
 

@@ -4,7 +4,6 @@ pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
 import re
 from datetime import datetime
-from typing import Any
 
 import pytest
 
@@ -13,7 +12,7 @@ from ml.stores.infrastructure import PartitionManager
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -23,9 +22,9 @@ pytestmark = [
 
 
 
-def test_create_test_partitions_minimal(clean_postgres_db: Any, postgres_connection: str) -> None:
+def test_create_test_partitions_minimal(cloned_test_database: str) -> None:
     pm = PartitionManager(
-        connection_string=postgres_connection,
+        connection_string=cloned_test_database,
         tables=["ml_model_predictions"],
         months_ahead=0,
     )

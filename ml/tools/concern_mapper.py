@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = generate_summary(concern_map)
 
     # Build output
-    output = {
+    output: dict[str, Any] = {
         "summary": summary,
         "patterns": CONCERN_PATTERNS,
     }

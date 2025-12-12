@@ -89,6 +89,7 @@ from playground.backtest.engine import BacktestResult
 from playground.backtest.liquidity_controls import LiquidityScalingConfig
 from playground.backtest.performance_metrics import PerformanceMetrics
 from playground.backtest.regime_analysis import define_market_regimes
+from playground.backtest.runner import PHASE3_TARGET_SHARPE
 from playground.backtest.runner import BacktestSuite
 from playground.backtest.runner import LiquidityMitigationScenario
 from playground.backtest.runner import MonteCarloOverlayActivation
@@ -105,7 +106,6 @@ from playground.backtest.runner import run_parameter_sensitivity_suite
 from playground.backtest.runner import run_proxy_dataset_validation
 from playground.backtest.runner import run_vintage_simulation_suite
 from playground.backtest.runner import run_walk_forward_backtest_suite
-from playground.backtest.runner import PHASE3_TARGET_SHARPE
 from playground.backtest.splits import TrainTestSplit
 from playground.backtest.splits import WalkForwardConfig
 from playground.scripts.run_phase3_walk_forward import _parse_comma_separated

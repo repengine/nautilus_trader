@@ -12,6 +12,7 @@ from ml.stores.protocols import (
     ModelStoreStrictProtocol,
     StrategyStoreStrictProtocol,
 )
+from ml.tests.utils.db import build_postgres_url
 
 
 def test_runtime_protocol_conformance_isinstance(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,7 +30,7 @@ def test_runtime_protocol_conformance_isinstance(monkeypatch: pytest.MonkeyPatch
         "ml.stores.feature_store.create_engine", lambda *_args, **_kwargs: dummy_engine
     )
 
-    fs = FeatureStore(connection_string="postgresql://postgres:postgres@localhost:5432/nautilus")
+    fs = FeatureStore(connection_string=build_postgres_url())
     ms = ModelStore(connection_string=None, persistence_config=None)
     ss = StrategyStore(connection_string=None, persistence_config=None)
 

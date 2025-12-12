@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from ml.tests.utils.db import build_postgres_url
+
 
 class TestEnvironment(Enum):
     """
@@ -52,10 +54,7 @@ class DatabaseConfig:
         Create config for unit tests (PostgreSQL).
         """
         # Always use PostgreSQL for all tests
-        pg_connection = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
-        )
+        pg_connection = os.environ.get("DATABASE_URL", build_postgres_url())
         return cls(
             backend="postgresql",
             connection_string=pg_connection,
@@ -72,10 +71,7 @@ class DatabaseConfig:
         Create config for integration tests (PostgreSQL only).
         """
         # Always use PostgreSQL - required for ML stores
-        pg_connection = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
-        )
+        pg_connection = os.environ.get("DATABASE_URL", build_postgres_url())
         return cls(
             backend="postgresql",
             connection_string=pg_connection,
@@ -92,10 +88,7 @@ class DatabaseConfig:
         Create config for E2E tests (persistent PostgreSQL database).
         """
         # Always use PostgreSQL for E2E tests
-        pg_connection = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
-        )
+        pg_connection = os.environ.get("DATABASE_URL", build_postgres_url())
         return cls(
             backend="postgresql",
             connection_string=pg_connection,

@@ -211,7 +211,6 @@ class TestFacadeIsAbstract:
         class IncompleteTrainer(BaseMLTrainerFacade):
             """Incomplete - missing abstract methods."""
 
-            pass
 
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             IncompleteTrainer(basic_config)  # type: ignore[abstract]

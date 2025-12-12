@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 import pytest
 from sqlalchemy import inspect
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
+from ml.core.db_engine import EngineManager
 from ml.observability.migrations import apply_observability_indices
-
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
-    pytest.mark.usefixtures("clean_postgres_db_module"),
+    pytest.mark.usefixtures("cloned_test_database"),
     pytest.mark.usefixtures(
         "isolated_prometheus_registry",
         "mock_tracing_backend",
@@ -27,9 +26,9 @@ pytestmark = [
 
 def test_apply_observability_indices_creates_brin_and_composites(
     default_instrument_id: Any,
-    test_database: TestDatabase,
+    cloned_test_database: str,
 ) -> None:
-    eng = test_database.engine
+    eng: Engine = EngineManager.get_engine(cloned_test_database)
 
     # Ensure tables exist (empty frames are fine)
     with eng.begin() as conn:

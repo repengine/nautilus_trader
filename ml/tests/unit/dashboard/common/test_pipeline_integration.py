@@ -15,13 +15,16 @@ import pytest
 from ml.config.events import EventStatus
 from ml.dashboard.common.pipeline_integration import PipelineIntegrationComponent
 from ml.dashboard.config import DashboardConfig
+from ml.tests.utils.db import build_postgres_url
+
+TEST_DB_CONNECTION = build_postgres_url(user="test", password="test", database="test_db")
 
 
 @pytest.fixture
 def dashboard_config() -> DashboardConfig:
     """Create a basic dashboard configuration for testing."""
     return DashboardConfig(
-        db_connection="postgresql://test:test@localhost:5432/test_db",
+        db_connection=TEST_DB_CONNECTION,
         actor_port=9001,
         strategy_port=9002,
         pipeline_port=9003,

@@ -112,7 +112,7 @@ class TestFeatureStoreAccessorProperties:
 
         # Verify monotonicity
         if read_df is not None and len(read_df) > 1:
-            timestamps = read_df["ts_event"].values
+            timestamps = read_df["ts_event"].to_numpy()
             # Check timestamps are monotonically non-decreasing
             for i in range(len(timestamps) - 1):
                 assert timestamps[i] <= timestamps[i + 1], (
