@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from collections.abc import Mapping
 from datetime import UTC
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from ml.data.ingest.market_bindings import ResolvedMarketBinding
     from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
     from ml.data.ingest.orchestrator import IngestionOrchestrator
+    from ml.registry.dataclasses import DatasetType
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.io_raw import RawIngestionWriterProtocol
     from ml.stores.protocols import CoverageProviderProtocol
@@ -66,6 +68,8 @@ class OrchestratorCollectionProtocol(Protocol):
         registry: RegistryProtocol,
         catalog: ParquetDataCatalog,
         dual_write: bool,
+        dual_write_dataset_types: Mapping[DatasetType, bool] | None = None,
+        dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
     ) -> None:
         """
         Collect data via IngestionOrchestrator with optional dual-write.
@@ -76,6 +80,10 @@ class OrchestratorCollectionProtocol(Protocol):
             registry: DataRegistry for event tracking and watermarks.
             catalog: ParquetDataCatalog for dual-write scenarios.
             dual_write: Whether to mirror domain objects to catalog.
+            dual_write_dataset_types: Optional dataset-type toggles for mirroring.
+            dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
+            dual_write_dataset_types: Optional dataset-type toggles for mirroring.
+            dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
 
         Raises:
             ValueError: If API key or DB connection is missing.
@@ -123,12 +131,16 @@ class OrchestratorCollectionProtocol(Protocol):
     def create_raw_writer(
         self,
         catalog: ParquetDataCatalog,
+        dataset_type_toggles: Mapping[DatasetType, bool] | None = None,
+        dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
     ) -> RawIngestionWriterProtocol:
         """
         Create a ParquetCatalogRawWriter for dual-write scenarios.
 
         Args:
             catalog: ParquetDataCatalog instance.
+            dataset_type_toggles: Optional dataset-type toggles for mirroring.
+            dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
 
         Returns:
             Configured ParquetCatalogRawWriter.
@@ -167,6 +179,8 @@ class OrchestratorCollectionComponent:
         registry: RegistryProtocol | None,
         catalog: ParquetDataCatalog,
         dual_write: bool,
+        dual_write_dataset_types: Mapping[DatasetType, bool] | None = None,
+        dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
     ) -> None:
         """
         Collect data via IngestionOrchestrator with optional dual-write.
@@ -223,7 +237,11 @@ class OrchestratorCollectionComponent:
         raw_writer: RawIngestionWriterProtocol | None = None
         domain_loader: DomainWindowLoaderProtocol | None = None
         if dual_write:
-            raw_writer = self.create_raw_writer(catalog)
+            raw_writer = self.create_raw_writer(
+                catalog,
+                dataset_type_toggles=dual_write_dataset_types,
+                dataset_type_identifier_templates=dataset_type_identifier_templates,
+            )
             domain_loader = self._create_domain_loader(api_key, config)
 
         # Create orchestrator
@@ -305,12 +323,16 @@ class OrchestratorCollectionComponent:
     def create_raw_writer(
         self,
         catalog: ParquetDataCatalog,
+        dataset_type_toggles: Mapping[DatasetType, bool] | None = None,
+        dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
     ) -> RawIngestionWriterProtocol:
         """
         Create a ParquetCatalogRawWriter for dual-write scenarios.
 
         Args:
             catalog: ParquetDataCatalog instance.
+            dataset_type_toggles: Optional dataset-type toggles for mirroring.
+            dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
 
         Returns:
             Configured ParquetCatalogRawWriter.
@@ -320,9 +342,26 @@ class OrchestratorCollectionComponent:
             >>> writer = component.create_raw_writer(parquet_catalog)
 
         """
+        from ml.registry.dataclasses import DatasetType
+        from ml.stores.io_raw import FilteredRawWriter
         from ml.stores.io_raw import ParquetCatalogRawWriter
 
-        return ParquetCatalogRawWriter(catalog)
+        base_toggles = {
+            DatasetType.BARS: True,
+            DatasetType.TRADES: True,
+            DatasetType.TBBO: True,
+            DatasetType.MBP1: True,
+        }
+        if dataset_type_toggles:
+            base_toggles.update(dataset_type_toggles)
+
+        return FilteredRawWriter(
+            ParquetCatalogRawWriter(
+                catalog,
+                dataset_type_identifier_templates=dataset_type_identifier_templates,
+            ),
+            enabled=base_toggles,
+        )
 
     def _resolve_db_connection(self, connection: str | None) -> str | None:
         """

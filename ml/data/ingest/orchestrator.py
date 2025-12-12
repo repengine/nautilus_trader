@@ -354,6 +354,15 @@ class IngestionOrchestrator:
                 if self.raw_writer is not None:
                     try:
                         dataset_type = _schema_to_dataset_type(schema)
+                        checker = getattr(self.raw_writer, "is_enabled", None)
+                        enabled = True
+                        if callable(checker):
+                            try:
+                                enabled = bool(checker(dataset_type))
+                            except Exception:
+                                enabled = True
+                        if not enabled:
+                            return
                         if self.domain_loader is not None:
                             items = self.domain_loader.load(
                                 dataset_id=dataset_id,
@@ -648,6 +657,14 @@ class IngestionOrchestrator:
         Ensure ts_event/ts_init columns are nanosecond integers.
         """
         working = frame.copy()
+        if "ts_event" not in working.columns:
+            index_name = working.index.name
+            if isinstance(working.index, pd.DatetimeIndex) and index_name in {"ts_event", "ts"}:
+                working = working.reset_index()
+                if index_name != "ts_event":
+                    working = working.rename(columns={index_name: "ts_event"})
+            elif index_name == "ts_event" and pd.api.types.is_integer_dtype(working.index):
+                working = working.reset_index().rename(columns={index_name: "ts_event"})
         if "ts_event" in working.columns:
             event_series = working["ts_event"]
             if not pd.api.types.is_integer_dtype(event_series):
@@ -701,12 +718,6 @@ class DomainWindowLoaderProtocol(Protocol):
 
 
 def _schema_to_dataset_type(schema: str) -> DatasetType:
-    s = schema.lower()
-    if "bar" in s or "ohlcv" in s:
-        return DatasetType.BARS
-    if "tbbo" in s or "quote" in s:
-        return DatasetType.TBBO
-    if "trade" in s:
-        return DatasetType.TRADES
-    # Default to BARS when ambiguous
-    return DatasetType.BARS
+    from ml.schema import map_schema_to_dataset_type
+
+    return map_schema_to_dataset_type(schema)

@@ -303,7 +303,8 @@ class FeatureCoverageRestorer:
             return _InstrumentRestoreResult(rows=0, buckets=0, missing=bucket_targets)
 
         for path in partition_files:
-            frame = self._read_parquet(path, timestamp_field=timestamp_field)
+            partition_path = path if isinstance(path, Path) else Path(path)
+            frame = self._read_parquet(partition_path, timestamp_field=timestamp_field)
             if frame is None:
                 continue
             filtered_frame = self._filter_partition_field(
@@ -681,7 +682,11 @@ class FeatureCoverageRestorer:
 
     def _get_writer(self) -> _FeatureDatasetWriter:
         if self._writer is None:
-            factory = self._writer_factory or (lambda conn: DataStore(connection_string=conn))
+            factory: Callable[[str], _FeatureDatasetWriter]
+            if self._writer_factory is not None:
+                factory = self._writer_factory
+            else:
+                factory = cast(Callable[[str], _FeatureDatasetWriter], DataStore)
             self._writer = factory(self._db_connection)
         return self._writer
 

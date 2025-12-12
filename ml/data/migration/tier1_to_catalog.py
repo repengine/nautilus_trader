@@ -197,6 +197,26 @@ def _is_interval_fully_covered(
     return False
 
 
+def _are_row_groups_covered(
+    *,
+    row_groups: Sequence[tuple[int, int]],
+    intervals: Sequence[tuple[int, int]],
+) -> bool:
+    """Return True if every row-group interval is fully covered by catalog intervals."""
+    if not row_groups:
+        return False
+    merged = _merge_intervals(intervals)
+    for start_ns, end_ns in row_groups:
+        covered = False
+        for existing_start, existing_end in merged:
+            if start_ns >= existing_start and end_ns <= existing_end:
+                covered = True
+                break
+        if not covered:
+            return False
+    return True
+
+
 def _coerce_parquet_stat_to_ns(value: object, field_type: pa.DataType | None) -> int | None:
     """Coerce parquet statistics min/max to nanoseconds since epoch."""
     if value is None:
@@ -262,6 +282,41 @@ class FileDisposition:
     instrument_id: str
     status: Literal["skip_full_overlap", "partial_overlap", "uncovered", "no_bounds"]
     bounds: tuple[int, int] | None
+
+
+def _row_group_bounds(path: Path) -> list[tuple[int, int]]:
+    """
+    Return per-row-group [min, max] ts_event bounds using parquet statistics.
+    """
+    try:
+        parquet_file = pq.ParquetFile(path)
+    except Exception:  # pragma: no cover - defensive
+        return []
+    schema = parquet_file.schema_arrow
+    field_map = {field.name: field.type for field in schema}
+    groups: list[tuple[int, int]] = []
+    for rg_index in range(parquet_file.metadata.num_row_groups):
+        row_group = parquet_file.metadata.row_group(rg_index)
+        rg_min: int | None = None
+        rg_max: int | None = None
+        for col_index in range(row_group.num_columns):
+            column_chunk = row_group.column(col_index)
+            name = column_chunk.path_in_schema
+            if name not in {"ts_event", "ts", "timestamp", "datetime", "time"}:
+                continue
+            stats = column_chunk.statistics
+            if stats is None:
+                continue
+            field_type = field_map.get(name)
+            cmin = _coerce_parquet_stat_to_ns(getattr(stats, "min", None), field_type)
+            cmax = _coerce_parquet_stat_to_ns(getattr(stats, "max", None), field_type)
+            if cmin is None or cmax is None:
+                continue
+            rg_min = cmin if rg_min is None else min(rg_min, cmin)
+            rg_max = cmax if rg_max is None else max(rg_max, cmax)
+        if rg_min is not None and rg_max is not None:
+            groups.append((rg_min, rg_max))
+    return groups
 
 
 def _save_plan(plan: Sequence[FileDisposition], path: Path) -> None:
@@ -383,12 +438,13 @@ def migrate_tier1_to_catalog(
                 if plan_filter is not None and path not in plan_filter:
                     continue
                 bounds = _parquet_bounds(path)
+                rg_bounds = _row_group_bounds(path)
                 status_bars: Literal["skip_full_overlap", "partial_overlap", "uncovered", "no_bounds"]
                 if bounds is None:
                     status_bars = "no_bounds"
                 elif not merged_intervals:
                     status_bars = "uncovered"
-                elif _is_interval_fully_covered(start_ns=bounds[0], end_ns=bounds[1], intervals=merged_intervals):
+                elif _is_interval_fully_covered(start_ns=bounds[0], end_ns=bounds[1], intervals=merged_intervals) or _are_row_groups_covered(row_groups=rg_bounds, intervals=merged_intervals):
                     status_bars = "skip_full_overlap"
                 else:
                     status_bars = "partial_overlap"
@@ -407,8 +463,14 @@ def migrate_tier1_to_catalog(
                     continue
                 if analyze_only:
                     continue
-                planned.append(
-                    disposition,
+                logger.info(
+                    "processing_file",
+                    extra={
+                        "dataset": "bars",
+                        "path": str(path),
+                        "instrument_id": instrument_id,
+                        "status": status_bars,
+                    },
                 )
                 try:
                     for batch in _stream_parquet_batches(path, batch_size):
@@ -473,6 +535,7 @@ def migrate_tier1_to_catalog(
                 if plan_filter is not None and path not in plan_filter:
                     continue
                 bounds = _parquet_bounds(path)
+                rg_bounds = _row_group_bounds(path)
                 status_quotes: Literal["skip_full_overlap", "partial_overlap", "uncovered", "no_bounds"]
                 if bounds is None:
                     status_quotes = "no_bounds"
@@ -483,6 +546,8 @@ def migrate_tier1_to_catalog(
                     end_ns=bounds[1],
                     intervals=merged_intervals_q,
                 ):
+                    status_quotes = "skip_full_overlap"
+                elif _are_row_groups_covered(row_groups=rg_bounds, intervals=merged_intervals_q):
                     status_quotes = "skip_full_overlap"
                 else:
                     status_quotes = "partial_overlap"
@@ -501,6 +566,15 @@ def migrate_tier1_to_catalog(
                     continue
                 if analyze_only:
                     continue
+                logger.info(
+                    "processing_file",
+                    extra={
+                        "dataset": "quotes",
+                        "path": str(path),
+                        "instrument_id": instrument_id,
+                        "status": status_quotes,
+                    },
+                )
                 try:
                     for batch in _stream_parquet_batches(path, batch_size):
                         if batch.empty:
@@ -560,6 +634,7 @@ def migrate_tier1_to_catalog(
                 if plan_filter is not None and path not in plan_filter:
                     continue
                 bounds = _parquet_bounds(path)
+                rg_bounds = _row_group_bounds(path)
                 status_trades: Literal["skip_full_overlap", "partial_overlap", "uncovered", "no_bounds"]
                 if bounds is None:
                     status_trades = "no_bounds"
@@ -570,6 +645,8 @@ def migrate_tier1_to_catalog(
                     end_ns=bounds[1],
                     intervals=merged_intervals_t,
                 ):
+                    status_trades = "skip_full_overlap"
+                elif _are_row_groups_covered(row_groups=rg_bounds, intervals=merged_intervals_t):
                     status_trades = "skip_full_overlap"
                 else:
                     status_trades = "partial_overlap"
@@ -588,6 +665,15 @@ def migrate_tier1_to_catalog(
                     continue
                 if analyze_only:
                     continue
+                logger.info(
+                    "processing_file",
+                    extra={
+                        "dataset": "trades",
+                        "path": str(path),
+                        "instrument_id": instrument_id,
+                        "status": status_trades,
+                    },
+                )
                 try:
                     for batch in _stream_parquet_batches(path, batch_size):
                         if batch.empty:
@@ -636,7 +722,7 @@ def migrate_tier1_to_catalog(
                                 "aggressor_side": aggressor,
                             },
                         )
-                        out = out.sort_values("ts_event").reset_index(drop=True)
+                        out = out.sort_values("ts_event").drop_duplicates(subset="ts_event").reset_index(drop=True)
                         written = writer.write(dataset_type=DatasetType.TRADES, data=out)
                         stats = stats.with_update(
                             trades_rows=stats.trades_rows + written,

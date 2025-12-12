@@ -401,7 +401,7 @@ def _build_catalog_provider(
         return NullCoverageProvider()
     if len(providers) == 1:
         return providers[0]
-    return UnionCoverageProvider(tuple(providers))
+    return UnionCoverageProvider(list(providers))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -423,6 +423,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         for entry in entries
         if entry.sql_override is not None
     }
+    dataset_overrides: dict[str, object] | None = (
+        {dataset_id: override for dataset_id, override in sql_overrides.items()}
+        if sql_overrides
+        else None
+    )
     catalog_path = args.catalog_path or os.getenv("CATALOG_PATH")
     needs_catalog = any(entry.parquet_spec is None for entry in entries)
     if needs_catalog and not catalog_path:
@@ -437,7 +442,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config=manager_config,
         sql_provider=SqlCoverageProvider(
             connection_string=db_url,
-            dataset_overrides=sql_overrides or None,
+            dataset_overrides=dataset_overrides,
         ),
         catalog_provider=_build_catalog_provider(
             catalog_path=catalog_path,

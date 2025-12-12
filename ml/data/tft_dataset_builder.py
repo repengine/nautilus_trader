@@ -75,11 +75,13 @@ class TFTDatasetBuilder:
         market_dataset_id: str | None = None,
         market_bindings: Iterable[ResolvedMarketBinding] | None = None,
         include_macro: bool = False,
+        include_macro_deltas: bool = False,
         macro_lag_days: int = 1,
         fred_path: str | None = None,
         include_micro: bool = False,
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
+        include_calendar_lags: bool = False,
         include_events: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
@@ -140,11 +142,13 @@ class TFTDatasetBuilder:
         self.market_bindings = tuple(market_bindings or ())
         self._allow_parquet_fallback = os.getenv("ML_TFT_ALLOW_PARQUET_FALLBACK", "0") == "1"
         self.include_macro = include_macro
+        self.include_macro_deltas = include_macro_deltas
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
         self.include_micro = include_micro
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
+        self.include_calendar_lags = include_calendar_lags
         self.include_events = include_events
         if earnings_lag_days < 0:
             raise ValueError("earnings_lag_days must be >= 0")

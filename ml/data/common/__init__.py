@@ -29,13 +29,14 @@ from ml.data.common.data_collection import DataCollectionProtocol
 from ml.data.common.dataset_registration import DatasetRegistrationComponent
 from ml.data.common.dataset_registration import DatasetRegistrationProtocol
 from ml.data.common.feature_alignment import FeatureAlignmentComponent
-from ml.data.common.feature_computation import VENUE_MAP
-from ml.data.common.feature_computation import FeatureComputationComponent
-from ml.data.common.feature_computation import FeatureComputationProtocol
+from ml.data.common.known_future_features import KnownFutureFeatureComponent
 from ml.data.common.metrics_server import MetricsServerComponent
 from ml.data.common.metrics_server import MetricsServerProtocol
 from ml.data.common.orchestrator_collection import OrchestratorCollectionComponent
 from ml.data.common.orchestrator_collection import OrchestratorCollectionProtocol
+from ml.data.common.scheduler_feature_job import VENUE_MAP
+from ml.data.common.scheduler_feature_job import FeatureComputationComponent
+from ml.data.common.scheduler_feature_job import FeatureComputationProtocol
 from ml.data.common.scheduler_init import SchedulerInitComponent
 from ml.data.common.scheduler_init import SchedulerInitProtocol
 from ml.data.common.target_generation import TargetGenerationComponent
@@ -57,6 +58,7 @@ __all__ = [
     "FeatureAlignmentComponent",
     "FeatureComputationComponent",
     "FeatureComputationProtocol",
+    "KnownFutureFeatureComponent",
     "MetricsServerComponent",
     "MetricsServerProtocol",
     "OrchestratorCollectionComponent",

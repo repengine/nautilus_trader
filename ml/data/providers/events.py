@@ -128,6 +128,9 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
 
         # Get date range for event loading
         ts_list = timestamps.to_list()
+        econ_events: list[EconomicEvent] = []
+        earnings_events: list[EarningsEvent] = []
+
         if ts_list:
             min_ts = min(ts_list)
             max_ts = max(ts_list)
@@ -145,13 +148,39 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
                 end,
                 instruments,
             )
-        else:
-            econ_events, earnings_events = [], []
+        econ_events_typed: list[EconomicEvent] = list(econ_events)
+        earnings_events_typed: list[EarningsEvent] = list(earnings_events)
 
         event_index, options_flags = self._prepare_event_lookup(econ_events, earnings_events)
         fomc_weeks = self._week_set(event_index.get("fed_meeting", []))
         holiday_weeks = self._week_set(event_index.get("holiday", []))
         triple_dates = {ts.date() for ts, flag in options_flags.items() if flag}
+
+        # Precompute date-indexed lookups to avoid per-timestamp full scans
+        econ_by_date: dict[date, list[EconomicEvent]] = {}
+        earnings_by_date: dict[date, list[EarningsEvent]] = {}
+        fed_ts: list[datetime] = []
+        cpi_ts: list[datetime] = []
+        earnings_ts: list[datetime] = []
+
+        for econ_event in econ_events_typed:
+            d = econ_event.timestamp.date()
+            econ_by_date.setdefault(d, []).append(econ_event)
+            name_lower = econ_event.name.lower()
+            if "fed" in name_lower:
+                fed_ts.append(econ_event.timestamp)
+            if "cpi" in name_lower or "consumer price" in name_lower:
+                cpi_ts.append(econ_event.timestamp)
+
+        for earnings_event in earnings_events_typed:
+            d = earnings_event.timestamp.date()
+            earnings_by_date.setdefault(d, []).append(earnings_event)
+            earnings_ts.append(earnings_event.timestamp)
+
+        fed_ts.sort()
+        cpi_ts.sort()
+        earnings_ts.sort()
+        all_events_ts = event_index.get("all", [])
 
         # Process each timestamp
         for ts in timestamps:
@@ -160,13 +189,17 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             # Compute features for this timestamp
             feature_dict = self._compute_timestamp_features(
                 dt,
-                econ_events,
-                earnings_events,
+                econ_by_date,
+                earnings_by_date,
+                fed_ts,
+                cpi_ts,
+                earnings_ts,
                 event_index,
                 options_flags,
                 fomc_weeks,
                 holiday_weeks,
                 triple_dates,
+                all_events_ts,
             )
             feature_dict["timestamp"] = ts
             features.append(feature_dict)
@@ -236,13 +269,17 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
     def _compute_timestamp_features(
         self,
         dt: datetime,
-        econ_events: list[EconomicEvent],
-        earnings_events: list[EarningsEvent],
+        econ_by_date: dict[date, list[EconomicEvent]],
+        earnings_by_date: dict[date, list[EarningsEvent]],
+        fed_ts: list[datetime],
+        cpi_ts: list[datetime],
+        earnings_ts: list[datetime],
         event_index: dict[str, list[datetime]],
         options_flags: dict[datetime, bool],
         fomc_weeks: set[tuple[int, int]],
         holiday_weeks: set[tuple[int, int]],
         triple_dates: set[date],
+        all_events_ts: list[datetime],
     ) -> dict[str, Any]:
         """
         Compute features for a single timestamp.
@@ -277,63 +314,41 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             "event_clustering_score": 0.0,
         }
 
-        # Check for events today
-        today_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        today_events = econ_by_date.get(dt.date(), [])
+        todays_earnings = earnings_by_date.get(dt.date(), [])
 
-        # Economic events
-        fed_events = [e for e in econ_events if "Fed" in e.name]
-        cpi_events = [e for e in econ_events if "CPI" in e.name or "Consumer Price" in e.name]
+        if today_events:
+            features["has_fed_event_today"] = any("fed" in e.name.lower() for e in today_events)
+            features["has_cpi_event_today"] = any(
+                ("cpi" in e.name.lower()) or ("consumer price" in e.name.lower())
+                for e in today_events
+            )
 
-        # Check today's events
-        todays_events = [e for e in econ_events if today_start <= e.timestamp <= today_end]
-
-        for event in todays_events:
-            if "Fed" in event.name:
-                features["has_fed_event_today"] = True
-            if "CPI" in event.name or "Consumer Price" in event.name:
-                features["has_cpi_event_today"] = True
-
-        # Earnings today
-        todays_earnings = [e for e in earnings_events if today_start <= e.timestamp <= today_end]
         if todays_earnings:
             features["has_earnings_today"] = True
 
-        # Days to next events
-        future_fed = [e for e in fed_events if e.timestamp > dt]
-        if future_fed:
-            next_fed = min(future_fed, key=lambda e: e.timestamp)
-            features["days_to_next_fed"] = (next_fed.timestamp - dt).days
+        # Days to next events via bisect on sorted timestamps
+        fed_idx = bisect_left(fed_ts, dt)
+        if fed_idx < len(fed_ts):
+            features["days_to_next_fed"] = (fed_ts[fed_idx] - dt).days
+        if fed_idx > 0:
+            features["days_since_last_fed"] = (dt - fed_ts[fed_idx - 1]).days
 
-        future_cpi = [e for e in cpi_events if e.timestamp > dt]
-        if future_cpi:
-            next_cpi = min(future_cpi, key=lambda e: e.timestamp)
-            features["days_to_next_cpi"] = (next_cpi.timestamp - dt).days
+        cpi_idx = bisect_left(cpi_ts, dt)
+        if cpi_idx < len(cpi_ts):
+            features["days_to_next_cpi"] = (cpi_ts[cpi_idx] - dt).days
+        if cpi_idx > 0:
+            features["days_since_last_cpi"] = (dt - cpi_ts[cpi_idx - 1]).days
 
-        future_earnings = [e for e in earnings_events if e.timestamp > dt]
-        if future_earnings:
-            next_earnings = min(future_earnings, key=lambda e: e.timestamp)
-            features["days_to_next_earnings"] = (next_earnings.timestamp - dt).days
-
-        # Days since last events
-        past_fed = [e for e in fed_events if e.timestamp <= dt]
-        if past_fed:
-            last_fed = max(past_fed, key=lambda e: e.timestamp)
-            features["days_since_last_fed"] = (dt - last_fed.timestamp).days
-
-        past_cpi = [e for e in cpi_events if e.timestamp <= dt]
-        if past_cpi:
-            last_cpi = max(past_cpi, key=lambda e: e.timestamp)
-            features["days_since_last_cpi"] = (dt - last_cpi.timestamp).days
-
-        past_earnings = [e for e in earnings_events if e.timestamp <= dt]
-        if past_earnings:
-            last_earnings = max(past_earnings, key=lambda e: e.timestamp)
-            features["days_since_last_earnings"] = (dt - last_earnings.timestamp).days
+        earnings_idx = bisect_left(earnings_ts, dt)
+        if earnings_idx < len(earnings_ts):
+            features["days_to_next_earnings"] = (earnings_ts[earnings_idx] - dt).days
+        if earnings_idx > 0:
+            features["days_since_last_earnings"] = (dt - earnings_ts[earnings_idx - 1]).days
 
         # Event importance score (0-10 scale)
         importance_score = 0.0
-        for event in todays_events:
+        for event in today_events:
             if event.importance == "HIGH":
                 importance_score += 3.0
             elif event.importance == "MEDIUM":
@@ -351,15 +366,19 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         window_start = dt - timedelta(days=3)
         window_end = dt + timedelta(days=3)
 
-        nearby_events = [e for e in econ_events if window_start <= e.timestamp <= window_end]
-        nearby_earnings = [e for e in earnings_events if window_start <= e.timestamp <= window_end]
+        start_idx = bisect_left(all_events_ts, window_start)
+        end_idx = bisect_right(all_events_ts, window_end)
+        nearby_event_count = max(end_idx - start_idx, 0)
 
-        clustering_score = len(nearby_events) * 0.5 + len(nearby_earnings) * 0.3
+        earnings_start_idx = bisect_left(earnings_ts, window_start)
+        earnings_end_idx = bisect_right(earnings_ts, window_end)
+        nearby_earnings_count = max(earnings_end_idx - earnings_start_idx, 0)
+
+        clustering_score = nearby_event_count * 0.5 + nearby_earnings_count * 0.3
         features["event_clustering_score"] = min(clustering_score, 10.0)
 
-        all_events = event_index.get("all", [])
-        total_events_24h = self._count_within_hours(all_events, dt, 24)
-        total_events_week = self._count_within_hours(all_events, dt, 24 * 7)
+        total_events_24h = self._count_within_hours(all_events_ts, dt, 24)
+        total_events_week = self._count_within_hours(all_events_ts, dt, 24 * 7)
         features["total_events_24h"] = total_events_24h
         features["total_events_week"] = total_events_week
         features["event_density_24h"] = total_events_24h / 24.0

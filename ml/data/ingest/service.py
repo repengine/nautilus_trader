@@ -66,6 +66,7 @@ from ml.data.ingest.symbology import DatabentoSymbologyClient
 from ml.data.ingest.symbology import DatabentoSymbologyResolver
 from ml.data.ingest.symbology import SymbolResolution
 from ml.registry.dataclasses import StorageKind
+from ml.schema import schema_spec_for
 
 
 logger = structlog.get_logger(__name__)
@@ -368,6 +369,7 @@ class DatabentoIngestionService:
         if not symbol_list:
             return []
 
+        schema_spec_for(schema)
         self._policy.validate_dataset_schema(dataset=dataset, schema=schema)
         self._validate_dataset(dataset)
         window = self._sanitize_window(request.start, request.end)

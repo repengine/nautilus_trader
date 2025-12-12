@@ -32,6 +32,20 @@ warnings.filterwarnings("ignore")
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 
+def _ensure_directory(path: Path) -> Path:
+    """
+    Ensure a directory exists, tolerating existing directories and symlinks.
+    """
+    if path.is_symlink():
+        return path
+    if path.exists():
+        if path.is_dir():
+            return path
+        raise FileExistsError(f"{path} exists and is not a directory")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 class CategoryStats(TypedDict):
     count: int
     size_gb: float
@@ -90,7 +104,7 @@ class DataCollector:
         self._config = config or DataCollectorConfig()
         default_dir = Path(self._config.data_dir)
         self.data_dir = Path(data_dir) if data_dir is not None else default_dir
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir = _ensure_directory(self.data_dir)
 
         # Storage management
         self.storage_limit_gb = (

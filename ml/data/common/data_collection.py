@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.data.common.scheduler_feature_job import VENUE_MAP
 
 
 if TYPE_CHECKING:
@@ -35,19 +36,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# VENUE MAPPING
-# =============================================================================
-
-VENUE_MAP: dict[str, str] = {
-    "XNAS": "NASDAQ",
-    "XNYS": "NYSE",
-    "ARCX": "ARCA",
-    "BATS": "BATS",
-    "GLBX": "GLBX",
-}
 
 
 # =============================================================================

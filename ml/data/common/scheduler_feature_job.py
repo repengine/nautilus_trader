@@ -150,7 +150,7 @@ class FeatureComputationComponent:
     prevent processing of remaining instruments.
 
     Example:
-        >>> from ml.data.common.feature_computation import FeatureComputationComponent
+        >>> from ml.data.common.scheduler_feature_job import FeatureComputationComponent
         >>> component = FeatureComputationComponent()
         >>> total, failed = component.compute_features(
         ...     config=scheduler_config,

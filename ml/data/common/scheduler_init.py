@@ -305,6 +305,7 @@ class SchedulerInitComponent:
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
         from ml.features.engineering import FeatureConfig
+        from ml.features.engineering import FeatureConfigLike
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -318,7 +319,7 @@ class SchedulerInitComponent:
             )
 
             # Get feature config from the feature engineer
-            feature_config: FeatureConfig
+            feature_config: FeatureConfigLike
             if hasattr(feature_engineer, "config"):
                 feature_config = feature_engineer.config
             else:

@@ -1,35 +1,39 @@
 """
-Earnings data fetchers for Nautilus Trader ML.
+Backwards-compatibility shim for earnings data module.
 
-This module provides integration with SEC EDGAR (primary) and Yahoo Finance (secondary)
-to fetch corporate earnings data including actuals, consensus estimates, and calendars.
-
-Performance targets: API fetch <2s (EDGAR), <500ms (Yahoo); processing <100ms
-Hot/Cold path separation: All data fetching is cold-path only; hot path uses pre-cached data
-
-Public API exports (alphabetically sorted):
-- EarningsActual: Dataclass for actual earnings data
-- EarningsCache: Point-in-time cache for backtesting correctness
-- EarningsConsensus: Dataclass for consensus estimate data
-- EdgarFetcher: Fetch actual earnings from SEC EDGAR filings (10-Q, 10-K, 8-K)
-- XBRLParser: Utilities for parsing XBRL financial data
-- YahooFetcher: Fetch consensus estimates from Yahoo Finance
-
+DEPRECATED: Import from ml.features.earnings instead:
+    from ml.features.earnings import EarningsCache, EdgarFetcher, YahooFetcher, etc.
 """
 
-from ml.data.earnings.earnings_cache import EarningsCache
-from ml.data.earnings.edgar_fetcher import EarningsActual
-from ml.data.earnings.edgar_fetcher import EdgarFetcher
-from ml.data.earnings.xbrl_parser import XBRLParser
-from ml.data.earnings.yahoo_fetcher import EarningsConsensus
-from ml.data.earnings.yahoo_fetcher import YahooFetcher
+import warnings
+
+from ml.features.earnings.cache import EarningsCache
+from ml.features.earnings.ingestion.edgar_fetcher import EarningsActual
+from ml.features.earnings.ingestion.edgar_fetcher import EdgarFetcher
+from ml.features.earnings.ingestion.service import EarningsIngestionService
+from ml.features.earnings.ingestion.universe import ResolvedUniverse
+from ml.features.earnings.ingestion.universe import resolve_ingestion_universe
+from ml.features.earnings.ingestion.xbrl_parser import XBRLParser
+from ml.features.earnings.ingestion.yahoo_fetcher import EarningsConsensus
+from ml.features.earnings.ingestion.yahoo_fetcher import YahooFetcher
+
+
+warnings.warn(
+    "ml.data.earnings is deprecated. "
+    "Import from ml.features.earnings instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 __all__ = [
     "EarningsActual",
     "EarningsCache",
     "EarningsConsensus",
+    "EarningsIngestionService",
     "EdgarFetcher",
+    "ResolvedUniverse",
     "XBRLParser",
     "YahooFetcher",
+    "resolve_ingestion_universe",
 ]

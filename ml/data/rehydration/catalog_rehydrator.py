@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import Final, cast
+from typing import Final
 
 import pandas as pd
 from nautilus_trader.model.data import Bar
@@ -27,16 +29,22 @@ from nautilus_trader.model.identifiers import InstrumentId
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.data.coverage.manager import BucketSpec
-from ml.data.ingest.orchestrator import _schema_to_dataset_type as _map_schema_to_dataset_type
 from ml.registry.dataclasses import DatasetType
+from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
+from ml.schema import DEFAULT_BAR_IDENTIFIER_TEMPLATE
+from ml.schema import dataset_type_to_dataclass
+from ml.schema import map_schema_to_dataset_type
+from ml.schema import validate_dataset_type_templates
+from ml.schema import validate_identifier_template
+from ml.schema import validate_schema_identifier_templates
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.providers import resolve_catalog_identifier
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
 
 
 logger = logging.getLogger(__name__)
+
 
 DAY_NS: Final[int] = 86_400_000_000_000
 
@@ -71,7 +79,14 @@ class CatalogRehydrationConfig:
     batch_size :
         Maximum rows written per SQL batch (passed through to writer).
     identifier_template :
-        Template used to resolve catalog identifiers (defaults to bar template).
+        Template used to resolve catalog identifiers (defaults to the bar registry template).
+    schema_identifier_templates :
+        Optional per-schema identifier templates (case-insensitive keys).
+    dataset_type_identifier_templates :
+        Per-dataset-type identifier templates. Defaults align with Nautilus catalog
+        conventions (bars use bar type; TBBO/Trades/MBP use instrument_id).
+    uri_safe_identifiers :
+        Whether to normalize resolved identifiers using ``urisafe_identifier``.
     table_name :
         SQL table to populate (defaults to ``market_data``).
     rescan_on_schedule :
@@ -85,7 +100,12 @@ class CatalogRehydrationConfig:
     enabled: bool = False
     lookback_days: int = 5
     batch_size: int = 1_000
-    identifier_template: str = "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
+    identifier_template: str = DEFAULT_BAR_IDENTIFIER_TEMPLATE
+    schema_identifier_templates: Mapping[str, str] = field(default_factory=dict)
+    dataset_type_identifier_templates: Mapping[DatasetType, str] = field(
+        default_factory=lambda: DATASET_TYPE_IDENTIFIER_DEFAULTS.copy(),
+    )
+    uri_safe_identifiers: bool = True
     table_name: str = "market_data"
     rescan_on_schedule: bool = False
     exhaustive: bool = False
@@ -97,9 +117,9 @@ class CatalogRehydrationConfig:
         if self.batch_size <= 0:
             msg = "batch_size must be positive"
             raise ValueError(msg)
-        if not self.identifier_template:
-            msg = "identifier_template must be provided"
-            raise ValueError(msg)
+        validate_identifier_template(self.identifier_template, label="identifier_template")
+        validate_schema_identifier_templates(self.schema_identifier_templates)
+        validate_dataset_type_templates(self.dataset_type_identifier_templates)
         if not self.table_name:
             msg = "table_name must be provided"
             raise ValueError(msg)
@@ -159,6 +179,12 @@ class ParquetCatalogRehydrator:
             connection_string=db_connection,
             table_name=config.table_name,
         )
+        self._schema_templates = validate_schema_identifier_templates(
+            config.schema_identifier_templates,
+        )
+        self._dataset_templates = validate_dataset_type_templates(
+            config.dataset_type_identifier_templates,
+        )
 
     def rehydrate_missing_data(
         self,
@@ -197,8 +223,8 @@ class ParquetCatalogRehydrator:
         start_ns = _datetime_to_ns(start_time)
         end_ns = _datetime_to_ns(ref_time)
 
-        dataset_type = _map_schema_to_dataset_type(schema)
-        data_class = _data_class_for_dataset(dataset_type)
+        dataset_type = map_schema_to_dataset_type(schema)
+        data_class = dataset_type_to_dataclass(dataset_type)
 
         total_buckets_considered = 0
         total_buckets_restored = 0
@@ -222,6 +248,7 @@ class ParquetCatalogRehydrator:
             identifier = self._resolve_identifier(
                 schema=schema,
                 instrument_id=instrument_normalized,
+                dataset_type=dataset_type,
             )
             effective_start_ns, effective_end_ns = self._resolve_effective_window(
                 identifier=identifier,
@@ -426,10 +453,36 @@ class ParquetCatalogRehydrator:
             )
             return pd.DataFrame()
 
-        table = ArrowSerializer.serialize_batch(objects, data_cls=data_class)
-        frame = table.to_pandas()
+        frame = pd.DataFrame.from_records(
+            [data_class.to_dict(obj) for obj in objects],
+        )
+        if "instrument_id" not in frame.columns:
+            frame["instrument_id"] = instrument.value
         frame["source_dataset"] = dataset_id
-        return cast(pd.DataFrame, frame)
+
+        if dataset_type == DatasetType.BARS:
+            for column in ("open", "high", "low", "close", "volume"):
+                if column in frame.columns:
+                    frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        elif dataset_type in (DatasetType.TBBO, DatasetType.MBP1, DatasetType.QUOTES):
+            frame = frame.rename(columns={"bid_price": "bid", "ask_price": "ask"})
+            for column in ("bid", "ask", "bid_size", "ask_size"):
+                if column in frame.columns:
+                    frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        elif dataset_type == DatasetType.TRADES:
+            frame = frame.rename(columns={"price": "last", "size": "volume"})
+            if "volume" in frame.columns:
+                frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
+            frame["trade_count"] = 1
+
+        for column in ("ts_event", "ts_init"):
+            if column in frame.columns:
+                frame[column] = pd.to_numeric(frame[column], errors="coerce").astype(
+                    "int64",
+                    errors="ignore",
+                )
+
+        return frame
 
     def _catalog_bucket_set(
         self,
@@ -453,11 +506,21 @@ class ParquetCatalogRehydrator:
             buckets.update(range(int(bucket_start), int(bucket_end) + 1))
         return buckets
 
-    def _resolve_identifier(self, *, schema: str, instrument_id: str) -> str:
+    def _resolve_identifier(
+        self,
+        *,
+        schema: str,
+        instrument_id: str,
+        dataset_type: DatasetType | None = None,
+    ) -> str:
         return resolve_catalog_identifier(
             schema=schema,
             instrument_id=instrument_id,
             identifier_template=self._config.identifier_template,
+            schema_templates=self._schema_templates,
+            dataset_type=dataset_type or map_schema_to_dataset_type(schema),
+            dataset_templates=self._dataset_templates,
+            uri_safe=self._config.uri_safe_identifiers,
         )
 
     def _resolve_effective_window(
@@ -505,10 +568,4 @@ def _datetime_to_ns(value: datetime) -> int:
 
 
 def _data_class_for_dataset(dataset_type: DatasetType) -> type[Bar | QuoteTick | TradeTick]:
-    if dataset_type is DatasetType.BARS:
-        return cast(type[Bar | QuoteTick | TradeTick], Bar)
-    if dataset_type is DatasetType.TBBO:
-        return cast(type[Bar | QuoteTick | TradeTick], QuoteTick)
-    if dataset_type is DatasetType.TRADES:
-        return cast(type[Bar | QuoteTick | TradeTick], TradeTick)
-    return cast(type[Bar | QuoteTick | TradeTick], Bar)
+    return dataset_type_to_dataclass(dataset_type)

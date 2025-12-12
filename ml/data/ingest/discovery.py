@@ -25,6 +25,16 @@ from ml.data.ingest.symbology import SymbolResolution
 from ml.registry.dataclasses import StorageKind
 
 
+__all__ = [
+    "DatasetDiscoveryError",
+    "DatasetDiscoveryService",
+    "DiscoveredInput",
+    "DiscoveryPolicy",
+    "DiscoveryRequest",
+    "MarketDatasetInput",
+]
+
+
 if TYPE_CHECKING:  # pragma: no cover - import for typing only
     from ml.data.ingest.service import DatabentoMetadataClient
 

@@ -38,6 +38,7 @@ import structlog
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.schema import schema_spec_for
 from ml.stores.protocols import MarketDataWriterProtocol
 
 
@@ -165,6 +166,7 @@ class DBNArchiveIngestor:
             schema = config.schema or metadata.schema
             source_dataset = config.source_dataset or dataset
 
+            schema_spec_for(schema)
             decoder = self.decoder or DatabentoDBNDecoder()
             summaries: list[InstrumentIngestionSummary] = []
             total_frames = 0
@@ -355,14 +357,12 @@ def _prepare_frame(
         raise ValueError("Frame missing 'ts_event' column post decode")
     working["ts_event"] = working["ts_event"].astype("int64", copy=False)
     working["ts_init"] = working.get("ts_init", working["ts_event"])
-    if "source_dataset" not in working.columns:
-        working["source_dataset"] = source_dataset
-    else:
-        working["source_dataset"] = working["source_dataset"].fillna(source_dataset)
-    if "instrument_id" not in working.columns:
-        working["instrument_id"] = instrument_id
-    else:
-        working["instrument_id"] = working["instrument_id"].fillna(instrument_id)
+    working["source_dataset"] = source_dataset
+    working["instrument_id"] = instrument_id
+    working = working.sort_values(
+        ["ts_init", "ts_event"],
+        kind="mergesort",
+    )
     ordered_cols = [
         "ts_event",
         "ts_init",

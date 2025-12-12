@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_PROMETHEUS
@@ -28,6 +29,9 @@ from ml.data.common import FeatureComputationComponent
 from ml.data.common import MetricsServerComponent
 from ml.data.common import OrchestratorCollectionComponent
 from ml.data.common import SchedulerInitComponent
+from ml.registry.dataclasses import DatasetType
+from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
+from ml.schema import validate_dataset_type_templates
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -74,6 +78,8 @@ def create_data_scheduler(
     connection: str | None = None,
     use_orchestrator: bool = False,
     dual_write: bool = False,
+    dual_write_dataset_types: Mapping[DatasetType, bool] | None = None,
+    dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
 ) -> DataScheduler | DataSchedulerFacade:
     """
     Create scheduler based on feature flag.
@@ -92,6 +98,8 @@ def create_data_scheduler(
         connection: Database connection string for feature store.
         use_orchestrator: Whether to use orchestrator-based collection.
         dual_write: Whether to dual-write to both SQL and catalog.
+        dual_write_dataset_types: Optional dataset-type toggles for mirroring.
+        dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
 
     Returns:
         DataScheduler if ML_USE_LEGACY_SCHEDULER=1, otherwise DataSchedulerFacade.
@@ -117,6 +125,8 @@ def create_data_scheduler(
             connection=connection,
             use_orchestrator=use_orchestrator,
             dual_write=dual_write,
+            dual_write_dataset_types=dual_write_dataset_types,
+            dataset_type_identifier_templates=dataset_type_identifier_templates,
         )
 
     return DataSchedulerFacade(
@@ -129,6 +139,8 @@ def create_data_scheduler(
         connection=connection,
         use_orchestrator=use_orchestrator,
         dual_write=dual_write,
+        dual_write_dataset_types=dual_write_dataset_types,
+        dataset_type_identifier_templates=dataset_type_identifier_templates,
     )
 
 
@@ -188,6 +200,8 @@ class DataSchedulerFacade:
         connection: str | None = None,
         use_orchestrator: bool = False,
         dual_write: bool = False,
+        dual_write_dataset_types: Mapping[DatasetType, bool] | None = None,
+        dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None,
     ) -> None:
         """
         Initialize data scheduler facade.
@@ -202,6 +216,8 @@ class DataSchedulerFacade:
             connection: Database connection string for feature store.
             use_orchestrator: Whether to use orchestrator-based collection.
             dual_write: Whether to dual-write to both SQL and catalog.
+            dual_write_dataset_types: Optional dataset-type toggles for mirroring.
+            dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
 
         """
         # Initialize components
@@ -223,6 +239,17 @@ class DataSchedulerFacade:
         # Unified ingestion flags
         self._use_orchestrator: bool = bool(use_orchestrator)
         self._dual_write: bool = bool(dual_write)
+        base_dual_write: dict[DatasetType, bool] = {
+            DatasetType.BARS: True,
+            DatasetType.TRADES: True,
+            DatasetType.TBBO: True,
+            DatasetType.MBP1: True,
+        }
+        if dual_write_dataset_types:
+            base_dual_write.update({k: bool(v) for k, v in dual_write_dataset_types.items()})
+        self._dual_write_dataset_types = base_dual_write
+        templates = validate_dataset_type_templates(dataset_type_identifier_templates)
+        self._dataset_type_identifier_templates = templates or DATASET_TYPE_IDENTIFIER_DEFAULTS.copy()
 
         # Scheduling state
         self.enabled = True
@@ -442,6 +469,8 @@ class DataSchedulerFacade:
             registry=self._data_registry,
             catalog=self.catalog,
             dual_write=self._dual_write,
+            dual_write_dataset_types=self._dual_write_dataset_types,
+            dataset_type_identifier_templates=self._dataset_type_identifier_templates,
         )
 
     def _compute_features(self) -> None:

@@ -30,6 +30,7 @@ from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
 from ml.config.base import MLFeatureConfig
 from ml.data.common import FeatureAlignmentComponent
+from ml.data.common import KnownFutureFeatureComponent
 from ml.data.common import SchemaValidationError
 from ml.data.common import TargetGenerationComponent
 from ml.data.common import TFTSchemaValidatorComponent
@@ -125,11 +126,13 @@ class TFTDatasetBuilderFacade:
         market_dataset_id: str | None = None,
         market_bindings: Iterable[ResolvedMarketBinding] | None = None,
         include_macro: bool = False,
+        include_macro_deltas: bool = False,
         macro_lag_days: int = 1,
         fred_path: str | None = None,
         include_micro: bool = False,
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
+        include_calendar_lags: bool = False,
         include_events: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
@@ -230,11 +233,13 @@ class TFTDatasetBuilderFacade:
         self.market_dataset_id = market_dataset_id
         self.market_bindings = tuple(market_bindings or ())
         self.include_macro = include_macro
+        self.include_macro_deltas = include_macro_deltas
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
         self.include_micro = include_micro
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
+        self.include_calendar_lags = include_calendar_lags
         self.include_events = include_events
         self.include_earnings = include_earnings and data_store is not None
         self.earnings_lag_days = earnings_lag_days
@@ -271,6 +276,7 @@ class TFTDatasetBuilderFacade:
         self._feature_alignment = FeatureAlignmentComponent()
         self._target_generation = TargetGenerationComponent()
         self._schema_validator = TFTSchemaValidatorComponent()
+        self._known_future = KnownFutureFeatureComponent(include_calendar=include_calendar)
 
         # Initialize binding stats tracking
         self._binding_stats: dict[str, MarketBindingStats] = {}
@@ -414,10 +420,39 @@ class TFTDatasetBuilderFacade:
         if threshold_bps is not None:
             min_return_threshold = threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
 
-        # Delegate to legacy builder for now
-        # The facade maintains API parity while components handle specific responsibilities
-        legacy = self._get_legacy_builder()
-        result: _pd.DataFrame | _pl.DataFrame = legacy.build_training_dataset(
+        # Use legacy builder if feature flag is set
+        if use_legacy_builder():
+            legacy = self._get_legacy_builder()
+            result: _pd.DataFrame | _pl.DataFrame = legacy.build_training_dataset(
+                horizon_minutes=horizon_minutes,
+                min_return_threshold=min_return_threshold,
+                lookback_periods=lookback_periods,
+                use_polars=use_polars,
+                start=start,
+                end=end,
+            )
+            return result
+
+        # Use component-based implementation
+        logger.info("Using component-based TFT dataset builder")
+
+        # Try FeatureStore first if available
+        if self.feature_store:
+            try:
+                return self.prepare_training_data_from_store(
+                    instrument_ids=None,
+                    start=start,
+                    end=end,
+                    horizon_minutes=horizon_minutes,
+                    min_return_threshold=min_return_threshold,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load from FeatureStore: {e}. Falling back to direct computation",
+                )
+
+        # Fall back to direct computation using components
+        return self._build_training_dataset_direct(
             horizon_minutes=horizon_minutes,
             min_return_threshold=min_return_threshold,
             lookback_periods=lookback_periods,
@@ -425,7 +460,6 @@ class TFTDatasetBuilderFacade:
             start=start,
             end=end,
         )
-        return result
 
     def prepare_training_data(
         self,
@@ -479,17 +513,48 @@ class TFTDatasetBuilderFacade:
             ... )
 
         """
-        legacy = self._get_legacy_builder()
-        result: _pd.DataFrame | _pl.DataFrame = legacy.prepare_training_data(
-            instrument_ids=instrument_ids,
-            start=start,
-            end=end,
+        # Use legacy builder if feature flag is set
+        if use_legacy_builder():
+            legacy = self._get_legacy_builder()
+            result: _pd.DataFrame | _pl.DataFrame = legacy.prepare_training_data(
+                instrument_ids=instrument_ids,
+                start=start,
+                end=end,
+                horizon_minutes=horizon_minutes,
+                min_return_threshold=min_return_threshold,
+                lookback_periods=lookback_periods,
+                use_polars=use_polars,
+            )
+            return result
+
+        # Use component-based implementation
+        # Try FeatureStore first if available
+        if self.feature_store:
+            try:
+                df = self.prepare_training_data_from_store(
+                    instrument_ids=instrument_ids,
+                    start=start,
+                    end=end,
+                    horizon_minutes=horizon_minutes,
+                    min_return_threshold=min_return_threshold,
+                )
+                if not use_polars:
+                    return df.to_pandas()
+                return df
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load from FeatureStore: {e}. Falling back to direct computation",
+                )
+
+        # Fall back to direct computation
+        return self._build_training_dataset_direct(
             horizon_minutes=horizon_minutes,
             min_return_threshold=min_return_threshold,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
+            start=start,
+            end=end,
         )
-        return result
 
     def prepare_training_data_from_store(
         self,
@@ -537,15 +602,171 @@ class TFTDatasetBuilderFacade:
             ... )
 
         """
-        legacy = self._get_legacy_builder()
-        result: _pl.DataFrame = legacy.prepare_training_data_from_store(
-            instrument_ids=instrument_ids,
-            start=start,
-            end=end,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
+        # Use legacy builder if feature flag is set
+        if use_legacy_builder():
+            legacy = self._get_legacy_builder()
+            result: _pl.DataFrame = legacy.prepare_training_data_from_store(
+                instrument_ids=instrument_ids,
+                start=start,
+                end=end,
+                horizon_minutes=horizon_minutes,
+                min_return_threshold=min_return_threshold,
+            )
+            return result
+
+        # Component-based implementation
+        if not self.feature_store:
+            msg = "FeatureStore not configured. Cannot load features from store."
+            raise ValueError(msg)
+
+        # Resolve instrument IDs
+        resolved_ids = self._resolve_instrument_ids(instrument_ids)
+        if not resolved_ids:
+            msg = "No instrument identifiers available for feature store load"
+            raise ValueError(msg)
+
+        logger.info(
+            "Loading features from FeatureStore for %d instruments",
+            len(resolved_ids),
         )
-        return result
+
+        # Collect all feature data
+        all_data: list[_pl.DataFrame] = []
+        default_start = datetime(2020, 1, 1, tzinfo=UTC)
+        default_end = datetime.now(tz=UTC)
+
+        for instrument_id in resolved_ids:
+            logger.info(f"Processing {instrument_id} from FeatureStore...")
+
+            try:
+                # Load features from FeatureStore
+                features, timestamps, feature_names = self.feature_store.get_training_data(
+                    instrument_id=instrument_id,
+                    start=start or default_start,
+                    end=end or default_end,
+                    include_bars=False,
+                )
+
+                if len(features) == 0:
+                    logger.warning(f"No features found for {instrument_id} in FeatureStore")
+                    continue
+
+                # Convert to Polars DataFrame
+                feature_df = pl.DataFrame(
+                    {
+                        "ts_event": timestamps,
+                        **{name: features[:, i] for i, name in enumerate(feature_names)},
+                    },
+                )
+
+                # Load corresponding bars for target generation
+                bars_df = self._load_bars_dataframe(instrument_id, start, end)
+
+                if bars_df.is_empty():
+                    logger.warning(f"No bar data found for {instrument_id}")
+                    continue
+
+                # Align column names and join features with bars
+                if "timestamp" in bars_df.columns:
+                    bars_df = bars_df.rename({"timestamp": "ts_event"})
+
+                combined_df = bars_df.join(feature_df, on="ts_event", how="inner")
+
+                # Add instrument identifier
+                combined_df = combined_df.with_columns(
+                    pl.lit(instrument_id).alias("instrument_id"),
+                )
+
+                # Generate targets using component
+                targets = self._target_generation.generate_targets_polars(
+                    combined_df,
+                    horizon_minutes,
+                    min_return_threshold,
+                )
+
+                # Add time index for TFT
+                combined_df = combined_df.sort("ts_event")
+                combined_df = combined_df.with_columns(
+                    pl.arange(0, len(combined_df)).alias("time_index"),
+                )
+
+                # Combine with targets
+                dataset = pl.concat([combined_df, targets], how="horizontal")
+
+                # Add TFT-specific features using components
+                dataset = self._feature_alignment.add_static_features_polars(dataset)
+                dataset = self._known_future.add_known_future_features_polars(dataset)
+
+                all_data.append(dataset)
+
+            except Exception as e:
+                logger.error(f"Failed to load features for {instrument_id}: {e}")
+                continue
+
+        if not all_data:
+            msg = "No features loaded from FeatureStore for any instrument"
+            raise RuntimeError(msg)
+
+        # Combine all instruments
+        final_df = pl.concat(all_data, how="vertical")
+
+        # Optionally join macro features (as-of with lag)
+        if self.include_macro:
+            from ml.data.fred_join import join_fred_asof
+
+            final_df = join_fred_asof(
+                final_df,
+                timestamp_col="ts_event",
+                lag_days=self.macro_lag_days,
+                fred_path=self.fred_path,
+                vintage_base_dir=self.vintage_base_dir,
+                series_filter=None if self.macro_series_ids is None else set(self.macro_series_ids),
+                vintage_policy=self.vintage_policy,
+                vintage_cutoff=self.vintage_as_of,
+            )
+
+        logger.info(
+            f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
+        )
+
+        # Validate schema using component
+        try:
+            self._schema_validator.validate(final_df)
+        except SchemaValidationError as e:
+            logger.warning(f"Schema validation warning: {e}")
+
+        return cast("_pl.DataFrame", final_df)
+
+    def _resolve_instrument_ids(self, override: list[str] | None = None) -> list[str]:
+        """
+        Resolve instrument IDs from override, config, or symbols.
+
+        Args:
+            override: Optional explicit instrument IDs to use.
+
+        Returns:
+            List of resolved instrument identifiers.
+
+        """
+        if override:
+            return override
+        if self.instrument_ids:
+            return self.instrument_ids
+        # Generate candidates from symbols with heuristic exchanges
+        candidates: list[str] = []
+        heuristic_exchanges = ["NYSE", "NASDAQ", "ARCA", "ARCX", "XNAS", "XNYS"]
+        for symbol in self.symbols:
+            if "." in symbol:
+                candidates.append(symbol)
+                continue
+            for exchange in heuristic_exchanges:
+                candidates.append(f"{symbol}.{exchange}")
+        if candidates:
+            logger.warning(
+                "Instrument IDs not provided; falling back to heuristic venues %s",
+                heuristic_exchanges,
+            )
+        return candidates
 
     def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:
         """
@@ -618,3 +839,677 @@ class TFTDatasetBuilderFacade:
 
         """
         return self._schema_validator
+
+    @property
+    def known_future_component(self) -> KnownFutureFeatureComponent:
+        """
+        Access the known-future feature component.
+
+        Returns:
+            KnownFutureFeatureComponent instance.
+
+        """
+        return self._known_future
+
+    # =========================================================================
+    # Core Processing Methods (Using Components)
+    # =========================================================================
+
+    def _process_symbol_polars(
+        self,
+        df: _pl.DataFrame,
+        symbol: str,
+        horizon_minutes: int,
+        threshold: float,
+        lookback_periods: int,
+    ) -> _pl.DataFrame | None:
+        """
+        Process single symbol using components.
+
+        This method orchestrates the component-based processing pipeline:
+        1. Compute technical features (FeatureAlignmentComponent)
+        2. Generate targets (TargetGenerationComponent)
+        3. Add static features (FeatureAlignmentComponent)
+        4. Add known-future features (KnownFutureFeatureComponent)
+
+        Args:
+            df: Raw OHLCV DataFrame for the symbol.
+            symbol: Symbol identifier.
+            horizon_minutes: Prediction horizon in minutes.
+            threshold: Minimum return threshold for target classification.
+            lookback_periods: Minimum lookback periods for feature computation.
+
+        Returns:
+            Processed DataFrame with all features, or None if processing fails.
+
+        """
+        # Ensure we have required columns
+        required_cols = ["open", "high", "low", "close", "volume"]
+        if not all(col in df.columns for col in required_cols):
+            logger.warning(f"Missing required columns for {symbol}")
+            return None
+
+        # Sort by time and create sequential index
+        df = df.sort("timestamp" if "timestamp" in df.columns else df.columns[0])
+        df = df.with_columns(
+            [
+                pl.arange(0, len(df)).alias("time_index"),
+                pl.lit(symbol).alias("instrument_id"),
+            ],
+        )
+
+        # 1. Generate features using component
+        features = self._feature_alignment.compute_features_polars(df)
+
+        # 2. Generate targets using component
+        targets = self._target_generation.generate_targets_polars(df, horizon_minutes, threshold)
+
+        # 3. Combine (retain timestamp for macro joins)
+        dataset = pl.concat(
+            [
+                df.select(["timestamp", "time_index", "instrument_id"]),
+                features,
+                targets,
+            ],
+            how="horizontal",
+        )
+
+        # 4. Filter for sufficient history
+        dataset = dataset.slice(lookback_periods, len(dataset))
+
+        # 5. Add static features using component
+        dataset = self._feature_alignment.add_static_features_polars(dataset)
+
+        # 6. Add known-future features using component
+        dataset = self._known_future.add_known_future_features_polars(dataset)
+
+        return dataset
+
+    def _process_symbol_pandas(
+        self,
+        df: _pd.DataFrame,
+        symbol: str,
+        horizon_minutes: int,
+        threshold: float,
+        lookback_periods: int,
+    ) -> _pd.DataFrame | None:
+        """
+        Process single symbol using components (Pandas path).
+
+        This method orchestrates the component-based processing pipeline
+        using Pandas DataFrames for compatibility.
+
+        Args:
+            df: Raw OHLCV DataFrame for the symbol.
+            symbol: Symbol identifier.
+            horizon_minutes: Prediction horizon in minutes.
+            threshold: Minimum return threshold for target classification.
+            lookback_periods: Minimum lookback periods for feature computation.
+
+        Returns:
+            Processed DataFrame with all features, or None if processing fails.
+
+        """
+        # Ensure we have required columns
+        required_cols = ["open", "high", "low", "close", "volume"]
+        if not all(col in df.columns for col in required_cols):
+            logger.warning(f"Missing required columns for {symbol}")
+            return None
+
+        # Sort by time and create sequential index
+        time_col = "timestamp" if "timestamp" in df.columns else df.columns[0]
+        df = df.sort_values(time_col).reset_index(drop=True)
+        df["time_index"] = range(len(df))
+        df["instrument_id"] = symbol
+
+        # 1. Generate features using component
+        features = self._feature_alignment.compute_features_pandas(df)
+
+        # 2. Generate targets using component
+        targets = self._target_generation.generate_targets_pandas(df, horizon_minutes, threshold)
+
+        # 3. Combine DataFrames
+        dataset = pd.concat(
+            [df[["timestamp", "time_index", "instrument_id"]], features, targets],
+            axis=1,
+        )
+
+        # 4. Filter for sufficient history
+        dataset = dataset.iloc[lookback_periods:].reset_index(drop=True)
+
+        # 5. Add static features using component
+        dataset = self._feature_alignment.add_static_features_pandas(dataset)
+
+        # 6. Add known-future features using component
+        dataset = self._known_future.add_known_future_features_pandas(dataset)
+
+        return dataset
+
+    def _build_training_dataset_direct(
+        self,
+        horizon_minutes: int = 15,
+        min_return_threshold: float = 0.001,
+        lookback_periods: int = 30,
+        use_polars: bool = True,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> _pd.DataFrame | _pl.DataFrame:
+        """
+        Build training dataset using direct feature computation with components.
+
+        This method orchestrates the dataset building process:
+        1. Iterates over configured symbols
+        2. Loads bar data from catalog or DataStore
+        3. Processes each symbol using components
+        4. Combines results into final dataset
+
+        Args:
+            horizon_minutes: Prediction horizon in minutes.
+            min_return_threshold: Minimum return threshold for binary classification.
+            lookback_periods: Minimum lookback periods for feature computation.
+            use_polars: Whether to use Polars (True) or Pandas (False).
+            start: Start time for data loading.
+            end: End time for data loading.
+
+        Returns:
+            TFT-compatible training dataset.
+
+        """
+        # Collect results separately to keep typing precise
+        all_data_pl: list[_pl.DataFrame] = []
+        all_data_pd: list[_pd.DataFrame] = []
+
+        # Candidate venues to try per symbol (ETFs frequently ARCA/ARCX)
+        candidate_venues = [
+            "ARCA",
+            "ARCX",
+            "NASDAQ",
+            "XNAS",
+            "NYSE",
+            "XNYS",
+        ]
+
+        for symbol in self.symbols:
+            logger.info(f"Processing {symbol}...")
+
+            # Load data using catalog
+            try:
+                df = cast("_pl.DataFrame", pl.DataFrame())
+                last_err: Exception | None = None
+
+                # Try instrument candidates
+                instrument_candidates = self._get_instrument_candidates(symbol, candidate_venues)
+                for instrument_id in instrument_candidates:
+                    try:
+                        df = self._load_bars_dataframe(instrument_id, start, end)
+                        if not df.is_empty():
+                            break
+                    except Exception as e_inner:  # pragma: no cover
+                        last_err = e_inner
+                        continue
+
+                if df.is_empty():
+                    # Try direct parquet fallback
+                    df = self._try_parquet_fallback(symbol)
+                    if df.is_empty():
+                        if last_err is not None:
+                            logger.warning(
+                                f"Failed to load data for {symbol} (last error: {last_err})"
+                            )
+                        else:
+                            logger.warning(f"No data found for {symbol}")
+                        continue
+
+            except Exception as e:
+                logger.warning(f"Failed to load data for {symbol}: {e}")
+                continue
+
+            if df.is_empty():
+                logger.warning(f"No data found for {symbol}, skipping")
+                continue
+
+            # Process with Polars or Pandas
+            if use_polars:
+                processed = self._process_symbol_polars(
+                    df,
+                    symbol,
+                    horizon_minutes,
+                    min_return_threshold,
+                    lookback_periods,
+                )
+                if processed is not None:
+                    all_data_pl.append(processed)
+            else:
+                # Convert to pandas for processing
+                df_pd = df.to_pandas()
+                processed_pd = self._process_symbol_pandas(
+                    df_pd,
+                    symbol,
+                    horizon_minutes,
+                    min_return_threshold,
+                    lookback_periods,
+                )
+                if processed_pd is not None:
+                    all_data_pd.append(processed_pd)
+
+        # Combine all symbol data
+        if use_polars:
+            if not all_data_pl:
+                logger.warning("No data processed for any symbol")
+                return cast("_pl.DataFrame", pl.DataFrame())
+            final_df = pl.concat(all_data_pl, how="vertical")
+
+            # Join optional features
+            final_df = self._join_optional_features_polars(final_df)
+
+            # Validate schema using component
+            try:
+                self._schema_validator.validate(final_df)
+            except SchemaValidationError as e:
+                logger.warning(f"Schema validation warning: {e}")
+
+            return final_df
+        else:
+            if not all_data_pd:
+                logger.warning("No data processed for any symbol")
+                return cast("_pd.DataFrame", pd.DataFrame())
+            final_df_pd = pd.concat(all_data_pd, ignore_index=True)
+
+            # Join optional features
+            final_df_pd = self._join_optional_features_pandas(final_df_pd)
+
+            # Validate schema using component
+            try:
+                self._schema_validator.validate(final_df_pd)
+            except SchemaValidationError as e:
+                logger.warning(f"Schema validation warning: {e}")
+
+            return final_df_pd
+
+    def _join_optional_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
+        """
+        Join optional features (macro, micro, L2, earnings) to Polars DataFrame.
+
+        Args:
+            df: Base dataset with timestamp column.
+
+        Returns:
+            Dataset with optional features joined.
+
+        """
+        # Determine timestamp column
+        ts_col = "timestamp" if "timestamp" in df.columns else "ts_event"
+
+        # 1. Join macro features (FRED data)
+        if self.include_macro:
+            try:
+                from ml.data.fred_join import join_fred_asof
+
+                before_cols = set(df.columns)
+                joined = join_fred_asof(
+                    df,
+                    timestamp_col=ts_col,
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
+                    series_filter=(
+                        None if self.macro_series_ids is None else set(self.macro_series_ids)
+                    ),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
+                )
+                # Handle union return type
+                if hasattr(joined, "schema"):
+                    df = cast("_pl.DataFrame", joined)
+                else:
+                    df = pl.from_pandas(joined)
+                macro_cols = [c for c in df.columns if c not in before_cols]
+                if macro_cols:
+                    # Add availability flag BEFORE filling nulls (so it's meaningful)
+                    exprs = [pl.col(c).is_not_null() for c in macro_cols]
+                    if exprs:
+                        any_macro = exprs[0]
+                        for ex in exprs[1:]:
+                            any_macro = any_macro | ex
+                        df = df.with_columns([any_macro.cast(pl.Int32).alias("is_macro_available")])
+                    # Fill nulls AFTER computing availability mask
+                    fills = [
+                        pl.col(c).fill_null(0)
+                        for c in macro_cols
+                        if df.schema.get(c) is not None and df.schema[c].is_numeric()
+                    ]
+                    if fills:
+                        df = df.with_columns(fills)
+            except Exception as e:
+                logger.debug(f"Macro feature join skipped: {e}")
+
+        # 2. Join micro features (trade imbalance, VWAP distance)
+        if self.include_micro and self.micro_base_dir:
+            try:
+                from ml.data.loaders.micro import load_micro_features
+
+                micro_df = load_micro_features(
+                    self.micro_base_dir,
+                    symbols=self.symbols,
+                )
+                if micro_df is not None and not micro_df.is_empty():
+                    df = df.join(micro_df, on=[ts_col, "instrument_id"], how="left")
+            except Exception as e:
+                logger.debug(f"Micro feature join skipped: {e}")
+
+        # 3. Join L2 features (order book depth, spread)
+        if self.include_l2 and self.l2_base_dir:
+            try:
+                from ml.data.loaders.l2 import load_l2_features
+
+                l2_df = load_l2_features(
+                    self.l2_base_dir,
+                    symbols=self.symbols,
+                )
+                if l2_df is not None and not l2_df.is_empty():
+                    before_cols = set(df.columns)
+                    df = df.join(l2_df, on=[ts_col, "instrument_id"], how="left")
+                    l2_cols = [c for c in df.columns if c not in before_cols]
+                    if l2_cols:
+                        df = df.with_columns(
+                            [pl.lit(1).cast(pl.Int32).alias("is_l2_available")]
+                        )
+            except Exception as e:
+                logger.debug(f"L2 feature join skipped: {e}")
+
+        # 4. Join earnings features
+        if self.include_earnings and self.data_store:
+            try:
+                df = self._join_earnings_features_polars(df, ts_col)
+            except Exception as e:
+                logger.debug(f"Earnings feature join skipped: {e}")
+
+        return df
+
+    def _join_optional_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
+        """
+        Join optional features (macro, micro, L2, earnings) to Pandas DataFrame.
+
+        Args:
+            df: Base dataset with timestamp column.
+
+        Returns:
+            Dataset with optional features joined.
+
+        """
+        # Determine timestamp column
+        ts_col = "timestamp" if "timestamp" in df.columns else "ts_event"
+
+        # 1. Join macro features (FRED data)
+        if self.include_macro:
+            try:
+                from ml.data.fred_join import join_fred_asof
+
+                joined = join_fred_asof(
+                    df,
+                    timestamp_col=ts_col,
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
+                    series_filter=(
+                        None if self.macro_series_ids is None else set(self.macro_series_ids)
+                    ),
+                    vintage_policy=self.vintage_policy,
+                    vintage_cutoff=self.vintage_as_of,
+                )
+                # Handle union return type - join_fred_asof can return pd or pl
+                if isinstance(joined, pl.DataFrame):
+                    df = cast("_pd.DataFrame", joined.to_pandas())
+                else:
+                    df = cast("_pd.DataFrame", joined)
+                # Find macro columns and compute availability BEFORE filling nulls
+                core = {"timestamp", "ts_event", "time_index", "instrument_id", "y"}
+                potential_macro = [c for c in df.columns if c not in core and "__" in c]
+                if potential_macro:
+                    # Compute availability mask BEFORE filling nulls (so it's meaningful)
+                    df["is_macro_available"] = (
+                        df[potential_macro].notna().any(axis=1).astype("int32")
+                    )
+                    # Fill nulls AFTER computing availability
+                    df[potential_macro] = df[potential_macro].fillna(0)
+            except Exception as e:
+                logger.debug(f"Macro feature join skipped: {e}")
+
+        # 2. Join micro features
+        if self.include_micro and self.micro_base_dir:
+            try:
+                from ml.data.loaders.micro import load_micro_features
+
+                micro_df = load_micro_features(
+                    self.micro_base_dir,
+                    symbols=self.symbols,
+                )
+                if micro_df is not None and len(micro_df) > 0:
+                    if hasattr(micro_df, "to_pandas"):
+                        micro_df = micro_df.to_pandas()
+                    df = df.merge(micro_df, on=[ts_col, "instrument_id"], how="left")
+            except Exception as e:
+                logger.debug(f"Micro feature join skipped: {e}")
+
+        # 3. Join L2 features
+        if self.include_l2 and self.l2_base_dir:
+            try:
+                from ml.data.loaders.l2 import load_l2_features
+
+                l2_df = load_l2_features(
+                    self.l2_base_dir,
+                    symbols=self.symbols,
+                )
+                if l2_df is not None and len(l2_df) > 0:
+                    if hasattr(l2_df, "to_pandas"):
+                        l2_df = l2_df.to_pandas()
+                    before_cols = set(df.columns)
+                    df = df.merge(l2_df, on=[ts_col, "instrument_id"], how="left")
+                    if set(df.columns) != before_cols:
+                        df["is_l2_available"] = 1
+            except Exception as e:
+                logger.debug(f"L2 feature join skipped: {e}")
+
+        # 4. Join earnings features
+        if self.include_earnings and self.data_store:
+            try:
+                df = self._join_earnings_features_pandas(df, ts_col)
+            except Exception as e:
+                logger.debug(f"Earnings feature join skipped: {e}")
+
+        return df
+
+    def _join_earnings_features_polars(
+        self,
+        df: _pl.DataFrame,
+        ts_col: str,
+    ) -> _pl.DataFrame:
+        """Join earnings features from DataStore to Polars DataFrame."""
+        if not self.data_store or "instrument_id" not in df.columns:
+            return df
+
+        try:
+            # Get unique instruments
+            instruments = df.select(pl.col("instrument_id")).unique()["instrument_id"].to_list()
+
+            for instrument_id in instruments:
+                ticker = instrument_id.split(".")[0] if "." in instrument_id else instrument_id
+                # Get timestamps for this instrument
+                mask = df["instrument_id"] == instrument_id
+                timestamps = df.filter(mask).select(pl.col(ts_col))
+
+                # Fetch earnings features from legacy builder if available
+                legacy = self._get_legacy_builder()
+                earnings_df = legacy._fetch_earnings_features(
+                    ticker=ticker,
+                    timestamps=timestamps[ts_col],
+                    as_of_date=self.vintage_as_of,
+                )
+
+                if earnings_df is not None and not earnings_df.is_empty():
+                    # Rename timestamp column if needed
+                    if ts_col not in earnings_df.columns and "ts_event" in earnings_df.columns:
+                        earnings_df = earnings_df.rename({"ts_event": ts_col})
+                    df = df.join(earnings_df, on=ts_col, how="left")
+                    # Add availability flag
+                    df = df.with_columns([pl.lit(1).cast(pl.Int32).alias("is_earnings_available")])
+
+        except Exception as e:
+            logger.debug(f"Earnings feature join error: {e}")
+
+        return df
+
+    def _join_earnings_features_pandas(
+        self,
+        df: _pd.DataFrame,
+        ts_col: str,
+    ) -> _pd.DataFrame:
+        """Join earnings features from DataStore to Pandas DataFrame."""
+        if not self.data_store or "instrument_id" not in df.columns:
+            return df
+
+        try:
+            # Convert to Polars, join, convert back
+            df_pl = pl.from_pandas(df)
+            df_pl = self._join_earnings_features_polars(df_pl, ts_col)
+            df = df_pl.to_pandas()
+        except Exception as e:
+            logger.debug(f"Earnings feature join error: {e}")
+
+        return df
+
+    def _get_instrument_candidates(
+        self,
+        symbol: str,
+        candidate_venues: list[str],
+    ) -> list[str]:
+        """
+        Get list of instrument ID candidates to try for a symbol.
+
+        Args:
+            symbol: Base symbol (e.g., "SPY").
+            candidate_venues: List of venue suffixes to try.
+
+        Returns:
+            List of instrument IDs to attempt loading.
+
+        """
+        if self.instrument_ids:
+            # Use explicitly provided instrument IDs
+            return [iid for iid in self.instrument_ids if iid.startswith(symbol)]
+        # Generate candidates from symbol + venue combinations
+        return [f"{symbol}.{venue}" for venue in candidate_venues]
+
+    def _load_bars_dataframe(
+        self,
+        instrument_id: str,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> _pl.DataFrame:
+        """
+        Load bar data for an instrument from DataStore or catalog.
+
+        Args:
+            instrument_id: Instrument identifier (e.g., "SPY.ARCA").
+            start: Start time for data loading.
+            end: End time for data loading.
+
+        Returns:
+            Polars DataFrame with OHLCV data.
+
+        """
+        from ml.data.catalog_utils import bars_to_dataframe
+
+        # Try DataStore first if available
+        if self.data_store is not None and self.market_dataset_id:
+            try:
+                start_ns = self._datetime_to_ns(start, fallback=0)
+                end_ns = self._datetime_to_ns(end, fallback=self._now_ns())
+
+                raw_result = self.data_store.read_range(
+                    dataset_id=self.market_dataset_id,
+                    instrument_id=instrument_id,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
+
+                frame = self._to_polars(raw_result)
+                if not frame.is_empty():
+                    if "timestamp" not in frame.columns and "ts_event" in frame.columns:
+                        frame = frame.rename({"ts_event": "timestamp"})
+                    return frame
+
+            except Exception:
+                logger.debug(
+                    "DataStore read_range failed; falling back to catalog",
+                    exc_info=True,
+                )
+
+        # Fall back to catalog
+        try:
+            frame = bars_to_dataframe(
+                self.catalog,
+                [instrument_id],
+                start=start,
+                end=end,
+            )
+            return frame
+        except Exception:
+            logger.debug("Catalog read failed", exc_info=True)
+            return cast("_pl.DataFrame", pl.DataFrame())
+
+    def _try_parquet_fallback(self, symbol: str) -> _pl.DataFrame:
+        """
+        Try loading data from direct parquet files as fallback.
+
+        Args:
+            symbol: Symbol to load data for.
+
+        Returns:
+            Polars DataFrame with OHLCV data, or empty DataFrame if not found.
+
+        """
+        try:
+            base = _Path(self.micro_base_dir or "data/tier1")
+            paths = [
+                base / symbol / "ohlcv-1m_historical.parquet",
+                base / symbol / "ohlcv-1m_recent.parquet",
+            ]
+            frames: list[_pl.DataFrame] = []
+
+            for p in paths:
+                if p.exists():
+                    part = pl.read_parquet(str(p))
+                    if not part.is_empty():
+                        if "timestamp" not in part.columns and "ts_event" in part.columns:
+                            part = part.rename({"ts_event": "timestamp"})
+                        frames.append(part)
+
+            if frames:
+                df = pl.concat(frames, how="vertical")
+                if "timestamp" in df.columns:
+                    df = df.sort("timestamp")
+                return cast("_pl.DataFrame", df)
+
+        except Exception as e:
+            logger.debug(f"Parquet fallback failed for {symbol}: {e}")
+
+        return cast("_pl.DataFrame", pl.DataFrame())
+
+    def _datetime_to_ns(self, value: datetime | None, *, fallback: int) -> int:
+        """Convert datetime to nanoseconds since epoch using windowing component."""
+        return self._windowing.datetime_to_ns(value, fallback=fallback)
+
+    @staticmethod
+    def _now_ns() -> int:
+        """Get current time in nanoseconds since epoch."""
+        return int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+
+    def _to_polars(self, data: Any) -> _pl.DataFrame:
+        """Convert data to Polars DataFrame."""
+        if pl is not None and isinstance(data, pl.DataFrame):
+            return cast("_pl.DataFrame", data)
+        if pd is not None and isinstance(data, pd.DataFrame):
+            return cast("_pl.DataFrame", pl.from_pandas(data))
+        # Return empty DataFrame for unsupported types
+        return cast("_pl.DataFrame", pl.DataFrame())

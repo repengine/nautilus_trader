@@ -12,8 +12,6 @@ import logging
 import os
 import tempfile
 import time
-from collections.abc import Generator
-from contextlib import contextmanager
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -214,23 +212,11 @@ except Exception:
     data_events_total = None
 
 
-@contextmanager
-def track_pipeline_stage(stage: str) -> Generator[None, None, None]:
-    """
-    Context manager to track pipeline stage execution time.
-
-    Parameters
-    ----------
-    stage : str
-        Name of the pipeline stage to track
-
-    """
-    start_time = time.perf_counter()
-    try:
-        yield
-    finally:
-        duration = time.perf_counter() - start_time
-        pipeline_stage_latency.labels(stage=stage).observe(duration)
+# Import track_pipeline_stage from common module (consolidated, avoids duplication)
+# Note: Import happens AFTER metrics are defined to avoid circular import
+from ml.data.common.daily_update_orchestrator import (  # noqa: E402, I001
+    track_pipeline_stage as track_pipeline_stage,
+)
 
 
 class DataSchedulerLegacy:
@@ -435,6 +421,7 @@ class DataSchedulerLegacy:
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
         from ml.features import FeatureConfig
+        from ml.features.engineering import FeatureConfigLike
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -448,7 +435,7 @@ class DataSchedulerLegacy:
             )
 
             # Get feature config from the feature engineer
-            feature_config: FeatureConfig
+            feature_config: FeatureConfigLike
             if self.feature_engineer is not None and hasattr(self.feature_engineer, "config"):
                 feature_config = self.feature_engineer.config
             else:

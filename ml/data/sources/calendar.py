@@ -311,6 +311,8 @@ class PandasCalendarSource(CalendarSource):
         self,
         cache_ttl_hours: int = 24,
         fallback_source: CalendarSource | None = None,
+        *,
+        force_fallback: bool = False,
     ) -> None:
         """
         Initialize pandas calendar source.
@@ -323,6 +325,9 @@ class PandasCalendarSource(CalendarSource):
             Fallback source when pandas_market_calendars is unavailable
             or when exchange is not supported. Uses SimpleCalendarSource
             if not provided.
+        force_fallback : bool, default False
+            When True, always use the fallback source even if pandas_market_calendars
+            is available. Useful for testing or deterministic behavior.
 
         Raises
         ------
@@ -334,20 +339,24 @@ class PandasCalendarSource(CalendarSource):
         self._fallback: CalendarSource
         self._use_fallback: bool
 
-        if not HAS_PANDAS_MARKET_CALENDARS:
+        if force_fallback or not HAS_PANDAS_MARKET_CALENDARS:
             if fallback_source is None:
-                msg = (
-                    "pandas_market_calendars is required for PandasCalendarSource. "
-                    "Install with: pip install pandas_market_calendars"
-                )
-                logger.warning(msg)
+                if not force_fallback:
+                    msg = (
+                        "pandas_market_calendars is required for PandasCalendarSource. "
+                        "Install with: pip install pandas_market_calendars"
+                    )
+                    logger.warning(msg)
                 # Use SimpleCalendarSource as automatic fallback
                 self._fallback = SimpleCalendarSource()
                 self._use_fallback = True
             else:
                 self._fallback = fallback_source
                 self._use_fallback = True
-            logger.info("Using fallback calendar source due to missing pandas_market_calendars")
+            if force_fallback:
+                logger.debug("Using fallback calendar source (force_fallback=True)")
+            else:
+                logger.info("Using fallback calendar source due to missing pandas_market_calendars")
         else:
             self._fallback = fallback_source or SimpleCalendarSource()
             self._use_fallback = False

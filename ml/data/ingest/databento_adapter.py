@@ -21,6 +21,7 @@ import pandas as pd
 
 from ml.data.ingest.policy import DatabentoCoveragePolicy
 from ml.data.ingest.resume import DatabentoLikeClient
+from ml.schema import schema_spec_for
 
 
 if TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -58,6 +59,7 @@ class DatabentoAPIClient(DatabentoLikeClient):
     ) -> pd.DataFrame:
         if not symbols:
             return pd.DataFrame()
+        schema_spec_for(schema)
         # Apply policy guard (opt-in via env; no-ops if unset)
         policy = DatabentoCoveragePolicy.from_env()
         # Validate dataset/schema against allowlists (if configured)
@@ -93,6 +95,15 @@ class DatabentoAPIClient(DatabentoLikeClient):
             df = result.to_df()
         else:
             df = pd.DataFrame(result)
+        if (
+            isinstance(df.index, pd.DatetimeIndex)
+            and df.index.name in {"ts_event", "ts"}
+            and "ts_event" not in df.columns
+        ):
+            index_name = df.index.name or "index"
+            df = df.reset_index()
+            if index_name != "ts_event":
+                df = df.rename(columns={index_name: "ts_event"})
         # Normalize timestamps to 'ts_event' in ns if present under another column
         if "ts_event" not in df.columns:
             if "ts" in df.columns:
