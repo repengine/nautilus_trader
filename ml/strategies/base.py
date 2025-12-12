@@ -248,10 +248,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                 )
             except Exception as exc:
                 self.log.warning(
-                    "ml_strategy.strategy_store_unavailable",
-                    strategy_id=str(self.id),
-                    exc_info=True,
-                    error=str(exc),
+                    f"ml_strategy.strategy_store_unavailable strategy_id={self.id} error={exc}",
                 )
                 self.strategy_store = None
 
@@ -307,10 +304,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             # Do not fail strategy startup if any optional component cannot be created.
             # Components can be injected later or remain None; hot-path keeps working.
             self.log.debug(
-                "ml_strategy.optional_components_unavailable",
-                strategy_id=str(self.id),
-                exc_info=True,
-                error=str(exc),
+                f"ml_strategy.optional_components_unavailable strategy_id={self.id} error={exc}",
             )
 
         # Initialize optional circuit breakers (defensive; no hard dependency)
@@ -329,10 +323,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             self._store_breaker = None
             self._order_breaker = None
             self.log.debug(
-                "ml_strategy.breaker_init_failed",
-                strategy_id=str(self.id),
-                exc_info=True,
-                error=str(exc),
+                f"ml_strategy.breaker_init_failed strategy_id={self.id} error={exc}",
             )
 
         # Best-effort env-backed bus publisher when not injected
@@ -345,10 +336,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
         except Exception as exc:
             # Keep hot path resilient; publisher remains None
             self.log.debug(
-                "ml_strategy.bus_publisher_init_failed",
-                strategy_id=str(self.id),
-                exc_info=True,
-                error=str(exc),
+                f"ml_strategy.bus_publisher_init_failed strategy_id={self.id} error={exc}",
             )
 
     # --- Common decision helpers (to reduce duplication across strategies) ---
@@ -525,11 +513,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     self.performance.record_signal(data)
             except Exception as exc:
                 self.log.debug(
-                    "ml_strategy.performance_record_failed",
-                    strategy_id=str(self.id),
-                    signal_model=str(getattr(data, "model_id", "")),
-                    exc_info=True,
-                    error=str(exc),
+                    f"ml_strategy.performance_record_failed strategy_id={self.id} signal_model={getattr(data, 'model_id', '')} error={exc}",
                 )
 
             # Handle aggregation if configured
@@ -570,10 +554,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                 is_live = not getattr(self.cache, "is_backtesting", False)
             except Exception as cache_exc:
                 self.log.debug(
-                    "ml_strategy.cache_state_unknown",
-                    strategy_id=str(self.id),
-                    exc_info=True,
-                    error=str(cache_exc),
+                    f"ml_strategy.cache_state_unknown strategy_id={self.id} error={cache_exc}",
                 )
                 is_live = True
             try:
@@ -593,10 +574,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                                 mp_local[str(_mid)] = float(self._model_signals[_mid].prediction)
                 except Exception as agg_exc:
                     self.log.debug(
-                        "ml_strategy.aggregated_predictions_build_failed",
-                        strategy_id=str(self.id),
-                        exc_info=True,
-                        error=str(agg_exc),
+                        f"ml_strategy.aggregated_predictions_build_failed strategy_id={self.id} error={agg_exc}",
                     )
                 pub.publish(
                     strategy_id=str(self.id),
@@ -612,12 +590,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                 )
             except Exception as pub_exc:
                 self.log.warning(
-                    "ml_strategy.strategy_decision_publish_failed",
-                    strategy_id=str(self.id),
-                    instrument_id=str(signal.instrument_id),
-                    decision_type=decision_type,
-                    exc_info=True,
-                    error=str(pub_exc),
+                    f"ml_strategy.strategy_decision_publish_failed strategy_id={self.id} instrument_id={signal.instrument_id} decision_type={decision_type} error={pub_exc}",
                 )
             return
 
@@ -683,10 +656,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     ).labels(component="strategy_store_write", level="open").inc()
                 except Exception as metrics_exc:
                     self.log.debug(
-                        "ml_strategy.fallback_metric_emit_failed",
-                        strategy_id=str(self.id),
-                        exc_info=True,
-                        error=str(metrics_exc),
+                        f"ml_strategy.fallback_metric_emit_failed strategy_id={self.id} error={metrics_exc}",
                     )
                 # Publish guardrail event with PARTIAL status
                 try:
@@ -707,22 +677,12 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     )
                 except Exception as pub_exc:
                     self.log.warning(
-                        "ml_strategy.partial_publish_failed",
-                        strategy_id=str(self.id),
-                        instrument_id=str(signal.instrument_id),
-                        decision_type=decision_type,
-                        exc_info=True,
-                        error=str(pub_exc),
-                    )
+                    f"ml_strategy.partial_publish_failed strategy_id={self.id} instrument_id={signal.instrument_id} decision_type={decision_type} error={pub_exc}",
+                )
                 return
         except Exception as breaker_exc:
             self.log.warning(
-                "ml_strategy.breaker_guard_failed",
-                strategy_id=str(self.id),
-                instrument_id=str(signal.instrument_id),
-                decision_type=decision_type,
-                exc_info=True,
-                error=str(breaker_exc),
+                f"ml_strategy.breaker_guard_failed strategy_id={self.id} instrument_id={signal.instrument_id} decision_type={decision_type} error={breaker_exc}",
             )
 
         # Write to store with timing
@@ -1172,20 +1132,12 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
                     )
                 except Exception as pub_exc:
                     self.log.warning(
-                        "ml_strategy.degraded_publish_failed",
-                        strategy_id=str(self.id),
-                        instrument_id=str(signal.instrument_id),
-                        order_side=side.name,
-                        exc_info=True,
-                        error=str(pub_exc),
+                        f"ml_strategy.degraded_publish_failed strategy_id={self.id} instrument_id={signal.instrument_id} order_side={side.name} error={pub_exc}",
                     )
                 return None
         except Exception as breaker_exc:
             self.log.debug(
-                "ml_strategy.order_breaker_guard_failed",
-                strategy_id=str(self.id),
-                exc_info=True,
-                error=str(breaker_exc),
+                f"ml_strategy.order_breaker_guard_failed strategy_id={self.id} error={breaker_exc}",
             )
         instrument = self.cache.instrument(self._config.instrument_id)
         if instrument is None:
@@ -1373,11 +1325,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             available_capital = float(account.balance_total().as_double())
         except Exception as exc:  # pragma: no cover - defensive
             self.log.debug(
-                "ml_strategy.account_balance_unavailable",
-                strategy_id=str(self.id),
-                instrument=str(signal.instrument_id),
-                exc_info=True,
-                error=str(exc),
+                f"ml_strategy.account_balance_unavailable strategy_id={self.id} instrument={signal.instrument_id} error={exc}",
             )
             return proposed_value
 
@@ -1385,11 +1333,7 @@ class BaseMLStrategy(StrategyBase, ABC):  # type: ignore[misc]
             allocations = self.portfolio_manager.allocate_signals([signal], available_capital)
         except Exception as exc:  # pragma: no cover - defensive
             self.log.debug(
-                "ml_strategy.portfolio_allocation_failed",
-                strategy_id=str(self.id),
-                instrument=str(signal.instrument_id),
-                exc_info=True,
-                error=str(exc),
+                f"ml_strategy.portfolio_allocation_failed strategy_id={self.id} instrument={signal.instrument_id} error={exc}",
             )
             return proposed_value
 

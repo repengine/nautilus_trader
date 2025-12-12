@@ -43,8 +43,8 @@ from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.data_registry import DataRegistry
 from ml.registry.data_registry import Watermark
-from ml.registry.data_registry_facade import create_data_registry
 from ml.registry.data_registry_facade import DataRegistryFacade
+from ml.registry.data_registry_facade import create_data_registry
 
 # =============================================================================
 # DEPLOYMENT & TESTING SUPPORT
@@ -127,7 +127,6 @@ __all__ = [
     "DatasetType",
     "DeploymentStatus",
     "DummyRegistry",
-    "create_data_registry",
     "FeatureInfo",
     "FeatureManifest",
     "FeatureRegistry",
@@ -161,5 +160,6 @@ __all__ = [
     "build_student_manifest",
     "calculate_sample_size",
     "compute_schema_hash",
+    "create_data_registry",
     "welch_t_test",
 ]

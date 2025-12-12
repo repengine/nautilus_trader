@@ -62,6 +62,11 @@ class DatasetType(Enum):
     SIGNALS = "signals"
     EARNINGS_ACTUALS = "earnings_actuals"
     EARNINGS_ESTIMATES = "earnings_estimates"
+    MACRO_RELEASES = "macro_releases"
+    MACRO_OBSERVATIONS = "macro_observations"
+    EVENTS_CALENDAR = "events_calendar"
+    MICRO_MINUTE_FEATURES = "micro_minute_features"
+    L2_MINUTE_FEATURES = "l2_minute_features"
 
 
 class StorageKind(Enum):

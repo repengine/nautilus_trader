@@ -182,8 +182,35 @@ When upgrading from older ML strategy implementations:
 
 """
 
-# Feature flag for gradual rollout of facade pattern
 import os
+
+from ml.strategies.analytics import AnalyticsConfig
+from ml.strategies.analytics import PerformanceTracker
+from ml.strategies.analytics import SignalRecord
+from ml.strategies.base import BaseMLStrategy as _LegacyBaseMLStrategy
+from ml.strategies.base import SimpleMLStrategy as _LegacySimpleMLStrategy
+from ml.strategies.base_facade import BaseMLStrategyFacade as _FacadeBaseMLStrategy
+from ml.strategies.base_facade import SimpleMLStrategyFacade as _FacadeSimpleMLStrategy
+from ml.strategies.execution import ExecutionConfig
+from ml.strategies.execution import OrderExecutor
+from ml.strategies.ml_strategy import MLTradingStrategy
+from ml.strategies.ml_strategy import MultiModelMLStrategy
+from ml.strategies.portfolio import PortfolioConfig
+from ml.strategies.portfolio import PortfolioManager
+from ml.strategies.protocols import OrderExecutorProtocol
+from ml.strategies.protocols import PerformanceTrackerProtocol
+from ml.strategies.protocols import PortfolioManagerProtocol
+from ml.strategies.protocols import PositionSizerProtocol
+from ml.strategies.protocols import RiskManagerProtocol
+from ml.strategies.risk import RiskConfig
+from ml.strategies.risk import RiskManager
+from ml.strategies.sizing import CompositeSizer
+from ml.strategies.sizing import KellySizer
+from ml.strategies.sizing import SizingConfig
+from ml.strategies.sizing import VolatilitySizer
+
+
+_USE_LEGACY_STRATEGY_BASE = os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "0") == "1"
 
 
 def _use_legacy_strategy_base() -> bool:
@@ -201,53 +228,19 @@ def _use_legacy_strategy_base() -> bool:
         True if legacy implementation should be used.
 
     """
-    return os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "0") == "1"
+    return _USE_LEGACY_STRATEGY_BASE
 
 
-# Position sizing and risk management
-from ml.strategies.analytics import AnalyticsConfig
-from ml.strategies.analytics import PerformanceTracker
-from ml.strategies.analytics import SignalRecord
+BaseMLStrategy: type[_LegacyBaseMLStrategy] | type[_FacadeBaseMLStrategy]
+SimpleMLStrategy: type[_LegacySimpleMLStrategy] | type[_FacadeSimpleMLStrategy]
 
-# Import legacy classes directly
-from ml.strategies.base import BaseMLStrategy as _LegacyBaseMLStrategy
-from ml.strategies.base import SimpleMLStrategy as _LegacySimpleMLStrategy
 
-# Conditionally expose either legacy or facade based on feature flag
-if _use_legacy_strategy_base():
+if _USE_LEGACY_STRATEGY_BASE:
     BaseMLStrategy = _LegacyBaseMLStrategy
     SimpleMLStrategy = _LegacySimpleMLStrategy
 else:
-    # Import facade implementations
-    from ml.strategies.base_facade import (
-        BaseMLStrategyFacade as _FacadeBaseMLStrategy,
-    )
-    from ml.strategies.base_facade import (
-        SimpleMLStrategyFacade as _FacadeSimpleMLStrategy,
-    )
-
-    BaseMLStrategy = _FacadeBaseMLStrategy  # type: ignore[misc,assignment]
-    SimpleMLStrategy = _FacadeSimpleMLStrategy  # type: ignore[misc,assignment]
-
-from ml.strategies.execution import ExecutionConfig
-from ml.strategies.execution import OrderExecutor
-from ml.strategies.ml_strategy import MLTradingStrategy
-from ml.strategies.ml_strategy import MultiModelMLStrategy
-from ml.strategies.portfolio import PortfolioConfig
-from ml.strategies.portfolio import PortfolioManager
-
-# Type protocols
-from ml.strategies.protocols import OrderExecutorProtocol
-from ml.strategies.protocols import PerformanceTrackerProtocol
-from ml.strategies.protocols import PortfolioManagerProtocol
-from ml.strategies.protocols import PositionSizerProtocol
-from ml.strategies.protocols import RiskManagerProtocol
-from ml.strategies.risk import RiskConfig
-from ml.strategies.risk import RiskManager
-from ml.strategies.sizing import CompositeSizer
-from ml.strategies.sizing import KellySizer
-from ml.strategies.sizing import SizingConfig
-from ml.strategies.sizing import VolatilitySizer
+    BaseMLStrategy = _FacadeBaseMLStrategy
+    SimpleMLStrategy = _FacadeSimpleMLStrategy
 
 
 __all__ = [

@@ -21,6 +21,7 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
@@ -144,10 +145,10 @@ def compute_zscore_spread_incremental(
 
 
 def compute_zscore_spread_batch(
-    prices_a: np.ndarray,
-    prices_b: np.ndarray,
+    prices_a: npt.NDArray[np.float64],
+    prices_b: npt.NDArray[np.float64],
     window: int | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """
     Compute z-scored spreads in batch (cold path - vectorized).
 

@@ -382,18 +382,19 @@ class MultiInstrumentSignalActor(MLSignalActor):
                         )
                     elif usyms and len(usyms) > 0:
                         # Map bare symbols to instrument ids using configured bar_type venue as fallback
+                        venue = None
                         try:
-                            venue = None
                             bt = getattr(self._config, "bar_type", None)
                             if bt is not None:
                                 venue = str(getattr(bt.instrument_id, "venue", "")) or None
-                except Exception as venue_exc:
-                    self.log.debug(
-                        "multi_signal.universe_metadata_venue_lookup_failed "
-                        f"actor={self.id} error={venue_exc!r}",
-                        exc_info=True,
-                    )
+                        except Exception as venue_exc:
+                            self.log.debug(
+                                "multi_signal.universe_metadata_venue_lookup_failed "
+                                f"actor={self.id} error={venue_exc!r}",
+                                exc_info=True,
+                            )
                             venue = None
+
                         mapped = [
                             f"{s}.{venue}" if venue and "." not in str(s) else str(s) for s in usyms
                         ]

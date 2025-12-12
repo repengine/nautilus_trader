@@ -250,7 +250,7 @@ class FeatureCalculator:
         """
         if mode == "batch":
             return self._calculate_features_batch(
-                data=data,  # type: ignore[arg-type]
+                data=data,
                 fit_scaler=fit_scaler,
                 scaler_fit_ratio=scaler_fit_ratio,
             )
@@ -259,7 +259,7 @@ class FeatureCalculator:
                 msg = "indicator_manager is required for online mode"
                 raise ValueError(msg)
             return self._calculate_features_online(
-                current_bar=data,  # type: ignore[arg-type]
+                current_bar=data,
                 indicator_manager=indicator_manager,
                 scaler=scaler,
             )
@@ -316,8 +316,24 @@ class FeatureCalculator:
                 volume=float(volumes[idx]),
             )
 
+            # Maintain strict parity with legacy: require sufficient warmup history, else zeros
+            # This ensures calculator and legacy produce identical results during warmup period
+            required = max(
+                max(self.config.return_periods or [0]),
+                max(self.config.momentum_periods or [0]),
+                int(getattr(self.config, "ema_slow", 0)),
+                int(getattr(self.config, "rsi_period", 0)),
+                int(getattr(self.config, "bb_period", 0)),
+                20,
+            )
+            history_len = len(indicator_mgr.price_history.get("closes", []))
+            if history_len <= required:
+                # Return zeros for all features during warmup (matches legacy behavior)
+                row_map = dict.fromkeys(feature_names, 0.0)
+                feature_rows.append(row_map)
+                continue
+
             # Calculate features using same logic as online mode
-            # Each feature method handles its own insufficient history by returning 0.0
             current_bar = {
                 "open": float(close_prices[idx]),  # Using close as open fallback
                 "high": float(high_prices[idx]) if high_prices is not None else float(close_prices[idx]),
@@ -336,6 +352,7 @@ class FeatureCalculator:
             feature_rows.append(feature_row)
 
         # Convert to DataFrame (match input type)
+        features_df: Any
         if hasattr(data, "__class__") and "polars" in str(data.__class__):
             import polars as pl
             features_df = pl.DataFrame(feature_rows)
@@ -361,9 +378,15 @@ class FeatureCalculator:
                 if hasattr(features_df, "__class__") and "polars" in str(features_df.__class__):
                     import polars as pl
                     features_df = pl.DataFrame(transformed, schema=feature_names)
+                    # Add timestamp back if it exists in input (parity with legacy)
+                    if "timestamp" in data.columns:
+                        features_df = features_df.with_columns(data["timestamp"].alias("timestamp"))
                 else:
                     import pandas as pd
                     features_df = pd.DataFrame(transformed, columns=feature_names)
+                    # Add timestamp back if it exists in input (parity with legacy)
+                    if "timestamp" in data.columns:
+                        features_df["timestamp"] = data["timestamp"].to_numpy()
 
         return features_df, fitted_scaler
 
@@ -419,7 +442,8 @@ class FeatureCalculator:
         closes = indicator_manager.price_history.get("closes", [])
 
         # Calculate returns at correct position
-        if self.config.enable_returns and return_idx >= 0:
+        # Note: enable_returns=None (default) means enabled; only False disables
+        if getattr(self.config, "enable_returns", None) is not False and return_idx >= 0:
             _ = self._calculate_return_features(
                 close=close,
                 closes=closes,
@@ -427,7 +451,8 @@ class FeatureCalculator:
             )
 
         # Calculate momentum at correct position
-        if self.config.enable_momentum and momentum_idx >= 0:
+        # Note: enable_momentum=None (default) means enabled; only False disables
+        if getattr(self.config, "enable_momentum", None) is not False and momentum_idx >= 0:
             _ = self._calculate_momentum_features(
                 close=close,
                 closes=closes,
@@ -435,7 +460,8 @@ class FeatureCalculator:
             )
 
         # Calculate volatility at correct position
-        if self.config.enable_volatility and volatility_idx >= 0:
+        # Note: enable_volatility=None (default) means enabled; only False disables
+        if getattr(self.config, "enable_volatility", None) is not False and volatility_idx >= 0:
             _ = self._calculate_volatility_features(
                 closes=closes,
                 feature_idx=volatility_idx,
@@ -457,7 +483,8 @@ class FeatureCalculator:
             )
 
         # Calculate technical indicators at correct position
-        if self.config.enable_technical:
+        # Note: enable_technical=None (default) means enabled; only False disables
+        if getattr(self.config, "enable_technical", None) is not False:
             # Find first technical indicator position
             tech_idx = next((i for i, name in enumerate(feature_names)
                             if any(ind in name for ind in ["sma_", "ema_", "rsi", "macd", "atr"])), -1)
@@ -875,17 +902,20 @@ class FeatureCalculator:
             If bars list is empty
         """
         if not bars:
-            msg = "bars list cannot be empty"
-            raise ValueError(msg)
+            # Return empty dict for parity with legacy behavior
+            return {}
 
         # Convert Bars to DataFrame
         rows = []
+        closes: list[float] = []
         for b in bars:
+            close_val = float(b.close)
+            closes.append(close_val)
             rows.append({
                 "open": float(b.open),
                 "high": float(b.high),
                 "low": float(b.low),
-                "close": float(b.close),
+                "close": close_val,
                 "volume": float(b.volume),
             })
 
@@ -896,25 +926,31 @@ class FeatureCalculator:
         features_df, _ = self.calculate_features(df, mode="batch")
 
         # Return last row as dict
-        last_row = features_df.iloc[-1] if hasattr(features_df, "iloc") else features_df[-1]  # type: ignore[index]
-        return {str(k): float(v) for k, v in last_row.items()}  # type: ignore[union-attr]
+        last_row = features_df.iloc[-1] if hasattr(features_df, "iloc") else features_df[-1]
+        result = {str(k): float(v) for k, v in last_row.items()}
+
+        # Apply post-processing for parity with legacy (Task 1.1c)
+        from ml.features.common.post_processing import apply_compute_features_post_processing
+
+        rsi_period = int(getattr(self.config, "rsi_period", 14))
+        return apply_compute_features_post_processing(result, closes, rsi_period)
 
     # Helper methods for DataFrame extraction
 
     def _extract_close_prices(self, df: Any) -> Any:  # ndarray[float64]
         """Extract close prices from DataFrame."""
         if hasattr(df, "to_numpy"):  # pandas
-            return df["close"].to_numpy()  # type: ignore[no-any-return]
+            return df["close"].to_numpy()
         else:  # polars
-            return df["close"].to_numpy()  # type: ignore[no-any-return]
+            return df["close"].to_numpy()
 
     def _extract_high_prices(self, df: Any) -> Any:  # ndarray[float64] | None
         """Extract high prices from DataFrame (returns None if column missing)."""
         try:
             if hasattr(df, "to_numpy"):  # pandas
-                return df["high"].to_numpy()  # type: ignore[no-any-return]
+                return df["high"].to_numpy()
             else:  # polars
-                return df["high"].to_numpy()  # type: ignore[no-any-return]
+                return df["high"].to_numpy()
         except (KeyError, AttributeError):
             return None
 
@@ -922,15 +958,15 @@ class FeatureCalculator:
         """Extract low prices from DataFrame (returns None if column missing)."""
         try:
             if hasattr(df, "to_numpy"):  # pandas
-                return df["low"].to_numpy()  # type: ignore[no-any-return]
+                return df["low"].to_numpy()
             else:  # polars
-                return df["low"].to_numpy()  # type: ignore[no-any-return]
+                return df["low"].to_numpy()
         except (KeyError, AttributeError):
             return None
 
     def _extract_volumes(self, df: Any) -> Any:  # ndarray[float64]
         """Extract volumes from DataFrame."""
         if hasattr(df, "to_numpy"):  # pandas
-            return df["volume"].to_numpy()  # type: ignore[no-any-return]
+            return df["volume"].to_numpy()
         else:  # polars
-            return df["volume"].to_numpy()  # type: ignore[no-any-return]
+            return df["volume"].to_numpy()

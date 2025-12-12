@@ -35,17 +35,31 @@ class StreamingRowMetadata:
 
     Attributes
     ----------
-    row_index : int
-        Index of the row in the streaming dataset.
-    instrument_id : str
-        Instrument identifier.
-    timestamp_ns : int
-        Timestamp in nanoseconds.
+    row_ids : npt.NDArray[np.str_]
+        Unique row identifiers (instrument + time).
+    instrument_ids : npt.NDArray[np.str_]
+        Instrument identifiers.
+    time_indices : npt.NDArray[np.int64]
+        Time indices aligned with model inputs.
     """
 
-    row_index: int
-    instrument_id: str
-    timestamp_ns: int
+    row_ids: npt.NDArray[np.str_]
+    instrument_ids: npt.NDArray[np.str_]
+    time_indices: npt.NDArray[np.int64]
+
+    @property
+    def size(self) -> int:
+        """Return the number of rows represented."""
+        return int(self.row_ids.shape[0])
+
+    @classmethod
+    def empty(cls) -> StreamingRowMetadata:
+        """Return an empty metadata instance."""
+        return cls(
+            row_ids=np.array([], dtype=np.str_),
+            instrument_ids=np.array([], dtype=np.str_),
+            time_indices=np.array([], dtype=np.int64),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +83,12 @@ class StreamingFitResult:
     metrics: dict[str, float] | None = None
     epochs_completed: int = 0
     rows_processed: int = 0
+    z_train: npt.NDArray[np.float64] | npt.NDArray[np.float32] | None = None
+    z_val: npt.NDArray[np.float64] | npt.NDArray[np.float32] | None = None
+    y_val: npt.NDArray[np.float64] | npt.NDArray[np.float32] | None = None
+    train_rows: StreamingRowMetadata | None = None
+    val_rows: StreamingRowMetadata | None = None
+    val_returns: npt.NDArray[np.float64] | npt.NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         # Use object.__setattr__ for frozen dataclass
@@ -111,6 +131,8 @@ class TFTTeacher(BaseTeacher):
         accelerator: str = "auto",
         devices: int = 1,
         precision: str = "32",
+        optimizer: str | None = None,
+        lr_scheduler: str | None = None,
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -135,6 +157,8 @@ class TFTTeacher(BaseTeacher):
         self._devices = int(devices)
         self._precision = str(precision)
         self._logger = logging.getLogger(__name__)
+        self._optimizer_name = optimizer
+        self._lr_scheduler_name = lr_scheduler
 
         # Runtime state
         self._training_dataset: Any | None = None
@@ -536,3 +560,37 @@ class TFTTeacher(BaseTeacher):
             self._logger.debug("Torch tensor to numpy conversion failed: %s", exc)
         y_arr_aligned: npt.NDArray[np.float64] = _np.asarray(y_np, dtype=_np.float64).reshape(-1)
         return arr_logits.astype(_np.float64), y_arr_aligned.astype(_np.float64)
+
+    def fit_streaming(
+        self,
+        *,
+        parquet_path: Any,
+        train_loader: Any,
+        val_loader: Any,
+        train_metadata: Any,
+        val_metadata: Any,
+        full_metadata: Any,
+        streaming_config: Any,
+        callbacks: Sequence[Any] | None = None,
+        checkpoint_path: Any | None = None,
+    ) -> StreamingFitResult:
+        """Placeholder streaming fit to satisfy strict typing when streaming mode is unused."""
+        _ = (
+            parquet_path,
+            train_loader,
+            val_loader,
+            train_metadata,
+            val_metadata,
+            full_metadata,
+            streaming_config,
+            callbacks,
+            checkpoint_path,
+        )
+        return StreamingFitResult(
+            z_train=np.array([], dtype=np.float32),
+            z_val=np.array([], dtype=np.float32),
+            y_val=np.array([], dtype=np.float32),
+            train_rows=StreamingRowMetadata.empty(),
+            val_rows=StreamingRowMetadata.empty(),
+            val_returns=np.array([], dtype=np.float32),
+        )

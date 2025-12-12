@@ -1648,40 +1648,22 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            for parent_id in parent_ids:
-                lineage_entry = {
-                    "transform_id": transform_id,
-                    "child_dataset_id": child_dataset_id,
-                    "parent_dataset_id": parent_id,
-                    "ts_range": ts_range,
-                    "parameters": params,
-                    "created_at": time.time(),
-                }
+            if self.backend == BackendType.POSTGRES:
+                session = self.persistence.get_session()
+                if session is None:
+                    raise RuntimeError("Failed to get database session")
 
-                if self.backend == BackendType.JSON:
-                    self._lineage.append(lineage_entry)
+                try:
+                    query = text(
+                        """
+                        INSERT INTO ml_data_lineage
+                        (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
+                        VALUES
+                        (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
+                    """,
+                    )
 
-                    # Trim old lineage entries to prevent unbounded growth (keep last 5000)
-                    if len(self._lineage) > 5000:
-                        self._lineage = self._lineage[-5000:]
-
-                    self._save_registry()
-
-                elif self.backend == BackendType.POSTGRES:
-                    session = self.persistence.get_session()
-                    if session is None:
-                        raise RuntimeError("Failed to get database session")
-
-                    try:
-                        query = text(
-                            """
-                            INSERT INTO ml_data_lineage
-                            (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
-                            VALUES
-                            (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
-                        """,
-                        )
-
+                    for parent_id in parent_ids:
                         session.execute(
                             query,
                             {
@@ -1693,15 +1675,31 @@ class DataRegistry(MLComponentMixin):
                             },
                         )
 
-                    except Exception as e:
-                        session.rollback()
-                        logger.error("Failed to link lineage: %s", e)
-                        raise
+                    session.commit()
+                except Exception as e:
+                    session.rollback()
+                    logger.error("Failed to link lineage: %s", e)
+                    raise
+                finally:
+                    session.close()
+            else:
+                for parent_id in parent_ids:
+                    lineage_entry = {
+                        "transform_id": transform_id,
+                        "child_dataset_id": child_dataset_id,
+                        "parent_dataset_id": parent_id,
+                        "ts_range": ts_range,
+                        "parameters": params,
+                        "created_at": time.time(),
+                    }
 
-                    # Commit after all parents are linked
-                    if parent_id == parent_ids[-1]:
-                        session.commit()
-                        session.close()
+                    self._lineage.append(lineage_entry)
+
+                    # Trim old lineage entries to prevent unbounded growth (keep last 5000)
+                    if len(self._lineage) > 5000:
+                        self._lineage = self._lineage[-5000:]
+
+                    self._save_registry()
 
             logger.info(
                 "Linked lineage: child=%s, parents=%s, transform=%s",

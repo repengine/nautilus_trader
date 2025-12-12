@@ -33,8 +33,8 @@ from ml.training.common.training_orchestrator import TrainingOrchestratorCompone
 
 
 __all__ = [
-    "CrossValidationComponent",
     "CVTrainerProtocol",
+    "CrossValidationComponent",
     "DataPreparationComponent",
     "DataPreparationTrainerProtocol",
     "EvaluationComponent",

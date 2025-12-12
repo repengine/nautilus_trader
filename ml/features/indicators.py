@@ -5,7 +5,7 @@ Indicator management for feature engineering.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,6 +16,14 @@ from ml._imports import pl
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
 from ml.features.config import FeatureConfig
+
+
+if TYPE_CHECKING:
+    from ml.features.engineering import FeatureConfig as EngineeringFeatureConfig
+else:
+    EngineeringFeatureConfig = FeatureConfig
+
+FeatureConfigLike = FeatureConfig | EngineeringFeatureConfig
 
 
 logger = logging.getLogger(__name__)
@@ -139,7 +147,7 @@ class IndicatorManager:
 
     """
 
-    def __init__(self, config: FeatureConfig) -> None:
+    def __init__(self, config: FeatureConfigLike) -> None:
         """
         Initialize indicator manager.
 

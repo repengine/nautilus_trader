@@ -50,9 +50,9 @@ Security Policy:
 from __future__ import annotations
 
 # Model loaders (for cold path initialization)
-from ml.actors import ModelLoader
-from ml.actors import ONNXModelLoader
-from ml.actors import ProductionModelLoader
+from ml.actors.base import ModelLoader
+from ml.actors.base import ONNXModelLoader
+from ml.actors.base import ProductionModelLoader
 
 # Dummy model for testing
 from ml.models.save_dummy_model import DummyModel

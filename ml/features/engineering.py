@@ -10,7 +10,7 @@ Feature parity is critical for ML model performance in production.
 from __future__ import annotations
 
 import types
-from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeAlias, cast, overload
 
 import msgspec
 import numpy as np
@@ -278,6 +278,10 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     enable_volatility: bool | None = None
     enable_technical: bool | None = None
     ma_periods: list[int] | None = None
+    enable_rsi: bool | None = None
+    enable_bollinger: bool | None = None
+    enable_vwap: bool | None = None
+    include_event_schedule: bool = False
 
     data_requirements: DataRequirements = DataRequirements.L1_ONLY
 
@@ -428,6 +432,14 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         return specs
 
 
+if TYPE_CHECKING:
+    from ml.features.config import FeatureConfig as FacadeFeatureConfig
+else:
+    FacadeFeatureConfig = FeatureConfig
+
+FeatureConfigLike: TypeAlias = FeatureConfig | FacadeFeatureConfig
+
+
 class IndicatorManager:
     """
     Manages Nautilus indicators for consistent feature calculation.
@@ -438,7 +450,7 @@ class IndicatorManager:
 
     """
 
-    def __init__(self, config: FeatureConfig) -> None:
+    def __init__(self, config: FeatureConfigLike) -> None:
         """
         Initialize indicator manager.
 
@@ -764,6 +776,14 @@ class IndicatorManager:
             self.price_history[key].clear()
 
 
+if TYPE_CHECKING:
+    from ml.features.indicators import IndicatorManager as FacadeIndicatorManager
+else:
+    FacadeIndicatorManager = IndicatorManager
+
+IndicatorManagerLike: TypeAlias = IndicatorManager | FacadeIndicatorManager
+
+
 class FeatureEngineer:
     """
     Enhanced feature engineering with perfect batch/real-time consistency.
@@ -788,7 +808,7 @@ class FeatureEngineer:
 
     def __init__(
         self,
-        config: FeatureConfig | None = None,
+        config: FeatureConfigLike | None = None,
         metrics_collector: FeatureEngineeringCollector | None = None,
         feature_store: FeatureStoreStrictProtocol | None = None,
         stores: object | None = None,
@@ -1212,6 +1232,11 @@ class FeatureEngineer:
         """
         Extract price arrays from DataFrame.
         """
+        # Handle empty DataFrame edge case
+        if len(df) == 0 or "close" not in df.columns:
+            empty = np.array([], dtype=np.float64)
+            return (empty, empty, empty, empty, empty)
+
         if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
             # Polars DataFrame
             open_prices = self._ensure_float_array(
@@ -1408,9 +1433,10 @@ class FeatureEngineer:
         else:
             features_scaled_array = features_array
 
-        # Convert back to appropriate DataFrame type
+        # Convert back to appropriate DataFrame type based on input type
         features_scaled: DataFrameLike  # Will be either pl.DataFrame or pd.DataFrame
-        if POLARS_AVAILABLE:
+        is_polars_df = POLARS_AVAILABLE and pl is not None and isinstance(df, pl.DataFrame)
+        if is_polars_df:
             # Convert column names to list to avoid pandas Index issues
             column_names = list(features_df.columns)
             _pl = pl
@@ -1834,7 +1860,7 @@ class FeatureEngineer:
         close: float,
         current_bar: dict[str, float],
         indicator_values: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         feature_idx: int,
     ) -> int:
         """
@@ -1935,14 +1961,14 @@ class FeatureEngineer:
     def calculate_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         scaler: StandardScalerT | None = None,
     ) -> npt.NDArray[np.float32]: ...
 
     def calculate_features_online(
         self,
         current_bar: dict[str, float] | None = None,
-        indicator_manager: IndicatorManager | None = None,
+        indicator_manager: IndicatorManagerLike | None = None,
         scaler: StandardScalerT | None = None,
         *,
         close_price: float | None = None,
@@ -2054,7 +2080,7 @@ class FeatureEngineer:
     def _calculate_features_online_impl(
         self,
         current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         scaler: StandardScalerT | None = None,
         timer: object | None = None,
     ) -> npt.NDArray[np.float32]:
@@ -2134,7 +2160,7 @@ class FeatureEngineer:
     def _calculate_microstructure_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         feature_idx: int,
     ) -> int:
         """
@@ -2228,7 +2254,7 @@ class FeatureEngineer:
     def _calculate_trade_flow_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         feature_idx: int,
     ) -> int:
         """
@@ -3048,34 +3074,19 @@ class FeatureEngineer:
             row_dict = dict(features_pd)
         out: dict[str, float] = {k: float(row_dict[k]) for k in row_dict if k != "timestamp"}
 
-        # Improve scale-invariance stability for RSI in this legacy shim by
-        # computing a high-precision RSI on the provided close series and
-        # mapping to [-1, 1]. This avoids small rounding artifacts from
-        # indicator pipelines when tests scale prices.
-        try:
-            closes = [float(b.close) for b in bars]
-            period = int(getattr(self.config, "rsi_period", 14))
-            if len(closes) >= period + 1:
-                rsi_val = _stable_rsi(closes, period)
-                # Normalize to [-1, 1] and round to improve cross-path determinism
-                out["rsi"] = round((rsi_val / 100.0 - 0.5) * 2.0, 8)
-        except Exception:
-            # Fall back silently; this is a compatibility helper for tests
-            import logging as _logging
+        # Apply post-processing for parity (Task 1.1c - shared with calculator)
+        from ml.features.common.post_processing import apply_compute_features_post_processing
 
-            _logging.getLogger(__name__).debug("Fallback RSI calculation failed", exc_info=True)
-
-        # Improve numerical stability for spread-related metamorphic tests by
-        # rounding tiny differences introduced by price rounding.
-        if "hl_spread" in out:
-            out["hl_spread"] = round(float(out["hl_spread"]), 6)
-
-        return out
+        closes = [float(b.close) for b in bars]
+        rsi_period = int(getattr(self.config, "rsi_period", 14))
+        return apply_compute_features_post_processing(out, closes, rsi_period)
 
 
 def _stable_rsi(prices: list[float], period: int) -> float:
     """
     Compute Wilder's RSI in double precision for the last value.
+
+    Delegates to ml.features.common.post_processing.stable_rsi for DRY.
 
     Parameters
     ----------
@@ -3090,44 +3101,15 @@ def _stable_rsi(prices: list[float], period: int) -> float:
         RSI in [0, 100].
 
     """
-    import math
+    from ml.features.common.post_processing import stable_rsi
 
-    n = len(prices)
-    if n <= period:
-        return 50.0
-    # Use fractional returns to improve scale invariance under rounded inputs
-    gains: list[float] = []
-    losses: list[float] = []
-    for i in range(1, n):
-        prev = float(prices[i - 1])
-        curr = float(prices[i])
-        if math.isclose(prev, 0.0, abs_tol=1e-20):
-            ret = 0.0
-        else:
-            ret = (curr - prev) / prev
-        gains.append(max(ret, 0.0))
-        losses.append(max(-ret, 0.0))
-
-    # Initial averages
-    avg_gain = sum(gains[:period]) / float(period)
-    avg_loss = sum(losses[:period]) / float(period)
-
-    # Wilder smoothing
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / float(period)
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / float(period)
-
-    if math.isclose(avg_loss, 0.0, abs_tol=1e-20):
-        return 100.0
-    rs = avg_gain / avg_loss
-    rsi = 100.0 - (100.0 / (1.0 + rs))
-    return float(rsi)
+    return stable_rsi(prices, period)
 
 
 # ===== Shared helpers to prevent drift between Config/Engineer/Pipeline =====
 
 
-def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
+def build_pipeline_spec_from_feature_config(cfg: FeatureConfigLike) -> PipelineSpec:
     """
     Build a PipelineSpec from a FeatureConfig, including optional transforms.
 

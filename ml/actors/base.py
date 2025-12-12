@@ -76,10 +76,15 @@ else:
 if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
     from ml.observability.ml_async_persistence import MLPersistenceWorker
+    from ml.stores.base import DummyStore
+    from ml.stores.file_backed import FileDataStore
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
+    DataStoreFacadeLike = DataStoreFacadeProtocol | FileDataStore | DummyStore
+else:
+    DataStoreFacadeLike = Any
 
 
 class HealthStatus(Enum):
@@ -940,7 +945,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         return self._store_ops_component.strategy_store
 
     @property
-    def data_store(self) -> DataStoreFacadeProtocol:
+    def data_store(self) -> DataStoreFacadeLike:
         """
         Access data store via StoreOperationsComponent (public API).
         """
@@ -975,7 +980,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         return self._store_ops_component.strategy_store
 
     @property
-    def _data_store(self) -> DataStoreFacadeProtocol:
+    def _data_store(self) -> DataStoreFacadeLike:
         """
         Access data store via StoreOperationsComponent (private).
         """

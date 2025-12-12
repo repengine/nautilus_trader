@@ -193,7 +193,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         # Determine if optimized mode
         try:
             is_optimized = getattr(opt_config.level, "value", str(opt_config.level)) == "optimized"
-        except Exception as exc:
+        except Exception:
             is_optimized = False
 
         # Feature configuration
@@ -468,7 +468,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             else:
                 try:
                     timestamp_ns = int(clock_obj.timestamp_ns())
-                except Exception as exc:
+                except Exception:
                     timestamp_ns = bar.ts_init
 
             # 4. Build context (Component 2 + Component 3)
@@ -728,15 +728,14 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         try:
             # Build feature dictionary with names if available
-            feature_dict: dict[str, float]
-        try:
-            names = list(getattr(self._feature_engineer.config, "get_feature_names")())
-        except Exception as exc:
-            self.log.debug("Failed to fetch feature names; continuing", exc_info=exc)
-            names = []
+            try:
+                names = list(getattr(self._feature_engineer.config, "get_feature_names")())
+            except Exception as exc:
+                self.log.debug("Failed to fetch feature names; continuing", exc_info=exc)
+                names = []
 
             if names and len(names) == features.shape[0]:
-                feature_dict = {names[i]: float(features[i]) for i in range(len(names))}
+                feature_dict: dict[str, float] = {names[i]: float(features[i]) for i in range(len(names))}
             else:
                 feature_dict = {
                     f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))

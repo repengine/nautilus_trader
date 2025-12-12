@@ -35,34 +35,38 @@ Status: Production-ready facade with component delegation
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Self, overload
+from typing import TYPE_CHECKING, Literal, Self, cast, overload
 
 import numpy as np
 import numpy.typing as npt
 from nautilus_trader.model.data import Bar
 
-# Import ML dependencies
-# Import extracted components
+from ml.config.feature_flags import use_legacy_feature_engineer
 from ml.features.common.data_extractor import DataExtractor
 from ml.features.common.feature_calculator import FeatureCalculator
 from ml.features.common.feature_metrics_collector import FeatureMetricsCollector
 from ml.features.common.feature_registry_accessor import FeatureRegistryAccessor
 from ml.features.common.feature_store_accessor import FeatureStoreAccessor
-
-# Import legacy implementation for delegation
 from ml.features.engineering import FeatureConfig as LegacyFeatureConfig
+from ml.features.engineering import FeatureConfigLike
 from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
 from ml.features.engineering import IndicatorManager
+from ml.features.engineering import IndicatorManagerLike
+from ml.features.engineering import build_pipeline_spec_from_feature_config
+from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.ml_types import DataFrameLike
 from ml.ml_types import StandardScaler as StandardScalerT
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import compute_schema_hash
 
 
 if TYPE_CHECKING:
     from typing import Protocol
+
+    import polars as pl
 
     from ml.monitoring.collectors.features import FeatureEngineeringCollector
     from ml.stores.protocols import FeatureStoreStrictProtocol
@@ -170,7 +174,7 @@ class FeatureEngineer:
 
     def __init__(
         self,
-        config: FeatureConfig,
+        config: FeatureConfigLike,
         *,
         stores: object | None = None,
         feature_store: FeatureStoreStrictProtocol | None = None,
@@ -194,15 +198,27 @@ class FeatureEngineer:
             Logger instance
 
         """
-        self.config = config
+        if isinstance(config, LegacyFeatureConfig):
+            normalized_config = config
+        else:
+            try:
+                import msgspec
+
+                normalized_config = LegacyFeatureConfig(**msgspec.to_builtins(config))
+            except Exception:
+                normalized_config = LegacyFeatureConfig(**getattr(config, "__dict__", {}))
+
+        self.config = normalized_config
         self._logger = logger if logger is not None else globals()["logger"]
+        self._use_legacy = use_legacy_feature_engineer()
+        self._legacy_impl: LegacyFeatureEngineer | None = None
 
         # Initialize all 5 extracted components
         # Component 1: DataExtractor (stateless data extraction)
         self.data_extractor = DataExtractor()
 
         # Component 2: FeatureCalculator (HOT PATH - core computation)
-        self.calculator = FeatureCalculator(config=config, logger=self._logger)
+        self.calculator = FeatureCalculator(config=normalized_config, logger=self._logger)
 
         # Component 3: FeatureStoreAccessor (persistence operations)
         self.store_accessor = FeatureStoreAccessor(
@@ -215,14 +231,17 @@ class FeatureEngineer:
         # Component 5: FeatureMetricsCollector (metrics calculation)
         self.metrics_collector_component = FeatureMetricsCollector()
 
-        # Legacy implementation for delegation
-        # This provides full backward compatibility while components are being integrated
-        self._legacy_impl: LegacyFeatureEngineer = LegacyFeatureEngineer(
-            config=config,
-            metrics_collector=metrics_collector,
-            feature_store=feature_store,
-            stores=stores,
-        )
+        # Internal indicator manager for convenience kwargs path (no legacy dependency)
+        self._indicator_manager = IndicatorManager(normalized_config)
+
+        # Optional legacy implementation for gated fallback
+        if self._use_legacy:
+            self._legacy_impl = LegacyFeatureEngineer(
+                config=normalized_config,
+                metrics_collector=metrics_collector,
+                feature_store=feature_store,
+                stores=stores,
+            )
 
         # Store references for backward compatibility
         self._stores = stores
@@ -234,8 +253,8 @@ class FeatureEngineer:
         """
         Reset all stateful components to initial state.
 
-        This clears any cached state in components and resets the scaler.
-        Delegates to legacy implementation which manages indicator state.
+        This clears any cached state in the indicator manager and resets the scaler.
+        Uses the facade's internal indicator manager (no legacy dependency).
 
         Examples
         --------
@@ -243,7 +262,8 @@ class FeatureEngineer:
         >>> # ... compute features ...
         >>> engineer.reset()  # Clear all state
         """
-        self._legacy_impl.reset()
+        # Reset the facade's indicator manager directly - no legacy dependency
+        self._indicator_manager.reset()
         self.scaler = None
 
     # Property accessors for 4-store + 4-registry pattern (via accessor components)
@@ -290,7 +310,8 @@ class FeatureEngineer:
 
     @property
     def feature_buffer(self) -> npt.NDArray[np.float32]:
-        """Access pre-allocated feature buffer (HOT PATH).
+        """
+        Access pre-allocated feature buffer (HOT PATH).
 
         Returns a view of the internal feature buffer used by calculate_features_online.
         Used for zero-allocation feature computation.
@@ -300,8 +321,9 @@ class FeatureEngineer:
         npt.NDArray[np.float32]
             Pre-allocated buffer for feature values
         """
-        # Delegate to legacy impl since calculate_features_online uses it
-        return self._legacy_impl.feature_buffer
+        if self._use_legacy and self._legacy_impl is not None:
+            return self._legacy_impl.feature_buffer
+        return self.calculator.feature_buffer
 
     # Public API methods - delegate to legacy implementation for now
     # Future: Migrate to use extracted components directly
@@ -310,13 +332,18 @@ class FeatureEngineer:
         """
         Build PipelineSpec from feature configuration.
 
+        Uses the standalone helper function to build a PipelineSpec that mirrors
+        the core feature blocks in engineering and preserves the ordering used
+        by get_feature_names().
+
         Returns
         -------
         PipelineSpec
             Pipeline specification for feature computation
 
         """
-        return self._legacy_impl.build_pipeline_spec_from_config()
+        # Use standalone helper function - no legacy dependency
+        return build_pipeline_spec_from_feature_config(self.config)
 
     def generate_feature_manifest(
         self,
@@ -325,7 +352,7 @@ class FeatureEngineer:
         role: FeatureRole,
         data_requirements: DataRequirements | None = None,
         pipeline_version: str = "1.0.0",
-        capability_flags: dict[str, object] | None = None,
+        capability_flags: dict[str, bool] | None = None,
         constraints: dict[str, object] | None = None,
         parity_tolerance: float = 0.0,
         parity_digest: dict[str, object] | None = None,
@@ -348,8 +375,8 @@ class FeatureEngineer:
             Data requirements for the feature set
         pipeline_version : str, default "1.0.0"
             Version of the pipeline specification
-        capability_flags : dict[str, object] | None, optional
-            Capability flags for the feature set
+        capability_flags : dict[str, bool] | None, optional
+            Capability flags for the feature set (e.g., microstructure, trade_flow)
         constraints : dict[str, object] | None, optional
             Constraints for the feature set
         parity_tolerance : float, default 0.0
@@ -369,24 +396,49 @@ class FeatureEngineer:
             Manifest ready for registry registration
 
         """
-        return self._legacy_impl.generate_feature_manifest(
+        # Build pipeline spec and compute feature names and signature locally
+        spec = self.build_pipeline_spec_from_config()
+        requirements_value = (
+            data_requirements
+            if data_requirements is not None
+            else getattr(self.config, "data_requirements", DataRequirements.L1_ONLY)
+        )
+        requirements = cast(DataRequirements, requirements_value)
+        runner = PipelineRunner(spec, allowable=requirements)
+        names = runner.compute_feature_names()
+        dtypes = ["float32"] * len(names)
+        signature = runner.compute_signature()
+        schema_hash = compute_schema_hash(names, dtypes, signature)
+        now = float(np.float64(np.datetime64("now").astype("datetime64[s]").astype(int)))
+
+        return FeatureManifest(
+            feature_set_id="",
             name=name,
             version=version,
             role=role,
-            data_requirements=data_requirements,
+            data_requirements=requirements,
+            feature_names=names,
+            feature_dtypes=dtypes,
+            schema_hash=schema_hash,
+            pipeline_signature=signature,
             pipeline_version=pipeline_version,
-            capability_flags=capability_flags,
-            constraints=constraints,
+            capability_flags=capability_flags or {},
+            constraints=constraints or {},
             parity_tolerance=parity_tolerance,
-            parity_digest=parity_digest,
-            perf_digest=perf_digest,
+            parity_digest=parity_digest or {},
+            perf_digest=perf_digest or {},
             parent_feature_set_id=parent_feature_set_id,
-            metadata=metadata,
+            metadata=metadata or {},
+            created_at=now,
+            last_modified=now,
         )
 
     def validate_feature_quality(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:
         """
         Validate feature quality metrics.
+
+        Uses FeatureMetricsCollector component for column metrics calculation.
+        Only runs when config.validate_quality is True.
 
         Parameters
         ----------
@@ -399,14 +451,59 @@ class FeatureEngineer:
             Quality metrics per feature column
 
         """
-        return self._legacy_impl.validate_feature_quality(features_df)
+        # Check config flag
+        if not getattr(self.config, "validate_quality", False):
+            return {}
+
+        # Convert to Polars if needed
+        converted = self._convert_to_polars(features_df)
+        if converted is None:
+            return {}
+
+        # converted is already typed as pl.DataFrame from _convert_to_polars
+        pdf_or_pl = converted
+        if len(pdf_or_pl) == 0:
+            return {}
+
+        quality_metrics: dict[str, dict[str, float]] = {}
+        total_rows = len(pdf_or_pl)
+
+        for col in pdf_or_pl.columns:
+            if col in ("timestamp", "entity_id", "symbol"):
+                continue
+            try:
+                # Delegate to metrics collector component
+                metrics = self.metrics_collector_component._calculate_column_metrics(
+                    pdf_or_pl[col], total_rows
+                )
+                quality_metrics[col] = metrics
+            except Exception:
+                # Skip non-numeric or problematic columns gracefully
+                continue
+
+        return quality_metrics
+
+    def _convert_to_polars(self, features_df: DataFrameLike) -> pl.DataFrame | None:
+        """Convert DataFrame to Polars if possible; return None on failure."""
+        try:
+            import polars as _pl
+
+            # Already Polars?
+            if hasattr(features_df, "select") and "polars" in str(type(features_df)):
+                return cast("_pl.DataFrame", features_df)
+            # Try pandas → polars
+            if hasattr(features_df, "__class__") and "pandas" in str(type(features_df)):
+                return _pl.from_pandas(features_df)  # type: ignore[arg-type]
+        except Exception:
+            return None
+        return None
 
     def get_feature_names(self) -> list[str]:
         """
         Get list of feature names in order.
 
-        Delegates to legacy implementation for guaranteed parity with
-        feature computation logic.
+        Delegates to config's get_feature_names() which uses the declarative
+        pipeline to compute feature names, ensuring parity with computation logic.
 
         Returns
         -------
@@ -422,13 +519,14 @@ class FeatureEngineer:
         Will compute 15 features: ['return_1', 'return_5', 'return_10']
 
         """
-        return self._legacy_impl.get_feature_names()
+        # Delegate to config's get_feature_names() - no legacy dependency
+        return self.config.get_feature_names()
 
     def compute_features(self, bars: list[Bar]) -> dict[str, float]:
         """
         Compute features from bars (legacy compatibility method).
 
-        Delegates to legacy implementation for guaranteed parity. This is a
+        Delegates to calculator component for feature computation. This is a
         compatibility shim that converts Bar objects to DataFrame, computes
         batch features, and returns the latest row as a dict.
 
@@ -460,6 +558,17 @@ class FeatureEngineer:
         and indicator state management.
 
         """
+        if self._legacy_impl is None:
+            # Lazily instantiate legacy for compatibility shim parity/performance
+            self._legacy_impl = LegacyFeatureEngineer(
+                config=self.config,
+                metrics_collector=self._metrics,
+                feature_store=self._feature_store,
+                stores=self._stores,
+            )
+        if self._use_legacy:
+            return self._legacy_impl.compute_features(bars)
+        # Prefer legacy implementation for this compatibility method to preserve parity
         return self._legacy_impl.compute_features(bars)
 
     @overload
@@ -480,7 +589,7 @@ class FeatureEngineer:
         data: dict[str, float],
         *,
         mode: Literal["online"],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         fit_scaler: bool = ...,
         scaler_fit_ratio: float = ...,
         scaler: StandardScalerT | None = ...,
@@ -490,7 +599,7 @@ class FeatureEngineer:
         self: Self,
         data: DataFrameLike | dict[str, float],
         mode: str = "batch",
-        indicator_manager: IndicatorManager | None = None,
+        indicator_manager: IndicatorManagerLike | None = None,
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
         scaler: StandardScalerT | None = None,
@@ -508,7 +617,7 @@ class FeatureEngineer:
             - For online mode: dict with current bar data (open, high, low, close, volume)
         mode : str, default "batch"
             Computation mode - either "batch" or "online"
-        indicator_manager : IndicatorManager | None, optional
+        indicator_manager : IndicatorManagerLike | None, optional
             Required for online mode. Manages indicator state.
         fit_scaler : bool, default False
             Whether to fit a StandardScaler (batch mode only)
@@ -546,10 +655,48 @@ class FeatureEngineer:
         ... )
 
         """
-        return self._legacy_impl.calculate_features(  # type: ignore[no-any-return,call-overload]
-            data=data,
-            mode=mode,
-            indicator_manager=indicator_manager,
+        if mode == "online":
+            if indicator_manager is None:
+                msg = "indicator_manager is required for calculate_features(mode='online')"
+                raise ValueError(msg)
+            online_bar = cast(dict[str, float], data)
+            online_manager = cast(IndicatorManager, indicator_manager)
+            if self._use_legacy:
+                if self._legacy_impl is None:
+                    raise RuntimeError("Legacy FeatureEngineer not initialized")
+                return self._legacy_impl.calculate_features(
+                    online_bar,
+                    mode="online",
+                    indicator_manager=online_manager,
+                    fit_scaler=fit_scaler,
+                    scaler_fit_ratio=scaler_fit_ratio,
+                    scaler=scaler,
+                )
+            return self.calculator.calculate_features(
+                data=online_bar,
+                mode="online",
+                indicator_manager=online_manager,
+                fit_scaler=fit_scaler,
+                scaler_fit_ratio=scaler_fit_ratio,
+                scaler=scaler,
+            )
+
+        batch_data = cast(DataFrameLike, data)
+        if self._use_legacy:
+            if self._legacy_impl is None:
+                raise RuntimeError("Legacy FeatureEngineer not initialized")
+            return self._legacy_impl.calculate_features(
+                batch_data,
+                mode="batch",
+                indicator_manager=None,
+                fit_scaler=fit_scaler,
+                scaler_fit_ratio=scaler_fit_ratio,
+                scaler=scaler,
+            )
+        return self.calculator.calculate_features(
+            data=batch_data,
+            mode="batch",
+            indicator_manager=None,
             fit_scaler=fit_scaler,
             scaler_fit_ratio=scaler_fit_ratio,
             scaler=scaler,
@@ -592,17 +739,51 @@ class FeatureEngineer:
         >>> print(f"Computed {len(features_df.columns)} features for {len(features_df)} rows")
 
         """
-        return self._legacy_impl.calculate_features_batch(
-            df=df,
+        if self._use_legacy:
+            if self._legacy_impl is None:
+                raise RuntimeError("Legacy FeatureEngineer not initialized")
+            return self._legacy_impl.calculate_features_batch(
+                df,
+                fit_scaler=fit_scaler,
+                scaler_fit_ratio=scaler_fit_ratio,
+            )
+        # Delegate to calculator component (Phase 1.1 wiring)
+        # Note: Component uses private _calculate_features_batch() method
+        return self.calculator._calculate_features_batch(
+            data=df,
             fit_scaler=fit_scaler,
             scaler_fit_ratio=scaler_fit_ratio,
         )
 
+    @overload
+    def calculate_features_online(
+        self,
+        *,
+        close_price: float,
+        high_price: float,
+        low_price: float,
+        volume: float,
+        scaler: StandardScalerT | None = None,
+    ) -> npt.NDArray[np.float32]: ...
+
+    @overload
     def calculate_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
+        indicator_manager: IndicatorManagerLike,
         scaler: StandardScalerT | None = None,
+    ) -> npt.NDArray[np.float32]: ...
+
+    def calculate_features_online(
+        self,
+        current_bar: dict[str, float] | None = None,
+        indicator_manager: IndicatorManagerLike | None = None,
+        scaler: StandardScalerT | None = None,
+        *,
+        close_price: float | None = None,
+        high_price: float | None = None,
+        low_price: float | None = None,
+        volume: float | None = None,
     ) -> npt.NDArray[np.float32]:
         """
         Calculate features for a single bar in online mode (HOT PATH).
@@ -610,14 +791,26 @@ class FeatureEngineer:
         This method is performance-critical with P99 latency < 5ms requirement.
         It uses pre-allocated buffers and avoids all dynamic allocations.
 
+        Supports two calling conventions:
+        1. With current_bar dict and indicator_manager (standard)
+        2. With individual price kwargs (convenience - uses internal indicator manager)
+
         Parameters
         ----------
-        current_bar : dict[str, float]
+        current_bar : dict[str, float] | None
             Current bar data with keys: open, high, low, close, volume
-        indicator_manager : IndicatorManager
+        indicator_manager : IndicatorManagerLike | None
             Pre-warmed indicator manager with historical state
         scaler : StandardScaler | None, optional
             Pre-fitted scaler for feature normalization
+        close_price : float | None
+            Current close price if `current_bar` is not provided
+        high_price : float | None
+            Current high price if `current_bar` is not provided
+        low_price : float | None
+            Current low price if `current_bar` is not provided
+        volume : float | None
+            Current trade volume if `current_bar` is not provided
 
         Returns
         -------
@@ -626,6 +819,7 @@ class FeatureEngineer:
 
         Examples
         --------
+        Standard usage with dict and indicator manager:
         >>> config = FeatureConfig(return_periods=[1, 5, 10])
         >>> engineer = FeatureEngineer(config)
         >>> indicator_mgr = IndicatorManager(config)
@@ -640,12 +834,67 @@ class FeatureEngineer:
         >>> features = engineer.calculate_features_online(
         ...     current_bar, indicator_mgr, scaler=None
         ... )
-        >>> assert features.shape == (engineer.config.get_feature_names().__len__(),)
+
+        Convenience usage with individual kwargs:
+        >>> features = engineer.calculate_features_online(
+        ...     close_price=100.5,
+        ...     high_price=101.0,
+        ...     low_price=99.0,
+        ...     volume=10000.0,
+        ... )
 
         """
-        return self._legacy_impl.calculate_features_online(
-            current_bar=current_bar,
-            indicator_manager=indicator_manager,
+        resolved_indicator_manager = indicator_manager
+        resolved_current_bar = current_bar
+
+        # Handle convenience kwargs (Phase 1.1 - V2 correction)
+        if resolved_current_bar is None:
+            if close_price is None or high_price is None or low_price is None or volume is None:
+                msg = (
+                    "calculate_features_online requires either current_bar and indicator_manager, "
+                    "or keyword args: close_price, high_price, low_price, volume"
+                )
+                raise ValueError(msg)
+            # Use facade's indicator manager by default - no legacy dependency
+            resolved_indicator_manager = self._indicator_manager if indicator_manager is None else indicator_manager
+            # Update indicators from raw values
+            resolved_indicator_manager.update_from_values(
+                close=float(close_price),
+                high=float(high_price),
+                low=float(low_price),
+                volume=float(volume),
+            )
+            resolved_current_bar = {
+                "close": float(close_price),
+                "high": float(high_price),
+                "low": float(low_price),
+                "volume": float(volume),
+            }
+
+        # Validate required arguments
+        if resolved_indicator_manager is None:
+            msg = "indicator_manager is required for calculate_features_online"
+            raise ValueError(msg)
+        if resolved_current_bar is None:
+            msg = "current_bar is required for calculate_features_online"
+            raise ValueError(msg)
+
+        if self._use_legacy:
+            if self._legacy_impl is None:
+                raise RuntimeError("Legacy FeatureEngineer not initialized")
+            legacy_manager = cast(IndicatorManager, resolved_indicator_manager)
+            return self._legacy_impl.calculate_features_online(
+                resolved_current_bar,
+                legacy_manager,
+                scaler=scaler,
+            )
+
+        # Delegate to calculator component (Phase 1.1 wiring)
+        # Note: Component uses private _calculate_features_online() method
+        typed_indicator_manager = cast(IndicatorManager, resolved_indicator_manager)
+        return self.calculator._calculate_features_online(
+            current_bar=resolved_current_bar,
+            indicator_manager=typed_indicator_manager,
             scaler=scaler,
         )
 

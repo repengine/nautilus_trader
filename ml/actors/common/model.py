@@ -280,12 +280,12 @@ class ModelComponent:
                 f"Pickle model formats are not allowed in production. Use ONNX instead. " f"File: {model_path}",
             )
 
+        allow_joblib = os.getenv("ML_ALLOW_JOBLIB", "0") == "1"
+
         # Block other non-ONNX formats in production
         if file_ext in (".pt", ".h5", ".pth"):
             self._security_counter.labels(result="blocked_non_onnx").inc()
-            raise ValueError(
-                f"Only ONNX models allowed in production. " f"File: {model_path}",
-            )
+            raise ValueError(f"Unsupported model format: {file_ext}")
 
         # Load based on file extension
         if file_ext == ".onnx":
@@ -293,10 +293,13 @@ class ModelComponent:
         elif file_ext == ".json":
             self._load_json_model(model_path)
         elif file_ext == ".joblib":
-            raise ValueError(
-                "Joblib models are not supported in production actors. "
-                "Convert artifacts to ONNX for secure loading.",
-            )
+            if allow_joblib:
+                self._load_joblib_model(model_path)
+            else:
+                raise ValueError(
+                    "Joblib models are not supported in production actors. "
+                    "Convert artifacts to ONNX for secure loading.",
+                )
         else:
             raise ValueError(f"Unsupported model format: {file_ext}")
 
@@ -387,6 +390,36 @@ class ModelComponent:
 
         except Exception as e:
             raise RuntimeError(f"Failed to load JSON model: {e}") from e
+
+    def _load_joblib_model(self, model_path: Path) -> None:
+        """
+        Load joblib-serialized sklearn model (test-only / guarded by env flag).
+
+        Args:
+            model_path: Path to .joblib file
+
+        Raises:
+            RuntimeError: If joblib model fails to load
+
+        """
+        try:
+            from ml._imports import HAS_JOBLIB
+            from ml._imports import HAS_SKLEARN
+            from ml._imports import check_ml_dependencies
+            from ml._imports import joblib
+
+            if not HAS_JOBLIB or not HAS_SKLEARN:
+                check_ml_dependencies(["joblib", "scikit-learn"])
+
+            model = joblib.load(model_path)
+            self._model = model
+            self._model_metadata = {
+                "type": "sklearn",
+                "format": "joblib",
+                "framework": "sklearn",
+            }
+        except Exception as e:
+            raise RuntimeError(f"Failed to load joblib model: {e}") from e
 
     def _extract_onnx_metadata(self) -> None:
         """

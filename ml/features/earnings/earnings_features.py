@@ -23,6 +23,7 @@ from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
@@ -98,7 +99,8 @@ if ENABLE_EARNINGS_METRICS:
 
 
 def reset_earnings_metrics_state() -> None:
-    """Reset module-level metrics state for testing.
+    """
+    Reset module-level metrics state for testing.
 
     Resets the `_metrics_init` flag and all metric references to None,
     allowing tests to reinitialize metrics in isolation.
@@ -120,7 +122,8 @@ def reset_earnings_metrics_state() -> None:
 def earnings_metrics_enabled(
     env: MutableMapping[str, str] | None = None,
 ) -> bool:
-    """Check if earnings metrics collection is enabled.
+    """
+    Check if earnings metrics collection is enabled.
 
     Args:
         env: Optional mapping to check for ML_EARNINGS_ENABLE_METRICS.
@@ -263,9 +266,9 @@ def compute_earnings_surprise_incremental(
 
 
 def compute_earnings_surprise_batch(
-    actuals: np.ndarray,
-    estimates: np.ndarray,
-) -> dict[str, np.ndarray]:
+    actuals: npt.NDArray[np.float64],
+    estimates: npt.NDArray[np.float64],
+) -> dict[str, npt.NDArray[np.float64]]:
     """
     Compute earnings surprise in batch (cold path - vectorized).
 
@@ -435,8 +438,8 @@ def compute_earnings_growth_incremental(
 
 
 def compute_earnings_growth_batch(
-    eps_series: np.ndarray,
-) -> dict[str, np.ndarray]:
+    eps_series: npt.NDArray[np.float64],
+) -> dict[str, npt.NDArray[np.float64]]:
     """
     Compute earnings growth in batch (cold path - vectorized).
 
@@ -617,9 +620,9 @@ def compute_earnings_momentum_incremental(
 
 
 def compute_earnings_momentum_batch(
-    surprises_series: np.ndarray,
-    eps_series: np.ndarray,
-) -> dict[str, np.ndarray]:
+    surprises_series: npt.NDArray[np.float64],
+    eps_series: npt.NDArray[np.float64],
+) -> dict[str, npt.NDArray[np.float64]]:
     """
     Compute earnings momentum in batch (cold path - vectorized).
 
@@ -762,9 +765,9 @@ def compute_calendar_features_incremental(
 
 
 def compute_calendar_features_batch(
-    next_earnings_dates: np.ndarray,
-    current_dates: np.ndarray,
-) -> dict[str, np.ndarray]:
+    next_earnings_dates: npt.NDArray[np.datetime64],
+    current_dates: npt.NDArray[np.datetime64],
+) -> dict[str, npt.NDArray[np.int64]]:
     """
     Compute earnings calendar features in batch (cold path - vectorized).
 

@@ -10,14 +10,17 @@ container of services for the actor to attach.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from ml.stores.protocols import DataStoreFacadeProtocol as _DataStoreFacadeT
+    from ml.stores.base import DummyStore
+    from ml.stores.file_backed import FileDataStore
+    from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol as _FeatureStoreT
     from ml.stores.protocols import ModelStoreStrictProtocol as _ModelStoreT
     from ml.stores.protocols import StrategyStoreStrictProtocol as _StrategyStoreT
+    _DataStoreFacadeT = DataStoreFacadeProtocol | FileDataStore | DummyStore
 else:  # pragma: no cover - runtime-only typing shims
     from typing import Any as _DataStoreFacadeT  # type: ignore[no-redef]
     from typing import Any as _FeatureStoreT  # type: ignore[no-redef]
@@ -55,7 +58,6 @@ def init_actor_services(config: Any) -> ActorServices:
     from ml.stores.adapters import FeatureStoreStrictAdapter
     from ml.stores.adapters import ModelStoreStrictAdapter
     from ml.stores.adapters import StrategyStoreStrictAdapter
-    from ml.stores.protocols import DataStoreFacadeProtocol as _DSP
     from ml.stores.protocols import FeatureStoreStrictProtocol as _FSP
     from ml.stores.protocols import ModelStoreStrictProtocol as _MSP
     from ml.stores.protocols import StrategyStoreStrictProtocol as _SSP
@@ -76,13 +78,11 @@ def init_actor_services(config: Any) -> ActorServices:
         else StrategyStoreStrictAdapter(result.strategy_store)
     )
 
-    data_store = cast(_DSP, result.data_store)
-
     return ActorServices(
         feature_store=feature_store,
         model_store=model_store,
         strategy_store=strategy_store,
-        data_store=data_store,
+        data_store=result.data_store,
         feature_registry=result.feature_registry,
         model_registry=result.model_registry,
         strategy_registry=result.strategy_registry,

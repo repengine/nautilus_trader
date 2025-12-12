@@ -156,6 +156,14 @@ This module follows all Universal ML Architecture Patterns:
 
 """
 
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from ml.features.engineering import FeatureConfig as FeatureConfig
+    from ml.features.engineering import FeatureEngineer as FeatureEngineer
+    from ml.features.engineering import IndicatorManager as IndicatorManager
+
 # Use lazy imports to avoid circular import issues
 __all__ = [
     "CorrelationState",

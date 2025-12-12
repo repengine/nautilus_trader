@@ -20,6 +20,7 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
@@ -144,10 +145,10 @@ def compute_ewma_beta_incremental(
 
 
 def compute_ewma_beta_batch(
-    asset_returns: np.ndarray,
-    market_returns: np.ndarray,
+    asset_returns: npt.NDArray[np.float64],
+    market_returns: npt.NDArray[np.float64],
     alpha: float = 0.94,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """
     Compute EWMA beta in batch (cold path - vectorized).
 

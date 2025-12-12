@@ -76,10 +76,21 @@ from __future__ import annotations
 
 
 __all__ = [
+    "DummyEarningsStore",
+    "EarningsActual",
+    "EarningsAugmenter",
+    "EarningsCache",
     "EarningsCalendarTransformSpec",
+    "EarningsConsensus",
     "EarningsGrowthTransformSpec",
+    "EarningsIngestionService",
     "EarningsMomentumTransformSpec",
+    "EarningsParquetRawWriter",
+    "EarningsStore",
     "EarningsSurpriseTransformSpec",
+    "EdgarFetcher",
+    "XBRLParser",
+    "YahooFetcher",
     "compute_calendar_features_batch",
     "compute_calendar_features_incremental",
     "compute_earnings_growth_batch",
@@ -151,5 +162,54 @@ def __getattr__(name: str) -> object:
         from ml.features.earnings.earnings_features import reset_earnings_metrics_state
 
         return reset_earnings_metrics_state
+    # Store
+    elif name == "EarningsStore":
+        from ml.features.earnings.store import EarningsStore
+
+        return EarningsStore
+    elif name == "DummyEarningsStore":
+        from ml.features.earnings.store import DummyEarningsStore
+
+        return DummyEarningsStore
+    # Raw writer
+    elif name == "EarningsParquetRawWriter":
+        from ml.features.earnings.raw_writer import EarningsParquetRawWriter
+
+        return EarningsParquetRawWriter
+    # Cache
+    elif name == "EarningsCache":
+        from ml.features.earnings.cache import EarningsCache
+
+        return EarningsCache
+    # Augmenter
+    elif name == "EarningsAugmenter":
+        from ml.training.datasets.augmenters.earnings_augmenter import EarningsAugmenter
+
+        return EarningsAugmenter
+    # Ingestion
+    elif name == "EdgarFetcher":
+        from ml.features.earnings.ingestion.edgar_fetcher import EdgarFetcher
+
+        return EdgarFetcher
+    elif name == "EarningsActual":
+        from ml.features.earnings.ingestion.edgar_fetcher import EarningsActual
+
+        return EarningsActual
+    elif name == "YahooFetcher":
+        from ml.features.earnings.ingestion.yahoo_fetcher import YahooFetcher
+
+        return YahooFetcher
+    elif name == "EarningsConsensus":
+        from ml.features.earnings.ingestion.yahoo_fetcher import EarningsConsensus
+
+        return EarningsConsensus
+    elif name == "XBRLParser":
+        from ml.features.earnings.ingestion.xbrl_parser import XBRLParser
+
+        return XBRLParser
+    elif name == "EarningsIngestionService":
+        from ml.features.earnings.ingestion.service import EarningsIngestionService
+
+        return EarningsIngestionService
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

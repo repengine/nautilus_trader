@@ -31,10 +31,15 @@ from ml.config.base import MLActorConfig
 
 if TYPE_CHECKING:
     from ml.observability.ml_async_persistence import MLPersistenceWorker
+    from ml.stores.base import DummyStore
+    from ml.stores.file_backed import FileDataStore
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
+    DataStoreFacadeLike = DataStoreFacadeProtocol | FileDataStore | DummyStore
+else:  # pragma: no cover - runtime fallback for type aliases
+    DataStoreFacadeLike = Any
 
 
 class StoreOperationsProtocol(Protocol):
@@ -68,7 +73,7 @@ class StoreOperationsProtocol(Protocol):
         ...
 
     @property
-    def data_store(self) -> DataStoreFacadeProtocol:
+    def data_store(self) -> DataStoreFacadeLike:
         """
         Return initialized DataStore.
         """
@@ -141,7 +146,7 @@ class StoreOperationsComponent:
         self._feature_store: FeatureStoreStrictProtocol | None = None
         self._model_store: ModelStoreStrictProtocol | None = None
         self._strategy_store: StrategyStoreStrictProtocol | None = None
-        self._data_store: DataStoreFacadeProtocol | None = None
+        self._data_store: DataStoreFacadeLike | None = None
 
         # Async persistence worker (initialized if enabled)
         self._persistence_worker: MLPersistenceWorker | None = None
@@ -338,7 +343,7 @@ class StoreOperationsComponent:
         return self._strategy_store
 
     @property
-    def data_store(self) -> DataStoreFacadeProtocol:
+    def data_store(self) -> DataStoreFacadeLike:
         """
         Return initialized DataStore.
 

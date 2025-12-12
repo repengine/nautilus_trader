@@ -152,6 +152,15 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self.strategy_store: StrategyStoreProtocol | None = None
         self._init_strategy_store()
 
+        # Metrics placeholders (initialized in _init_metrics; Optional for fallback path)
+        self.signals_received_metric: Any | None = None
+        self.orders_submitted_metric: Any | None = None
+        self.position_count_metric: Any | None = None
+        self._strategy_decisions_persisted: Any | None = None
+        self._strategy_store_write_latency: Any | None = None
+        self._strategy_store_batch_size: Any | None = None
+        self._signal_to_trade_latency: Any | None = None
+
         # Initialize metrics (same as legacy)
         self._init_metrics()
 

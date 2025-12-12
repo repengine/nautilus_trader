@@ -110,8 +110,8 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # DummyStore implements permissive no-op methods used by tests
         dummy = DummyStore()
         # Wrap DummyStore in strict adapters to satisfy strict protocols
-        self._feature_store = FeatureStoreStrictAdapter(dummy)
-        self._model_store = ModelStoreStrictAdapter(dummy)
-        self._strategy_store = StrategyStoreStrictAdapter(dummy)
+        object.__setattr__(self, "_feature_store", FeatureStoreStrictAdapter(dummy))
+        object.__setattr__(self, "_model_store", ModelStoreStrictAdapter(dummy))
+        object.__setattr__(self, "_strategy_store", StrategyStoreStrictAdapter(dummy))
         # Registries are not used in this minimal actor; leave base attributes as-is when possible
         return None

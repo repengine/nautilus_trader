@@ -786,9 +786,9 @@ class LightningStreamingWorker(TrainingWorker):
                 fit_result, ensemble_metrics, ensemble_telemetry = self._apply_ensemble(plan, fit_result)
                 artifact_path = self._persist_logits(
                     plan.plan_id,
-                    z_train=fit_result.z_train,
-                    z_val=fit_result.z_val,
-                    y_val=fit_result.y_val,
+                    z_train=fit_result.z_train if fit_result.z_train is not None else np.array([], dtype=np.float32),
+                    z_val=fit_result.z_val if fit_result.z_val is not None else np.array([], dtype=np.float32),
+                    y_val=fit_result.y_val if fit_result.y_val is not None else np.array([], dtype=np.float32),
                     train_rows=fit_result.train_rows,
                     val_rows=fit_result.val_rows,
                     val_returns=fit_result.val_returns,

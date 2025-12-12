@@ -36,15 +36,13 @@ from ml.registry.common.watermark_manager import WatermarkManagerComponent
 
 
 __all__ = [
-    # ModelRegistry components
     "ABTestingComponent",
-    "DeploymentManagerComponent",
-    "ModelPersistenceComponent",
-    "VersionManagerComponent",
-    # DataRegistry components
     "DataPersistenceComponent",
+    "DeploymentManagerComponent",
     "EventEmissionComponent",
     "LineageTrackerComponent",
     "ManifestManagerComponent",
+    "ModelPersistenceComponent",
+    "VersionManagerComponent",
     "WatermarkManagerComponent",
 ]
