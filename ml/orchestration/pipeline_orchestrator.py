@@ -91,10 +91,12 @@ from ml.data.ingest.symbology import DatabentoSymbologyResolver
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
+from ml.orchestration.binding_resolver import BindingResolver
 from ml.orchestration.config_loader import IngestionStageConfig
 from ml.orchestration.config_loader import Stage
 from ml.orchestration.config_loader import load_orchestrator_run_config
 from ml.orchestration.config_loader import to_pipeline_args
+from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import DEFAULT_LOOKBACK_YEARS
 from ml.orchestration.config_types import DEFAULT_MACRO_SERIES
 from ml.orchestration.config_types import AutoFillUniverseConfig
@@ -106,9 +108,13 @@ from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import PromotionsConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.orchestration.discovery_client import DiscoveryClient
+from ml.orchestration.feature_flags import use_legacy_orchestrator
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.protocols import RegistryProtocol
+from ml.schema import map_schema_to_dataset_type
+from ml.schema import schema_spec_for
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
@@ -167,6 +173,15 @@ _SCHEMA_ALIASES: Final[dict[str, str]] = {
     "quotes": "tbbo",
     "trades": "trades",
 }
+
+
+def _normalize_schema_token(schema: str) -> str:
+    """
+    Resolve schema aliases and validate against the schema registry.
+    """
+    resolved = _SCHEMA_ALIASES.get(schema.lower(), schema)
+    schema_spec_for(resolved)
+    return resolved
 
 
 def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
@@ -416,10 +431,10 @@ class _IngestionAttemptReport:
 
 @dataclass(slots=True)
 class MLPipelineOrchestrator:
-    coverage: CoverageProviderProtocol
-    writer: MarketDataWriterProtocol
-    build_main: _CliMain
-    teacher_main: _CliMain
+    coverage: CoverageProviderProtocol | None = None
+    writer: MarketDataWriterProtocol | None = None
+    build_main: _CliMain | None = None
+    teacher_main: _CliMain | None = None
     registry: object | None = None  # Backwards compatibility alias
     data_registry: object | None = (
         None  # RegistryProtocol at runtime; kept lax to avoid import cycles
@@ -454,10 +469,182 @@ class MLPipelineOrchestrator:
         init=False,
         repr=False,
     )
+    _config_resolver: ConfigResolver = field(default_factory=ConfigResolver, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.data_registry is None and self.registry is not None:
             object.__setattr__(self, "data_registry", self.registry)
+
+    def get_health_status(self) -> dict[str, Any]:
+        """
+        Get health status of the orchestrator and its components.
+
+        Returns
+        -------
+        dict[str, Any]
+            Health status dictionary with component availability.
+        """
+        if use_legacy_orchestrator():
+            return {
+                "implementation": "legacy",
+                "coverage_provider": "healthy" if self.coverage else "unavailable",
+                "writer": "healthy" if self.writer else "unavailable",
+                "build_main": "healthy" if self.build_main else "unavailable",
+                "teacher_main": "healthy" if self.teacher_main else "unavailable",
+                "has_registry": self.registry is not None,
+                "has_data_registry": self.data_registry is not None,
+                "has_ingestor": self.ingestor is not None,
+                "has_model_registry": self.model_registry is not None,
+                "has_feature_registry": self.feature_registry is not None,
+                "has_strategy_registry": self.strategy_registry is not None,
+                "has_integration_manager_factory": self.integration_manager_factory is not None,
+            }
+
+        return {
+            "implementation": "component_based",
+            "coverage_provider": "healthy" if self.coverage else "unavailable",
+            "writer": "healthy" if self.writer else "unavailable",
+            "build_main": "healthy" if self.build_main else "unavailable",
+            "teacher_main": "healthy" if self.teacher_main else "unavailable",
+            "config_resolver": "healthy" if self._config_resolver else "unavailable",
+            "discovery_client": "healthy" if self.dataset_discovery else "unavailable",
+            "binding_resolver": "healthy",
+            "ingestion_coordinator": "healthy" if self.ingestor or getattr(self, "service", None) else "unavailable",
+            "dataset_builder": "healthy" if self.data_store or self.data_registry else "unavailable",
+            "has_registry": self.registry is not None,
+            "has_data_registry": self.data_registry is not None,
+            "has_ingestor": self.ingestor is not None,
+            "has_model_registry": self.model_registry is not None,
+            "has_feature_registry": self.feature_registry is not None,
+            "has_strategy_registry": self.strategy_registry is not None,
+            "has_integration_manager_factory": self.integration_manager_factory is not None,
+        }
+
+    # -------------------------------------------------------------------------
+    # Public helpers (parity with facade/component path)
+    # -------------------------------------------------------------------------
+
+    def apply_default_market_inputs(self, cfg: DatasetBuildConfig) -> DatasetBuildConfig:
+        """Public wrapper for default market input application."""
+        return self._config_resolver.apply_default_market_inputs(cfg)
+
+    def collect_symbol_map(
+        self,
+        *,
+        ds_cfg: DatasetBuildConfig | None = None,
+        symbols: tuple[str, ...] | None = None,
+        instruments: tuple[str, ...] | None = None,
+        instrument_ids: tuple[str, ...] | None = None,
+        market_inputs: tuple[MarketDatasetInput, ...] | None = None,
+    ) -> dict[str, tuple[str, ...]]:
+        """Collect symbol→instrument mappings via the shared resolver."""
+        return self._config_resolver.collect_symbol_map(
+            ds_cfg=ds_cfg,
+            symbols=symbols,
+            instruments=instruments,
+            instrument_ids=instrument_ids,
+            market_inputs=market_inputs,
+        )
+
+    def compute_window_start_iso(
+        self,
+        end_iso: str,
+        lookback_years: int = DEFAULT_LOOKBACK_YEARS,
+    ) -> str:
+        """Compute window start ISO using the shared resolver."""
+        return self._config_resolver.compute_window_start_iso(
+            end_iso=end_iso,
+            lookback_years=lookback_years,
+        )
+
+    def resolve_window_bounds_ns(self, cfg: DatasetBuildConfig) -> tuple[int, int]:
+        """Resolve window bounds using the shared resolver."""
+        return self._config_resolver.resolve_window_bounds_ns(cfg)
+
+    def prepare_dataset_config(
+        self,
+        *,
+        cfg: DatasetBuildConfig,
+        resolved_inputs: tuple[MarketDatasetInput, ...] | None,
+        bindings: tuple[ResolvedMarketBinding, ...],
+    ) -> DatasetBuildConfig:
+        """Prepare dataset config with resolved bindings/inputs."""
+        return self._config_resolver.prepare_dataset_config(
+            cfg=cfg,
+            resolved_inputs=resolved_inputs,
+            bindings=bindings,
+        )
+
+    def discover_market_inputs(
+        self,
+        *,
+        symbol_map: dict[str, tuple[str, ...]],
+        schema: str,
+        start_ns: int,
+        end_ns: int,
+        dataset_hint: str | None = None,
+    ) -> tuple[MarketDatasetInput, ...] | None:
+        """Discover market inputs via DiscoveryClient when available."""
+        discovery_client = (
+            DiscoveryClient(dataset_discovery=self.dataset_discovery) if self.dataset_discovery else None
+        )
+        if discovery_client is None:
+            return None
+        try:
+            return discovery_client.discover_market_inputs(
+                symbol_map=symbol_map,
+                schema=schema,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                dataset_hint=dataset_hint,
+            )
+        except Exception:
+            logger.debug("discover_market_inputs failed", exc_info=True)
+            return None
+
+    def resolve_market_inputs(
+        self,
+        *,
+        cfg: DatasetBuildConfig,
+        symbol_map: dict[str, tuple[str, ...]],
+        start_ns: int,
+        end_ns: int,
+    ) -> tuple[tuple[MarketDatasetInput, ...] | None, tuple[ResolvedMarketBinding, ...]]:
+        """Resolve market inputs using the BindingResolver component."""
+        resolver = BindingResolver(
+            coverage_provider=self.coverage,
+            ingestion_service=getattr(self, "service", None),
+            discovery_client=DiscoveryClient(dataset_discovery=self.dataset_discovery) if self.dataset_discovery else None,
+        )
+        return resolver.resolve_market_inputs(
+            cfg=cfg,
+            symbol_map=symbol_map,
+            start_ns=start_ns,
+            end_ns=end_ns,
+        )
+
+    def filter_candidate_bindings(
+        self,
+        *,
+        candidates: tuple[ResolvedMarketBinding, ...],
+        start_ns: int,
+        end_ns: int,
+        symbol: str,
+        default_schema: str,
+    ) -> tuple[ResolvedMarketBinding, ...]:
+        """Filter candidate bindings using the BindingResolver component."""
+        resolver = BindingResolver(
+            coverage_provider=self.coverage,
+            ingestion_service=getattr(self, "service", None),
+            discovery_client=DiscoveryClient(dataset_discovery=self.dataset_discovery) if self.dataset_discovery else None,
+        )
+        return resolver.filter_candidate_bindings(
+            candidates=candidates,
+            start_ns=start_ns,
+            end_ns=end_ns,
+            symbol=symbol,
+            default_schema=default_schema,
+        )
 
     @staticmethod
     def _infer_dataset_row_count(result: object) -> int | None:
@@ -1514,6 +1701,8 @@ class MLPipelineOrchestrator:
         instrument_id: str,
         lookback_days: int,
     ) -> list[tuple[int, int]]:
+        if self.coverage is None:
+            return []
         now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
         start_ns = now_ns - int(lookback_days) * DAY_NS
         covered = self.coverage.read_bucket_coverage(
@@ -1671,16 +1860,7 @@ class MLPipelineOrchestrator:
             )
 
     def _map_schema_to_dataset_type(self, schema: str) -> DatasetType:
-        normalized = schema.lower()
-        if normalized.startswith("ohlcv"):
-            return DatasetType.BARS
-        if normalized in {"tbbo", "bbo-1s", "bbo-1m", "tcbbo"}:
-            return DatasetType.TBBO
-        if normalized.startswith("trade"):
-            return DatasetType.TRADES
-        if normalized.startswith(("mbp", "mbo")):
-            return DatasetType.MBP1
-        return DatasetType.BARS
+        return map_schema_to_dataset_type(schema)
 
     def _ensure_dataset_registered(
         self,
@@ -1772,6 +1952,7 @@ class MLPipelineOrchestrator:
             config=scheduler_cfg,
             use_orchestrator=opts.use_orchestrator,
             dual_write=opts.dual_write,
+            dual_write_dataset_types=opts.dual_write_dataset_types(),
             start_metrics_server=opts.start_metrics_server,
             metrics_port=opts.metrics_port,
         )
@@ -1780,6 +1961,8 @@ class MLPipelineOrchestrator:
     def _create_ingestion_orchestrator(self) -> IngestionOrchestrator:
         if self.ingestor is None:
             raise RuntimeError("Ingestor is not configured for pipeline orchestrator")
+        if self.coverage is None or self.writer is None:
+            raise RuntimeError("Coverage provider and writer are required for ingestion orchestrator")
         return IngestionOrchestrator(
             coverage=self.coverage,
             writer=self.writer,
@@ -2073,6 +2256,8 @@ class MLPipelineOrchestrator:
             args += ["--register_features"]
             reg_dir = cfg.feature_registry_dir or str(Path.home() / ".nautilus" / "ml" / "features")
             args += ["--feature_registry_dir", reg_dir]
+        if self.build_main is None:
+            raise RuntimeError("build_main CLI entrypoint is not configured")
         rc = self.build_main(args)
         if rc == 0:
             self._capture_cli_build_artifacts(cfg)
@@ -2452,6 +2637,8 @@ class MLPipelineOrchestrator:
             args += ["--feature_registry_dir", artifacts.feature_registry_dir]
         if artifacts and artifacts.feature_set_id:
             args += ["--feature_set_id", artifacts.feature_set_id]
+        if self.hpo_main is None:
+            raise RuntimeError("hpo_main CLI entrypoint is not configured")
         return self.hpo_main(args)
 
     def train_teacher(self, cfg: TeacherTrainConfig | None, dataset_csv: Path, out_dir: Path) -> int:
@@ -2501,6 +2688,8 @@ class MLPipelineOrchestrator:
             args += ["--feature_registry_dir", feature_registry_dir]
         if feature_set_id is not None:
             args += ["--feature_set_id", feature_set_id]
+        if self.teacher_main is None:
+            raise RuntimeError("teacher_main CLI entrypoint is not configured")
         return self.teacher_main(args)
 
     def distill_student(
@@ -3679,11 +3868,11 @@ def _execute_with_namespace(
                 "skipping datastore writer",
             )
         else:
-            from ml.stores import DataStore as _DataStore
+            from ml.stores.protocols import DataStoreFacadeProtocol
 
             writer_chain.append(
                 DataStoreMarketDataWriter(
-                    store=cast(_DataStore, data_store),
+                    store=cast(DataStoreFacadeProtocol, data_store),
                 ),
             )
 
@@ -3697,15 +3886,15 @@ def _execute_with_namespace(
             ),
         )
 
-    if not writer_chain:
-        if data_store is not None:
-            from ml.stores import DataStore as _DataStore
+        if not writer_chain:
+            if data_store is not None:
+                from ml.stores.protocols import DataStoreFacadeProtocol
 
-            writer_chain.append(
-                DataStoreMarketDataWriter(
-                    store=cast(_DataStore, data_store),
-                ),
-            )
+                writer_chain.append(
+                    DataStoreMarketDataWriter(
+                        store=cast(DataStoreFacadeProtocol, data_store),
+                    ),
+                )
         elif parquet_catalog is not None:
             writer_chain.append(
                 ParquetCatalogMarketDataWriter(
@@ -4200,7 +4389,7 @@ def _run_ingestion_stage(
         and discovery_service is not None
         and symbol_map_for_ingestion
     ):
-        schema_token = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
+        schema_token = _normalize_schema_token(ingestion_cfg.schema)
         end_ns = time.time_ns()
         lookback_days = max(int(ingestion_cfg.lookback_days or 1), 1)
         start_ns = end_ns - lookback_days * DAY_NS
@@ -4803,7 +4992,7 @@ def _build_ingestion_plan(
     if fallback_dataset_id is None:
         raise ValueError("Ingestion configuration requires a dataset identifier")
 
-    fallback_schema = _SCHEMA_ALIASES.get(ingestion_cfg.schema.lower(), ingestion_cfg.schema)
+    fallback_schema = _normalize_schema_token(ingestion_cfg.schema)
     if not fallback_schema:
         raise ValueError("Ingestion configuration requires a schema value")
 
@@ -4811,7 +5000,7 @@ def _build_ingestion_plan(
     for binding in resolved_bindings:
         dataset_id = binding.dataset_id or fallback_dataset_id
         schema = binding.schema or fallback_schema
-        schema = _SCHEMA_ALIASES.get(schema.lower(), schema)
+        schema = _normalize_schema_token(schema)
         binding_instruments = tuple(
             dict.fromkeys(
                 binding.instrument_ids or symbol_to_instruments.get(binding.symbol.upper(), ()),

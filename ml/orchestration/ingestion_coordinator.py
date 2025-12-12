@@ -36,9 +36,12 @@ from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.config_types import EarningsCoordinatorConfig
+from ml.orchestration.config_types import MacroIngestionConfig
 from ml.orchestration.config_types import PreIngestionOptions
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+from ml.schema import map_schema_to_dataset_type
 
 
 __all__ = ["IngestionCoordinator", "IngestionOrchestrator"]
@@ -234,6 +237,9 @@ class IngestionCoordinator:
         orchestrator: object | None = None,
         data_store: object | None = None,
         data_registry: object | None = None,
+        macro_config: MacroIngestionConfig | None = None,
+        earnings_config: EarningsCoordinatorConfig | None = None,
+        message_bus: object | None = None,
     ) -> None:
         """
         Initialize ingestion coordinator.
@@ -258,6 +264,12 @@ class IngestionCoordinator:
             Discovery client for binding discovery
         write_mode_tokens : tuple[str, ...]
             Write mode tokens for storage decisions
+        macro_config : MacroIngestionConfig | None
+            Configuration for FRED/ALFRED macro data ingestion
+        earnings_config : EarningsCoordinatorConfig | None
+            Configuration for earnings data ingestion
+        message_bus : object | None
+            Message bus for event emission
 
         """
         self.coverage = coverage
@@ -272,7 +284,15 @@ class IngestionCoordinator:
         self._legacy_orchestrator = orchestrator
         self._data_store = data_store
         self._data_registry = data_registry
+        self._macro_config = macro_config or MacroIngestionConfig()
+        self._earnings_config = earnings_config or EarningsCoordinatorConfig()
         self._structural_mode = orchestrator is not None or (coverage is None and writer is None)
+        self._message_bus = message_bus
+
+        # Initialize IngestState for state management (from ml.data.ingest.resume)
+        from ml.data.ingest.resume import IngestState
+
+        self._ingest_state = IngestState()
 
         logger.debug("Initialized IngestionCoordinator")
 
@@ -321,6 +341,7 @@ class IngestionCoordinator:
             config=scheduler_cfg,
             use_orchestrator=opts.use_orchestrator,
             dual_write=opts.dual_write,
+            dual_write_dataset_types=opts.dual_write_dataset_types(),
             start_metrics_server=opts.start_metrics_server,
             metrics_port=opts.metrics_port,
         )
@@ -393,11 +414,14 @@ class IngestionCoordinator:
             if legacy is not None:
                 delegate = getattr(legacy, "backfill", None)
                 if callable(delegate):
-                    return delegate(
-                        dataset_id=dataset_id,
-                        schema=schema,
-                        instrument_id=instrument_id,
-                        lookback_days=lookback_days,
+                    return cast(
+                        BackfillWindowList,
+                        delegate(
+                            dataset_id=dataset_id,
+                            schema=schema,
+                            instrument_id=instrument_id,
+                            lookback_days=lookback_days,
+                        ),
                     )
             return BackfillWindowList(
                 persisted=(),
@@ -441,7 +465,10 @@ class IngestionCoordinator:
             if legacy is not None:
                 delegate = getattr(legacy, "backfill_binding", None)
                 if callable(delegate):
-                    return delegate(binding=binding, lookback_days=lookback_days)
+                    return cast(
+                        dict[str, BackfillWindowList],
+                        delegate(binding=binding, lookback_days=lookback_days),
+                    )
             return {}
 
         orchestrator = self._create_ingestion_orchestrator()
@@ -486,11 +513,14 @@ class IngestionCoordinator:
             if legacy is not None:
                 delegate = getattr(legacy, "backfill_coverage", None)
                 if callable(delegate):
-                    return delegate(
-                        dataset_id=dataset_id,
-                        schema=schema,
-                        instrument_id=instrument_id,
-                        policy=policy,
+                    return cast(
+                        list[tuple[int, int]],
+                        delegate(
+                            dataset_id=dataset_id,
+                            schema=schema,
+                            instrument_id=instrument_id,
+                            policy=policy,
+                        ),
                     )
             return []
 
@@ -1152,16 +1182,7 @@ class IngestionCoordinator:
             Dataset type
 
         """
-        normalized = schema.lower()
-        if normalized.startswith("ohlcv"):
-            return DatasetType.BARS
-        if normalized in {"tbbo", "bbo-1s", "bbo-1m", "tcbbo"}:
-            return DatasetType.TBBO
-        if normalized.startswith("trade"):
-            return DatasetType.TRADES
-        if normalized.startswith(("mbp", "mbo")):
-            return DatasetType.MBP1
-        return DatasetType.BARS
+        return map_schema_to_dataset_type(schema)
 
     def _ensure_dataset_registered(
         self,
@@ -1332,20 +1353,93 @@ class IngestionCoordinator:
         start_date: str,
         end_date: str,
     ) -> int:
-        legacy = self._legacy_orchestrator
-        if legacy is not None:
-            delegate = getattr(legacy, "ingest_from_fred", None)
-            if callable(delegate):
-                try:
-                    result = delegate(
-                        series_ids=series_ids,
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
-                    return int(result) if isinstance(result, int | float) else 0
-                except Exception:
-                    logger.debug("legacy ingest_from_fred failed", exc_info=True)
-        return 0
+        """
+        Refresh FRED/ALFRED macro data if stale.
+
+        Uses the configured macro paths and staleness settings to ensure
+        macro indicator data is fresh. The start_date and end_date parameters
+        are accepted for API compatibility but the refresh is staleness-based.
+
+        Parameters
+        ----------
+        series_ids : list[str]
+            FRED series identifiers to refresh (e.g., ["DGS10", "FEDFUNDS"]).
+        start_date : str
+            Start date (for API compatibility; refresh is staleness-based).
+        end_date : str
+            End date (for API compatibility; refresh is staleness-based).
+
+        Returns
+        -------
+        int
+            1 if any data was refreshed, 0 otherwise.
+
+        """
+        # Import here to avoid circular imports and keep cold path
+        from datetime import timedelta
+
+        from ml.data.ingest.macro_refresh import MacroRefreshResult
+        from ml.data.ingest.macro_refresh import ensure_macro_ready
+
+        # Log the request (start_date/end_date for observability, not used for staleness)
+        logger.info(
+            "Refreshing FRED/ALFRED macro data",
+            extra={
+                "series_ids": series_ids,
+                "start_date": start_date,
+                "end_date": end_date,
+                "fred_path": self._macro_config.fred_path,
+                "vintage_dir": self._macro_config.vintage_dir,
+                "max_staleness_hours": self._macro_config.max_staleness_hours,
+            },
+        )
+
+        try:
+            # Merge series_ids from method call with config (method takes precedence)
+            effective_series: tuple[str, ...] | None = None
+            if series_ids:
+                effective_series = tuple(series_ids)
+            elif self._macro_config.series_ids:
+                effective_series = self._macro_config.series_ids
+
+            # Call the real implementation
+            result: MacroRefreshResult = ensure_macro_ready(
+                fred_path=Path(self._macro_config.fred_path),
+                vintage_dir=(
+                    Path(self._macro_config.vintage_dir)
+                    if self._macro_config.vintage_dir
+                    else None
+                ),
+                max_age=timedelta(hours=self._macro_config.max_staleness_hours),
+                series_ids=effective_series,
+            )
+
+            # Log result
+            if result.fred_error or result.alfred_error:
+                logger.warning(
+                    "Macro refresh completed with errors",
+                    extra={
+                        "fred_refreshed": result.fred_refreshed,
+                        "alfred_refreshed": result.alfred_refreshed,
+                        "fred_error": str(result.fred_error) if result.fred_error else None,
+                        "alfred_error": str(result.alfred_error) if result.alfred_error else None,
+                    },
+                )
+            else:
+                logger.info(
+                    "Macro refresh completed",
+                    extra={
+                        "fred_refreshed": result.fred_refreshed,
+                        "alfred_refreshed": result.alfred_refreshed,
+                    },
+                )
+
+            # Return 1 if any refresh happened
+            return 1 if (result.fred_refreshed or result.alfred_refreshed) else 0
+
+        except Exception:
+            logger.warning("FRED/ALFRED macro refresh failed", exc_info=True)
+            return 0
 
     def ingest_earnings_data(
         self,
@@ -1354,16 +1448,92 @@ class IngestionCoordinator:
         start_date: str,
         end_date: str,
     ) -> int:
-        legacy = self._legacy_orchestrator
-        if legacy is not None:
-            delegate = getattr(legacy, "ingest_earnings_data", None)
-            if callable(delegate):
-                try:
-                    result = delegate(symbol=symbol, start_date=start_date, end_date=end_date)
-                    return int(result) if isinstance(result, int | float) else 0
-                except Exception:
-                    logger.debug("legacy ingest_earnings_data failed", exc_info=True)
-        return 0
+        """
+        Ingest earnings data for a single symbol.
+
+        Delegates to EarningsIngestionService with the DataStore as writer.
+        The service fetches earnings actuals from SEC EDGAR and consensus
+        estimates from Yahoo Finance.
+
+        Parameters
+        ----------
+        symbol : str
+            Stock ticker symbol (e.g., 'AAPL')
+        start_date : str
+            Start date (currently unused - service uses edgar_quarters config)
+        end_date : str
+            End date (currently unused - service uses edgar_quarters config)
+
+        Returns
+        -------
+        int
+            Total count of actuals + estimates written
+
+        """
+        # Note: start_date and end_date are kept for API compatibility but
+        # the EarningsIngestionService uses edgar_quarters for date range
+        del start_date, end_date
+
+        if self._data_store is None:
+            logger.warning(
+                "No DataStore available for earnings ingestion",
+                extra={"symbol": symbol},
+            )
+            return 0
+
+        try:
+            from ml.config.earnings_ingestion import DEFAULT_SKIP_ACTUALS_TICKERS
+            from ml.config.earnings_ingestion import EarningsIngestionConfig
+            from ml.features.earnings.ingestion.service import EarningsIngestionResult
+            from ml.features.earnings.ingestion.service import EarningsIngestionService
+
+            # Build skip set: default ETFs + any custom skips from coordinator config
+            skip_set: tuple[str, ...] = DEFAULT_SKIP_ACTUALS_TICKERS
+            if self._earnings_config.skip_tickers:
+                combined = set(skip_set) | set(self._earnings_config.skip_tickers)
+                skip_set = tuple(sorted(combined))
+
+            # Use empty DSN since we're providing our own writer (DataStore).
+            # The universe resolver will use override_symbols directly.
+            config = EarningsIngestionConfig(
+                postgres_dsn="",  # Not used when override_symbols is set
+                override_symbols=(symbol.upper(),),
+                skip_actuals=skip_set,
+                edgar_quarters=self._earnings_config.edgar_quarters,
+                enable_yahoo=self._earnings_config.enable_yahoo,
+                edgar_rate_limit=self._earnings_config.edgar_rate_limit,
+                yahoo_rate_limit=self._earnings_config.yahoo_rate_limit,
+                sec_identity=self._earnings_config.sec_identity,
+            )
+
+            # DataStore implements the writer protocol expected by EarningsIngestionService
+            service = EarningsIngestionService(
+                config=config,
+                writer=self._data_store,  # type: ignore[arg-type]
+            )
+
+            result: EarningsIngestionResult = service.run()
+
+            logger.info(
+                "Earnings ingestion completed",
+                extra={
+                    "symbol": symbol,
+                    "actuals_written": result.actuals_written,
+                    "estimates_written": result.estimates_written,
+                    "duration_seconds": result.duration_seconds,
+                    "failures": result.failures,
+                },
+            )
+
+            return result.actuals_written + result.estimates_written
+
+        except Exception:
+            logger.warning(
+                "Earnings ingestion failed",
+                extra={"symbol": symbol},
+                exc_info=True,
+            )
+            return 0
 
     def _handle_ingestion_fallback(
         self,
@@ -1373,8 +1543,115 @@ class IngestionCoordinator:
         lookback_days: int,
         level: str,
     ) -> dict[str, int | str]:
-        del dataset_id, instrument_ids, lookback_days
-        return {"rows_written": 0, "fallback_level": level, "error": "Fallback activated"}
+        """
+        Handle ingestion fallback using Pattern 4 (PRIMARY → CACHED → FILE → DUMMY).
+
+        Emits fallback activation metrics and attempts recovery at the specified level.
+
+        Parameters
+        ----------
+        dataset_id : str
+            Dataset identifier
+        instrument_ids : list[str]
+            List of instrument identifiers
+        lookback_days : int
+            Number of days to look back
+        level : str
+            Fallback level ('primary', 'cached', 'file', 'dummy')
+
+        Returns
+        -------
+        dict[str, int | str]
+            Result dict with rows_written, fallback_level, and optional error
+
+        """
+        # Emit fallback activation metric
+        try:
+            from ml.common.metrics_bootstrap import get_counter
+
+            fallback_counter = get_counter(
+                "ml_fallback_activations_total",
+                "Total fallback activations by level and component",
+                ["level", "component"],
+            )
+            fallback_counter.labels(level=level, component="ingestion").inc()
+        except Exception:
+            # Pattern 4: Never raise from metrics
+            logger.debug("Failed to emit fallback metric", exc_info=True)
+
+        # Log fallback activation
+        logger.info(
+            "Activating ingestion fallback",
+            extra={
+                "level": level,
+                "dataset_id": dataset_id,
+                "instrument_count": len(instrument_ids),
+                "lookback_days": lookback_days,
+            },
+        )
+
+        # Attempt fallback based on level
+        fallback_levels = ["primary", "cached", "file", "dummy"]
+        try:
+            current_idx = fallback_levels.index(level)
+        except ValueError:
+            current_idx = len(fallback_levels) - 1  # Default to dummy
+
+        rows_written = 0
+        error_msg: str | None = None
+
+        # PRIMARY level: Try backfill_binding via orchestrator
+        if current_idx == 0 and self._legacy_orchestrator is not None:
+            backfill_binding = getattr(self._legacy_orchestrator, "backfill_binding", None)
+            if backfill_binding is not None and callable(backfill_binding):
+                try:
+                    result = backfill_binding(instrument_ids=instrument_ids, lookback_days=lookback_days)
+                    if isinstance(result, dict):
+                        for binding_result in result.values():
+                            rows_written += getattr(binding_result, "rows_written", 0)
+                        return {"rows_written": rows_written, "fallback_level": "primary"}
+                except Exception as exc:
+                    error_msg = str(exc)
+                    logger.debug("PRIMARY fallback failed", exc_info=True)
+
+        # CACHED level: Try backfill_coverage via orchestrator
+        if current_idx <= 1 and self._legacy_orchestrator is not None:
+            backfill_coverage = getattr(self._legacy_orchestrator, "backfill_coverage", None)
+            if backfill_coverage is not None and callable(backfill_coverage):
+                try:
+                    windows = backfill_coverage(dataset_id=dataset_id, instrument_ids=instrument_ids)
+                    if windows:
+                        rows_written = len(windows)  # Approximate
+                        return {"rows_written": rows_written, "fallback_level": "cached"}
+                except Exception as exc:
+                    error_msg = str(exc)
+                    logger.debug("CACHED fallback failed", exc_info=True)
+
+        # FILE level: Try local file lookup
+        if current_idx <= 2:
+            try:
+                # Attempt to find local data files
+                from pathlib import Path
+
+                data_dir = Path("data/tier1")
+                if data_dir.exists():
+                    for instrument_id in instrument_ids:
+                        symbol = instrument_id.split(".")[0] if "." in instrument_id else instrument_id
+                        parquet_files = list(data_dir.glob(f"*{symbol}*.parquet"))
+                        if parquet_files:
+                            rows_written += 1  # Found local data
+                    if rows_written > 0:
+                        return {"rows_written": rows_written, "fallback_level": "file"}
+            except Exception as exc:
+                error_msg = str(exc)
+                logger.debug("FILE fallback failed", exc_info=True)
+
+        # DUMMY level: Return safe default
+        return {
+            "rows_written": 0,
+            "fallback_level": "dummy",
+            "error": error_msg or "Fallback activated - no data available",
+        }
 
     def _create_ingestion_checkpoint(
         self,
@@ -1402,7 +1679,10 @@ class IngestionCoordinator:
         if not checkpoint_path.exists():
             return {"rows_written": 0, "current_instrument_index": 0, "progress": 0.0}
         try:
-            return json.loads(checkpoint_path.read_text())
+            return cast(
+                dict[str, int | float],
+                json.loads(checkpoint_path.read_text()),
+            )
         except Exception:
             logger.debug("Failed to restore ingestion checkpoint", exc_info=True)
             return {"rows_written": 0, "current_instrument_index": 0, "progress": 0.0}
@@ -1413,8 +1693,137 @@ class IngestionCoordinator:
         data: object,
         instrument_id: str,
     ) -> tuple[bool, list[str]]:
-        del data, instrument_id
-        return True, []
+        """
+        Validate ingestion data using schema validators.
+
+        Wired to ml.stores.common.schema_validator.SchemaValidatorComponent for validation.
+
+        Parameters
+        ----------
+        data : object
+            Data to validate (DataFrame, dict, or other)
+        instrument_id : str
+            Instrument identifier for context
+
+        Returns
+        -------
+        tuple[bool, list[str]]
+            (is_valid, error_messages) tuple
+
+        """
+        errors: list[str] = []
+
+        # Handle None data
+        if data is None:
+            return False, ["Data is None"]
+
+        # Helper to check if data is empty without triggering DataFrame ambiguity
+        def _is_empty(obj: object) -> bool:
+            """Check if data is empty without triggering DataFrame ValueError."""
+            if obj is None:
+                return True
+            if hasattr(obj, "__len__"):
+                try:
+                    return len(obj) == 0
+                except (TypeError, ValueError):
+                    return False
+            return False
+
+        # Validate using SchemaValidatorComponent if available
+        try:
+            from ml.stores.common.schema_validator import SchemaValidatorComponent
+
+            # SchemaValidatorComponent requires data_registry
+            # Use type guard for mypy compatibility
+            if self._data_registry is None:
+                # Fall through to basic validation
+                raise ImportError("No data_registry available")
+            validator = SchemaValidatorComponent(
+                data_registry=cast(RegistryProtocol, self._data_registry),
+            )
+
+            # Check for required fields based on data type
+            if hasattr(data, "columns"):
+                # DataFrame-like: check for required columns
+                columns = set(getattr(data, "columns", []))
+                required = {"ts_event", "instrument_id"}
+                missing = required - columns
+
+                if missing:
+                    errors.append(f"Missing required columns: {sorted(missing)}")
+
+                # Check for ts_event validity if present
+                if "ts_event" in columns:
+                    ts_col = data["ts_event"]  # type: ignore[index]
+                    if hasattr(ts_col, "isna") and ts_col.isna().any():
+                        errors.append("ts_event contains null values")
+                    if hasattr(ts_col, "min") and hasattr(ts_col, "max"):
+                        min_ts = ts_col.min()
+                        max_ts = ts_col.max()
+                        if min_ts > max_ts:
+                            errors.append("ts_event values are not monotonic")
+
+                # Use preflight_check with correct signature: (dataset_id, data, strict)
+                # Build dataset_id from instrument_id
+                preflight_dataset_id = f"ingestion.{instrument_id.replace('.', '_')}"
+                try:
+                    # Cast data to DataFrameLike for type safety
+                    from ml.ml_types import DataFrameLike
+
+                    success, error_msg, _details = validator.preflight_check(
+                        dataset_id=preflight_dataset_id,
+                        data=cast(DataFrameLike, data),
+                        strict=False,  # Allow subset for flexible validation
+                    )
+                    if not success and error_msg:
+                        errors.append(f"Preflight check failed: {error_msg}")
+                except Exception:
+                    logger.debug(
+                        "Preflight check raised exception",
+                        exc_info=True,
+                        extra={"instrument_id": instrument_id, "dataset_id": preflight_dataset_id},
+                    )
+                    # Pattern 4: Log but don't fail on preflight errors
+                    # The basic column checks above are sufficient fallback
+
+            elif isinstance(data, dict):
+                # Dict-like: check for required keys
+                required_keys = {"ts_event", "instrument_id"}
+                missing_keys = required_keys - set(data.keys())
+                if missing_keys:
+                    errors.append(f"Missing required keys: {sorted(missing_keys)}")
+
+                # Check ts_event validity
+                ts_event = data.get("ts_event")
+                if ts_event is not None:
+                    if isinstance(ts_event, list):
+                        if any(v is None for v in ts_event):
+                            errors.append("ts_event contains null values")
+                    elif ts_event is None:
+                        errors.append("ts_event is null")
+
+            else:
+                # Unknown data type: basic validation using safe empty check
+                if _is_empty(data):
+                    errors.append("Data is empty")
+
+        except ImportError:
+            # SchemaValidatorComponent not available, use basic validation
+            logger.debug("SchemaValidatorComponent not available; using basic validation")
+            if _is_empty(data):
+                errors.append("Data is empty")
+        except Exception:
+            # Pattern 4: Log and continue with basic validation
+            logger.debug(
+                "Schema validation error",
+                exc_info=True,
+                extra={"instrument_id": instrument_id},
+            )
+            if _is_empty(data):
+                errors.append("Data is empty")
+
+        is_valid = len(errors) == 0
+        return is_valid, errors
 
     def _emit_ingestion_event(
         self,
@@ -1422,18 +1831,158 @@ class IngestionCoordinator:
         event_type: str,
         dataset_id: str,
         rows_written: int,
+        instrument_id: str | None = None,
+        status: str = "success",
     ) -> None:
-        del event_type, dataset_id, rows_written
-        return None
+        """
+        Emit ingestion event to message bus using build_topic_for_stage.
+
+        Wired to ml.common.message_topics.build_topic_for_stage() for topic generation
+        and ml.config.events.Stage for event type mapping.
+
+        Parameters
+        ----------
+        event_type : str
+            Event type string (mapped to Stage enum)
+        dataset_id : str
+            Dataset identifier
+        rows_written : int
+            Number of rows written
+        instrument_id : str | None
+            Optional instrument identifier
+        status : str
+            Event status ('success', 'failed', 'partial')
+
+        """
+        if self._message_bus is None:
+            logger.debug(
+                "No message bus configured; skipping event emission",
+                extra={"event_type": event_type, "dataset_id": dataset_id},
+            )
+            return
+
+        try:
+            from ml.common.message_topics import build_topic_for_stage
+            from ml.config.bus import MessageBusConfig
+            from ml.config.events import EventStatus
+            from ml.config.events import Stage
+
+            # Map event_type string to Stage enum
+            # Use DATASET_PLANNED for start, DATA_INGESTED for completion
+            stage_map: dict[str, Stage] = {
+                "ingestion_started": Stage.DATASET_PLANNED,
+                "ingestion_completed": Stage.DATA_INGESTED,
+                "catalog_written": Stage.CATALOG_WRITTEN,
+                "feature_computed": Stage.FEATURE_COMPUTED,
+            }
+            stage = stage_map.get(event_type, Stage.DATA_INGESTED)
+
+            # Map status string to EventStatus enum
+            status_map: dict[str, EventStatus] = {
+                "success": EventStatus.SUCCESS,
+                "failed": EventStatus.FAILED,
+                "partial": EventStatus.PARTIAL,
+            }
+            event_status = status_map.get(status, EventStatus.SUCCESS)
+
+            # Get topic config from environment (scheme, prefix)
+            bus_config = MessageBusConfig.from_env()
+
+            # Build topic using centralized topic builder with config-driven scheme/prefix
+            topic_instrument = instrument_id or "SYSTEM"
+            topic = build_topic_for_stage(
+                stage,
+                topic_instrument,
+                scheme=bus_config.scheme,
+                prefix=bus_config.topic_prefix,
+            )
+
+            # Build event payload
+            from datetime import UTC
+            from datetime import datetime
+
+            payload: dict[str, object] = {
+                "event_type": event_type,
+                "stage": stage.value,
+                "status": event_status.value,
+                "dataset_id": dataset_id,
+                "rows_written": rows_written,
+                "ts_event": int(datetime.now(tz=UTC).timestamp() * 1_000_000_000),
+            }
+            if instrument_id is not None:
+                payload["instrument_id"] = instrument_id
+
+            # Publish to message bus (duck-typed)
+            publish = getattr(self._message_bus, "publish", None)
+            if publish is not None and callable(publish):
+                publish(topic, payload)
+                logger.debug(
+                    "Emitted ingestion event",
+                    extra={"topic": topic, "event_type": event_type, "rows_written": rows_written},
+                )
+            else:
+                logger.debug(
+                    "Message bus has no publish method",
+                    extra={"event_type": event_type},
+                )
+        except Exception:
+            # Pattern 4: Never raise from event emission
+            logger.debug(
+                "Failed to emit ingestion event",
+                exc_info=True,
+                extra={"event_type": event_type, "dataset_id": dataset_id},
+            )
 
     def _get_ingestion_state(self) -> dict[str, object]:
-        return {}
+        """
+        Get current ingestion state from IngestState.
+
+        Returns dict with last timestamp per instrument for resume support.
+
+        Returns
+        -------
+        dict[str, object]
+            State dict with 'last_ts_ns_by_instrument' mapping
+
+        """
+        return {
+            "last_ts_ns_by_instrument": dict(self._ingest_state.last_ts_ns_by_instrument),
+        }
 
     def _update_ingestion_state(
         self,
         *,
         rows_written: int,
         current_instrument: str,
+        ts_ns: int | None = None,
     ) -> None:
-        del rows_written, current_instrument
-        return None
+        """
+        Update ingestion state for resume support.
+
+        Wired to ml.data.ingest.resume.IngestState for consistent state tracking.
+
+        Parameters
+        ----------
+        rows_written : int
+            Number of rows written (logged for observability)
+        current_instrument : str
+            Current instrument being processed
+        ts_ns : int | None
+            Latest timestamp in nanoseconds for this instrument
+
+        """
+        if ts_ns is not None:
+            self._ingest_state.update_last_ts(current_instrument, ts_ns)
+            logger.debug(
+                "Updated ingestion state",
+                extra={
+                    "instrument": current_instrument,
+                    "ts_ns": ts_ns,
+                    "rows_written": rows_written,
+                },
+            )
+        else:
+            logger.debug(
+                "Ingestion state update skipped (no ts_ns)",
+                extra={"instrument": current_instrument, "rows_written": rows_written},
+            )

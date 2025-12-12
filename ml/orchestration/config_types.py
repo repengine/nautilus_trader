@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Final
 from ml.config.market_data import MarketDatasetInput
 from ml.data import DatasetValidationConfig
 from ml.data.vintage import VintagePolicy
+from ml.registry.dataclasses import DatasetType
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -33,8 +34,10 @@ __all__ = [
     "DEFAULT_MACRO_SERIES",
     "AutoFillUniverseConfig",
     "DatasetBuildConfig",
+    "EarningsCoordinatorConfig",
     "HPOConfig",
     "IntegrationConfig",
+    "MacroIngestionConfig",
     "OrchestratorConfig",
     "PreIngestionOptions",
     "PromotionsConfig",
@@ -49,9 +52,9 @@ class DatasetBuildConfig:
     Configuration for dataset construction.
     """
 
-    data_dir: str
-    symbols: str
-    out_dir: str
+    data_dir: str = ""
+    symbols: str = ""
+    out_dir: str = ""
     dataset_id: str = "tft_dataset"
     market_dataset_id: str | None = None
     market_inputs: tuple[MarketDatasetInput, ...] | None = None
@@ -92,6 +95,105 @@ class DatasetBuildConfig:
     macro_revision_mode: str = "core"
     macro_revision_windows: tuple[int, ...] | None = None
     convert_vintage_to_age: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class MacroIngestionConfig:
+    """
+    Configuration for FRED/ALFRED macro data ingestion.
+
+    Used by IngestionCoordinator to determine where to store macro data
+    and how fresh it needs to be.
+
+    Attributes
+    ----------
+    fred_path : str
+        Path to the FRED indicators parquet file.
+    vintage_dir : str | None
+        Directory for ALFRED vintage releases. None disables ALFRED refresh.
+    max_staleness_hours : int
+        Maximum age in hours before data is considered stale and refreshed.
+    series_ids : tuple[str, ...] | None
+        Optional subset of series IDs to refresh. None refreshes all configured.
+
+    Example
+    -------
+    >>> config = MacroIngestionConfig(
+    ...     fred_path="data/fred/fred_indicators.parquet",
+    ...     vintage_dir="data/fred/vintages",
+    ...     max_staleness_hours=24,
+    ... )
+
+    """
+
+    fred_path: str = "data/fred/fred_indicators_ml_format.parquet"
+    vintage_dir: str | None = "data/fred/vintages"
+    max_staleness_hours: int = 24
+    series_ids: tuple[str, ...] | None = None
+
+    @classmethod
+    def from_dataset_config(cls, cfg: DatasetBuildConfig) -> MacroIngestionConfig:
+        """
+        Create MacroIngestionConfig from a DatasetBuildConfig.
+
+        Parameters
+        ----------
+        cfg : DatasetBuildConfig
+            Dataset build configuration containing macro settings.
+
+        Returns
+        -------
+        MacroIngestionConfig
+            Macro ingestion configuration extracted from dataset config.
+
+        """
+        return cls(
+            fred_path=cfg.macro_fred_path or "data/fred/fred_indicators_ml_format.parquet",
+            vintage_dir=cfg.fred_vintage_dir,
+            max_staleness_hours=cfg.macro_staleness_hours,
+            series_ids=cfg.macro_series_ids,
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class EarningsCoordinatorConfig:
+    """
+    Configuration for earnings data ingestion via IngestionCoordinator.
+
+    Used by IngestionCoordinator to control earnings ingestion behavior.
+    The actual EarningsIngestionConfig is constructed internally using these
+    settings combined with the symbol provided at call time.
+
+    Attributes
+    ----------
+    edgar_quarters : int
+        Number of quarters to fetch from EDGAR (10-Q/10-K filings).
+    enable_yahoo : bool
+        Whether to fetch Yahoo Finance consensus estimates.
+    edgar_rate_limit : float
+        Delay in seconds between EDGAR API calls.
+    yahoo_rate_limit : float
+        Delay in seconds between Yahoo Finance API calls.
+    sec_identity : str | None
+        Optional SEC identity string for EDGAR API.
+    skip_tickers : tuple[str, ...] | None
+        Tickers to skip (e.g., ETFs without earnings).
+
+    Example
+    -------
+    >>> config = EarningsCoordinatorConfig(
+    ...     edgar_quarters=8,
+    ...     enable_yahoo=True,
+    ... )
+
+    """
+
+    edgar_quarters: int = 8
+    enable_yahoo: bool = True
+    edgar_rate_limit: float = 1.0
+    yahoo_rate_limit: float = 0.5
+    sec_identity: str | None = None
+    skip_tickers: tuple[str, ...] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -194,8 +296,23 @@ class PreIngestionOptions:
 
     use_orchestrator: bool = True
     dual_write: bool = True
+    dual_write_bars: bool = True
+    dual_write_tbbo: bool = True
+    dual_write_trades: bool = True
+    dual_write_mbp: bool = True
     start_metrics_server: bool = False
     metrics_port: int | None = None
+
+    def dual_write_dataset_types(self) -> dict[DatasetType, bool]:
+        """
+        Return dataset-type toggles for dual-write mirroring.
+        """
+        return {
+            DatasetType.BARS: self.dual_write_bars,
+            DatasetType.TBBO: self.dual_write_tbbo,
+            DatasetType.TRADES: self.dual_write_trades,
+            DatasetType.MBP1: self.dual_write_mbp,
+        }
 
 
 @dataclass(slots=True, frozen=True)

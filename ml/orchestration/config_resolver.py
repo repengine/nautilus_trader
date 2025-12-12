@@ -19,13 +19,13 @@ from collections import OrderedDict
 from datetime import UTC
 from datetime import date
 from datetime import datetime
-from pathlib import Path
 from typing import Protocol
 
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.orchestration.config_types import DEFAULT_LOOKBACK_YEARS
+from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 
 
@@ -246,6 +246,45 @@ class ConfigResolverProtocol(Protocol):
         tuple[str, ...]
             Resolved instrument IDs
 
+        """
+        ...
+
+    def _auto_fill_universe(
+        self,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+    ) -> None:
+        """
+        Populate schemas for the configured universe (bars/tbbo/trades).
+        """
+        ...
+
+    def _auto_fill_schema(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int = 30,
+        metrics: object | None = None,
+        dataset_cfg: DatasetBuildConfig | None = None,
+    ) -> None:
+        """
+        Trigger ingestion for a single schema/instrument combination.
+        """
+        ...
+
+    def _auto_fill_l2(
+        self,
+        *,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+        instruments: tuple[str, ...],
+        metrics: object | None = None,
+        policy: object | None = None,
+    ) -> None:
+        """
+        Populate L2 schemas (depth/mbp) for the provided instruments.
         """
         ...
 
@@ -510,6 +549,107 @@ class ConfigResolver:
 
         return start_ns, end_ns
 
+    # ---------------------------------------------------------------------
+    # Auto-fill helpers (Phase 2 scaffolding)
+    # ---------------------------------------------------------------------
+
+    def _auto_fill_schema(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int = 30,
+        metrics: object | None = None,
+        dataset_cfg: DatasetBuildConfig | None = None,
+    ) -> None:
+        """
+        Trigger ingestion for a single schema/instrument combination.
+
+        Placeholder implementation for Phase 2 integration tests; delegates to
+        an injected ingestor when available.
+        """
+        ingestor = getattr(self, "ingestor", None)
+        if ingestor is None:
+            return
+        if hasattr(ingestor, "ingest_market_data"):
+            try:
+                ingestor.ingest_market_data(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    lookback_days=lookback_days,
+                    dataset_cfg=dataset_cfg,
+                    metrics=metrics,
+                )
+            except Exception:
+                logger.debug("auto_fill_schema ingestion failed", exc_info=True)
+
+    def _auto_fill_universe(
+        self,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+    ) -> None:
+        """
+        Populate schemas for the configured universe (bars/tbbo/trades).
+        """
+        if not auto_fill_cfg.enabled:
+            return
+
+        instruments = tuple(auto_fill_cfg.instrument_ids or dataset_cfg.instrument_ids or ())
+        for instrument_id in instruments:
+            if auto_fill_cfg.include_bars:
+                self._auto_fill_schema(
+                    dataset_id=dataset_cfg.dataset_id,
+                    schema="ohlcv-1m",
+                    instrument_id=instrument_id,
+                    dataset_cfg=dataset_cfg,
+                )
+            if auto_fill_cfg.include_tbbo:
+                self._auto_fill_schema(
+                    dataset_id=dataset_cfg.dataset_id,
+                    schema="tbbo",
+                    instrument_id=instrument_id,
+                    dataset_cfg=dataset_cfg,
+                )
+            if auto_fill_cfg.include_trades:
+                self._auto_fill_schema(
+                    dataset_id=dataset_cfg.dataset_id,
+                    schema="trades",
+                    instrument_id=instrument_id,
+                    dataset_cfg=dataset_cfg,
+                )
+
+    def _auto_fill_l2(
+        self,
+        *,
+        dataset_cfg: DatasetBuildConfig,
+        auto_fill_cfg: AutoFillUniverseConfig,
+        instruments: tuple[str, ...],
+        metrics: object | None = None,
+        policy: object | None = None,  # placeholder for future policy use
+    ) -> None:
+        """
+        Populate L2 schemas (depth/mbp) for the provided instruments.
+        """
+        depth_schema = "depth"
+        mbp_schema = auto_fill_cfg.l2_schema or "mbp-10"
+        for instrument_id in instruments:
+            self._auto_fill_schema(
+                dataset_id=dataset_cfg.dataset_id,
+                schema=mbp_schema,
+                instrument_id=instrument_id,
+                metrics=metrics,
+                dataset_cfg=dataset_cfg,
+            )
+            self._auto_fill_schema(
+                dataset_id=dataset_cfg.dataset_id,
+                schema=depth_schema,
+                instrument_id=instrument_id,
+                metrics=metrics,
+                dataset_cfg=dataset_cfg,
+            )
+
     def prepare_dataset_config(
         self,
         cfg: DatasetBuildConfig,
@@ -706,73 +846,3 @@ class ConfigResolver:
         """
         seconds = value / 1_000_000_000
         return datetime.fromtimestamp(seconds, tz=UTC)
-
-    # ------------------------------------------------------------------
-    # Structural compatibility helpers (Phase0 placeholders)
-    # ------------------------------------------------------------------
-
-    def _resolve_window_bounds_ns(
-        self,
-        start: str | None,
-        end: str | None,
-    ) -> tuple[int | None, int | None]:
-        del start, end
-        return (None, None)
-
-    def _resolve_instrument_ids(
-        self,
-        config_ids: tuple[str, ...],
-        binding_ids: tuple[str, ...],
-    ) -> tuple[str, ...]:
-        del config_ids, binding_ids
-        return ()
-
-    def _resolve_market_inputs(
-        self,
-        market_inputs: dict[str, object] | None,
-    ) -> OrderedDict[str, object]:
-        del market_inputs
-        return OrderedDict()
-
-    def _symbol_to_instruments(
-        self,
-        symbols: list[str],
-        venue: object | None,
-    ) -> tuple[str, ...]:
-        del symbols, venue
-        return ()
-
-    @staticmethod
-    def _infer_default_schema(cfg: DatasetBuildConfig) -> str | tuple[str, ...] | None:
-        del cfg
-        return None
-
-    @staticmethod
-    def _infer_feature_names(feature_dir: Path) -> tuple[str, ...] | None:
-        del feature_dir
-        return ()
-
-    def _auto_fill_universe(self, universe: list[str]) -> tuple[str, ...]:
-        del universe
-        return ()
-
-    def _auto_fill_schema(
-        self,
-        schema: str | None,
-        *,
-        config: DatasetBuildConfig,
-        feature_dir: Path | None,
-    ) -> tuple[str, ...]:
-        del schema, config, feature_dir
-        return ()
-
-    def _auto_fill_l2(self, l2_schemas: dict[str, object] | None) -> dict[str, object]:
-        del l2_schemas
-        return {}
-
-    @staticmethod
-    def _collect_instrument_ids(
-        market_inputs: dict[str, object] | OrderedDict[str, object],
-    ) -> tuple[str, ...]:
-        del market_inputs
-        return ()

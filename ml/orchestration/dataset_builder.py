@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-import polars as pl
-
 from ml.data import DatasetMetadata
 from ml.data import DatasetMetadataExpectations
 from ml.data import DatasetValidationConfig
@@ -185,7 +183,7 @@ class DatasetBuilder:
     # Public API
     # -------------------------------------------------------------------------
 
-    def build_dataset(self, cfg: DatasetBuildConfig) -> int | pl.DataFrame:
+    def build_dataset(self, cfg: DatasetBuildConfig) -> int:
         """
         Build ML dataset from configuration.
 
@@ -203,11 +201,8 @@ class DatasetBuilder:
 
         """
         if not isinstance(cfg, DatasetBuildConfig):
-            logger.debug(
-                "Structural dataset build placeholder invoked",
-                extra={"config_type": type(cfg).__name__},
-            )
-            return pl.DataFrame()
+            msg = f"cfg must be DatasetBuildConfig (got {type(cfg).__name__})"
+            raise TypeError(msg)
 
         # Prefer the public API to capture BuildResult (feature_set_id)
         try:
@@ -1155,67 +1150,3 @@ class DatasetBuilder:
 
         """
         return self._build_artifacts
-
-    # -------------------------------------------------------------------------
-    # Structural compatibility helpers (Phase0 placeholders)
-    # -------------------------------------------------------------------------
-
-    def _prepare_dataset_config(self, config: object) -> object:
-        """Structural placeholder: return config unchanged."""
-        return config
-
-    def _resolve_market_inputs(
-        self,
-        symbols: list[str],
-        discovery_service: object | None,
-    ) -> list[object]:
-        del symbols, discovery_service
-        return []
-
-    def _discover_market_inputs(
-        self,
-        dataset_id: str,
-        discovery_service: object,
-    ) -> list[object]:
-        del dataset_id, discovery_service
-        return []
-
-    def _infer_default_schema(self, config: object) -> str:
-        del config
-        return "ohlcv-1m"
-
-    def _auto_fill_schema(
-        self,
-        config: object,
-        preferences: dict[str, object],
-    ) -> object:
-        del preferences
-        return getattr(config, "schema", "ohlcv-1m")
-
-    def _resolve_window_bounds_ns(self, config: object) -> tuple[int, int]:
-        del config
-        return (0, 0)
-
-    def _symbol_to_instruments(self, symbols: list[str]) -> list[object]:
-        del symbols
-        return []
-
-    def _collect_instrument_ids(self, config: object) -> set[object]:
-        del config
-        return set()
-
-    def _filter_candidate_bindings(
-        self,
-        bindings: list[object],
-        criteria: dict[str, object],
-    ) -> list[object]:
-        del bindings, criteria
-        return []
-
-    def _binding_priority_key(self, binding: object) -> tuple[int, str]:
-        del binding
-        return (0, "")
-
-    def _binding_allowed(self, binding: object, policy: object) -> bool:
-        del binding, policy
-        return True

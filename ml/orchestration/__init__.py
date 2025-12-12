@@ -57,20 +57,18 @@ else:
     from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade as MLPipelineOrchestrator  # type: ignore[assignment]
 
 # Also export the facade directly for explicit usage
-from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
-
 # Root module components (canonical implementations)
 from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.orchestration.discovery_client import DiscoveryClient
 from ml.orchestration.ingestion_coordinator import IngestionCoordinator
-from ml.orchestration.registry_synchronizer import RegistrySynchronizer
-from ml.orchestration.runtime_attacher import RuntimeAttacher
-from ml.orchestration.training_coordinator import TrainingCoordinator
+from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
 
 # Promotion helpers
 from ml.orchestration.promotions import register_and_promote_model
 from ml.orchestration.promotions import register_or_refresh_features
+from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.orchestration.runtime_attacher import RuntimeAttacher
 
 # Scheduling utilities
 from ml.orchestration.scheduler import compute_next_run
@@ -79,6 +77,7 @@ from ml.orchestration.scheduler import run_forever
 # Pipeline signature validation
 from ml.orchestration.signature import PipelineSignatureValidator
 from ml.orchestration.signature import compute_pipeline_signature
+from ml.orchestration.training_coordinator import TrainingCoordinator
 
 # Vintage policy enforcement
 from ml.orchestration.vintage import VintagePolicy

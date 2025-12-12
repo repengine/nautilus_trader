@@ -51,8 +51,8 @@ class TrainingCoordinatorProtocol(Protocol):
     def run_hpo(
         self,
         cfg: HPOConfig | None,
-        dataset_csv: Path | None = None,
-        out_dir: Path | None = None,
+        dataset_csv: Path,
+        out_dir: Path,
     ) -> int:
         """
         Run hyperparameter optimization.
@@ -77,8 +77,8 @@ class TrainingCoordinatorProtocol(Protocol):
     def train_teacher(
         self,
         cfg: TeacherTrainConfig | None,
-        dataset_csv: Path | None = None,
-        out_dir: Path | None = None,
+        dataset_csv: Path,
+        out_dir: Path,
     ) -> int:
         """
         Train teacher model.
@@ -104,8 +104,8 @@ class TrainingCoordinatorProtocol(Protocol):
         self,
         cfg: StudentDistillConfig | None,
         *,
-        dataset_dir: Path | None = None,
-        teacher_cfg: TeacherTrainConfig | None = None,
+        dataset_dir: Path,
+        teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
         """
         Distill student model from teacher.
@@ -206,8 +206,8 @@ class TrainingCoordinator:
     def run_hpo(
         self,
         cfg: HPOConfig | None,
-        dataset_csv: Path | None = None,
-        out_dir: Path | None = None,
+        dataset_csv: Path,
+        out_dir: Path,
     ) -> int:
         """
         Run hyperparameter optimization.
@@ -232,8 +232,6 @@ class TrainingCoordinator:
             or not isinstance(cfg, HPOConfig)
             or not cfg.enabled
             or self._hpo_main is None
-            or dataset_csv is None
-            or out_dir is None
         ):
             return 0
 
@@ -278,8 +276,8 @@ class TrainingCoordinator:
     def train_teacher(
         self,
         cfg: TeacherTrainConfig | None,
-        dataset_csv: Path | None = None,
-        out_dir: Path | None = None,
+        dataset_csv: Path,
+        out_dir: Path,
     ) -> int:
         """
         Train teacher model.
@@ -310,8 +308,6 @@ class TrainingCoordinator:
             cfg is None
             or not isinstance(cfg, TeacherTrainConfig)
             or not cfg.enabled
-            or dataset_csv is None
-            or out_dir is None
         ):
             return 0
         if self._teacher_main is None:
@@ -368,8 +364,8 @@ class TrainingCoordinator:
         self,
         cfg: StudentDistillConfig | None,
         *,
-        dataset_dir: Path | None = None,
-        teacher_cfg: TeacherTrainConfig | None = None,
+        dataset_dir: Path,
+        teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
         """
         Distill student model from teacher.
@@ -393,7 +389,6 @@ class TrainingCoordinator:
             cfg is None
             or not isinstance(cfg, StudentDistillConfig)
             or not cfg.enabled
-            or dataset_dir is None
         ):
             return 0
 
