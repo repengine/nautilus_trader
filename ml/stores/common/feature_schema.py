@@ -321,7 +321,17 @@ class FeatureSchemaComponent:
             Index("idx_ml_feature_values_live", "is_live"),
             schema=schema_name,
         )
-        self.metadata.create_all(self.engine)
+        try:
+            self.metadata.create_all(self.engine)
+        except Exception:
+            # DB may be unavailable (e.g., invalid DSN in health-check tests). Defer
+            # DDL until the engine is reachable; callers can still construct the
+            # store and use `is_healthy()` to report the real status.
+            logger.debug(
+                "Failed to create fallback table %s (deferred)",
+                self.config.table_name,
+                exc_info=True,
+            )
         return table
 
     def get_feature_set_id(self) -> str:

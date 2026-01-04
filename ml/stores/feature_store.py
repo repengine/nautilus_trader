@@ -389,7 +389,15 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 Index("idx_ml_feature_values_live", "is_live"),
                 schema=schema_name,
             )
-            self.metadata.create_all(self.engine)
+            try:
+                self.metadata.create_all(self.engine)
+            except Exception:
+                # DB may be unavailable (e.g., invalid DSN in health-check tests).
+                # Defer DDL until the engine is reachable.
+                logger.debug(
+                    "Failed to create fallback table ml_feature_values (deferred)",
+                    exc_info=True,
+                )
 
     @staticmethod
     def _normalize_ts_ns(ts_value: int) -> tuple[int, bool]:

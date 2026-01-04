@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from pathlib import Path
 from typing import Any, Final, cast
 
 import pandas as pd
@@ -504,14 +505,14 @@ class ParquetCoverageSpec:
 
     Attributes
     ----------
-    base_path : str
-        Base path to parquet files
+    base_path : str | Path
+        Base path to parquet files (directory or file path).
     partition_field : str
         Field used for partitioning (default: "date")
     """
 
     dataset_id: str
-    base_path: str
+    base_path: str | Path
     partition_field: str = "date"
     timestamp_field: str = "ts_event"
     partition_template: str | None = None
@@ -520,11 +521,50 @@ class ParquetCoverageSpec:
         """
         Return parquet files for a given instrument.
 
-        The default implementation returns an empty list so callers can safely
-        handle missing mirrors without raising.
+        The spec supports a few common layouts:
+
+        - File-backed datasets (``base_path`` is a parquet file): returns that file.
+        - Partitioned datasets (default): ``{partition_field}={instrument_id}/*.parquet`` under ``base_path``.
+        - Template layouts (``partition_template``): formats with ``field`` and ``value`` tokens.
+          The resulting path may refer to a file or directory.
         """
-        _ = instrument_id
-        return []
+        instrument = instrument_id.strip()
+        if not instrument:
+            return []
+        base_path = Path(self.base_path)
+        if not base_path.exists():
+            return []
+        if base_path.is_file():
+            return [str(base_path)] if base_path.suffix == ".parquet" else []
+
+        def _collect_parquet_files(candidate: Path) -> list[str]:
+            if candidate.is_file():
+                return [str(candidate)] if candidate.suffix == ".parquet" else []
+            if candidate.is_dir():
+                return sorted(str(path) for path in candidate.glob("*.parquet") if path.is_file())
+            return []
+
+        template = self.partition_template
+        if template is not None:
+            if template.strip() == "":
+                return _collect_parquet_files(base_path)
+            try:
+                rendered = template.format(field=self.partition_field, value=instrument)
+            except Exception:
+                logger.debug(
+                    "parquet_coverage_spec.template_render_failed",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": self.dataset_id,
+                        "partition_template": template,
+                        "partition_field": self.partition_field,
+                        "instrument_id": instrument,
+                    },
+                )
+                return []
+            return _collect_parquet_files(base_path / rendered)
+
+        return _collect_parquet_files(base_path / f"{self.partition_field}={instrument}")
 
 
 @dataclass(slots=True)

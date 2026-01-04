@@ -1294,6 +1294,33 @@ class DataStoreFacade:
         """
         health = self._store_operations.health_check()
 
+        # Parity with legacy DataStore and other facades: expose implementation + core components.
+        health.setdefault("implementation", "component-based")
+        health.setdefault(
+            "schema_validator",
+            "healthy" if self._schema_validator is not None else "unavailable",
+        )
+        health.setdefault(
+            "contract_enforcer",
+            "healthy" if self._contract_enforcer is not None else "unavailable",
+        )
+        health.setdefault(
+            "data_reader",
+            "healthy" if self._data_reader is not None else "unavailable",
+        )
+        health.setdefault(
+            "data_writer",
+            "healthy" if self._data_writer is not None else "unavailable",
+        )
+        health.setdefault(
+            "event_emitter",
+            "healthy" if self._event_emitter is not None else "unavailable",
+        )
+        health.setdefault(
+            "store_operations",
+            "healthy" if self._store_operations is not None else "unavailable",
+        )
+
         # Flatten component status keys for legacy expectations
         components = health.get("components", {})
         for key in ("feature_store", "model_store", "strategy_store", "earnings_store"):
@@ -1327,6 +1354,8 @@ class DataStoreFacade:
         issues: list[str] = []
 
         # Validate config constraints
+        if not self._config.connection_string or not self._config.connection_string.strip():
+            issues.append("connection_string must be set")
         if self._config.schema_migration_window_hours < 0:
             issues.append("schema_migration_window_hours must be >= 0")
         if self._config.cache_ttl_seconds < 0:

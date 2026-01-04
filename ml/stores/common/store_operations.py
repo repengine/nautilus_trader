@@ -206,12 +206,26 @@ class StoreOperationsComponent:
             try:
                 # Check if store has health_check method
                 if hasattr(store, "get_health_status"):
-                    component_health = store.get_health_status()
+                    component_health_raw: object = store.get_health_status()
+
+                    component_health: dict[str, Any]
+                    if isinstance(component_health_raw, dict):
+                        component_health = component_health_raw
+                    else:
+                        component_health = {"status": "unknown", "raw": component_health_raw}
+
+                    healthy_flag: bool
+                    if "healthy" in component_health:
+                        healthy_flag = bool(component_health.get("healthy"))
+                    else:
+                        status_val = str(component_health.get("status", "")).lower()
+                        healthy_flag = status_val in {"healthy", "ok"}
+
                     health_status["components"][component_name] = {
-                        "status": "healthy" if component_health.get("healthy") else "degraded",
+                        "status": "healthy" if healthy_flag else "degraded",
                         "details": component_health,
                     }
-                    if not component_health.get("healthy"):
+                    if not healthy_flag:
                         health_status["healthy"] = False
                 else:
                     # Basic availability check
@@ -253,12 +267,25 @@ class StoreOperationsComponent:
             try:
                 # Check if registry has health_check method
                 if hasattr(registry, "get_health_status"):
-                    component_health = registry.get_health_status()
+                    registry_health_raw: object = registry.get_health_status()
+                    registry_health: dict[str, Any]
+                    if isinstance(registry_health_raw, dict):
+                        registry_health = registry_health_raw
+                    else:
+                        registry_health = {"status": "unknown", "raw": registry_health_raw}
+
+                    registry_healthy_flag: bool
+                    if "healthy" in registry_health:
+                        registry_healthy_flag = bool(registry_health.get("healthy"))
+                    else:
+                        status_val = str(registry_health.get("status", "")).lower()
+                        registry_healthy_flag = status_val in {"healthy", "ok"}
+
                     health_status["components"][component_name] = {
-                        "status": "healthy" if component_health.get("healthy") else "degraded",
-                        "details": component_health,
+                        "status": "healthy" if registry_healthy_flag else "degraded",
+                        "details": registry_health,
                     }
-                    if not component_health.get("healthy"):
+                    if not registry_healthy_flag:
                         # Registry failures are non-fatal
                         logger.warning("Registry %s is unhealthy", component_name)
                 else:

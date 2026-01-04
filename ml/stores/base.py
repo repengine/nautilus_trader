@@ -71,6 +71,7 @@ class FeatureData(NautilusData):
         ts_event: int | None = None,
         ts_init: int | None = None,
         features: dict[str, float] | None = None,
+        feature_values: dict[str, float] | None = None,
         quality_flags: int = 0,
     ) -> None:
         """
@@ -78,13 +79,21 @@ class FeatureData(NautilusData):
 
         Accepts both internal field names and test-friendly aliases:
         - `values` or `features`
+        - `feature_values` (legacy alias)
         - `_ts_event`/`_ts_init` or `ts_event`/`ts_init`
         - `feature_set_id` optional (defaults to "default")
 
         """
         self.feature_set_id = feature_set_id or "default"
         self.instrument_id = instrument_id
-        self.values = dict(features if features is not None else (values or {}))
+        resolved_values = (
+            features
+            if features is not None
+            else feature_values
+            if feature_values is not None
+            else values
+        )
+        self.values = dict(resolved_values or {})
         # Event/init timestamps: prefer public aliases when provided
         evt = ts_event if ts_event is not None else _ts_event
         init = ts_init if ts_init is not None else _ts_init
