@@ -15,6 +15,9 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+# Default to CPU-only execution for deterministic test runs unless explicitly overridden.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+
 import pytest
 from hypothesis import HealthCheck
 from hypothesis import settings
@@ -155,6 +158,70 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     _mark_prototypes(items)
 
+    def _selection_is_db_free(args: list[str]) -> bool:
+        """
+        Return True when the selected paths are limited to DB-free suites.
+
+        DB-free suites: unit/contracts/property/metamorphic/combinatorial.
+        """
+        if not args:
+            return False
+
+        db_required_segments = {"integration", "e2e", "performance"}
+        db_free_segments = {"unit", "contracts", "property", "metamorphic", "combinatorial"}
+
+        normalized: list[list[str]] = []
+        for raw in args:
+            path = raw.split("::", 1)[0].replace("\\", "/").strip("/")
+            if not path or path in {".", "ml/tests"}:
+                return False
+            segments = [seg for seg in path.split("/") if seg]
+            if any(seg in db_required_segments for seg in segments):
+                return False
+            normalized.append(segments)
+
+        # Every arg must explicitly target one of the DB-free suite segments.
+        return all(any(seg in db_free_segments for seg in segments) for segments in normalized)
+
+    db_free_selection = _selection_is_db_free(list(getattr(config, "args", [])))
+
+    # Auto-mark tests as database when they request DB-backed fixtures.
+    db_fixtures = {
+        # Database engines/sessions
+        "database_engine",
+        "database_session_factory",
+        "database_session",
+        "postgres_connection",
+        "clean_postgres_db",
+        "clean_postgres_db_class",
+        "clean_postgres_db_module",
+        "test_database",
+        "module_test_database",
+        "template_database",
+        "cloned_test_database",
+        # Store bundles/helpers that are Postgres-backed
+        "module_store_bundle",
+        "fresh_store_bundle",
+        "store_bundle",
+        "module_store_bundle",
+        "component_data_store_factory",
+        "module_store_bundle",
+        "db_engine",
+    }
+    for item in items:
+        if any(fixture in item.fixturenames for fixture in db_fixtures):
+            item.add_marker(pytest.mark.database)
+            if "serial" not in item.keywords:
+                item.add_marker(pytest.mark.serial)
+
+    if db_free_selection:
+        skip_db = pytest.mark.skip(
+            reason="DB-free suite selection; skipping @pytest.mark.database tests",
+        )
+        for item in items:
+            if "database" in item.keywords:
+                item.add_marker(skip_db)
+
     if not is_postgresql_running():
         skip_reason = (
             f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
@@ -190,6 +257,9 @@ _DB_LOCK_FH: dict[str, Any] = {}
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     """Serialize database/serial tests across xdist workers using a file lock."""
+
+    if item.get_closest_marker("skip") is not None:
+        return
 
     if "database" in item.keywords or "serial" in item.keywords:
         if os.getenv("ML_TEST_DISABLE_DB_LOCK") in {"1", "true", "True"}:
@@ -237,6 +307,32 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     if os.environ.get("SKIP_DB_INIT", "").lower() in ("1", "true", "yes"):
         print("Skipping database initialization (SKIP_DB_INIT is set)")
+        return
+
+    args = list(getattr(session.config, "args", []))
+    force_db = os.environ.get("ML_FORCE_DB_INIT", "").lower() in {"1", "true", "yes"}
+    db_free_selection = False
+    if args and not force_db:
+        db_required_segments = {"integration", "e2e", "performance"}
+        db_free_segments = {"unit", "contracts", "property", "metamorphic", "combinatorial"}
+
+        normalized: list[list[str]] = []
+        for raw in args:
+            path = raw.split("::", 1)[0].replace("\\", "/").strip("/")
+            if not path or path in {".", "ml/tests"}:
+                normalized = []
+                break
+            segments = [seg for seg in path.split("/") if seg]
+            if any(seg in db_required_segments for seg in segments):
+                normalized = []
+                break
+            normalized.append(segments)
+
+        if normalized and all(any(seg in db_free_segments for seg in segments) for segments in normalized):
+            db_free_selection = True
+
+    if db_free_selection and not force_db:
+        print("Skipping database initialization (DB-free suite selection)")
         return
 
     try:

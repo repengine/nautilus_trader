@@ -121,11 +121,9 @@ def test_engine_manager_instances_persist_across_tests() -> None:
 @pytest.mark.integration
 @pytest.mark.pollution_detection
 @pytest.mark.serial
-@pytest.mark.skipif(
-    not Path("/tmp/test_pollution_postgres_available").exists(),
-    reason="PostgreSQL required for pool statistics test",
-)
-def test_engine_manager_pool_statistics_show_growth() -> None:
+def test_engine_manager_pool_statistics_show_growth(
+    cloned_test_database: str,
+) -> None:
     """
     Detect connection pool exhaustion (should FAIL on current code).
 
@@ -143,7 +141,7 @@ def test_engine_manager_pool_statistics_show_growth() -> None:
     from ml.core.db_engine import EngineManager
 
     # Use same connection (simulates same database across tests)
-    connection_string = "postgresql://test:test@localhost/test_db"
+    connection_string = cloned_test_database
 
     # Simulate 100 tests using same database
     engines_created = []

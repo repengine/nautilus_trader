@@ -149,6 +149,8 @@ def test_engine_manager_records_connection_strings(
 - A session-scoped template DB (default name: `nautilus_template`) can be built once on the 5434 test instance; it is **read-only**. Use the `template_database` fixture only as a seed, never mutate it.
 - For writable tests, request `cloned_test_database`: it clones the template into a fresh schema/DB per test and drops it on teardown; EngineManager caches are disposed after each test.
 - Store bundles (`fresh_store_bundle`, `component_data_store_factory`) should point at the cloned DB for isolation. Do not write directly to the template.
+- Avoid manual schema tweaks (e.g., `feature_store.schema`) in tests; use `fresh_store_bundle` and store APIs like `FeatureStore.read_range` for assertions.
+- Pollution-detection/pool-stat tests should rely on `cloned_test_database` and fixture auto-skips instead of sentinel files.
 - Artifacts follow the same pattern: session-scoped creation is immutable; copy into `tmp_path` before mutation.
 - Hypothesis/property tests that hit the DB must keep example counts/deadlines bounded to avoid long-lived connections and contention.
 

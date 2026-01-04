@@ -48,7 +48,7 @@ from ml.core.db_engine import EngineManager
 _DEFAULT_TEST_DB_PORT = os.getenv("TEST_DB_PORT", "5434")
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    f"postgresql://postgres:postgres@localhost:{_DEFAULT_TEST_DB_PORT}/nautilus",
+    f"postgresql://postgres:postgres@localhost:{_DEFAULT_TEST_DB_PORT}/nautilus_test",
 )
 _TEMPLATE_DB_NAME = os.getenv("TEST_DB_TEMPLATE_NAME", "nautilus_template")
 
@@ -78,7 +78,10 @@ def _template_engine_url() -> str:
         template_url = url.set(database=_TEMPLATE_DB_NAME)
         return template_url.render_as_string(hide_password=False)
     except Exception:
-        return DATABASE_URL.replace("/nautilus", f"/{_TEMPLATE_DB_NAME}")
+        prefix, _, _ = DATABASE_URL.rpartition("/")
+        if not prefix:
+            return DATABASE_URL
+        return f"{prefix}/{_TEMPLATE_DB_NAME}"
 
 
 @contextmanager
@@ -187,8 +190,8 @@ def template_database() -> Generator[str, None, None]:
         max_overflow=0,
     )
     with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.execute(text("DROP DATABASE IF EXISTS nautilus_template"))
-        conn.execute(text("CREATE DATABASE nautilus_template"))
+        conn.execute(text(f"DROP DATABASE IF EXISTS {_TEMPLATE_DB_NAME}"))
+        conn.execute(text(f"CREATE DATABASE {_TEMPLATE_DB_NAME}"))
 
     template_engine = EngineManager.get_engine(template_url, pool_size=2, max_overflow=0)
     # Initialize schema once
@@ -507,6 +510,33 @@ class TestDatabase:
             else:
                 # Fallback - this will have masked password
                 self.connection_string = str(engine.url)
+            if "sqlite" not in self.connection_string:
+                try:
+                    if not event.contains(
+                        self.engine,
+                        "connect",
+                        TestDatabase._enforce_search_path,
+                    ):
+                        event.listen(
+                            self.engine,
+                            "connect",
+                            TestDatabase._enforce_search_path,
+                        )
+                    if not event.contains(
+                        self.engine,
+                        "checkout",
+                        TestDatabase._enforce_search_path_on_checkout,
+                    ):
+                        event.listen(
+                            self.engine,
+                            "checkout",
+                            TestDatabase._enforce_search_path_on_checkout,
+                        )
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        "Registering search_path hooks failed",
+                        exc_info=True,
+                    )
         else:
             # Set up connection string
             if connection_string:

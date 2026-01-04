@@ -15,6 +15,8 @@ from typing import Any
 
 import os
 
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -35,9 +37,6 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
-
-
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
 
 
 # Constants for testing
