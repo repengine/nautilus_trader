@@ -136,7 +136,12 @@ def _persist_teacher_outputs(
     # Optionally save streaming telemetry summary
     if streaming_telemetry is not None:
         summary_path = out_dir / "streaming_summary.json"
-        summary_dict = streaming_telemetry.to_dict() if hasattr(streaming_telemetry, "to_dict") else streaming_telemetry
+        if hasattr(streaming_telemetry, "to_dict"):
+            summary_dict = streaming_telemetry.to_dict()
+        elif hasattr(streaming_telemetry, "as_dict"):
+            summary_dict = streaming_telemetry.as_dict()
+        else:
+            summary_dict = streaming_telemetry
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary_dict, f, indent=2)
         result["streaming_summary_path"] = summary_path
