@@ -531,26 +531,26 @@ class PipelineIntegrationComponent:
         """
         start = time.perf_counter()
         route = "/api/pipeline/jobs/<job_id>/progress"
-        status_label = EventStatus.FAILED.value
+        status_label = "error"
         try:
             service = self._get_pipeline_service()
             if service is None:
-                status_label = EventStatus.DEFERRED.value
+                status_label = "unavailable"
                 return {
-                    "status": EventStatus.DEFERRED.value,
+                    "status": "unavailable",
                     "error": "pipeline_service_unavailable",
                 }
             progress = self._run_pipeline(service.get_pipeline_progress(job_id))
             if progress.status == "UNKNOWN":
-                status_label = EventStatus.DEFERRED.value
-                return {"status": EventStatus.DEFERRED.value, "error": "job_not_found"}
+                status_label = "not_found"
+                return {"status": "not_found", "error": "job_not_found"}
             payload = self._serialize_pipeline_progress(progress)
-            status_label = EventStatus.SUCCESS.value
-            return {"status": EventStatus.SUCCESS.value, "progress": payload}
+            status_label = "success"
+            return {"status": "success", "progress": payload}
         except Exception:
             logger.debug("pipeline progress retrieval failed", exc_info=True)
-            status_label = EventStatus.FAILED.value
-            return {"status": EventStatus.FAILED.value, "error": "internal_error"}
+            status_label = "error"
+            return {"status": "error", "error": "internal_error"}
         finally:
             logger.debug(
                 f"get_pipeline_progress completed in {time.perf_counter() - start:.3f}s",

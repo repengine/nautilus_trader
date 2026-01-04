@@ -70,35 +70,40 @@
   - ✅ `ml/tests/integration/observability/test_db_partitioning.py`
   - ✅ `ml/tests/integration/observability/test_db_migrations.py`
   - ✅ `ml/tests/integration/test_end_to_end_pipeline.py`
+  - ✅ `ml/tests/integration/orchestration/test_facade_integration.py`
   - ✅ `ml/tests/integration/test_registry_store_l2_integration.py`
   - ✅ `ml/tests/integration/earnings/test_earnings_store_db.py`
   - ✅ `ml/tests/integration/deployment/test_deployment_integration.py`
   - ✅ `ml/tests/integration/test_stores_integration.py`
   - ✅ `ml/tests/performance/test_ml_hot_path_benchmarks.py`
   - ✅ `ml/tests/performance/test_feature_calculator_microbench.py`
-  - Pending: `ml/tests/performance/test_parity_buffer_guardrails.py` / `ml/tests/performance/test_zero_allocation.py` if they hit stores
-  - Pending: `ml/tests/integration/registry/test_model_registry_security.py`
-  - Pending: `ml/tests/integration/data/test_tft_builder_integration.py`
-  - Pending: `ml/tests/integration/pipeline/test_tft_pipeline_sidecar.py`
-  - Pending: `ml/tests/integration/pipeline/test_tft_train_distill_pipeline.py`
-  - Pending: `ml/tests/integration/deployment/test_pipeline_rehydration.py`
-  - Pending: `ml/tests/integration/earnings/test_tft_task_dataset.py`
-- Property/contract suites marked with DB fixtures (pending):
-  - `ml/tests/property/test_cross_asset_service_properties.py`
-  - `ml/tests/contracts/test_base_actor_initialization.py`
-  - `ml/tests/contracts/test_store_env_topic_config_contracts.py`
-  - `ml/tests/contracts/test_data_store_routing_advanced.py` (+ related contract files)
-- Unit suites pointing at real Postgres (prefer clones or mocks) (pending):
-  - `ml/tests/unit/stores/test_feature_store_facade.py`
-  - `ml/tests/unit/stores/services/test_cross_asset_service.py`
-  - `ml/tests/unit/stores/test_engine_manager_integration.py`
-  - `ml/tests/unit/stores/test_instrument_metadata_store.py`
-  - `ml/tests/unit/core/test_create_data_store_signature.py`
-  - `ml/tests/unit/core/common/test_store_initialization_component.py`
-  - `ml/tests/unit/actors/common/test_model.py`
-  - `ml/tests/unit/data/common/test_scheduler_init.py`
-  - `ml/tests/unit/registry/common/test_model_persistence.py`
-  - `ml/tests/unit/config/test_config.py` (env-driven DB URL)
-  - `ml/tests/unit/registry/test_bootstrap_datasets_earnings.py`
-  - `ml/tests/unit/stores/test_data_store_validation.py` (when using real DB)
+  - DB-free / non-Postgres (no clone migration needed):
+    - `ml/tests/performance/test_parity_buffer_guardrails.py`
+    - `ml/tests/performance/test_zero_allocation.py`
+    - `ml/tests/integration/registry/test_model_registry_security.py`
+    - `ml/tests/integration/data/test_tft_builder_integration.py`
+    - `ml/tests/integration/pipeline/test_tft_pipeline_sidecar.py`
+    - `ml/tests/integration/pipeline/test_tft_train_distill_pipeline.py`
+    - `ml/tests/integration/earnings/test_tft_task_dataset.py` (uses stub DataStore)
+  - SQLite-only (no Postgres clone): `ml/tests/integration/deployment/test_pipeline_rehydration.py`
+- Property/contract suites marked with DB fixtures (progress):
+  - ✅ `ml/tests/property/test_cross_asset_service_properties.py`
+  - ✅ `ml/tests/contracts/test_base_actor_initialization.py`
+- DB-free contract suites (no clone migration needed):
+  - `ml/tests/contracts/test_store_env_topic_config_contracts.py` (uses patch_engine_manager)
+  - `ml/tests/contracts/test_data_store_routing_advanced.py` (SQLite in-memory)
+- Unit suites pointing at real Postgres (prefer clones or mocks) (progress):
+  - ✅ `ml/tests/unit/stores/test_feature_store_facade.py`
+  - ✅ `ml/tests/unit/stores/services/test_cross_asset_service.py`
+  - ✅ `ml/tests/unit/stores/test_engine_manager_integration.py`
+  - ✅ `ml/tests/unit/stores/test_instrument_metadata_store.py`
+  - DB-free / SQLite-only (no clone needed):
+    - ✅ `ml/tests/unit/core/test_create_data_store_signature.py`
+    - ✅ `ml/tests/unit/core/common/test_store_initialization_component.py`
+    - ✅ `ml/tests/unit/actors/common/test_model.py`
+    - ✅ `ml/tests/unit/data/common/test_scheduler_init.py`
+    - ✅ `ml/tests/unit/registry/common/test_model_persistence.py`
+    - ✅ `ml/tests/unit/config/test_config.py` (SQLite default; Postgres only with `ML_FORCE_DB_INIT=1`)
+    - ✅ `ml/tests/unit/registry/test_bootstrap_datasets_earnings.py`
+    - ✅ `ml/tests/unit/stores/test_data_store_validation.py` (SQLite in-memory)
 - Helpers calling `build_postgres_url` / `postgres_connection` should preferentially use `cloned_test_database` for isolation where writes occur.***

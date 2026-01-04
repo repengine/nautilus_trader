@@ -146,6 +146,15 @@ UNIVERSE_SYMBOLS=SPY.XNAS,AAPL.XNAS,MSFT.XNAS  # Optional multi‑instrument uni
 DB_CONNECTION=postgresql://postgres:postgres@postgres:5432/nautilus
 USE_DUMMY_STORES=false
 
+# Message bus (optional; recommended scheme: domain_op)
+ML_BUS_ENABLE=false
+ML_BUS_BACKEND=noop  # or: redis
+ML_BUS_SCHEME=domain_op  # or: stage_first
+ML_BUS_TOPIC_PREFIX=events.ml  # used when ML_BUS_SCHEME=stage_first
+ML_BUS_REDIS_URL=redis://localhost:6379/0
+ML_BUS_REDIS_STREAM=ml-events
+ML_BUS_REDIS_MAXLEN=100000
+
 # Model
 MODEL_PATH=/app/models/dummy_bullish_model.onnx
 

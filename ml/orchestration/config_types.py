@@ -52,9 +52,9 @@ class DatasetBuildConfig:
     Configuration for dataset construction.
     """
 
-    data_dir: str = ""
-    symbols: str = ""
-    out_dir: str = ""
+    data_dir: str
+    symbols: str
+    out_dir: str
     dataset_id: str = "tft_dataset"
     market_dataset_id: str | None = None
     market_inputs: tuple[MarketDatasetInput, ...] | None = None

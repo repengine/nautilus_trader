@@ -428,6 +428,27 @@ class FeatureRegistry(AbstractRegistry):
         artifacts: dict[str, str] | None = None,
     ) -> str:
         with self._lock:
+            previous: FeatureInfo | None = None
+            for info in self._features.values():
+                if info.manifest.name != manifest.name:
+                    continue
+                if info.manifest.role != manifest.role:
+                    continue
+                if previous is None or info.manifest.created_at > previous.manifest.created_at:
+                    previous = info
+
+            if previous is not None:
+                prev_flags = previous.manifest.capability_flags or {}
+                curr_flags = manifest.capability_flags or {}
+                diff: dict[str, dict[str, bool]] = {}
+                for key in sorted(set(prev_flags) | set(curr_flags)):
+                    prev_val = bool(prev_flags.get(key, False))
+                    curr_val = bool(curr_flags.get(key, False))
+                    if prev_val != curr_val:
+                        diff[key] = {"previous": prev_val, "current": curr_val}
+                if diff:
+                    manifest.parity_digest["capability_flags_diff"] = diff
+
             fid = manifest.feature_set_id or self._gen_id()
             now = time.time()
             manifest.feature_set_id = fid

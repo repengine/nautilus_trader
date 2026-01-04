@@ -17,7 +17,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, TypeVar, cast, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
@@ -35,7 +35,6 @@ from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.stores.base import DummyStore
-from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore
@@ -62,8 +61,58 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ml.stores.strategy_store import StrategyStore
 
 
-# Type alias for health summary returned by aggregate_health
-HealthSummary = dict[str, object]
+ActorT = TypeVar("ActorT")
+
+
+class ComponentHealthStatus(TypedDict):
+    """
+    Per-component health status entry.
+
+    TypedDict is structural (runtime objects are plain dicts).
+    """
+
+    healthy: bool
+    health: dict[str, object]
+    metrics: dict[str, float]
+
+
+class DomainHealth(TypedDict):
+    """
+    Aggregated health summary for a logical domain (data/features/model/strategy).
+    """
+
+    components: list[str]
+    healthy: bool
+
+
+class HealthDomains(TypedDict, total=False):
+    """
+    Mapping of domain name to its aggregated health summary.
+    """
+
+    data: DomainHealth
+    features: DomainHealth
+    model: DomainHealth
+    strategy: DomainHealth
+
+
+class SystemHealth(TypedDict):
+    """
+    System-level health summary derived from component statuses.
+    """
+
+    healthy: bool
+    unhealthy: list[str]
+
+
+class HealthSummary(TypedDict):
+    """
+    Structured health summary returned by :meth:`MLIntegrationManager.aggregate_health`.
+    """
+
+    components: dict[str, ComponentHealthStatus]
+    domains: HealthDomains
+    system: SystemHealth
 
 
 logger = logging.getLogger(__name__)
@@ -290,7 +339,8 @@ class MLIntegrationManager:
             logger.error("Event ingestion utility unavailable: %s", exc, exc_info=True)
             raise
 
-        utility = EventIngestionUtility(config)
+        data_store = cast(DataStoreFacadeProtocol | None, getattr(self, "data_store", None))
+        utility = EventIngestionUtility(config, data_store=data_store)
         try:
             target = utility.ingest()
         except Exception as exc:  # pragma: no cover - runtime failure path
@@ -923,7 +973,7 @@ class MLIntegrationManager:
                 raise RuntimeError(msg)
             logger.warning(msg)
 
-    def aggregate_health(self) -> dict[str, object]:
+    def aggregate_health(self) -> HealthSummary:
         """
         Aggregate component health into domain and system summaries.
 
@@ -937,22 +987,33 @@ class MLIntegrationManager:
 
         """
 
-        def _comp_health(comp: object) -> dict[str, object]:
+        def _comp_health(comp: object) -> ComponentHealthStatus:
             healthy = True
             health: dict[str, object] | None = None
             metrics: dict[str, float] | None = None
             if isinstance(comp, MLComponentProtocol):
                 try:
                     health = comp.get_health_status()
+                    if isinstance(health, dict):
+                        healthy_flag = health.get("healthy")
+                        status_flag = health.get("status")
+                        if isinstance(healthy_flag, bool):
+                            healthy = healthy_flag
+                        elif isinstance(status_flag, str):
+                            healthy = status_flag.lower() == "healthy"
                 except Exception:
                     healthy = False
                 try:
                     metrics = comp.get_performance_metrics()
                 except Exception:
                     metrics = None
-            return {"healthy": healthy, "health": health or {}, "metrics": metrics or {}}
+            return {
+                "healthy": healthy,
+                "health": health if health is not None else {},
+                "metrics": metrics if metrics is not None else {},
+            }
 
-        components: dict[str, dict[str, object]] = {}
+        components: dict[str, ComponentHealthStatus] = {}
         comp_map: dict[str, object] = {
             "feature_store": getattr(self, "feature_store", None),
             "model_store": getattr(self, "model_store", None),
@@ -978,7 +1039,7 @@ class MLIntegrationManager:
         def _domain_healthy(keys: list[str]) -> bool:
             return all(components[k]["healthy"] for k in keys if k in components)
 
-        domains = {
+        domains: HealthDomains = {
             "data": {
                 "components": ["data_store", "data_registry"],
                 "healthy": _domain_healthy(["data_store", "data_registry"]),
@@ -998,9 +1059,13 @@ class MLIntegrationManager:
         }
 
         unhealthy_components = [name for name, info in components.items() if not info["healthy"]]
-        system = {"healthy": len(unhealthy_components) == 0, "unhealthy": unhealthy_components}
+        system: SystemHealth = {
+            "healthy": len(unhealthy_components) == 0,
+            "unhealthy": unhealthy_components,
+        }
 
-        return {"components": components, "domains": domains, "system": system}
+        summary: HealthSummary = {"components": components, "domains": domains, "system": system}
+        return summary
 
     def check_health(self) -> dict[str, bool]:
         """
@@ -1088,7 +1153,7 @@ class MLIntegrationManager:
         except Exception:
             return False
 
-    def create_integrated_actor(self, actor_class: type[Any], config: object) -> object:
+    def create_integrated_actor(self, actor_class: type[ActorT], config: object) -> ActorT:
         """
         Create an actor with automatic integration.
 
@@ -1116,7 +1181,7 @@ class MLIntegrationManager:
                 logging.exception("Failed to attach db_connection to config")
 
         # Create actor - stores are automatically initialized by the base class
-        actor = actor_class(config=config)
+        actor = cast(ActorT, cast(Any, actor_class)(config=config))
 
         return actor
 
@@ -1924,6 +1989,8 @@ def create_data_store(
     erasing type hints for static analysis.
 
     """
+    from ml.stores.data_store import DataStore
+
     return cast(
         DataStoreFacadeProtocol,
         DataStore(

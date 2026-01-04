@@ -605,7 +605,32 @@ class StageController:
         if self.dataset_builder is None:
             logger.warning("DatasetBuilder not configured; skipping dataset build")
             return 0
-        return self.dataset_builder.build_dataset(cfg.dataset)
+        rc = self.dataset_builder.build_dataset(cfg.dataset)
+        if rc != 0:
+            return rc
+
+        if self.registry_synchronizer is None:
+            return 0
+
+        try:
+            artifacts = self.registry_synchronizer.capture_cli_build_artifacts(cfg.dataset)
+            if artifacts is not None:
+                self._build_artifacts = artifacts
+                if self.training_coordinator is not None:
+                    try:
+                        self.training_coordinator.build_artifacts = artifacts  # type: ignore[attr-defined]
+                    except AttributeError:
+                        pass
+                dataset_metadata = getattr(artifacts, "dataset_metadata", None)
+                if dataset_metadata is not None:
+                    self.registry_synchronizer.synchronize_dataset_manifest(
+                        cfg=cfg.dataset,
+                        metadata=dataset_metadata,
+                    )
+        except Exception:
+            logger.debug("Failed to synchronize dataset build artifacts", exc_info=True)
+
+        return 0
 
     def _run_hpo(self, cfg: OrchestratorConfig, dataset_csv: Path, out_dir: Path) -> int:
         """Run HPO stage."""

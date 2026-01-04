@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -244,6 +245,45 @@ def create_standard_manifests() -> list[DatasetManifest]:
     )
     manifests.append(signals_manifest)
 
+    # Canonical EQUS.MINI aggregation with lineage to ITCH fallback
+    eq_us_mini_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_DATASET_ID,
+        dataset_type=DatasetType.BARS,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data",
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "close"],
+            "nullable_fields": ["volume"],
+            "ranges": {
+                "open": {"min": 0.0},
+                "high": {"min": 0.0},
+                "low": {"min": 0.0},
+                "close": {"min": 0.0},
+                "volume": {"min": 0.0},
+            },
+        },
+        lineage=["XNAS.ITCH"],
+        pipeline_signature="databento_canonical_v1",
+        version="1.0.0",
+    )
+    manifests.append(eq_us_mini_manifest)
+
     # EARNINGS ACTUALS dataset
     earnings_actuals_manifest = DatasetManifest(
         dataset_id=EARNINGS_ACTUALS_DATASET_ID,
@@ -385,6 +425,29 @@ def create_standard_contracts() -> dict[str, DataContract]:
         last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:bars.modified"),
     )
     contracts["bars"] = bars_contract
+
+    eq_us_mini_contract = DataContract(
+        contract_id="equs_mini_contract_v1",
+        dataset_id=EQUS_MINI_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "close", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.01,
+            "duplicate_rate": 0.001,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini.modified",
+        ),
+    )
+    contracts[EQUS_MINI_DATASET_ID] = eq_us_mini_contract
 
     # Quotes contract - lenient mode for market data
     quotes_contract = DataContract(

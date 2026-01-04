@@ -429,7 +429,7 @@ class _IngestionAttemptReport:
     reason: str | None = None
 
 
-@dataclass(slots=True)
+@dataclass
 class MLPipelineOrchestrator:
     coverage: CoverageProviderProtocol | None = None
     writer: MarketDataWriterProtocol | None = None
@@ -501,7 +501,7 @@ class MLPipelineOrchestrator:
             }
 
         return {
-            "implementation": "component_based",
+            "implementation": "component-based",
             "coverage_provider": "healthy" if self.coverage else "unavailable",
             "writer": "healthy" if self.writer else "unavailable",
             "build_main": "healthy" if self.build_main else "unavailable",
