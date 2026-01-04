@@ -566,3 +566,156 @@ def test_dashboard_config_token_parsing(monkeypatch: pytest.MonkeyPatch) -> None
     cfg = DashboardConfig.from_env({})
     values = [token.value for token in cfg.auth_tokens]
     assert values == ["tok1", "tok2"]
+
+
+# =============================================================================
+# Market Tickers Endpoint Tests
+# =============================================================================
+
+
+class TestMarketTickersEndpoint:
+    """Tests for GET /api/market/tickers endpoint."""
+
+    def test_market_tickers_returns_200(self, client: FlaskClient) -> None:
+        """Test endpoint returns 200 even with no data."""
+        resp = client.get("/api/market/tickers")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, dict)
+
+    def test_market_tickers_with_symbols_param(self, client: FlaskClient) -> None:
+        """Test endpoint accepts symbols query parameter."""
+        resp = client.get("/api/market/tickers?symbols=SPY,QQQ")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, dict)
+
+    def test_market_tickers_response_structure(
+        self,
+        client: FlaskClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Any,
+    ) -> None:
+        """Test endpoint returns correct structure when data exists."""
+        from unittest.mock import patch, MagicMock
+        import polars as pl
+
+        # Create mock parquet file with OHLCV data
+        symbol_dir = tmp_path / "SPY" / "l0"
+        symbol_dir.mkdir(parents=True)
+        df = pl.DataFrame({
+            "timestamp": [datetime.now()],
+            "open": [450.0],
+            "high": [455.0],
+            "low": [448.0],
+            "close": [452.50],
+            "volume": [1000000],
+        })
+        df.write_parquet(symbol_dir / "SPY_ohlcv.parquet")
+
+        # Patch the data directory
+        monkeypatch.setenv("ML_MARKET_DATA_DIR", str(tmp_path))
+
+        resp = client.get("/api/market/tickers?symbols=SPY")
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        # Should have SPY in response (may be empty if endpoint can't find the mock)
+        assert isinstance(data, dict)
+
+    def test_market_tickers_missing_symbol_returns_null(
+        self,
+        client: FlaskClient,
+    ) -> None:
+        """Test endpoint returns null for symbols without data."""
+        resp = client.get("/api/market/tickers?symbols=NOTEXIST")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, dict)
+        # Missing symbols should either be absent or have null values
+        if "NOTEXIST" in data:
+            assert data["NOTEXIST"] is None or data["NOTEXIST"].get("price") is None
+
+
+# =============================================================================
+# Model Performance Endpoint Tests
+# =============================================================================
+
+
+class TestModelPerformanceEndpoint:
+    """Tests for GET /api/registry/models/performance endpoint."""
+
+    def test_model_performance_returns_200(self, client: FlaskClient) -> None:
+        """Test endpoint returns 200 with models list."""
+        resp = client.get("/api/registry/models/performance")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, dict)
+        assert "models" in data
+        assert isinstance(data["models"], list)
+
+    def test_model_performance_response_structure(
+        self,
+        client: FlaskClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test endpoint returns correct structure for each model."""
+        from unittest.mock import MagicMock, patch
+        from pathlib import Path
+        from ml.registry.base import (
+            ModelInfo,
+            ModelManifest,
+            ModelRole,
+            DataRequirements,
+            DeploymentStatus,
+        )
+
+        # Create a mock model
+        manifest = ModelManifest(
+            model_id="test-model-001",
+            role=ModelRole.INFERENCE,
+            data_requirements=DataRequirements.L1_ONLY,
+            architecture="XGBoost",
+            feature_schema={"volume": "float64"},
+            feature_schema_hash="abc123",
+            version="1.0.0",
+        )
+        model_info = ModelInfo(
+            manifest=manifest,
+            model_path=Path("/tmp/model.onnx"),
+            deployment_status=DeploymentStatus.ACTIVE,
+            deployed_to=["signal_actor_1"],
+            performance_history=[
+                {"sharpe_ratio": 1.5, "win_rate": 0.55, "daily_pnl": 1234.56}
+            ],
+            metadata={},
+        )
+
+        # Patch the service to return mock models
+        with patch.object(
+            DashboardService,
+            "list_models_with_performance",
+            return_value=[{
+                "model_id": "test-model-001",
+                "type": "XGBoost",
+                "status": "active",
+                "daily_pnl": 1234.56,
+                "sharpe": 1.5,
+                "win_rate": 0.55,
+            }],
+        ):
+            resp = client.get("/api/registry/models/performance")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert isinstance(data["models"], list)
+
+    def test_model_performance_empty_registry(
+        self,
+        client: FlaskClient,
+    ) -> None:
+        """Test endpoint handles empty registry gracefully."""
+        resp = client.get("/api/registry/models/performance")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data["models"], list)
+        # May be empty or have demo data

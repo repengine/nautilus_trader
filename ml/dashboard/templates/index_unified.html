@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Nautilus ML Command & Control Center</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 
     <!-- Chart.js for visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -13,6 +14,10 @@
 
     <!-- Tailwind CSS for additional styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Suppress development warning for internal tooling
+      tailwind.config = { corePlugins: { preflight: true } }
+    </script>
 
     <!-- Nautilus API Client -->
     <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
@@ -591,64 +596,7 @@
                     </thead>
                     <tbody id="model-performance-table">
                         <tr>
-                            <td>TFT_v3.2.1</td>
-                            <td>Transformer</td>
-                            <td class="positive">+$5,234</td>
-                            <td>2.45</td>
-                            <td>75.3%</td>
-                            <td><span class="status-badge status-live">LIVE</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-secondary" onclick="pauseModel('TFT_v3.2.1')">Pause</button>
-                                <button class="btn btn-sm btn-secondary" onclick="configureModel('TFT_v3.2.1')">Config</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>XGB_Student_v2</td>
-                            <td>XGBoost</td>
-                            <td class="positive">+$3,892</td>
-                            <td>2.18</td>
-                            <td>71.2%</td>
-                            <td><span class="status-badge status-live">LIVE</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-secondary" onclick="pauseModel('XGB_Student_v2')">Pause</button>
-                                <button class="btn btn-sm btn-secondary" onclick="configureModel('XGB_Student_v2')">Config</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>LSTM_Ensemble</td>
-                            <td>LSTM</td>
-                            <td class="positive">+$2,145</td>
-                            <td>1.95</td>
-                            <td>68.5%</td>
-                            <td><span class="status-badge status-test">A/B TEST</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-success" onclick="promoteModel('LSTM_Ensemble')">Promote</button>
-                                <button class="btn btn-sm btn-secondary" onclick="configureModel('LSTM_Ensemble')">Config</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>DeepLOB_v1.5</td>
-                            <td>CNN</td>
-                            <td class="negative">-$423</td>
-                            <td>0.82</td>
-                            <td>45.3%</td>
-                            <td><span class="status-badge status-paused">PAUSED</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-primary" onclick="resumeModel('DeepLOB_v1.5')">Resume</button>
-                                <button class="btn btn-sm btn-danger" onclick="stopModel('DeepLOB_v1.5')">Stop</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>GNN_Market_v2</td>
-                            <td>Graph NN</td>
-                            <td class="positive">+$1,892</td>
-                            <td>1.73</td>
-                            <td>62.1%</td>
-                            <td><span class="status-badge status-training">TRAINING</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-secondary" onclick="viewTraining('GNN_Market_v2')">Monitor</button>
-                                <button class="btn btn-sm btn-danger" onclick="stopTraining('GNN_Market_v2')">Stop</button>
-                            </td>
+                            <td colspan="7" class="text-center text-gray-400">Loading models...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -657,32 +605,9 @@
             <!-- Active Experiments -->
             <div class="section">
                 <h3 class="section-header">🔬 Active Experiments</h3>
-                <div class="experiments-grid">
+                <div id="experiments-grid" class="experiments-grid">
                     <div class="experiment-card">
-                        <div class="experiment-header">Hyperparameter Optimization</div>
-                        <div class="experiment-details">
-                            <div>Trial 47/100 • XGBoost</div>
-                            <div>Best Sharpe: <strong>2.31</strong></div>
-                            <div>Best Params: <code>depth=8, lr=0.03</code></div>
-                        </div>
-                        <button class="btn btn-sm btn-secondary mt-2">View Details</button>
-                    </div>
-                    <div class="experiment-card">
-                        <div class="experiment-header">Feature Selection</div>
-                        <div class="experiment-details">
-                            <div>SHAP Analysis • 326 features</div>
-                            <div>Top: volume_imbalance, price_momentum</div>
-                        </div>
-                        <button class="btn btn-sm btn-secondary mt-2">View Report</button>
-                    </div>
-                    <div class="experiment-card">
-                        <div class="experiment-header">Architecture Search</div>
-                        <div class="experiment-details">
-                            <div>Testing GRU variant • ETA: 23 min</div>
-                            <div>Current Loss: <strong>0.0234</strong></div>
-                            <div>Epoch: 73/100</div>
-                        </div>
-                        <button class="btn btn-sm btn-danger mt-2">Stop</button>
+                        <div class="experiment-details text-gray-400">Loading experiments...</div>
                     </div>
                 </div>
             </div>
@@ -694,29 +619,29 @@
                     <div>
                         <div class="text-sm text-gray-400">PostgreSQL</div>
                         <div class="flex items-center gap-2 mt-1">
-                            <span class="status-badge status-live">HEALTHY</span>
-                            <span class="text-sm">15 connections</span>
+                            <span id="health-postgres-status" class="status-badge status-live">HEALTHY</span>
+                            <span id="health-postgres-detail" class="text-sm">Loading...</span>
                         </div>
                     </div>
                     <div>
                         <div class="text-sm text-gray-400">Redis Cache</div>
                         <div class="flex items-center gap-2 mt-1">
-                            <span class="status-badge status-live">HEALTHY</span>
-                            <span class="text-sm">2.3GB used</span>
+                            <span id="health-redis-status" class="status-badge status-live">HEALTHY</span>
+                            <span id="health-redis-detail" class="text-sm">Loading...</span>
                         </div>
                     </div>
                     <div>
                         <div class="text-sm text-gray-400">ONNX Runtime</div>
                         <div class="flex items-center gap-2 mt-1">
-                            <span class="status-badge status-live">READY</span>
-                            <span class="text-sm">GPU enabled</span>
+                            <span id="health-onnx-status" class="status-badge status-live">READY</span>
+                            <span id="health-onnx-detail" class="text-sm">Loading...</span>
                         </div>
                     </div>
                     <div>
                         <div class="text-sm text-gray-400">Feature Store</div>
                         <div class="flex items-center gap-2 mt-1">
-                            <span class="status-badge status-live">SYNCED</span>
-                            <span class="text-sm">326 features</span>
+                            <span id="health-feature-store-status" class="status-badge status-live">SYNCED</span>
+                            <span id="health-feature-store-detail" class="text-sm">Loading...</span>
                         </div>
                     </div>
                 </div>
@@ -1691,6 +1616,12 @@
 
                 // Update actors list using new endpoint
                 updateActorsList();
+
+                // Update system health (separate call to avoid blocking metrics)
+                updateSystemHealth();
+
+                // Update model performance table
+                updateModelPerformanceTable();
             } catch (error) {
                 console.error('Dashboard update failed:', error);
                 // Show user-friendly error
@@ -1841,19 +1772,286 @@
         }
 
         /**
-         * Update experiments list display.
-         * Note: The experiments endpoint structure may vary. This handles the expected format.
-         * @param {Object} experiments - Experiments data from /api/metrics/experiments
+         * Update experiments list display with real data from API.
+         * @param {Object} experimentsData - Experiments data from /api/metrics/experiments
          */
-        function updateExperimentsList(experiments) {
-            if (!experiments) return;
+        function updateExperimentsList(experimentsData) {
+            const grid = document.getElementById('experiments-grid');
+            if (!grid) return;
 
-            // Experiments display is already shown in static HTML
-            // This function would update dynamic experiment cards if we had container IDs
-            // For now, we'll log that experiments were received
-            console.log('Experiments data received:', experiments);
+            // Handle both { experiments: [...] } and direct array formats
+            const experiments = experimentsData?.experiments || experimentsData || [];
 
-            // TODO: Add experiment cards container and dynamic rendering when needed
+            if (!Array.isArray(experiments) || experiments.length === 0) {
+                grid.innerHTML = `
+                    <div class="experiment-card">
+                        <div class="experiment-details text-gray-400">No active experiments</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = experiments.map(exp => {
+                const type = exp.type || 'experiment';
+                const status = exp.status || 'unknown';
+                const metrics = exp.metrics || {};
+
+                // Generate header based on experiment type
+                const headerMap = {
+                    'model_training': 'Model Training',
+                    'feature_selection': 'Feature Selection',
+                    'hyperparameter_optimization': 'Hyperparameter Optimization',
+                    'architecture_search': 'Architecture Search',
+                };
+                const header = headerMap[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                // Build details based on available metrics
+                let details = '';
+                if (metrics.trial && metrics.total_trials) {
+                    details += `<div>Trial ${metrics.trial}/${metrics.total_trials}</div>`;
+                }
+                if (metrics.best_sharpe !== undefined) {
+                    details += `<div>Best Sharpe: <strong>${metrics.best_sharpe.toFixed(2)}</strong></div>`;
+                }
+                if (metrics.best_loss !== undefined) {
+                    details += `<div>Best Loss: <strong>${metrics.best_loss.toFixed(4)}</strong></div>`;
+                }
+                if (metrics.epoch && metrics.total_epochs) {
+                    details += `<div>Epoch: ${metrics.epoch}/${metrics.total_epochs}</div>`;
+                }
+                if (exp.experiment_id) {
+                    details += `<div class="text-gray-400 text-xs">${exp.experiment_id}</div>`;
+                }
+
+                // Default message if no specific metrics
+                if (!details) {
+                    details = `<div>Status: ${status}</div>`;
+                }
+
+                // Action button based on status
+                const actionBtn = status === 'running'
+                    ? `<button class="btn btn-sm btn-danger mt-2" onclick="stopExperiment('${exp.experiment_id}')">Stop</button>`
+                    : `<button class="btn btn-sm btn-secondary mt-2" onclick="viewExperiment('${exp.experiment_id}')">View Details</button>`;
+
+                return `
+                    <div class="experiment-card">
+                        <div class="experiment-header">${header}</div>
+                        <div class="experiment-details">${details}</div>
+                        ${actionBtn}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * View experiment details.
+         * @param {string} experimentId - Experiment ID
+         */
+        function viewExperiment(experimentId) {
+            console.log('Viewing experiment:', experimentId);
+            // Could open a modal or navigate to experiment details page
+        }
+
+        /**
+         * Stop a running experiment.
+         * @param {string} experimentId - Experiment ID
+         */
+        function stopExperiment(experimentId) {
+            console.log('Stopping experiment:', experimentId);
+            // Could call API to stop the experiment
+        }
+
+        /**
+         * Update system health status from /api/health/system and /api/observability/stores.
+         * Updates PostgreSQL, Redis, ONNX Runtime, and Feature Store status badges.
+         */
+        async function updateSystemHealth() {
+            try {
+                const [systemHealth, storeHealth] = await Promise.all([
+                    apiClient.getSystemHealth(),
+                    fetch('/api/observability/stores').then(r => r.json())
+                ]);
+
+                // Update PostgreSQL status
+                updateHealthComponent(
+                    'health-postgres-status',
+                    'health-postgres-detail',
+                    systemHealth?.dependencies?.database?.healthy ?? false,
+                    systemHealth?.dependencies?.database?.connections ?? 'N/A'
+                );
+
+                // Update Redis status
+                updateHealthComponent(
+                    'health-redis-status',
+                    'health-redis-detail',
+                    systemHealth?.dependencies?.redis?.healthy ?? false,
+                    systemHealth?.dependencies?.redis?.memory_used ?? 'N/A'
+                );
+
+                // Update ONNX Runtime status from services
+                const onnxHealthy = systemHealth?.services?.ml_signal_actor?.status === 'running';
+                updateHealthComponent(
+                    'health-onnx-status',
+                    'health-onnx-detail',
+                    onnxHealthy,
+                    onnxHealthy ? 'Available' : 'Unavailable',
+                    { trueText: 'READY', falseText: 'UNAVAILABLE' }
+                );
+
+                // Update Feature Store status from store health
+                const featureStoreEntry = storeHealth?.stores?.find(s => s.store === 'feature_store') ?? null;
+                const featureStoreHealthy = featureStoreEntry?.healthy ?? false;
+                const featureCount = featureStoreEntry?.items?.length ?? 0;
+                updateHealthComponent(
+                    'health-feature-store-status',
+                    'health-feature-store-detail',
+                    featureStoreHealthy,
+                    featureStoreHealthy ? `${featureCount} datasets` : 'Unavailable',
+                    { trueText: 'SYNCED', falseText: 'UNAVAILABLE' }
+                );
+
+            } catch (error) {
+                console.error('System health update failed:', error);
+                // Set all to unknown state on error
+                setHealthUnknown('health-postgres-status', 'health-postgres-detail');
+                setHealthUnknown('health-redis-status', 'health-redis-detail');
+                setHealthUnknown('health-onnx-status', 'health-onnx-detail');
+                setHealthUnknown('health-feature-store-status', 'health-feature-store-detail');
+            }
+        }
+
+        /**
+         * Update a single health component's status badge and detail text.
+         * @param {string} statusId - ID of the status badge element
+         * @param {string} detailId - ID of the detail text element
+         * @param {boolean} isHealthy - Whether the component is healthy
+         * @param {string|number} detail - Detail text to display
+         * @param {Object} options - Optional configuration
+         * @param {string} options.trueText - Text for healthy state (default: 'HEALTHY')
+         * @param {string} options.falseText - Text for unhealthy state (default: 'UNHEALTHY')
+         */
+        function updateHealthComponent(statusId, detailId, isHealthy, detail, options = {}) {
+            const { trueText = 'HEALTHY', falseText = 'UNHEALTHY' } = options;
+
+            const statusEl = document.getElementById(statusId);
+            const detailEl = document.getElementById(detailId);
+
+            if (statusEl) {
+                statusEl.textContent = isHealthy ? trueText : falseText;
+                statusEl.className = `status-badge ${isHealthy ? 'status-live' : 'status-stopped'}`;
+            }
+
+            if (detailEl) {
+                detailEl.textContent = String(detail);
+            }
+        }
+
+        /**
+         * Set a health component to unknown/loading state.
+         * @param {string} statusId - ID of the status badge element
+         * @param {string} detailId - ID of the detail text element
+         */
+        function setHealthUnknown(statusId, detailId) {
+            const statusEl = document.getElementById(statusId);
+            const detailEl = document.getElementById(detailId);
+
+            if (statusEl) {
+                statusEl.textContent = 'UNKNOWN';
+                statusEl.className = 'status-badge status-paused';
+            }
+
+            if (detailEl) {
+                detailEl.textContent = 'Error loading';
+            }
+        }
+
+        /**
+         * Update model performance table with real data from API.
+         */
+        async function updateModelPerformanceTable() {
+            try {
+                const response = await fetch('/api/registry/models/performance');
+                const data = await response.json();
+                const tbody = document.getElementById('model-performance-table');
+
+                if (!tbody) return;
+
+                if (!data.models || data.models.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="text-center text-gray-400">No models deployed</td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = data.models.map(model => {
+                    const pnl = model.daily_pnl || 0;
+                    const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+                    const pnlFormatted = pnl >= 0
+                        ? `+$${Math.abs(pnl).toLocaleString()}`
+                        : `-$${Math.abs(pnl).toLocaleString()}`;
+
+                    const winRate = ((model.win_rate || 0) * 100).toFixed(1);
+                    const sharpe = (model.sharpe || 0).toFixed(2);
+
+                    // Map status to badge class
+                    const statusMap = {
+                        'active': { class: 'status-live', text: 'LIVE' },
+                        'testing': { class: 'status-test', text: 'A/B TEST' },
+                        'inactive': { class: 'status-paused', text: 'PAUSED' },
+                        'retired': { class: 'status-stopped', text: 'RETIRED' },
+                        'failed': { class: 'status-stopped', text: 'FAILED' },
+                    };
+                    const status = statusMap[model.status] || { class: 'status-paused', text: model.status?.toUpperCase() || 'UNKNOWN' };
+
+                    // Generate action buttons based on status
+                    let actions = '';
+                    if (model.status === 'active') {
+                        actions = `
+                            <button class="btn btn-sm btn-secondary" onclick="pauseModel('${model.model_id}')">Pause</button>
+                            <button class="btn btn-sm btn-secondary" onclick="configureModel('${model.model_id}')">Config</button>
+                        `;
+                    } else if (model.status === 'inactive') {
+                        actions = `
+                            <button class="btn btn-sm btn-primary" onclick="resumeModel('${model.model_id}')">Resume</button>
+                            <button class="btn btn-sm btn-secondary" onclick="configureModel('${model.model_id}')">Config</button>
+                        `;
+                    } else if (model.status === 'testing') {
+                        actions = `
+                            <button class="btn btn-sm btn-success" onclick="promoteModel('${model.model_id}')">Promote</button>
+                            <button class="btn btn-sm btn-secondary" onclick="configureModel('${model.model_id}')">Config</button>
+                        `;
+                    } else {
+                        actions = `
+                            <button class="btn btn-sm btn-secondary" onclick="configureModel('${model.model_id}')">Config</button>
+                        `;
+                    }
+
+                    return `
+                        <tr>
+                            <td>${model.model_id}</td>
+                            <td>${model.type || 'Unknown'}</td>
+                            <td class="${pnlClass}">${pnlFormatted}</td>
+                            <td>${sharpe}</td>
+                            <td>${winRate}%</td>
+                            <td><span class="status-badge ${status.class}">${status.text}</span></td>
+                            <td>${actions}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Failed to update model performance table:', error);
+                const tbody = document.getElementById('model-performance-table');
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="text-center text-gray-400">Error loading models</td>
+                        </tr>
+                    `;
+                }
+            }
         }
 
         function showError(message) {
@@ -1875,13 +2073,62 @@
             console.log('Promoting model:', modelId);
         }
 
-        // Update market prices periodically
-        function updateMarketPrices() {
-            // Simulate price updates
-            const spy = document.getElementById('spy-price');
-            const qqq = document.getElementById('qqq-price');
-            if (spy) spy.textContent = '$' + (450 + Math.random() * 5).toFixed(2);
-            if (qqq) qqq.textContent = '$' + (375 + Math.random() * 5).toFixed(2);
+        /**
+         * Update market prices from real API data.
+         * Falls back to "N/A" if data is unavailable.
+         */
+        async function updateMarketPrices() {
+            try {
+                const response = await fetch('/api/market/tickers?symbols=SPY,QQQ,VIX');
+                const data = await response.json();
+
+                // Update SPY
+                updateTickerPrice('spy-price', data.SPY, '$');
+
+                // Update QQQ
+                updateTickerPrice('qqq-price', data.QQQ, '$');
+
+                // Update VIX (no $ prefix)
+                updateTickerPrice('vix-price', data.VIX, '');
+
+                // Note: BTC would need to be added to data collection
+                // For now, keep it as-is or mark as N/A
+                const btcEl = document.getElementById('btc-price');
+                if (btcEl && !data.BTC) {
+                    // Leave BTC unchanged if no data
+                }
+
+            } catch (error) {
+                console.error('Failed to update market prices:', error);
+                // On error, leave prices unchanged
+            }
+        }
+
+        /**
+         * Update a single ticker price element.
+         * @param {string} elementId - ID of the price element
+         * @param {Object|null} tickerData - Ticker data with price and change_pct
+         * @param {string} prefix - Price prefix (e.g., '$')
+         */
+        function updateTickerPrice(elementId, tickerData, prefix = '$') {
+            const priceEl = document.getElementById(elementId);
+            if (!priceEl) return;
+
+            if (!tickerData || tickerData.price === null || tickerData.price === undefined) {
+                priceEl.textContent = 'N/A';
+                return;
+            }
+
+            priceEl.textContent = `${prefix}${tickerData.price.toLocaleString()}`;
+
+            // Update change indicator if it exists (sibling element)
+            const changeEl = priceEl.nextElementSibling;
+            if (changeEl && tickerData.change_pct !== undefined) {
+                const pct = tickerData.change_pct;
+                const sign = pct >= 0 ? '▲' : '▼';
+                changeEl.textContent = `${sign}${Math.abs(pct).toFixed(1)}%`;
+                changeEl.className = pct >= 0 ? 'ticker-up' : 'ticker-down';
+            }
         }
 
         // ========================================================================

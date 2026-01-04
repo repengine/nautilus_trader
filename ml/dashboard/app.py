@@ -168,6 +168,28 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
     def registry_models() -> tuple[Any, int]:
         return jsonify(svc.list_models()), 200
 
+    @app.get("/api/registry/models/performance")
+    def registry_models_performance() -> tuple[Any, int]:
+        """Get all models with performance metrics for dashboard display.
+
+        Returns:
+            {
+                "models": [
+                    {
+                        "model_id": "tft-signal-001",
+                        "type": "TFT",
+                        "daily_pnl": 1234.56,
+                        "sharpe": 1.5,
+                        "win_rate": 0.55,
+                        "status": "deployed"
+                    },
+                    ...
+                ]
+            }
+        """
+        models = svc.list_models_with_performance()
+        return jsonify({"models": models}), 200
+
     @app.get("/api/registry/models/<model_id>/history")
     def registry_model_history(model_id: str) -> tuple[Any, int]:
         limit_raw = request.args.get("limit")
@@ -587,6 +609,103 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         return jsonify(asdict(metrics)), 200
 
     # ========== END TRADING ROUTES ==========
+
+    # ========== MARKET DATA ROUTES ==========
+
+    @app.get("/api/market/tickers")
+    def market_tickers() -> tuple[Any, int]:
+        """Get latest prices for market symbols.
+
+        Query Parameters:
+            symbols: Comma-separated list of symbols (default: SPY,QQQ)
+
+        Returns:
+            Dict mapping symbol to price data:
+            {
+                "SPY": {"price": 452.50, "change_pct": 0.55, "timestamp": "..."},
+                "QQQ": null  // if data not available
+            }
+        """
+        import os
+        from pathlib import Path
+
+        from ml._imports import HAS_POLARS, pl
+
+        symbols_param = request.args.get("symbols", "SPY,QQQ")
+        symbols = [s.strip().upper() for s in symbols_param.split(",") if s.strip()]
+
+        data_dir = Path(os.environ.get("ML_MARKET_DATA_DIR", "/data/catalog"))
+        result: dict[str, Any] = {}
+
+        if not HAS_POLARS:
+            # Return empty result if polars not available
+            for symbol in symbols:
+                result[symbol] = None
+            return jsonify(result), 200
+
+        for symbol in symbols:
+            parquet_path = data_dir / symbol / "l0" / f"{symbol}_ohlcv.parquet"
+
+            if not parquet_path.exists():
+                result[symbol] = None
+                continue
+
+            try:
+                df = pl.read_parquet(str(parquet_path))
+                if df.is_empty():
+                    result[symbol] = None
+                    continue
+
+                # Get the last row
+                last_row = df.tail(1)
+
+                # Extract values
+                close_col = "close" if "close" in df.columns else None
+                open_col = "open" if "open" in df.columns else None
+                ts_col = next(
+                    (c for c in ("timestamp", "ts_event", "ts") if c in df.columns),
+                    None,
+                )
+
+                if close_col is None:
+                    result[symbol] = None
+                    continue
+
+                close_price = float(last_row[close_col][0])
+                open_price = float(last_row[open_col][0]) if open_col else close_price
+
+                # Calculate change percentage
+                change_pct = (
+                    ((close_price - open_price) / open_price * 100) if open_price else 0.0
+                )
+
+                # Get timestamp
+                timestamp_val = None
+                if ts_col:
+                    ts_raw = last_row[ts_col][0]
+                    if hasattr(ts_raw, "isoformat"):
+                        timestamp_val = ts_raw.isoformat()
+                    elif isinstance(ts_raw, (int, float)):
+                        from datetime import datetime, timezone
+
+                        # Assume nanoseconds
+                        timestamp_val = datetime.fromtimestamp(
+                            ts_raw / 1_000_000_000, tz=timezone.utc
+                        ).isoformat()
+
+                result[symbol] = {
+                    "price": round(close_price, 2),
+                    "change_pct": round(change_pct, 2),
+                    "timestamp": timestamp_val,
+                }
+
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Failed to read market data for %s: %s", symbol, exc)
+                result[symbol] = None
+
+        return jsonify(result), 200
+
+    # ========== END MARKET DATA ROUTES ==========
 
     # ========== API_EXPLORER ROUTES (Agent 3) ==========
 
@@ -1477,12 +1596,14 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         ui_type = request.args.get("ui") or request.cookies.get("ui_preference") or "standard"
 
         # Map UI types to template files
+        # DEPRECATED: control, enhanced, advanced UIs are deprecated and redirect to unified
+        # See reports/ui_consolidation_analysis.md for details
         template_map = {
-            "unified": "index_unified.html",  # Unified control + advanced
-            "control": "index_control.html",  # Control center only
-            "enhanced": "index_enhanced.html",
-            "advanced": "index_advanced.html",
-            "standard": "index.html",
+            "unified": "index_unified.html",  # Primary UI - full control center
+            "control": "index_unified.html",  # DEPRECATED: redirects to unified
+            "enhanced": "index_unified.html",  # DEPRECATED: redirects to unified
+            "advanced": "index_unified.html",  # DEPRECATED: redirects to unified
+            "standard": "index.html",  # Minimal fallback UI
         }
 
         # Check if requested template exists, fallback to standard if not

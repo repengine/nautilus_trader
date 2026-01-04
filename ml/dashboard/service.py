@@ -78,7 +78,26 @@ from ml.registry.feature_registry import FeatureStage
 
 if TYPE_CHECKING:
     from ml.core.integration import MLIntegrationManager
+    from ml.observability.service import ObservabilityService as ObservabilityService
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+else:
+    try:
+        from ml.observability.service import ObservabilityService as ObservabilityService
+    except Exception:  # pragma: no cover - optional for dashboard-only deployments
+        class ObservabilityService:
+            """Compatibility shim for dashboard integration tests."""
+
+            def add_metric(
+                self,
+                *,
+                metric_name: str,
+                metric_type: str,
+                value: float,
+                timestamp: int,
+                labels: dict[str, Any] | None = None,
+            ) -> None:
+                """Record a metric (no-op fallback)."""
+                _ = (metric_name, metric_type, value, timestamp, labels)
 
 
 logger = logging.getLogger(__name__)
@@ -425,45 +444,100 @@ class DashboardService:
 
         Returns a structured summary with per-dataset backlog/worker counts.
         """
-        state = dict(self._streaming_state)
+        snapshot: dict[str, Any] = dict(self._streaming_state)
+        snapshot_path: Path | None = None
         path = self.config.streaming_state_path
         if path is not None:
             snapshot_path = Path(path)
             if snapshot_path.exists():
                 try:
                     loaded = json.loads(snapshot_path.read_text(encoding="utf-8"))
-                    state.update(loaded)
+                    if isinstance(loaded, dict):
+                        snapshot.update(loaded)
                 except Exception:
                     logger.debug("failed to read streaming state snapshot", exc_info=True)
 
-        plans = state.get("plans", {}) or {}
-        results = state.get("results", {}) or {}
-        heartbeats = state.get("heartbeats", {}) or {}
-        datasets = state.get("datasets", {}) or {}
+        plans = cast(dict[str, Any], snapshot.get("plans") or {})
+        results = cast(dict[str, Any], snapshot.get("results") or {})
+        heartbeats = cast(dict[str, Any], snapshot.get("heartbeats") or {})
+        stream_cursor = snapshot.get("stream_cursor")
 
-        outstanding_plan_ids = [pid for pid in plans if pid not in results]
+        datasets_value = snapshot.get("datasets")
+        datasets: dict[str, list[str]]
+        if isinstance(datasets_value, dict) and datasets_value:
+            datasets = {}
+            for dataset_id, plan_ids in datasets_value.items():
+                if not isinstance(plan_ids, list):
+                    continue
+                datasets[str(dataset_id)] = [str(plan_id) for plan_id in plan_ids]
+        else:
+            datasets = {}
+            for plan_id, plan in plans.items():
+                if not isinstance(plan, dict):
+                    continue
+                dataset_id = str(plan.get("dataset_id", "") or "") or "unknown"
+                datasets.setdefault(dataset_id, []).append(str(plan_id))
+
+        outstanding_plan_ids = [plan_id for plan_id in plans if plan_id not in results]
 
         dataset_details: dict[str, dict[str, Any]] = {}
+        total_worker_ids: set[str] = set()
+        datasets_with_backlog = 0
         for dataset_id, plan_ids in datasets.items():
-            plan_list = list(plan_ids)
+            worker_ids: set[str] = set()
+            for heartbeat in heartbeats.values():
+                if not isinstance(heartbeat, dict):
+                    continue
+                if str(heartbeat.get("dataset_id", "") or "") != dataset_id:
+                    continue
+                worker_id = heartbeat.get("worker_id")
+                if worker_id:
+                    worker_ids.add(str(worker_id))
+            total_worker_ids.update(worker_ids)
+
+            latest_plan = None
+            if plan_ids:
+                candidate = plans.get(plan_ids[-1])
+                if isinstance(candidate, dict):
+                    latest_plan = candidate
+
             latest_result = next(
-                (results[pid] for pid in reversed(plan_list) if pid in results),
+                (results[plan_id] for plan_id in reversed(plan_ids) if plan_id in results),
                 None,
             )
+            outstanding_plan_ids_for_dataset = [
+                plan_id for plan_id in plan_ids if plan_id not in results
+            ]
+            outstanding_count = len(outstanding_plan_ids_for_dataset)
+            if outstanding_count:
+                datasets_with_backlog += 1
             dataset_details[dataset_id] = {
-                "plan_ids": plan_list,
+                "plan_ids": plan_ids,
+                "outstanding_plan_ids": outstanding_plan_ids_for_dataset,
+                "latest_plan": latest_plan,
                 "latest_result": latest_result,
+                "outstanding_count": outstanding_count,
+                "worker_count": len(worker_ids),
             }
+
+        summary = {
+            "dataset_count": len(datasets),
+            "total_outstanding": len(outstanding_plan_ids),
+            "total_workers": len(total_worker_ids),
+            "datasets_with_backlog": datasets_with_backlog,
+        }
 
         return {
             "enabled": True,
+            "path": str(snapshot_path) if snapshot_path is not None else None,
             "plans": plans,
             "results": results,
             "heartbeats": heartbeats,
             "datasets": datasets,
             "outstanding_plan_ids": outstanding_plan_ids,
             "dataset_details": dataset_details,
-            "stream_cursor": state.get("stream_cursor"),
+            "summary": summary,
+            "stream_cursor": stream_cursor,
         }
 
     def _process_streaming_event(self, topic: str, message: dict[str, Any]) -> None:
@@ -967,6 +1041,56 @@ class DashboardService:
             if isinstance(entry, Mapping):
                 result.append(dict(entry))
         return result
+
+    def list_models_with_performance(self) -> list[dict[str, Any]]:
+        """Get all models with enriched performance metrics for dashboard display.
+
+        Returns a list of model dictionaries with:
+        - model_id: Unique model identifier
+        - type: Model architecture (XGBoost, TFT, etc.)
+        - daily_pnl: Latest daily P&L
+        - sharpe: Latest Sharpe ratio
+        - win_rate: Latest win rate (0-1)
+        - status: Deployment status
+
+        Returns:
+            List of model performance dictionaries.
+        """
+        cache_key = self._cache_key("models_performance")
+
+        def _fetch() -> list[dict[str, Any]]:
+            reg = self._get_model_registry()
+            if reg is None:
+                self._record_registry_error(name="model", reason="unavailable")
+                return []
+
+            try:
+                models: list[Any] | None = reg.get_all_models()
+            except Exception:
+                self._record_registry_error(name="model", reason="list_failed")
+                logger.warning("list models with performance failed", exc_info=True)
+                return []
+
+            result: list[dict[str, Any]] = []
+            for mi in models or []:
+                # Extract latest performance metrics from history
+                history = getattr(mi, "performance_history", []) or []
+                latest = history[-1] if history else {}
+
+                # Build result entry
+                entry: dict[str, Any] = {
+                    "model_id": mi.manifest.model_id,
+                    "type": mi.manifest.architecture,
+                    "status": mi.deployment_status.value,
+                    "daily_pnl": latest.get("daily_pnl", 0.0),
+                    "sharpe": latest.get("sharpe_ratio", latest.get("sharpe", 0.0)),
+                    "win_rate": latest.get("win_rate", 0.0),
+                }
+                result.append(entry)
+
+            return result
+
+        return self._cached_registry_call(key=cache_key, fetch=_fetch)
 
     def list_deployments(self) -> dict[str, list[str]]:
         cache_key = self._cache_key("deployments")

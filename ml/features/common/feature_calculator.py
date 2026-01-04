@@ -23,6 +23,8 @@ Critical Requirements:
 from __future__ import annotations
 
 import logging
+import math
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal, Self, overload
 
 import numpy as np
@@ -43,8 +45,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_EMPTY_HISTORY: tuple[float, ...] = ()
 
-def _normalize_atr(atr: float, close: float) -> np.float64:
+
+def _normalize_atr(atr: float, close: float) -> float:
     """
     Normalize ATR by close price for scale-invariant feature.
 
@@ -57,10 +61,10 @@ def _normalize_atr(atr: float, close: float) -> np.float64:
 
     Returns
     -------
-    np.float64
+    float
         ATR normalized by close price (ATR / close)
     """
-    return np.float64(safe_divide(atr, close))
+    return float(safe_divide(atr, close))
 
 
 class FeatureCalculator:
@@ -156,10 +160,26 @@ class FeatureCalculator:
         self._volume_ratio_periods: list[int] = (
             list(ma_periods) if ma_periods is not None else list(self.config.volume_ma_periods)
         )
+        self._volume_ratio_keys: list[str] = [
+            f"volume_sma_{period}" for period in self._volume_ratio_periods
+        ]
+
+        return_periods = list(getattr(self.config, "return_periods", []) or [])
+        momentum_periods = list(getattr(self.config, "momentum_periods", []) or [])
+        self._required_warmup_history_len = max(
+            max(return_periods) if return_periods else 0,
+            max(momentum_periods) if momentum_periods else 0,
+            int(getattr(self.config, "ema_slow", 0) or 0),
+            int(getattr(self.config, "rsi_period", 0) or 0),
+            int(getattr(self.config, "bb_period", 0) or 0),
+            20,
+        )
 
         # Pre-allocate feature_buffer (HOT PATH OPTIMIZATION)
         # Size: n_features * 2 (safety margin for edge cases)
         self.feature_buffer = np.zeros(self.n_features * 2, dtype=np.float32)
+        # Cache the primary view to avoid per-call slicing allocations.
+        self._feature_view = self.feature_buffer[: self.n_features]
 
         # Pre-allocate indicator values buffer for hot path (avoids per-call dict allocations).
         indicator_specs = self.config.get_indicator_specs()
@@ -335,6 +355,7 @@ class FeatureCalculator:
 
         # Get feature names
         feature_names = self.config.get_feature_names()
+        required = self._required_warmup_history_len
 
         # Process sequentially using same code path as online
         for idx in range(len(close_prices)):
@@ -348,15 +369,8 @@ class FeatureCalculator:
 
             # Maintain strict parity with legacy: require sufficient warmup history, else zeros
             # This ensures calculator and legacy produce identical results during warmup period
-            required = max(
-                max(self.config.return_periods or [0]),
-                max(self.config.momentum_periods or [0]),
-                int(getattr(self.config, "ema_slow", 0)),
-                int(getattr(self.config, "rsi_period", 0)),
-                int(getattr(self.config, "bb_period", 0)),
-                20,
-            )
-            history_len = len(indicator_mgr.price_history.get("closes", []))
+            closes_history = indicator_mgr.price_history.get("closes")
+            history_len = len(closes_history) if closes_history is not None else 0
             if history_len <= required:
                 # Return zeros for all features during warmup (matches legacy behavior)
                 row_map = dict.fromkeys(feature_names, 0.0)
@@ -458,7 +472,15 @@ class FeatureCalculator:
 
         indicator_manager._fill_values(self._indicator_values_buffer, current_price=close)
         indicator_values = self._indicator_values_buffer
-        closes = indicator_manager.price_history.get("closes", [])
+        closes = indicator_manager.price_history.get("closes") or _EMPTY_HISTORY
+
+        if len(closes) <= self._required_warmup_history_len:
+            features_view = self._feature_view
+            if scaler is not None:
+                scaled = scaler.transform(features_view.reshape(1, -1))
+                self.feature_buffer[: self.n_features] = np.asarray(scaled[0], dtype=np.float32)
+                return self._feature_view
+            return features_view
 
         feature_idx = 0
 
@@ -511,19 +533,23 @@ class FeatureCalculator:
                 feature_idx=feature_idx,
             )
 
-        features_view = self.feature_buffer[:feature_idx]
+        features_view = (
+            self._feature_view
+            if feature_idx == self.n_features
+            else self.feature_buffer[:feature_idx]
+        )
 
         if scaler is not None:
             scaled = scaler.transform(features_view.reshape(1, -1))
             self.feature_buffer[:feature_idx] = np.asarray(scaled[0], dtype=np.float32)
-            return self.feature_buffer[:feature_idx]
+            return features_view
 
         return features_view
 
     def _calculate_return_features(
         self,
         close: float,
-        closes: list[float],
+        closes: Sequence[float],
         feature_idx: int,
     ) -> int:
         """
@@ -564,7 +590,7 @@ class FeatureCalculator:
     def _calculate_momentum_features(
         self,
         close: float,
-        closes: list[float],
+        closes: Sequence[float],
         feature_idx: int,
     ) -> int:
         """
@@ -603,7 +629,7 @@ class FeatureCalculator:
 
     def _calculate_volatility_features(
         self,
-        closes: list[float],
+        closes: Sequence[float],
         feature_idx: int,
     ) -> int:
         """
@@ -626,20 +652,37 @@ class FeatureCalculator:
             Next available feature_idx
         """
         if len(closes) >= 21:  # Need 21 prices to calculate 20 returns
-            # Calculate returns for volatility
-            returns_5 = []
-            returns_20 = []
+            sum_5 = 0.0
+            sumsq_5 = 0.0
+            count_5 = 0
+            sum_20 = 0.0
+            sumsq_20 = 0.0
+            count_20 = 0
 
-            for i in range(max(1, len(closes) - 20), len(closes)):
-                if i > 0:
-                    ret = safe_divide(closes[i] - closes[i - 1], closes[i - 1])
-                    returns_20.append(ret)
-                    if i >= len(closes) - 5:
-                        returns_5.append(ret)
+            start_idx = len(closes) - 20
+            for i in range(start_idx, len(closes)):
+                prev_close = closes[i - 1]
+                ret = safe_divide(closes[i] - prev_close, prev_close)
+                sum_20 += ret
+                sumsq_20 += ret * ret
+                count_20 += 1
+                if i >= len(closes) - 5:
+                    sum_5 += ret
+                    sumsq_5 += ret * ret
+                    count_5 += 1
 
-            # Calculate volatility
-            vol_5 = float(np.std(returns_5)) if len(returns_5) >= 5 else 0.0
-            vol_20 = float(np.std(returns_20)) if len(returns_20) >= 20 else 0.0
+            if count_5 >= 5:
+                mean_5 = sum_5 / count_5
+                var_5 = (sumsq_5 / count_5) - (mean_5 * mean_5)
+                vol_5 = float(math.sqrt(max(var_5, 0.0)))
+            else:
+                vol_5 = 0.0
+            if count_20 >= 20:
+                mean_20 = sum_20 / count_20
+                var_20 = (sumsq_20 / count_20) - (mean_20 * mean_20)
+                vol_20 = float(math.sqrt(max(var_20, 0.0)))
+            else:
+                vol_20 = 0.0
         else:
             vol_5 = vol_20 = 0.0
 
@@ -673,8 +716,7 @@ class FeatureCalculator:
         int
             Next available feature_idx
         """
-        for period in self._volume_ratio_periods:
-            key = f"volume_sma_{period}"
+        for key in self._volume_ratio_keys:
             # Get indicator value, defaulting to volume if not available
             ind_value = indicator_values.get(key, volume)
             # If indicator value is 0 or very small, use volume as fallback to get ratio of 1.0
@@ -760,31 +802,35 @@ class FeatureCalculator:
         self.feature_buffer[feature_idx + 2] = safe_divide(ema_fast - ema_slow, ema_slow)
         feature_idx += 3
 
-        # MACD features
-        self.feature_buffer[feature_idx] = safe_divide(
-            indicator_values.get(IndicatorNames.MACD_LINE, 0.0),
-            close,
-        )
-        self.feature_buffer[feature_idx + 1] = safe_divide(
-            indicator_values.get(IndicatorNames.MACD_SIGNAL, 0.0),
-            close,
-        )
-        self.feature_buffer[feature_idx + 2] = safe_divide(
-            indicator_values.get(IndicatorNames.MACD_DIFF, 0.0),
-            close,
-        )
+        # MACD features (legacy parity: IndicatorManager normalizes when current_price is provided)
+        self.feature_buffer[feature_idx] = indicator_values.get(IndicatorNames.MACD_LINE, 0.0)
+        self.feature_buffer[feature_idx + 1] = indicator_values.get(IndicatorNames.MACD_SIGNAL, 0.0)
+        self.feature_buffer[feature_idx + 2] = indicator_values.get(IndicatorNames.MACD_DIFF, 0.0)
         feature_idx += 3
 
         # Price position in 20-day range
-        highs = indicator_manager.price_history.get("highs", [])
-        lows = indicator_manager.price_history.get("lows", [])
+        highs = indicator_manager.price_history.get("highs") or _EMPTY_HISTORY
+        lows = indicator_manager.price_history.get("lows") or _EMPTY_HISTORY
 
-        if len(highs) >= 20 and len(lows) >= 20:
-            # Look at the last 20 bars (including current)
-            min_20 = min(lows[-20:])
-            max_20 = max(highs[-20:])
+        history_len = min(len(highs), len(lows))
+        if history_len >= 20:
+            # Look at the last 20 bars (including current) without slicing.
+            start_idx = history_len - 20
+            min_20 = lows[start_idx]
+            max_20 = highs[start_idx]
+            for idx in range(start_idx + 1, history_len):
+                low_val = lows[idx]
+                if low_val < min_20:
+                    min_20 = low_val
+                high_val = highs[idx]
+                if high_val > max_20:
+                    max_20 = high_val
             if max_20 > min_20:
-                price_pos = np.clip((close - min_20) / (max_20 - min_20 + 1e-10), 0.0, 1.0)
+                price_pos = (close - min_20) / (max_20 - min_20 + 1e-10)
+                if price_pos < 0.0:
+                    price_pos = 0.0
+                elif price_pos > 1.0:
+                    price_pos = 1.0
             else:
                 price_pos = 0.5
         else:
@@ -994,19 +1040,20 @@ class FeatureCalculator:
 
         return return_std, return_autocorr
 
-    def compute_features(self, bars: list[Any]) -> dict[str, float]:  # pragma: no cover - shim
+    def compute_features(self, bars: Sequence[Any] | DataFrameLike) -> dict[str, float]:
         """
         Legacy compatibility shim for older tests.
 
-        Converts list of Nautilus Bar objects to DataFrame, performs batch
-        feature computation, and returns the last row as dict[str, float].
+        Converts list of Nautilus Bar objects to a DataFrame (or accepts a
+        DataFrame-like input directly), performs batch feature computation,
+        and returns the last row as dict[str, float].
 
         **NOT HOT PATH** - Used only for legacy test compatibility.
 
         Parameters
         ----------
-        bars : list[Bar]
-            List of Nautilus Bar objects
+        bars : Sequence[Bar] | DataFrameLike
+            List of Nautilus Bar objects or DataFrame-like input with OHLCV data
 
         Returns
         -------
@@ -1018,9 +1065,21 @@ class FeatureCalculator:
         ValueError
             If bars list is empty
         """
+        if hasattr(bars, "to_numpy"):
+            if len(bars) == 0:
+                raise ValueError("bars must be non-empty")
+            close_values = [float(v) for v in self._extract_close_prices(bars)]
+            features_df, _ = self.calculate_features(bars, mode="batch")
+            last_row = features_df.iloc[-1] if hasattr(features_df, "iloc") else features_df[-1]
+            result = {str(k): float(v) for k, v in last_row.items()}
+
+            from ml.features.common.post_processing import apply_compute_features_post_processing
+
+            rsi_period = int(getattr(self.config, "rsi_period", 14))
+            return apply_compute_features_post_processing(result, close_values, rsi_period)
+
         if not bars:
-            # Return empty dict for parity with legacy behavior
-            return {}
+            raise ValueError("bars must be non-empty")
 
         # Convert Bars to DataFrame
         rows = []
