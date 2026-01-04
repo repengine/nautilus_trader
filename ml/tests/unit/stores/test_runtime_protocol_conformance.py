@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import types
+from typing import Callable, ContextManager
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,7 +16,13 @@ from ml.stores.protocols import (
 from ml.tests.utils.db import build_postgres_url
 
 
-def test_runtime_protocol_conformance_isinstance(monkeypatch: pytest.MonkeyPatch) -> None:
+PatchEngineManager = Callable[..., ContextManager[MagicMock]]
+
+
+def test_runtime_protocol_conformance_isinstance(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_engine_manager: PatchEngineManager,
+) -> None:
     # Avoid real database connections by patching engine/table initialization.
     monkeypatch.setattr(
         "ml.stores.model_store.ModelStore._init_engine_and_tables", lambda self: None
@@ -25,12 +32,8 @@ def test_runtime_protocol_conformance_isinstance(monkeypatch: pytest.MonkeyPatch
     )
     monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
 
-    dummy_engine = types.SimpleNamespace(connect=lambda: types.SimpleNamespace(close=lambda: None))
-    monkeypatch.setattr(
-        "ml.stores.feature_store.create_engine", lambda *_args, **_kwargs: dummy_engine
-    )
-
-    fs = FeatureStore(connection_string=build_postgres_url())
+    with patch_engine_manager():
+        fs = FeatureStore(connection_string=build_postgres_url())
     ms = ModelStore(connection_string=None, persistence_config=None)
     ss = StrategyStore(connection_string=None, persistence_config=None)
 

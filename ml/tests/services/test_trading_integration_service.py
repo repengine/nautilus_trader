@@ -149,11 +149,14 @@ async def test_toggle_trading_without_controller_uses_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_health_check_includes_portfolio_metrics(test_database: Any) -> None:
+async def test_health_check_includes_portfolio_metrics(cloned_test_database: str) -> None:
+    from ml.tests.conftest import TestDatabase
+
+    test_database = TestDatabase(connection_string=cloned_test_database)
     controller = DummyTradingController()
     manager = DummyIntegrationManager(
         trading_controller=controller,
-        db_connection=test_database.connection_string,
+        db_connection=cloned_test_database,
     )
     service = TradingIntegrationService(manager)
 

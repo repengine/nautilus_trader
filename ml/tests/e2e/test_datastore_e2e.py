@@ -602,7 +602,7 @@ class TestE2EHealthAndConfiguration:
         health = store.get_health_status()
 
         # Verify all components reported
-        assert health["implementation"] == "component_based"
+        assert health["implementation"] == "component-based"
         assert health["schema_validator"] == "healthy"
         assert health["contract_enforcer"] == "healthy"
         assert health["data_reader"] == "healthy"

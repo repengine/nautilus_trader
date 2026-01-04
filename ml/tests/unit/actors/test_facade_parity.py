@@ -45,7 +45,6 @@ from ml.actors.base import BaseMLInferenceActor as CurrentActor
 from ml.actors.signal import MLSignal
 from nautilus_trader.common.enums import ComponentState
 from ml.config.base import CircuitBreakerConfig
-from sqlalchemy import text
 
 if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
@@ -346,7 +345,10 @@ def test_parity_initialization(base_ml_config: Any) -> None:
     assert current_actor._data_registry is not None, "Current data registry must exist"
 
 
-def test_parity_store_initialization(base_ml_config: Any, test_database: Any) -> None:
+def test_parity_store_initialization(
+    base_ml_config: Any,
+    cloned_test_database: str,
+) -> None:
     """All 4 stores must initialize identically.
 
     Given:
@@ -363,7 +365,7 @@ def test_parity_store_initialization(base_ml_config: Any, test_database: Any) ->
 
     Args:
         base_ml_config: Valid MLActorConfig fixture
-        test_database: TestDatabase instance
+        cloned_test_database: Connection string for cloned PostgreSQL test database
 
     Raises:
         AssertionError: If store initialization differs
@@ -374,7 +376,7 @@ def test_parity_store_initialization(base_ml_config: Any, test_database: Any) ->
     # Ensure PostgreSQL available for this test
     test_config = msgspec.structs.replace(
         base_ml_config,
-        db_connection=test_database.connection_string,
+        db_connection=cloned_test_database,
     )
 
     # Legacy mode
@@ -1097,15 +1099,11 @@ def test_parity_metrics_collection(
     """
 
 
-@pytest.mark.skip(
-    reason="Test has structural issues: tries to manipulate _feature_store.schema directly "
-    "and query custom schemas without proper table setup. Needs redesign with fresh_store_bundle fixture."
-)
 def test_parity_async_persistence(
     base_ml_config: Any,
     dummy_onnx_model: Path,
     bar_sequence: list[Bar],
-    test_database: Any,
+    fresh_store_bundle: Any,
 ) -> None:
     """Async persistence must produce identical database state.
 
@@ -1124,83 +1122,96 @@ def test_parity_async_persistence(
         base_ml_config: Valid MLActorConfig fixture
         dummy_onnx_model: Path to test ONNX model
         bar_sequence: List of Bar objects
-        test_database: TestDatabase instance
+        fresh_store_bundle: Store bundle bound to a cloned PostgreSQL database
 
     Raises:
         AssertionError: If database states differ
 
     """
-    # Use separate schemas to isolate legacy vs current writes
-    legacy_schema = "legacy_test"
-    current_schema = "current_test"
+    import msgspec
+    from nautilus_trader.model.data import Bar
+    from nautilus_trader.model.data import BarType
 
-    # Create schemas
-    with test_database.get_session() as session:
-        session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {legacy_schema}"))
-        session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {current_schema}"))
-        session.commit()
+    connection_string = fresh_store_bundle.persistence_manager.connection_string
+    test_config = msgspec.structs.replace(
+        base_ml_config,
+        use_dummy_stores=False,
+        db_connection=connection_string,
+        enable_async_persistence=True,
+        persistence_flush_interval=0.01,
+        warm_up_period=0,
+    )
 
-    # Legacy mode
-    legacy_actor = ConcreteMLInferenceActor(base_ml_config)
-    legacy_actor._feature_store.schema = legacy_schema
+    def _remap_bars(
+        bars: list[Bar],
+        bar_type: BarType,
+    ) -> list[Bar]:
+        remapped: list[Bar] = []
+        for bar in bars:
+            remapped.append(
+                Bar(
+                    bar_type=bar_type,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    ts_event=bar.ts_event,
+                    ts_init=bar.ts_init,
+                ),
+            )
+        return remapped
+
+    legacy_actor = ConcreteMLInferenceActor(test_config)
     legacy_actor.on_start()
+    assert legacy_actor._persistence_worker is not None, "Async worker must be started"
 
-    # Worker started
-    assert legacy_actor._persistence_worker is not None, \
-        "Async worker must be started"
-
-    # Process bars
+    np.random.seed(7)
     for bar in bar_sequence[:50]:
         legacy_actor.on_bar(bar)
-
-    # Stop actor (flush queue)
+    time.sleep(0.05)
     legacy_actor.on_stop()
+    assert legacy_actor._persistence_worker.queue_size() == 0, "Async worker queue must be drained"
 
-    # Worker stopped (MLPersistenceWorker doesn't have is_alive method, check queue is empty)
-    if legacy_actor._persistence_worker:
-        assert legacy_actor._persistence_worker.queue_size() == 0, \
-            "Async worker queue must be drained"
-
-    # Current mode
-    current_actor = ConcreteMLInferenceActor(base_ml_config)
-    current_actor._feature_store.schema = current_schema
+    current_actor = ConcreteMLInferenceActor(test_config)
     current_actor.on_start()
+    assert current_actor._persistence_worker is not None, "Async worker must be started"
 
-    # Worker started
-    assert current_actor._persistence_worker is not None, \
-        "Async worker must be started"
+    current_bar_type = BarType.from_str("GBP/USD.SIM-1-MINUTE-LAST-EXTERNAL")
+    current_bars = _remap_bars(bar_sequence[:50], current_bar_type)
 
-    # Process same bars
-    for bar in bar_sequence[:50]:
+    np.random.seed(7)
+    for bar in current_bars:
         current_actor.on_bar(bar)
-
-    # Stop actor (flush queue)
+    time.sleep(0.05)
     current_actor.on_stop()
+    assert current_actor._persistence_worker.queue_size() == 0, "Async worker queue must be drained"
 
-    # Worker stopped (MLPersistenceWorker doesn't have is_alive method, check queue is empty)
-    if current_actor._persistence_worker:
-        assert current_actor._persistence_worker.queue_size() == 0, \
-            "Async worker queue must be drained"
+    feature_store = fresh_store_bundle.feature_store
+    start_ns = bar_sequence[0].ts_event
+    end_ns = bar_sequence[49].ts_event + 1
+    legacy_df = feature_store.read_range(
+        start_ns=start_ns,
+        end_ns=end_ns,
+        instrument_id=str(bar_sequence[0].bar_type.instrument_id),
+    )
+    current_df = feature_store.read_range(
+        start_ns=start_ns,
+        end_ns=end_ns,
+        instrument_id=str(current_bar_type.instrument_id),
+    )
 
-    # Database state IDENTICAL
-    # Read all features from both schemas
-    with test_database.get_session() as session:
-        legacy_features = session.execute(text(
-            f"SELECT * FROM {legacy_schema}.features ORDER BY ts_event",
-        )).fetchall()
-
-        current_features = session.execute(text(
-            f"SELECT * FROM {current_schema}.features ORDER BY ts_event",
-        )).fetchall()
-
-    # Row counts identical
-    assert len(legacy_features) == len(current_features), \
-        f"Feature row counts must match: legacy={len(legacy_features)}, current={len(current_features)}"
-
-    # Byte-for-byte identical rows
-    for i, (legacy_row, current_row) in enumerate(zip(legacy_features, current_features)):
-        assert legacy_row == current_row, \
-            f"Row {i} differs: legacy={legacy_row}, current={current_row}"
+    assert len(legacy_df) == len(current_df), (
+        f"Feature row counts must match: legacy={len(legacy_df)}, current={len(current_df)}"
+    )
+    np.testing.assert_array_equal(
+        legacy_df["ts_event"].to_numpy(),
+        current_df["ts_event"].to_numpy(),
+    )
+    for idx, (legacy_vals, current_vals) in enumerate(
+        zip(legacy_df["values"], current_df["values"]),
+    ):
+        assert legacy_vals == current_vals, f"Row {idx} differs: legacy={legacy_vals}, current={current_vals}"
 
 
 def test_parity_feature_computation_error_handling(

@@ -988,7 +988,6 @@ def test_hot_reload_preserves_state(valid_actor_config: MLActorConfig, onnx_mode
 
 @pytest.mark.unit
 def test_manifest_warm_up_when_enabled(
-    valid_actor_config: MLActorConfig,
     onnx_model_file: Path,
 ):
     """
@@ -998,31 +997,26 @@ def test_manifest_warm_up_when_enabled(
     When: Load model
     Then: Warm-up is triggered
     """
-    # Create config with warm-up enabled
-    from dataclasses import dataclass
-
-    @dataclass
-    class OptimizationConfig:
-        enable_model_warm_up: bool = True
-
-    valid_actor_config.optimization_config = OptimizationConfig()
-
     with patch("ml.actors.model_loader_utils.maybe_warm_up_model") as mock_warm_up:
-        component = create_component(str(onnx_model_file))
+        from ml.config.actors import MLSignalActorConfig as _SignalActorConfig
+        from ml.config.actors import OptimizationConfig as _OptimizationConfig
 
-        # Set metadata BEFORE loading (warm-up uses feature_schema)
-        component._model_metadata = {"feature_schema": ["f1", "f2", "f3"]}
-
-        component._load_model_with_metadata()
-
-        # Warm-up called (if manifest warm-up is implemented)
-        # Note: This may not be called if feature_schema is not present
-        # The test verifies the code path exists
+        cfg = _SignalActorConfig(
+            model_path=str(onnx_model_file),
+            model_id="test_model",
+            bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
+            instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+            db_connection=TEST_DB_CONNECTION,
+            use_dummy_stores=True,
+            optimization_config=_OptimizationConfig(enable_model_warm_up=True),
+        )
+        component = ModelComponent(cfg, logging.getLogger("test_model"))
+        component.load_model()
+        assert mock_warm_up.called
 
 
 @pytest.mark.unit
 def test_manifest_warm_up_skipped_when_disabled(
-    valid_actor_config: MLActorConfig,
     onnx_model_file: Path,
 ):
     """
@@ -1032,10 +1026,19 @@ def test_manifest_warm_up_skipped_when_disabled(
     When: Load model
     Then: Warm-up is NOT triggered
     """
-    # Config defaults to warm-up disabled
     with patch("ml.actors.model_loader_utils.maybe_warm_up_model") as mock_warm_up:
-        component = create_component(str(onnx_model_file))
-        component._load_model_with_metadata()
+        from ml.config.actors import MLSignalActorConfig as _SignalActorConfig
+        from ml.config.actors import OptimizationConfig as _OptimizationConfig
 
-        # Warm-up NOT called
-        # Note: Manifest warm-up is optional and may not be in all code paths
+        cfg = _SignalActorConfig(
+            model_path=str(onnx_model_file),
+            model_id="test_model",
+            bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
+            instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+            db_connection=TEST_DB_CONNECTION,
+            use_dummy_stores=True,
+            optimization_config=_OptimizationConfig(enable_model_warm_up=False),
+        )
+        component = ModelComponent(cfg, logging.getLogger("test_model"))
+        component.load_model()
+        assert mock_warm_up.called is False

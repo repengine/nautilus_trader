@@ -220,9 +220,9 @@ class TestFeatureCalculatorProperties:
             features = calculator.calculate_features(
                 bar_dict, mode="online", indicator_manager=indicator_mgr
             )
-            online_features.append(features)
+            online_features.append(features.copy())
 
-        online_features_array = np.array(online_features)
+        online_features_array = np.stack(online_features, axis=0)
 
         # Property: MUST be identical (batch == online)
         warmup = 30
@@ -270,8 +270,9 @@ class TestFeatureCalculatorProperties:
         volume_ratio_cols = [col for col in features.columns if "volume_ratio" in col]
         if volume_ratio_cols:
             # Allow zeros during warmup, but should be positive after
+            warmup = max(20, calculator._required_warmup_history_len)
             assert (
-                features[volume_ratio_cols].iloc[20:] > 0
+                features[volume_ratio_cols].iloc[warmup:] > 0
             ).all().all(), "Volume ratios should be positive after warmup"
 
     @settings(max_examples=8, deadline=5000)

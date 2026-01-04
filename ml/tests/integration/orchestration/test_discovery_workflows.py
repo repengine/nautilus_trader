@@ -7,6 +7,7 @@ Phase 2.2.8 (Full Implementation): Un-skip tests and verify PASS.
 """
 
 from collections import OrderedDict
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,10 +40,12 @@ def discovery_service():
 
 
 @pytest.fixture
-def dataset_config() -> DatasetBuildConfig:
+def dataset_config(tmp_path: Path) -> DatasetBuildConfig:
     """Provide DatasetBuildConfig with symbols and instruments."""
     return DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
         symbols="SPY,QQQ,AAPL",
+        out_dir=str(tmp_path / "out"),
         instrument_ids=("SPY.XNAS", "QQQ.XNAS", "AAPL.XNAS"),
         start_iso="2024-01-01",
         end_iso="2024-01-31",

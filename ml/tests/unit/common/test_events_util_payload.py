@@ -43,10 +43,8 @@ def test_build_bus_payload_enum_and_trace_injection(monkeypatch: MonkeyPatch) ->
 
 
 def test_build_bus_payload_without_tracing_module(monkeypatch: MonkeyPatch) -> None:
-    del monkeypatch
     # Remove tracing module to exercise ImportError branch
-    if "ml.observability.tracing" in sys.modules:
-        del sys.modules["ml.observability.tracing"]
+    monkeypatch.delitem(sys.modules, "ml.observability.tracing", raising=False)
 
     payload: dict[str, Any] = build_bus_payload(
         dataset_id="predictions",

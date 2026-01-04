@@ -714,7 +714,11 @@ def test_run_coverage_restoration_once_initializes_scheduler(
             config: SchedulerConfig,
             use_orchestrator: bool,
             dual_write: bool,
+            dual_write_dataset_types: Any = None,
+            dataset_type_identifier_templates: Any = None,
         ) -> None:
+            del dual_write_dataset_types
+            del dataset_type_identifier_templates
             assert catalog is catalog_obj
             assert config is config
             scheduler_state["instance"] = self

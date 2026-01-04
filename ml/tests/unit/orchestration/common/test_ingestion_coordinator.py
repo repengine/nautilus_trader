@@ -166,7 +166,6 @@ def checkpoint_path(tmp_path: Path) -> Path:
 
 @pytest.mark.unit
 def test_coordinate_ingestion_primary_success(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_databento_client,
@@ -206,7 +205,6 @@ def test_coordinate_ingestion_primary_success(
 
 @pytest.mark.unit
 def test_ingest_from_databento_ohlcv(
-    test_database,
     mock_data_store,
     mock_databento_client,
 ):
@@ -248,7 +246,6 @@ def test_ingest_from_databento_ohlcv(
 
 @pytest.mark.unit
 def test_ingest_from_yahoo_fundamentals(
-    test_database,
     mock_data_store,
     mock_yahoo_client,
 ):
@@ -282,7 +279,6 @@ def test_ingest_from_yahoo_fundamentals(
 
 @pytest.mark.unit
 def test_ingest_from_fred_macro_indicators(
-    test_database,
     mock_data_store,
     mock_fred_client,
 ):
@@ -316,7 +312,6 @@ def test_ingest_from_fred_macro_indicators(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_alternative(
-    test_database,
     mock_data_store,
     mock_earnings_provider,
 ):
@@ -350,7 +345,6 @@ def test_ingest_earnings_data_alternative(
 
 @pytest.mark.unit
 def test_backfill_single_instrument(
-    test_database,
     mock_data_store,
     mock_ingestion_orchestrator,
 ):
@@ -392,7 +386,6 @@ def test_backfill_single_instrument(
 
 @pytest.mark.unit
 def test_backfill_binding_primary_path(
-    test_database,
     mock_data_store,
     mock_ingestion_orchestrator,
 ):
@@ -446,7 +439,6 @@ def test_backfill_binding_primary_path(
 
 @pytest.mark.unit
 def test_backfill_coverage_cached_path(
-    test_database,
     mock_data_store,
     mock_coverage_provider,
 ):
@@ -490,7 +482,6 @@ def test_backfill_coverage_cached_path(
 
 @pytest.mark.unit
 def test_run_pre_ingestion_dual_write(
-    test_database,
     mock_data_store,
     tmp_path,
 ):
@@ -529,7 +520,6 @@ def test_run_pre_ingestion_dual_write(
 
 @pytest.mark.unit
 def test_handle_ingestion_fallback_chain(
-    test_database,
     mock_data_store,
     mock_databento_client,
     mock_coverage_provider,
@@ -608,7 +598,6 @@ def test_create_ingestion_checkpoint_saves_state(
 
 @pytest.mark.unit
 def test_restore_from_checkpoint_resumes_correctly(
-    test_database,
     mock_data_store,
     checkpoint_path,
     mock_databento_client,
@@ -653,7 +642,6 @@ def test_restore_from_checkpoint_resumes_correctly(
 
 @pytest.mark.unit
 def test_validate_ingestion_data_outliers_detected(
-    test_database,
     mock_data_store,
     caplog,
 ):
@@ -756,7 +744,6 @@ def test_log_ingestion_metrics_prometheus(
 
 @pytest.mark.unit
 def test_coordinate_ingestion_primary_fails_fallback_to_cached(
-    test_database,
     mock_data_store,
     mock_databento_client,
     mock_coverage_provider,
@@ -800,7 +787,6 @@ def test_coordinate_ingestion_primary_fails_fallback_to_cached(
 
 @pytest.mark.unit
 def test_coordinate_ingestion_all_levels_fail_to_dummy(
-    test_database,
     mock_data_store,
     metrics_registry,
 ):
@@ -843,7 +829,6 @@ def test_coordinate_ingestion_all_levels_fail_to_dummy(
 
 @pytest.mark.unit
 def test_ingest_from_databento_rate_limited(
-    test_database,
     mock_data_store,
     mock_databento_client,
     metrics_registry,
@@ -1004,7 +989,6 @@ def test_ingest_earnings_data_schema_violation(
 
 @pytest.mark.unit
 def test_coordinate_ingestion_empty_instrument_list(
-    test_database,
     mock_data_store,
 ):
     """
@@ -1041,7 +1025,6 @@ def test_coordinate_ingestion_empty_instrument_list(
 
 @pytest.mark.unit
 def test_backfill_coverage_zero_lookback_days(
-    test_database,
     mock_coverage_provider,
 ):
     """
@@ -1168,7 +1151,6 @@ def test_run_pre_ingestion_catalog_path_not_exists(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_ingest_to_datastore_full_workflow(
-    test_database,
     mock_data_store,
     mock_databento_client,
 ):
@@ -1241,7 +1223,6 @@ def test_ingest_to_datastore_full_workflow(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_fallback_chain_integration_metrics_emitted(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_databento_client,
@@ -1285,7 +1266,6 @@ def test_fallback_chain_integration_metrics_emitted(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_checkpoint_recovery_integration_e2e(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     checkpoint_path,
@@ -1335,7 +1315,6 @@ def test_checkpoint_recovery_integration_e2e(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_data_validation_integration_reject_invalid(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_databento_client,
@@ -1380,7 +1359,6 @@ def test_data_validation_integration_reject_invalid(
 @pytest.mark.serial
 @pytest.mark.slow
 def test_databento_ingestion_functional_realistic(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_databento_client,
@@ -1436,7 +1414,6 @@ def test_databento_ingestion_functional_realistic(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_yahoo_ingestion_functional_fundamentals_parsing(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_yahoo_client,
@@ -1481,7 +1458,6 @@ def test_yahoo_ingestion_functional_fundamentals_parsing(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_fred_ingestion_functional_macro_time_series(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_fred_client,
@@ -1524,7 +1500,6 @@ def test_fred_ingestion_functional_macro_time_series(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_earnings_ingestion_functional_schema_compliance(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_earnings_provider,
@@ -1587,7 +1562,6 @@ def test_earnings_ingestion_functional_schema_compliance(
 @pytest.mark.integration
 @pytest.mark.serial
 def test_progressive_fallback_all_levels_documented(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     mock_databento_client,
@@ -1690,7 +1664,6 @@ def test_fallback_metrics_collected_all_paths(
 @pytest.mark.serial
 @pytest.mark.slow
 def test_resume_interrupted_ingestion_no_duplicates(
-    test_database,
     mock_data_store,
     mock_feature_registry,
     checkpoint_path,
@@ -2012,7 +1985,6 @@ def test_macro_ingestion_config_defaults():
 
 @pytest.mark.unit
 def test_ingest_earnings_data_calls_earnings_ingestion_service(
-    test_database,
     mock_data_store,
     monkeypatch,
 ):
@@ -2077,7 +2049,6 @@ def test_ingest_earnings_data_calls_earnings_ingestion_service(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_returns_zero_without_data_store(
-    test_database,
 ):
     """
     Verify ingest_earnings_data returns 0 when no DataStore is available.
@@ -2099,7 +2070,6 @@ def test_ingest_earnings_data_returns_zero_without_data_store(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_uses_default_config(
-    test_database,
     mock_data_store,
     monkeypatch,
 ):
@@ -2150,7 +2120,6 @@ def test_ingest_earnings_data_uses_default_config(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_handles_errors_gracefully(
-    test_database,
     mock_data_store,
     monkeypatch,
 ):
@@ -2190,7 +2159,6 @@ def test_ingest_earnings_data_handles_errors_gracefully(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_normalizes_symbol_to_uppercase(
-    test_database,
     mock_data_store,
     monkeypatch,
 ):
@@ -2237,7 +2205,6 @@ def test_ingest_earnings_data_normalizes_symbol_to_uppercase(
 
 @pytest.mark.unit
 def test_ingest_earnings_data_merges_skip_tickers(
-    test_database,
     mock_data_store,
     monkeypatch,
 ):

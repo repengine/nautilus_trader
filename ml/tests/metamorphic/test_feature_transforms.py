@@ -152,19 +152,47 @@ class TestFeatureTransformMetamorphic:
                 == row_base["avg_price_impact"]
             )
 
+    @given(
+        prices=st.lists(
+            st.floats(
+                min_value=0.5,
+                max_value=200.0,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+            min_size=10,
+            max_size=50,
+        ),
+        volumes=st.lists(
+            st.floats(min_value=0.0, max_value=1_000_000.0, allow_nan=False, allow_infinity=False),
+            min_size=10,
+            max_size=50,
+        ),
+    )
+    @settings(max_examples=10, deadline=3000)
     def test_trade_flow_missing_trades_matches_ohlcv(
         self,
         prices: list[float],
         volumes: list[float],
     ) -> None:
+        """
+        Metamorphic relation: When trade columns are missing/empty, trade-flow features
+        should match the OHLCV-only fallback path.
+        """
+        # NOTE: This test is Hypothesis-driven (not pytest fixtures).
+        # Keep the input space bounded and deterministic via the CI profile.
+        #
+        # We accept mismatched input lengths and align by truncation so the relation
+        # is tested across a broader space of cases.
         assume_len = min(len(prices), len(volumes))
         prices = prices[:assume_len]
         volumes = volumes[:assume_len]
 
         cfg = FeatureConfig(include_trade_flow=True)
-        engineer = FeatureEngineer(cfg)
+        engineer_with_trades = FeatureEngineer(cfg)
+        engineer_ohlcv_only = FeatureEngineer(cfg)
 
-        base_df = pd.DataFrame(
+        df_with_trades = pd.DataFrame(
             {
                 "close": prices,
                 "high": [price * 1.01 for price in prices],
@@ -175,19 +203,29 @@ class TestFeatureTransformMetamorphic:
                 "trade_side": [0] * len(prices),
             },
         )
+        df_ohlcv_only = df_with_trades.drop(columns=["trade_price", "trade_volume", "trade_side"])
 
-        manual = engineer._calculate_trade_flow_features_from_ohlcv(
-            base_df,
-            len(base_df) - 1,
-            base_df.iloc[-1].to_dict(),
+        features_with_trades, _ = engineer_with_trades.calculate_features_batch(
+            df_with_trades,
+            fit_scaler=False,
         )
-        batch_features = engineer._calculate_trade_flow_features_batch(
-            base_df,
-            len(base_df) - 1,
-            base_df.iloc[-1].to_dict(),
+        features_ohlcv_only, _ = engineer_ohlcv_only.calculate_features_batch(
+            df_ohlcv_only,
+            fit_scaler=False,
         )
 
-        assert batch_features == manual
+        trade_flow_cols = [
+            "trade_flow_imbalance",
+            "vwap",
+            "trade_intensity",
+            "avg_price_impact",
+        ]
+        last_with_trades = features_with_trades.iloc[-1]
+        last_ohlcv_only = features_ohlcv_only.iloc[-1]
+        for col in trade_flow_cols:
+            assert col in last_with_trades.index
+            assert col in last_ohlcv_only.index
+            assert pytest.approx(float(last_with_trades[col]), abs=1e-6) == float(last_ohlcv_only[col])
 
     @given(
         prices=st.lists(

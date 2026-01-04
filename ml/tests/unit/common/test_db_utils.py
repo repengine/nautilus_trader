@@ -156,9 +156,9 @@ def test_get_or_create_engine_sqlite_connection(patch_engine_manager: PatchEngin
     assert args[0] == "sqlite:///test.db"
 
 @pytest.mark.database
-def test_ensure_default_partition_idempotent(test_database):
+def test_ensure_default_partition_idempotent(cloned_test_database: str):
     """Default partition creation is idempotent."""
-    engine = test_database.engine
+    engine = get_or_create_engine(cloned_test_database)
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS public.ml_feature_values_default CASCADE"))
 
@@ -173,9 +173,9 @@ def test_ensure_default_partition_idempotent(test_database):
     assert exists in {"ml_feature_values_default", "public.ml_feature_values_default"}
 
 @pytest.mark.database
-def test_ensure_partition_tables_ready_seeds_partitions(test_database):
+def test_ensure_partition_tables_ready_seeds_partitions(cloned_test_database: str):
     """Ensure partition helper creates default partitions and monthly shards."""
-    engine = test_database.engine
+    engine = get_or_create_engine(cloned_test_database)
     with engine.begin() as conn:
         partitions = conn.execute(
             text(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import signal
+from dataclasses import replace
 from pathlib import Path
 from typing import Mapping
 
@@ -199,7 +200,7 @@ def test_runner_signal_requests_checkpoint(tmp_path: Path) -> None:
 
 def test_runner_azure_notice_triggers_checkpoint(tmp_path: Path) -> None:
     config = _build_runner_config(tmp_path)
-    config.scheduled_events = AzureScheduledEventsConfig(enabled=True)
+    config = replace(config, scheduled_events=AzureScheduledEventsConfig(enabled=True))
     runner = StreamingTrainingRunner(config)
 
     class _WorkerStub:

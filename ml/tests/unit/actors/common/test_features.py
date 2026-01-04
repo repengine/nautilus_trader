@@ -30,6 +30,7 @@ from nautilus_trader.model.objects import Quantity
 
 from ml.actors.common.features import FeaturesComponent
 from ml.actors.common.features import FeaturesProtocol
+from ml.config.actors import MLSignalActorConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 
@@ -859,29 +860,140 @@ def test_performance_buffer_reallocation_zero(
 # For now, they are placeholders that demonstrate the test structure.
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL integration")
-def test_feature_integration_persisted_to_store():
+def test_feature_integration_persisted_to_store(
+    basic_config,
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+) -> None:
     """Integration Test 1: Validate features written to FeatureStore."""
+    component = FeaturesComponent(
+        config=basic_config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+    )
+
+    bar = create_bar()
+    feature_payload = {"feature_0": 1.0, "feature_1": 2.0}
+
+    result = component.persist_features_async(
+        feature_set_id="default",
+        instrument_id=str(bar.bar_type.instrument_id),
+        features=feature_payload,
+        ts_event=bar.ts_event,
+        ts_init=bar.ts_init,
+    )
+
+    assert result is True
+    mock_feature_store.write_features.assert_called_once_with(
+        feature_set_id="default",
+        instrument_id=str(bar.bar_type.instrument_id),
+        features=feature_payload,
+        ts_event=bar.ts_event,
+        ts_init=bar.ts_init,
+    )
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL integration")
-def test_feature_integration_validated_against_registry():
+def test_feature_integration_validated_against_registry(
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+) -> None:
     """Integration Test 2: Validate features checked against FeatureRegistry schema."""
+    config = MLSignalActorConfig(
+        model_path="/tmp/test_model.onnx",
+        model_id="test_model_features",
+        bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
+        instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+        feature_config=MLFeatureConfig(lookback_window=50),
+        feature_set_id="test_feature_set",
+        use_dummy_stores=True,
+    )
+    component = FeaturesComponent(
+        config=config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+    )
+
+    features = np.zeros(20, dtype=np.float32)
+    assert component.validate_features(features) is True
+    mock_feature_registry.get_feature_manifest.assert_called_with("test_feature_set")
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL integration")
-def test_feature_integration_buffer_respects_lookback_window():
+def test_feature_integration_buffer_respects_lookback_window(
+    basic_config,
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+) -> None:
     """Integration Test 3: Validate buffer respects config's lookback_window."""
+    import msgspec
+
+    config = msgspec.structs.replace(
+        basic_config,
+        feature_config=MLFeatureConfig(lookback_window=5),
+    )
+    component = FeaturesComponent(
+        config=config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+    )
+
+    bars = create_bar_sequence(count=10)
+    for bar in bars:
+        component.buffer_bar(bar)
+
+    buffered = component.get_buffered_bars()
+    assert len(buffered) == 5
+    assert buffered[0].ts_event == bars[-5].ts_event
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL integration")
-def test_feature_integration_warm_up_blocks_predictions():
+def test_feature_integration_warm_up_blocks_predictions(
+    basic_config,
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+) -> None:
     """Integration Test 4: Validate actor doesn't predict until warmed up."""
+    component = FeaturesComponent(
+        config=basic_config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+    )
+
+    bars = create_bar_sequence(count=25)
+    for bar in bars[:19]:
+        component.compute_features(bar)
+        assert component.is_warmed_up() is False
+
+    component.compute_features(bars[19])
+    assert component.is_warmed_up() is True
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL integration")
-def test_feature_integration_computation_with_real_bars():
+def test_feature_integration_computation_with_real_bars(
+    basic_config,
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+) -> None:
     """Integration Test 5: Validate end-to-end feature computation."""
+    component = FeaturesComponent(
+        config=basic_config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+    )
+
+    bars = create_bar_sequence(count=30)
+    for bar in bars:
+        features = component.compute_features(bar)
+        assert features is not None
+        assert features.shape == (20,)
+        assert np.isfinite(features).all()
 
 
 # =======================================================================================

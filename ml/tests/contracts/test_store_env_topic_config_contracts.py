@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Callable, ContextManager
+from unittest.mock import MagicMock
 
 import pytest
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.stores.feature_store import FeatureStore
+
+
+PatchEngineManager = Callable[..., ContextManager[MagicMock]]
 
 
 @contextmanager
@@ -34,7 +38,10 @@ class CapturePublisher(MessagePublisherProtocol):
 
 
 @pytest.mark.contracts
-def test_feature_store_honors_env_topic_scheme_and_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feature_store_honors_env_topic_scheme_and_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_engine_manager: PatchEngineManager,
+) -> None:
     # Avoid real DB interactions
     monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
     monkeypatch.setattr(
@@ -44,22 +51,23 @@ def test_feature_store_honors_env_topic_scheme_and_prefix(monkeypatch: pytest.Mo
 
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_TOPIC_PREFIX": "custom.prefix"}):
-        store = FeatureStore(
-            connection_string="postgresql://ignored",  # ignored due to monkeypatch
-            enable_publishing=True,
-            publisher=pub,
-            publish_mode="batch",
-        )
-        # write_features with explicit args should publish a batch summary when publish_mode includes "batch"
-        store.write_features(
-            feature_set_id="fs",
-            instrument_id="EUR/USD",
-            features={"x": 1.0},
-            ts_event=123,
-        )
+        with patch_engine_manager():
+            store = FeatureStore(
+                connection_string="postgresql://ignored",  # ignored due to monkeypatch
+                enable_publishing=True,
+                publisher=pub,
+                publish_mode="batch",
+            )
+            # write_features with explicit args should publish a batch summary when publish_mode includes "batch"
+            store.write_features(
+                feature_set_id="fs",
+                instrument_id="EUR/USD",
+                features={"x": 1.0},
+                ts_event=123,
+            )
 
-        assert pub.calls, "Expected a publish call"
-        topic, payload = pub.calls[-1]
-        assert topic.startswith("custom.prefix.FEATURE_COMPUTED."), topic
-        assert payload["stage"] == "FEATURE_COMPUTED"
-        assert payload["status"] in {"success", "partial", "failed"}
+            assert pub.calls, "Expected a publish call"
+            topic, payload = pub.calls[-1]
+            assert topic.startswith("custom.prefix.FEATURE_COMPUTED."), topic
+            assert payload["stage"] == "FEATURE_COMPUTED"
+            assert payload["status"] in {"success", "partial", "failed"}

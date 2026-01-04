@@ -780,6 +780,9 @@ class TestErrorConditions:
 
         monkeypatch.setattr(hp_module, "HAS_OPTUNA", False)
         monkeypatch.setattr(imports_module, "HAS_OPTUNA", False)
+        # Ensure the module under test uses the patched dependency guard even if
+        # another test reloads `ml._imports` and invalidates earlier imports.
+        monkeypatch.setattr(hp_module, "check_ml_dependencies", imports_module.check_ml_dependencies)
 
         hp_component = HyperparameterComponent(trainer_fixture)
 

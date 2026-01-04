@@ -12,54 +12,75 @@ The circular dependency that was resolved:
 
 """
 
+from __future__ import annotations
+
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+
+def _ml_module_keys() -> list[str]:
+    return [k for k in sys.modules.keys() if k == "ml" or k.startswith("ml.")]
+
+
+@contextmanager
+def _isolated_ml_import_state() -> Iterator[None]:
+    """
+    Temporarily clear ``ml`` modules from ``sys.modules`` and restore afterward.
+
+    This keeps the import-order tests hermetic and prevents cross-test pollution
+    (other unit tests may hold references to already-imported modules).
+    """
+    saved = {k: sys.modules[k] for k in _ml_module_keys()}
+    try:
+        for key in _ml_module_keys():
+            sys.modules.pop(key, None)
+        yield
+    finally:
+        for key in _ml_module_keys():
+            sys.modules.pop(key, None)
+        sys.modules.update(saved)
 
 
 def test_stores_import_standalone():
     """
     Stores module can be imported without actors.
     """
-    # Clean slate - remove any previously imported ml modules
-    mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
-    for mod in mods_to_remove:
-        del sys.modules[mod]
+    with _isolated_ml_import_state():
+        # Import stores first - should not trigger actor imports
+        try:
+            import ml.stores
 
-    # Import stores first - should not trigger actor imports
-    try:
-        import ml.stores
-
-        assert ml.stores is not None
-        # Verify actors module was NOT imported as side effect
-        assert "ml.actors" not in sys.modules, "ml.stores should not import ml.actors at runtime"
-        assert (
-            "ml.actors.base" not in sys.modules
-        ), "ml.stores should not import ml.actors.base at runtime"
-    except ImportError as e:
-        # Allow databento import errors (optional dependency)
-        if "databento" not in str(e):
-            raise
+            assert ml.stores is not None
+            # Verify actors module was NOT imported as side effect
+            assert (
+                "ml.actors" not in sys.modules
+            ), "ml.stores should not import ml.actors at runtime"
+            assert (
+                "ml.actors.base" not in sys.modules
+            ), "ml.stores should not import ml.actors.base at runtime"
+        except ImportError as e:
+            # Allow databento import errors (optional dependency)
+            if "databento" not in str(e):
+                raise
 
 
 def test_actors_import_standalone():
     """
     Actors module can be imported without stores (tests runtime independence).
     """
-    # Clean slate
-    mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
-    for mod in mods_to_remove:
-        del sys.modules[mod]
+    with _isolated_ml_import_state():
+        # Import actors first - will import stores as dependency (this is expected)
+        try:
+            import ml.actors
 
-    # Import actors first - will import stores as dependency (this is expected)
-    try:
-        import ml.actors
-
-        assert ml.actors is not None
-        # It's OK for actors to import stores (that's the dependency direction we want)
-        # We just need to verify no circular dependency errors occurred
-    except ImportError as e:
-        # Allow databento import errors (optional dependency)
-        if "databento" not in str(e):
-            raise
+            assert ml.actors is not None
+            # It's OK for actors to import stores (that's the dependency direction we want)
+            # We just need to verify no circular dependency errors occurred
+        except ImportError as e:
+            # Allow databento import errors (optional dependency)
+            if "databento" not in str(e):
+                raise
 
 
 def test_import_order_independence():
@@ -67,36 +88,30 @@ def test_import_order_independence():
     Imports work in either order without circular dependency errors.
     """
     # Test order 1: stores then actors
-    mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
-    for mod in mods_to_remove:
-        del sys.modules[mod]
+    with _isolated_ml_import_state():
+        try:
+            import ml.stores
+            import ml.actors
 
-    try:
-        import ml.stores
-        import ml.actors
-
-        assert ml.stores is not None
-        assert ml.actors is not None
-    except ImportError as e:
-        # Allow databento import errors (optional dependency)
-        if "databento" not in str(e):
-            raise
+            assert ml.stores is not None
+            assert ml.actors is not None
+        except ImportError as e:
+            # Allow databento import errors (optional dependency)
+            if "databento" not in str(e):
+                raise
 
     # Test order 2: actors then stores
-    mods_to_remove = [k for k in sys.modules.keys() if k.startswith("ml.")]
-    for mod in mods_to_remove:
-        del sys.modules[mod]
+    with _isolated_ml_import_state():
+        try:
+            import ml.actors
+            import ml.stores
 
-    try:
-        import ml.actors
-        import ml.stores
-
-        assert ml.actors is not None
-        assert ml.stores is not None
-    except ImportError as e:
-        # Allow databento import errors (optional dependency)
-        if "databento" not in str(e):
-            raise
+            assert ml.actors is not None
+            assert ml.stores is not None
+        except ImportError as e:
+            # Allow databento import errors (optional dependency)
+            if "databento" not in str(e):
+                raise
 
 
 def test_no_runtime_actor_import_in_stores():

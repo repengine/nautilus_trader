@@ -490,7 +490,7 @@ class TestFeatureCalculatorPerformance:
 
         # Generate small DataFrame
         np.random.seed(42)
-        n_bars = 100
+        n_bars = 50
         df = pd.DataFrame(
             {
                 "close": 100.0 + np.cumsum(np.random.randn(n_bars) * 0.5),

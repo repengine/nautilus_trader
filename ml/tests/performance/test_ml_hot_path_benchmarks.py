@@ -748,7 +748,7 @@ class TestEndToEndBenchmarks:
             connection_string=cloned_test_database,
         )
         data_store = DataStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
         )
 
         # Create mock actor components
@@ -959,8 +959,11 @@ class TestMessageProcessingBenchmarks:
         if os.getenv("PYTEST_XDIST_WORKER"):
             pytest.skip("Skip latency microbench under xdist for stability")
 
-        # Create mock event handlers
-        handlers = [Mock() for _ in range(10)]
+        def _noop_handler(_: object) -> None:
+            return None
+
+        # Create lightweight event handlers to measure dispatch overhead
+        handlers = [_noop_handler for _ in range(10)]
         event = {"type": "SIGNAL", "value": 1, "ts": 0}
 
         # Direct measurement for robust P99 computation

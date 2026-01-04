@@ -101,23 +101,26 @@ class TestFeatureCalculatorIntegration:
         assert not np.isinf(features_df.to_numpy()).any(), "Features contain Inf"
 
         # Verify feature value sanity checks
+        warmup = calculator._required_warmup_history_len
         # Returns should be small (realistic price changes)
         return_cols = [col for col in features_df.columns if "return" in col]
         if return_cols:
             assert (
-                np.abs(features_df[return_cols].iloc[20:]).max().max() < 1.0
+                np.abs(features_df[return_cols].iloc[warmup:]).max().max() < 1.0
             ), "Returns too large (> 100%)"
 
         # Volatility should be >= 0
         volatility_cols = [col for col in features_df.columns if "volatility" in col]
         if volatility_cols:
-            assert (features_df[volatility_cols] >= 0).all().all(), "Volatility should be non-negative"
+            assert (
+                features_df[volatility_cols] >= 0
+            ).all().all(), "Volatility should be non-negative"
 
         # Volume ratios should be > 0
         volume_ratio_cols = [col for col in features_df.columns if "volume_ratio" in col]
         if volume_ratio_cols:
             assert (
-                features_df[volume_ratio_cols].iloc[20:] > 0
+                features_df[volume_ratio_cols].iloc[warmup:] > 0
             ).all().all(), "Volume ratios should be positive"
 
     def test_feature_calculator_batch_online_parity(

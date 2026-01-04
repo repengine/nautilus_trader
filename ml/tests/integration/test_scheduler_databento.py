@@ -207,7 +207,7 @@ class TestDataSchedulerIntegration:
     @pytest.mark.serial
     def test_collect_symbol_data_retry_logic(
         self,
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test retry logic on collection failure.
@@ -224,13 +224,13 @@ class TestDataSchedulerIntegration:
                         use_temporary_files=True,
                         temp_data_dir=temp_dir,
                     ),
-                    connection_string=test_database.connection_string,
+                    connection_string=cloned_test_database,
                 )
 
                 scheduler = DataScheduler(
                     catalog=catalog,
                     config=config,
-                    connection=test_database.connection_string,
+                    connection=cloned_test_database,
                 )
 
                 # Mock client to fail twice then succeed
@@ -258,19 +258,19 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_load_from_dbn_file_venue_mapping(self, test_database: TestDatabase) -> None:
+    def test_load_from_dbn_file_venue_mapping(self, cloned_test_database: str) -> None:
         """
         Test venue code mapping in DBN file loading.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
             config = SchedulerConfig(
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             # Test venue mappings
@@ -346,7 +346,7 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_clean_old_data(self, test_database: TestDatabase) -> None:
+    def test_clean_old_data(self, cloned_test_database: str) -> None:
         """
         Test cleanup of old data (placeholder test).
         """
@@ -355,12 +355,12 @@ class TestDataSchedulerIntegration:
 
             config = SchedulerConfig(
                 retention_days=30,
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             # Currently just logs, but test it doesn't error
@@ -368,19 +368,19 @@ class TestDataSchedulerIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_compute_features(self, test_database: TestDatabase) -> None:
+    def test_compute_features(self, cloned_test_database: str) -> None:
         """
         Test feature computation trigger (placeholder test).
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
             config = SchedulerConfig(
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
-                connection=test_database.connection_string,
+                connection=cloned_test_database,
             )
 
             # Without feature engineer, should return early

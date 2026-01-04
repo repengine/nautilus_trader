@@ -25,11 +25,10 @@ def test_circuit_breaker_transitions(
     # Configure small thresholds to keep test fast
     cfg = CircuitBreakerConfig(failure_threshold=3, recovery_timeout=10, success_threshold=2)
 
-    # Monkeypatch time in module to a controllable stub
-    import ml.actors.base as base_mod
-
     stub_time = _StubTime(start=0.0)
-    monkeypatch.setattr(base_mod, "time", stub_time)  # module attribute used in CircuitBreaker
+    # Patch the globals used by CircuitBreaker methods directly so the test
+    # remains stable even if other tests reload/import-scrub ml.actors.base.
+    monkeypatch.setitem(CircuitBreaker.can_execute.__globals__, "time", stub_time)
 
     cb = CircuitBreaker(cfg, component_id="test_component")
 
@@ -70,10 +69,8 @@ def test_circuit_breaker_half_open_failure_reopens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # noqa: ANN001
     cfg = CircuitBreakerConfig(failure_threshold=2, recovery_timeout=5, success_threshold=2)
-    import ml.actors.base as base_mod
-
     stub_time = _StubTime(start=100.0)
-    monkeypatch.setattr(base_mod, "time", stub_time)
+    monkeypatch.setitem(CircuitBreaker.can_execute.__globals__, "time", stub_time)
 
     cb = CircuitBreaker(cfg, component_id="test_component")
 

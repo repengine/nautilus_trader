@@ -280,14 +280,9 @@ class TestInstrumentMetadataStoreIntegration:
     """Integration tests for PostgreSQL-backed store."""
 
     @pytest.fixture
-    def db_connection_string(self) -> str:
+    def db_connection_string(self, cloned_test_database: str) -> str:
         """Fixture providing test database connection string."""
-        import os
-
-        return os.environ.get(
-            "TEST_DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5434/test_nautilus",
-        )
+        return cloned_test_database
 
     @pytest.fixture
     def store(self, db_connection_string: str) -> InstrumentMetadataStore:

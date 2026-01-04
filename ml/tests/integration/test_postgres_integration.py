@@ -92,6 +92,8 @@ def test_migrations_applied(cloned_test_database: str) -> None:
             "ml_feature_values",
             "ml_model_predictions",
             "ml_strategy_signals",
+            "ml_data_events",
+            "ml_data_watermarks",
         ]
 
         for table in tables_to_check:

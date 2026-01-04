@@ -366,7 +366,7 @@ class TestFeatureFlagBehavior:
 
         health = facade.get_health_status()
         # Should indicate component-based implementation
-        assert health.get("implementation") == "component_based"
+        assert health.get("implementation") == "component-based"
 
     def test_feature_flag_1_uses_legacy_mode(
         self,

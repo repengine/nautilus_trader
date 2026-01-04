@@ -9,15 +9,10 @@ exercise read_signals/get_latest/get_statistics/get_signal_distribution.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
-
 import pytest
 
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.stores.strategy_store import StrategyStore
-
-if TYPE_CHECKING:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 pytestmark = [
     pytest.mark.integration,
@@ -32,12 +27,12 @@ pytestmark = [
 ]
 
 
-def test_strategy_store_reads_and_stats(test_database: TestDatabase) -> None:
+def test_strategy_store_reads_and_stats(cloned_test_database: str) -> None:
     """
     StrategyStore read_signals/get_latest/get_statistics/distribution behave as
     expected.
     """
-    store = StrategyStore(connection_string=test_database.connection_string)
+    store = StrategyStore(connection_string=cloned_test_database)
 
     base_ts = int(time.time_ns())
     strategy_id = "stratA"

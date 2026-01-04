@@ -113,8 +113,8 @@ def test_fit_streaming_returns_logits(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    not (HAS_TORCH and _torch is not None and hasattr(_torch, "cuda") and _torch.cuda.is_available()),
-    reason="CUDA device required to verify device alignment",
+    not (HAS_TORCH and _torch is not None),
+    reason="Torch required to verify device alignment",
 )
 def test_collect_streaming_logits_aligns_with_model_device() -> None:
     torch = pytest.importorskip("torch")
@@ -145,7 +145,7 @@ def test_collect_streaming_logits_aligns_with_model_device() -> None:
         dataloader_workers=0,
         batch_size=1,
     )
-    device = torch.device("cuda:0")
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     stub = _CudaStub(device)
     teacher._tft = stub  # type: ignore[attribute-defined-outside-init]
 

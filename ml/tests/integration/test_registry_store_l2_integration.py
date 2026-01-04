@@ -324,7 +324,7 @@ class TestL2L3RegistryStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_end_to_end_l2_feature_persistence(self, test_database) -> None:
+    def test_end_to_end_l2_feature_persistence(self, cloned_test_database: str) -> None:
         """
         Test end-to-end flow from L2 data to persisted features.
         """
@@ -332,7 +332,7 @@ class TestL2L3RegistryStoreIntegration:
             # Setup registry with PostgreSQL backend
             persistence_config = PersistenceConfig(
                 backend=BackendType.POSTGRES,
-                connection_string=test_database.connection_string,
+                connection_string=cloned_test_database,
             )
             registry = FeatureRegistry(
                 registry_path=Path(tmpdir),

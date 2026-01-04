@@ -324,7 +324,7 @@ class TestFeatureParity:
         self,
         feature_config: FeatureConfig,
         mock_bars: list[Bar],
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test that MLSignalActor computes features identically to training.
@@ -337,7 +337,7 @@ class TestFeatureParity:
                 bar_type=MagicMock(),
                 instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
                 model_path="./test_model.onnx",
-                db_connection=test_database.connection_string,
+                db_connection=cloned_test_database,
             )
 
             # Create actor
@@ -366,14 +366,14 @@ class TestFeatureParity:
     def test_feature_versioning(
         self,
         feature_config: FeatureConfig,
-        test_database: TestDatabase,
+        cloned_test_database: str,
     ) -> None:
         """
         Test that feature versions change when pipeline changes.
         """
         # Create store with initial config
         store1 = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=feature_config,
         )
 
@@ -383,7 +383,7 @@ class TestFeatureParity:
         modified_config = FeatureConfig(rsi_period=20)
 
         store2 = FeatureStore(
-            connection_string=test_database.connection_string,
+            connection_string=cloned_test_database,
             feature_config=modified_config,
         )
 
@@ -543,12 +543,12 @@ class TestParityFailureModes:
         features1 = engineer.calculate_features_online(
             current_bar=current_bar,
             indicator_manager=mgr1,
-        )
+        ).copy()
 
         features2 = engineer.calculate_features_online(
             current_bar=current_bar,
             indicator_manager=mgr2,
-        )
+        ).copy()
 
         # Features should be different due to different history
         assert not np.array_equal(

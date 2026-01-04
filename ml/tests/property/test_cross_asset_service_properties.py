@@ -14,7 +14,7 @@ for all valid inputs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING
 
 import pytest
 from hypothesis import HealthCheck
@@ -26,17 +26,13 @@ from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy import table as _table
 
+from ml.common.db_utils import get_or_create_engine
 from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 from ml.stores.table_factory import get_schema_name
 
 
 if TYPE_CHECKING:
     pass
-
-
-class _TestDatabase(Protocol):
-    connection_string: str
-    engine: Any
 
 
 pytestmark = pytest.mark.serial
@@ -109,12 +105,18 @@ def lookback_periods(draw):
 
 
 @pytest.fixture
-def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureService:
+def cross_asset_service(cloned_test_database: str) -> CrossAssetFeatureService:
     """Provide initialized CrossAssetFeatureService."""
     from ml.stores import ComponentFeatureStore
 
-    store = ComponentFeatureStore(connection_string=test_database.connection_string)
+    store = ComponentFeatureStore(connection_string=cloned_test_database)
     return store.cross_asset
+
+
+@pytest.fixture
+def db_engine(cloned_test_database: str):
+    """Provide SQLAlchemy engine bound to the cloned database."""
+    return get_or_create_engine(cloned_test_database)
 
 
 # ============================================================================
@@ -123,7 +125,6 @@ def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureServic
 
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 @settings(
     max_examples=50,
     deadline=None,
@@ -194,7 +195,6 @@ def test_timestamp_monotonicity_invariant(
 
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 @settings(
     max_examples=20,
     deadline=None,
@@ -209,7 +209,7 @@ def test_timestamp_monotonicity_invariant(
 )
 def test_upsert_idempotence_invariant(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: _TestDatabase,
+    db_engine,
     ts_event: int,
     asset_id: str,
     benchmark_id: str,
@@ -259,7 +259,7 @@ def test_upsert_idempotence_invariant(
         _column("feature_set_id"),
         _column("instrument_id"),
         _column("ts_event"),
-        schema=get_schema_name(test_database.engine),
+        schema=get_schema_name(db_engine),
     )
 
     feature_set_id = f"cross_asset:beta:{asset_id}:{benchmark_id}"
@@ -271,7 +271,7 @@ def test_upsert_idempotence_invariant(
         .where(feature_table.c.ts_event == ts_event)
     )
 
-    with test_database.engine.connect() as conn:
+    with db_engine.connect() as conn:
         count = conn.execute(stmt).scalar()
 
     # INVARIANT: Exactly one row exists
@@ -290,7 +290,6 @@ def test_upsert_idempotence_invariant(
 
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 @settings(
     max_examples=20,
     deadline=None,
@@ -305,7 +304,7 @@ def test_upsert_idempotence_invariant(
 )
 def test_namespace_uniqueness_invariant(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: _TestDatabase,
+    db_engine,
     ts_event: int,
     asset_1: str,
     asset_2: str,
@@ -364,7 +363,7 @@ def test_namespace_uniqueness_invariant(
         "ml_feature_values",
         _column("feature_set_id"),
         _column("ts_event"),
-        schema=get_schema_name(test_database.engine),
+        schema=get_schema_name(db_engine),
     )
 
     stmt = (
@@ -375,7 +374,7 @@ def test_namespace_uniqueness_invariant(
         )
     )
 
-    with test_database.engine.connect() as conn:
+    with db_engine.connect() as conn:
         results = conn.execute(stmt).fetchall()
 
     feature_set_ids = {row[0] for row in results}
@@ -394,7 +393,6 @@ def test_namespace_uniqueness_invariant(
 
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 @settings(
     max_examples=20,
     deadline=None,

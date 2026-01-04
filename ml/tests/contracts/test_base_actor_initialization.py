@@ -12,7 +12,7 @@ implementations MUST satisfy during initialization:
 5. Proper cleanup on failure paths
 6. Progressive fallback chains when services unavailable
 
-The tests use the clean_postgres_db fixture to ensure database isolation and
+The tests use the cloned_test_database fixture to ensure database isolation and
 validate the initialization behavior under various conditions.
 
 """
@@ -74,9 +74,29 @@ class ConcreteTestActor(BaseMLInferenceActor):
         return 0.5, 0.8
 
 
+_DB_CONNECTION: str | None = None
+
+
+@pytest.fixture(autouse=True)
+def _bind_db_connection(cloned_test_database: str) -> None:
+    """
+    Bind cloned database connection string for actor config construction.
+    """
+    global _DB_CONNECTION
+    _DB_CONNECTION = cloned_test_database
+
+
+def _make_config(**kwargs: Any) -> MLActorConfig:
+    """
+    Build MLActorConfig with the cloned database connection injected.
+    """
+    if _DB_CONNECTION is None:
+        raise AssertionError("cloned_test_database fixture not initialized")
+    return MLActorConfig(db_connection=_DB_CONNECTION, **kwargs)
+
+
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
 class TestBaseMLInferenceActorInitialization:
     """
     Contract tests for BaseMLInferenceActor initialization behavior.
@@ -102,7 +122,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -135,7 +155,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path="/nonexistent/model.onnx",
             model_id="test_model_v1",
@@ -164,7 +184,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -207,7 +227,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -240,7 +260,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -276,7 +296,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -309,7 +329,7 @@ class TestBaseMLInferenceActorInitialization:
         # Arrange
         from ml.config.base import CircuitBreakerConfig
 
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -341,7 +361,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -377,7 +397,7 @@ class TestBaseMLInferenceActorInitialization:
             lookback_window=50,
             normalize_features=False,
         )
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -415,7 +435,7 @@ class TestBaseMLInferenceActorInitialization:
             # Arrange
             mock_init_actor_services.side_effect = RuntimeError("Database connection failed")
 
-            config = MLActorConfig(
+            config = _make_config(
                 component_id=test_component_id,
                 model_path=str(dummy_onnx_model),
                 model_id="test_model_v1",
@@ -443,7 +463,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -476,7 +496,7 @@ class TestBaseMLInferenceActorInitialization:
         """
         # Arrange
         feature_config = MLFeatureConfig(lookback_window=25)
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -508,7 +528,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -543,7 +563,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -575,7 +595,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -608,7 +628,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -639,7 +659,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange - Invalid model path to force failure during on_start
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path="/nonexistent/path/model.onnx",
             model_id="test_model_v1",
@@ -671,7 +691,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -699,7 +719,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -749,7 +769,7 @@ class TestBaseMLInferenceActorInitialization:
         # Arrange
         from ml.config.base import CircuitBreakerConfig
 
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -783,7 +803,7 @@ class TestBaseMLInferenceActorInitialization:
         """
         # Test missing model_path - this should fail at config creation
         try:
-            MLActorConfig(
+            _make_config(
                 component_id=test_component_id,
                 model_id="test_model_v1",
                 bar_type=default_bar_type,
@@ -796,7 +816,7 @@ class TestBaseMLInferenceActorInitialization:
 
         # Test missing model_id - this should fail at config creation
         try:
-            MLActorConfig(
+            _make_config(
                 component_id=test_component_id,
                 model_path=str(dummy_onnx_model),
                 bar_type=default_bar_type,
@@ -823,7 +843,7 @@ class TestBaseMLInferenceActorInitialization:
         """
         # Arrange
         component_id = ComponentId("MLActor-TEST-001")
-        config = MLActorConfig(
+        config = _make_config(
             component_id=component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -853,7 +873,7 @@ class TestBaseMLInferenceActorInitialization:
         Then: Stores are initialized in the mandated order
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -906,7 +926,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -944,7 +964,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Arrange - Use invalid model path to trigger failure during on_start
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path="/absolutely/nonexistent/path/to/model.onnx",
             model_id="test_model_v1",
@@ -976,7 +996,7 @@ class TestBaseMLInferenceActorInitialization:
 
         """
         # Test that config accepts string component_id but actor creation may validate further
-        config_with_string_id = MLActorConfig(
+        config_with_string_id = _make_config(
             component_id="MLActor-TEST-001",  # String is accepted by config
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",
@@ -990,7 +1010,7 @@ class TestBaseMLInferenceActorInitialization:
         try:
             from msgspec import ValidationError
 
-            MLActorConfig(
+            _make_config(
                 component_id=ComponentId("MLActor-TEST-001"),
                 model_path=str(dummy_onnx_model),
                 model_id="test_model_v1",
@@ -1006,7 +1026,7 @@ class TestBaseMLInferenceActorInitialization:
         try:
             from msgspec import ValidationError
 
-            MLActorConfig(
+            _make_config(
                 component_id=ComponentId("MLActor-TEST-001"),
                 model_path=str(dummy_onnx_model),
                 model_id="test_model_v1",
@@ -1040,7 +1060,7 @@ class TestBaseMLInferenceActorInitialization:
             tmp_path = tmp_file.name
 
         try:
-            config = MLActorConfig(
+            config = _make_config(
                 component_id=test_component_id,
                 model_path=tmp_path,
                 model_id="test_model_v1",
@@ -1083,7 +1103,7 @@ class TestBaseMLInferenceActorInitialization:
             degraded_consecutive_failures=2,
             degraded_latency_violations=50,
         )
-        config = MLActorConfig(
+        config = _make_config(
             component_id=test_component_id,
             model_path=str(dummy_onnx_model),
             model_id="test_model_v1",

@@ -2,7 +2,7 @@
 Integration tests for MLPipelineOrchestratorFacade with stores and registries.
 
 Phase 2.2.8: Verify facade integrates correctly with all 4 stores and 4 registries.
-Tests require PostgreSQL database via test fixtures.
+Tests require PostgreSQL database via cloned_test_database fixture.
 
 Test Design: reports/tests/phase_2_2_8_test_design_report.md
 
@@ -18,7 +18,6 @@ import pytest
 
 
 if TYPE_CHECKING:
-    from ml.stores.data_store import DataStore
     from ml.stores.feature_store import FeatureStore
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
@@ -71,7 +70,7 @@ def mock_teacher_main() -> Mock:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestDataRegistryIntegration:
     """
     Integration tests for DataRegistry operations through facade.
@@ -79,7 +78,6 @@ class TestDataRegistryIntegration:
 
     def test_data_registry_dataset_registration(
         self,
-        test_database,
         mock_coverage_provider: Mock,
         mock_writer: Mock,
         mock_build_main: Mock,
@@ -104,7 +102,6 @@ class TestDataRegistryIntegration:
 
     def test_data_registry_manifest_retrieval(
         self,
-        test_database,
     ) -> None:
         """
         Verify registered datasets can be retrieved.
@@ -122,7 +119,7 @@ class TestDataRegistryIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestFeatureRegistryIntegration:
     """
     Integration tests for FeatureRegistry operations through facade.
@@ -130,7 +127,6 @@ class TestFeatureRegistryIntegration:
 
     def test_feature_registry_schema_registration(
         self,
-        test_database,
         mock_coverage_provider: Mock,
         mock_writer: Mock,
         mock_build_main: Mock,
@@ -154,7 +150,6 @@ class TestFeatureRegistryIntegration:
 
     def test_feature_registry_version_tracking(
         self,
-        test_database,
     ) -> None:
         """
         Verify feature version tracking works.
@@ -173,7 +168,7 @@ class TestFeatureRegistryIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestModelRegistryIntegration:
     """
     Integration tests for ModelRegistry operations through facade.
@@ -181,7 +176,6 @@ class TestModelRegistryIntegration:
 
     def test_model_registry_training_registration(
         self,
-        test_database,
         mock_coverage_provider: Mock,
         mock_writer: Mock,
         mock_build_main: Mock,
@@ -205,7 +199,6 @@ class TestModelRegistryIntegration:
 
     def test_model_registry_deployment_status(
         self,
-        test_database,
     ) -> None:
         """
         Verify model deployment status tracking.
@@ -224,7 +217,7 @@ class TestModelRegistryIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestStrategyRegistryIntegration:
     """
     Integration tests for StrategyRegistry operations through facade.
@@ -232,7 +225,6 @@ class TestStrategyRegistryIntegration:
 
     def test_strategy_registry_manifest_registration(
         self,
-        test_database,
     ) -> None:
         """
         Verify StrategyRegistry operations work through facade.
@@ -257,7 +249,7 @@ class TestStrategyRegistryIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestDataStoreIntegration:
     """
     Integration tests for DataStore operations through facade.
@@ -265,7 +257,6 @@ class TestDataStoreIntegration:
 
     def test_data_store_write_read_cycle(
         self,
-        data_store: DataStore,
         mock_coverage_provider: Mock,
         mock_writer: Mock,
         mock_build_main: Mock,
@@ -289,7 +280,6 @@ class TestDataStoreIntegration:
 
     def test_data_store_time_range_query(
         self,
-        data_store: DataStore,
     ) -> None:
         """
         Verify time range queries work.
@@ -308,7 +298,7 @@ class TestDataStoreIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestFeatureStoreIntegration:
     """
     Integration tests for FeatureStore operations through facade.
@@ -354,7 +344,7 @@ class TestFeatureStoreIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestModelStoreIntegration:
     """
     Integration tests for ModelStore operations through facade.
@@ -401,7 +391,7 @@ class TestModelStoreIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestStrategyStoreIntegration:
     """
     Integration tests for StrategyStore operations through facade.
@@ -453,7 +443,7 @@ class TestStrategyStoreIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("cloned_test_database")
 class TestCrossComponentIntegration:
     """
     Tests for integration across multiple components.
@@ -461,7 +451,6 @@ class TestCrossComponentIntegration:
 
     def test_pipeline_uses_all_stores(
         self,
-        test_database,
         mock_coverage_provider: Mock,
         mock_writer: Mock,
         mock_build_main: Mock,
@@ -486,7 +475,6 @@ class TestCrossComponentIntegration:
 
     def test_pipeline_uses_all_registries(
         self,
-        test_database,
     ) -> None:
         """
         Verify full pipeline touches all registries.
@@ -507,7 +495,6 @@ class TestCrossComponentIntegration:
 
     def test_store_registry_synchronization(
         self,
-        test_database,
     ) -> None:
         """
         Verify stores and registries stay in sync.

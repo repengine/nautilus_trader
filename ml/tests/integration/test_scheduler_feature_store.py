@@ -253,7 +253,7 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_store_initialization_failure(self, test_database: TestDatabase) -> None:
+    def test_feature_store_initialization_failure(self) -> None:
         """
         Test graceful handling of feature store initialization failure.
         """
@@ -310,14 +310,14 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_store_connection_from_env(self, test_database: TestDatabase) -> None:
+    def test_feature_store_connection_from_env(self, cloned_test_database: str) -> None:
         """
         Test that feature store uses connection string from environment.
         """
         # Temporarily set environment variable
         with patch.dict(
             os.environ,
-            {"NAUTILUS_DB_CONNECTION": test_database.connection_string},
+            {"NAUTILUS_DB_CONNECTION": cloned_test_database},
         ):
             with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
                 mock_feature_store = MagicMock()
@@ -338,11 +338,11 @@ class TestSchedulerFeatureStoreIntegration:
                 # Verify feature store was initialized with env var connection
                 mock_feature_store_class.assert_called_once()
                 call_args = mock_feature_store_class.call_args
-                assert test_database.connection_string in str(call_args)
+                assert cloned_test_database in str(call_args)
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_metrics_tracking(self, test_database: TestDatabase) -> None:
+    def test_metrics_tracking(self, cloned_test_database: str) -> None:
         """
         Test that feature computation tracks metrics correctly.
         """
@@ -351,7 +351,7 @@ class TestSchedulerFeatureStoreIntegration:
 
         self.config = _replace(
             self.config,
-            feature_store_connection=test_database.connection_string,
+            feature_store_connection=cloned_test_database,
         )
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             mock_feature_store = MagicMock()

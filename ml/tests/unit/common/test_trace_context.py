@@ -73,7 +73,7 @@ def test_get_correlation_and_trace_context_happy_path(monkeypatch: MonkeyPatch) 
 
 def test_get_correlation_and_trace_context_without_tracing_module(monkeypatch: MonkeyPatch) -> None:
     # Remove tracing module to exercise ImportError branch
-    sys.modules.pop("ml.observability.tracing", None)
+    monkeypatch.delitem(sys.modules, "ml.observability.tracing", raising=False)
     meta = get_correlation_and_trace_context(
         run_id="rid",
         dataset_id="features",

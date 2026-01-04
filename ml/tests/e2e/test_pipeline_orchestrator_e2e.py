@@ -701,7 +701,7 @@ class TestE2EHealthMonitoring:
         health = orchestrator.get_health_status()
 
         # Verify all components reported
-        assert health["implementation"] == "component_based"
+        assert health["implementation"] == "component-based"
         assert health["config_resolver"] == "healthy"
         assert health["discovery_client"] == "healthy"
         assert health["binding_resolver"] == "healthy"

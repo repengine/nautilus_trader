@@ -9,8 +9,8 @@ from ml.stores.schema_audit import TableExpectation
 
 
 @pytest.mark.database
-def test_schema_auditor_passes_on_partitioned_table(test_database) -> None:
-    engine = EngineManager.get_engine(test_database.connection_string)
+def test_schema_auditor_passes_on_partitioned_table(cloned_test_database: str) -> None:
+    engine = EngineManager.get_engine(cloned_test_database)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -40,7 +40,7 @@ def test_schema_auditor_passes_on_partitioned_table(test_database) -> None:
             require_primary_key=("id", "ts_event"),
         )
         auditor = SchemaAuditor(
-            db_url=test_database.connection_string,
+            db_url=cloned_test_database,
             expectations=(expectation,),
             function_expectations=(),
         )
@@ -52,8 +52,8 @@ def test_schema_auditor_passes_on_partitioned_table(test_database) -> None:
             conn.execute(text("DROP TABLE IF EXISTS audit_partitioned CASCADE"))
 
 @pytest.mark.database
-def test_schema_auditor_flags_heap_table(test_database) -> None:
-    engine = EngineManager.get_engine(test_database.connection_string)
+def test_schema_auditor_flags_heap_table(cloned_test_database: str) -> None:
+    engine = EngineManager.get_engine(cloned_test_database)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -71,7 +71,7 @@ def test_schema_auditor_flags_heap_table(test_database) -> None:
             required_columns=("ts_event",),
         )
         auditor = SchemaAuditor(
-            db_url=test_database.connection_string,
+            db_url=cloned_test_database,
             expectations=(expectation,),
             function_expectations=(),
         )

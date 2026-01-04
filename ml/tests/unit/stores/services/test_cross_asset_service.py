@@ -17,7 +17,7 @@ Test Categories:
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
@@ -28,17 +28,13 @@ from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 
+from ml.common.db_utils import get_or_create_engine
 from ml.stores.services.cross_asset_service import CrossAssetFeatureService
 from ml.stores.table_factory import get_schema_name
 
 
 if TYPE_CHECKING:
     pass
-
-
-class _TestDatabase(Protocol):
-    connection_string: str
-    engine: Any
 
 
 pytestmark = pytest.mark.serial
@@ -48,7 +44,7 @@ pytestmark = pytest.mark.serial
 # ============================================================================
 
 @pytest.fixture
-def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureService:
+def cross_asset_service(cloned_test_database: str) -> CrossAssetFeatureService:
     """
     Provide initialized CrossAssetFeatureService for testing.
 
@@ -56,8 +52,14 @@ def cross_asset_service(test_database: _TestDatabase) -> CrossAssetFeatureServic
     """
     from ml.stores import ComponentFeatureStore
 
-    store = ComponentFeatureStore(connection_string=test_database.connection_string)
+    store = ComponentFeatureStore(connection_string=cloned_test_database)
     return store.cross_asset
+
+
+@pytest.fixture
+def db_engine(cloned_test_database: str):
+    """Provide SQLAlchemy engine bound to the cloned database."""
+    return get_or_create_engine(cloned_test_database)
 
 @pytest.fixture
 def mock_cross_asset_deps():
@@ -249,11 +251,10 @@ def _count_all_rows_for_instruments(
 # ============================================================================
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_write_beta_inserts_with_namespaced_id(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that write_beta() correctly inserts a beta value with namespaced feature_set_id.
@@ -275,7 +276,7 @@ def test_write_beta_inserts_with_namespaced_id(
 
     # Query database for inserted row
     row = _query_beta_row(
-        test_database.engine,
+        db_engine,
         sample_beta_data["asset_id"],
         sample_beta_data["benchmark_id"],
         sample_beta_data["ts_event"],
@@ -291,11 +292,10 @@ def test_write_beta_inserts_with_namespaced_id(
     assert row["values"]["ewma_span"] == sample_beta_data["ewma_span"]
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_write_beta_upserts_on_conflict(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that write_beta() correctly updates existing row on conflict.
@@ -329,7 +329,7 @@ def test_write_beta_upserts_on_conflict(
 
     # Verify only one row exists
     count = _count_rows_for_beta(
-        test_database.engine,
+        db_engine,
         sample_beta_data["asset_id"],
         sample_beta_data["benchmark_id"],
         sample_beta_data["ts_event"],
@@ -338,7 +338,7 @@ def test_write_beta_upserts_on_conflict(
 
     # Verify updated values
     row = _query_beta_row(
-        test_database.engine,
+        db_engine,
         sample_beta_data["asset_id"],
         sample_beta_data["benchmark_id"],
         sample_beta_data["ts_event"],
@@ -348,7 +348,6 @@ def test_write_beta_upserts_on_conflict(
     assert row["ts_init"] == 2000000000000000000, "ts_init should be updated"
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_get_beta_history_returns_values_in_time_range(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
@@ -391,7 +390,6 @@ def test_get_beta_history_returns_values_in_time_range(
     assert results == sorted(results, key=lambda r: r["ts_event"]), "Results should be ordered by ts_event"
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_get_beta_history_returns_empty_when_no_data(
     cross_asset_service: CrossAssetFeatureService,
 ) -> None:
@@ -413,7 +411,6 @@ def test_get_beta_history_returns_empty_when_no_data(
     assert isinstance(results, list), "Result should be a list"
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_get_beta_history_excludes_end_timestamp(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
@@ -449,11 +446,10 @@ def test_get_beta_history_excludes_end_timestamp(
     assert results[0]["ts_event"] == 1000000000000000000
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_write_spread_with_correct_namespace(
     cross_asset_service: CrossAssetFeatureService,
     sample_spread_data: dict,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that write_spread() uses correct namespace format.
@@ -483,7 +479,7 @@ def test_write_spread_with_correct_namespace(
         _column("feature_set_id"),
         _column("instrument_id"),
         _column("values"),
-        schema=get_schema_name(test_database.engine),
+        schema=get_schema_name(db_engine),
     )
 
     feature_set_id = f"cross_asset:spread:{sample_spread_data['asset_1_id']}:{sample_spread_data['asset_2_id']}"
@@ -494,7 +490,7 @@ def test_write_spread_with_correct_namespace(
         feature_table.c["values"],
     ).where(feature_table.c.feature_set_id == feature_set_id)
 
-    with test_database.engine.connect() as conn:
+    with db_engine.connect() as conn:
         result = conn.execute(stmt).fetchone()
 
     assert result is not None, "Spread row should exist"
@@ -505,11 +501,10 @@ def test_write_spread_with_correct_namespace(
     assert result[2]["lookback_periods"] == sample_spread_data["lookback_periods"]
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_write_correlation_with_correct_namespace(
     cross_asset_service: CrossAssetFeatureService,
     sample_correlation_data: dict,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that write_correlation() uses correct namespace format.
@@ -538,7 +533,7 @@ def test_write_correlation_with_correct_namespace(
         _column("feature_set_id"),
         _column("instrument_id"),
         _column("values"),
-        schema=get_schema_name(test_database.engine),
+        schema=get_schema_name(db_engine),
     )
 
     feature_set_id = f"cross_asset:correlation:{sample_correlation_data['asset_1_id']}:{sample_correlation_data['asset_2_id']}"
@@ -549,7 +544,7 @@ def test_write_correlation_with_correct_namespace(
         feature_table.c["values"],
     ).where(feature_table.c.feature_set_id == feature_set_id)
 
-    with test_database.engine.connect() as conn:
+    with db_engine.connect() as conn:
         result = conn.execute(stmt).fetchone()
 
     assert result is not None, "Correlation row should exist"
@@ -583,10 +578,9 @@ def test_service_initialization_with_minimal_deps(
     assert hasattr(service, "write_correlation")
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_namespace_collision_prevention(
     cross_asset_service: CrossAssetFeatureService,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that different feature types never collide even with same asset pairs.
@@ -634,7 +628,7 @@ def test_namespace_collision_prevention(
 
     # Count total rows
     count = _count_all_rows_for_instruments(
-        test_database.engine,
+        db_engine,
         unique_asset,
         unique_benchmark,
     )
@@ -648,14 +642,14 @@ def test_namespace_collision_prevention(
     feature_table = _table(
         "ml_feature_values",
         _column("feature_set_id"),
-        schema=get_schema_name(test_database.engine),
+        schema=get_schema_name(db_engine),
     )
 
     stmt = select(feature_table.c.feature_set_id).where(
         feature_table.c.feature_set_id.like(f"%{unique_asset}%"),
     )
 
-    with test_database.engine.connect() as conn:
+    with db_engine.connect() as conn:
         results = conn.execute(stmt).fetchall()
 
     feature_set_ids = {row[0] for row in results}
@@ -669,11 +663,10 @@ def test_namespace_collision_prevention(
 # ============================================================================
 
 
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_json_serialization_of_metadata(
     cross_asset_service: CrossAssetFeatureService,
     sample_beta_data: dict,
-    test_database: _TestDatabase,
+    db_engine,
 ) -> None:
     """
     Verify that metadata is correctly serialized as JSON and retrieved as proper types.
@@ -694,7 +687,7 @@ def test_json_serialization_of_metadata(
     )
 
     row = _query_beta_row(
-        test_database.engine,
+        db_engine,
         sample_beta_data["asset_id"],
         sample_beta_data["benchmark_id"],
         sample_beta_data["ts_event"],

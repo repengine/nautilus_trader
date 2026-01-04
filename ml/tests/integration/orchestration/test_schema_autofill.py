@@ -8,6 +8,7 @@ Phase 2.2.6: STRUCTURAL PHASE
 - Document expected schema auto-fill behavior
 """
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,9 +22,12 @@ from ml.orchestration.config_types import AutoFillUniverseConfig, DatasetBuildCo
 
 
 @pytest.fixture
-def dataset_config() -> DatasetBuildConfig:
+def dataset_config(tmp_path: Path) -> DatasetBuildConfig:
     """Provides minimal DatasetBuildConfig for testing."""
     return DatasetBuildConfig(
+        data_dir=str(tmp_path / "data"),
+        symbols="SPY",
+        out_dir=str(tmp_path / "out"),
         dataset_id="test.dataset",
         instrument_ids=["SPY.NASDAQ"],
     )

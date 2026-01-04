@@ -38,7 +38,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.serial]
 class TestEndToEndBatchWorkflow:
     """Integration tests for complete batch (training) workflow."""
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_complete_batch_training_workflow(
         self,
         feature_config: FeatureConfig,
@@ -70,7 +69,11 @@ class TestEndToEndBatchWorkflow:
 
         # Verify scaler fitted on correct portion
         expected_fit_samples = int(len(training_dataframe) * 0.7)
-        assert scaler.n_samples_seen_ == expected_fit_samples
+        samples_seen = scaler.n_samples_seen_
+        if isinstance(samples_seen, np.ndarray):
+            assert int(samples_seen[0]) == expected_fit_samples
+        else:
+            assert int(samples_seen) == expected_fit_samples
 
         # Verify feature quality (no NaN after warmup)
         warmup_period = 50  # Indicators need warmup
@@ -78,11 +81,14 @@ class TestEndToEndBatchWorkflow:
 
         # Verify features are scaled (mean near 0, std near 1)
         # Note: Only check after warmup period
-        scaled_features = features_df.iloc[warmup_period:].to_numpy()
+        if hasattr(features_df, "select_dtypes"):
+            numeric_df = features_df.select_dtypes(include=[np.number])
+        else:
+            numeric_df = features_df.to_pandas().select_dtypes(include=[np.number])
+        scaled_features = numeric_df.iloc[warmup_period:].to_numpy()
         # Check for reasonable scaling (not exact due to fit ratio)
         assert np.abs(scaled_features.mean()) < 1.0
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_batch_workflow_produces_reproducible_results(
         self,
         feature_config: FeatureConfig,
@@ -113,7 +119,6 @@ class TestEndToEndBatchWorkflow:
 class TestEndToEndOnlineWorkflow:
     """Integration tests for complete online (inference) workflow."""
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_complete_online_inference_workflow(
         self,
         feature_config: FeatureConfig,
@@ -167,7 +172,6 @@ class TestEndToEndOnlineWorkflow:
             assert not np.isnan(features).any()
             assert not np.isinf(features).any()
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_online_workflow_state_isolation(
         self,
         feature_config: FeatureConfig,
@@ -233,7 +237,6 @@ class TestEndToEndOnlineWorkflow:
 class TestScalerSharingWorkflow:
     """Integration tests for scaler sharing between batch and online modes."""
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_scaler_fitted_in_batch_applied_in_online(
         self,
         feature_config: FeatureConfig,
@@ -292,7 +295,6 @@ class TestScalerSharingWorkflow:
         # Allow for some variation (market conditions differ)
         assert np.abs(features_scaled.mean()) < 5.0
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     def test_unscaled_features_match_scaled_before_transform(
         self,
         feature_config: FeatureConfig,
@@ -373,7 +375,6 @@ class TestScalerSharingWorkflow:
 class TestMultiConfigWorkflow:
     """Integration tests for workflows with different configurations."""
 
-    @pytest.mark.skip(reason="Test design - implementation pending")
     @pytest.mark.parametrize(
         "config_name,config_overrides",
         [
@@ -420,9 +421,10 @@ class TestMultiConfigWorkflow:
 
         # Feature count should match config
         expected_feature_count = len(config.get_feature_names())
-        assert len(features_df.columns) == expected_feature_count, (
+        feature_cols = [col for col in features_df.columns if col != "timestamp"]
+        assert len(feature_cols) == expected_feature_count, (
             f"Config {config_name}: expected {expected_feature_count} features, "
-            f"got {len(features_df.columns)}"
+            f"got {len(feature_cols)}"
         )
 
 

@@ -28,7 +28,15 @@ class _StubStore:
 
 
 class _StubScheduler:
-    def __init__(self, *, catalog: Any, config: Any, use_orchestrator: bool, dual_write: bool) -> None:
+    def __init__(
+        self,
+        *,
+        catalog: Any,
+        config: Any,
+        use_orchestrator: bool,
+        dual_write: bool,
+        **_: Any,
+    ) -> None:
         self.catalog = catalog
         self.config = config
         self.use_orchestrator = use_orchestrator
@@ -67,7 +75,7 @@ def test_pipeline_runner_performs_catalog_rehydration(
 ) -> None:
     catalog_dir = tmp_path / "catalog"
     catalog_dir.mkdir()
-    instrument = "NVDA.XNAS"
+    instrument = "NVDA.EQUS"
     _populate_catalog(
         catalog_dir,
         instrument=instrument,
@@ -88,6 +96,8 @@ def test_pipeline_runner_performs_catalog_rehydration(
         "CATALOG_PATH": str(catalog_dir),
         "DB_CONNECTION": db_uri,
         "UNIVERSE_SYMBOLS": instrument,
+        # Keep universe deterministic; EQUS.MINI normalization already enforces suffixes.
+        "UNIVERSE_EXPAND": "0",
         "DATABENTO_DATASET": "EQUS.MINI",
         "DATABENTO_SCHEMA": "ohlcv-1m",
         "CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE": "{instrument_id}-1-MINUTE-LAST-EXTERNAL",

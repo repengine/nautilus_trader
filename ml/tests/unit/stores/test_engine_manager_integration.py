@@ -22,12 +22,12 @@ class TestEngineManagerIntegration:
 
     """
 
-    def test_store_engines_are_identical_for_same_url(self, test_database):
+    def test_store_engines_are_identical_for_same_url(self, cloned_test_database: str):
         """
         Test that all stores get identical engine instances for same connection string.
         """
         # Use the real connection string with unmasked password
-        test_url = test_database.connection_string
+        test_url = cloned_test_database
 
         # Import here to avoid issues with engine creation during import
         from ml.stores.data_processor import DataProcessor
@@ -67,13 +67,16 @@ class TestEngineManagerIntegration:
             data_processor.engine is expected_engine
         ), "DataProcessor engine should be identical to EngineManager.get_engine() result"
 
-    def test_module_level_create_engine_functions_delegate_to_engine_manager(self, test_database):
+    def test_module_level_create_engine_functions_delegate_to_engine_manager(
+        self,
+        cloned_test_database: str,
+    ):
         """
         Test that module-level create_engine functions properly delegate to
         EngineManager.
         """
         # Use the real connection string with unmasked password
-        test_url = test_database.connection_string
+        test_url = cloned_test_database
 
         # Import module-level create_engine functions
         from ml.stores import feature_store, model_store, strategy_store, data_processor

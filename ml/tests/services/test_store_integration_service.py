@@ -174,10 +174,13 @@ def _seed_metrics_data(database: TestDatabase) -> None:
 
 
 @pytest.mark.asyncio
-async def test_store_metrics_snapshot_aggregates_real_data(test_database: TestDatabase) -> None:
+async def test_store_metrics_snapshot_aggregates_real_data(
+    cloned_test_database: str,
+) -> None:
+    test_database = TestDatabase(connection_string=cloned_test_database)
     _seed_metrics_data(test_database)
 
-    integration = _StubIntegrationManager(db_connection=test_database.connection_string)
+    integration = _StubIntegrationManager(db_connection=cloned_test_database)
     service = StoreIntegrationService(integration)
 
     snapshot = await service.get_metrics_snapshot()

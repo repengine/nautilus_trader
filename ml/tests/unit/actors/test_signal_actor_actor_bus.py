@@ -60,11 +60,6 @@ def test_actor_side_domain_event_bridge_publishes(
     ):
         # Patch the publisher factory used by the actor bus helper
         monkeypatch.setattr("ml.actors.ml_domain_events.publisher_from_config", _fake_factory)
-        # Avoid base publish path side-effects
-        monkeypatch.setattr(
-            "ml.actors.base.BaseMLInferenceActor._publish_signal",
-            lambda self, s: None,
-        )
 
         cfg = MLConfigBuilder.signal_config(
             model_path=str(tmp_path / "model.onnx"),
@@ -73,6 +68,12 @@ def test_actor_side_domain_event_bridge_publishes(
             instrument_id=default_instrument_id,
         )
         actor = MLSignalActor(cfg)
+        # Avoid base publish path side-effects (actor is unregistered in unit tests).
+        # Patch via the actor's actual MRO to stay stable if other tests reload/import-scrub modules.
+        base_cls = next(
+            cls for cls in type(actor).__mro__ if cls.__name__ == "BaseMLInferenceActor"
+        )
+        monkeypatch.setattr(base_cls, "_publish_signal", lambda self, s: None)
 
         # Act: publish a signal; bridge enqueues event in background
         sig = MLSignal(

@@ -51,16 +51,26 @@ class DatabaseConfig:
     @classmethod
     def for_unit_tests(cls) -> "DatabaseConfig":
         """
-        Create config for unit tests (PostgreSQL).
+        Create config for unit tests (DB-free by default).
         """
-        # Always use PostgreSQL for all tests
-        pg_connection = os.environ.get("DATABASE_URL", build_postgres_url())
+        if os.environ.get("ML_FORCE_DB_INIT", "0") == "1":
+            pg_connection = os.environ.get("DATABASE_URL", build_postgres_url())
+            return cls(
+                backend="postgresql",
+                connection_string=pg_connection,
+                use_in_memory=False,
+                auto_rollback=True,
+                isolation_level="READ_COMMITTED",
+                pool_size=1,
+                echo=False,
+            )
+
         return cls(
-            backend="postgresql",
-            connection_string=pg_connection,
-            use_in_memory=False,
+            backend="sqlite",
+            connection_string="sqlite:///:memory:",
+            use_in_memory=True,
             auto_rollback=True,
-            isolation_level="READ_COMMITTED",
+            isolation_level="SERIALIZABLE",
             pool_size=1,
             echo=False,
         )

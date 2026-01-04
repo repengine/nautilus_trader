@@ -267,7 +267,7 @@ class TestDeploymentIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_pipeline_with_stores_initialization(self, deployment_env, test_database):
+    def test_pipeline_with_stores_initialization(self, deployment_env):
         """
         Test pipeline initializes stores correctly with PostgreSQL.
         """

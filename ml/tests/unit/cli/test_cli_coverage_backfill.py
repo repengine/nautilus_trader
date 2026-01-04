@@ -13,7 +13,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -133,21 +132,16 @@ def test_plan_backfill_with_gaps(tmp_path: Path) -> None:
         json_path=registry_path,
     )
 
-    # Mock datetime.now to return a specific date within 30 days
-    with patch("ml.cli.coverage.datetime") as mock_datetime:
-        mock_datetime.strptime.side_effect = datetime.strptime
-        mock_datetime.now.return_value = datetime(2024, 1, 20)  # 5 days after the target date
-
-        # Run plan_backfill
-        plan_backfill(
-            from_dataset="BARS",
-            to_dataset="MBP1",
-            date="2024-01-15",
-            instruments=None,
-            registry_path=registry_path,
-            persistence_config=persistence_config,
-            output_file=output_file,
-        )
+    plan_backfill(
+        from_dataset="BARS",
+        to_dataset="MBP1",
+        date="2024-01-15",
+        instruments=None,
+        registry_path=registry_path,
+        persistence_config=persistence_config,
+        output_file=output_file,
+        now_fn=lambda: datetime(2024, 1, 20),  # 5 days after the target date
+    )
 
     # Verify output file was created
     assert output_file.exists()
@@ -288,21 +282,16 @@ def test_plan_backfill_no_gaps(tmp_path: Path) -> None:
         json_path=registry_path,
     )
 
-    # Mock datetime.now
-    with patch("ml.cli.coverage.datetime") as mock_datetime:
-        mock_datetime.strptime.side_effect = datetime.strptime
-        mock_datetime.now.return_value = datetime(2024, 1, 20)
-
-        # Run plan_backfill
-        plan_backfill(
-            from_dataset="BARS",
-            to_dataset="MBP1",
-            date="2024-01-15",
-            instruments=None,
-            registry_path=registry_path,
-            persistence_config=persistence_config,
-            output_file=output_file,
-        )
+    plan_backfill(
+        from_dataset="BARS",
+        to_dataset="MBP1",
+        date="2024-01-15",
+        instruments=None,
+        registry_path=registry_path,
+        persistence_config=persistence_config,
+        output_file=output_file,
+        now_fn=lambda: datetime(2024, 1, 20),
+    )
 
     # Verify output file was created
     assert output_file.exists()
@@ -346,19 +335,17 @@ def test_plan_backfill_dataset_shortcuts() -> None:
             json_path=registry_path,
         )
 
-        with patch("ml.cli.coverage.datetime") as mock_datetime:
-            mock_datetime.strptime.side_effect = datetime.strptime
-            mock_datetime.now.return_value = datetime(2024, 1, 20)
-
-            # Test L1 -> L2 mapping
-            plan_backfill(
-                from_dataset="L1",
-                to_dataset="L2",
-                date="2025-10-15",
-                registry_path=registry_path,
-                persistence_config=persistence_config,
-                output_file=output_file,
-            )
+        # Test L1 -> L2 mapping.
+        # Use now_fn to keep the date within the non-interactive window.
+        plan_backfill(
+            from_dataset="L1",
+            to_dataset="L2",
+            date="2025-10-15",
+            registry_path=registry_path,
+            persistence_config=persistence_config,
+            output_file=output_file,
+            now_fn=lambda: datetime(2025, 10, 20),
+        )
 
         with open(output_file) as f:
             job_spec = json.load(f)
