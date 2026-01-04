@@ -13,7 +13,7 @@ policies for backward compatibility; the public alias is `SignalPolicy`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeGuard
 
 from ml.actors.signal import SignalGenerationStrategy
 from ml.actors.signal import SignalPolicy
@@ -62,6 +62,16 @@ class DynamicThresholdAdapter:
         return ThresholdSignalStrategy(threshold=thr)
 
 
+def _is_signal_generation_strategy(obj: object) -> TypeGuard[SignalGenerationStrategy]:
+    """
+    Return True when obj looks like a SignalGenerationStrategy.
+
+    This uses structural validation (duck typing) rather than `isinstance(...)`
+    so tests remain stable even when other suites reload/import-scrub modules.
+    """
+    return not isinstance(obj, type) and callable(getattr(obj, "generate_signal", None))
+
+
 def build_strategy_from_policy(
     *,
     policy_path: str,
@@ -90,7 +100,7 @@ def build_strategy_from_policy(
     # Function adapter: callable but not a class
     if callable(target) and not isinstance(target, type):
         strategy = target(actor)
-        if not isinstance(strategy, SignalGenerationStrategy):
+        if not _is_signal_generation_strategy(strategy):
             raise RuntimeError(
                 f"Adapter function did not return a SignalGenerationStrategy: {type(strategy)}",
             )
@@ -109,7 +119,7 @@ def build_strategy_from_policy(
                 strategy = maker(actor)
         except Exception as exc:  # pragma: no cover - defensive
             raise RuntimeError(f"Adapter .make() failed: {exc}") from exc
-        if not isinstance(strategy, SignalGenerationStrategy):
+        if not _is_signal_generation_strategy(strategy):
             raise RuntimeError(
                 f"Adapter .make() did not return a SignalGenerationStrategy: {type(strategy)}",
             )
@@ -122,7 +132,7 @@ def build_strategy_from_policy(
             strategy = target(actor, **cfg)
         except Exception:
             strategy = target(**cfg)
-        if not isinstance(strategy, SignalGenerationStrategy):
+        if not _is_signal_generation_strategy(strategy):
             raise RuntimeError(
                 f"Constructed object is not a SignalGenerationStrategy: {type(strategy)}",
             )

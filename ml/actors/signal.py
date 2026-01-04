@@ -1194,7 +1194,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
             )
         except Exception as exc:
-            self.log.debug("Optimization level check failed; defaulting to non-optimized", exc_info=exc)
+            self.log.exception(
+                "Optimization level check failed; defaulting to non-optimized",
+                exc,
+            )
             is_optimized = False
         if is_optimized:
             self._persist_features = False
@@ -1327,7 +1330,10 @@ class MLSignalActor(BaseMLInferenceActor):
             self._topic_scheme = scheme
             self._topic_prefix = prefix
         except Exception as exc:
-            self.log.debug("Actor bus bridge initialization failed; skipping bridge setup", exc_info=exc)
+            self.log.exception(
+                "Actor bus bridge initialization failed; skipping bridge setup",
+                exc,
+            )
             self._actor_bus_bridge = None
 
         # Handle both enum and string for logging
@@ -1397,7 +1403,7 @@ class MLSignalActor(BaseMLInferenceActor):
             bridge.publish(topic, payload)
         except Exception as exc:
             # Do not impact hot path
-            self.log.debug("Bridge publish failed", exc_info=exc)
+            self.log.exception("Bridge publish failed", exc)
             return
 
     def get_signal_statistics(self) -> dict[str, Any]:

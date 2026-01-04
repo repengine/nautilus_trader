@@ -150,9 +150,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 ["actor"],
             )
         except Exception as exc:  # pragma: no cover - best-effort metrics
-            self.log.debug(
+            self.log.exception(
                 f"multi_signal.metrics_init_failed actor={self.id} error={exc!r}",
-                exc_info=True,
+                exc,
             )
 
             class _NoMetric:
@@ -212,9 +212,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
         try:
             self._universe_size_gauge.labels(actor=self.id).set(self._universe.size())
         except Exception as exc:
-            self.log.debug(
+            self.log.exception(
                 f"multi_signal.universe_metric_set_failed actor={self.id} error={exc!r}",
-                exc_info=True,
+                exc,
             )
 
     # --------------------------------- Hot path ---------------------------------
@@ -260,9 +260,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     self._flush_batch()
             except Exception as exc:
                 # Never impact hot path on timer errors
-                self.log.debug(
+                self.log.exception(
                     f"multi_signal.latency_timer_failed actor={self.id} error={exc!r}",
-                    exc_info=True,
+                    exc,
                 )
 
     # --------------------------------- Cold path ---------------------------------
@@ -282,9 +282,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 tracer = _trace.get_tracer(__name__)
                 span_ctx = tracer.start_as_current_span("ml.multi_infer.batch")
             except Exception as span_exc:
-                self.log.debug(
+                self.log.exception(
                     f"multi_signal.span_init_failed actor={self.id} error={span_exc!r}",
-                    exc_info=True,
+                    span_exc,
                 )
                 span_ctx = nullcontext()
 
@@ -309,10 +309,10 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 self._batch_size_hist.labels(actor=self.id).observe(self._batch_size)
                 self._batch_seconds.labels(actor=self.id).observe(_time.perf_counter() - t0)
             except Exception as metric_exc:
-                self.log.debug(
+                self.log.exception(
                     "multi_signal.metrics_emit_failed "
                     f"actor={self.id} batch_size={self._batch_size} error={metric_exc!r}",
-                    exc_info=True,
+                    metric_exc,
                 )
         finally:
             # Reset batch in O(1)
@@ -347,9 +347,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 )
         except Exception as exc:
             # Never fail startup due to alignment; metrics/parity checks will surface problems
-            self.log.debug(
+            self.log.exception(
                 f"multi_signal.feature_dim_alignment_failed actor={self.id} error={exc!r}",
-                exc_info=True,
+                exc,
             )
 
         # Advisory: auto-set universe from model registry metadata when not provided
@@ -388,10 +388,10 @@ class MultiInstrumentSignalActor(MLSignalActor):
                             if bt is not None:
                                 venue = str(getattr(bt.instrument_id, "venue", "")) or None
                         except Exception as venue_exc:
-                            self.log.debug(
+                            self.log.exception(
                                 "multi_signal.universe_metadata_venue_lookup_failed "
                                 f"actor={self.id} error={venue_exc!r}",
-                                exc_info=True,
+                                venue_exc,
                             )
                             venue = None
 
@@ -405,9 +405,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                         )
         except Exception as exc:
             # Best-effort behavior; never fail actor startup due to metadata
-            self.log.debug(
+            self.log.exception(
                 f"multi_signal.universe_metadata_failed actor={self.id} error={exc!r}",
-                exc_info=True,
+                exc,
             )
 
     # ----------------------------- Inference backend -----------------------------
@@ -444,9 +444,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     return preds, confs
         except Exception as exc:
             # Fall through to per-row inference on any failure
-            self.log.debug(
+            self.log.exception(
                 f"multi_signal.onnx_batch_run_failed actor={self.id} error={exc!r}",
-                exc_info=True,
+                exc,
             )
 
         # Fallback: per-row predictions using inherited predictor

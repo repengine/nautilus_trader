@@ -79,12 +79,13 @@ class StoreOperationsProtocol(Protocol):
         """
         ...
 
-    def get_health_status(self) -> dict[str, str]:
+    def get_health_status(self) -> dict[str, dict[str, str]]:
         """
         Get health status for all stores.
 
         Returns:
-            Dictionary mapping store name to status: "healthy", "degraded", or "unhealthy"
+            Dictionary mapping store name to a status payload with ``status`` set to
+            ``"healthy"``, ``"degraded"``, or ``"unhealthy"``.
 
         """
         ...
@@ -114,7 +115,7 @@ class StoreOperationsComponent:
         >>> # Stores are initialized automatically
         >>> feature_store = component.feature_store
         >>> health = component.get_health_status()
-        >>> assert health["aggregate"] == "healthy"
+        >>> assert health["feature_store"]["status"] == "healthy"
 
     """
 
@@ -379,7 +380,7 @@ class StoreOperationsComponent:
         """
         return self._persistence_worker
 
-    def get_health_status(self) -> dict[str, str]:
+    def get_health_status(self) -> dict[str, dict[str, str]]:
         """
         Get health status for all stores.
 
@@ -387,37 +388,23 @@ class StoreOperationsComponent:
         Health check is fast (<10ms) and non-blocking.
 
         Returns:
-            Dictionary with keys:
-                - "feature_store": "healthy" | "degraded" | "unhealthy"
-                - "model_store": "healthy" | "degraded" | "unhealthy"
-                - "strategy_store": "healthy" | "degraded" | "unhealthy"
-                - "data_store": "healthy" | "degraded" | "unhealthy"
-                - "aggregate": "healthy" | "degraded" | "unhealthy"
+            Dictionary with keys for each store. Each entry contains a ``status`` field
+            with value ``"healthy"``, ``"degraded"``, or ``"unhealthy"``.
 
         Example:
             >>> component = StoreOperationsComponent(config)
             >>> health = component.get_health_status()
-            >>> if health["aggregate"] == "degraded":
-            ...     print("Some stores are unhealthy")
+            >>> if health["feature_store"]["status"] == "degraded":
+            ...     print("Feature store is unhealthy")
 
         """
-        status: dict[str, str] = {}
-
-        # Check each store
-        status["feature_store"] = self._check_store_health(self._feature_store, "feature")
-        status["model_store"] = self._check_store_health(self._model_store, "model")
-        status["strategy_store"] = self._check_store_health(self._strategy_store, "strategy")
-        status["data_store"] = self._check_store_health(self._data_store, "data")
-
-        # Compute aggregate status
-        if all(s == "healthy" for s in status.values()):
-            status["aggregate"] = "healthy"
-        elif any(s == "unhealthy" for s in status.values()):
-            status["aggregate"] = "degraded"
-        else:
-            status["aggregate"] = "degraded"
-
-        return status
+        status_map = {
+            "feature_store": self._check_store_health(self._feature_store, "feature"),
+            "model_store": self._check_store_health(self._model_store, "model"),
+            "strategy_store": self._check_store_health(self._strategy_store, "strategy"),
+            "data_store": self._check_store_health(self._data_store, "data"),
+        }
+        return {name: {"status": status} for name, status in status_map.items()}
 
     def _check_store_health(self, store: object, store_name: str) -> str:
         """

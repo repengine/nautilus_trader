@@ -276,9 +276,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 )
             except (FileNotFoundError, ImportError) as exc:
                 # Model warm-up is optional; log and continue
-                self.log.warning(
-                    f"ModelWarmUpComponent not initialized: {exc}", exc_info=True
-                )
+                self.log.exception(f"ModelWarmUpComponent not initialized: {exc}", exc)
 
         # 6. Initialize strategy via component
         from ml.actors.common.signal_strategy import SignalGenerationStrategy
@@ -413,7 +411,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     self._run_parity_smoke_check()
 
         except Exception as e:
-            self.log.error(f"Error in prediction pipeline: {e}", exc_info=True)
+            self.log.exception(f"Error in prediction pipeline: {e}", e)
             self._performance_monitoring_component.record_error()
             self._record_failure()
 
@@ -552,7 +550,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             ).inc()
 
         except Exception as e:
-            self.log.error(f"Error generating signal: {e}", exc_info=True)
+            self.log.exception(f"Error generating signal: {e}", e)
             self._performance_monitoring_component.record_error()
 
     # =========================================================================
@@ -731,7 +729,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             try:
                 names = list(getattr(self._feature_engineer.config, "get_feature_names")())
             except Exception as exc:
-                self.log.debug("Failed to fetch feature names; continuing", exc_info=exc)
+                self.log.exception("Failed to fetch feature names; continuing", exc)
                 names = []
 
             if names and len(names) == features.shape[0]:
@@ -757,7 +755,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             )
         except Exception as exc:
             # Non-fatal; continue to signal generation
-            self.log.debug("Model inference context build failed; continuing", exc_info=exc)
+            self.log.exception("Model inference context build failed; continuing", exc)
 
     def _should_hot_reload(self) -> bool:
         """
@@ -817,7 +815,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             self._model_mtime = current_mtime
 
         except Exception as e:
-            self.log.error(f"Failed to hot reload model: {e}", exc_info=True)
+            self.log.exception(f"Failed to hot reload model: {e}", e)
 
     def _run_parity_smoke_check(self) -> None:
         """
@@ -955,8 +953,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     return None
                 return features
         except Exception as exc:
-            self.log.debug(
-                f"FeatureStore compute_realtime failed; falling back: {exc}", exc_info=True
+            self.log.exception(
+                f"FeatureStore compute_realtime failed; falling back: {exc}",
+                exc,
             )
 
         # Fallback to FeatureEngineer
@@ -1063,7 +1062,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             return 0.0, 0.0
 
         except Exception as e:
-            self.log.error(f"Prediction failed: {e}", exc_info=True)
+            self.log.exception(f"Prediction failed: {e}", e)
             raise
 
 

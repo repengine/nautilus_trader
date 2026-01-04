@@ -1218,6 +1218,13 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
             # FACADE: Delegate model loading to ModelComponent
             self._model_component.load_model()
+            # Backward-compatible mirrors: legacy prediction paths expect the
+            # loaded model + metadata on the actor instance.
+            self._model = self._model_component.model
+            self._model_metadata = self._model_component.model_metadata
+            self._model_version = self._model_component.model_version
+            if self._model_component.model_id is not None:
+                self._model_id = self._model_component.model_id
             self.log.debug(f"Model loaded via ModelComponent: {self._model_component.model_id}")
 
             # FACADE: FeaturesComponent initialization happens in __init__, no separate step needed
