@@ -658,6 +658,12 @@ class IngestionOrchestrator:
         """
         working = frame.copy()
         if "ts_event" not in working.columns:
+            if "timestamp" in working.columns:
+                ts_series = pd.to_datetime(working["timestamp"], utc=True, errors="coerce")
+                if ts_series.notna().all():
+                    working.loc[:, "ts_event"] = ts_series.astype("int64")
+            elif "ts_exchange" in working.columns:
+                working.loc[:, "ts_event"] = working["ts_exchange"]
             index_name = working.index.name
             if isinstance(working.index, pd.DatetimeIndex) and index_name in {"ts_event", "ts"}:
                 working = working.reset_index()

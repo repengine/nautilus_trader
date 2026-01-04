@@ -64,6 +64,14 @@ class _FredVintageClient(Protocol):
     ) -> pd.DataFrame:  # pragma: no cover - Protocol
         ...
 
+    def get_series(
+        self,
+        series_id: str,
+        observation_start: str | None = None,
+        observation_end: str | None = None,
+    ) -> pd.Series:  # pragma: no cover - Protocol
+        ...
+
 
 def _ensure_polars_frame(obj: pd.DataFrame) -> PolarsDF:
     """
@@ -87,6 +95,7 @@ class ALFREDConfig:
     max_retries: int = 2
     retry_delay_seconds: float = 1.0
     window_days: int = 0
+    fallback_to_fred_series: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not self.series_ids:
@@ -169,6 +178,7 @@ class ALFREDDataLoader:
                     "Retrying ALFRED fetch for %s after error: %s",
                     series_id,
                     exc,
+                    exc_info=True,
                 )
                 time.sleep(self._config.retry_delay_seconds)
 
@@ -276,18 +286,23 @@ class ALFREDDataLoader:
         start_raw = self._config.start_date
         end_raw = self._config.end_date
         window_days = max(int(self._config.window_days or 0), 0)
+        fallback_enabled = series_id in self._config.fallback_to_fred_series
         if not start_raw and not end_raw:
-            return self._client.get_series_all_releases(series_id)
+            try:
+                return self._client.get_series_all_releases(series_id)
+            except Exception:
+                if fallback_enabled:
+                    return self._fetch_fred_series(series_id)
+                raise
 
-        if not start_raw:
-            end_dt = datetime.strptime(end_raw, "%Y-%m-%d") if end_raw else datetime.now(tz=UTC)
-            start_dt = end_dt - timedelta(days=365)
-        else:
-            start_dt = datetime.strptime(start_raw, "%Y-%m-%d")
-        if not end_raw:
-            end_dt = datetime.now(tz=UTC)
-        else:
-            end_dt = datetime.strptime(end_raw, "%Y-%m-%d")
+        def _parse_day(value: str | None) -> datetime | None:
+            if value is None:
+                return None
+            dt = datetime.strptime(value, "%Y-%m-%d")
+            return dt.replace(tzinfo=UTC)
+
+        end_dt = _parse_day(end_raw) or datetime.now(tz=UTC)
+        start_dt = _parse_day(start_raw) or (end_dt - timedelta(days=365))
 
         frames: list[pd.DataFrame] = []
         current_start = start_dt
@@ -296,11 +311,16 @@ class ALFREDDataLoader:
         delta = timedelta(days=window_days)
         while current_start <= end_dt:
             current_end = min(current_start + delta, end_dt)
-            frame = self._client.get_series_all_releases(
-                series_id,
-                realtime_start=current_start.strftime("%Y-%m-%d"),
-                realtime_end=current_end.strftime("%Y-%m-%d"),
-            )
+            try:
+                frame = self._client.get_series_all_releases(
+                    series_id,
+                    realtime_start=current_start.strftime("%Y-%m-%d"),
+                    realtime_end=current_end.strftime("%Y-%m-%d"),
+                )
+            except Exception:
+                if fallback_enabled:
+                    return self._fetch_fred_series(series_id)
+                raise
             if not frame.empty:
                 frames.append(frame)
             current_start = current_end + timedelta(days=1)
@@ -311,6 +331,32 @@ class ALFREDDataLoader:
         merged = pd.concat(frames, ignore_index=True)
         merged = merged.drop_duplicates(subset=["realtime_start", "date"], keep="last")
         return merged
+
+    def _fetch_fred_series(self, series_id: str) -> pd.DataFrame:
+        import pandas as pd
+
+        try:
+            series = self._client.get_series(
+                series_id,
+                observation_start=self._config.start_date,
+                observation_end=self._config.end_date,
+            )
+        except Exception:
+            logger.warning(
+                "ALFRED fallback to FRED series failed for %s",
+                series_id,
+                exc_info=True,
+            )
+            return pd.DataFrame()
+
+        if series is None or series.empty:
+            return pd.DataFrame()
+
+        frame = series.rename("value").reset_index()
+        frame = frame.rename(columns={frame.columns[0]: "date"})
+        frame["realtime_start"] = frame["date"]
+        frame["realtime_end"] = frame["date"]
+        return frame[["realtime_start", "realtime_end", "date", "value"]]
 
 
 __all__ = ["ALFREDConfig", "ALFREDDataLoader"]

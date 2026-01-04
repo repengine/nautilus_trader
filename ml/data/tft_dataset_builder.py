@@ -15,6 +15,7 @@ from collections.abc import Callable
 from collections.abc import Iterable
 from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any, SupportsFloat, cast
 
@@ -204,6 +205,8 @@ class TFTDatasetBuilder:
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
         include_calendar_lags: bool = False,
+        include_clustering_tags: bool = False,
+        include_context_features: bool = False,
         include_events: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
@@ -267,10 +270,13 @@ class TFTDatasetBuilder:
         self.include_macro_deltas = include_macro_deltas
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
-        self.include_micro = include_micro
+        self.include_l2 = include_l2
+        self.include_micro = include_micro or include_l2
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
         self.include_calendar_lags = include_calendar_lags
+        self.include_clustering_tags = include_clustering_tags
+        self.include_context_features = include_context_features
         self.include_events = include_events
         if earnings_lag_days < 0:
             raise ValueError("earnings_lag_days must be >= 0")
@@ -280,7 +286,6 @@ class TFTDatasetBuilder:
             )
         self.include_earnings = include_earnings and data_store is not None
         self.earnings_lag_days = earnings_lag_days
-        self.include_l2 = include_l2
         self.l2_base_dir = l2_base_dir
         self.vintage_base_dir = _Path(vintage_base_dir).expanduser() if vintage_base_dir else None
         self.events_base_dir = (
@@ -434,8 +439,8 @@ class TFTDatasetBuilder:
                     if "timestamp" in frame.columns:
                         try:
                             frame = frame.with_columns(
-                                _pl.col("timestamp").cast(
-                                    _pl.Datetime(time_unit="ns"),
+                                pl.col("timestamp").cast(
+                                    pl.Datetime("ns"),
                                     strict=False,
                                 ),
                             )
@@ -509,6 +514,40 @@ class TFTDatasetBuilder:
                     "volume": [],
                 },
             ))
+
+    def _restrict_df_to_window(
+        self,
+        df: _pl.DataFrame,
+        *,
+        symbol: str,
+        start: datetime | None,
+        end: datetime | None,
+        lookback_periods: int,
+        horizon_minutes: int,
+    ) -> _pl.DataFrame:
+        """
+        Restrict a symbol dataframe to a requested [start, end) window with context.
+
+        The returned frame includes a lookback buffer (for feature computation)
+        and a horizon buffer (for target computation).
+        """
+        del symbol
+        if "timestamp" not in df.columns:
+            return df
+        if start is None and end is None:
+            return df
+
+        start_bound = (
+            start - timedelta(minutes=lookback_periods + horizon_minutes) if start is not None else None
+        )
+        end_bound = end + timedelta(minutes=horizon_minutes) if end is not None else None
+
+        restricted = df
+        if start_bound is not None:
+            restricted = restricted.filter(pl.col("timestamp") >= start_bound)
+        if end_bound is not None:
+            restricted = restricted.filter(pl.col("timestamp") < end_bound)
+        return restricted
 
     def _resolve_instrument_ids(self, override: list[str] | None = None) -> list[str]:
         if override:
@@ -916,12 +955,60 @@ class TFTDatasetBuilder:
                     vintage_cutoff=self.vintage_as_of,
                 ),
             )
+            if self.include_macro_deltas:
+                final_df = self._append_macro_delta_features_polars(final_df)
         logger.info(
             f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
         )
         from typing import cast as _cast
 
         return _cast("_pl.DataFrame", final_df)
+
+    def _append_macro_delta_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
+        """
+        Append 1-day delta features for configured macro series columns.
+
+        The deltas are computed per-instrument, ordered by the timestamp column
+        (``timestamp`` or ``ts_event``). The first delta in each instrument group
+        is filled with ``0.0``.
+        """
+        if not (self.include_macro and self.include_macro_deltas and self.macro_series_ids):
+            return df
+        if df.is_empty():
+            return df
+
+        series_ids = [series_id for series_id in self.macro_series_ids if series_id in df.columns]
+        if not series_ids:
+            return df
+
+        if "timestamp" in df.columns:
+            time_col = "timestamp"
+        elif "ts_event" in df.columns:
+            time_col = "ts_event"
+        else:
+            return df
+
+        if "instrument_id" in df.columns:
+            df_sorted = df.sort(["instrument_id", time_col])
+            exprs = [
+                pl.col(series_id)
+                .diff()
+                .over("instrument_id")
+                .fill_null(0.0)
+                .alias(f"{series_id}_delta_1d")
+                for series_id in series_ids
+            ]
+            return df_sorted.with_columns(exprs)
+
+        df_sorted = df.sort(time_col)
+        exprs = [
+            pl.col(series_id)
+            .diff()
+            .fill_null(0.0)
+            .alias(f"{series_id}_delta_1d")
+            for series_id in series_ids
+        ]
+        return df_sorted.with_columns(exprs)
 
     def prepare_training_data(
         self,
@@ -1181,10 +1268,15 @@ class TFTDatasetBuilder:
         """
         Lazily initialize the event schedule provider.
         """
-        if not self.include_events:
-            return None
         if self._event_provider is not None:
             return self._event_provider
+        if not (
+            self.include_events
+            or self.include_calendar_lags
+            or self.include_clustering_tags
+            or self.include_context_features
+        ):
+            return None
 
         try:
             from ml.data.providers.events import EventScheduleProvider
@@ -1829,7 +1921,12 @@ class TFTDatasetBuilder:
                 )
 
         # Optionally add event-based known-future features
-        if self.include_events:
+        if (
+            self.include_events
+            or self.include_calendar_lags
+            or self.include_clustering_tags
+            or self.include_context_features
+        ):
             provider = self._get_event_provider()
             if provider is not None:
                 try:

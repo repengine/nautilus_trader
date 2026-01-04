@@ -286,7 +286,9 @@ class DatasetDiscoveryService:
                     symbol=request.symbol,
                     schema=schema,
                     reason=str(exc),
+                    exc_info=True,
                 )
+                self._metrics.symbology_rejections.labels(dataset=dataset_id).inc()
                 continue
             cost, resolved_symbol = self._estimate_cost(
                 dataset_id=dataset_id,
@@ -505,6 +507,11 @@ class _DiscoveryMetrics:
         self.candidates_rejected_cost = get_counter(
             "nautilus_ml_discovery_candidates_rejected_cost_total",
             "Candidates rejected due to policy cost limits",
+        )
+        self.symbology_rejections = get_counter(
+            "nautilus_ml_discovery_symbology_rejections_total",
+            "Count of symbology resolution rejections during discovery",
+            labelnames=("dataset",),
         )
 
 

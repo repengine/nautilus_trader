@@ -33,28 +33,29 @@ persists the result before returning the merged range.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import date
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
-from typing import Any as _Any
-from typing import cast as _cast
+from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import pl as pl_runtime
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
+from ml.features.l2_aggregate import L2_MINUTE_COLUMNS
 from ml.features.l2_aggregate import L2Aggregator
 
 
 if TYPE_CHECKING:
     import polars as _pl
 
-PL = _cast(_Any, pl_runtime)
+PL = cast(Any, pl_runtime)
+logger = logging.getLogger(__name__)
 
 
 def _utc_day_bounds(dt: datetime) -> tuple[datetime, datetime]:
@@ -125,7 +126,18 @@ class L2MinuteCache:
         ensure_polars()
         out = self.path_for(symbol, day)
         if out.exists():
-            return out
+            try:
+                existing = cast("_pl.DataFrame", PL.read_parquet(str(out)))
+            except Exception:
+                logger.debug(
+                    "l2_cache.read_existing_failed",
+                    exc_info=True,
+                    extra={"symbol": symbol, "day": day.isoformat(), "path": str(out)},
+                )
+            else:
+                expected = set(L2_MINUTE_COLUMNS)
+                if expected.issubset(set(existing.columns)):
+                    return out
         out.parent.mkdir(parents=True, exist_ok=True)
         # Compute from raw for the day
         start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
@@ -133,8 +145,20 @@ class L2MinuteCache:
         agg = L2Aggregator(raw_base_dir)
         df = agg.compute_for_symbol(symbol, start=start_dt, end=end_dt)
         if df.is_empty():
-            # Create empty schema with timestamp to preserve partition
-            df = PL.DataFrame({"timestamp": []})
+            df = PL.DataFrame({name: [] for name in L2_MINUTE_COLUMNS})
+        else:
+            missing = [name for name in L2_MINUTE_COLUMNS if name not in df.columns]
+            if missing:
+                df = df.with_columns([PL.lit(0.0).alias(name) for name in missing if name != "timestamp"])
+                if "timestamp" in missing:
+                    df = df.with_columns(
+                        [
+                            PL.lit(None)
+                            .cast(PL.Datetime("ns", "UTC"))
+                            .alias("timestamp"),
+                        ],
+                    )
+            df = df.select(list(L2_MINUTE_COLUMNS))
         df.write_parquet(str(out))
         return out
 
@@ -166,17 +190,11 @@ class L2MinuteCache:
         for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
             if p.exists():
-                from typing import cast as __cast
-
-                parts.append(__cast("_pl.DataFrame", PL.read_parquet(str(p))))
+                parts.append(cast("_pl.DataFrame", PL.read_parquet(str(p))))
         if not parts:
-            from typing import cast as __cast
-
-            return __cast("_pl.DataFrame", PL.DataFrame({"timestamp": []}))
+            return cast("_pl.DataFrame", PL.DataFrame({"timestamp": []}))
         df = PL.concat(parts, how="vertical")
         if df.is_empty():
-            from typing import cast as __cast
-
-            return __cast("_pl.DataFrame", df)
+            return cast("_pl.DataFrame", df)
         # Filter to exact [start, end) and sort
         return filter_df_by_ns_range(df, start=start, end=end)

@@ -254,6 +254,7 @@ def ensure_macro_ready(
     fred_path: Path,
     vintage_dir: Path | None,
     max_age: timedelta,
+    data_store: object | None = None,
     series_ids: Sequence[str] | None = None,
     fred_loader_factory: Callable[[Sequence[str] | None], _FREDLoaderProtocol] | None = None,
     alfred_loader_factory: Callable[[Sequence[str]], _ALFREDLoaderProtocol] | None = None,
@@ -262,6 +263,7 @@ def ensure_macro_ready(
     alfred_window_days: int = 365,
 ) -> MacroRefreshResult:
     """Ensure macro artifacts exist within *max_age* and refresh when necessary."""
+    del data_store
     fred_refreshed, fred_error = refresh_fred_if_stale(
         parquet_path=fred_path,
         max_age=max_age,

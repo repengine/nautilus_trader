@@ -130,7 +130,11 @@ class TimeSeriesWindowingComponent:
             return int(value)
         if isinstance(value, datetime):
             dt_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-            return int(dt_value.timestamp() * 1_000_000_000)
+            dt_utc = dt_value.astimezone(UTC)
+            epoch = datetime(1970, 1, 1, tzinfo=UTC)
+            delta = dt_utc - epoch
+            day_ns = 86_400 * 1_000_000_000
+            return delta.days * day_ns + delta.seconds * 1_000_000_000 + delta.microseconds * 1_000
         return None
 
     @staticmethod
@@ -161,7 +165,10 @@ class TimeSeriesWindowingComponent:
             value = value.replace(tzinfo=UTC)
         else:
             value = value.astimezone(UTC)
-        return int(value.timestamp() * 1_000_000_000)
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
+        delta = value - epoch
+        day_ns = 86_400 * 1_000_000_000
+        return delta.days * day_ns + delta.seconds * 1_000_000_000 + delta.microseconds * 1_000
 
     def window_by_time_range(
         self,

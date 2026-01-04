@@ -75,7 +75,7 @@ def _iter_vintage_series_dirs(
     Yield series id and directory pairs filtered by series ids when provided.
     """
     if not base_dir.exists():
-        return []
+        raise FileNotFoundError(f"Vintage directory not found: {base_dir}")
     dirs: list[tuple[str, Path]] = []
     for child in base_dir.iterdir():
         if not child.is_dir():
@@ -106,9 +106,35 @@ def _load_vintage_release_pl(
         df = _pl.read_parquet(str(cal_path))
         if df.is_empty():
             continue
+        required_base = {"release_ts", "observation_ts", "value"}
+        if not required_base.issubset(set(df.columns)):
+            continue
         if "series_id" not in df.columns:
             df = df.with_columns([_pl.lit(series_id).alias("series_id")])
-        frames.append(df)
+        if "release_end_ts" not in df.columns:
+            df = df.with_columns(
+                [
+                    _pl.lit(None)
+                    .cast(_pl.Datetime("ns", "UTC"))
+                    .alias("release_end_ts"),
+                ],
+            )
+        df = df.with_columns(
+            [
+                _pl.col("observation_ts").cast(_pl.Datetime("ns", "UTC")),
+                _pl.col("release_ts").cast(_pl.Datetime("ns", "UTC")),
+                _pl.col("release_end_ts").cast(_pl.Datetime("ns", "UTC")),
+            ],
+        ).select(
+            [
+                "series_id",
+                "observation_ts",
+                "value",
+                "release_ts",
+                "release_end_ts",
+            ],
+        )
+        frames.append(cast(PolarsDF, df))
     if not frames:
         return cast(PolarsDF, _pl.DataFrame())
     return cast(

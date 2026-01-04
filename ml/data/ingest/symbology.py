@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -13,12 +14,19 @@ from typing import Any, Protocol
 
 import structlog
 from databento.common.error import BentoClientError
+from databento.common.error import BentoServerError
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 
 
 logger = structlog.get_logger(__name__)
+
+_SYMBOL_ALIAS_MAP: dict[str, dict[str, str]] = {
+    "EQUS.MINI": {
+        "BRK": "BRK.B",
+    },
+}
 
 
 class DatabentoSymbologyClient(Protocol):
@@ -82,9 +90,17 @@ class DatabentoSymbologyResolver:
         *,
         client: DatabentoSymbologyClient | None,
         cache_size: int = 512,
+        retry_attempts: int = 1,
+        retry_backoff_seconds: float = 0.25,
     ) -> None:
+        if retry_attempts < 1:
+            raise ValueError("retry_attempts must be >= 1")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be >= 0")
         self._client = client
         self._cache_size = cache_size
+        self._retry_attempts = retry_attempts
+        self._retry_backoff_seconds = retry_backoff_seconds
         self._metrics = _SymbologyMetrics()
         self._instrument_cache: dict[tuple[str, str, str, str, str], str | None] = {}
         self._last_instrument_id: str | None = None
@@ -170,8 +186,25 @@ class DatabentoSymbologyResolver:
             self._last_instrument_id = self._instrument_cache.get(cache_key)
             return symbols
         except SymbologyResolutionError:
-            self._metrics.resolve_miss.labels(dataset=dataset).inc()
-            raise
+            alias = _SYMBOL_ALIAS_MAP.get(dataset, {}).get(symbol)
+            if alias is None:
+                self._metrics.resolve_miss.labels(dataset=dataset).inc()
+                raise
+            alias_key = self._build_cache_key(
+                dataset=dataset,
+                symbol=alias,
+                schema=schema,
+                start=start,
+                end=end,
+            )
+            try:
+                symbols = resolver(alias_key)
+            except SymbologyResolutionError:
+                self._metrics.resolve_miss.labels(dataset=dataset).inc()
+                raise
+            self._last_instrument_id = self._instrument_cache.get(alias_key)
+            self._metrics.alias_hits.labels(dataset=dataset).inc()
+            return symbols
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.debug(
                 "symbology.remote_failure",
@@ -212,23 +245,36 @@ class DatabentoSymbologyResolver:
         if client is None:
             raise RuntimeError("Symbology client unavailable for resolution cache")
         cache_size = self._cache_size
+        retry_attempts = self._retry_attempts
+        base_backoff_seconds = self._retry_backoff_seconds
 
         @lru_cache(maxsize=cache_size)
         def _inner(key: tuple[str, str, str, str, str]) -> tuple[str, ...]:
             dataset, symbol, _schema_token, start_date, end_date = key
             histogram = self._metrics.resolve_latency.labels(dataset=dataset)
             with histogram.time():
-                try:
-                    payload = client.resolve(
-                        symbols=(symbol,),
-                        dataset=dataset,
-                        stype_in="raw_symbol",
-                        stype_out="instrument_id",
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
-                except BentoClientError as exc:  # pragma: no cover - remote failure
-                    raise SymbologyResolutionError(str(exc)) from exc
+                attempt = 0
+                while True:
+                    try:
+                        payload = client.resolve(
+                            symbols=(symbol,),
+                            dataset=dataset,
+                            stype_in="raw_symbol",
+                            stype_out="instrument_id",
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                        break
+                    except BentoServerError as exc:
+                        attempt += 1
+                        status = str(getattr(exc, "http_status", "unknown"))
+                        if attempt >= retry_attempts:
+                            raise SymbologyResolutionError(str(exc)) from exc
+                        self._metrics.retry_total.labels(dataset=dataset, status=status).inc()
+                        if base_backoff_seconds > 0:
+                            time.sleep(base_backoff_seconds * (2 ** (attempt - 1)))
+                    except BentoClientError as exc:  # pragma: no cover - remote failure
+                        raise SymbologyResolutionError(str(exc)) from exc
             instrument_id: str | None
             extracted_symbols: tuple[str, ...]
             result_map = payload.get("result", {}) if isinstance(payload, Mapping) else {}
@@ -296,6 +342,16 @@ class _SymbologyMetrics:
             "nautilus_ml_symbology_resolve_miss_total",
             "Total symbology resolves returning no candidates",
             labelnames=("dataset",),
+        )
+        self.alias_hits = get_counter(
+            "nautilus_ml_symbology_alias_hits_total",
+            "Total symbology resolves using an alias fallback",
+            labelnames=("dataset",),
+        )
+        self.retry_total = get_counter(
+            "nautilus_ml_symbology_retry_total",
+            "Total symbology resolve retries on transient server errors",
+            labelnames=("dataset", "status"),
         )
 
 

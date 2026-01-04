@@ -6,7 +6,8 @@ maintaining 100% API compatibility with the legacy TFTDatasetBuilder.
 
 Feature Flag:
     ML_USE_LEGACY_TFT_BUILDER: Set to '1' or 'true' to use legacy implementation.
-    Default (unset or '0'): Uses component-based facade.
+    Default (unset): Uses legacy implementation.
+    Set to '0'/'false' to opt into component-based facade.
 
 Components:
     - TimeSeriesWindowingComponent: Time bounds, windowing operations
@@ -68,16 +69,21 @@ def use_legacy_builder() -> bool:
     Check if legacy TFTDatasetBuilder should be used.
 
     Returns:
-        True if ML_USE_LEGACY_TFT_BUILDER is set to '1' or 'true' (case-insensitive).
+        True when ML_USE_LEGACY_TFT_BUILDER is unset, or set to '1'/'true'/'yes' (case-insensitive).
 
     Example:
         >>> import os
-        >>> os.environ["ML_USE_LEGACY_TFT_BUILDER"] = "1"
-        >>> assert use_legacy_builder() is True
+        >>> os.environ.pop("ML_USE_LEGACY_TFT_BUILDER", None)
+        >>> assert use_legacy_builder() is True  # default
+        >>> os.environ["ML_USE_LEGACY_TFT_BUILDER"] = "0"
+        >>> assert use_legacy_builder() is False
 
     """
-    value = os.environ.get("ML_USE_LEGACY_TFT_BUILDER", "").lower()
-    return value in ("1", "true", "yes")
+    value = os.environ.get("ML_USE_LEGACY_TFT_BUILDER")
+    if value is None:
+        return True
+    token = value.strip().lower()
+    return token in ("1", "true", "yes")
 
 
 class TFTDatasetBuilderFacade:
@@ -133,6 +139,8 @@ class TFTDatasetBuilderFacade:
         micro_base_dir: str | None = None,
         include_calendar: bool = False,
         include_calendar_lags: bool = False,
+        include_clustering_tags: bool = False,
+        include_context_features: bool = False,
         include_events: bool = False,
         include_earnings: bool = False,
         earnings_lag_days: int = 1,
@@ -171,6 +179,8 @@ class TFTDatasetBuilderFacade:
             Pre-resolved market bindings for instrument/dataset mapping.
         include_macro : bool, default False
             Whether to include macroeconomic features.
+        include_macro_deltas : bool, default False
+            Whether to include macro delta features.
         macro_lag_days : int, default 1
             Publication lag for macro features.
         fred_path : str | None, optional
@@ -181,6 +191,12 @@ class TFTDatasetBuilderFacade:
             Base directory for microstructure data.
         include_calendar : bool, default False
             Whether to include calendar features.
+        include_calendar_lags : bool, default False
+            Whether to include calendar lag features.
+        include_clustering_tags : bool, default False
+            Whether to include clustering tag features.
+        include_context_features : bool, default False
+            Whether to include additional context features.
         include_events : bool, default False
             Whether to include event-based features.
         include_earnings : bool, default False
@@ -240,6 +256,8 @@ class TFTDatasetBuilderFacade:
         self.micro_base_dir = micro_base_dir
         self.include_calendar = include_calendar
         self.include_calendar_lags = include_calendar_lags
+        self.include_clustering_tags = include_clustering_tags
+        self.include_context_features = include_context_features
         self.include_events = include_events
         self.include_earnings = include_earnings and data_store is not None
         self.earnings_lag_days = earnings_lag_days
@@ -331,11 +349,15 @@ class TFTDatasetBuilderFacade:
                 market_dataset_id=self.market_dataset_id,
                 market_bindings=self.market_bindings,
                 include_macro=self.include_macro,
+                include_macro_deltas=self.include_macro_deltas,
                 macro_lag_days=self.macro_lag_days,
                 fred_path=self.fred_path,
                 include_micro=self.include_micro,
                 micro_base_dir=self.micro_base_dir,
                 include_calendar=self.include_calendar,
+                include_calendar_lags=self.include_calendar_lags,
+                include_clustering_tags=self.include_clustering_tags,
+                include_context_features=self.include_context_features,
                 include_events=self.include_events,
                 include_earnings=self.include_earnings,
                 earnings_lag_days=self.earnings_lag_days,

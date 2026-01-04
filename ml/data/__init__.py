@@ -149,6 +149,7 @@ import json
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
@@ -454,6 +455,7 @@ class DatasetMetadata:
     validation_window: tuple[str, str] | None
     test_window: tuple[str, str] | None
     macro_observation_counts: dict[str, int]
+    capability_flags: dict[str, bool] = field(default_factory=dict)
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
 
 
@@ -563,6 +565,27 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         for key, value in macro_counts_raw.items()
     }
 
+    def _normalize_bool(value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, int):
+            return bool(value)
+        if isinstance(value, str):
+            token = value.strip().lower()
+            if token in {"1", "true", "yes", "y", "t", "on"}:
+                return True
+            if token in {"0", "false", "no", "n", "f", "off", ""}:
+                return False
+        return bool(value)
+
+    capability_raw = raw.get("capability_flags") or {}
+    capability_flags: dict[str, bool] = {}
+    if isinstance(capability_raw, dict):
+        for key, value in capability_raw.items():
+            capability_flags[str(key)] = _normalize_bool(value)
+
     bindings_raw = raw.get("market_bindings")
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
     if isinstance(bindings_raw, list):
@@ -614,6 +637,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         validation_window=_as_tuple(raw.get("validation_window")),
         test_window=_as_tuple(raw.get("test_window")),
         macro_observation_counts=macro_counts,
+        capability_flags=capability_flags,
         market_bindings=market_bindings,
     )
 
@@ -1102,6 +1126,8 @@ def _build_dataset_chunked(
         shutil.rmtree(chunk_dir)
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
+    capability_flags = _capability_flags_from_builder(builder)
+
     chunk_metas: list[_ChunkMeta] = []
 
     cursor = cast(datetime, cfg.start)
@@ -1197,6 +1223,7 @@ def _build_dataset_chunked(
             validation_window=None,
             test_window=None,
             macro_observation_counts={},
+            capability_flags=capability_flags,
             market_bindings=binding_metadata,
         )
         metadata_path = cfg.out_dir / "dataset_metadata.json"
@@ -1374,6 +1401,7 @@ def _build_dataset_chunked(
         validation_window=_format_window(validation_window_start, overall_end),
         test_window=None,
         macro_observation_counts=macro_totals,
+        capability_flags=capability_flags,
         market_bindings=binding_metadata,
     )
 
@@ -1391,6 +1419,8 @@ def _build_dataset_chunked(
         ),
         validation_result,
     )
+
+
 def _ensure_datetime(value: datetime | float | None) -> datetime | None:
     if value is None:
         return None
@@ -1523,6 +1553,7 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         "validation_window": list(metadata.validation_window) if metadata.validation_window else None,
         "test_window": list(metadata.test_window) if metadata.test_window else None,
         "macro_observation_counts": metadata.macro_observation_counts,
+        "capability_flags": metadata.capability_flags,
     }
     if metadata.market_bindings is not None:
         payload["market_bindings"] = [
@@ -1587,6 +1618,20 @@ def _validate_dataset_metadata(metadata: DatasetMetadata) -> None:
         if end and overall_end and end > overall_end:
             raise ValueError(f"{label}_window ends after overall window")
 
+
+def _capability_flags_from_builder(builder: TFTDatasetBuilder) -> dict[str, bool]:
+    include_l2 = bool(getattr(builder, "include_l2", False))
+    include_micro = bool(getattr(builder, "include_micro", False)) or include_l2
+    return {
+        "include_macro": bool(getattr(builder, "include_macro", False)),
+        "include_calendar": bool(getattr(builder, "include_calendar", False)),
+        "include_events": bool(getattr(builder, "include_events", False)),
+        "include_earnings": bool(getattr(builder, "include_earnings", False)),
+        "include_l2": include_l2,
+        "include_micro": include_micro,
+    }
+
+
 def build_tft_dataset(
     cfg: DatasetBuildConfig,
     *,
@@ -1630,6 +1675,7 @@ def build_tft_dataset(
             fred_path=fred_parquet_path,
             vintage_dir=cfg.fred_vintage_dir,
             max_age=refresh_window,
+            data_store=data_store,
             series_ids=macro_series_ids,
             alfred_realtime_start=alfred_start_str,
             alfred_realtime_end=alfred_end_str,
@@ -1682,8 +1728,8 @@ def build_tft_dataset(
         vintage_base_dir=cfg.fred_vintage_dir,
         events_base_dir=cfg.events_base_dir,
         student_mode=cfg.student_mode,
-        micro_base_dir=str(cfg.data_dir),
-        l2_base_dir=str(cfg.data_dir),
+        micro_base_dir=str(cfg.micro_base_dir or cfg.data_dir),
+        l2_base_dir=str(cfg.l2_base_dir or cfg.data_dir),
         macro_series_ids=cfg.macro_series_ids,
         vintage_policy=cfg.vintage_policy,
         vintage_as_of=vintage_as_of,
@@ -1694,6 +1740,7 @@ def build_tft_dataset(
         macro_revision_mode=cfg.macro_revision_mode,
         macro_revision_windows=cfg.macro_revision_windows,
     )
+    capability_flags = _capability_flags_from_builder(builder)
 
     chunk_mode = bool(cfg.chunk_days > 0 and cfg.start and cfg.end)
     if chunk_mode:
@@ -1781,7 +1828,7 @@ def build_tft_dataset(
         getattr(validation_result, "macro_observation_counts", {}),
     )
     binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
-    metadata = replace(metadata, market_bindings=binding_metadata)
+    metadata = replace(metadata, market_bindings=binding_metadata, capability_flags=capability_flags)
     _validate_dataset_metadata(metadata)
     metadata_path = cfg.out_dir / "dataset_metadata.json"
     metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
@@ -1808,10 +1855,10 @@ def build_tft_dataset(
             data_requirements=data_req,
         )
         flags = {
-            "include_macro": cfg.include_macro,
-            "include_micro": cfg.include_micro,
-            "include_l2": cfg.include_l2,
-            "include_earnings": cfg.include_earnings,
+            "include_macro": capability_flags["include_macro"],
+            "include_micro": capability_flags["include_micro"],
+            "include_l2": capability_flags["include_l2"],
+            "include_earnings": capability_flags["include_earnings"],
             "horizon_minutes": cfg.horizon_minutes,
             "lookback_periods": cfg.lookback_periods,
         }
