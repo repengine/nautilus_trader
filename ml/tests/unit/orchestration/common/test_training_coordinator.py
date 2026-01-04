@@ -10,11 +10,13 @@ Phase 2.2.3 Status: STRUCTURAL PHASE
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
+from ml.orchestration.config_types import TeacherTrainConfig
 from ml.orchestration.training_coordinator import TrainingCoordinator
 
 
@@ -321,3 +323,102 @@ def test_execute_stage_returns_success_placeholder(
     result = training_coordinator._execute_stage(Stage.DATA_INGESTED, sample_hpo_config)
     assert result == 0  # Success placeholder
     assert isinstance(result, int)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("prefer_parquet", "expected_flag"),
+    ((True, "--train_data_parquet"), (False, "--train_data_csv")),
+)
+def test_train_teacher_builds_cli_args(
+    model_store: Mock,
+    model_registry: Mock,
+    tmp_path: Path,
+    prefer_parquet: bool,
+    expected_flag: str,
+) -> None:
+    """Verify teacher training builds expected CLI args for parquet/CSV inputs."""
+    captured: dict[str, list[str]] = {}
+
+    def _teacher_main(argv: list[str] | None = None) -> int:
+        captured["argv"] = argv or []
+        return 0
+
+    coordinator = TrainingCoordinator(
+        model_store=model_store,
+        model_registry=model_registry,
+        hpo_main=None,
+        teacher_main=_teacher_main,
+        distill_cli=None,
+    )
+
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv.write_text("timestamp,close\n1704067200,100.0\n", encoding="utf-8")
+    (dataset_dir / "dataset.parquet").write_bytes(b"PAR1")
+    metadata = {
+        "dataset_id": "test_dataset",
+        "vintage_policy": "real_time",
+        "vintage_cutoff": None,
+    }
+    (dataset_dir / "dataset_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    cfg = TeacherTrainConfig(
+        enabled=True,
+        model_id="teacher_X",
+        batch_size=128,
+        dataloader_workers=2,
+        accelerator="cpu",
+        devices=1,
+        precision="bf16",
+        hidden_size=32,
+        lstm_layers=2,
+        attention_head_size=4,
+        dropout=0.2,
+        learning_rate=1e-3,
+        loss="bce",
+        pos_weight="auto",
+        tail_rows=50,
+        limit_groups=10,
+        static_categoricals=("sector",),
+        known_future_reals=("day_of_week",),
+        save_interpretability=True,
+        export_safetensors=True,
+        pretrained_state_path="pretrained.safetensors",
+        register_teacher=True,
+        decision_policy="ml.policy.Policy",
+        decision_config={"alpha": 0.5},
+        prefer_parquet=prefer_parquet,
+    )
+
+    rc = coordinator.train_teacher(cfg, dataset_csv, dataset_dir)
+    assert rc == 0
+
+    argv = captured["argv"]
+    assert expected_flag in argv
+
+    def _arg_value(flag: str) -> str:
+        return argv[argv.index(flag) + 1]
+
+    if prefer_parquet:
+        assert "--train_data_csv" not in argv
+        assert _arg_value("--train_data_parquet") == str(dataset_dir / "dataset.parquet")
+    else:
+        assert _arg_value("--train_data_csv") == str(dataset_csv)
+
+    assert _arg_value("--batch_size") == "128"
+    assert _arg_value("--dataloader_workers") == "2"
+    assert _arg_value("--accelerator") == "cpu"
+    assert _arg_value("--precision") == "bf16"
+    assert _arg_value("--hidden_size") == "32"
+    assert _arg_value("--loss") == "bce"
+    assert _arg_value("--static_categoricals") == "sector"
+    assert _arg_value("--known_future_reals") == "day_of_week"
+    assert "--save_interpretability" in argv
+    assert "--export_safetensors" in argv
+    assert _arg_value("--pretrained_state_path") == "pretrained.safetensors"
+    assert "--register_teacher" in argv
+    assert _arg_value("--decision_policy") == "ml.policy.Policy"
+    decision_payload = json.loads(_arg_value("--decision_config"))
+    assert decision_payload == {"alpha": 0.5}

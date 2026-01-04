@@ -1043,7 +1043,8 @@ class DashboardService:
         return result
 
     def list_models_with_performance(self) -> list[dict[str, Any]]:
-        """Get all models with enriched performance metrics for dashboard display.
+        """
+        Get all models with enriched performance metrics for dashboard display.
 
         Returns a list of model dictionaries with:
         - model_id: Unique model identifier

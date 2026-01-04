@@ -16,6 +16,7 @@ Example
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING, Final
@@ -245,6 +246,93 @@ class HPOConfig:
 class TeacherTrainConfig:
     """
     Teacher training configuration.
+
+    Attributes
+    ----------
+    enabled
+        Toggle teacher training on/off.
+    model_id
+        Model identifier used for registry/export.
+    feature_registry_dir
+        Optional feature registry directory override.
+    feature_set_id
+        Optional feature set identifier override.
+    max_epochs
+        Maximum training epochs for TFT teacher.
+    batch_size
+        Training batch size for the teacher DataLoader.
+    dataloader_workers
+        Number of DataLoader worker processes.
+    accelerator
+        Lightning accelerator selection ("auto", "cpu", "gpu").
+    devices
+        Number of devices used by Lightning.
+    precision
+        Training precision (e.g. "32", "16-mixed", "bf16").
+    max_encoder_length
+        Encoder lookback window length for TFT.
+    max_prediction_length
+        Prediction horizon length for TFT.
+    hidden_size
+        Hidden size for TFT encoder/decoder.
+    lstm_layers
+        Number of LSTM layers in TFT.
+    attention_head_size
+        Attention head size for TFT.
+    dropout
+        Dropout probability used in TFT.
+    learning_rate
+        Optimizer learning rate.
+    loss
+        Loss function ("poisson" or "bce").
+    pos_weight
+        Optional class weight for BCE loss ("auto" or float).
+    seed
+        Optional RNG seed for deterministic training.
+    tail_rows
+        Per-group tail cap (0 disables).
+    limit_groups
+        Top-N group cap by row count (0 disables).
+    val_days
+        Validation window size in days (0 disables time-window validation).
+    embargo_hours
+        Embargo window in hours for purged splits.
+    purge_gap
+        Purge gap (rows) between train/validation folds.
+    cv_splits
+        Number of cross-validation splits.
+    test_fraction
+        Hold-out fraction used for train/validation split.
+    target_col
+        Target column name in the training dataset.
+    time_index_col
+        Time index column name.
+    timestamp_col
+        Timestamp column name (for purged splits).
+    group_id_col
+        Group identifier column name (instrument identifier).
+    static_categoricals
+        Static categorical feature names.
+    static_reals
+        Static real-valued feature names.
+    known_future_reals
+        Known-future real feature names.
+    save_interpretability
+        Persist interpretability artifacts if available.
+    export_torchscript
+        Export TorchScript artifact for the teacher.
+    export_safetensors
+        Export safetensors weights for the teacher.
+    pretrained_state_path
+        Optional pretrained state dict path for warm start.
+    register_teacher
+        Register the teacher model artifact.
+    decision_policy
+        Optional decision-policy adapter reference.
+    decision_config
+        Optional decision-policy configuration payload.
+    prefer_parquet
+        Prefer parquet datasets when available.
     """
 
     enabled: bool = True
@@ -252,6 +340,98 @@ class TeacherTrainConfig:
     feature_registry_dir: str | None = None
     feature_set_id: str | None = None
     max_epochs: int = 5
+    batch_size: int = 64
+    dataloader_workers: int = 0
+    accelerator: str = "auto"
+    devices: int = 1
+    precision: str = "32"
+    max_encoder_length: int = 30
+    max_prediction_length: int = 1
+    hidden_size: int = 16
+    lstm_layers: int = 1
+    attention_head_size: int = 2
+    dropout: float = 0.1
+    learning_rate: float = 3e-4
+    loss: str = "poisson"
+    pos_weight: str | float | None = None
+    seed: int | None = None
+    tail_rows: int = 0
+    limit_groups: int = 0
+    val_days: int = 0
+    embargo_hours: float = 24.0
+    purge_gap: int = 0
+    cv_splits: int = 5
+    test_fraction: float = 0.2
+    target_col: str = "y"
+    time_index_col: str = "time_index"
+    timestamp_col: str = "timestamp"
+    group_id_col: str = "instrument_id"
+    static_categoricals: tuple[str, ...] = ()
+    static_reals: tuple[str, ...] = ()
+    known_future_reals: tuple[str, ...] = ()
+    save_interpretability: bool = False
+    export_torchscript: bool = False
+    export_safetensors: bool = False
+    pretrained_state_path: str | None = None
+    register_teacher: bool = False
+    decision_policy: str | None = None
+    decision_config: Mapping[str, object] | str | None = None
+    prefer_parquet: bool = True
+
+    def __post_init__(self) -> None:
+        """
+        Validate training configuration ranges.
+        """
+        if self.max_epochs < 1:
+            raise ValueError("max_epochs must be >= 1")
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+        if self.dataloader_workers < 0:
+            raise ValueError("dataloader_workers must be >= 0")
+        if self.devices < 1:
+            raise ValueError("devices must be >= 1")
+        if self.max_encoder_length < 1:
+            raise ValueError("max_encoder_length must be >= 1")
+        if self.max_prediction_length < 1:
+            raise ValueError("max_prediction_length must be >= 1")
+        if self.hidden_size < 1:
+            raise ValueError("hidden_size must be >= 1")
+        if self.lstm_layers < 1:
+            raise ValueError("lstm_layers must be >= 1")
+        if self.attention_head_size < 1:
+            raise ValueError("attention_head_size must be >= 1")
+        if self.dropout < 0.0 or self.dropout >= 1.0:
+            raise ValueError("dropout must be in [0.0, 1.0)")
+        if self.learning_rate <= 0.0:
+            raise ValueError("learning_rate must be > 0.0")
+        if self.tail_rows < 0:
+            raise ValueError("tail_rows must be >= 0")
+        if self.limit_groups < 0:
+            raise ValueError("limit_groups must be >= 0")
+        if self.val_days < 0:
+            raise ValueError("val_days must be >= 0")
+        if self.embargo_hours < 0.0:
+            raise ValueError("embargo_hours must be >= 0.0")
+        if self.purge_gap < 0:
+            raise ValueError("purge_gap must be >= 0")
+        if self.cv_splits < 0:
+            raise ValueError("cv_splits must be >= 0")
+        if self.test_fraction < 0.0 or self.test_fraction >= 1.0:
+            raise ValueError("test_fraction must be in [0.0, 1.0)")
+        if not str(self.target_col).strip():
+            raise ValueError("target_col must be non-empty")
+        if not str(self.time_index_col).strip():
+            raise ValueError("time_index_col must be non-empty")
+        if not str(self.timestamp_col).strip():
+            raise ValueError("timestamp_col must be non-empty")
+        if not str(self.group_id_col).strip():
+            raise ValueError("group_id_col must be non-empty")
+        if not str(self.accelerator).strip():
+            raise ValueError("accelerator must be non-empty")
+        if not str(self.precision).strip():
+            raise ValueError("precision must be non-empty")
+        if not str(self.loss).strip():
+            raise ValueError("loss must be non-empty")
 
 
 @dataclass(slots=True, frozen=True)

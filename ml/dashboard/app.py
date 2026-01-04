@@ -8,6 +8,9 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from datetime import UTC
+from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
 from flask import Flask
@@ -170,7 +173,8 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
     @app.get("/api/registry/models/performance")
     def registry_models_performance() -> tuple[Any, int]:
-        """Get all models with performance metrics for dashboard display.
+        """
+        Get all models with performance metrics for dashboard display.
 
         Returns:
             {
@@ -614,7 +618,8 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
 
     @app.get("/api/market/tickers")
     def market_tickers() -> tuple[Any, int]:
-        """Get latest prices for market symbols.
+        """
+        Get latest prices for market symbols.
 
         Query Parameters:
             symbols: Comma-separated list of symbols (default: SPY,QQQ)
@@ -626,10 +631,8 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
                 "QQQ": null  // if data not available
             }
         """
-        import os
-        from pathlib import Path
-
-        from ml._imports import HAS_POLARS, pl
+        from ml._imports import HAS_POLARS
+        from ml._imports import pl
 
         symbols_param = request.args.get("symbols", "SPY,QQQ")
         symbols = [s.strip().upper() for s in symbols_param.split(",") if s.strip()]
@@ -637,7 +640,7 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
         data_dir = Path(os.environ.get("ML_MARKET_DATA_DIR", "/data/catalog"))
         result: dict[str, Any] = {}
 
-        if not HAS_POLARS:
+        if not HAS_POLARS or pl is None:
             # Return empty result if polars not available
             for symbol in symbols:
                 result[symbol] = None
@@ -686,11 +689,9 @@ def create_app(config: DashboardConfig | None = None) -> Flask:
                     if hasattr(ts_raw, "isoformat"):
                         timestamp_val = ts_raw.isoformat()
                     elif isinstance(ts_raw, (int, float)):
-                        from datetime import datetime, timezone
-
                         # Assume nanoseconds
                         timestamp_val = datetime.fromtimestamp(
-                            ts_raw / 1_000_000_000, tz=timezone.utc
+                            ts_raw / 1_000_000_000, tz=UTC
                         ).isoformat()
 
                 result[symbol] = {

@@ -206,6 +206,12 @@ def _resolve_write_mode_tokens(raw_mode: str) -> tuple[str, ...]:
     raise SystemExit(f"Unsupported write_mode '{raw_mode}'")
 
 
+def _parse_csv_tuple(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    return tuple(token.strip() for token in str(raw).split(",") if token.strip())
+
+
 def _apply_default_market_inputs(cfg: DatasetBuildConfig) -> DatasetBuildConfig:
     """
     Seed dataset configs with descriptor-driven market inputs when ``market_dataset_id``
@@ -2689,9 +2695,21 @@ class MLPipelineOrchestrator:
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
 
+        dataset_parquet_candidates = (
+            dataset_csv.with_name("dataset_with_vintage_age.parquet"),
+            dataset_csv.with_name("dataset.parquet"),
+        )
+        dataset_parquet = next(
+            (candidate for candidate in dataset_parquet_candidates if candidate.exists()),
+            None,
+        )
+        use_parquet = bool(cfg.prefer_parquet and dataset_parquet is not None)
+        data_flag = "--train_data_parquet" if use_parquet else "--train_data_csv"
+        data_path = dataset_parquet if use_parquet else dataset_csv
+
         args: list[str] = [
-            "--train_data_csv",
-            str(dataset_csv),
+            data_flag,
+            str(data_path),
             "--out_dir",
             str(out_dir),
             "--model_id",
@@ -2704,6 +2722,54 @@ class MLPipelineOrchestrator:
             metadata_source.dataset_id,
             "--expected_vintage_policy",
             metadata_source.vintage_policy.value,
+            "--target_col",
+            cfg.target_col,
+            "--time_index_col",
+            cfg.time_index_col,
+            "--timestamp_col",
+            cfg.timestamp_col,
+            "--group_id_col",
+            cfg.group_id_col,
+            "--limit_groups",
+            str(cfg.limit_groups),
+            "--max_encoder_length",
+            str(cfg.max_encoder_length),
+            "--max_prediction_length",
+            str(cfg.max_prediction_length),
+            "--val_days",
+            str(cfg.val_days),
+            "--embargo_hours",
+            str(cfg.embargo_hours),
+            "--purge_gap",
+            str(cfg.purge_gap),
+            "--cv_splits",
+            str(cfg.cv_splits),
+            "--test_fraction",
+            str(cfg.test_fraction),
+            "--hidden_size",
+            str(cfg.hidden_size),
+            "--lstm_layers",
+            str(cfg.lstm_layers),
+            "--attention_head_size",
+            str(cfg.attention_head_size),
+            "--dropout",
+            str(cfg.dropout),
+            "--batch_size",
+            str(cfg.batch_size),
+            "--accelerator",
+            str(cfg.accelerator),
+            "--devices",
+            str(cfg.devices),
+            "--dataloader_workers",
+            str(cfg.dataloader_workers),
+            "--precision",
+            str(cfg.precision),
+            "--learning_rate",
+            str(cfg.learning_rate),
+            "--loss",
+            str(cfg.loss),
+            "--tail_rows",
+            str(cfg.tail_rows),
         ]
         if metadata_source.vintage_cutoff:
             args += ["--expected_vintage_cutoff", metadata_source.vintage_cutoff]
@@ -2711,6 +2777,34 @@ class MLPipelineOrchestrator:
             args += ["--feature_registry_dir", feature_registry_dir]
         if feature_set_id is not None:
             args += ["--feature_set_id", feature_set_id]
+        if cfg.pos_weight is not None:
+            args += ["--pos_weight", str(cfg.pos_weight)]
+        if cfg.seed is not None:
+            args += ["--seed", str(cfg.seed)]
+        if cfg.static_categoricals:
+            args += ["--static_categoricals", ",".join(cfg.static_categoricals)]
+        if cfg.static_reals:
+            args += ["--static_reals", ",".join(cfg.static_reals)]
+        if cfg.known_future_reals:
+            args += ["--known_future_reals", ",".join(cfg.known_future_reals)]
+        if cfg.save_interpretability:
+            args.append("--save_interpretability")
+        if cfg.export_torchscript:
+            args.append("--export_torchscript")
+        if cfg.export_safetensors:
+            args.append("--export_safetensors")
+        if cfg.pretrained_state_path:
+            args += ["--pretrained_state_path", cfg.pretrained_state_path]
+        if cfg.register_teacher:
+            args.append("--register_teacher")
+        if cfg.decision_policy:
+            args += ["--decision_policy", cfg.decision_policy]
+        if cfg.decision_config is not None:
+            if isinstance(cfg.decision_config, Mapping):
+                decision_payload = json.dumps(cfg.decision_config, ensure_ascii=True)
+            else:
+                decision_payload = str(cfg.decision_config)
+            args += ["--decision_config", decision_payload]
         if self.teacher_main is None:
             raise RuntimeError("teacher_main CLI entrypoint is not configured")
         return self.teacher_main(args)
@@ -3718,6 +3812,66 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--feature_set_id", default=None)
     parser.add_argument("--max_epochs", type=int, default=5)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--dataloader_workers", type=int, default=0)
+    parser.add_argument(
+        "--accelerator",
+        choices=["auto", "cpu", "gpu"],
+        default="auto",
+        help="Lightning accelerator for teacher training",
+    )
+    parser.add_argument(
+        "--devices",
+        type=int,
+        default=1,
+        help="Number of devices for teacher training",
+    )
+    parser.add_argument(
+        "--precision",
+        default="32",
+        help="Training precision (e.g. 32, 16, 16-mixed, bf16)",
+    )
+    parser.add_argument("--max_encoder_length", type=int, default=30)
+    parser.add_argument("--max_prediction_length", type=int, default=1)
+    parser.add_argument("--hidden_size", type=int, default=16)
+    parser.add_argument("--lstm_layers", type=int, default=1)
+    parser.add_argument("--attention_head_size", type=int, default=2)
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument(
+        "--loss",
+        choices=["poisson", "bce"],
+        default="poisson",
+    )
+    parser.add_argument("--pos_weight", default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--tail_rows", type=int, default=0)
+    parser.add_argument("--limit_groups", type=int, default=0)
+    parser.add_argument("--val_days", type=int, default=0)
+    parser.add_argument("--embargo_hours", type=float, default=24.0)
+    parser.add_argument("--purge_gap", type=int, default=0)
+    parser.add_argument("--cv_splits", type=int, default=5)
+    parser.add_argument("--test_fraction", type=float, default=0.2)
+    parser.add_argument("--target_col", default="y")
+    parser.add_argument("--time_index_col", default="time_index")
+    parser.add_argument("--timestamp_col", default="timestamp")
+    parser.add_argument("--group_id_col", default="instrument_id")
+    parser.add_argument("--static_categoricals", default=None)
+    parser.add_argument("--static_reals", default=None)
+    parser.add_argument("--known_future_reals", default=None)
+    parser.add_argument("--save_interpretability", action="store_true")
+    parser.add_argument("--export_torchscript", action="store_true")
+    parser.add_argument("--export_safetensors", action="store_true")
+    parser.add_argument("--pretrained_state_path", default=None)
+    parser.add_argument("--register_teacher", action="store_true")
+    parser.add_argument("--decision_policy", default=None)
+    parser.add_argument("--decision_config", default=None)
+    parser.add_argument(
+        "--prefer_parquet",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Prefer parquet inputs when training the TFT teacher",
+    )
     parser.add_argument("--distill_student", action="store_true")
     parser.add_argument("--student_model_id", default="student_model")
     parser.add_argument("--student_parent_model_id", default=None)
@@ -4036,6 +4190,9 @@ def _execute_with_namespace(
         if item.strip()
     )
     instrument_ids: tuple[str, ...] | None = raw_instrument_ids or None
+    static_categoricals = _parse_csv_tuple(args.static_categoricals)
+    static_reals = _parse_csv_tuple(args.static_reals)
+    known_future_reals = _parse_csv_tuple(args.known_future_reals)
 
     validation_cfg = _build_validation_config_from_args(
         args,
@@ -4172,6 +4329,43 @@ def _execute_with_namespace(
         feature_registry_dir=args.feature_registry_dir,
         feature_set_id=args.feature_set_id,
         max_epochs=int(args.max_epochs),
+        batch_size=int(args.batch_size),
+        dataloader_workers=int(args.dataloader_workers),
+        accelerator=str(args.accelerator),
+        devices=int(args.devices),
+        precision=str(args.precision),
+        max_encoder_length=int(args.max_encoder_length),
+        max_prediction_length=int(args.max_prediction_length),
+        hidden_size=int(args.hidden_size),
+        lstm_layers=int(args.lstm_layers),
+        attention_head_size=int(args.attention_head_size),
+        dropout=float(args.dropout),
+        learning_rate=float(args.learning_rate),
+        loss=str(args.loss),
+        pos_weight=args.pos_weight,
+        seed=None if args.seed is None else int(args.seed),
+        tail_rows=int(args.tail_rows),
+        limit_groups=int(args.limit_groups),
+        val_days=int(args.val_days),
+        embargo_hours=float(args.embargo_hours),
+        purge_gap=int(args.purge_gap),
+        cv_splits=int(args.cv_splits),
+        test_fraction=float(args.test_fraction),
+        target_col=str(args.target_col),
+        time_index_col=str(args.time_index_col),
+        timestamp_col=str(args.timestamp_col),
+        group_id_col=str(args.group_id_col),
+        static_categoricals=static_categoricals,
+        static_reals=static_reals,
+        known_future_reals=known_future_reals,
+        save_interpretability=bool(args.save_interpretability),
+        export_torchscript=bool(args.export_torchscript),
+        export_safetensors=bool(args.export_safetensors),
+        pretrained_state_path=args.pretrained_state_path,
+        register_teacher=bool(args.register_teacher),
+        decision_policy=args.decision_policy,
+        decision_config=args.decision_config,
+        prefer_parquet=bool(args.prefer_parquet),
     )
 
     student_cfg = StudentDistillConfig(

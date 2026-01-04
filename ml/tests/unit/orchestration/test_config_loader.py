@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from ml.orchestration.config_loader import IngestionStageConfig, load_orchestrator_config, to_pipeline_args
+from ml.orchestration.config_types import DatasetBuildConfig
+from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import OrchestratorConfig
+from ml.orchestration.config_types import TeacherTrainConfig
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -137,6 +141,68 @@ def test_load_toml(tmp_path: Path) -> None:
         args.index("--feature_metrics_json") : args.index("--feature_metrics_json") + 2
     ]
     assert "--refresh_features" in args
+
+
+def test_to_pipeline_args_includes_teacher_overrides(tmp_path: Path) -> None:
+    cfg = OrchestratorConfig(
+        dataset=DatasetBuildConfig(
+            data_dir=str(tmp_path),
+            symbols="SPY",
+            out_dir=str(tmp_path / "out"),
+        ),
+        hpo=HPOConfig(enabled=False),
+        teacher=TeacherTrainConfig(
+            enabled=True,
+            model_id="teacher_X",
+            max_epochs=3,
+            batch_size=128,
+            dataloader_workers=2,
+            accelerator="cpu",
+            devices=1,
+            precision="bf16",
+            hidden_size=32,
+            lstm_layers=2,
+            attention_head_size=4,
+            dropout=0.2,
+            learning_rate=1e-3,
+            loss="bce",
+            pos_weight="auto",
+            tail_rows=50,
+            limit_groups=10,
+            val_days=5,
+            test_fraction=0.1,
+            static_categoricals=("sector",),
+            known_future_reals=("day_of_week",),
+            save_interpretability=True,
+            export_safetensors=True,
+            pretrained_state_path="pretrained.safetensors",
+            register_teacher=True,
+            decision_policy="ml.policy.Policy",
+            decision_config={"alpha": 0.5},
+            prefer_parquet=False,
+        ),
+    )
+    args = to_pipeline_args(cfg)
+
+    def _arg_value(flag: str) -> str:
+        return args[args.index(flag) + 1]
+
+    assert _arg_value("--batch_size") == "128"
+    assert _arg_value("--dataloader_workers") == "2"
+    assert _arg_value("--accelerator") == "cpu"
+    assert _arg_value("--precision") == "bf16"
+    assert _arg_value("--hidden_size") == "32"
+    assert _arg_value("--loss") == "bce"
+    assert _arg_value("--static_categoricals") == "sector"
+    assert _arg_value("--known_future_reals") == "day_of_week"
+    assert "--save_interpretability" in args
+    assert "--export_safetensors" in args
+    assert _arg_value("--pretrained_state_path") == "pretrained.safetensors"
+    assert "--register_teacher" in args
+    assert _arg_value("--decision_policy") == "ml.policy.Policy"
+    decision_payload = json.loads(_arg_value("--decision_config"))
+    assert decision_payload == {"alpha": 0.5}
+    assert "--no-prefer_parquet" in args
 
 
 def test_to_pipeline_args_includes_catalog_cleaning(tmp_path: Path) -> None:

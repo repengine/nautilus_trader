@@ -632,6 +632,60 @@ def to_pipeline_args(
         if cfg.teacher.feature_set_id:
             args += ["--feature_set_id", cfg.teacher.feature_set_id]
         args += ["--max_epochs", str(cfg.teacher.max_epochs)]
+        args += ["--batch_size", str(cfg.teacher.batch_size)]
+        args += ["--dataloader_workers", str(cfg.teacher.dataloader_workers)]
+        args += ["--accelerator", str(cfg.teacher.accelerator)]
+        args += ["--devices", str(cfg.teacher.devices)]
+        args += ["--precision", str(cfg.teacher.precision)]
+        args += ["--max_encoder_length", str(cfg.teacher.max_encoder_length)]
+        args += ["--max_prediction_length", str(cfg.teacher.max_prediction_length)]
+        args += ["--hidden_size", str(cfg.teacher.hidden_size)]
+        args += ["--lstm_layers", str(cfg.teacher.lstm_layers)]
+        args += ["--attention_head_size", str(cfg.teacher.attention_head_size)]
+        args += ["--dropout", str(cfg.teacher.dropout)]
+        args += ["--learning_rate", str(cfg.teacher.learning_rate)]
+        args += ["--loss", str(cfg.teacher.loss)]
+        args += ["--tail_rows", str(cfg.teacher.tail_rows)]
+        args += ["--limit_groups", str(cfg.teacher.limit_groups)]
+        args += ["--val_days", str(cfg.teacher.val_days)]
+        args += ["--embargo_hours", str(cfg.teacher.embargo_hours)]
+        args += ["--purge_gap", str(cfg.teacher.purge_gap)]
+        args += ["--cv_splits", str(cfg.teacher.cv_splits)]
+        args += ["--test_fraction", str(cfg.teacher.test_fraction)]
+        args += ["--target_col", cfg.teacher.target_col]
+        args += ["--time_index_col", cfg.teacher.time_index_col]
+        args += ["--timestamp_col", cfg.teacher.timestamp_col]
+        args += ["--group_id_col", cfg.teacher.group_id_col]
+        if cfg.teacher.pos_weight is not None:
+            args += ["--pos_weight", str(cfg.teacher.pos_weight)]
+        if cfg.teacher.seed is not None:
+            args += ["--seed", str(cfg.teacher.seed)]
+        if cfg.teacher.static_categoricals:
+            args += ["--static_categoricals", ",".join(cfg.teacher.static_categoricals)]
+        if cfg.teacher.static_reals:
+            args += ["--static_reals", ",".join(cfg.teacher.static_reals)]
+        if cfg.teacher.known_future_reals:
+            args += ["--known_future_reals", ",".join(cfg.teacher.known_future_reals)]
+        if cfg.teacher.save_interpretability:
+            args.append("--save_interpretability")
+        if cfg.teacher.export_torchscript:
+            args.append("--export_torchscript")
+        if cfg.teacher.export_safetensors:
+            args.append("--export_safetensors")
+        if cfg.teacher.pretrained_state_path:
+            args += ["--pretrained_state_path", cfg.teacher.pretrained_state_path]
+        if cfg.teacher.register_teacher:
+            args.append("--register_teacher")
+        if cfg.teacher.decision_policy:
+            args += ["--decision_policy", cfg.teacher.decision_policy]
+        if cfg.teacher.decision_config is not None:
+            if isinstance(cfg.teacher.decision_config, Mapping):
+                decision_payload = json.dumps(cfg.teacher.decision_config, ensure_ascii=True)
+            else:
+                decision_payload = str(cfg.teacher.decision_config)
+            args += ["--decision_config", decision_payload]
+        if not cfg.teacher.prefer_parquet:
+            args.append("--no-prefer_parquet")
 
     if cfg.student.enabled:
         args.append("--distill_student")

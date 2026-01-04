@@ -56,7 +56,15 @@ Key flags:
   - L2 extras: `--skip_l2_ingest`, `--l2_days`, `--l2_progress_file`, `--l2_symbols`, `--l2_tier`
 - Auto-fill coverage (optional): `--auto_fill_universe` enables pre-build backfills (bars/TBBO/trades) and depth ingestion; pair with overrides such as `--auto_fill_l2_days`, `--auto_fill_skip_l2`, `--auto_fill_l2_progress_file`, and `--auto_fill_allow_dataset_l2_ingest`
 - HPO: `--hpo`, `--hpo_epochs`, `--hpo_batch_size`, `--hpo_tail_rows`, `--hpo_limit_groups`
-- Teacher: `--train`, `--teacher_model_id`, `--feature_registry_dir`, `--feature_set_id`, `--max_epochs`
+- Teacher (core): `--train`, `--teacher_model_id`, `--feature_registry_dir`, `--feature_set_id`, `--max_epochs`
+  - Resource tuning: `--batch_size`, `--dataloader_workers`, `--accelerator`, `--devices`, `--precision`
+  - Model sizing: `--max_encoder_length`, `--max_prediction_length`, `--hidden_size`, `--lstm_layers`, `--attention_head_size`, `--dropout`
+  - Optimizer/loss: `--learning_rate`, `--loss`, `--pos_weight`, `--seed`
+  - Data caps/splits: `--limit_groups`, `--tail_rows`, `--val_days`, `--embargo_hours`, `--purge_gap`, `--cv_splits`, `--test_fraction`
+  - Column overrides: `--target_col`, `--time_index_col`, `--timestamp_col`, `--group_id_col`, `--static_categoricals`, `--static_reals`, `--known_future_reals`
+  - Artifacts/registration: `--save_interpretability`, `--export_torchscript`, `--export_safetensors`, `--pretrained_state_path`, `--register_teacher`
+  - Decision policy: `--decision_policy`, `--decision_config`
+  - Parquet preference: `--prefer_parquet/--no-prefer_parquet` (default prefers `dataset_with_vintage_age.parquet` or `dataset.parquet` when present)
 - Promotions/Refresh:
   - Model: `--auto_register_model`, `--gates_json`, `--auto_promote`, `--deploy_target`
   - Features: `--auto_register_features`, `--feature_metrics_json`, `--refresh_features`

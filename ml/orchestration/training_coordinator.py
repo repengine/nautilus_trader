@@ -15,7 +15,9 @@ focused, testable training coordination functionality.
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
@@ -338,9 +340,21 @@ class TrainingCoordinator:
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
 
+        dataset_parquet_candidates = (
+            dataset_csv.with_name("dataset_with_vintage_age.parquet"),
+            dataset_csv.with_name("dataset.parquet"),
+        )
+        dataset_parquet = next(
+            (candidate for candidate in dataset_parquet_candidates if candidate.exists()),
+            None,
+        )
+        use_parquet = bool(cfg.prefer_parquet and dataset_parquet is not None)
+        data_flag = "--train_data_parquet" if use_parquet else "--train_data_csv"
+        data_path = dataset_parquet if use_parquet else dataset_csv
+
         args: list[str] = [
-            "--train_data_csv",
-            str(dataset_csv),
+            data_flag,
+            str(data_path),
             "--out_dir",
             str(out_dir),
             "--model_id",
@@ -353,6 +367,54 @@ class TrainingCoordinator:
             metadata_source.dataset_id,
             "--expected_vintage_policy",
             metadata_source.vintage_policy.value,
+            "--target_col",
+            cfg.target_col,
+            "--time_index_col",
+            cfg.time_index_col,
+            "--timestamp_col",
+            cfg.timestamp_col,
+            "--group_id_col",
+            cfg.group_id_col,
+            "--limit_groups",
+            str(cfg.limit_groups),
+            "--max_encoder_length",
+            str(cfg.max_encoder_length),
+            "--max_prediction_length",
+            str(cfg.max_prediction_length),
+            "--val_days",
+            str(cfg.val_days),
+            "--embargo_hours",
+            str(cfg.embargo_hours),
+            "--purge_gap",
+            str(cfg.purge_gap),
+            "--cv_splits",
+            str(cfg.cv_splits),
+            "--test_fraction",
+            str(cfg.test_fraction),
+            "--hidden_size",
+            str(cfg.hidden_size),
+            "--lstm_layers",
+            str(cfg.lstm_layers),
+            "--attention_head_size",
+            str(cfg.attention_head_size),
+            "--dropout",
+            str(cfg.dropout),
+            "--batch_size",
+            str(cfg.batch_size),
+            "--accelerator",
+            str(cfg.accelerator),
+            "--devices",
+            str(cfg.devices),
+            "--dataloader_workers",
+            str(cfg.dataloader_workers),
+            "--precision",
+            str(cfg.precision),
+            "--learning_rate",
+            str(cfg.learning_rate),
+            "--loss",
+            str(cfg.loss),
+            "--tail_rows",
+            str(cfg.tail_rows),
         ]
         if metadata_source.vintage_cutoff:
             args += ["--expected_vintage_cutoff", metadata_source.vintage_cutoff]
@@ -360,6 +422,34 @@ class TrainingCoordinator:
             args += ["--feature_registry_dir", feature_registry_dir]
         if feature_set_id is not None:
             args += ["--feature_set_id", feature_set_id]
+        if cfg.pos_weight is not None:
+            args += ["--pos_weight", str(cfg.pos_weight)]
+        if cfg.seed is not None:
+            args += ["--seed", str(cfg.seed)]
+        if cfg.static_categoricals:
+            args += ["--static_categoricals", ",".join(cfg.static_categoricals)]
+        if cfg.static_reals:
+            args += ["--static_reals", ",".join(cfg.static_reals)]
+        if cfg.known_future_reals:
+            args += ["--known_future_reals", ",".join(cfg.known_future_reals)]
+        if cfg.save_interpretability:
+            args.append("--save_interpretability")
+        if cfg.export_torchscript:
+            args.append("--export_torchscript")
+        if cfg.export_safetensors:
+            args.append("--export_safetensors")
+        if cfg.pretrained_state_path:
+            args += ["--pretrained_state_path", cfg.pretrained_state_path]
+        if cfg.register_teacher:
+            args.append("--register_teacher")
+        if cfg.decision_policy:
+            args += ["--decision_policy", cfg.decision_policy]
+        if cfg.decision_config is not None:
+            if isinstance(cfg.decision_config, Mapping):
+                decision_payload = json.dumps(cfg.decision_config, ensure_ascii=True)
+            else:
+                decision_payload = str(cfg.decision_config)
+            args += ["--decision_config", decision_payload]
 
         return self._teacher_main(args)
 
