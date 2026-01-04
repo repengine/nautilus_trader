@@ -9,12 +9,14 @@ Feature parity is critical for ML model performance in production.
 
 from __future__ import annotations
 
+import math
 import types
 from typing import TYPE_CHECKING, Any, Literal, Self, TypeAlias, cast, overload
 
 import msgspec
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
@@ -61,6 +63,9 @@ if TYPE_CHECKING:
             **kwargs: object,
         ) -> None: ...
 
+
+# Reusable empty history to avoid per-call list allocations in hot paths.
+_EMPTY_HISTORY: tuple[float, ...] = ()
 
 # sklearn is optional; import lazily where used and gate via HAS_SKLEARN
 
@@ -144,7 +149,6 @@ try:
     from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 except Exception:
     RelativeStrengthIndex = None
-from nautilus_trader.model.data import Bar
 
 
 # Use centralized polars availability
@@ -922,6 +926,11 @@ class FeatureEngineer:
         self._cache_misses = 0
         # Use float32 for feature buffer to match expected output dtype
         self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
+        # Cache the primary view to avoid per-call slicing allocations.
+        self._feature_view = self.feature_buffer[: self.n_features]
+        self._volume_ratio_keys: list[str] = [
+            f"volume_sma_{period}" for period in self.config.volume_ma_periods
+        ]
 
     def reset(self) -> None:
         """
@@ -1678,7 +1687,8 @@ class FeatureEngineer:
                 int(getattr(self.config, "bb_period", 0)),
                 20,
             )
-            if len(indicator_mgr.price_history.get("closes", [])) <= required:
+            closes = indicator_mgr.price_history.get("closes") or _EMPTY_HISTORY
+            if len(closes) <= required:
                 row_map = dict.fromkeys(feature_names, 0.0)
                 feature_rows.append(row_map)
                 continue
@@ -1811,20 +1821,37 @@ class FeatureEngineer:
         Calculate volatility features.
         """
         if len(closes) >= 21:  # Need 21 prices to calculate 20 returns
-            # Calculate returns for volatility
-            returns_5 = []
-            returns_20 = []
+            sum_5 = 0.0
+            sumsq_5 = 0.0
+            count_5 = 0
+            sum_20 = 0.0
+            sumsq_20 = 0.0
+            count_20 = 0
 
-            for i in range(max(1, len(closes) - 20), len(closes)):
-                if i > 0:
-                    ret = safe_divide(closes[i] - closes[i - 1], closes[i - 1])
-                    returns_20.append(ret)
-                    if i >= len(closes) - 5:
-                        returns_5.append(ret)
+            start_idx = len(closes) - 20
+            for i in range(start_idx, len(closes)):
+                prev_close = closes[i - 1]
+                ret = safe_divide(closes[i] - prev_close, prev_close)
+                sum_20 += ret
+                sumsq_20 += ret * ret
+                count_20 += 1
+                if i >= len(closes) - 5:
+                    sum_5 += ret
+                    sumsq_5 += ret * ret
+                    count_5 += 1
 
-            # Calculate volatility
-            vol_5 = float(np.std(returns_5)) if len(returns_5) >= 5 else 0.0
-            vol_20 = float(np.std(returns_20)) if len(returns_20) >= 20 else 0.0
+            if count_5 >= 5:
+                mean_5 = sum_5 / count_5
+                var_5 = (sumsq_5 / count_5) - (mean_5 * mean_5)
+                vol_5 = float(math.sqrt(max(var_5, 0.0)))
+            else:
+                vol_5 = 0.0
+            if count_20 >= 20:
+                mean_20 = sum_20 / count_20
+                var_20 = (sumsq_20 / count_20) - (mean_20 * mean_20)
+                vol_20 = float(math.sqrt(max(var_20, 0.0)))
+            else:
+                vol_20 = 0.0
         else:
             vol_5 = vol_20 = 0.0
 
@@ -1842,8 +1869,7 @@ class FeatureEngineer:
         Calculate volume ratio features.
         """
         # Volume ratios
-        for period in self.config.volume_ma_periods:
-            key = f"volume_sma_{period}"
+        for key in self._volume_ratio_keys:
             ratio = safe_divide(volume, indicator_values.get(key, volume), default=1.0)
             self.feature_buffer[feature_idx] = ratio
             feature_idx += 1
@@ -1913,15 +1939,28 @@ class FeatureEngineer:
         feature_idx += 3
 
         # Price position in 20-day range
-        highs = indicator_manager.price_history.get("highs", [])
-        lows = indicator_manager.price_history.get("lows", [])
+        highs = indicator_manager.price_history.get("highs") or _EMPTY_HISTORY
+        lows = indicator_manager.price_history.get("lows") or _EMPTY_HISTORY
 
-        if len(highs) >= 20 and len(lows) >= 20:
-            # Look at the last 20 bars (including current)
-            min_20 = min(lows[-20:])
-            max_20 = max(highs[-20:])
+        history_len = min(len(highs), len(lows))
+        if history_len >= 20:
+            # Look at the last 20 bars (including current) without slicing.
+            start_idx = history_len - 20
+            min_20 = lows[start_idx]
+            max_20 = highs[start_idx]
+            for idx in range(start_idx + 1, history_len):
+                low_val = lows[idx]
+                if low_val < min_20:
+                    min_20 = low_val
+                high_val = highs[idx]
+                if high_val > max_20:
+                    max_20 = high_val
             if max_20 > min_20:
-                price_pos = np.clip((close - min_20) / (max_20 - min_20 + 1e-10), 0.0, 1.0)
+                price_pos = (close - min_20) / (max_20 - min_20 + 1e-10)
+                if price_pos < 0.0:
+                    price_pos = 0.0
+                elif price_pos > 1.0:
+                    price_pos = 1.0
             else:
                 price_pos = 0.5
         else:
@@ -2052,10 +2091,11 @@ class FeatureEngineer:
                 int(getattr(self.config, "bb_period", 0)),
                 20,  # price_position_20 window
             )
-            if len(indicator_manager.price_history.get("closes", [])) <= required:
+            closes = indicator_manager.price_history.get("closes") or _EMPTY_HISTORY
+            if len(closes) <= required:
                 # Return a zero vector view of correct length
                 self.feature_buffer.fill(0.0)
-                return self.feature_buffer[: self.n_features]
+                return self._feature_view
             result = self._calculate_features_online_impl(
                 current_bar,
                 indicator_manager,
@@ -2150,6 +2190,8 @@ class FeatureEngineer:
 
         # Return a view into the pre-allocated buffer to guarantee
         # zero-allocation behavior in the hot path.
+        if feature_idx == self.n_features:
+            return self._feature_view
         return self.feature_buffer[:feature_idx]
 
     def _calculate_microstructure_features_online(

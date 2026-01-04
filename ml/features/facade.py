@@ -327,6 +327,15 @@ class FeatureEngineer:
         return self.registry_accessor.data_registry
 
     @property
+    def n_features(self) -> int:
+        """
+        Return the number of features produced by this engineer.
+
+        This is a compatibility attribute expected by legacy integration tests.
+        """
+        return len(self.config.get_feature_names())
+
+    @property
     def feature_buffer(self) -> npt.NDArray[np.float32]:
         """
         Access pre-allocated feature buffer (HOT PATH).
@@ -675,7 +684,7 @@ class FeatureEngineer:
         """
         if mode == "online":
             if indicator_manager is None:
-                msg = "indicator_manager is required for calculate_features(mode='online')"
+                msg = "indicator_manager is required for online mode"
                 raise ValueError(msg)
             online_bar = cast(dict[str, float], data)
             online_manager = cast(IndicatorManager, indicator_manager)
@@ -698,6 +707,9 @@ class FeatureEngineer:
                 scaler_fit_ratio=scaler_fit_ratio,
                 scaler=scaler,
             )
+
+        if mode != "batch":
+            raise ValueError(f"Invalid mode: {mode}. Must be 'batch' or 'online'")
 
         batch_data = cast(DataFrameLike, data)
         if self._use_legacy:

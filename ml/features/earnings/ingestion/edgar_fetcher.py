@@ -117,6 +117,11 @@ class EarningsActual:
     fiscal_year: int
     fiscal_quarter: int
 
+    @property
+    def fiscal_period(self) -> str:
+        """Return the fiscal period token (e.g., ``Q4``)."""
+        return f"Q{self.fiscal_quarter}"
+
 
 class EdgarFetcher:
     """

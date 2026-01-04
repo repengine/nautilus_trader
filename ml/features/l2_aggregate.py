@@ -66,7 +66,9 @@ def aggregate_l2_minute_pl(l2: PlDataFrame, *, timestamp_col: str = "ts_event") 
     """
     _ensure_polars()
     if l2.is_empty():
-        return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
+        schema = [(L2_MINUTE_COLUMNS[0], PL.Datetime("ns", "UTC"))]
+        schema.extend((name, PL.Float64) for name in L2_MINUTE_COLUMNS[1:])
+        return _cast(PlDataFrame, PL.DataFrame(schema=schema))
 
     df = l2
     if df[timestamp_col].dtype != PL.Datetime:
