@@ -12,6 +12,7 @@ import logging
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
 from datetime import time
 from datetime import timedelta
@@ -227,12 +228,13 @@ class SimpleCalendarSource(CalendarSource):
             Simple market schedule
 
         """
+        dt_value = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
         # All exchanges use same hours in simple implementation
-        market_open = datetime.combine(dt.date(), self.default_open)
-        market_close = datetime.combine(dt.date(), self.default_close)
+        market_open = datetime.combine(dt_value.date(), self.default_open, tzinfo=dt_value.tzinfo)
+        market_close = datetime.combine(dt_value.date(), self.default_close, tzinfo=dt_value.tzinfo)
 
         # Trading day if weekday
-        is_trading_day = dt.weekday() < 5
+        is_trading_day = dt_value.weekday() < 5
 
         # No holidays in simple implementation
         is_holiday = False
@@ -244,7 +246,7 @@ class SimpleCalendarSource(CalendarSource):
         minutes_to_close = 0
 
         if is_trading_day:
-            current_time = dt.time()
+            current_time = dt_value.time()
 
             # Pre-market: 4 AM - 9:30 AM
             is_pre_market = current_time >= time(4, 0) and current_time < self.default_open
@@ -259,12 +261,12 @@ class SimpleCalendarSource(CalendarSource):
 
             # Minutes to close
             if is_market_hours:
-                time_to_close = market_close - dt
+                time_to_close = market_close - dt_value
                 minutes_to_close = int(time_to_close.total_seconds() / 60)
                 minutes_to_close = max(0, minutes_to_close)
 
         return MarketSchedule(
-            date=dt,
+            date=dt_value,
             exchange=exchange,
             is_trading_day=is_trading_day,
             is_holiday=is_holiday,
@@ -567,12 +569,46 @@ class PandasCalendarSource(CalendarSource):
             Built market schedule
 
         """
+        dt_value = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+        dt_utc = dt_value.astimezone(UTC)
+
+        def _to_utc(value: datetime) -> datetime:
+            if value.tzinfo is None:
+                return value.replace(tzinfo=UTC)
+            return value.astimezone(UTC)
+
+        def _as_datetime(value: object) -> datetime:
+            if isinstance(value, datetime):
+                return value
+            to_py = getattr(value, "to_pydatetime", None)
+            if callable(to_py):
+                candidate = to_py()
+                if isinstance(candidate, datetime):
+                    return candidate
+            return cast(datetime, PD.Timestamp(value).to_pydatetime())
+
         # Check if the date is in the schedule (trading day)
-        dt_date = PD.Timestamp(dt.date())
+        market_tzinfo: object | None = None
+        if not schedule.empty:
+            try:
+                market_open_sample = _as_datetime(schedule.iloc[0]["market_open"])
+                market_tzinfo = market_open_sample.tzinfo
+            except Exception:
+                market_tzinfo = None
+        dt_local = dt_utc if market_tzinfo is None else dt_utc.astimezone(cast(Any, market_tzinfo))
+
+        dt_date = PD.Timestamp(dt_local.date())
         is_trading_day = False
         is_holiday = True
-        market_open = datetime.combine(dt.date(), time(9, 30))
-        market_close = datetime.combine(dt.date(), time(16, 0))
+        base_tz = cast(Any, market_tzinfo) if market_tzinfo is not None else UTC
+        market_open = _to_utc(
+            _as_datetime(PD.Timestamp(f"{dt_local.date().isoformat()} 09:30:00", tz=base_tz)),
+        )
+        market_close = _to_utc(
+            _as_datetime(PD.Timestamp(f"{dt_local.date().isoformat()} 16:00:00", tz=base_tz)),
+        )
+        market_open_local = market_open
+        market_close_local = market_close
 
         if not schedule.empty and dt_date in schedule.index:
             is_trading_day = True
@@ -580,14 +616,18 @@ class PandasCalendarSource(CalendarSource):
 
             # Get market hours from schedule
             row = schedule.loc[dt_date]
-            market_open = row["market_open"].to_pydatetime()
-            market_close = row["market_close"].to_pydatetime()
+            market_open_local = _as_datetime(row["market_open"])
+            market_close_local = _as_datetime(row["market_close"])
+            market_open = _to_utc(market_open_local)
+            market_close = _to_utc(market_close_local)
 
         # Get extended hours settings
         extended = self._extended_hours.get(
             self._exchange_mapping.get(exchange, exchange),
             self._extended_hours["DEFAULT"],
         )
+
+        market_zone = market_open_local.tzinfo if market_open_local.tzinfo is not None else UTC
 
         # Check market session
         is_pre_market = False
@@ -596,29 +636,40 @@ class PandasCalendarSource(CalendarSource):
         minutes_to_close = 0
 
         if is_trading_day:
-            current_time = dt.time()
+            pre_market_start = _to_utc(
+                _as_datetime(
+                    PD.Timestamp(
+                        f"{dt_local.date().isoformat()} {extended['pre_market_start'].isoformat()}",
+                        tz=cast(Any, market_zone),
+                    ),
+                ),
+            )
+            after_hours_end = _to_utc(
+                _as_datetime(
+                    PD.Timestamp(
+                        f"{dt_local.date().isoformat()} {extended['after_hours_end'].isoformat()}",
+                        tz=cast(Any, market_zone),
+                    ),
+                ),
+            )
 
             # Pre-market
-            is_pre_market = (
-                current_time >= extended["pre_market_start"] and current_time < market_open.time()
-            )
+            is_pre_market = pre_market_start <= dt_utc < market_open
 
             # Regular market hours
-            is_market_hours = dt >= market_open and dt < market_close
+            is_market_hours = market_open <= dt_utc < market_close
 
             # After-hours
-            is_after_hours = (
-                current_time >= market_close.time() and current_time < extended["after_hours_end"]
-            )
+            is_after_hours = market_close <= dt_utc < after_hours_end
 
             # Minutes to close
             if is_market_hours:
-                time_to_close = market_close - dt
+                time_to_close = market_close - dt_utc
                 minutes_to_close = int(time_to_close.total_seconds() / 60)
                 minutes_to_close = max(0, minutes_to_close)
 
         return MarketSchedule(
-            date=dt,
+            date=dt_utc,
             exchange=exchange,
             is_trading_day=is_trading_day,
             is_holiday=is_holiday,
@@ -674,16 +725,17 @@ class PandasCalendarSource(CalendarSource):
             24/7 market schedule
 
         """
+        dt_value = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
         # For 24/7 markets, always trading
-        market_open = datetime.combine(dt.date(), time(0, 0))
-        market_close = datetime.combine(dt.date(), time(23, 59, 59))
+        market_open = datetime.combine(dt_value.date(), time(0, 0), tzinfo=dt_value.tzinfo)
+        market_close = datetime.combine(dt_value.date(), time(23, 59, 59), tzinfo=dt_value.tzinfo)
 
         # Always in market hours for 24/7
-        minutes_to_close = int((market_close - dt).total_seconds() / 60)
+        minutes_to_close = int((market_close - dt_value).total_seconds() / 60)
         minutes_to_close = max(0, minutes_to_close)
 
         return MarketSchedule(
-            date=dt,
+            date=dt_value,
             exchange=exchange,
             is_trading_day=True,
             is_holiday=False,
