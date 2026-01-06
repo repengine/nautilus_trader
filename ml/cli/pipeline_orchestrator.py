@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from ml.orchestration.pipeline_orchestrator import main
+from ml.orchestration.pipeline_orchestrator_cli import main
 
 
 __all__ = ["main"]
