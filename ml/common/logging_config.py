@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 
 import structlog
 from structlog.contextvars import bind_contextvars
@@ -78,6 +79,8 @@ def configure_logging(level: str | None = None, json: bool | None = None) -> Non
     handlers: list[logging.Handler] = [stream_handler]
     log_file = os.getenv("LOG_FILE")
     if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(_make_formatter(use_json))
         handlers.append(file_handler)

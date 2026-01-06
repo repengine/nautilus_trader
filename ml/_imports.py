@@ -53,6 +53,8 @@ if TYPE_CHECKING:
     import sklearn
     import torch
     import xgboost as xgb
+    from autogluon.timeseries import TimeSeriesDataFrame as TimeSeriesDataFrame
+    from autogluon.timeseries import TimeSeriesPredictor as TimeSeriesPredictor
 
 
 # ONNX Runtime
@@ -209,6 +211,20 @@ except ImportError as e:
     HAS_PANDAS = False
     PANDAS_IMPORT_ERROR = e
     pd = None  # type: ignore[assignment,unused-ignore]
+
+
+# AutoGluon TimeSeries
+try:
+    from autogluon.timeseries import TimeSeriesDataFrame as TimeSeriesDataFrame
+    from autogluon.timeseries import TimeSeriesPredictor as TimeSeriesPredictor
+
+    HAS_AUTOGLUON = True
+    AUTOGLUON_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_AUTOGLUON = False
+    AUTOGLUON_IMPORT_ERROR = e
+    TimeSeriesDataFrame = None  # type: ignore[assignment,unused-ignore]
+    TimeSeriesPredictor = None  # type: ignore[assignment,unused-ignore]
 
 # Pandera (dataframe validation, optional)
 try:  # pragma: no cover - optional dependency
@@ -454,7 +470,7 @@ def check_ml_dependencies(required: list[str]) -> None:
     required : list[str]
         Supported keys: onnx, polars, xgboost, lightgbm, sklearn,
         optuna, mlflow, prometheus, onnx_export, pandas, databento,
-        pandas_market_calendars
+        pandas_market_calendars, autogluon
 
     Raises
     ------
@@ -482,6 +498,10 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"ONNX export tools (onnxmltools, skl2onnx) required. Original error: {ONNX_EXPORT_IMPORT_ERROR}",
         ),
         "pandas": (HAS_PANDAS, f"Pandas required. Original error: {PANDAS_IMPORT_ERROR}"),
+        "autogluon": (
+            HAS_AUTOGLUON,
+            f"AutoGluon required. Original error: {AUTOGLUON_IMPORT_ERROR}",
+        ),
         "pandera": (
             HAS_PANDERA,
             f"Pandera required. Original error: {PANDERA_IMPORT_ERROR}",
@@ -528,9 +548,11 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 
 __all__ = [
+    "AUTOGLUON_IMPORT_ERROR",
     "DATABENTO_IMPORT_ERROR",
     "EDGARTOOLS_IMPORT_ERROR",
     "FREDAPI_IMPORT_ERROR",
+    "HAS_AUTOGLUON",
     "HAS_DATABENTO",
     "HAS_EDGARTOOLS",
     "HAS_FREDAPI",
@@ -575,6 +597,8 @@ __all__ = [
     "Counter",
     "Gauge",
     "Histogram",
+    "TimeSeriesDataFrame",
+    "TimeSeriesPredictor",
     "check_ml_dependencies",
     "db",
     "edgartools",
