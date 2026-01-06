@@ -6,7 +6,7 @@ from typing import Any, Iterator
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus, Source, Stage
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.registry.protocols import RegistryProtocol
 

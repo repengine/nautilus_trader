@@ -747,11 +747,9 @@ class DataRegistry(MLComponentMixin):
 
                     # Safe query with parameterized values
                     query = text(
-                        f"""
-                        UPDATE ml_dataset_registry
-                        SET {', '.join(set_parts)}, last_modified = NOW()
-                        WHERE dataset_id = :dataset_id
-                    """,
+                        f"UPDATE ml_dataset_registry\n"  # nosec B608: column names from allowlist
+                        f"SET {', '.join(set_parts)}, last_modified = NOW()\n"
+                        "WHERE dataset_id = :dataset_id",
                     )
 
                     result = session.execute(query, update_data)
@@ -1587,7 +1585,7 @@ class DataRegistry(MLComponentMixin):
                         limit_clause = " LIMIT :limit"
                         params["limit"] = limit_value
 
-                    query = text(
+                    query = text(  # nosec B608: dynamic WHERE clause uses bound params only
                         """
                         SELECT dataset_id, instrument_id, source,
                                last_success_ns, last_attempt_ns, last_count,
@@ -1780,7 +1778,7 @@ class DataRegistry(MLComponentMixin):
                         limit_clause = " LIMIT :limit"
                         params["limit"] = limit_value
 
-                    query = text(
+                    query = text(  # nosec B608: dynamic WHERE clause uses bound params only
                         """
                         SELECT transform_id, child_dataset_id, parent_dataset_id,
                                ts_range, parameters,

@@ -68,6 +68,7 @@ class TestCreateDataStoreSignature:
         After removing **kwargs, the function should have explicit parameters:
         - registry: DataRegistry
         - connection_string: str
+        - feature_store/model_store/strategy_store/earnings_store: optional protocols
         - raw_reader: RawReaderProtocol | None
         - raw_writer: RawIngestionWriterProtocol | None
 
@@ -82,7 +83,16 @@ class TestCreateDataStoreSignature:
         param_names = list(sig.parameters.keys())
 
         # Verify all required parameters present
-        required_params = ["registry", "connection_string", "raw_reader", "raw_writer"]
+        required_params = [
+            "registry",
+            "connection_string",
+            "feature_store",
+            "model_store",
+            "strategy_store",
+            "earnings_store",
+            "raw_reader",
+            "raw_writer",
+        ]
 
         for param in required_params:
             assert param in param_names, (
@@ -259,6 +269,40 @@ class TestCreateDataStoreSignature:
             f"raw_writer should be protocol type (RawIngestionWriterProtocol), got {type_str}"
         )
 
+    def test_store_params_are_optional_protocols(self) -> None:
+        """
+        Verify store parameters are optional protocol types.
+
+        Feature/Model/Strategy/Earnings store parameters should be optional
+        protocol types, not object, and allow None.
+        """
+        from ml.core.integration import create_data_store
+
+        hints = get_type_hints(create_data_store)
+        store_params = {
+            "feature_store": "FeatureStore",
+            "model_store": "ModelStore",
+            "strategy_store": "StrategyStore",
+            "earnings_store": "EarningsStore",
+        }
+
+        for param, label in store_params.items():
+            assert param in hints, f"{param} parameter should have type annotation"
+
+            param_type = hints[param]
+            type_str = str(param_type)
+            type_name = getattr(param_type, "__name__", type_str)
+
+            assert type_name != "object", (
+                f"{param} should not be object type, got {type_name}"
+            )
+            assert "None" in type_str or "Optional" in type_str, (
+                f"{param} should be optional (have None in type), got {type_str}"
+            )
+            assert "Protocol" in type_str or label in type_str, (
+                f"{param} should be protocol type ({label}), got {type_str}"
+            )
+
     def test_return_type_not_object(self) -> None:
         """
         Verify return type is concrete DataStore (not object or string literal).
@@ -300,9 +344,9 @@ class TestCreateDataStoreRuntime:
         """
         Verify function accepts all typed parameters and executes.
 
-        Tests that after refactoring, the function can be called with all 4
-        parameters (registry, connection_string, raw_reader, raw_writer) and
-        returns a valid result.
+        Tests that after refactoring, the function can be called with all
+        parameters (registry, connection_string, store deps, raw_reader/raw_writer)
+        and returns a valid result.
 
         Uses mocks to avoid requiring PostgreSQL database for unit test.
 
@@ -318,9 +362,13 @@ class TestCreateDataStoreRuntime:
         mock_registry = Mock(spec=["register_dataset", "get_dataset"])
         mock_reader = Mock(spec=["read_range"])
         mock_writer = Mock(spec=["write"])
+        mock_feature_store = Mock()
+        mock_model_store = Mock()
+        mock_strategy_store = Mock()
+        mock_earnings_store = Mock()
 
         # Mock DataStore construction to avoid database requirement
-        from ml.stores.data_store import DataStore
+        from ml.stores.data_store_facade import DataStore
 
         original_init = DataStore.__init__
 
@@ -328,6 +376,10 @@ class TestCreateDataStoreRuntime:
             """Mock __init__ to avoid database connection."""
             self.registry = kwargs.get("registry")  # type: ignore[assignment]
             self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
+            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
+            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
+            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
+            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
             self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
             self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
 
@@ -338,6 +390,10 @@ class TestCreateDataStoreRuntime:
             result = create_data_store(
                 registry=mock_registry,
                 connection_string=TEST_DB_CONNECTION,
+                feature_store=mock_feature_store,
+                model_store=mock_model_store,
+                strategy_store=mock_strategy_store,
+                earnings_store=mock_earnings_store,
                 raw_reader=mock_reader,
                 raw_writer=mock_writer,
             )
@@ -374,7 +430,7 @@ class TestCreateDataStoreRuntime:
         mock_registry = Mock(spec=["register_dataset"])
 
         # Mock DataStore construction
-        from ml.stores.data_store import DataStore
+        from ml.stores.data_store_facade import DataStore
 
         original_init = DataStore.__init__
 
@@ -382,6 +438,10 @@ class TestCreateDataStoreRuntime:
             """Mock __init__ to avoid database connection."""
             self.registry = kwargs.get("registry")  # type: ignore[assignment]
             self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
+            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
+            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
+            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
+            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
             self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
             self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
 
@@ -398,6 +458,10 @@ class TestCreateDataStoreRuntime:
             assert result is not None, "Function should work with minimal parameters"
 
             # Verify optional parameters defaulted to None
+            assert result.feature_store is None, "feature_store should default to None"
+            assert result.model_store is None, "model_store should default to None"
+            assert result.strategy_store is None, "strategy_store should default to None"
+            assert result.earnings_store is None, "earnings_store should default to None"
             assert result.raw_reader is None, "raw_reader should default to None"
             assert result.raw_writer is None, "raw_writer should default to None"
         finally:
@@ -414,10 +478,10 @@ class TestCreateDataStoreImportStyle:
 
         The original implementation used dynamic import to bypass mypy:
         - import importlib
-        - DataStore = getattr(importlib.import_module("ml.stores.data_store"), "DataStore")
+        - DataStore = getattr(importlib.import_module("ml.stores.data_store_facade"), "DataStore")
 
         This test verifies the workaround is removed and replaced with direct import:
-        - from ml.stores.data_store import DataStore
+        - from ml.stores.data_store_facade import DataStore
 
         Behavior tested: Import style (direct vs dynamic), not exact formatting.
 
@@ -431,7 +495,7 @@ class TestCreateDataStoreImportStyle:
         # Should NOT have dynamic import pattern
         assert "importlib" not in source, (
             "Function should not use dynamic import (importlib module). "
-            "Use direct import: from ml.stores.data_store import DataStore"
+            "Use direct import: from ml.stores.data_store_facade import DataStore"
         )
 
         assert "getattr(importlib" not in source, (
@@ -441,14 +505,14 @@ class TestCreateDataStoreImportStyle:
 
         # SHOULD have direct import (flexible - allow variations)
         has_direct_import = (
-            "from ml.stores.data_store import DataStore" in source
-            or "from ml.stores.data_store import" in source
+            "from ml.stores.data_store_facade import DataStore" in source
+            or "from ml.stores.data_store_facade import" in source
             or "import DataStore" in source
         )
 
         assert has_direct_import, (
             "Function should use direct import of DataStore. "
-            "Expected pattern: from ml.stores.data_store import DataStore"
+            "Expected pattern: from ml.stores.data_store_facade import DataStore"
         )
 
 
@@ -460,8 +524,8 @@ class TestCreateDataStoreCompatibility:
         Verify existing call patterns (lines 628-633, 2058) still work.
 
         Existing call sites:
-        - Line 628-633: All 4 parameters (registry, connection_string, raw_reader, raw_writer)
-        - Line 2058: Minimal 2 parameters (registry, connection_string)
+        - Line 628-633: registry, connection_string, raw_reader, raw_writer
+        - Line 2058: registry, connection_string
 
         Both patterns already use keyword arguments, so signature change should
         be transparent (no breaking changes).
@@ -480,7 +544,7 @@ class TestCreateDataStoreCompatibility:
         mock_writer = Mock(spec=["write"])
 
         # Mock DataStore construction
-        from ml.stores.data_store import DataStore
+        from ml.stores.data_store_facade import DataStore
 
         original_init = DataStore.__init__
 
@@ -488,6 +552,10 @@ class TestCreateDataStoreCompatibility:
             """Mock __init__ to avoid database connection."""
             self.registry = kwargs.get("registry")  # type: ignore[assignment]
             self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
+            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
+            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
+            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
+            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
             self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
             self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
 

@@ -23,15 +23,13 @@ from hypothesis import HealthCheck
 from hypothesis import settings
 
 from ml.core.db_engine import EngineManager as _EngineManager
-from ml.tests.fixtures.database_fixtures import (
-    DATABASE_URL,
-    _SCHEMA_INITIALIZED,
-    acquire_db_lock,
-    is_postgresql_running,
-    release_db_lock,
-    start_postgresql,
-    TestDatabase,
-)
+
+
+def _db_fixtures() -> Any:
+    """Lazy import to avoid early fixture module loading before pytest rewrite."""
+    from ml.tests.fixtures import database_fixtures
+
+    return database_fixtures
 
 warnings.filterwarnings(
     "ignore",
@@ -222,9 +220,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             if "database" in item.keywords:
                 item.add_marker(skip_db)
 
-    if not is_postgresql_running():
+    db_fixtures = _db_fixtures()
+    if not db_fixtures.is_postgresql_running():
         skip_reason = (
-            f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
+            f"PostgreSQL not reachable at {db_fixtures.DATABASE_URL}; skipping @pytest.mark.database tests"
         )
         skip_db = pytest.mark.skip(reason=skip_reason)
         for item in items:
@@ -264,7 +263,8 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     if "database" in item.keywords or "serial" in item.keywords:
         if os.getenv("ML_TEST_DISABLE_DB_LOCK") in {"1", "true", "True"}:
             return
-        fh = acquire_db_lock("db")
+        db_fixtures = _db_fixtures()
+        fh = db_fixtures.acquire_db_lock("db")
         if fh is None:
             item.add_marker(
                 pytest.mark.skip(reason="DB lock contention timeout; skipping to avoid hang"),
@@ -278,10 +278,11 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
 
     if item.nodeid in _DB_LOCK_FH:
         fh = _DB_LOCK_FH.pop(item.nodeid)
-        release_db_lock(fh)
+        db_fixtures = _db_fixtures()
+        db_fixtures.release_db_lock(fh)
 
     _EngineManager.dispose_all()
-    _SCHEMA_INITIALIZED.clear()
+    _db_fixtures()._SCHEMA_INITIALIZED.clear()
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -289,11 +290,12 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     os.environ.setdefault("ML_TEST_ALLOW_NON_ONNX", "1")
     os.environ.setdefault("DISABLE_PANDERA_IMPORT_WARNING", "True")
+    db_fixtures = _db_fixtures()
 
     try:
         from urllib.parse import urlparse
 
-        url = os.getenv("DATABASE_URL", DATABASE_URL)
+        url = os.getenv("DATABASE_URL", db_fixtures.DATABASE_URL)
         parsed = urlparse(url)
         if not os.getenv("PGPASSWORD"):
             if parsed.password:
@@ -349,12 +351,12 @@ def pytest_sessionstart(session: pytest.Session) -> None:
             exc_info=True,
         )
 
-    start_postgresql()
+    db_fixtures.start_postgresql()
 
     skip_db_preflight = os.getenv("ML_SKIP_DB_PREFLIGHT", "").lower() in {"1", "true", "yes"}
 
-    if is_postgresql_running() and not skip_db_preflight:
-        engine = _EngineManager.get_engine(DATABASE_URL)
+    if db_fixtures.is_postgresql_running() and not skip_db_preflight:
+        engine = _EngineManager.get_engine(db_fixtures.DATABASE_URL)
         print("Database initialized, stores will create tables as needed...")
         engine.dispose()
 
@@ -368,13 +370,13 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         try:
             from ml.stores.infrastructure import check_db_prereqs
 
-            status = check_db_prereqs(DATABASE_URL)
+            status = check_db_prereqs(db_fixtures.DATABASE_URL)
             ok = bool(status.get("ok", False))
             if not ok:
                 try:
                     from sqlalchemy import text as _text
 
-                    _eng = _EngineManager.get_engine(DATABASE_URL)
+                    _eng = _EngineManager.get_engine(db_fixtures.DATABASE_URL)
                     with _eng.begin() as _conn:
                         _conn.execute(_text("SELECT auto_create_partitions()"))
                 except Exception as exc:
@@ -385,7 +387,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
                         exc,
                         exc_info=True,
                     )
-                status = check_db_prereqs(DATABASE_URL)
+                status = check_db_prereqs(db_fixtures.DATABASE_URL)
                 print(f"Warning: DB preflight failed: {status}")
         except Exception as exc:
             print(f"Warning: DB preflight error: {exc}")
@@ -408,7 +410,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     finally:
         logging.disable(previous_disable)
 
-    _SCHEMA_INITIALIZED.clear()
+    _db_fixtures()._SCHEMA_INITIALIZED.clear()
 
     logger = logging.getLogger(__name__)
     try:

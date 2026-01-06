@@ -267,7 +267,7 @@ class LineageTrackerComponent:
                         limit_clause = " LIMIT :limit"
                         params["limit"] = limit_value
 
-                    query = text(
+                    query = text(  # nosec B608: dynamic WHERE clause uses bound params only
                         """
                         SELECT transform_id, child_dataset_id, parent_dataset_id,
                                ts_range, parameters,

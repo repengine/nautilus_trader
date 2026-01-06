@@ -10,9 +10,8 @@ This facade wires all 5 components extracted from the DataRegistry god class:
 - WatermarkManagerComponent
 - LineageTrackerComponent
 
-Feature Flag: ML_USE_LEGACY_DATA_REGISTRY
-- Set to "1" to use legacy DataRegistry implementation
-- Set to "0" or unset to use the new facade (default)
+Feature Flag: ML_USE_LEGACY_DATA_REGISTRY (removed)
+- Always uses the facade implementation.
 
 Thread-safety: All operations are thread-safe via component locks.
 """
@@ -20,7 +19,6 @@ Thread-safety: All operations are thread-safe via component locks.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
@@ -627,12 +625,7 @@ def create_data_registry(
     persistence_config: PersistenceConfig | None = None,
 ) -> DataRegistryFacade:
     """
-    Factory function to create a data registry with feature flag support.
-
-    Uses the ML_USE_LEGACY_DATA_REGISTRY environment variable to determine
-    which implementation to use:
-    - "1": Use legacy DataRegistry
-    - "0" or unset: Use DataRegistryFacade (default)
+    Factory function to create a data registry.
 
     Parameters
     ----------
@@ -646,21 +639,8 @@ def create_data_registry(
     Returns
     -------
     DataRegistryFacade
-        The data registry instance (facade or legacy wrapper).
+        The data registry instance.
     """
-    use_legacy = os.environ.get("ML_USE_LEGACY_DATA_REGISTRY", "0") == "1"
-
-    if use_legacy:
-        from ml.registry.data_registry import DataRegistry
-
-        logger.info("Using legacy DataRegistry (ML_USE_LEGACY_DATA_REGISTRY=1)")
-        # Return legacy implementation - it shares the same interface
-        return DataRegistry(  # type: ignore[return-value]
-            registry_path=registry_path,
-            batch_save_interval=batch_save_interval,
-            persistence_config=persistence_config,
-        )
-
     logger.info("Using DataRegistryFacade")
     return DataRegistryFacade(
         registry_path=registry_path,

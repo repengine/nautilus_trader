@@ -446,16 +446,14 @@ class FeatureReaderComponent:
             else "public.ml_feature_values"
         )
         sql = sql_text(
-            f"""
-                SELECT feature_set_id,
-                       instrument_id,
-                       values,
-                       ts_event,
-                       ts_init
-                FROM {table_name}
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY ts_event
-                """,
+            f"SELECT feature_set_id,\n"  # nosec B608: table name derived from engine dialect only
+            "       instrument_id,\n"
+            "       values,\n"
+            "       ts_event,\n"
+            "       ts_init\n"
+            f"FROM {table_name}\n"
+            f"WHERE {' AND '.join(where_parts)}\n"
+            "ORDER BY ts_event",
         )
 
         # Prefer a mock-friendly session when available; else engine

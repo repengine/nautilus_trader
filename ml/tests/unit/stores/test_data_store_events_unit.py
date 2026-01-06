@@ -13,7 +13,7 @@ from typing import Any, Callable, cast
 import pytest
 
 from ml.config.events import EventStatus, Source, Stage
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 from ml.stores.validation_types import DataEvent
 from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
 from nautilus_trader.model.identifiers import InstrumentId

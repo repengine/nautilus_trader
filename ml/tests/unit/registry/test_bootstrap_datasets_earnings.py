@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.registry.bootstrap_datasets import bootstrap_datasets
 from ml.registry.persistence import BackendType
-from ml.stores.data_store import EARNINGS_ACTUALS_DATASET_ID
-from ml.stores.data_store import EARNINGS_ESTIMATES_DATASET_ID
 
 
 def test_bootstrap_datasets_json_includes_earnings(tmp_path: Path) -> None:

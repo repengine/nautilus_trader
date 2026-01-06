@@ -14,8 +14,6 @@ This module provides the final facade layer for Phase 3.7.7, wiring together:
 The facade maintains 100% backward compatibility with the legacy FeatureStore API
 while delegating all operations to specialized components.
 
-Feature Flag: ML_USE_LEGACY_FEATURE_STORE (defaults to "0" = use facade)
-
 Phase 3.7.7 - Final Facade Integration
 
 """
@@ -31,8 +29,8 @@ import numpy.typing as npt
 
 from ml.common.db_utils import get_or_create_engine
 from ml.config.base import MLFeatureConfig
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.stores.common.feature_computation import FeatureComputationComponent
@@ -60,7 +58,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Table
     from sqlalchemy.engine import Engine
 
-    from ml.features.engineering import IndicatorManager
+    from ml.features import IndicatorManager
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.protocols import CircuitBreakerProtocol
     from ml.stores.services.cross_asset_service import CrossAssetFeatureService
@@ -75,8 +73,6 @@ class FeatureStoreFacade(DataRegistryMixin):
 
     Preserves the exact public API of legacy FeatureStore while
     delegating to decomposed components.
-
-    Feature flag: ML_USE_LEGACY_FEATURE_STORE=1 (legacy) / =0 (facade)
 
     Component Delegation:
     - Write operations -> FeatureWriterComponent
@@ -180,10 +176,23 @@ class FeatureStoreFacade(DataRegistryMixin):
         # Re-sync pipeline_hash from schema component
         self.pipeline_hash = self._schema_component.pipeline_hash
 
+        # Resolve message bus config (topic scheme + prefix)
+        try:
+            from ml.config.bus import MessageBusConfig
+
+            bus_config = MessageBusConfig.from_env()
+            topic_scheme = str(bus_config.scheme)
+            topic_prefix = str(bus_config.topic_prefix)
+        except Exception:  # pragma: no cover - defensive fallback
+            topic_scheme = "domain_op"
+            topic_prefix = "events.ml"
+
         # Initialize writer component
         self._writer_config = FeatureWriterConfig(
             enable_publishing=enable_publishing,
             publish_mode=publish_mode,
+            topic_scheme=topic_scheme,
+            topic_prefix=topic_prefix,
         )
         self._writer_component = FeatureWriterComponent(
             engine=self.engine,
@@ -257,8 +266,8 @@ class FeatureStoreFacade(DataRegistryMixin):
         self._publish_mode = publish_mode
 
         # Message bus config (topic scheme and prefix)
-        self._topic_scheme = "domain_op"
-        self._topic_prefix = "events.ml"
+        self._topic_scheme = topic_scheme
+        self._topic_prefix = topic_prefix
 
     # =========================================================================
     # Private Helper Methods
@@ -973,7 +982,12 @@ def create_engine(connection_string: str) -> Any:
     return EngineManager.get_engine(connection_string)
 
 
+# Backwards-compatible alias for facade-only deployment.
+FeatureStore = FeatureStoreFacade
+
+
 __all__ = [
+    "FeatureStore",
     "FeatureStoreFacade",
     "create_engine",
 ]

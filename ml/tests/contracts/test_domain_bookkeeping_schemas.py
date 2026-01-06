@@ -25,7 +25,7 @@ from ml.tests.fixtures.pandera import ensure_pandera_available
 pa = ensure_pandera_available()
 globals()["Series"] = Series  # Ensure Series available in pytest-xdist worker globals
 
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 from nautilus_trader.core.uuid import UUID4
 
 

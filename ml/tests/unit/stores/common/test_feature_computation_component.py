@@ -833,7 +833,7 @@ class TestHelperMethods:
         Verify new indicator manager is created when not exists.
         """
         with patch(
-            "ml.features.engineering.IndicatorManager",
+            "ml.features.IndicatorManager",
         ) as mock_im_class:
             mock_im = MagicMock()
             mock_im_class.return_value = mock_im

@@ -3,13 +3,9 @@
 """
 ModelRegistryFacade - Facade implementation wiring all ModelRegistry components.
 
-This facade provides identical API to the legacy ModelRegistry while delegating
+This facade provides the canonical ModelRegistry implementation while delegating
 to focused, decomposed components internally. It follows the established
 facade pattern used in TFTDatasetBuilder and MLPipelineOrchestrator decompositions.
-
-Feature flag: ML_USE_LEGACY_MODEL_REGISTRY
-- When "1": Use legacy ModelRegistry
-- When "0" or unset: Use this facade (default)
 
 Thread-safety: All operations are thread-safe via component locks.
 """
@@ -43,26 +39,6 @@ from ml.registry.persistence import PersistenceConfig
 
 
 logger = logging.getLogger(__name__)
-
-
-def use_legacy_model_registry() -> bool:
-    """
-    Check if legacy ModelRegistry should be used.
-
-    Returns
-    -------
-    bool
-        True if ML_USE_LEGACY_MODEL_REGISTRY=1, False otherwise.
-
-    Example
-    -------
-    >>> import os
-    >>> os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "1"
-    >>> use_legacy_model_registry()
-    True
-    """
-    return os.getenv("ML_USE_LEGACY_MODEL_REGISTRY", "0") == "1"
-
 
 # Re-export security-related runtime toggles for tests to patch.
 try:
@@ -1165,6 +1141,33 @@ class ModelRegistryFacade:
     # Utility Methods
     # =========================================================================
 
+    def _save_registry(self, immediate: bool = False) -> None:
+        """
+        Save registry data for backward compatibility with legacy tests.
+
+        Parameters
+        ----------
+        immediate : bool
+            If True, save immediately. If False, allow batch saving.
+        """
+        self._persistence.save_registry(immediate=immediate)
+
+    def _calculate_file_sha256(self, file_path: Path) -> str:
+        """
+        Calculate SHA-256 digest of a file.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the file.
+
+        Returns
+        -------
+        str
+            Hexadecimal SHA-256 digest of the file.
+        """
+        return self._persistence.calculate_file_sha256(file_path)
+
     def flush(self) -> None:
         """
         Flush any pending batch saves immediately.
@@ -1382,3 +1385,7 @@ class ModelRegistryFacade:
                 logger.info("Auto-deployed %s to %s", manifest.model_id, target)
         else:
             logger.warning("Auto-deploy skipped for %s: %s", manifest.model_id, errors)
+
+
+# Canonical registry export for legacy import paths.
+ModelRegistry = ModelRegistryFacade

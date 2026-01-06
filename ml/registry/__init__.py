@@ -73,7 +73,8 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
-from ml.registry.model_registry import ModelRegistry
+from ml.registry.model_registry_facade import ModelRegistry
+from ml.registry.model_registry_facade import ModelRegistryFacade
 
 # =============================================================================
 # PERSISTENCE & CONFIGURATION
@@ -136,6 +137,7 @@ __all__ = [
     "ModelInfo",
     "ModelManifest",
     "ModelRegistry",
+    "ModelRegistryFacade",
     "ModelRole",
     "ModelSummary",
     "PersistenceConfig",

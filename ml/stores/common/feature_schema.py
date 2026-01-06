@@ -34,7 +34,7 @@ from sqlalchemy import Table
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
-    from ml.features.engineering import FeatureConfig
+    from ml.features import FeatureConfig
     from ml.features.pipeline import PipelineRunner
     from ml.features.pipeline import PipelineSpec
 
@@ -380,7 +380,7 @@ class FeatureSchemaComponent:
         # Last resort: create FeatureEngineer from config
         if self.feature_config is not None:
             try:
-                from ml.features.engineering import FeatureEngineer
+                from ml.features import FeatureEngineer
                 engineer = FeatureEngineer(self.feature_config)
                 return engineer.get_feature_names()
             except Exception:
@@ -429,7 +429,7 @@ class FeatureSchemaComponent:
         # Last resort: try to create from feature_config
         if self.feature_config is not None:
             try:
-                from ml.features.engineering import FeatureEngineer
+                from ml.features import FeatureEngineer
                 from ml.features.pipeline import PipelineRunner as _PR
                 from ml.registry.base import DataRequirements as _DR
 

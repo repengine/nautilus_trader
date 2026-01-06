@@ -62,7 +62,7 @@ __all__ = [
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing import only
-    from ml.stores.data_store import DataEvent
+    from ml.stores.validation_types import DataEvent
 else:
     DataEvent = Any  # type: ignore[misc,assignment]
 
@@ -72,7 +72,7 @@ _PL = pl
 
 def _make_data_event(**kwargs: Any) -> DataEvent:
     """Create a `DataEvent` instance without causing import cycles."""
-    from ml.stores.data_store import DataEvent as _DataEvent  # Local import to avoid cyclic dependency
+    from ml.stores.validation_types import DataEvent as _DataEvent  # Local import to avoid cyclic dependency
 
     return _DataEvent(**kwargs)
 

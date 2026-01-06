@@ -323,28 +323,26 @@ class MigrationRunner:
 
     def _ensure_tracking_table(self, connection: Any) -> None:
         ddl = text(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self._tracking_table} (
-                filename TEXT PRIMARY KEY,
-                checksum TEXT NOT NULL,
-                applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """,
+            f"CREATE TABLE IF NOT EXISTS {self._tracking_table} (\n"  # nosec B608: table name validated
+            "    filename TEXT PRIMARY KEY,\n"
+            "    checksum TEXT NOT NULL,\n"
+            "    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n"
+            ")",
         )
         connection.execute(ddl)
 
     def _load_applied_migrations(self, connection: Any) -> dict[str, str]:
-        query = text(f"SELECT filename, checksum FROM {self._tracking_table}")
+        query = text(
+            f"SELECT filename, checksum FROM {self._tracking_table}"  # nosec B608: table name validated
+        )
         result = connection.execute(query)
         return {row[0]: row[1] for row in result}
 
     def _record_applied_migration(self, connection: Any, filename: str, checksum: str) -> None:
         statement = text(
-            f"""
-            INSERT INTO {self._tracking_table} (filename, checksum)
-            VALUES (:filename, :checksum)
-            ON CONFLICT (filename) DO UPDATE SET checksum = EXCLUDED.checksum
-            """,
+            f"INSERT INTO {self._tracking_table} (filename, checksum)\n"  # nosec B608: table name validated
+            "VALUES (:filename, :checksum)\n"
+            "ON CONFLICT (filename) DO UPDATE SET checksum = EXCLUDED.checksum",
         )
         connection.execute(statement, {"filename": filename, "checksum": checksum})
 

@@ -18,7 +18,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
-    from ml.stores.data_store import DataEvent
+    from ml.stores.validation_types import DataEvent
 else:  # pragma: no cover - typing fallback
     DataEvent = Any  # type: ignore[assignment]
 

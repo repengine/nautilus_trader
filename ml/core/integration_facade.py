@@ -12,9 +12,6 @@ MLIntegrationManager while internally delegating to the 7 decomposed components:
 6. ActorFactoryComponent - Actor creation, shutdown, message publisher
 7. EventIngestionComponent - Event ingestion pipeline, backfill operations
 
-Feature Flag:
-    Set ML_USE_LEGACY_INTEGRATION_MANAGER=1 to use the legacy implementation.
-
 Example
 -------
 >>> from ml.core.integration_facade import MLIntegrationManagerFacade
@@ -34,10 +31,23 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Protocol,
+    TypeAlias,
+    TypedDict,
+    TypeVar,
+    cast,
+    runtime_checkable,
+)
+
+from sqlalchemy import text
 
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.protocols import MLComponentProtocol
 from ml.core.common import ActorFactoryComponent
 from ml.core.common import DatabaseLifecycleComponent
 from ml.core.common import EventIngestionComponent
@@ -45,6 +55,30 @@ from ml.core.common import HealthMonitoringComponent
 from ml.core.common import ObservabilityComponent
 from ml.core.common import RegistryInitializationComponent
 from ml.core.common import StoreInitializationComponent
+from ml.core.db_engine import EngineManager
+from ml.registry.base import DummyRegistry
+from ml.registry.data_registry import DataRegistry
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.model_registry_facade import ModelRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.strategy_registry import StrategyRegistry
+from ml.stores.base import DummyStore
+from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.file_backed import FileDataStore
+from ml.stores.file_backed import FileFeatureStore
+from ml.stores.file_backed import FileModelStore
+from ml.stores.file_backed import FileStrategyStore
+from ml.stores.infrastructure import PartitionManager
+from ml.stores.io_raw import RawReaderProtocol
+from ml.stores.model_store import ModelStore
+from ml.stores.protocols import DataStoreFacadeProtocol
+from ml.stores.protocols import EarningsStoreProtocol
+from ml.stores.protocols import FeatureStoreProtocol
+from ml.stores.protocols import ModelStoreProtocol
+from ml.stores.protocols import StrategyStoreProtocol
+from ml.stores.raw_protocols import RawIngestionWriterProtocol
+from ml.stores.strategy_store import StrategyStore
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -57,17 +91,218 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 
-def _use_legacy_integration_manager() -> bool:
-    """
-    Check if legacy mode is enabled via environment variable.
+ActorT = TypeVar("ActorT")
 
-    Returns
-    -------
-    bool
-        True if ML_USE_LEGACY_INTEGRATION_MANAGER is set to '1', False otherwise.
 
+class ComponentHealthStatus(TypedDict):
     """
-    return os.getenv("ML_USE_LEGACY_INTEGRATION_MANAGER", "0") == "1"
+    Per-component health status entry.
+    """
+
+    healthy: bool
+    health: dict[str, object]
+    metrics: dict[str, float]
+
+
+class DomainHealth(TypedDict):
+    """
+    Aggregated health summary for a logical domain (data/features/model/strategy).
+    """
+
+    components: list[str]
+    healthy: bool
+
+
+class HealthDomains(TypedDict, total=False):
+    """
+    Mapping of domain name to its aggregated health summary.
+    """
+
+    data: DomainHealth
+    features: DomainHealth
+    model: DomainHealth
+    strategy: DomainHealth
+
+
+class SystemHealth(TypedDict):
+    """
+    System-level health summary derived from component statuses.
+    """
+
+    healthy: bool
+    unhealthy: list[str]
+
+
+class HealthSummary(TypedDict):
+    """
+    Structured health summary returned by :meth:`MLIntegrationManager.aggregate_health`.
+    """
+
+    components: dict[str, ComponentHealthStatus]
+    domains: HealthDomains
+    system: SystemHealth
+
+
+FeatureStoreLike: TypeAlias = FeatureStore | FileFeatureStore | DummyStore
+ModelStoreLike: TypeAlias = ModelStore | FileModelStore | DummyStore
+StrategyStoreLike: TypeAlias = StrategyStore | FileStrategyStore | DummyStore
+DataStoreFacadeLike: TypeAlias = DataStoreFacadeProtocol | FileDataStore | DummyStore
+FeatureRegistryLike: TypeAlias = FeatureRegistry | DummyRegistry
+ModelRegistryLike: TypeAlias = ModelRegistry | DummyRegistry
+StrategyRegistryLike: TypeAlias = StrategyRegistry | DummyRegistry
+DataRegistryLike: TypeAlias = DataRegistry | DummyRegistry
+
+
+def _component_health(comp: object) -> ComponentHealthStatus:
+    healthy = True
+    health: dict[str, object] | None = None
+    metrics: dict[str, float] | None = None
+    if isinstance(comp, MLComponentProtocol):
+        try:
+            health = comp.get_health_status()
+            if isinstance(health, dict):
+                healthy_flag = health.get("healthy")
+                status_flag = health.get("status")
+                if isinstance(healthy_flag, bool):
+                    healthy = healthy_flag
+                elif isinstance(status_flag, str):
+                    healthy = status_flag.lower() == "healthy"
+        except Exception:
+            logger.debug(
+                "Health status check failed for %s",
+                type(comp).__name__,
+                exc_info=True,
+            )
+            healthy = False
+        try:
+            metrics = comp.get_performance_metrics()
+        except Exception:
+            logger.debug(
+                "Performance metrics check failed for %s",
+                type(comp).__name__,
+                exc_info=True,
+            )
+            metrics = None
+    return {
+        "healthy": healthy,
+        "health": health if health is not None else {},
+        "metrics": metrics if metrics is not None else {},
+    }
+
+
+def _build_health_summary(components: dict[str, object]) -> HealthSummary:
+    component_health: dict[str, ComponentHealthStatus] = {}
+    for name, comp in components.items():
+        component_health[name] = (
+            _component_health(comp)
+            if comp is not None
+            else {"healthy": False, "health": {}, "metrics": {}}
+        )
+
+    def _domain_healthy(keys: list[str]) -> bool:
+        return all(component_health[k]["healthy"] for k in keys if k in component_health)
+
+    domains: HealthDomains = {
+        "data": {
+            "components": ["data_store", "data_registry"],
+            "healthy": _domain_healthy(["data_store", "data_registry"]),
+        },
+        "features": {
+            "components": ["feature_store", "feature_registry"],
+            "healthy": _domain_healthy(["feature_store", "feature_registry"]),
+        },
+        "model": {
+            "components": ["model_store", "model_registry"],
+            "healthy": _domain_healthy(["model_store", "model_registry"]),
+        },
+        "strategy": {
+            "components": ["strategy_store", "strategy_registry"],
+            "healthy": _domain_healthy(["strategy_store", "strategy_registry"]),
+        },
+    }
+
+    unhealthy_components = [
+        name for name, info in component_health.items() if not info["healthy"]
+    ]
+    system: SystemHealth = {
+        "healthy": len(unhealthy_components) == 0,
+        "unhealthy": unhealthy_components,
+    }
+
+    return {"components": component_health, "domains": domains, "system": system}
+
+
+def _check_store_health_local(store: object) -> bool:
+    try:
+        if hasattr(store, "get_statistics") and callable(store.get_statistics):
+            store.get_statistics()
+            return True
+        return bool(getattr(store, "is_healthy", lambda: False)())
+    except Exception:
+        logger.debug(
+            "Store health check failed for %s",
+            type(store).__name__,
+            exc_info=True,
+        )
+        return False
+
+
+def _check_registry_health_local(registry: object, method_name: str) -> bool:
+    try:
+        method = getattr(registry, method_name, None)
+        if method_name == "list_datasets":
+            return bool(method and callable(method))
+        return bool(method and callable(method) and method())
+    except Exception:
+        logger.debug(
+            "Registry health check failed for %s",
+            type(registry).__name__,
+            exc_info=True,
+        )
+        return False
+
+
+def _check_data_store_health_local(data_store: object | None) -> bool:
+    try:
+        return bool(data_store and hasattr(data_store, "registry"))
+    except Exception:
+        logger.debug(
+            "Data store health check failed for %s",
+            type(data_store).__name__,
+            exc_info=True,
+        )
+        return False
+
+
+def _check_partition_health_local(partition_manager: PartitionManager | None) -> bool:
+    try:
+        if partition_manager is None:
+            return False
+        stats = partition_manager.get_partition_stats()
+        return len(stats) > 0
+    except Exception:
+        logger.debug(
+            "Partition health check failed for %s",
+            type(partition_manager).__name__,
+            exc_info=True,
+        )
+        return False
+
+
+def _ensure_directory(path: Path) -> Path:
+    """
+    Create a directory if it does not exist, tolerating existing symlinks/dirs.
+
+    This prevents FileExistsError when mounted volumes expose paths as symlinks.
+    """
+    if path.is_symlink():
+        return path
+    if path.exists():
+        if path.is_dir():
+            return path
+        raise FileExistsError(f"{path} exists and is not a directory")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 @runtime_checkable
@@ -90,15 +325,15 @@ class ActorStoresRegistries:
 
     """
 
-    feature_store: object
-    model_store: object
-    strategy_store: object
-    data_store: object
-    feature_registry: object
-    model_registry: object
-    strategy_registry: object
-    data_registry: object
-    persistence_config: object | None
+    feature_store: FeatureStoreLike
+    model_store: ModelStoreLike
+    strategy_store: StrategyStoreLike
+    data_store: DataStoreFacadeLike
+    feature_registry: FeatureRegistryLike
+    model_registry: ModelRegistryLike
+    strategy_registry: StrategyRegistryLike
+    data_registry: DataRegistryLike
+    persistence_config: PersistenceConfig | None
     connection_string: str | None
 
 
@@ -115,10 +350,6 @@ class MLIntegrationManagerFacade:
     3. Hot/Cold Path Separation
     4. Progressive Fallback Chains
     5. Centralized Metrics Bootstrap
-
-    Feature Flag
-    ------------
-    Set ML_USE_LEGACY_INTEGRATION_MANAGER=1 to use legacy implementation instead.
 
     Attributes
     ----------
@@ -163,14 +394,14 @@ class MLIntegrationManagerFacade:
     """
 
     # Public components (runtime-populated)
-    feature_store: object
-    model_store: object
-    strategy_store: object
-    data_store: object | None
-    feature_registry: object
-    model_registry: object
-    strategy_registry: object
-    data_registry: object
+    feature_store: FeatureStoreLike
+    model_store: ModelStoreLike
+    strategy_store: StrategyStoreLike
+    data_store: DataStoreFacadeLike | None
+    feature_registry: FeatureRegistryLike
+    model_registry: ModelRegistryLike
+    strategy_registry: StrategyRegistryLike
+    data_registry: DataRegistryLike
     partition_manager: PartitionManager | None
 
     if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -284,8 +515,13 @@ class MLIntegrationManagerFacade:
         # Initialization Flow (mirrors legacy)
         # -------------------------------------------------------------------------
 
+        force_dummy = bool(getattr(config, "use_dummy_stores", False)) if config else False
+        if force_dummy:
+            self._store_init.json_fallback = True
+            self._registry_init.json_fallback = True
+
         # Check PostgreSQL availability
-        if not self._db_lifecycle.is_postgres_running():
+        if not force_dummy and not self._db_lifecycle.is_postgres_running():
             if self.auto_start_postgres:
                 self._db_lifecycle.start_postgres_container()
             if not self._db_lifecycle.is_postgres_running():
@@ -297,20 +533,17 @@ class MLIntegrationManagerFacade:
                         "PostgreSQL unavailable - falling back to JSON registries and dummy stores",
                     )
                     try:
-                        from ml.common.metrics_manager import MetricsManager as _MM
-
-                        mm = _MM.default()
-                        mm.inc(
+                        get_counter(
                             "ml_fallback_activations_total",
                             "Fallback activations",
-                            labels={
-                                "component": "ml_integration_manager",
-                                "level": "json",
-                            },
                             labelnames=("component", "level"),
+                        ).labels(component="ml_integration_manager", level="json").inc()
+                    except Exception as exc:
+                        logger.debug(
+                            "Fallback metric emit failed (json mode): %s",
+                            exc,
+                            exc_info=True,
                         )
-                    except Exception:
-                        pass
                 else:
                     self._registry_init.file_fallback = True
 
@@ -320,15 +553,25 @@ class MLIntegrationManagerFacade:
         self._registry_init.db_connection = self.db_connection
 
         # Initialize according to selected mode
-        is_fallback = self._store_init.json_fallback or self._store_init.file_fallback
+        is_fallback = (
+            force_dummy or self._store_init.json_fallback or self._store_init.file_fallback
+        )
         if not is_fallback:
             self._db_lifecycle.init_database()
 
-        # Initialize stores
-        self._store_init.init_stores()
+        if force_dummy:
+            self._store_init.init_dummy_components()
+            self._registry_init.feature_registry = self._store_init.feature_registry
+            self._registry_init.model_registry = self._store_init.model_registry
+            self._registry_init.strategy_registry = self._store_init.strategy_registry
+            self._registry_init.data_registry = self._store_init.data_registry
+            self._registry_init.persistence_config = None
+        else:
+            # Initialize stores
+            self._store_init.init_stores()
 
-        # Initialize registries
-        self._registry_init.init_registries()
+            # Initialize registries
+            self._registry_init.init_registries()
 
         # Wire DataStore if in PostgreSQL mode
         if not is_fallback:
@@ -412,24 +655,30 @@ class MLIntegrationManagerFacade:
         # Optional: auto-run backfill at startup when configured via env
         try:
             self._maybe_run_backfill_on_start()
-        except Exception as exc:
-            logger.warning("Backfill bootstrap skipped: %s", exc)
+        except Exception:
+            logger.warning("Backfill bootstrap skipped", exc_info=True)
 
     def _wire_component_attributes(self) -> None:
         """
         Wire component attributes to facade for public access.
         """
         # Stores
-        self.feature_store = self._store_init.feature_store
-        self.model_store = self._store_init.model_store
-        self.strategy_store = self._store_init.strategy_store
-        self.data_store = self._store_init.data_store
+        self.feature_store = cast(FeatureStoreLike, self._store_init.feature_store)
+        self.model_store = cast(ModelStoreLike, self._store_init.model_store)
+        self.strategy_store = cast(StrategyStoreLike, self._store_init.strategy_store)
+        self.data_store = cast(DataStoreFacadeLike | None, self._store_init.data_store)
 
         # Registries
-        self.feature_registry = self._registry_init.feature_registry
-        self.model_registry = self._registry_init.model_registry
-        self.strategy_registry = self._registry_init.strategy_registry
-        self.data_registry = self._registry_init.data_registry
+        self.feature_registry = cast(
+            FeatureRegistryLike,
+            self._registry_init.feature_registry,
+        )
+        self.model_registry = cast(ModelRegistryLike, self._registry_init.model_registry)
+        self.strategy_registry = cast(
+            StrategyRegistryLike,
+            self._registry_init.strategy_registry,
+        )
+        self.data_registry = cast(DataRegistryLike, self._registry_init.data_registry)
 
     def _init_partition_manager(self) -> PartitionManager | None:
         """
@@ -513,9 +762,60 @@ class MLIntegrationManagerFacade:
         """
         Validate MLComponentProtocol compliance for core components.
         """
-        self._health_monitoring.validate_protocol_compliance(strict=strict)
+        if hasattr(self, "_health_monitoring"):
+            self._health_monitoring.validate_protocol_compliance(strict=strict)
+            return
 
-    def aggregate_health(self) -> dict[str, object]:
+        if strict is None:
+            strict = os.getenv("ML_STRICT_PROTOCOL_VALIDATION", "").lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+
+        components: dict[str, object] = {
+            "feature_store": getattr(self, "feature_store", None),
+            "model_store": getattr(self, "model_store", None),
+            "strategy_store": getattr(self, "strategy_store", None),
+            "data_store": getattr(self, "data_store", None),
+            "feature_registry": getattr(self, "feature_registry", None),
+            "model_registry": getattr(self, "model_registry", None),
+            "strategy_registry": getattr(self, "strategy_registry", None),
+            "data_registry": getattr(self, "data_registry", None),
+        }
+
+        violations: dict[str, list[str]] = {}
+
+        for name, comp in components.items():
+            issues: list[str] = []
+            if comp is None or not isinstance(comp, MLComponentProtocol):
+                issues.append("does_not_implement_protocol")
+            else:
+                try:
+                    _ = comp.get_health_status()
+                except Exception as exc:  # pragma: no cover - defensive
+                    issues.append(f"health_status_error:{exc}")
+                try:
+                    _ = comp.get_performance_metrics()
+                except Exception as exc:  # pragma: no cover - defensive
+                    issues.append(f"performance_metrics_error:{exc}")
+                try:
+                    config_issues = comp.validate_configuration()
+                    if config_issues:
+                        issues.extend([f"config:{i}" for i in config_issues])
+                except Exception as exc:  # pragma: no cover - defensive
+                    issues.append(f"validate_configuration_error:{exc}")
+
+            if issues:
+                violations[name] = issues
+
+        if violations:
+            msg = f"Protocol compliance issues: {violations}"
+            if strict:
+                raise RuntimeError(msg)
+            logger.warning(msg)
+
+    def aggregate_health(self) -> HealthSummary:
         """
         Aggregate component health into domain and system summaries.
 
@@ -528,7 +828,19 @@ class MLIntegrationManagerFacade:
             - system: overall status with list of unhealthy components
 
         """
-        return self._health_monitoring.aggregate_health()
+        if not hasattr(self, "_health_monitoring"):
+            components: dict[str, object] = {
+                "feature_store": getattr(self, "feature_store", None),
+                "model_store": getattr(self, "model_store", None),
+                "strategy_store": getattr(self, "strategy_store", None),
+                "data_store": getattr(self, "data_store", None),
+                "feature_registry": getattr(self, "feature_registry", None),
+                "model_registry": getattr(self, "model_registry", None),
+                "strategy_registry": getattr(self, "strategy_registry", None),
+                "data_registry": getattr(self, "data_registry", None),
+            }
+            return _build_health_summary(components)
+        return cast(HealthSummary, self._health_monitoring.aggregate_health())
 
     def check_health(self) -> dict[str, bool]:
         """
@@ -540,31 +852,81 @@ class MLIntegrationManagerFacade:
             Health status of each component.
 
         """
+        if not hasattr(self, "_health_monitoring"):
+            health: dict[str, bool] = {}
+            postgres_running = False
+            if hasattr(self, "_db_lifecycle"):
+                try:
+                    postgres_running = self._db_lifecycle.is_postgres_running()
+                except Exception:
+                    postgres_running = False
+            health["postgres"] = postgres_running
+
+            health["feature_store"] = _check_store_health_local(
+                getattr(self, "feature_store", None),
+            )
+            health["model_store"] = _check_store_health_local(
+                getattr(self, "model_store", None),
+            )
+            health["strategy_store"] = _check_store_health_local(
+                getattr(self, "strategy_store", None),
+            )
+            health["feature_registry"] = _check_registry_health_local(
+                getattr(self, "feature_registry", None),
+                "list_features",
+            )
+            health["model_registry"] = _check_registry_health_local(
+                getattr(self, "model_registry", None),
+                "list_models",
+            )
+            health["strategy_registry"] = _check_registry_health_local(
+                getattr(self, "strategy_registry", None),
+                "list_strategies",
+            )
+            health["data_registry"] = _check_registry_health_local(
+                getattr(self, "data_registry", None),
+                "list_datasets",
+            )
+            health["data_store"] = _check_data_store_health_local(
+                getattr(self, "data_store", None),
+            )
+            health["partitions"] = _check_partition_health_local(
+                getattr(self, "partition_manager", None),
+            )
+            return health
         return self._health_monitoring.check_health()
 
     def _check_store_health(self, store: object) -> bool:
         """
         Check health of a store component.
         """
-        return self._health_monitoring.check_store_health(store)
+        if hasattr(self, "_health_monitoring"):
+            return self._health_monitoring.check_store_health(store)
+        return _check_store_health_local(store)
 
     def _check_registry_health(self, registry: object, method_name: str) -> bool:
         """
         Check health of a registry component.
         """
-        return self._health_monitoring.check_registry_health(registry, method_name)
+        if hasattr(self, "_health_monitoring"):
+            return self._health_monitoring.check_registry_health(registry, method_name)
+        return _check_registry_health_local(registry, method_name)
 
     def _check_data_store_health(self) -> bool:
         """
         Check health of DataStore component.
         """
-        return self._health_monitoring.check_data_store_health()
+        if hasattr(self, "_health_monitoring"):
+            return self._health_monitoring.check_data_store_health()
+        return _check_data_store_health_local(getattr(self, "data_store", None))
 
     def _check_partition_health(self) -> bool:
         """
         Check health of partition manager.
         """
-        return self._health_monitoring.check_partition_health()
+        if hasattr(self, "_health_monitoring"):
+            return self._health_monitoring.check_partition_health()
+        return _check_partition_health_local(getattr(self, "partition_manager", None))
 
     # =========================================================================
     # Public API - Actor Factory (delegated to ActorFactoryComponent)
@@ -572,9 +934,9 @@ class MLIntegrationManagerFacade:
 
     def create_integrated_actor(
         self,
-        actor_class: type[Any],
+        actor_class: type[ActorT],
         config: object,
-    ) -> object:
+    ) -> ActorT:
         """
         Create an actor with automatic integration.
 
@@ -591,7 +953,14 @@ class MLIntegrationManagerFacade:
             Instantiated actor with all stores automatically connected.
 
         """
-        return self._actor_factory.create_integrated_actor(actor_class, config)
+        if not hasattr(config, "db_connection"):
+            try:
+                setattr(config, "db_connection", self.db_connection)
+            except Exception:
+                logger.exception("Failed to attach db_connection to config")
+
+        actor = cast(ActorT, cast(Any, actor_class)(config=config))
+        return actor
 
     def shutdown(self) -> None:
         """
@@ -1041,21 +1410,245 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
         Dataclass containing all 4 stores and 4 registries.
 
     """
-    # Delegate to legacy function for now to ensure compatibility
-    from ml.core.integration import init_ml_stores_and_registries as _legacy_init
+    _model_path = getattr(config, "model_path", None)
+    force_dummy = False
+    try:
+        if _model_path is not None:
+            force_dummy = "dummy_model" in Path(str(_model_path)).name
+    except Exception:
+        logger.debug(
+            "Dummy model detection failed for model_path=%s",
+            _model_path,
+            exc_info=True,
+        )
+        force_dummy = False
 
-    result = _legacy_init(config)
+    if bool(getattr(config, "use_dummy_stores", False)) or force_dummy:
+        return ActorStoresRegistries(
+            feature_store=DummyStore(),
+            model_store=DummyStore(),
+            strategy_store=DummyStore(),
+            data_store=DummyStore(),
+            feature_registry=DummyRegistry(),
+            model_registry=DummyRegistry(),
+            strategy_registry=DummyRegistry(),
+            data_registry=DummyRegistry(),
+            persistence_config=None,
+            connection_string=None,
+        )
+
+    db_connection = cast(str | None, getattr(config, "db_connection", None))
+    backend = BackendType.POSTGRES
+    if not db_connection:
+        try:
+            test_engine = EngineManager.get_engine(
+                "postgresql://postgres:postgres@localhost:5432/nautilus",
+            )
+            with test_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
+        except Exception:
+            logger.debug(
+                "Default PostgreSQL probe failed; falling back to file/dummy stores",
+                exc_info=True,
+            )
+            backend = BackendType.JSON
+            db_connection = ""
+            try:
+                get_counter(
+                    "ml_fallback_activations_total",
+                    "Fallback activations",
+                    labelnames=("component", "level"),
+                ).labels(component="actor_stores", level="dummy").inc()
+            except Exception as metric_exc:
+                logger.debug(
+                    "Fallback metric emit failed (initial probe): %s",
+                    metric_exc,
+                    exc_info=True,
+                )
+
+    if db_connection and backend == BackendType.POSTGRES:
+        try:
+            engine = EngineManager.get_engine(str(db_connection))
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception:
+            logger.debug(
+                "PostgreSQL probe failed for db_connection=%s",
+                db_connection,
+                exc_info=True,
+            )
+            if getattr(config, "allow_dummy_fallback", True):
+                backend = BackendType.JSON
+                try:
+                    get_counter(
+                        "ml_fallback_activations_total",
+                        "Fallback activations",
+                        labelnames=("component", "level"),
+                    ).labels(component="actor_stores", level="dummy").inc()
+                except Exception as metric_exc:
+                    logger.debug(
+                        "Fallback metric emit failed (dummy backend activation): %s",
+                        metric_exc,
+                        exc_info=True,
+                    )
+            else:
+                raise
+
+    feature_store: FeatureStoreLike
+    model_store: ModelStoreLike
+    strategy_store: StrategyStoreLike
+    data_store: DataStoreFacadeLike
+    feature_registry: FeatureRegistryLike
+    model_registry: ModelRegistryLike
+    strategy_registry: StrategyRegistryLike
+    data_registry: DataRegistryLike
+
+    if backend == BackendType.JSON:
+        file_store_path = Path(
+            getattr(
+                config,
+                "file_store_path",
+                os.getenv(
+                    "ML_FILE_STORE_PATH",
+                    str(Path.home() / ".nautilus" / "ml" / "file_store"),
+                ),
+            ),
+        )
+        try:
+            file_store_path = _ensure_directory(file_store_path)
+            registry_root = _ensure_directory(file_store_path / "registry")
+            json_persistence = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=registry_root,
+            )
+            feature_registry = FeatureRegistry(
+                registry_root / "features",
+                persistence_config=json_persistence,
+            )
+            model_registry = ModelRegistry(
+                registry_root / "models",
+                persistence_config=json_persistence,
+            )
+            strategy_registry = StrategyRegistry(
+                registry_root,
+                persistence_config=json_persistence,
+            )
+            data_registry = DataRegistry(
+                registry_root / "datasets",
+                persistence_config=json_persistence,
+            )
+            feature_store = FileFeatureStore(base_path=file_store_path / "features")
+            model_store = FileModelStore(base_path=file_store_path / "models")
+            strategy_store = FileStrategyStore(base_path=file_store_path / "strategies")
+            data_store = FileDataStore(base_path=file_store_path / "datastore")
+
+            try:
+                get_counter(
+                    "ml_fallback_activations_total",
+                    "Fallback activations",
+                    labelnames=("component", "level"),
+                ).labels(component="actor_stores", level="file").inc()
+            except Exception:
+                logger.debug("File fallback metric emit failed", exc_info=True)
+
+            return ActorStoresRegistries(
+                feature_store=feature_store,
+                model_store=model_store,
+                strategy_store=strategy_store,
+                data_store=data_store,
+                feature_registry=feature_registry,
+                model_registry=model_registry,
+                strategy_registry=strategy_registry,
+                data_registry=data_registry,
+                persistence_config=None,
+                connection_string=db_connection,
+            )
+        except Exception:
+            logger.debug(
+                "File-backed fallback unavailable for actor stores",
+                exc_info=True,
+            )
+
+        return ActorStoresRegistries(
+            feature_store=DummyStore(),
+            model_store=DummyStore(),
+            strategy_store=DummyStore(),
+            data_store=DummyStore(),
+            feature_registry=DummyRegistry(),
+            model_registry=DummyRegistry(),
+            strategy_registry=DummyRegistry(),
+            data_registry=DummyRegistry(),
+            persistence_config=None,
+            connection_string=db_connection,
+        )
+
+    persistence_config = PersistenceConfig(
+        backend=BackendType.POSTGRES,
+        connection_string=db_connection,
+    )
+    feature_store = FeatureStore(connection_string=db_connection)
+    model_store = ModelStore(persistence_config=persistence_config)
+    strategy_store = StrategyStore(persistence_config=persistence_config)
+
+    registry_path = Path(".nautilus/ml/registry")
+    registry_path = _ensure_directory(registry_path)
+    feature_registry = FeatureRegistry(registry_path, persistence_config=persistence_config)
+    model_registry = ModelRegistry(registry_path, persistence_config=persistence_config)
+    strategy_registry = StrategyRegistry(registry_path)
+    data_registry = DataRegistry(registry_path / "datasets", persistence_config=persistence_config)
+
+    try:
+        setter = getattr(feature_store, "set_data_registry", None)
+        if callable(setter):
+            setter(data_registry)
+        setter = getattr(model_store, "set_data_registry", None)
+        if callable(setter):
+            setter(data_registry)
+    except Exception:
+        logger.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
+
+    earnings_store: EarningsStoreProtocol
+    try:
+        from ml.features.earnings.store import DummyEarningsStore
+        from ml.features.earnings.store import EarningsStore
+
+        earnings_store = EarningsStore(connection_string=db_connection)
+    except Exception:
+        logger.warning(
+            "EarningsStore initialization failed; using DummyEarningsStore",
+            exc_info=True,
+        )
+        try:
+            get_counter(
+                "ml_fallback_activations_total",
+                "Fallback activations",
+                labelnames=("component", "level"),
+            ).labels(component="earnings_store", level="dummy").inc()
+        except Exception:
+            logger.debug("EarningsStore fallback metric emit failed", exc_info=True)
+        earnings_store = DummyEarningsStore()
+
+    data_store = create_data_store(
+        registry=data_registry,
+        connection_string=db_connection,
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
+        earnings_store=earnings_store,
+    )
+
     return ActorStoresRegistries(
-        feature_store=result.feature_store,
-        model_store=result.model_store,
-        strategy_store=result.strategy_store,
-        data_store=result.data_store,
-        feature_registry=result.feature_registry,
-        model_registry=result.model_registry,
-        strategy_registry=result.strategy_registry,
-        data_registry=result.data_registry,
-        persistence_config=result.persistence_config,
-        connection_string=result.connection_string,
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
+        data_store=data_store,
+        feature_registry=feature_registry,
+        model_registry=model_registry,
+        strategy_registry=strategy_registry,
+        data_registry=data_registry,
+        persistence_config=persistence_config,
+        connection_string=db_connection,
     )
 
 
@@ -1064,17 +1657,14 @@ init_actor_stores_and_registries = init_ml_stores_and_registries
 """Deprecated: Use init_ml_stores_and_registries instead."""
 
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ml.registry.data_registry import DataRegistry
-    from ml.stores.io_raw import RawIngestionWriterProtocol
-    from ml.stores.io_raw import RawReaderProtocol
-    from ml.stores.protocols import DataStoreFacadeProtocol
-
-
 def create_data_store(
     *,
     registry: DataRegistry,
     connection_string: str,
+    feature_store: FeatureStoreProtocol | None = None,
+    model_store: ModelStoreProtocol | None = None,
+    strategy_store: StrategyStoreProtocol | None = None,
+    earnings_store: EarningsStoreProtocol | None = None,
     raw_reader: RawReaderProtocol | None = None,
     raw_writer: RawIngestionWriterProtocol | None = None,
 ) -> DataStoreFacadeProtocol:
@@ -1084,13 +1674,21 @@ def create_data_store(
     Uses dynamic import to avoid mypy resolving the concrete class hierarchy.
 
     """
-    from ml.core.integration import create_data_store as _legacy_create
+    from ml.features.earnings.store import EarningsStore
+    from ml.stores.data_store_facade import DataStore
 
-    return _legacy_create(
-        registry=registry,
-        connection_string=connection_string,
-        raw_reader=raw_reader,
-        raw_writer=raw_writer,
+    return cast(
+        DataStoreFacadeProtocol,
+        DataStore(
+            connection_string=connection_string,
+            registry=registry,
+            feature_store=cast(FeatureStore | None, feature_store),
+            model_store=cast(ModelStore | None, model_store),
+            strategy_store=cast(StrategyStore | None, strategy_store),
+            earnings_store=cast(EarningsStore | None, earnings_store),
+            raw_reader=raw_reader,
+            raw_writer=raw_writer,
+        ),
     )
 
 
@@ -1102,9 +1700,14 @@ class MLIntegrationManager(MLIntegrationManagerFacade):
 
 __all__ = [
     "ActorStoresRegistries",
+    "ComponentHealthStatus",
+    "DomainHealth",
     "HasDBConnection",
+    "HealthDomains",
+    "HealthSummary",
     "MLIntegrationManager",
     "MLIntegrationManagerFacade",
+    "SystemHealth",
     "create_data_store",
     "get_integration_manager",
     "init_actor_stores_and_registries",

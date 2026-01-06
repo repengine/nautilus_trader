@@ -31,7 +31,7 @@ class TestEngineManagerIntegration:
 
         # Import here to avoid issues with engine creation during import
         from ml.stores.data_processor import DataProcessor
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
 
@@ -179,7 +179,7 @@ class TestEngineManagerIntegration:
         Test that DataStore doesn't create engines directly and delegates to stores.
         """
         # DataStore requires registry setup - verify it doesn't bypass EngineManager
-        from ml.stores.data_store import DataStore
+        from ml.stores.data_store_facade import DataStore
 
         # Verify DataStore uses constructor injection for stores
         # (which in turn use EngineManager)

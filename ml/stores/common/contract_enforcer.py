@@ -124,7 +124,7 @@ class ContractEnforcerComponent:
         """
         Get dataset manifest with caching and version check.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2570
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2570
         COLD PATH: Manifest retrieval is async acceptable
 
         Retrieves manifest from registry with in-memory caching. Detects schema
@@ -172,7 +172,7 @@ class ContractEnforcerComponent:
         """
         Get data contract with caching and version check.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2594
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2594
         COLD PATH: Contract retrieval is async acceptable
 
         Retrieves contract from registry with in-memory caching. Contracts define
@@ -215,7 +215,7 @@ class ContractEnforcerComponent:
         """
         Compute schema hash for the actual data.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3613
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3613
         COLD PATH: Schema hash computation is one-time overhead
 
         Computes deterministic schema hash from data columns and types. Used for
@@ -280,7 +280,7 @@ class ContractEnforcerComponent:
         """
         Check if dataset is in schema migration window.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3650
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3650
         COLD PATH: Migration window check is rare (only during schema changes)
 
         Checks if dataset has an active migration window for dual-write support.
@@ -333,7 +333,7 @@ class ContractEnforcerComponent:
         """
         Start a schema migration window for dual-write.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3678
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3678
         COLD PATH: Migration window start is rare (only during schema changes)
 
         Starts a time-bounded migration window during which both old and new schema
@@ -381,7 +381,7 @@ class ContractEnforcerComponent:
         """
         Apply contract enforcement logic for quality reports.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3321
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3321
         COLD PATH: Quality enforcement happens once per write batch
 
         Enforces quality thresholds based on contract enforcement mode:
@@ -461,7 +461,7 @@ class ContractEnforcerComponent:
         """
         Format violations for logging.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3305
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3305
         COLD PATH: Violation formatting is rare (only when violations occur)
 
         Formats validation violations into human-readable string for logging and
@@ -508,7 +508,7 @@ class ContractEnforcerComponent:
         """
         Apply a single validation rule to data.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2803 (delegated to SchemaValidator)
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2803 (delegated to SchemaValidator)
         COLD PATH: Rule application is part of batch validation
 
         This method is a placeholder for validation rule application. In practice,

@@ -1,8 +1,8 @@
 """
 Helpers to attach message bus publishers to the integration manager.
 
-This module keeps `ml/core/integration.py` unchanged (to avoid complexity linting churn)
-while providing explicit helpers that callers can opt into.
+This module keeps the `ml.core.integration` import path stable while providing
+explicit helpers that callers can opt into.
 
 """
 

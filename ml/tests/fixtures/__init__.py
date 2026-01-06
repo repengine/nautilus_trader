@@ -88,6 +88,11 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - import-time helper
         globals()["__all__"] = exports
         return exports
 
+    if name in _FIXTURE_MODULES:
+        module = _load_module(name)
+        globals()[name] = module
+        return module
+
     if name in _BUILDER_EXPORTS:
         value = _load_builder_attribute(name)
         globals()[name] = value

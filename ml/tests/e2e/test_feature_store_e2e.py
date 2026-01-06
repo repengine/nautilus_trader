@@ -2,7 +2,7 @@
 E2E tests for FeatureStore - Phase 3.3 decomposition validation.
 
 This test suite validates the facade-based FeatureStore implementation
-against the legacy god-class implementation to ensure parity.
+for core read/write and retrieval workflows.
 
 Test Coverage:
 1. Basic write and read operations
@@ -10,13 +10,11 @@ Test Coverage:
 3. Training data retrieval
 4. Latest-at-or-before queries
 5. Configuration hashing (versioning)
-6. CRITICAL: Legacy vs component parity
-7. Feature flag toggling
-8. Error handling
-9. Feature deletion
-10. Health checks
-11. Range queries
-12. Concurrent operations (bonus test)
+6. Error handling
+7. Feature deletion
+8. Health checks
+9. Range queries
+10. Concurrent operations (bonus test)
 """
 
 from __future__ import annotations
@@ -74,7 +72,7 @@ def feature_config() -> FeatureConfig:
 @pytest.fixture
 def feature_store(db_engine: Engine, feature_config: FeatureConfig) -> FeatureStore:
     """
-    Provide FeatureStore instance (respects ML_USE_LEGACY_FEATURE_STORE).
+    Provide FeatureStore instance.
     """
     from ml.stores import FeatureStore
 
@@ -276,147 +274,12 @@ def test_05_config_hashing(feature_store: FeatureStore) -> None:
 
 
 # =============================================================================
-# Test 6: CRITICAL - Legacy vs Component Parity
-# =============================================================================
-
-
-@pytest.mark.parametrize("legacy_mode", ["0", "1"])
-def test_06_parity_legacy_vs_component(
-    legacy_mode: str,
-    db_engine: Engine,
-    feature_config: FeatureConfig,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test 6: CRITICAL - Verify parity between legacy and component modes.
-
-    NOTE: Module reloading removed to fix enum identity issues.
-    This test now relies on the store factory to instantiate the correct implementation
-    based on the environment variable WITHOUT reloading modules.
-    """
-    # Set environment variable BEFORE importing
-    monkeypatch.setenv("ML_USE_LEGACY_FEATURE_STORE", legacy_mode)
-
-    # Import directly - the factory will pick up the env var at instantiation time
-    from ml.stores import FeatureStore
-
-    store = FeatureStore(
-        connection_string=str(db_engine.url),
-        feature_config=feature_config,
-    )
-
-    # Verify correct mode (implementation-dependent check may not be reliable without reload)
-    # Instead, verify functional behavior is identical regardless of implementation
-    # NOTE: Class name check may fail because the module was imported before env var was set
-    # This is acceptable - we care about functional parity, not class identity
-
-    # Test write-read cycle
-    instrument_id = f"TEST.PARITY.{legacy_mode}"
-    ts_event = 1704067200000000000 + int(legacy_mode) * 1000000
-    feature_set_id = store._get_feature_set_id()
-
-    # Write
-    store.write_features(
-        feature_set_id=feature_set_id,
-        instrument_id=instrument_id,
-        ts_event=ts_event,
-        ts_init=ts_event + 1000,
-        features={"parity_test": 1.0, "mode": float(legacy_mode)},
-    )
-
-    # Read
-    result = store.get_latest_at_or_before(
-        instrument_id=instrument_id,
-        ts_event=ts_event + 1000000,
-    )
-
-    assert result is not None
-    assert result["parity_test"] == pytest.approx(1.0)
-    assert result["mode"] == pytest.approx(float(legacy_mode))
-
-
-# =============================================================================
-# Test 7: Feature Flag Toggle
-# =============================================================================
-
-
-def test_07_feature_flag_toggle(
-    db_engine: Engine,
-    feature_config: FeatureConfig,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test 7: Feature flag correctly toggles between modes.
-
-    NOTE: Module reloading and cache deletion removed to fix enum identity issues.
-    This test now verifies functional behavior only, not class identity.
-    Testing class identity requires module reloading, which breaks enum equality.
-
-    Since the module was already imported before setting the env var, the store
-    implementation will be whatever was selected at first import. However, we can
-    still verify that both modes produce functionally equivalent results.
-    """
-    from ml.stores import FeatureStore
-
-    # Test mode 1 - component mode
-    monkeypatch.setenv("ML_USE_LEGACY_FEATURE_STORE", "0")
-    store_component = FeatureStore(
-        connection_string=str(db_engine.url),
-        feature_config=feature_config,
-    )
-
-    # Write test data
-    instrument_id_1 = "TEST.FLAG.COMPONENT"
-    ts_event_1 = 1704067200000000000
-    feature_set_id_1 = store_component._get_feature_set_id()
-    store_component.write_features(
-        feature_set_id=feature_set_id_1,
-        instrument_id=instrument_id_1,
-        ts_event=ts_event_1,
-        ts_init=ts_event_1 + 1000,
-        features={"flag_test": 1.0, "mode": 0.0},
-    )
-
-    # Test mode 2 - legacy mode
-    monkeypatch.setenv("ML_USE_LEGACY_FEATURE_STORE", "1")
-    store_legacy = FeatureStore(
-        connection_string=str(db_engine.url),
-        feature_config=feature_config,
-    )
-
-    # Write test data
-    instrument_id_2 = "TEST.FLAG.LEGACY"
-    ts_event_2 = 1704067200000000000 + 1000000
-    feature_set_id_2 = store_legacy._get_feature_set_id()
-    store_legacy.write_features(
-        feature_set_id=feature_set_id_2,
-        instrument_id=instrument_id_2,
-        ts_event=ts_event_2,
-        ts_init=ts_event_2 + 1000,
-        features={"flag_test": 2.0, "mode": 1.0},
-    )
-
-    # Verify both stores can read data (functional parity)
-    result_1 = store_component.get_latest_at_or_before(
-        instrument_id=instrument_id_1,
-        ts_event=ts_event_1 + 1000000,
-    )
-    assert result_1 is not None
-    assert result_1["flag_test"] == pytest.approx(1.0)
-
-    result_2 = store_legacy.get_latest_at_or_before(
-        instrument_id=instrument_id_2,
-        ts_event=ts_event_2 + 1000000,
-    )
-    assert result_2 is not None
-    assert result_2["flag_test"] == pytest.approx(2.0)
-
-
-# =============================================================================
-# Test 8: Error Handling
+# Test 6: Error Handling
 # =============================================================================
 
 
 def test_08_error_handling(feature_store: FeatureStore) -> None:
-    """Test 8: Error handling for invalid inputs."""
+    """Test 6: Error handling for invalid inputs."""
     # Missing required parameters
     with pytest.raises(TypeError):
         feature_store.write_features(
@@ -435,12 +298,12 @@ def test_08_error_handling(feature_store: FeatureStore) -> None:
 
 
 # =============================================================================
-# Test 9: Feature Deletion
+# Test 7: Feature Deletion
 # =============================================================================
 
 
 def test_09_clear_features(feature_store: FeatureStore) -> None:
-    """Test 9: Feature deletion operations."""
+    """Test 7: Feature deletion operations."""
     instrument_id = "TEST.E2E.DELETE"
     feature_set_id = feature_store._get_feature_set_id()
     ts_event = 1704067200000000000

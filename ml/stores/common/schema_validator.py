@@ -125,7 +125,7 @@ class SchemaValidatorComponent:
         """
         Perform preflight schema validation before processing data.
 
-        EXTRACTED FROM: ml/stores/data_store.py:971
+        EXTRACTED FROM: ml/stores/data_store_facade.py:971
 
         This method checks that the data conforms to the expected schema
         without actually writing anything. It validates column names,
@@ -336,7 +336,7 @@ class SchemaValidatorComponent:
         """
         Validate a batch of data against the dataset's contract.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2413
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2413
 
         Performs comprehensive contract validation including type checking,
         null validation, range validation, uniqueness constraints,
@@ -456,7 +456,7 @@ class SchemaValidatorComponent:
         """
         Validate data types match schema.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2845
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2845
 
         """
         data_frame_any = cast(Any, data_frame)
@@ -494,7 +494,7 @@ class SchemaValidatorComponent:
         """
         Validate a column against a regex pattern.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2881
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2881
 
         """
         data_frame_any = cast(Any, data_frame)
@@ -574,7 +574,7 @@ class SchemaValidatorComponent:
         """
         Validate values are within specified range.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2956
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2956
 
         """
         data_frame_any = cast(Any, data_frame)
@@ -666,7 +666,7 @@ class SchemaValidatorComponent:
         """
         Validate uniqueness constraints.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3041
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3041
 
         """
         field_name = rule.field_name
@@ -746,7 +746,7 @@ class SchemaValidatorComponent:
         """
         Validate monotonic sequences (e.g., timestamps).
 
-        EXTRACTED FROM: ml/stores/data_store.py:3118
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3118
 
         """
         data_frame_any = cast(Any, data_frame)
@@ -824,7 +824,7 @@ class SchemaValidatorComponent:
         """
         Validate null value constraints.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3193
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3193
 
         """
         data_frame_any = cast(Any, data_frame)
@@ -884,7 +884,7 @@ class SchemaValidatorComponent:
         """
         Validate data freshness/lateness.
 
-        EXTRACTED FROM: ml/stores/data_store.py:3247
+        EXTRACTED FROM: ml/stores/data_store_facade.py:3247
 
         """
         data_frame_any = cast(Any, data_frame)

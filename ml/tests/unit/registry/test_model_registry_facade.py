@@ -4,13 +4,12 @@
 Unit tests for ModelRegistryFacade.
 
 These tests verify that the facade correctly wires all components and
-provides identical API to the legacy ModelRegistry.
+provides the canonical ModelRegistry API.
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -27,10 +26,7 @@ from ml.registry.base import (
     ModelRole,
 )
 from ml.registry.dataclasses import CanaryConfig, QualityGate
-from ml.registry.model_registry_facade import (
-    ModelRegistryFacade,
-    use_legacy_model_registry,
-)
+from ml.registry.model_registry_facade import ModelRegistryFacade
 
 
 # =============================================================================
@@ -104,37 +100,6 @@ def facade_with_registered_models(
         facade.register_model(model_path, manifest)
 
     return facade
-
-
-# =============================================================================
-# Feature Flag Tests
-# =============================================================================
-
-
-class TestFeatureFlag:
-    """Tests for the feature flag function."""
-
-    def test_feature_flag_defaults_to_facade(self) -> None:
-        """Verify default behavior uses facade (returns False)."""
-        # Clear the env var
-        os.environ.pop("ML_USE_LEGACY_MODEL_REGISTRY", None)
-        assert use_legacy_model_registry() is False
-
-    def test_feature_flag_legacy_mode(self) -> None:
-        """Verify legacy mode when flag set to 1."""
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "1"
-        try:
-            assert use_legacy_model_registry() is True
-        finally:
-            os.environ.pop("ML_USE_LEGACY_MODEL_REGISTRY", None)
-
-    def test_feature_flag_facade_mode_explicit(self) -> None:
-        """Verify facade mode when explicitly set to 0."""
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
-        try:
-            assert use_legacy_model_registry() is False
-        finally:
-            os.environ.pop("ML_USE_LEGACY_MODEL_REGISTRY", None)
 
 
 # =============================================================================

@@ -785,13 +785,11 @@ class DataProcessor:
                 frag = _avgstd(expr, avg_alias="mean", std_alias="std")
                 result = conn.execute(
                     text(
-                        f"""
-                        SELECT
-                            {frag}
-                        FROM market_data
-                        WHERE instrument_id = :instrument_id
-                        AND ts_event > :cutoff
-                        """,
+                        "SELECT\n"  # nosec B608: static table name and safe aggregation fragment
+                        f"    {frag}\n"
+                        "FROM market_data\n"
+                        "WHERE instrument_id = :instrument_id\n"
+                        "AND ts_event > :cutoff",
                     ),
                     {
                         "instrument_id": instrument_id,

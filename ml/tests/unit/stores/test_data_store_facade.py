@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 
 """
-Parity tests for DataStoreFacade vs legacy DataStore.
+Behavior tests for DataStoreFacade.
 
-Verifies that the facade implementation produces identical results to the legacy
-DataStore for all public operations. These tests ensure 100% backward compatibility
-during Phase 2.4.7 facade integration.
-
-Phase 2.4.7 - Final Facade Integration Tests
-
+Verifies facade operations remain stable and emit expected events, metrics, and
+validation results for core read/write paths.
 """
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
@@ -23,7 +18,6 @@ import pytest
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind, ValidationRule, ValidationRuleType, QualityFlag
 from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
-from ml.stores.data_store import DataStore as LegacyDataStore
 from ml.stores.data_store_facade import DataStoreFacade, DataStoreConfig
 from ml.tests.utils.db import build_postgres_url
 
@@ -202,26 +196,6 @@ def test_bars() -> list[dict[str, Any]]:
 # =========================================================================
 
 
-def create_legacy_store(
-    connection_string: str,
-    registry: RegistryProtocol,
-    feature_store: Any,
-    model_store: Any,
-    strategy_store: Any,
-    earnings_store: Any,
-) -> LegacyDataStore:
-    """Create legacy DataStore instance with mocks."""
-    with patch("ml.stores.data_store.FeatureStore", return_value=feature_store), \
-         patch("ml.stores.data_store.ModelStore", return_value=model_store), \
-         patch("ml.stores.data_store.StrategyStore", return_value=strategy_store):
-        return LegacyDataStore(
-            connection_string=connection_string,
-            registry=registry,
-            enable_publishing=False,
-            fail_closed=True,
-        )
-
-
 def create_facade_store(
     connection_string: str,
     registry: RegistryProtocol,
@@ -259,12 +233,7 @@ def test_write_ingestion_parity(
     test_bars: list[dict[str, Any]],
 ) -> None:
     """
-    Verify write_ingestion produces identical results in legacy and facade.
-
-    Both implementations should:
-    - Write same data to stores
-    - Emit identical events
-    - Return DataEvent with same attributes
+    Verify write_ingestion emits expected DataEvent attributes.
 
     """
     connection_string = TEST_CONNECTION_STRING
@@ -308,7 +277,7 @@ def test_write_features_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify write_features produces identical results."""
+    """Verify write_features emits expected DataEvent metadata."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -350,7 +319,7 @@ def test_write_predictions_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify write_predictions produces identical results."""
+    """Verify write_predictions emits expected DataEvent metadata."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -393,7 +362,7 @@ def test_write_signals_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify write_signals produces identical results."""
+    """Verify write_signals emits expected DataEvent metadata."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -437,7 +406,7 @@ def test_write_earnings_actual_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify write_earnings_actual produces identical results."""
+    """Verify write_earnings_actual emits expected DataEvent metadata."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -473,7 +442,7 @@ def test_write_earnings_estimate_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify write_earnings_estimate produces identical results."""
+    """Verify write_earnings_estimate emits expected DataEvent metadata."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -512,7 +481,7 @@ def test_get_features_at_or_before_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify get_features_at_or_before produces identical results."""
+    """Verify get_features_at_or_before returns expected data."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -542,7 +511,7 @@ def test_get_latest_prediction_at_or_before_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify get_latest_prediction_at_or_before produces identical results."""
+    """Verify get_latest_prediction_at_or_before returns expected data."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -571,7 +540,7 @@ def test_get_latest_signal_at_or_before_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify get_latest_signal_at_or_before produces identical results."""
+    """Verify get_latest_signal_at_or_before returns expected data."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -600,7 +569,7 @@ def test_read_features_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify read_features produces identical results."""
+    """Verify read_features returns expected data."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -637,7 +606,7 @@ def test_preflight_check_parity(
     mock_earnings_store: MagicMock,
     test_bars: list[dict[str, Any]],
 ) -> None:
-    """Verify preflight_check produces identical results."""
+    """Verify preflight_check returns expected validation summary."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -669,7 +638,7 @@ def test_validate_batch_parity(
     mock_earnings_store: MagicMock,
     test_bars: list[dict[str, Any]],
 ) -> None:
-    """Verify validate_batch produces identical results."""
+    """Verify validate_batch returns expected quality report."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -705,7 +674,7 @@ def test_emit_event_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify emit_event produces identical side effects."""
+    """Verify emit_event triggers registry emission."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -741,7 +710,7 @@ def test_emit_dataset_event_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify emit_dataset_event produces identical side effects."""
+    """Verify emit_dataset_event triggers registry emission."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -776,7 +745,7 @@ def test_health_check_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify get_health_status produces identical results."""
+    """Verify get_health_status returns expected health payload."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -804,7 +773,7 @@ def test_get_metrics_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify get_performance_metrics produces identical results."""
+    """Verify get_performance_metrics returns expected payload."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -830,7 +799,7 @@ def test_validate_configuration_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify validate_configuration produces identical results."""
+    """Verify validate_configuration returns expected issues list."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -857,7 +826,7 @@ def test_close_parity(
     mock_strategy_store: MagicMock,
     mock_earnings_store: MagicMock,
 ) -> None:
-    """Verify close produces identical side effects."""
+    """Verify close triggers store cleanup."""
     connection_string = TEST_CONNECTION_STRING
 
     facade_store = create_facade_store(
@@ -878,73 +847,9 @@ def test_close_parity(
     mock_strategy_store.close.assert_called()
 
 
-# =========================================================================
-# Feature Flag Tests
-# =========================================================================
-
-
 @pytest.mark.unit
-def test_feature_flag_legacy_mode() -> None:
-    """Verify ML_USE_LEGACY_DATA_STORE=1 attempts to use legacy DataStore."""
-    # Set env var
-    os.environ["ML_USE_LEGACY_DATA_STORE"] = "1"
+def test_data_store_export_is_facade() -> None:
+    """Verify DataStore export resolves to DataStoreFacade."""
+    from ml.stores import DataStore
 
-    try:
-        # Reload module to pick up env change
-        import importlib
-        import ml.stores
-        importlib.reload(ml.stores)
-
-        # Verify the exported class
-        from ml.stores import DataStore
-
-        # Verify it's a valid class with required methods
-        assert DataStore is not None
-        assert hasattr(DataStore, "__init__")
-
-        # Check that it's the legacy implementation (data_store.DataStore)
-        # The legacy DataStore should have different module than DataStoreFacade
-        from ml.stores.data_store import DataStore as LegacyDataStore
-
-        # In legacy mode, DataStore should be the legacy implementation
-        assert DataStore is LegacyDataStore, f"Expected legacy DataStore, got {DataStore}"
-
-    finally:
-        # Cleanup: restore default state
-        os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
-        import importlib
-        import ml.stores
-        importlib.reload(ml.stores)
-
-
-@pytest.mark.unit
-def test_feature_flag_facade_mode() -> None:
-    """Verify ML_USE_LEGACY_DATA_STORE=0 uses DataStoreFacade."""
-    # Set env var
-    os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
-
-    try:
-        # Reload module to pick up env change
-        import importlib
-        import ml.stores
-        importlib.reload(ml.stores)
-
-        # Verify the exported class is DataStoreFacade
-        from ml.stores import DataStore
-        from ml.stores.data_store_facade import DataStoreFacade
-
-        # In facade mode (default), DataStore should be the facade
-        assert DataStore is DataStoreFacade, f"Expected DataStoreFacade, got {DataStore}"
-
-        # Verify it has the required facade methods
-        assert hasattr(DataStore, "__init__")
-        assert hasattr(DataStore, "write_features")
-        assert hasattr(DataStore, "read_features")
-        assert hasattr(DataStore, "validate_batch")
-
-    finally:
-        # Cleanup: restore default state
-        os.environ.pop("ML_USE_LEGACY_DATA_STORE", None)
-        import importlib
-        import ml.stores
-        importlib.reload(ml.stores)
+    assert DataStore is DataStoreFacade, f"Expected DataStoreFacade, got {DataStore}"

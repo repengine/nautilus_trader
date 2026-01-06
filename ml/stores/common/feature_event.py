@@ -244,7 +244,7 @@ class FeatureEventComponent:
         """
         Emit FEATURE_COMPUTED event for historical computation.
 
-        EXTRACTED FROM: ml/stores/feature_store.py:954-1014
+        EXTRACTED FROM: ml/stores/feature_store_facade.py:954-1014
         COLD PATH: Event emission is async, non-blocking
 
         Non-blocking operation - failures are logged but don't affect feature computation.
@@ -342,7 +342,7 @@ class FeatureEventComponent:
         """
         Emit FEATURE_COMPUTED event for realtime computation.
 
-        EXTRACTED FROM: ml/stores/feature_store.py:683-729
+        EXTRACTED FROM: ml/stores/feature_store_facade.py:683-729
         COLD PATH: Event emission is async, non-blocking
 
         Non-blocking operation - failures are logged but don't affect feature computation.
@@ -436,7 +436,7 @@ class FeatureEventComponent:
         """
         Record observability data via centralized helper (cold path only).
 
-        EXTRACTED FROM: ml/stores/feature_store.py:1270-1293
+        EXTRACTED FROM: ml/stores/feature_store_facade.py:1270-1293
         COLD PATH: Observability recording is non-blocking
 
         Parameters

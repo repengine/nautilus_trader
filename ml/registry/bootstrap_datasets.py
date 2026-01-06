@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DataContract
@@ -27,8 +29,6 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.data_store import EARNINGS_ACTUALS_DATASET_ID
-from ml.stores.data_store import EARNINGS_ESTIMATES_DATASET_ID
 
 
 def create_standard_manifests() -> list[DatasetManifest]:

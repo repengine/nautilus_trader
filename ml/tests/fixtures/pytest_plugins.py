@@ -41,7 +41,11 @@ def discover_fixture_plugins() -> tuple[str, ...]:
     for module in iter_modules([str(_FIXTURE_DIR)]):
         if _should_register(module.name) and module.name not in PLUGIN_DISCOVERY_EXCLUDES:
             plugin_modules.append(f"{_FIXTURE_PACKAGE}.{module.name}")
-    return tuple(sorted(plugin_modules))
+    priority = {"database_fixtures": 0, "dummy_model": 1}
+    plugin_modules.sort(
+        key=lambda name: (priority.get(name.rsplit(".", 1)[-1], 99), name),
+    )
+    return tuple(plugin_modules)
 
 
 pytest_plugins: tuple[str, ...] = discover_fixture_plugins()

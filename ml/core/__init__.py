@@ -43,11 +43,6 @@ This module implements all five Universal ML Architecture Patterns:
 5. **Centralized Metrics Bootstrap**: All metrics use `ml.common.metrics_bootstrap`
    to prevent registry conflicts and ensure consistent naming.
 
-## Feature Flag
-
-Set `ML_USE_LEGACY_INTEGRATION_MANAGER=1` to use the legacy monolithic implementation.
-By default (flag not set or set to "0"), the decomposed facade implementation is used.
-
 ## Usage
 
 ### Basic Integration
@@ -106,11 +101,7 @@ class FeatureEngineer:
 - `ML_AUTO_MIGRATE=1`: Run database migrations on startup
 - `ML_ALLOW_DUMMY=1`: Enable dummy store fallback mode
 - `ML_STRICT_PROTOCOL_VALIDATION=1`: Strict protocol compliance enforcement
-- `ML_USE_LEGACY_INTEGRATION_MANAGER=1`: Use legacy implementation instead of facade
-
 """
-
-import os
 
 # Core integration components
 # High-performance data structures (hot path optimized)
@@ -122,21 +113,7 @@ from ml.core.cache import ReservoirSampler
 from ml.core.db_engine import EngineManager
 
 
-# Integration classes are imported lazily to avoid import cycles
-# Feature flag determines which implementation to use
-
-
-def _use_legacy_integration_manager() -> bool:
-    """
-    Check if legacy mode is enabled via environment variable.
-
-    Returns
-    -------
-    bool
-        True if ML_USE_LEGACY_INTEGRATION_MANAGER is set to '1'.
-
-    """
-    return os.getenv("ML_USE_LEGACY_INTEGRATION_MANAGER", "0") == "1"
+# Integration classes are imported lazily to avoid import cycles.
 
 
 __all__ = [
@@ -154,10 +131,6 @@ __all__ = [
 def __getattr__(name: str) -> object:
     """
     Lazy import integration symbols to avoid import-time cycles.
-
-    Uses feature flag ML_USE_LEGACY_INTEGRATION_MANAGER to determine which
-    implementation module to import from.
-
     """
     if name in {
         "ActorStoresRegistries",
@@ -165,12 +138,7 @@ def __getattr__(name: str) -> object:
         "init_actor_stores_and_registries",
         "init_ml_stores_and_registries",
     }:
-        if _use_legacy_integration_manager():
-            # Use legacy monolithic implementation
-            from ml.core import integration as _module
-        else:
-            # Use decomposed facade implementation (default)
-            from ml.core import integration_facade as _module
+        from ml.core import integration_facade as _module
 
         return getattr(_module, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

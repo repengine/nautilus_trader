@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
-    from ml.stores.feature_store import FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore
     from ml.stores.io_raw import RawIngestionWriterProtocol
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
@@ -155,7 +155,7 @@ class DataWriterComponent:
         """
         Write ingestion data with contract validation and event emission.
 
-        EXTRACTED FROM: ml/stores/data_store.py:1204
+        EXTRACTED FROM: ml/stores/data_store_facade.py:1204
 
         Parameters
         ----------
@@ -322,7 +322,7 @@ class DataWriterComponent:
         """
         Write features with validation and event emission.
 
-        EXTRACTED FROM: ml/stores/data_store.py:1709
+        EXTRACTED FROM: ml/stores/data_store_facade.py:1709
 
         Wraps FeatureStore.store_features_batch with contract validation and event tracking.
 
@@ -424,7 +424,7 @@ class DataWriterComponent:
         """
         Write model predictions with validation and event emission.
 
-        EXTRACTED FROM: ml/stores/data_store.py:1827
+        EXTRACTED FROM: ml/stores/data_store_facade.py:1827
 
         Wraps ModelStore.store_predictions_batch with contract validation and event tracking.
 
@@ -516,7 +516,7 @@ class DataWriterComponent:
         """
         Write strategy signals with validation and event emission.
 
-        EXTRACTED FROM: ml/stores/data_store.py:1924
+        EXTRACTED FROM: ml/stores/data_store_facade.py:1924
 
         Wraps StrategyStore.store_signals_batch with contract validation and event tracking.
 
@@ -618,7 +618,7 @@ class DataWriterComponent:
         """
         Persist an earnings actual record with contract validation.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2018
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2018
 
         Parameters
         ----------
@@ -782,7 +782,7 @@ class DataWriterComponent:
         """
         Persist an earnings estimate record with contract validation.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2128
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2128
 
         Parameters
         ----------

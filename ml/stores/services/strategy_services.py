@@ -122,16 +122,14 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        sql = _text(  # nosec B608: table name validated via allowlist
-            f"""
-            SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
-            FROM {table_name}
-            WHERE strategy_id = :strategy_id
-              AND instrument_id = :instrument_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY ts_event
-            """
+        sql = _text(
+            f"SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params\n"  # nosec B608: table name validated via allowlist
+            f"FROM {table_name}\n"
+            "WHERE strategy_id = :strategy_id\n"
+            "  AND instrument_id = :instrument_id\n"
+            "  AND ts_event >= :start_ns\n"
+            "  AND ts_event < :end_ns\n"
+            "ORDER BY ts_event"
         )
         params: dict[str, object] = {
             "strategy_id": strategy_id,
@@ -170,14 +168,12 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        sql = _text(  # nosec B608: table name validated via allowlist
-            f"""
-            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                   model_predictions, risk_metrics
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event
-            """
+        sql = _text(
+            f"SELECT strategy_id, instrument_id, ts_event, signal_type, strength,\n"  # nosec B608: table name validated via allowlist
+            "       model_predictions, risk_metrics\n"
+            f"FROM {table_name}\n"
+            f"WHERE {' AND '.join(where_parts)}\n"
+            "ORDER BY ts_event"
         )
         return self.deps._execute_read(
             sql,
@@ -200,14 +196,12 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        sql = _text(  # nosec B608: table name validated via allowlist
-            f"""
-            SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
-            FROM {table_name}
-            WHERE instrument_id = :instrument_id
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """
+        sql = _text(
+            f"SELECT strategy_id, ts_event, signal_type, strength, risk_metrics\n"  # nosec B608: table name validated via allowlist
+            f"FROM {table_name}\n"
+            "WHERE instrument_id = :instrument_id\n"
+            "ORDER BY ts_event DESC\n"
+            "LIMIT :limit"
         )
         params: dict[str, object] = {"instrument_id": instrument_id, "limit": int(limit)}
         return self.deps._execute_read(
@@ -250,22 +244,20 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        sql = _text(  # nosec B608: table name validated via allowlist
-            f"""
-            SELECT strategy_id,
-                   instrument_id,
-                   signal_type,
-                   strength,
-                   model_predictions,
-                   risk_metrics,
-                   execution_params,
-                   ts_event,
-                   ts_init
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """
+        sql = _text(
+            f"SELECT strategy_id,\n"  # nosec B608: table name validated via allowlist
+            "       instrument_id,\n"
+            "       signal_type,\n"
+            "       strength,\n"
+            "       model_predictions,\n"
+            "       risk_metrics,\n"
+            "       execution_params,\n"
+            "       ts_event,\n"
+            "       ts_init\n"
+            f"FROM {table_name}\n"
+            f"WHERE {' AND '.join(where_parts)}\n"
+            "ORDER BY ts_event DESC\n"
+            "LIMIT :limit"
         )
         return self.deps._execute_read(
             sql,
@@ -305,16 +297,14 @@ class StrategySignalQueryService:
             base="ml_strategy_signals",
             allowed={"ml_strategy_signals"},
         )
-        sql = _text(  # nosec B608: table name validated via allowlist
-            f"""
-            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                   model_predictions, risk_metrics
-            FROM {table_name}
-            WHERE strategy_id = :strategy_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY instrument_id, ts_event
-            """
+        sql = _text(
+            f"SELECT strategy_id, instrument_id, ts_event, signal_type, strength,\n"  # nosec B608: table name validated via allowlist
+            "       model_predictions, risk_metrics\n"
+            f"FROM {table_name}\n"
+            "WHERE strategy_id = :strategy_id\n"
+            "  AND ts_event >= :start_ns\n"
+            "  AND ts_event < :end_ns\n"
+            "ORDER BY instrument_id, ts_event"
         )
         params: dict[str, object] = {
             "strategy_id": strategy_id,
@@ -354,7 +344,7 @@ class StrategySignalStatsService:
         minmax = _minmax(field="ts_event", min_alias="min_ts", max_alias="max_ts")
         conditions, params = _time_conditions(start_ns, end_ns, field="ts_event")
         base_sql = (
-            "SELECT\n"
+            "SELECT\n"  # nosec B608: table name validated via allowlist
             "                COUNT(*) as total_signals,\n"
             "                COUNT(DISTINCT strategy_id) as unique_strategies,\n"
             "                COUNT(DISTINCT instrument_id) as unique_instruments,\n"
@@ -412,15 +402,15 @@ class StrategySignalStatsService:
             params2["strategy_id"] = strategy_id
         elif not conditions:
             latest_row = self.deps._fetch_one(
-                _text(  # nosec B608: table name validated via allowlist
-                    f"SELECT strategy_id FROM {table_name} ORDER BY ts_event DESC LIMIT 1"
+                _text(
+                    f"SELECT strategy_id FROM {table_name} ORDER BY ts_event DESC LIMIT 1"  # nosec B608: table name validated via allowlist
                 ),
                 {},
             )
             if latest_row and latest_row[0] is not None:
                 conditions.append("strategy_id = :strategy_id")
                 params2["strategy_id"] = str(latest_row[0])
-        query = f"SELECT signal_type, COUNT(*) as count FROM {table_name}"
+        query = f"SELECT signal_type, COUNT(*) as count FROM {table_name}"  # nosec B608: table name validated via allowlist
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " GROUP BY signal_type"
@@ -455,7 +445,7 @@ class StrategySignalStatsService:
         where_clause = " AND ".join(conditions) if conditions else "TRUE"
         row = self.deps._fetch_one(
             _text(
-                f"SELECT\n"
+                f"SELECT\n"  # nosec B608: table name validated via allowlist
                 f"                {counts},\n"
                 f"                {strength_stats}\n"
                 f"            FROM {table_name}\n"
@@ -506,16 +496,14 @@ class StrategySignalStatsService:
             )
             from ml.stores.services.common_stats import select_signal_counts as _sel_counts
             counts = _sel_counts(include_avg_strength=True)
-            query = _text(  # nosec B608: table name validated via allowlist
-                f"""
-                SELECT
-                    {counts},
-                    AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
-                FROM {table_name}
-                WHERE strategy_id = :strategy_id
-                AND ts_event >= :period_start
-                AND ts_event < :period_end
-                """
+            query = _text(
+                f"SELECT\n"  # nosec B608: table name validated via allowlist
+                f"    {counts},\n"
+                "    AVG((risk_metrics->>'risk_score')::float) as avg_risk_score\n"
+                f"FROM {table_name}\n"
+                "WHERE strategy_id = :strategy_id\n"
+                "AND ts_event >= :period_start\n"
+                "AND ts_event < :period_end"
             )
 
             res = conn.execute(

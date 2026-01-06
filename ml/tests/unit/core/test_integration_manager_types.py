@@ -37,7 +37,7 @@ class TestMLIntegrationManagerTypeAnnotations:
         """Verify feature_store attribute has FeatureStore type, not object.
 
         BEFORE implementation: Will show <class 'object'>
-        AFTER implementation: Will show 'FeatureStore' (from ml.stores.feature_store)
+        AFTER implementation: Will show 'FeatureStore' (from ml.stores.feature_store_facade)
 
         This test ensures type checkers and IDEs can provide autocomplete for
         feature_store methods like write_features(), read_features(), etc.
@@ -509,7 +509,7 @@ def test_no_circular_import_from_type_annotations() -> None:
     blocks doesn't create circular dependencies that would break the module.
 
     The original issue was:
-    - ml.core.integration imports ml.stores.feature_store
+    - ml.core.integration imports ml.stores.feature_store_facade
     - ml.stores depends on ml.core for some utilities
     - Adding direct imports would create a cycle
 
@@ -524,7 +524,7 @@ def test_no_circular_import_from_type_annotations() -> None:
         from ml.core import integration
         # Do NOT reload - preserves enum identity
 
-        from ml.stores import feature_store
+        import ml.stores.feature_store_facade as feature_store_facade
         # Do NOT reload - preserves enum identity
 
         # Order 2: stores first (same modules, different import order)
@@ -536,7 +536,7 @@ def test_no_circular_import_from_type_annotations() -> None:
 
         # If we got here without ImportError, circular imports are not a problem
         assert integration is not None
-        assert feature_store is not None
+        assert feature_store_facade is not None
         assert model_store is not None
         assert integration2 is not None
 

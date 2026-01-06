@@ -19,7 +19,7 @@ from ml.registry.dataclasses import (
     ValidationRule,
     ValidationRuleType,
 )
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 
 
 def _make_store_with_contract(rules: list[ValidationRule]) -> DataStore:

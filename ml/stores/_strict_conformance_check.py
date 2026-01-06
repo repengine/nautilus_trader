@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from ml.stores.feature_store import FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore
     from ml.stores.model_store import ModelStore
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol

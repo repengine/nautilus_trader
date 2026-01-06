@@ -133,7 +133,7 @@ class EventEmitterComponent:
         """
         Emit a dataset processing event via centralized registry.
 
-        EXTRACTED FROM: ml/stores/data_store.py:783
+        EXTRACTED FROM: ml/stores/data_store_facade.py:783
         COLD PATH: Event emission is async, non-blocking
 
         This method emits events to the data registry for tracking dataset
@@ -338,7 +338,7 @@ class EventEmitterComponent:
         """
         Emit a dataset-specific event with simplified parameter set.
 
-        EXTRACTED FROM: ml/stores/data_store.py:910
+        EXTRACTED FROM: ml/stores/data_store_facade.py:910
         COLD PATH: Event emission is async, non-blocking
 
         This is a lightweight wrapper around emit_event() for scenarios where
@@ -418,7 +418,7 @@ class EventEmitterComponent:
         """
         Emit a partial success event for incomplete operations.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2661
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2661
         COLD PATH: Event emission is async, non-blocking
 
         Used when an operation partially succeeds (e.g., some records written,
@@ -512,7 +512,7 @@ class EventEmitterComponent:
         """
         Emit a failure event for operations that completely failed.
 
-        EXTRACTED FROM: ml/stores/data_store.py:2704
+        EXTRACTED FROM: ml/stores/data_store_facade.py:2704
         COLD PATH: Event emission is async, non-blocking
 
         Used when an operation completely fails (e.g., database connection lost,

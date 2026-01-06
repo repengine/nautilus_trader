@@ -4,7 +4,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 
 
 def test_read_range_features_routes_to_feature_store_with_datetimes() -> None:

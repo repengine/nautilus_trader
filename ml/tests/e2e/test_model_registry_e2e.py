@@ -16,7 +16,6 @@ Test Strategy:
 5. Test deployment lifecycle state management
 6. Test A/B testing configuration
 7. Test canary deployment flows
-8. Compare legacy vs component mode outputs for parity
 
 Success Criteria:
 -----------------
@@ -26,12 +25,11 @@ Success Criteria:
 - Quality metrics persisted and retrieved
 - A/B test configuration works end-to-end
 - Canary deployment state management works
-- Legacy and component modes produce identical results
+- Multiple registry instances produce consistent results
 - No model corruption or data loss
 
 """
 
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -237,13 +235,6 @@ class TestE2EModelRegistrationAndLoading:
     Test model registration and loading end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode for these tests.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
-
     def test_e2e_register_and_retrieve_model(
         self,
         temp_registry_path: Path,
@@ -378,13 +369,6 @@ class TestE2EModelQualityValidation:
     Test model quality validation end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
-
     def test_e2e_model_quality_validation(
         self,
         temp_registry_path: Path,
@@ -492,13 +476,6 @@ class TestE2EDeploymentLifecycle:
     """
     Test complete deployment lifecycle end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
 
     def test_e2e_deployment_lifecycle(
         self,
@@ -645,13 +622,6 @@ class TestE2EABTesting:
     """
     Test A/B testing configuration and management end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
 
     def test_e2e_ab_testing_configuration(
         self,
@@ -807,13 +777,6 @@ class TestE2ECanaryDeployment:
     """
     Test canary deployment with gradual rollout end-to-end.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
 
     def test_e2e_canary_deployment(
         self,
@@ -995,12 +958,12 @@ class TestE2ECanaryDeployment:
 # ============================================================================
 
 
-class TestE2ELegacyComponentParity:
+class TestE2ERegistryConsistency:
     """
-    Test legacy and component modes produce identical results.
+    Test multiple registry instances produce consistent results.
     """
 
-    def test_e2e_legacy_vs_component_parity_registration(
+    def test_e2e_registry_consistency_registration(
         self,
         temp_registry_path: Path,
         sample_onnx_model_path: Path,
@@ -1024,8 +987,7 @@ class TestE2ELegacyComponentParity:
         shutil.copy(sample_onnx_model_path, legacy_model_path)
         shutil.copy(sample_onnx_model_path, component_model_path)
 
-        # Test with legacy mode
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "1"
+        # Initialize registry instances
         registry_legacy = ModelRegistry(registry_path=legacy_path)
 
         manifest_legacy = create_test_manifest(model_id="test_model", serveable=False)
@@ -1036,8 +998,6 @@ class TestE2ELegacyComponentParity:
 
         model_info_legacy = registry_legacy.get_model(model_id_legacy)
 
-        # Test with component mode
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
         registry_component = ModelRegistry(registry_path=component_path)
 
         manifest_component = create_test_manifest(model_id="test_model", serveable=False)
@@ -1063,7 +1023,7 @@ class TestE2ELegacyComponentParity:
         assert path_legacy.exists()
         assert path_component.exists()
 
-    def test_e2e_legacy_vs_component_parity_deployment(
+    def test_e2e_registry_consistency_deployment(
         self,
         temp_registry_path: Path,
         sample_onnx_model_path: Path,
@@ -1085,8 +1045,7 @@ class TestE2ELegacyComponentParity:
         shutil.copy(sample_onnx_model_path, legacy_model_path)
         shutil.copy(sample_onnx_model_path, component_model_path)
 
-        # Test with legacy mode
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "1"
+        # Initialize registry instances
         registry_legacy = ModelRegistry(registry_path=legacy_path)
 
         manifest_legacy = create_test_manifest(model_id="deploy_model")
@@ -1098,8 +1057,6 @@ class TestE2ELegacyComponentParity:
 
         model_info_legacy = registry_legacy.get_model(model_id_legacy)
 
-        # Test with component mode
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
         registry_component = ModelRegistry(registry_path=component_path)
 
         manifest_component = create_test_manifest(model_id="deploy_model")
@@ -1125,13 +1082,6 @@ class TestE2EPerformance:
     """
     Test performance characteristics of E2E operations.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
 
     def test_e2e_registration_performance(
         self,

@@ -15,11 +15,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 
 if TYPE_CHECKING:
-    from ml.features import FeatureConfig as EngineeringFeatureConfig
-    from ml.features.config import FeatureConfig as FacadeFeatureConfig
+    from ml.features.config import FeatureConfigLike
     from ml.features.pipeline import PipelineRunner
-
-    FeatureConfigLike = FacadeFeatureConfig | EngineeringFeatureConfig
 else:
     # Runtime placeholder - actual type validation is structural
     FeatureConfigLike = Any

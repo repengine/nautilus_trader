@@ -15,8 +15,8 @@ import pytest
 from typing import cast
 
 from ml.stores.base import ModelPrediction, StrategySignal
-from ml.stores.data_store import DataStore
-from ml.stores.feature_store import FeatureStore
+from ml.stores.data_store_facade import DataStore
+from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp

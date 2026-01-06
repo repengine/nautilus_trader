@@ -14,8 +14,6 @@ This module provides the final facade layer for Phase 2.4.7, wiring together:
 The facade maintains 100% backward compatibility with the legacy DataStore API
 while delegating all operations to specialized components.
 
-Feature Flag: ML_USE_LEGACY_DATA_STORE (defaults to "0" = use facade)
-
 Phase 2.4.7 - Final Facade Integration
 
 """
@@ -45,7 +43,7 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.common.protocols import StoreOperationsProtocol
     from ml.stores.earnings_store import EarningsStore
-    from ml.stores.feature_store import FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
 
@@ -332,10 +330,25 @@ class DataStoreFacade:
                 "DataStoreFacade requires explicit registry for event emission."
             )
 
+        try:
+            from ml.config.bus import MessageBusConfig
+
+            bus_config = MessageBusConfig.from_env()
+            topic_scheme = str(bus_config.scheme)
+            topic_prefix = str(bus_config.topic_prefix)
+        except Exception:  # pragma: no cover - defensive fallback
+            topic_scheme = "domain_op"
+            topic_prefix = "events.ml"
+
+        self._topic_scheme = topic_scheme
+        self._topic_prefix = topic_prefix
+
         return EventEmitterComponent(
             registry=self._config.registry,
             publisher=self._config.publisher,
             enable_publishing=self._config.enable_publishing,
+            topic_scheme=topic_scheme,
+            topic_prefix=topic_prefix,
         )
 
     def _create_data_writer(self) -> DataWriterProtocol:
@@ -1384,3 +1397,7 @@ class DataStoreFacade:
             self._store_operations.close()
         except Exception as e:
             self._logger.error("Error closing store operations", exc_info=True, extra={"error": str(e)})
+
+
+# Backwards-compatible alias for facade-only deployment.
+DataStore = DataStoreFacade

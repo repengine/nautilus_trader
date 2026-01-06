@@ -4,7 +4,7 @@ SQL-backed store for feature-adjacent datasets (macro/events/micro/L2).
 This store centralizes the upsert logic for canonical dataset tables used by
 Full Dataset Readiness. DataFrames produced by ingestion flows are normalized
 and written via ``INSERT .. ON CONFLICT DO UPDATE`` statements so callers can
-use :meth:`ml.stores.data_store.DataStore.write_ingestion` without bespoke SQL.
+use :meth:`ml.stores.data_store_facade.DataStore.write_ingestion` without bespoke SQL.
 """
 
 from __future__ import annotations

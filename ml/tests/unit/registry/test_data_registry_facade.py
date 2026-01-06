@@ -531,62 +531,15 @@ class TestPublicAPI:
 # =============================================================================
 
 
-class TestFeatureFlags:
-    """Tests for feature flag behavior."""
+class TestRegistryFactory:
+    """Tests for data registry factory behavior."""
 
-    def test_feature_flag_legacy_true_uses_legacy(
+    def test_factory_returns_facade(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Verify ML_USE_LEGACY_DATA_REGISTRY=1 uses legacy."""
-        from ml.registry.data_registry import DataRegistry
-
-        monkeypatch.setenv("ML_USE_LEGACY_DATA_REGISTRY", "1")
-
-        from ml.registry import create_data_registry
-
-        result = create_data_registry(
-            registry_path=tmp_path / "registry",
-            persistence_config=PersistenceConfig(
-                backend=BackendType.JSON,
-                json_path=tmp_path / "registry",
-            ),
-        )
-
-        assert isinstance(result, DataRegistry)
-
-    def test_feature_flag_legacy_false_uses_facade(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Verify ML_USE_LEGACY_DATA_REGISTRY=0 uses facade."""
+        """Verify factory returns DataRegistryFacade."""
         from ml.registry.data_registry_facade import DataRegistryFacade
-
-        monkeypatch.setenv("ML_USE_LEGACY_DATA_REGISTRY", "0")
-
-        from ml.registry import create_data_registry
-
-        result = create_data_registry(
-            registry_path=tmp_path / "registry",
-            persistence_config=PersistenceConfig(
-                backend=BackendType.JSON,
-                json_path=tmp_path / "registry",
-            ),
-        )
-
-        assert isinstance(result, DataRegistryFacade)
-
-    def test_feature_flag_default_uses_facade(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Verify default behavior uses facade."""
-        from ml.registry.data_registry_facade import DataRegistryFacade
-
-        monkeypatch.delenv("ML_USE_LEGACY_DATA_REGISTRY", raising=False)
 
         from ml.registry import create_data_registry
 

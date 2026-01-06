@@ -127,11 +127,11 @@ class TestNoOpMetricRemoval:
             "Use ml.common.metrics_bootstrap instead (CLAUDE.md Pattern 5)"
         )
 
-    def test_no_noopmetric_in_data_store(self) -> None:
-        """Verify _NoOpMetric removed from data_store.py."""
+    def test_no_noopmetric_in_data_store_facade(self) -> None:
+        """Verify _NoOpMetric removed from data_store_facade.py."""
         ml_path = Path(__file__).parents[3]
         stores_path = ml_path / "stores"
-        target_file = stores_path / "data_store.py"
+        target_file = stores_path / "data_store_facade.py"
 
         if not target_file.exists():
             pytest.skip(f"{target_file} does not exist")
@@ -242,11 +242,11 @@ class TestDataEventDuplicateRemoval:
             "Import from ml.stores.validation_types instead (CLAUDE.md Pattern 6)"
         )
 
-    def test_no_dataevent_in_data_store(self) -> None:
-        """Verify DataEvent definition removed from data_store.py."""
+    def test_no_dataevent_in_data_store_facade(self) -> None:
+        """Verify DataEvent definition removed from data_store_facade.py."""
         ml_path = Path(__file__).parents[3]
         stores_path = ml_path / "stores"
-        target_file = stores_path / "data_store.py"
+        target_file = stores_path / "data_store_facade.py"
 
         if not target_file.exists():
             pytest.skip(f"{target_file} does not exist")
@@ -309,11 +309,11 @@ class TestValidationViolationDuplicateRemoval:
             "Import from ml.stores.validation_types instead (CLAUDE.md Pattern 6)"
         )
 
-    def test_no_validationviolation_in_data_store(self) -> None:
-        """Verify ValidationViolation removed from data_store.py."""
+    def test_no_validationviolation_in_data_store_facade(self) -> None:
+        """Verify ValidationViolation removed from data_store_facade.py."""
         ml_path = Path(__file__).parents[3]
         stores_path = ml_path / "stores"
-        target_file = stores_path / "data_store.py"
+        target_file = stores_path / "data_store_facade.py"
 
         if not target_file.exists():
             pytest.skip(f"{target_file} does not exist")
@@ -355,11 +355,11 @@ class TestQualityReportDuplicateRemoval:
             "Import from ml.stores.validation_types instead (CLAUDE.md Pattern 6)"
         )
 
-    def test_no_qualityreport_in_data_store(self) -> None:
-        """Verify QualityReport removed from data_store.py."""
+    def test_no_qualityreport_in_data_store_facade(self) -> None:
+        """Verify QualityReport removed from data_store_facade.py."""
         ml_path = Path(__file__).parents[3]
         stores_path = ml_path / "stores"
-        target_file = stores_path / "data_store.py"
+        target_file = stores_path / "data_store_facade.py"
 
         if not target_file.exists():
             pytest.skip(f"{target_file} does not exist")

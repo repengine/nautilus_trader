@@ -19,7 +19,6 @@ Test Categories:
 
 from __future__ import annotations
 
-import os
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -29,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
 from ml.stores.feature_store_facade import FeatureStoreFacade
 
 
@@ -481,40 +480,15 @@ class TestFacadeDelegation:
 
 
 # =============================================================================
-# Feature Flag Tests
+# Facade Export Tests
 # =============================================================================
 
 
-class TestFeatureFlag:
-    """Tests for feature flag switching."""
+def test_feature_store_export_is_facade() -> None:
+    """Verify FeatureStore export resolves to FeatureStoreFacade."""
+    from ml.stores import FeatureStore
 
-    def test_facade_feature_flag_switches_implementation(self) -> None:
-        """Verify ML_USE_LEGACY_FEATURE_STORE feature flag works."""
-        # Test that the flag environment variable is respected
-        # When ML_USE_LEGACY_FEATURE_STORE=1, legacy is used
-        # When ML_USE_LEGACY_FEATURE_STORE=0 or unset, facade is used
-
-        original_value = os.environ.get("ML_USE_LEGACY_FEATURE_STORE")
-
-        try:
-            # Test facade mode (default)
-            os.environ["ML_USE_LEGACY_FEATURE_STORE"] = "0"
-            flag_value = os.environ.get("ML_USE_LEGACY_FEATURE_STORE", "0")
-            use_legacy = flag_value == "1"
-            assert use_legacy is False
-
-            # Test legacy mode
-            os.environ["ML_USE_LEGACY_FEATURE_STORE"] = "1"
-            flag_value = os.environ.get("ML_USE_LEGACY_FEATURE_STORE", "0")
-            use_legacy = flag_value == "1"
-            assert use_legacy is True
-
-        finally:
-            # Restore original value
-            if original_value is None:
-                os.environ.pop("ML_USE_LEGACY_FEATURE_STORE", None)
-            else:
-                os.environ["ML_USE_LEGACY_FEATURE_STORE"] = original_value
+    assert FeatureStore is FeatureStoreFacade, f"Expected FeatureStoreFacade, got {FeatureStore}"
 
 
 # =============================================================================

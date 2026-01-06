@@ -14,6 +14,8 @@ This module provides:
 
 from __future__ import annotations
 
+PYTEST_DONT_REWRITE = True
+
 import errno
 import fcntl
 import logging
@@ -55,13 +57,12 @@ _TEMPLATE_DB_NAME = os.getenv("TEST_DB_TEMPLATE_NAME", "nautilus_template")
 _ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
     "ml.common.db_utils.EngineManager.get_engine",
     "ml.core.db_engine.EngineManager.get_engine",
-    "ml.dashboard.service.EngineManager.get_engine",
     "ml.dashboard.services.metrics_service.EngineManager.get_engine",
     "ml.dashboard.services.trading_service.EngineManager.get_engine",
     "ml.observability.db_persistence.EngineManager.get_engine",
     "ml.stores.data_processor.EngineManager.get_engine",
-    "ml.stores.data_store.EngineManager.get_engine",
-    "ml.stores.feature_store.EngineManager.get_engine",
+    "ml.stores.data_store_facade.EngineManager.get_engine",
+    "ml.stores.feature_store_facade.EngineManager.get_engine",
     "ml.stores.model_store.EngineManager.get_engine",
     "ml.stores.strategy_store.EngineManager.get_engine",
 )

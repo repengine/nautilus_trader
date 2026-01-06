@@ -53,7 +53,7 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.utils import compute_dataset_schema_hash
 from ml.ml_types import PandasDF, PolarsDF
-from ml.stores.feature_store import FeatureStore
+from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -71,7 +71,7 @@ StoreT = TypeVar("StoreT")
 
 if TYPE_CHECKING:
     import pandas as pd
-    from ml.stores.data_store import DataStore
+    from ml.stores.data_store_facade import DataStore
 else:
     DataStore = Any  # pragma: no cover - runtime fallback for type checking tools
 
@@ -244,7 +244,7 @@ def data_store_module() -> Generator[ModuleType, None, None]:
     """
     Provide the DataStore module (component-only).
     """
-    import ml.stores.data_store as module
+    import ml.stores.data_store_facade as module
 
     yield module
 
@@ -765,7 +765,7 @@ class TestFailClosedWrites:
         valid_bar_data[0]["close"] = -1.0
 
         # Should not raise in monitor-only mode
-        with patch("ml.stores.data_store.logger") as mock_logger:
+        with patch("ml.stores.data_store_facade.logger") as mock_logger:
             event = data_store.write_ingestion(
                 dataset_id="test_bars",
                 records=_maybe_polars_frame(valid_bar_data),
@@ -931,7 +931,7 @@ class TestSchemaMigration:
         if not HAS_PROMETHEUS:
             pytest.skip("Prometheus not available")
 
-        from ml.stores.data_store import schema_mismatch_counter
+        from ml.stores.common.schema_validator import schema_mismatch_counter
 
         data_store_cls = _get_data_store_cls(data_store_module)
         store = data_store_cls(
@@ -1804,7 +1804,7 @@ class TestSchemaMigrationContracts:
         if not HAS_PROMETHEUS:
             pytest.skip("Prometheus not available")
 
-        from ml.stores.data_store import schema_mismatch_counter
+        from ml.stores.common.schema_validator import schema_mismatch_counter
 
         data_store_cls = _get_data_store_cls(data_store_module)
         store = data_store_cls(
@@ -2138,8 +2138,8 @@ class TestPrometheusMetrics:
         """
         Test that validation metrics are properly emitted.
         """
-        from ml.stores.data_store import quality_score_histogram
-        from ml.stores.data_store import validation_violations_counter
+        from ml.stores.common.schema_validator import quality_score_histogram
+        from ml.stores.common.schema_validator import validation_violations_counter
 
         # Create data with violations
         valid_bar_data[0]["close"] = -1.0  # Range violation
@@ -2170,7 +2170,7 @@ class TestPrometheusMetrics:
         """
         Test that write rejection metrics are emitted.
         """
-        from ml.stores.data_store import write_rejection_counter
+        from ml.stores.common.data_writer import write_rejection_counter
 
         # Data missing required columns
         data = [{"instrument_id": "EUR/USD", "close": 1.1000}]
@@ -2201,7 +2201,7 @@ class TestPrometheusMetrics:
         """
         Test that schema mismatch metrics are emitted.
         """
-        from ml.stores.data_store import schema_mismatch_counter
+        from ml.stores.common.schema_validator import schema_mismatch_counter
 
         # Add extra column to change schema
         for row in valid_bar_data:

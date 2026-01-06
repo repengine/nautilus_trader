@@ -27,7 +27,7 @@ from ml.registry.dataclasses import DatasetType
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.earnings_store import EarningsStore
-    from ml.stores.feature_store import FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
 
@@ -202,7 +202,7 @@ class DataReaderComponent:
         """
         Return latest feature values at or before the given timestamp.
 
-        EXTRACTED FROM: ml/stores/data_store.py:536
+        EXTRACTED FROM: ml/stores/data_store_facade.py:536
         HOT PATH: P99 < 5ms requirement
 
         This is a thin facade over FeatureStore.get_latest_at_or_before.
@@ -682,7 +682,7 @@ class DataReaderComponent:
         """
         Return latest prediction at or before ts_event (optionally filtered by model_id).
 
-        EXTRACTED FROM: ml/stores/data_store.py:552
+        EXTRACTED FROM: ml/stores/data_store_facade.py:552
 
         Parameters
         ----------
@@ -765,7 +765,7 @@ class DataReaderComponent:
         """
         Return latest strategy signal at or before ts_event (optionally by strategy_id).
 
-        EXTRACTED FROM: ml/stores/data_store.py:606
+        EXTRACTED FROM: ml/stores/data_store_facade.py:606
 
         Parameters
         ----------
@@ -850,7 +850,7 @@ class DataReaderComponent:
         Read earnings actuals for a ticker within date range.
 
         COLD PATH: Bulk read operation (async acceptable)
-        EXTRACTED FROM: ml/stores/data_store.py:658
+        EXTRACTED FROM: ml/stores/data_store_facade.py:658
 
         Parameters
         ----------
@@ -914,7 +914,7 @@ class DataReaderComponent:
         Read earnings estimates for a ticker within date range.
 
         COLD PATH: Bulk read operation (async acceptable)
-        EXTRACTED FROM: ml/stores/data_store.py:688
+        EXTRACTED FROM: ml/stores/data_store_facade.py:688
 
         Parameters
         ----------

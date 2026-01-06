@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.stores.feature_store import FeatureStore
+from ml.stores.feature_store_facade import FeatureStore
 
 
 PatchEngineManager = Callable[..., ContextManager[MagicMock]]
@@ -43,9 +43,9 @@ def test_feature_store_honors_env_topic_scheme_and_prefix(
     patch_engine_manager: PatchEngineManager,
 ) -> None:
     # Avoid real DB interactions
-    monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
+    monkeypatch.setattr("ml.stores.feature_store_facade.FeatureStore._setup_tables", lambda self: None)
     monkeypatch.setattr(
-        "ml.stores.feature_store.FeatureStore._execute_write",
+        "ml.stores.feature_store_facade.FeatureStore._execute_write",
         lambda self, row: None,
     )
 

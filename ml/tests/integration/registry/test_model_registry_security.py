@@ -242,7 +242,7 @@ class TestModelRegistryIntegrity:
         # Mock file reading to raise permission error during digest calculation
         # Patch both legacy (model_registry.open) and facade (model_persistence.open)
         with (
-            patch("ml.registry.model_registry.open", side_effect=PermissionError("Access denied")),
+            patch("ml.registry.model_registry_facade.open", side_effect=PermissionError("Access denied")),
             patch(
                 "ml.registry.common.model_persistence.open",
                 side_effect=PermissionError("Access denied"),

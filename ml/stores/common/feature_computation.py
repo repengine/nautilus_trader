@@ -47,9 +47,9 @@ if TYPE_CHECKING:
     from sqlalchemy import Table
     from sqlalchemy.engine import Engine
 
-    from ml.features.engineering import FeatureConfig
-    from ml.features.engineering import FeatureEngineer
-    from ml.features.engineering import IndicatorManager
+    from ml.features import FeatureConfig
+    from ml.features import FeatureEngineer
+    from ml.features import IndicatorManager
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.common.feature_reader import FeatureReaderComponent
     from ml.stores.common.feature_writer import FeatureWriterComponent
@@ -381,7 +381,7 @@ class FeatureComputationComponent:
         indicator_manager = self._indicator_managers.get(instrument_key)
         if indicator_manager is None:
             # Import here to avoid circular dependency at module level
-            from ml.features.engineering import IndicatorManager as IM
+            from ml.features import IndicatorManager as IM
 
             if self.feature_config is not None:
                 indicator_manager = IM(self.feature_config)

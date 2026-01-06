@@ -22,7 +22,7 @@ from ml.registry.dataclasses import (
     QualityFlag,
 )
 from ml.registry.protocols import RegistryProtocol
-from ml.stores.data_store import DataStore
+from ml.stores.data_store_facade import DataStore
 from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
 

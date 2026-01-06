@@ -1,25 +1,14 @@
 #!/usr/bin/env python3
 
 """
-Parity tests for FeatureStoreFacade vs Legacy FeatureStore (Phase 3.7.7).
+Behavior tests for FeatureStoreFacade (Phase 3.7.7).
 
-These tests are CRITICAL - they verify that the facade produces IDENTICAL outputs
-to the legacy implementation across all configuration combinations.
-
-All parity tests use np.testing.assert_allclose with rtol=1e-10 for numeric columns.
-
-Test Categories:
-- Write operation parity
-- Read operation parity
-- Computation parity
-- Health operation parity
-- Feature flag mode switching
-
+These tests verify that the facade produces stable outputs across core
+operations and configuration combinations.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -29,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from ml.features.engineering import FeatureConfig
+from ml.features import FeatureConfig
 
 
 if TYPE_CHECKING:
@@ -92,11 +81,11 @@ def legacy_store(
     mock_feature_config: FeatureConfig,
 ) -> Generator[MagicMock, None, None]:
     """Create a mock legacy FeatureStore."""
-    with patch("ml.stores.feature_store.get_or_create_engine") as mock_get_engine:
+    with patch("ml.stores.feature_store_facade.get_or_create_engine") as mock_get_engine:
         mock_get_engine.return_value = mock_engine
 
         # Import and create legacy store
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
 
         with (
             patch.object(FeatureStore, "_setup_tables") as mock_setup,
@@ -564,70 +553,16 @@ class TestHealthParity:
         assert legacy_result == facade_result
 
 
-# =============================================================================
-# Feature Flag Mode Tests
-# =============================================================================
+class TestOperationCounts:
+    """Tests for facade operation counts."""
 
-
-class TestFeatureFlagModes:
-    """Tests for feature flag switching between implementations."""
-
-    def test_feature_flag_legacy_mode_same_results(self) -> None:
-        """
-        Verify ML_USE_LEGACY_FEATURE_STORE=1 uses legacy implementation.
-
-        When flag is set to "1", imports should resolve to legacy FeatureStore.
-
-        """
-        original = os.environ.get("ML_USE_LEGACY_FEATURE_STORE")
-
-        try:
-            os.environ["ML_USE_LEGACY_FEATURE_STORE"] = "1"
-
-            # The flag should indicate legacy mode
-            use_legacy = os.environ.get("ML_USE_LEGACY_FEATURE_STORE", "0") == "1"
-            assert use_legacy is True
-
-        finally:
-            if original is None:
-                os.environ.pop("ML_USE_LEGACY_FEATURE_STORE", None)
-            else:
-                os.environ["ML_USE_LEGACY_FEATURE_STORE"] = original
-
-    def test_feature_flag_facade_mode_same_results(self) -> None:
-        """
-        Verify ML_USE_LEGACY_FEATURE_STORE=0 uses facade implementation.
-
-        When flag is set to "0" or unset, imports should resolve to facade.
-
-        """
-        original = os.environ.get("ML_USE_LEGACY_FEATURE_STORE")
-
-        try:
-            os.environ["ML_USE_LEGACY_FEATURE_STORE"] = "0"
-
-            # The flag should indicate facade mode
-            use_legacy = os.environ.get("ML_USE_LEGACY_FEATURE_STORE", "0") == "1"
-            assert use_legacy is False
-
-        finally:
-            if original is None:
-                os.environ.pop("ML_USE_LEGACY_FEATURE_STORE", None)
-            else:
-                os.environ["ML_USE_LEGACY_FEATURE_STORE"] = original
-
-    def test_feature_flag_pass_counts_match(
+    def test_operation_pass_counts_match(
         self,
         facade_store: Any,
         legacy_store: MagicMock,
     ) -> None:
         """
-        Verify both implementations can handle same operation counts.
-
-        Both should successfully process same number of:
-        1. Write operations
-        2. Read operations
-        3. Compute operations
+        Verify operations handle same call counts.
 
         """
         n_operations = 10
@@ -686,7 +621,7 @@ class TestAPISignatureParity:
         """Verify __init__ signatures are compatible."""
         import inspect
 
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
         from ml.stores.feature_store_facade import FeatureStoreFacade
 
         legacy_sig = inspect.signature(FeatureStore.__init__)
@@ -704,7 +639,7 @@ class TestAPISignatureParity:
         """Verify write_features signatures are compatible."""
         import inspect
 
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
         from ml.stores.feature_store_facade import FeatureStoreFacade
 
         legacy_sig = inspect.signature(FeatureStore.write_features)
@@ -730,7 +665,7 @@ class TestAPISignatureParity:
         """Verify get_training_data signatures are compatible."""
         import inspect
 
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
         from ml.stores.feature_store_facade import FeatureStoreFacade
 
         legacy_sig = inspect.signature(FeatureStore.get_training_data)
@@ -749,7 +684,7 @@ class TestAPISignatureParity:
         """Verify compute_realtime signatures are compatible."""
         import inspect
 
-        from ml.stores.feature_store import FeatureStore
+        from ml.stores.feature_store_facade import FeatureStore
         from ml.stores.feature_store_facade import FeatureStoreFacade
 
         legacy_sig = inspect.signature(FeatureStore.compute_realtime)

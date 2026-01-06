@@ -22,7 +22,7 @@ class TestReportGenerator:
         return [
             ClassAnalysis(
                 class_name="DataStore",
-                file_path=Path("ml/stores/data_store.py"),
+                file_path=Path("ml/stores/data_store_facade.py"),
                 line_count=3730,
                 method_count=45,
                 methods={
@@ -61,7 +61,7 @@ class TestReportGenerator:
             ),
             ClassAnalysis(
                 class_name="FeatureStore",
-                file_path=Path("ml/stores/feature_store.py"),
+                file_path=Path("ml/stores/feature_store_facade.py"),
                 line_count=1677,
                 method_count=25,
                 methods={

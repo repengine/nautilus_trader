@@ -18,7 +18,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, ContextManager, Protocol, cast
+from typing import TYPE_CHECKING, Any, ContextManager, Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,7 +26,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from ml.tests.fixtures.database_fixtures import TestDatabase
+if TYPE_CHECKING:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 @pytest.fixture(params=[True])
@@ -42,7 +43,7 @@ def datastore_module() -> Generator[ModuleType, None, None]:
     """
     Provide the active DataStore module.
     """
-    module = import_module("ml.stores.data_store")
+    module = import_module("ml.stores.data_store_facade")
     yield module
 
 
@@ -117,7 +118,7 @@ def module_store_bundle(
     """
 
     from ml.core.db_engine import EngineManager as _EM
-    from ml.stores.feature_store import FeatureStore as _FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
 
@@ -259,7 +260,7 @@ def fresh_store_bundle(
     """
 
     from ml.core.db_engine import EngineManager as _EM
-    from ml.stores.feature_store import FeatureStore as _FeatureStore
+    from ml.stores.feature_store_facade import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
 

@@ -14,19 +14,16 @@ Test Strategy:
 3. Perform full write/read cycles
 4. Verify data integrity
 5. Test schema validation with real violations
-6. Compare legacy vs component mode outputs for parity
 
 Success Criteria:
 -----------------
 - Can write and read data successfully
 - Read data matches written data exactly
 - Schema violations are caught correctly
-- Legacy and component modes produce identical results
 - No data loss or corruption
 
 """
 
-import os
 import time
 from typing import Any
 from unittest.mock import MagicMock
@@ -280,13 +277,6 @@ class TestE2EBasicWriteReadCycle:
     Test basic write/read cycles with real data.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode for these tests.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
-
     def test_e2e_write_and_read_features(
         self,
         mock_stores: dict[str, Any],
@@ -424,13 +414,6 @@ class TestE2EMultipleDataTypes:
     Test handling multiple data types in same store.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
-
     def test_e2e_write_multiple_data_types(
         self,
         mock_stores: dict[str, Any],
@@ -486,13 +469,6 @@ class TestE2ESchemaValidation:
     """
     Test schema validation with real violations.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
 
     def test_e2e_valid_data_passes_preflight_check(
         self,
@@ -572,13 +548,6 @@ class TestE2EHealthAndConfiguration:
     Test health checks and configuration validation work end-to-end.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
-
     def test_e2e_health_status_reports_all_components(
         self,
         mock_stores: dict[str, Any],
@@ -646,13 +615,6 @@ class TestE2ELargeDatasets:
     Test handling larger datasets.
     """
 
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
-
     def test_e2e_write_large_feature_batch(
         self,
         mock_stores: dict[str, Any],
@@ -705,13 +667,6 @@ class TestE2ETimestampOrdering:
     """
     Test timestamp ordering and time-based queries.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
 
     def test_e2e_features_with_different_timestamps(
         self,
@@ -771,13 +726,6 @@ class TestE2EPerformance:
     """
     Test performance characteristics of E2E operations.
     """
-
-    @pytest.fixture(autouse=True)
-    def setup_component_mode(self):
-        """
-        Ensure component-based mode.
-        """
-        os.environ["ML_USE_LEGACY_DATA_STORE"] = "0"
 
     def test_e2e_write_performance_baseline(
         self,

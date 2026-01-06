@@ -252,7 +252,7 @@ class WatermarkManagerComponent:
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text(
+                    query = text(  # nosec B608: dynamic WHERE clause uses bound params only
                         """
                         SELECT dataset_id, instrument_id, source,
                                last_success_ns, last_attempt_ns, last_count,

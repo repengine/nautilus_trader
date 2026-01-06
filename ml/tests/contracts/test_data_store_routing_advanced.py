@@ -48,7 +48,7 @@ from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 
 if TYPE_CHECKING:
-    from ml.stores.data_store import DataStore
+    from ml.stores.data_store_facade import DataStore
 else:
     DataStore = Any  # pragma: no cover
 
@@ -1063,7 +1063,7 @@ class TestDataStoreCircuitBreaker:
 
     def test_circuit_breaker_activation_contract(self):
         """Contract: Circuit breaker activates after consecutive failures."""
-        with patch("ml.stores.data_store.time.time") as mock_time:
+        with patch("ml.stores.data_store_facade.time.time") as mock_time:
             mock_time.return_value = 1000.0
 
             datastore, _, mock_model_store, _, _ = _create_test_datastore(

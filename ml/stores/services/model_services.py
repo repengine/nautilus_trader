@@ -121,15 +121,13 @@ class ModelQueryService:
             allowed=None,
         )
         sql = _text(
-            f"""
-            SELECT ts_event, prediction, confidence, features_used, inference_time_ms
-            FROM {table_name}
-            WHERE model_id = :model_id
-              AND instrument_id = :instrument_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY ts_event
-            """
+            f"SELECT ts_event, prediction, confidence, features_used, inference_time_ms\n"  # nosec B608: table name resolved from store metadata
+            f"FROM {table_name}\n"
+            "WHERE model_id = :model_id\n"
+            "  AND instrument_id = :instrument_id\n"
+            "  AND ts_event >= :start_ns\n"
+            "  AND ts_event < :end_ns\n"
+            "ORDER BY ts_event"
         )
         params: dict[str, object] = {
             "model_id": model_id,
@@ -168,20 +166,18 @@ class ModelQueryService:
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
         sql = _text(
-            f"""
-            SELECT model_id,
-                   instrument_id,
-                   prediction,
-                   confidence,
-                   inference_time_ms,
-                   is_live,
-                   ts_event,
-                   ts_init
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """
+            f"SELECT model_id,\n"  # nosec B608: table name resolved from store metadata
+            "       instrument_id,\n"
+            "       prediction,\n"
+            "       confidence,\n"
+            "       inference_time_ms,\n"
+            "       is_live,\n"
+            "       ts_event,\n"
+            "       ts_init\n"
+            f"FROM {table_name}\n"
+            f"WHERE {' AND '.join(where_parts)}\n"
+            "ORDER BY ts_event DESC\n"
+            "LIMIT :limit"
         )
         return self.deps._execute_read(
             sql,
@@ -213,23 +209,19 @@ class ModelQueryService:
         )
         if instrument_id is None:
             sql = _text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {table_name}
-                WHERE ts_event >= :start_ns AND ts_event < :end_ns
-                ORDER BY ts_event
-                """
+                f"SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms\n"  # nosec B608: table name resolved from store metadata
+                f"FROM {table_name}\n"
+                "WHERE ts_event >= :start_ns AND ts_event < :end_ns\n"
+                "ORDER BY ts_event"
             )
             params: dict[str, object] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
         else:
             sql = _text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {table_name}
-                WHERE ts_event >= :start_ns AND ts_event < :end_ns
-                  AND instrument_id = :instrument_id
-                ORDER BY ts_event
-                """
+                f"SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms\n"  # nosec B608: table name resolved from store metadata
+                f"FROM {table_name}\n"
+                "WHERE ts_event >= :start_ns AND ts_event < :end_ns\n"
+                "  AND instrument_id = :instrument_id\n"
+                "ORDER BY ts_event"
             )
             params = {
                 "start_ns": int(start_ns),
@@ -257,13 +249,11 @@ class ModelQueryService:
             allowed=None,
         )
         sql = _text(
-            f"""
-            SELECT model_id, ts_event, prediction, confidence, inference_time_ms
-            FROM {table_name}
-            WHERE instrument_id = :instrument_id
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """
+            f"SELECT model_id, ts_event, prediction, confidence, inference_time_ms\n"  # nosec B608: table name resolved from store metadata
+            f"FROM {table_name}\n"
+            "WHERE instrument_id = :instrument_id\n"
+            "ORDER BY ts_event DESC\n"
+            "LIMIT :limit"
         )
         params: dict[str, object] = {"instrument_id": instrument_id, "limit": int(limit)}
         return self.deps._execute_read(
@@ -294,13 +284,11 @@ class ModelQueryService:
                 allowed=None,
             )
             sql = _text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {table_name}
-                WHERE model_id = :model_id
-                  AND ts_event >= :start_ns AND ts_event < :end_ns
-                ORDER BY instrument_id, ts_event
-                """
+                f"SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms\n"  # nosec B608: table name resolved from store metadata
+                f"FROM {table_name}\n"
+                "WHERE model_id = :model_id\n"
+                "  AND ts_event >= :start_ns AND ts_event < :end_ns\n"
+                "ORDER BY instrument_id, ts_event"
             )
             params2: dict[str, object] = {
                 "model_id": model_id,
@@ -347,7 +335,7 @@ class ModelStatsService:
         from ml.stores.services.common_stats import select_min_max_ts as _minmax
         minmax = _minmax(field="ts_event", min_alias="min_ts", max_alias="max_ts")
         base_sql = (
-            "SELECT COUNT(*) as total_predictions, "
+            "SELECT COUNT(*) as total_predictions, "  # nosec B608: table name resolved from store metadata
             "COUNT(DISTINCT model_id) as unique_models, "
             "COUNT(DISTINCT instrument_id) as unique_instruments, "
             "AVG(inference_time_ms) as avg_inference_ms, "
@@ -411,7 +399,7 @@ class ModelStatsService:
         latency = _latency(column="inference_time_ms", include_avg=True, percentiles=(0.50, 0.95, 0.99))
         conf_stats = _num(column="confidence", prefix="confidence", include_avg=True, include_stddev=True, include_min_max=False)
         sql = (
-            "SELECT COUNT(*) as prediction_count, "
+            "SELECT COUNT(*) as prediction_count, "  # nosec B608: table name resolved from store metadata
             f"{conf_stats}, "
             f"{latency} "
             f"FROM {table_name} WHERE " + " AND ".join(conditions)
@@ -558,7 +546,16 @@ class ModelEventService:
                         self.logger.info("Registered dataset 'predictions' in registry")
                     except Exception:
                         # Best-effort registration; continue with emission path.
-                        pass
+                        self.logger.debug(
+                            "Auto-registration of predictions dataset failed; continuing",
+                            exc_info=True,
+                            extra={
+                                "component": "model_services",
+                                "dataset_id": "predictions",
+                                "model_id": model_id,
+                                "instrument_id": instrument_id,
+                            },
+                        )
 
                 # Emit event + watermark; if watermark path fails (e.g., FK not yet visible
                 # under concurrent transactions), fall back to event-only emission.
@@ -595,7 +592,16 @@ class ModelEventService:
                             )
                         except Exception:
                             # Event path must not impact hot writes
-                            pass
+                            self.logger.debug(
+                                "Registry emit_event fallback failed; dropping prediction event",
+                                exc_info=True,
+                                extra={
+                                    "component": "model_services",
+                                    "dataset_id": "predictions",
+                                    "model_id": model_id,
+                                    "instrument_id": instrument_id,
+                                },
+                            )
                 else:
                     # Fallback: direct registry calls
                     try:
@@ -622,8 +628,26 @@ class ModelEventService:
                             )
                         except Exception:
                             # Watermark update is best-effort
-                            pass
+                            self.logger.debug(
+                                "Registry watermark update failed; continuing",
+                                exc_info=True,
+                                extra={
+                                    "component": "model_services",
+                                    "dataset_id": "predictions",
+                                    "model_id": model_id,
+                                    "instrument_id": instrument_id,
+                                },
+                            )
                     except Exception:
-                        pass
+                        self.logger.debug(
+                            "Registry emit_event failed; prediction event dropped",
+                            exc_info=True,
+                            extra={
+                                "component": "model_services",
+                                "dataset_id": "predictions",
+                                "model_id": model_id,
+                                "instrument_id": instrument_id,
+                            },
+                        )
         except Exception:
             self.logger.warning("Failed to emit prediction events", exc_info=True)

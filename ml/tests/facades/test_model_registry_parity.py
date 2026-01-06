@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 
 """
-Parity tests for ModelRegistry: Legacy vs Facade implementations.
+Contract tests for ModelRegistryFacade across isolated instances.
 
-These tests ensure that the ModelRegistryFacade produces identical results
-to the legacy ModelRegistry class for all operations.
-
-Feature flag: ML_USE_LEGACY_MODEL_REGISTRY
-- "1": Use legacy ModelRegistry
-- "0" (default): Use ModelRegistryFacade
+These tests validate that core registry operations are deterministic and
+consistent across multiple facade instances.
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +25,7 @@ from ml.registry.base import (
     ModelRole,
 )
 from ml.registry.dataclasses import CanaryConfig
+from ml.registry.model_registry_facade import ModelRegistryFacade
 
 
 # =============================================================================
@@ -84,31 +80,18 @@ def create_manifest() -> Any:
 
 @pytest.fixture
 def legacy_registry(tmp_path: Path) -> Any:
-    """Create legacy ModelRegistry instance."""
-    # Ensure legacy mode
-    os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "1"
-    try:
-        from ml.registry.model_registry import ModelRegistry
-
-        registry_path = tmp_path / "legacy_registry"
-        registry_path.mkdir(parents=True, exist_ok=True)
-        return ModelRegistry(registry_path)
-    finally:
-        os.environ.pop("ML_USE_LEGACY_MODEL_REGISTRY", None)
+    """Create a ModelRegistryFacade instance (primary)."""
+    registry_path = tmp_path / "legacy_registry"
+    registry_path.mkdir(parents=True, exist_ok=True)
+    return ModelRegistryFacade(registry_path)
 
 
 @pytest.fixture
 def facade_registry(tmp_path: Path) -> Any:
-    """Create ModelRegistryFacade instance."""
-    os.environ["ML_USE_LEGACY_MODEL_REGISTRY"] = "0"
-    try:
-        from ml.registry.model_registry_facade import ModelRegistryFacade
-
-        registry_path = tmp_path / "facade_registry"
-        registry_path.mkdir(parents=True, exist_ok=True)
-        return ModelRegistryFacade(registry_path)
-    finally:
-        os.environ.pop("ML_USE_LEGACY_MODEL_REGISTRY", None)
+    """Create a ModelRegistryFacade instance (secondary)."""
+    registry_path = tmp_path / "facade_registry"
+    registry_path.mkdir(parents=True, exist_ok=True)
+    return ModelRegistryFacade(registry_path)
 
 
 def copy_model_to_registry(

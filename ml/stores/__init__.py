@@ -70,22 +70,17 @@ PostgreSQL → DummyStore (no persistence, warnings logged)
 See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
 
-import os as _os
-from typing import TYPE_CHECKING
-
-from ml.stores import data_store as data_store  # re-export module for test patch paths
-from ml.stores import feature_store as feature_store  # re-export module for test patch paths
 from ml.stores.base import BaseStore
 from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
-from ml.stores.data_store import DataStore as LegacyDataStore
+from ml.stores.data_store_facade import DataStore
 from ml.stores.data_store_facade import DataStoreFacade
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
-from ml.stores.feature_store import FeatureStore as LegacyFeatureStore
+from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.feature_store_facade import FeatureStoreFacade
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
@@ -140,24 +135,8 @@ from ml.stores.writers import LiveDataRecorder
 from ml.stores.writers import ParquetCatalogMarketDataWriter
 
 
-_USE_LEGACY_DATA_STORE = _os.getenv("ML_USE_LEGACY_DATA_STORE", "0") == "1"
-_USE_LEGACY_FEATURE_STORE = _os.getenv("ML_USE_LEGACY_FEATURE_STORE", "0") == "1"
-
-if TYPE_CHECKING:
-    DataStore = type[LegacyDataStore | DataStoreFacade]
-    FeatureStore = type[LegacyFeatureStore | FeatureStoreFacade]
-else:
-    DataStore = LegacyDataStore if _USE_LEGACY_DATA_STORE else DataStoreFacade
-    FeatureStore = LegacyFeatureStore if _USE_LEGACY_FEATURE_STORE else FeatureStoreFacade
-
-# Component-based alias: Always resolves to FeatureStoreFacade for explicit component usage
-# Used when tests/code need the component-based facade regardless of legacy flag
+# Component-based alias (legacy removed, facade is canonical).
 ComponentFeatureStore = FeatureStoreFacade
-
-
-# Lower-case aliases to match some test patch paths that derive module names
-datastore = data_store
-featurestore = feature_store
 
 
 # =============================================================================
@@ -224,10 +203,6 @@ __all__ = [
     "build_standard_indexes",
     "check_db_prereqs",
     "create_ml_table",
-    "data_store",
-    "datastore",  # alias for tests using lower-cased class name
-    "feature_store",
-    "featurestore",  # alias for tests using lower-cased class name
     "get_schema_name",
     "publish_batch_and_rows",
     "run_partition_maintenance",

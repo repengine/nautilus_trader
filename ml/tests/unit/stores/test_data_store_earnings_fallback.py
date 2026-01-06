@@ -1,61 +1,17 @@
-"""Tests for DataStore earnings fallback chain."""
+"""Tests for DataStore earnings write paths."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from ml._imports import HAS_POLARS
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
-from ml.stores import DataStore  # Use public API (respects feature flag)
-from ml.stores.data_store import DataStore as LegacyDataStore  # For legacy fallback test
+from ml.stores import DataStore
 from ml.stores.validation_types import QualityReport
-
-
-@pytest.mark.skipif(not HAS_POLARS, reason="polars required for file fallback")
-def test_data_store_falls_back_to_file_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Ensure LEGACY DataStore uses FileEarningsStore when PostgreSQL earnings store fails.
-
-    Note: This tests legacy fallback behavior. The facade (DataStoreFacade) requires
-    explicit dependencies and does not auto-fallback. This test uses LegacyDataStore directly.
-    """
-
-    def _failing_earnings_store(*_args: object, **_kwargs: object) -> None:  # pragma: no cover - patch target
-        raise RuntimeError("unavailable")
-
-    monkeypatch.setenv("ML_FILE_STORE_PATH", str(tmp_path / "file_store"))
-    monkeypatch.setattr("ml.stores.data_store.EarningsStore", _failing_earnings_store)
-
-    feature_store = MagicMock()
-    model_store = MagicMock()
-    strategy_store = MagicMock()
-    data_processor = MagicMock()
-    registry = MagicMock()
-
-    # Use legacy DataStore for legacy fallback test
-    store = LegacyDataStore(
-        connection_string="postgresql://unused",
-        registry=registry,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        data_processor=data_processor,
-    )
-
-    from ml.stores.file_backed import FileEarningsStore
-
-    assert isinstance(store._earnings_store, FileEarningsStore)
-    store._earnings_store.flush()
-
-    monkeypatch.delenv("ML_FILE_STORE_PATH", raising=False)
 
 
 def _make_contract(dataset_id: str) -> DataContract:

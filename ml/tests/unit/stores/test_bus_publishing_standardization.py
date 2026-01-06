@@ -17,8 +17,6 @@ from unittest.mock import Mock, patch
 from ml.common.message_bus import BusPublisherMixin, NoopPublisher
 from ml.config.bus import MessageBusConfig
 from ml.stores import DataStore, FeatureStore
-from ml.stores.data_store import DataStore as LegacyDataStore
-from ml.stores.feature_store import FeatureStore as LegacyFeatureStore
 from ml.stores.base import FeatureData
 from ml.tests.utils.db import build_postgres_url
 
@@ -255,8 +253,8 @@ class TestBusPublishingStandardization:
         """
         Test that all stores use consistent topic scheme/prefix from MessageBusConfig.
 
-        Note: This tests internal mixin behavior using LegacyDataStore since the
-        facade delegates publishing to EventEmitterComponent.
+        Note: DataStoreFacade uses EventEmitterComponent, but exposes the
+        resolved topic scheme/prefix for parity checks.
         """
         test_cases = [
             ("domain_op", "events.ml"),
@@ -271,23 +269,18 @@ class TestBusPublishingStandardization:
                     "ML_BUS_TOPIC_PREFIX": prefix,
                 },
             ):
-                # Test LegacyDataStore (mixin behavior)
+                # DataStore facade
                 with patch_engine_manager():
-                    data_store = LegacyDataStore(
+                    data_store = DataStore(
                         connection_string=MOCK_CONNECTION,
                         **_create_mock_store_deps(),
-                    )
-                    data_store._init_bus_publishing(
-                        enable_publishing=True,
-                        publisher=Mock(),
-                        publish_mode="batch",
                     )
                     assert data_store._topic_scheme == scheme
                     assert data_store._topic_prefix == prefix
 
-                # Test LegacyFeatureStore (mixin behavior)
+                # FeatureStore facade
                 with patch_engine_manager():
-                    feature_store = LegacyFeatureStore(
+                    feature_store = FeatureStore(
                         connection_string=MOCK_CONNECTION,
                         enable_publishing=True,
                         publisher=Mock(),
@@ -299,13 +292,13 @@ class TestBusPublishingStandardization:
         """
         Test that publishing doesn't significantly impact hot-path performance.
 
-        Note: Uses LegacyDataStore for testing legacy emit_dataset_event signature.
+        Note: Uses DataStoreFacade emit_dataset_event path.
         """
         # This is a smoke test to ensure we don't add heavy operations
         mock_publisher = Mock()
 
         with patch_engine_manager():
-            store = LegacyDataStore(
+            store = DataStore(
                 connection_string=MOCK_CONNECTION,
                 enable_publishing=True,
                 publisher=mock_publisher,
@@ -351,15 +344,15 @@ class TestBusPublishingStandardization:
         Test that all stores use consistent error logging levels for publishing
         failures.
 
-        Note: Uses LegacyDataStore for testing legacy emit_dataset_event signature.
+        Note: Uses DataStoreFacade for error logging behavior.
         """
         test_stores = []
 
-        # LegacyDataStore (tests mixin behavior)
+        # DataStore
         mock_publisher = Mock()
         mock_publisher.publish.side_effect = Exception("Test error")
         with patch_engine_manager():
-            data_store = LegacyDataStore(
+            data_store = DataStore(
                 connection_string=MOCK_CONNECTION,
                 enable_publishing=True,
                 publisher=mock_publisher,
@@ -379,10 +372,8 @@ class TestBusPublishingStandardization:
 
         # Map store names to their actual module paths for patching
         module_paths = {
-            "DataStore": [
-                "ml.stores.data_store",  # Legacy module
-            ],
-            "FeatureStore": ["ml.stores.feature_store"],
+            "DataStore": ["ml.stores.data_store_facade"],
+            "FeatureStore": ["ml.stores.feature_store_facade"],
         }
 
         for store_name, store in test_stores:

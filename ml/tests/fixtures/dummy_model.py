@@ -10,6 +10,8 @@ need for real model files during unit tests.
 
 from __future__ import annotations
 
+PYTEST_DONT_REWRITE = True
+
 import json
 import tempfile
 from pathlib import Path
