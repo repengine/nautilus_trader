@@ -47,6 +47,7 @@ data/batch
 data/batch/
 ml_out
 ml_out/
+ml_out/**
 performance_results/
 checkpoints/
 ml_registry/models/
@@ -64,6 +65,8 @@ config/**.json
 # Generated test artifacts
 ml/tests/integration/comprehensive_validation/*.json
 ml/tests/**/validation_reports/*.json
+# Keep local Betfair catalogue artifact ignored
+tests/integration_tests/adapters/betfair/resources/responses/betting_list_market_catalogue.json
 
 # Model binaries and exports
 *.onnx
