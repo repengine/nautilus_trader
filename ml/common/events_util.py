@@ -25,6 +25,10 @@ from ml.config.events import LEGACY_STAGE_ALIAS_MAP
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.registry.dataclasses import DatasetType
+
+
+logger = logging.getLogger(__name__)
 
 
 # Persisted representation accepted by the DB and JSON artifacts
@@ -46,9 +50,10 @@ def to_source_enum(x: Source | str) -> Source:
     try:
         return Source(value)
     except ValueError:
-        logging.getLogger(__name__).debug(
+        logger.debug(
             "Unknown source provided, falling back to live",
             extra={"provided_source": value},
+            exc_info=True,
         )
         return Source.LIVE
 
@@ -165,6 +170,7 @@ def to_stage_enum(stage: Stage | str) -> Stage:
 
     Accepts values like ``Stage.FEATURE_COMPUTED``, ``STAGE.FEATURE_COMPUTED``,
     or raw enum instances. Raises ``ValueError`` for unknown names.
+
     """
     if isinstance(stage, Stage):
         return CANONICAL_STAGE_EQUIVALENTS.get(stage, stage)
@@ -183,7 +189,11 @@ def to_stage_enum(stage: Stage | str) -> Stage:
         resolved = Stage(stage_str)
         return _canonical(resolved)
     except ValueError:
-        pass
+        logger.debug(
+            "Stage enum resolution failed, attempting fallback normalization",
+            extra={"provided_stage": stage_str},
+            exc_info=True,
+        )
 
     upper_value = stage_str.upper()
     if upper_value != stage_str:
@@ -193,12 +203,7 @@ def to_stage_enum(stage: Stage | str) -> Stage:
         except ValueError:
             ...
 
-    normalized = (
-        stage_str.replace(".", "_")
-        .replace("-", "_")
-        .replace(" ", "_")
-        .upper()
-    )
+    normalized = stage_str.replace(".", "_").replace("-", "_").replace(" ", "_").upper()
 
     if normalized in Stage.__members__:
         member = Stage[normalized]
@@ -244,6 +249,32 @@ def normalize_stage_value(stage: Stage | str) -> str:
     return to_stage_enum(stage).value
 
 
+def stage_for_dataset_type(dataset_type: DatasetType) -> Stage:
+    """
+    Map a dataset type to the canonical processing stage.
+
+    Args:
+        dataset_type: Dataset type from the registry manifest.
+
+    Returns:
+        Stage enum representing the expected pipeline stage.
+
+    """
+    stage_map: dict[DatasetType, Stage] = {
+        DatasetType.FEATURES: Stage.FEATURE_COMPUTED,
+        DatasetType.PREDICTIONS: Stage.PREDICTION_EMITTED,
+        DatasetType.SIGNALS: Stage.SIGNAL_EMITTED,
+        DatasetType.EARNINGS_ACTUALS: Stage.DATA_INGESTED,
+        DatasetType.EARNINGS_ESTIMATES: Stage.DATA_INGESTED,
+        DatasetType.MACRO_RELEASES: Stage.DATA_INGESTED,
+        DatasetType.MACRO_OBSERVATIONS: Stage.DATA_INGESTED,
+        DatasetType.EVENTS_CALENDAR: Stage.DATA_INGESTED,
+        DatasetType.MICRO_MINUTE_FEATURES: Stage.FEATURE_COMPUTED,
+        DatasetType.L2_MINUTE_FEATURES: Stage.FEATURE_COMPUTED,
+    }
+    return stage_map.get(dataset_type, Stage.DATA_INGESTED)
+
+
 def to_status_enum(status: EventStatus | str) -> EventStatus:
     """
     Convert legacy string representations to an ``EventStatus`` enum.
@@ -280,6 +311,7 @@ __all__ = [
     "SourceStr",
     "build_bus_payload",
     "normalize_stage_value",
+    "stage_for_dataset_type",
     "to_source_enum",
     "to_source_str",
     "to_stage_enum",

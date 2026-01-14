@@ -53,8 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.from_ohlcv:
         # Best-effort compute via FeatureEngineer
         try:  # pragma: no cover - heavy path not covered by unit tests
-            from ml.features.engineering import FeatureConfig
-            from ml.features.engineering import FeatureEngineer
+            from ml.features import FeatureConfig
+            from ml.features import FeatureEngineer
 
             fe = FeatureEngineer(FeatureConfig())
             # Expect OHLCV and time_index columns

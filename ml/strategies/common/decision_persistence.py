@@ -14,37 +14,50 @@ Responsibility:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
-    from nautilus_trader.model.objects import Quantity
-
     from ml.actors.base import MLSignal
     from ml.strategies.services import StrategyDecisionPublisher
+    from nautilus_trader.model.objects import Quantity
+
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
 class CircuitBreakerProtocol(Protocol):
-    """Protocol for circuit breaker implementation."""
+    """
+    Protocol for circuit breaker implementation.
+    """
 
     def can_execute(self) -> bool:
-        """Check if circuit breaker allows execution."""
+        """
+        Check if circuit breaker allows execution.
+        """
         ...
 
     def record_success(self) -> None:
-        """Record a successful operation."""
+        """
+        Record a successful operation.
+        """
         ...
 
     def record_failure(self, exc: Exception | None = None) -> None:
-        """Record a failed operation."""
+        """
+        Record a failed operation.
+        """
         ...
 
 
 @runtime_checkable
 class StrategyStoreProtocol(Protocol):
-    """Protocol for strategy store interface."""
+    """
+    Protocol for strategy store interface.
+    """
 
     def write_signal(
         self,
@@ -58,53 +71,126 @@ class StrategyStoreProtocol(Protocol):
         ts_event: int,
         is_live: bool = False,
     ) -> None:
-        """Write a strategy signal to the store."""
+        """
+        Write a strategy signal to the store.
+        """
         ...
 
     def flush(self) -> None:
-        """Flush any pending writes to persistent storage."""
+        """
+        Flush any pending writes to persistent storage.
+        """
         ...
 
 
 @runtime_checkable
 class LoggerProtocol(Protocol):
-    """Protocol for logging interface."""
+    """
+    Protocol for logging interface.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """Log debug message."""
+        """
+        Log debug message.
+        """
         ...
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """Log info message."""
+        """
+        Log info message.
+        """
         ...
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """Log warning message."""
+        """
+        Log warning message.
+        """
         ...
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """Log error message."""
+        """
+        Log error message.
+        """
         ...
 
 
 class _NoOpLogger:
-    """No-op logger for when no logger is provided."""
+    """
+    No-op logger for when no logger is provided.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """No-op debug."""
+        """
+        No-op debug.
+        """
         del args, kwargs
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """No-op info."""
+        """
+        No-op info.
+        """
         del args, kwargs
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """No-op warning."""
+        """
+        No-op warning.
+        """
         del args, kwargs
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """No-op error."""
+        """
+        No-op error.
+        """
         del args, kwargs
+
+
+class _SafeLogger:
+    """
+    Logger wrapper that tolerates extra kwargs and supports exc_info.
+    """
+
+    def __init__(self, wrapped: Any) -> None:
+        self._wrapped = wrapped
+        self._fallback = logger
+
+    def debug(self, message: str, *args: object, **kwargs: object) -> None:
+        self._log("debug", message, *args, **kwargs)
+
+    def info(self, message: str, *args: object, **kwargs: object) -> None:
+        self._log("info", message, *args, **kwargs)
+
+    def warning(self, message: str, *args: object, **kwargs: object) -> None:
+        self._log("warning", message, *args, **kwargs)
+
+    def error(self, message: str, *args: object, **kwargs: object) -> None:
+        self._log("error", message, *args, **kwargs)
+
+    def _log(self, level: str, message: str, *args: object, **kwargs: object) -> None:
+        exc_info = kwargs.pop("exc_info", None)
+        try:
+            log_fn = getattr(self._wrapped, level)
+            try:
+                if exc_info is not None:
+                    log_fn(message, *args, exc_info=exc_info, **kwargs)
+                else:
+                    log_fn(message, *args, **kwargs)
+                return
+            except TypeError:
+                log_fn(message, *args)
+        except Exception:
+            pass
+
+        fallback_fn = getattr(self._fallback, level)
+        if kwargs:
+            if exc_info is not None:
+                fallback_fn(message, *args, exc_info=True, extra=kwargs)
+            else:
+                fallback_fn(message, *args, extra=kwargs)
+        else:
+            if exc_info is not None:
+                fallback_fn(message, *args, exc_info=True)
+            else:
+                fallback_fn(message, *args)
 
 
 class DecisionPersistenceComponent:
@@ -178,13 +264,15 @@ class DecisionPersistenceComponent:
         is_backtesting: bool = False,
         model_signals: dict[str, Any] | None = None,
     ) -> None:
-        """Initialize the decision persistence component."""
+        """
+        Initialize the decision persistence component.
+        """
         self._strategy_id = strategy_id
         self._strategy_store = strategy_store
         self._circuit_breaker = circuit_breaker
         self._bus_publisher = bus_publisher
         self._persist_all_signals = persist_all_signals
-        self._log = log if log is not None else _NoOpLogger()
+        self._log = _SafeLogger(log if log is not None else _NoOpLogger())
 
         # State tracking
         self._active_positions = active_positions
@@ -205,7 +293,9 @@ class DecisionPersistenceComponent:
         self._init_metrics()
 
     def _init_metrics(self) -> None:
-        """Initialize Prometheus metrics via centralized bootstrap."""
+        """
+        Initialize Prometheus metrics via centralized bootstrap.
+        """
         try:
             from ml.common.metrics_bootstrap import get_counter
             from ml.common.metrics_bootstrap import get_gauge
@@ -236,22 +326,30 @@ class DecisionPersistenceComponent:
 
     @property
     def strategy_id(self) -> str:
-        """Get the strategy identifier."""
+        """
+        Get the strategy identifier.
+        """
         return self._strategy_id
 
     @property
     def strategy_store(self) -> StrategyStoreProtocol | None:
-        """Get the strategy store."""
+        """
+        Get the strategy store.
+        """
         return self._strategy_store
 
     @property
     def circuit_breaker(self) -> CircuitBreakerProtocol | None:
-        """Get the circuit breaker."""
+        """
+        Get the circuit breaker.
+        """
         return self._circuit_breaker
 
     @property
     def persist_all_signals(self) -> bool:
-        """Get whether all signals (including HOLD) are persisted."""
+        """
+        Get whether all signals (including HOLD) are persisted.
+        """
         return self._persist_all_signals
 
     @property
@@ -310,6 +408,28 @@ class DecisionPersistenceComponent:
             self._is_backtesting = is_backtesting
         if model_signals is not None:
             self._model_signals = model_signals
+
+    def update_dependencies(
+        self,
+        *,
+        strategy_store: StrategyStoreProtocol | None,
+        bus_publisher: Any | None,
+    ) -> None:
+        """
+        Update external dependencies that can change after initialization.
+
+        Parameters
+        ----------
+        strategy_store : StrategyStoreProtocol | None
+            Updated strategy store instance (or None to disable persistence).
+        bus_publisher : Any | None
+            Updated message bus publisher (or None to disable publishing).
+
+        """
+        self._strategy_store = strategy_store
+        if bus_publisher is not self._bus_publisher:
+            self._bus_publisher = bus_publisher
+            self._decision_publisher = None
 
     # -------------------------------------------------------------------------
     # Decision Persistence
@@ -421,7 +541,9 @@ class DecisionPersistenceComponent:
         execution_params: dict[str, Any] | None,
         model_predictions: dict[str, float],
     ) -> bool:
-        """Handle persistence when no store is available."""
+        """
+        Handle persistence when no store is available.
+        """
         try:
             from ml.config.events import EventStatus
 
@@ -455,7 +577,9 @@ class DecisionPersistenceComponent:
             return False
 
     def _check_circuit_breaker_open(self) -> bool:
-        """Check if circuit breaker is open."""
+        """
+        Check if circuit breaker is open.
+        """
         try:
             if self._circuit_breaker is not None and not self._circuit_breaker.can_execute():
                 # Emit fallback activation metric
@@ -471,7 +595,9 @@ class DecisionPersistenceComponent:
         return False
 
     def _emit_fallback_metric(self, level: str) -> None:
-        """Emit fallback activation metric."""
+        """
+        Emit fallback activation metric.
+        """
         try:
             from ml.common.metrics_bootstrap import get_counter
 
@@ -480,8 +606,14 @@ class DecisionPersistenceComponent:
                 "Fallback activations",
                 labelnames=("component", "level"),
             ).labels(component="strategy_store_write", level=level).inc()
-        except Exception:
-            pass
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.fallback_metric_emit_failed",
+                strategy_id=self._strategy_id,
+                level=level,
+                exc_info=True,
+                error=str(exc),
+            )
 
     def _handle_circuit_breaker_open(
         self,
@@ -491,7 +623,9 @@ class DecisionPersistenceComponent:
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
     ) -> bool:
-        """Handle persistence when circuit breaker is open."""
+        """
+        Handle persistence when circuit breaker is open.
+        """
         # Publish guardrail event with PARTIAL status
         return self._publish_partial_event(
             signal=signal,
@@ -509,7 +643,9 @@ class DecisionPersistenceComponent:
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
     ) -> bool:
-        """Write decision to strategy store with timing."""
+        """
+        Write decision to strategy store with timing.
+        """
         start_time = time.perf_counter()
 
         try:
@@ -535,6 +671,7 @@ class DecisionPersistenceComponent:
                     except Exception as exc:
                         self._log.debug(
                             f"ml_strategy.breaker_record_success_failed strategy={self._strategy_id} error={exc!r}",
+                            exc_info=True,
                         )
 
                 # Record metrics
@@ -564,7 +701,9 @@ class DecisionPersistenceComponent:
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
     ) -> None:
-        """Handle store write failure."""
+        """
+        Handle store write failure.
+        """
         # Record circuit breaker failure
         if self._circuit_breaker is not None:
             try:
@@ -572,6 +711,7 @@ class DecisionPersistenceComponent:
             except Exception as breaker_exc:
                 self._log.debug(
                     f"ml_strategy.breaker_record_failure_failed strategy={self._strategy_id} error={breaker_exc!r}",
+                    exc_info=True,
                 )
 
         # Publish PARTIAL guardrail event
@@ -601,7 +741,9 @@ class DecisionPersistenceComponent:
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
     ) -> bool:
-        """Publish a PARTIAL status event."""
+        """
+        Publish a PARTIAL status event.
+        """
         try:
             from ml.config.events import EventStatus
 
@@ -636,7 +778,9 @@ class DecisionPersistenceComponent:
             return False
 
     def _record_write_metrics(self, start_time: float) -> None:
-        """Record write metrics after successful persistence."""
+        """
+        Record write metrics after successful persistence.
+        """
         write_latency = time.perf_counter() - start_time
 
         # Increment decisions counter
@@ -645,8 +789,14 @@ class DecisionPersistenceComponent:
                 self._decisions_persisted_counter.labels(
                     strategy_id=self._strategy_id,
                 ).inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.metric_emit_failed",
+                    strategy_id=self._strategy_id,
+                    metric="decisions_persisted",
+                    exc_info=True,
+                    error=str(exc),
+                )
 
         # Record write latency
         if self._write_latency_histogram is not None:
@@ -654,8 +804,14 @@ class DecisionPersistenceComponent:
                 self._write_latency_histogram.labels(
                     strategy_id=self._strategy_id,
                 ).observe(write_latency)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.metric_emit_failed",
+                    strategy_id=self._strategy_id,
+                    metric="write_latency",
+                    exc_info=True,
+                    error=str(exc),
+                )
 
         # Update batch size gauge
         if self._batch_size_gauge is not None:
@@ -666,8 +822,14 @@ class DecisionPersistenceComponent:
                     self._batch_size_gauge.labels(
                         strategy_id=self._strategy_id,
                     ).set(len(buffer))
-            except Exception:
-                pass
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.metric_emit_failed",
+                    strategy_id=self._strategy_id,
+                    metric="batch_size",
+                    exc_info=True,
+                    error=str(exc),
+                )
 
     # -------------------------------------------------------------------------
     # Decision Publisher
@@ -803,11 +965,27 @@ class DecisionPersistenceComponent:
             try:
                 publisher.publish(topic, payload)
                 return True
-            except Exception:
+            except Exception as exc:
                 # Never affect control flow
+                self._log.debug(
+                    "ml_strategy.decision_event_publish_failed",
+                    strategy_id=self._strategy_id,
+                    instrument_id=instrument_str,
+                    decision_type=decision_type,
+                    exc_info=True,
+                    error=str(exc),
+                )
                 return False
-        except Exception:
+        except Exception as exc:
             # Defensive: ensure hot path is not impacted
+            self._log.debug(
+                "ml_strategy.decision_event_build_failed",
+                strategy_id=self._strategy_id,
+                instrument_id=str(signal.instrument_id),
+                decision_type=decision_type,
+                exc_info=True,
+                error=str(exc),
+            )
             return False
 
     # -------------------------------------------------------------------------
@@ -852,8 +1030,13 @@ class DecisionPersistenceComponent:
         if position_size is not None:
             try:
                 metrics["position_size"] = float(position_size.as_double())
-            except (AttributeError, TypeError):
-                pass
+            except (AttributeError, TypeError) as exc:
+                self._log.debug(
+                    "ml_strategy.position_size_metric_failed",
+                    strategy_id=self._strategy_id,
+                    exc_info=True,
+                    error=str(exc),
+                )
 
         return metrics
 
@@ -930,8 +1113,13 @@ class DecisionPersistenceComponent:
                     if mid in self._model_signals:
                         sig = self._model_signals[mid]
                         predictions[str(mid)] = float(sig.prediction)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.aggregated_predictions_build_failed",
+                strategy_id=self._strategy_id,
+                exc_info=True,
+                error=str(exc),
+            )
 
         return predictions
 

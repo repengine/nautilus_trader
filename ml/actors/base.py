@@ -25,9 +25,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -53,6 +50,9 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
+
     DataStoreFacadeLike = DataStoreFacadeProtocol | FileDataStore | DummyStore
 else:
     DataStoreFacadeLike = Any
@@ -358,9 +359,15 @@ class CircuitBreaker:
         elif self._state == CircuitBreakerState.CLOSED:
             self._failure_count = max(0, self._failure_count - 1)
 
-    def record_failure(self) -> None:
+    def record_failure(self, _exc: Exception | None = None) -> None:
         """
         Record failed operation.
+
+        Parameters
+        ----------
+        _exc : Exception | None, optional
+            Optional exception context for logging/telemetry hooks.
+
         """
         self._failure_count += 1
         self._last_failure_time = time.time()
@@ -383,8 +390,12 @@ class CircuitBreaker:
                     labels={"component": self._component_id, "to_state": "open"},
                     labelnames=("component", "to_state"),
                 )
-            except Exception as exc:
-                logger.debug("Circuit breaker metrics (open from half-open) failed: %s", exc)
+            except Exception as error:
+                logger.debug(
+                    "Circuit breaker metrics (open from half-open) failed: %s",
+                    error,
+                    exc_info=True,
+                )
         elif (
             self._state == CircuitBreakerState.CLOSED
             and self._failure_count >= self._config.failure_threshold
@@ -406,8 +417,12 @@ class CircuitBreaker:
                     labels={"component": self._component_id, "to_state": "open"},
                     labelnames=("component", "to_state"),
                 )
-            except Exception as exc:
-                logger.debug("Circuit breaker metrics (open) failed: %s", exc)
+            except Exception as error:
+                logger.debug(
+                    "Circuit breaker metrics (open) failed: %s",
+                    error,
+                    exc_info=True,
+                )
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -1130,6 +1145,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                             # Fallback: set on adapter (harmless if not consumed)
                             setattr(adapter, "_circuit_breaker", cb)
                     except Exception:
+                        self.log.debug(
+                            f"Circuit breaker propagation failed for {type(adapter).__name__}",
+                            exc_info=True,
+                        )
                         continue
                 # Data store may also support breaker if underlying implementation honors it
                 try:
@@ -1139,10 +1158,13 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     else:
                         setattr(self._data_store, "_circuit_breaker", cb)
                 except Exception:
-                    pass
+                    self.log.debug(
+                        f"Circuit breaker propagation failed for {type(self._data_store).__name__}",
+                        exc_info=True,
+                    )
         except Exception:
             # Never impact actor initialization
-            self.log.debug("Store circuit breaker propagation failed")
+            self.log.debug("Store circuit breaker propagation failed", exc_info=True)
 
     # LEGACY CODE - Preserved for Phase 2.3.5c parity tests
     # Store and registry properties now delegated via facade pattern above

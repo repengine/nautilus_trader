@@ -11,10 +11,6 @@ This module implements Component 6 of Phase 2.5, integrating:
 The facade orchestrates these components while inheriting 4-store integration
 from BaseMLInferenceActor (FeatureStore, ModelStore, StrategyStore, DataStore).
 
-Feature Flag: ML_USE_LEGACY_ML_SIGNAL_ACTOR
-- 0 (default): Use this facade
-- 1: Use legacy MLSignalActor
-
 Architecture Patterns (CLAUDE.md):
 - Pattern 1: Mandatory 4-Store + 4-Registry Integration (via BaseMLInferenceActor)
 - Pattern 2: Protocol-First Interface Design (strategy protocols)
@@ -33,7 +29,7 @@ Cold Path Methods:
 - get_signal_statistics(): Statistics aggregation
 
 Critical Safeguards:
-- Category 0: Legacy signal.py preserved as ground truth
+- Category 0: Compatibility shim preserved in ml.actors.signal
 - Category 2: No stubs, no TODOs - complete implementations
 - Category 3: Hot/cold path separation enforced
 - Category 6: TYPE_CHECKING imports to prevent circular dependencies
@@ -43,7 +39,9 @@ Critical Safeguards:
 
 from __future__ import annotations
 
+import math
 import os
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -51,12 +49,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
+from ml.actors.base import MLSignal
+from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.names import FEATURE_TIME_BUCKETS
+from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -64,8 +65,10 @@ if TYPE_CHECKING:
     from ml.actors.common.model_warmup import ModelWarmUpComponent
     from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
     from ml.actors.common.prediction_buffer import PredictionBufferComponent
+    from ml.actors.common.signal_strategy import SignalGenerationStrategy
     from ml.actors.common.signal_strategy import SignalStrategyComponent
     from ml.config.actors import MLSignalActorConfig
+    from ml.features.common.tft_realtime_feature_calculator import TFTRealtimeFeatureCalculator
     from ml.features.indicators import IndicatorManager
 
 
@@ -84,6 +87,55 @@ _signal_generation_time_metric = get_histogram(
     "Time to generate signals in seconds",
     ["actor_id"],
 )
+
+_feature_time_by_feature_set_metric = get_histogram(
+    "ml_feature_time_by_set_seconds",
+    "Feature computation latency by feature_set_id",
+    ["actor_id", "feature_set_id"],
+    buckets=FEATURE_TIME_BUCKETS,
+)
+
+
+def _resolve_feature_time_metric() -> Any | None:
+    module = sys.modules.get("ml.actors.signal")
+    if module is not None:
+        metric = getattr(module, "_feature_time_by_feature_set_metric", None)
+        if metric is not None:
+            return metric
+    return _feature_time_by_feature_set_metric
+
+
+def _record_feature_time_metric(
+    actor: MLSignalActorFacade,
+    feature_time_ms: float,
+) -> None:
+    metric = _resolve_feature_time_metric()
+    if metric is None:
+        return
+    feature_set_id = (
+        getattr(actor, "_feature_set_id", None)
+        or getattr(getattr(actor, "_config", None), "feature_set_id", None)
+        or "default"
+    )
+    actor_id = getattr(actor, "id", None) or "unknown"
+    try:
+        metric.labels(
+            actor_id=str(actor_id),
+            feature_set_id=str(feature_set_id),
+        ).observe(feature_time_ms / 1000.0)
+    except Exception:
+        log = getattr(actor, "log", None)
+        if log is not None:
+            log_best_effort(
+                log,
+                "debug",
+                "ml_actor.feature_time_metric_failed",
+                exc_info=True,
+                extra={
+                    "actor_id": str(actor_id),
+                    "feature_set_id": str(feature_set_id),
+                },
+            )
 
 
 # =============================================================================
@@ -104,10 +156,6 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
     Inherits 4-store integration from BaseMLInferenceActor:
     - FeatureStore, ModelStore, StrategyStore, DataStore
-
-    Feature Flag: ML_USE_LEGACY_ML_SIGNAL_ACTOR
-    - 0 (default): Use this facade
-    - 1: Use legacy MLSignalActor
 
     Example:
         >>> from ml.actors import MLSignalActorConfig
@@ -152,6 +200,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         # Store signal-specific config reference
         self._signal_config = config
+        self._persist_features: bool = bool(config.persist_features)
 
         # 2. Runtime imports (avoid circular dependencies at module level)
         from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
@@ -161,8 +210,8 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         from ml.actors.common.signal_strategy import SignalStrategyComponent
         from ml.config.actors import OptimizationConfig
         from ml.config.actors import StrategyConfig
-        from ml.features.engineering import FeatureConfig
-        from ml.features.engineering import FeatureEngineer
+        from ml.features import FeatureConfig
+        from ml.features import FeatureEngineer
 
         # 3. Extract config objects with defaults
         opt_config = config.optimization_config or OptimizationConfig()
@@ -207,7 +256,44 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         # 4. Initialize FeatureEngineer (same as legacy)
         self._feature_engineer = FeatureEngineer(feature_config)
-        n_features = self._feature_engineer.n_features
+
+        # Optional: align features to registry manifest for strict parity
+        self._registry_feature_calculator: TFTRealtimeFeatureCalculator | None = None
+        self._active_feature_names: list[str] = []
+        self._feature_set_id = getattr(config, "feature_set_id", None)
+        use_registry_features = bool(getattr(config, "use_registry_features", False))
+        if use_registry_features:
+            if not self._feature_set_id:
+                raise ValueError(
+                    "feature_set_id is required when use_registry_features=True",
+                )
+            try:
+                manifest = self._feature_registry.get_feature_manifest(self._feature_set_id)
+            except Exception as exc:
+                self.log.exception(
+                    "Failed to load FeatureManifest for registry features",
+                    exc,
+                )
+                raise
+            if manifest is None:
+                raise ValueError(
+                    f"FeatureManifest not found for feature_set_id={self._feature_set_id}",
+                )
+            from ml.features.common.tft_realtime_feature_calculator import (
+                TFTRealtimeFeatureCalculator,
+            )
+
+            self._registry_feature_calculator = TFTRealtimeFeatureCalculator(
+                feature_names=list(manifest.feature_names),
+            )
+            self._active_feature_names = list(manifest.feature_names)
+            n_features = len(self._active_feature_names)
+        else:
+            n_features = self._feature_engineer.n_features
+            try:
+                self._active_feature_names = self._feature_engineer.get_feature_names()
+            except Exception:
+                self._active_feature_names = []
 
         # Pre-allocate feature buffer (hot path optimization)
         self._feature_buffer = np.zeros(n_features, dtype=np.float32)
@@ -237,8 +323,25 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         )
 
         # Component 3: AdaptiveThresholdComponent
+        base_threshold = float(config.prediction_threshold)
+        min_threshold = float(strat_config.min_threshold)
+        max_threshold = float(strat_config.max_threshold)
+        if base_threshold < min_threshold or base_threshold > max_threshold:
+            base_threshold = max(min_threshold, min(base_threshold, max_threshold))
+            log_best_effort(
+                self.log,
+                "debug",
+                "ml_actor.adaptive_threshold_clamped",
+                extra={
+                    "actor_id": actor_id_str,
+                    "prediction_threshold": config.prediction_threshold,
+                    "clamped_threshold": base_threshold,
+                    "min_threshold": min_threshold,
+                    "max_threshold": max_threshold,
+                },
+            )
         self._adaptive_threshold_component: AdaptiveThresholdComponent = AdaptiveThresholdComponent(
-            base_threshold=config.prediction_threshold,
+            base_threshold=base_threshold,
             volatility_factor=strat_config.adaptive_volatility_factor,
             min_threshold=strat_config.min_threshold,
             max_threshold=strat_config.max_threshold,
@@ -255,6 +358,15 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 log=self.log,
             )
         )
+
+        # Optional overrides for legacy-style tests (setters below).
+        self._prediction_history_override: list[float] | None = None
+        self._confidence_history_override: list[float] | None = None
+        self._adaptive_threshold_override: float | None = None
+        self._market_regime_override: str | None = None
+        self._window_index_override: int | None = None
+        self._window_count_override: int | None = None
+        self._volatility_window_override: npt.NDArray[np.float32] | None = None
 
         # Component 5: ModelWarmUpComponent (conditionally initialized)
         # Only initialize if model_path is provided and exists
@@ -279,8 +391,6 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 self.log.exception(f"ModelWarmUpComponent not initialized: {exc}", exc)
 
         # 6. Initialize strategy via component
-        from ml.actors.common.signal_strategy import SignalGenerationStrategy
-
         self._signal_strategy: SignalGenerationStrategy = (
             self._signal_strategy_component.create_strategy(config=config)
         )
@@ -308,6 +418,11 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         # 8. Initialize performance metrics (module-level)
         self._performance_monitoring_component.initialize_metrics()
+
+        # 9. Optional actor-side domain event bridge (non-blocking)
+        from ml.actors.ml_domain_events import init_actor_bus_bridge
+
+        self._actor_bus_bridge, self._topic_scheme, self._topic_prefix = init_actor_bus_bridge(self)
 
         # Log initialization
         strategy_name_raw = config.signal_strategy
@@ -452,7 +567,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         try:
             # 1. Apply pending strategy swap (Component 1 - O(1))
-            self._signal_strategy_component.apply_pending_swap()
+            strategy_component = getattr(self, "_signal_strategy_component", None)
+            if strategy_component is not None:
+                strategy_component.apply_pending_swap()
 
             # 2. Check signal separation
             bars_since_last = self._bars_processed - self._last_signal_bar
@@ -470,18 +587,35 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     timestamp_ns = bar.ts_init
 
             # 4. Build context (Component 2 + Component 3)
-            # Get ring buffer metadata for strategies
-            ring_metadata = self._prediction_buffer_component.get_ring_metadata()
+            buffer_component = getattr(self, "_prediction_buffer_component", None)
+            if buffer_component is not None:
+                ring_metadata = buffer_component.get_ring_metadata()
+            else:
+                ring_metadata = {
+                    "_prediction_ring": getattr(self, "_prediction_window", None),
+                    "_prediction_ring_index": getattr(self, "_window_index", 0),
+                    "_prediction_ring_count": getattr(self, "_window_count", 0),
+                }
 
-            # Get history from buffer component (cold path compatible)
-            lookback = min(10, self._prediction_buffer_component.window_count)
-            prediction_history, confidence_history = self._prediction_buffer_component.get_history(
-                lookback=lookback,
-            )
+            prediction_history_full = getattr(self, "_prediction_history", [])
+            confidence_history_full = getattr(self, "_confidence_history", [])
+            lookback = min(10, len(prediction_history_full))
+            if lookback:
+                prediction_history = list(prediction_history_full[-lookback:])
+                confidence_history = (
+                    list(confidence_history_full[-lookback:]) if confidence_history_full else []
+                )
+            else:
+                prediction_history = []
+                confidence_history = []
 
-            # Get adaptive threshold and regime from component 3
-            adaptive_threshold = self._adaptive_threshold_component.current_threshold
-            market_regime = self._adaptive_threshold_component.current_regime
+            threshold_component = getattr(self, "_adaptive_threshold_component", None)
+            if threshold_component is not None:
+                adaptive_threshold = threshold_component.current_threshold
+                market_regime = threshold_component.current_regime
+            else:
+                adaptive_threshold = float(getattr(self, "_adaptive_threshold", 0.0))
+                market_regime = getattr(self, "_market_regime", "unknown")
 
             # Build complete context for strategy
             context: dict[str, Any] = {
@@ -499,7 +633,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             }
 
             # 5. Generate signal (Component 1 - hot path)
-            signal = self._signal_strategy.generate_signal(
+            strategy = getattr(self, "_signal_strategy", None)
+            if strategy is None and strategy_component is not None:
+                strategy = strategy_component.current_strategy
+            if strategy is None:
+                return
+            signal = strategy.generate_signal(
                 bar,
                 prediction,
                 confidence,
@@ -530,7 +669,13 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 )
 
             # 9. Record metrics (Component 4)
-            self._performance_monitoring_component.record_signal()
+            monitor = getattr(self, "_performance_monitoring_component", None) or getattr(
+                self,
+                "_performance_monitor",
+                None,
+            )
+            if monitor is not None and hasattr(monitor, "record_signal"):
+                monitor.record_signal()
 
             # 10. Emit Prometheus metrics
             actor_id_str = str(self.id) if self.id else "unknown"
@@ -543,15 +688,94 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 else str(strategy_name_raw_2)
             )
 
-            _signals_generated_metric.labels(
-                actor_id=actor_id_str,
-                strategy=strategy_name_str_2,
-                signal_type="buy" if signal.prediction > 0 else "sell",
-            ).inc()
+            metric = getattr(self, "_signals_generated_metric", None) or _signals_generated_metric
+            if metric is not None:
+                metric.labels(
+                    actor_id=actor_id_str,
+                    strategy=strategy_name_str_2,
+                    signal_type="buy" if signal.prediction > 0 else "sell",
+                ).inc()
 
-        except Exception as e:
-            self.log.exception(f"Error generating signal: {e}", e)
-            self._performance_monitoring_component.record_error()
+        except Exception as exc:
+            log = getattr(self, "log", None)
+            if log is not None:
+                log_best_effort(
+                    log,
+                    "error",
+                    "ml_signal_actor.signal_generation_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
+            monitor = getattr(self, "_performance_monitoring_component", None) or getattr(
+                self,
+                "_performance_monitor",
+                None,
+            )
+            if monitor is not None and hasattr(monitor, "record_error"):
+                monitor.record_error()
+
+    def _publish_signal(self, signal: MLSignal) -> None:
+        """
+        Publish signal with optional actor-side domain event emission.
+        """
+        super()._publish_signal(signal)
+
+        bridge = getattr(self, "_actor_bus_bridge", None)
+        if bridge is None:
+            return
+
+        try:
+            from ml.common.correlation import make_correlation_id
+            from ml.common.message_topics import build_topic_for_stage
+            from ml.config.events import EventStatus
+            from ml.config.events import Source
+            from ml.config.events import Stage
+
+            instrument_str = str(signal.instrument_id)
+            topic = build_topic_for_stage(
+                Stage.SIGNAL_EMITTED,
+                instrument_str,
+                scheme=str(getattr(self, "_topic_scheme", "domain_op")),
+                prefix=str(getattr(self, "_topic_prefix", "events.ml")),
+            )
+
+            cache_obj = getattr(self, "cache", None)
+            is_backtesting = (
+                bool(getattr(cache_obj, "is_backtesting", False)) if cache_obj else False
+            )
+            source = Source.HISTORICAL.value if is_backtesting else Source.LIVE.value
+            ts_event = int(signal.ts_event)
+            correlation_id = make_correlation_id(
+                run_id=f"actor_{self.id}",
+                dataset_id="signals",
+                instrument_id=instrument_str,
+                ts_min=ts_event,
+                ts_max=ts_event,
+                count=1,
+            )
+
+            payload = {
+                "dataset_id": "signals",
+                "instrument_id": instrument_str,
+                "stage": Stage.SIGNAL_EMITTED.value,
+                "status": EventStatus.SUCCESS.value,
+                "source": source,
+                "model_id": signal.model_id,
+                "prediction": float(signal.prediction),
+                "confidence": float(signal.confidence),
+                "ts_event": ts_event,
+                "metadata": {"correlation_id": correlation_id},
+            }
+
+            bridge.publish(topic, payload)
+        except Exception as exc:
+            log_best_effort(
+                self.log,
+                "debug",
+                "ml_signal_actor.actor_bus_publish_failed",
+                exc_info=True,
+                extra={"error": str(exc)},
+            )
 
     # =========================================================================
     # Cold Path Methods
@@ -630,51 +854,185 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Delegate to buffer component (backward compatibility).
         """
-        count = self._prediction_buffer_component.window_count
-        predictions, _ = self._prediction_buffer_component.get_history(lookback=count)
-        return predictions
+        override = getattr(self, "_prediction_history_override", None)
+        if override is not None:
+            return cast(list[float], override)
+        buffer_component = getattr(self, "_prediction_buffer_component", None)
+        if buffer_component is None:
+            return []
+        count = buffer_component.window_count
+        predictions, _ = buffer_component.get_history(lookback=count)
+        return cast(list[float], predictions)
+
+    @_prediction_history.setter
+    def _prediction_history(self, values: list[float]) -> None:
+        """
+        Allow legacy tests to override history (backward compatibility).
+        """
+        self._prediction_history_override = list(values)
 
     @property
     def _confidence_history(self) -> list[float]:
         """
         Delegate to buffer component (backward compatibility).
         """
-        count = self._prediction_buffer_component.window_count
-        _, confidences = self._prediction_buffer_component.get_history(lookback=count)
-        return confidences
+        override = getattr(self, "_confidence_history_override", None)
+        if override is not None:
+            return cast(list[float], override)
+        buffer_component = getattr(self, "_prediction_buffer_component", None)
+        if buffer_component is None:
+            return []
+        count = buffer_component.window_count
+        _, confidences = buffer_component.get_history(lookback=count)
+        return cast(list[float], confidences)
+
+    @_confidence_history.setter
+    def _confidence_history(self, values: list[float]) -> None:
+        """
+        Allow legacy tests to override history (backward compatibility).
+        """
+        self._confidence_history_override = list(values)
 
     @property
     def _adaptive_threshold(self) -> float:
         """
         Delegate to threshold component (backward compatibility).
         """
+        override = self._adaptive_threshold_override
+        if override is not None:
+            return float(override)
         return self._adaptive_threshold_component.current_threshold
+
+    @_adaptive_threshold.setter
+    def _adaptive_threshold(self, value: float) -> None:
+        """
+        Allow legacy tests to override the adaptive threshold.
+        """
+        self._adaptive_threshold_override = float(value)
 
     @property
     def _market_regime(self) -> str:
         """
         Delegate to threshold component (backward compatibility).
         """
+        override = self._market_regime_override
+        if override is not None:
+            return str(override)
         return self._adaptive_threshold_component.current_regime
+
+    @_market_regime.setter
+    def _market_regime(self, value: str) -> None:
+        """
+        Allow legacy tests to override the market regime.
+        """
+        self._market_regime_override = str(value)
 
     @property
     def _window_index(self) -> int:
         """
         Ring buffer index (backward compatibility).
         """
+        override = self._window_index_override
+        if override is not None:
+            return int(override)
         metadata = self._prediction_buffer_component.get_ring_metadata()
         return int(metadata.get("_prediction_ring_index", 0))
+
+    @_window_index.setter
+    def _window_index(self, value: int) -> None:
+        """
+        Allow legacy tests to override the ring buffer index.
+        """
+        self._window_index_override = int(value)
 
     @property
     def _window_count(self) -> int:
         """
         Ring buffer count (backward compatibility).
         """
+        override = self._window_count_override
+        if override is not None:
+            return int(override)
         return self._prediction_buffer_component.window_count
+
+    @_window_count.setter
+    def _window_count(self, value: int) -> None:
+        """
+        Allow legacy tests to override the ring buffer count.
+        """
+        self._window_count_override = int(value)
+
+    @property
+    def _volatility_window(self) -> npt.NDArray[np.float32]:
+        """
+        Volatility ring buffer (backward compatibility).
+        """
+        override = self._volatility_window_override
+        if override is not None:
+            return override
+        buffer_component = getattr(self, "_prediction_buffer_component", None)
+        if buffer_component is None:
+            return np.zeros(0, dtype=np.float32)
+        return cast(npt.NDArray[np.float32], buffer_component.volatility_window)
+
+    @_volatility_window.setter
+    def _volatility_window(self, values: npt.NDArray[np.float32]) -> None:
+        """
+        Allow legacy tests to override the volatility buffer.
+        """
+        self._volatility_window_override = np.asarray(values, dtype=np.float32)
 
     # =========================================================================
     # Helper Methods (extracted from legacy)
     # =========================================================================
+
+    def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
+        """
+        Update prediction history and volatility buffers (legacy compatibility).
+
+        Parameters
+        ----------
+        prediction : float
+            Model prediction.
+        confidence : float
+            Prediction confidence.
+        bar : Bar
+            Current price bar.
+
+        """
+        buffer_component = getattr(self, "_prediction_buffer_component", None)
+        if buffer_component is None:
+            return
+        volatility = self._calculate_volatility(bar)
+        buffer_component.update(prediction, confidence, volatility)
+        threshold_component = getattr(self, "_adaptive_threshold_component", None)
+        if threshold_component is not None:
+            threshold_component.detect_regime(
+                buffer_component.volatility_window,
+                buffer_component.window_count,
+            )
+
+    def _detect_market_regime(self, _bar: Bar) -> str:
+        """
+        Detect market regime using buffered volatility (legacy compatibility).
+
+        Parameters
+        ----------
+        _bar : Bar
+            Current price bar (unused; retained for signature parity).
+
+        """
+        buffer_component = getattr(self, "_prediction_buffer_component", None)
+        threshold_component = getattr(self, "_adaptive_threshold_component", None)
+        if buffer_component is None or threshold_component is None:
+            return "unknown"
+        return cast(
+            str,
+            threshold_component.detect_regime(
+                buffer_component.volatility_window,
+                buffer_component.window_count,
+            ),
+        )
 
     def _calculate_volatility(self, bar: Bar) -> float:
         """
@@ -726,14 +1084,20 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         try:
             # Build feature dictionary with names if available
-            try:
-                names = list(getattr(self._feature_engineer.config, "get_feature_names")())
-            except Exception as exc:
-                self.log.exception("Failed to fetch feature names; continuing", exc)
-                names = []
+            names = list(self._active_feature_names)
+            if not names:
+                try:
+                    names = list(
+                        getattr(self._feature_engineer.config, "get_feature_names")(),
+                    )
+                except Exception as exc:
+                    self.log.exception("Failed to fetch feature names; continuing", exc)
+                    names = []
 
             if names and len(names) == features.shape[0]:
-                feature_dict: dict[str, float] = {names[i]: float(features[i]) for i in range(len(names))}
+                feature_dict: dict[str, float] = {
+                    names[i]: float(features[i]) for i in range(len(names))
+                }
             else:
                 feature_dict = {
                     f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))
@@ -917,6 +1281,36 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         if self._feature_buffer.size != expected_features:
             self._feature_buffer = np.zeros(expected_features, dtype=np.float32)
 
+    def _create_strategy(self) -> SignalGenerationStrategy:
+        """
+        Legacy strategy factory hook.
+
+        Returns the active strategy resolved from config and optional model metadata.
+
+        """
+        metadata = getattr(self, "_model_metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = None
+        try:
+            strategy = self._signal_strategy_component.create_strategy(
+                config=self._signal_config,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            from ml.actors.common.signal_strategy import ThresholdSignalStrategy
+
+            log_best_effort(
+                self.log,
+                "debug",
+                "ml_actor.create_strategy_failed",
+                exc_info=True,
+                extra={"error": repr(exc)},
+            )
+            strategy = ThresholdSignalStrategy(self._signal_config.prediction_threshold)
+
+        self._signal_strategy = strategy
+        return strategy
+
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector from current bar data.
@@ -937,26 +1331,33 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             The computed feature vector, or None if not ready.
 
         """
-        # Delegate to feature store if available
-        try:
-            if (
-                hasattr(self, "_feature_store")
-                and self._feature_store is not None
-                and hasattr(self._feature_store, "compute_realtime")
-            ):
-                compute = cast(Any, getattr(self._feature_store, "compute_realtime"))
-                features = cast(
-                    npt.NDArray[np.float32],
-                    compute(bar=bar, store=getattr(self, "_persist_features", False)),
+        registry_calculator = self._registry_feature_calculator
+        use_registry_features = registry_calculator is not None
+        # Delegate to feature store if available (skip when registry features enforced)
+        if not use_registry_features:
+            start_time = time.perf_counter()
+            try:
+                if (
+                    hasattr(self, "_feature_store")
+                    and self._feature_store is not None
+                    and hasattr(self._feature_store, "compute_realtime")
+                ):
+                    compute = cast(Any, getattr(self._feature_store, "compute_realtime"))
+                    features = cast(
+                        npt.NDArray[np.float32],
+                        compute(bar=bar, store=getattr(self, "_persist_features", False)),
+                    )
+                    if isinstance(features, np.ndarray) and features.size == 0:
+                        return None
+                    feature_time_ms = (time.perf_counter() - start_time) * 1000.0
+                    self._last_feature_time_ns = int(feature_time_ms * 1_000_000)
+                    _record_feature_time_metric(self, feature_time_ms)
+                    return features
+            except Exception as exc:
+                self.log.exception(
+                    f"FeatureStore compute_realtime failed; falling back: {exc}",
+                    exc,
                 )
-                if isinstance(features, np.ndarray) and features.size == 0:
-                    return None
-                return features
-        except Exception as exc:
-            self.log.exception(
-                f"FeatureStore compute_realtime failed; falling back: {exc}",
-                exc,
-            )
 
         # Fallback to FeatureEngineer
         from ml.features.indicators import IndicatorManager
@@ -967,26 +1368,63 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         start_time = time.perf_counter()
         self._indicator_manager.update_from_bar(bar)
 
-        if not self._indicator_manager.all_initialized():
-            return None
+        if use_registry_features:
+            assert registry_calculator is not None
+            required = registry_calculator.required_history_bars
+            closes = self._indicator_manager.price_history.get("closes") or []
+            if len(closes) < required:
+                return None
+            features_result = registry_calculator.compute(
+                bar=bar,
+                indicator_manager=self._indicator_manager,
+            )
+        else:
+            if not self._indicator_manager.all_initialized():
+                return None
 
-        current_bar = {
-            "close": float(bar.close),
-            "volume": float(bar.volume),
-            "high": float(bar.high),
-            "low": float(bar.low),
-        }
+            current_bar = {
+                "close": float(bar.close),
+                "volume": float(bar.volume),
+                "high": float(bar.high),
+                "low": float(bar.low),
+            }
 
-        features_result = self._feature_engineer.calculate_features_online(
-            current_bar=current_bar,
-            indicator_manager=self._indicator_manager,
-            scaler=None,
-        )
+            features_result = self._feature_engineer.calculate_features_online(
+                current_bar=current_bar,
+                indicator_manager=self._indicator_manager,
+                scaler=None,
+            )
 
-        feature_time = (time.perf_counter() - start_time) * 1000
-        self._last_feature_time_ns = int(feature_time * 1_000_000)
+        feature_time_ms = (time.perf_counter() - start_time) * 1000.0
+        self._last_feature_time_ns = int(feature_time_ms * 1_000_000)
+        _record_feature_time_metric(self, feature_time_ms)
 
         return features_result
+
+    def _sanitize_prediction_output(
+        self,
+        prediction: float,
+        confidence: float,
+    ) -> tuple[float, float]:
+        pred = float(prediction)
+        conf = float(confidence)
+
+        if not math.isfinite(pred):
+            pred = 0.0
+        if not math.isfinite(conf):
+            conf = 0.0
+
+        if pred > 1.0:
+            pred = 1.0
+        elif pred < -1.0:
+            pred = -1.0
+
+        if conf > 1.0:
+            conf = 1.0
+        elif conf < 0.0:
+            conf = 0.0
+
+        return pred, conf
 
     def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
@@ -1019,30 +1457,48 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     probabilities = self._model.predict_proba(self._predict_input_buf)[0]
                     prediction = float(np.argmax(probabilities))
                     confidence = float(np.max(probabilities))
-                    return prediction, confidence
+                    return self._sanitize_prediction_output(prediction, confidence)
                 elif hasattr(self._model, "run"):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
-                    input_name = self._model_metadata.get("input_names", ["input"])[0]
-                    outputs = self._model.run(None, {input_name: self._predict_input_buf})
+                    mock_input_name = self._model_metadata.get("input_names", ["input"])[0]
+                    outputs = self._model.run(None, {mock_input_name: self._predict_input_buf})
                     if len(outputs) >= 2:
-                        return float(outputs[0][0]), float(outputs[1][0])
-                    return float(outputs[0][0]), 0.5
+                        return self._sanitize_prediction_output(
+                            float(outputs[0][0]),
+                            float(outputs[1][0]),
+                        )
+                    return self._sanitize_prediction_output(float(outputs[0][0]), 0.5)
                 elif hasattr(self._model, "predict"):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
                     prediction = float(self._model.predict(self._predict_input_buf)[0])
-                    return prediction, 0.5
+                    return self._sanitize_prediction_output(prediction, 0.5)
 
             # ONNX model
-            if hasattr(self._model, "run") and "input_names" in self._model_metadata:
-                features_2d = features.reshape(1, -1).astype(np.float32)
-                input_name = self._model_metadata["input_names"][0]
-                outputs = self._model.run(None, {input_name: features_2d})
+            if hasattr(self._model, "run"):
+                input_name: str | None = None
+                metadata_names = self._model_metadata.get("input_names")
+                if isinstance(metadata_names, list) and metadata_names:
+                    input_name = str(metadata_names[0])
+                elif hasattr(self._model, "get_inputs"):
+                    try:
+                        input_name = str(self._model.get_inputs()[0].name)
+                        if input_name:
+                            self._model_metadata.setdefault("input_names", [input_name])
+                    except Exception:
+                        input_name = None
 
-                if len(outputs) >= 2:
-                    return float(outputs[0][0]), float(outputs[1][0])
-                return float(outputs[0][0]), 0.5
+                if input_name:
+                    features_2d = features.reshape(1, -1).astype(np.float32)
+                    outputs = self._model.run(None, {input_name: features_2d})
+
+                    if len(outputs) >= 2:
+                        return self._sanitize_prediction_output(
+                            float(outputs[0][0]),
+                            float(outputs[1][0]),
+                        )
+                    return self._sanitize_prediction_output(float(outputs[0][0]), 0.5)
 
             # Scikit-learn with predict_proba
             if hasattr(self._model, "predict_proba"):
@@ -1050,16 +1506,16 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 probabilities = self._model.predict_proba(features_2d)[0]
                 prediction = float(np.argmax(probabilities))
                 confidence = float(np.max(probabilities))
-                return prediction, confidence
+                return self._sanitize_prediction_output(prediction, confidence)
 
             # Generic predict
             if hasattr(self._model, "predict"):
                 features_2d = features.reshape(1, -1)
                 prediction = float(self._model.predict(features_2d)[0])
-                return prediction, 0.5
+                return self._sanitize_prediction_output(prediction, 0.5)
 
             self.log.error(f"Unsupported model type: {type(self._model)}")
-            return 0.0, 0.0
+            return self._sanitize_prediction_output(0.0, 0.0)
 
         except Exception as e:
             self.log.exception(f"Prediction failed: {e}", e)

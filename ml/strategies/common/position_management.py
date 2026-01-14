@@ -17,32 +17,44 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ml.common.metrics_bootstrap import get_counter
+from ml.strategies.common.decision_persistence import _SafeLogger
+
 
 if TYPE_CHECKING:
+    from ml.actors.base import MLSignal
     from nautilus_trader.model.objects import Quantity
     from nautilus_trader.model.position import Position
-
-    from ml.actors.base import MLSignal
 
 
 @runtime_checkable
 class CacheProtocol(Protocol):
-    """Protocol for cache access."""
+    """
+    Protocol for cache access.
+    """
 
     def account_for_venue(self, venue: Any) -> Any:
-        """Get account for a venue."""
+        """
+        Get account for a venue.
+        """
         ...
 
     def instrument(self, instrument_id: Any) -> Any:
-        """Get instrument by ID."""
+        """
+        Get instrument by ID.
+        """
         ...
 
     def trade_tick(self, instrument_id: Any) -> Any:
-        """Get latest trade tick for instrument."""
+        """
+        Get latest trade tick for instrument.
+        """
         ...
 
     def quote_tick(self, instrument_id: Any) -> Any:
-        """Get latest quote tick for instrument."""
+        """
+        Get latest quote tick for instrument.
+        """
         ...
 
     def positions_open(
@@ -50,13 +62,17 @@ class CacheProtocol(Protocol):
         venue: Any = None,
         instrument_id: Any = None,
     ) -> list[Any]:
-        """Get open positions."""
+        """
+        Get open positions.
+        """
         ...
 
 
 @runtime_checkable
 class PositionSizerProtocol(Protocol):
-    """Protocol for position sizing."""
+    """
+    Protocol for position sizing.
+    """
 
     def calculate(
         self,
@@ -64,13 +80,17 @@ class PositionSizerProtocol(Protocol):
         account: Any,
         current_positions: list[Any],
     ) -> Any | None:
-        """Calculate position size based on signal and account state."""
+        """
+        Calculate position size based on signal and account state.
+        """
         ...
 
 
 @runtime_checkable
 class RiskManagerProtocol(Protocol):
-    """Protocol for risk management."""
+    """
+    Protocol for risk management.
+    """
 
     def check_position(
         self,
@@ -78,61 +98,87 @@ class RiskManagerProtocol(Protocol):
         instrument: Any,
         portfolio: Any,
     ) -> Any | None:
-        """Check and potentially adjust proposed position size based on risk limits."""
+        """
+        Check and potentially adjust proposed position size based on risk limits.
+        """
         ...
 
 
 @runtime_checkable
 class PortfolioManagerProtocol(Protocol):
-    """Protocol for portfolio management."""
+    """
+    Protocol for portfolio management.
+    """
 
     def allocate_signals(
         self,
         signals: list[Any],
         available_capital: float,
     ) -> dict[Any, float]:
-        """Allocate capital across multiple signals."""
+        """
+        Allocate capital across multiple signals.
+        """
         ...
 
 
 @runtime_checkable
 class LoggerProtocol(Protocol):
-    """Protocol for logging interface."""
+    """
+    Protocol for logging interface.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """Log debug message."""
+        """
+        Log debug message.
+        """
         ...
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """Log info message."""
+        """
+        Log info message.
+        """
         ...
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """Log warning message."""
+        """
+        Log warning message.
+        """
         ...
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """Log error message."""
+        """
+        Log error message.
+        """
         ...
 
 
 class _NoOpLogger:
-    """No-op logger for when no logger is provided."""
+    """
+    No-op logger for when no logger is provided.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """No-op debug."""
+        """
+        No-op debug.
+        """
         del args, kwargs
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """No-op info."""
+        """
+        No-op info.
+        """
         del args, kwargs
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """No-op warning."""
+        """
+        No-op warning.
+        """
         del args, kwargs
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """No-op error."""
+        """
+        No-op error.
+        """
         del args, kwargs
 
 
@@ -172,6 +218,9 @@ class PositionManagementComponent:
         Logger instance for debug output.
     strategy_id : str, default ""
         Strategy identifier for logging context.
+    allow_min_quantity_fallback : bool, default False
+        Allow fallback to the instrument minimum quantity when sizing fails due to
+        missing account or price data. Intended for order intent serialization only.
 
     Examples
     --------
@@ -198,8 +247,11 @@ class PositionManagementComponent:
         account_id: Any = None,
         log: Any = None,
         strategy_id: str = "",
+        allow_min_quantity_fallback: bool = False,
     ) -> None:
-        """Initialize the position management component."""
+        """
+        Initialize the position management component.
+        """
         self._position_size_pct = position_size_pct
         self._position_sizer = position_sizer
         self._risk_manager = risk_manager
@@ -208,8 +260,9 @@ class PositionManagementComponent:
         self._portfolio = portfolio
         self._instrument_id = instrument_id
         self._account_id = account_id
-        self._log = log if log is not None else _NoOpLogger()
+        self._log = _SafeLogger(log if log is not None else _NoOpLogger())
         self._strategy_id = strategy_id
+        self._allow_min_quantity_fallback = allow_min_quantity_fallback
 
     # -------------------------------------------------------------------------
     # Public Properties
@@ -217,27 +270,37 @@ class PositionManagementComponent:
 
     @property
     def position_size_pct(self) -> float:
-        """Get the position size percentage."""
+        """
+        Get the position size percentage.
+        """
         return self._position_size_pct
 
     @property
     def position_sizer(self) -> PositionSizerProtocol | None:
-        """Get the position sizer."""
+        """
+        Get the position sizer.
+        """
         return self._position_sizer
 
     @property
     def risk_manager(self) -> RiskManagerProtocol | None:
-        """Get the risk manager."""
+        """
+        Get the risk manager.
+        """
         return self._risk_manager
 
     @property
     def portfolio_manager(self) -> PortfolioManagerProtocol | None:
-        """Get the portfolio manager."""
+        """
+        Get the portfolio manager.
+        """
         return self._portfolio_manager
 
     @property
     def instrument_id(self) -> Any:
-        """Get the target instrument ID."""
+        """
+        Get the target instrument ID.
+        """
         return self._instrument_id
 
     # -------------------------------------------------------------------------
@@ -251,6 +314,7 @@ class PositionManagementComponent:
         instrument_id: Any = None,
         cache: CacheProtocol | None = None,
         portfolio: Any = None,
+        allow_min_quantity_fallback: bool | None = None,
     ) -> None:
         """
         Update component configuration.
@@ -265,6 +329,8 @@ class PositionManagementComponent:
             Updated cache instance.
         portfolio : Any, optional
             Updated portfolio instance.
+        allow_min_quantity_fallback : bool | None, optional
+            Enable or disable the min-quantity fallback for order intents.
 
         """
         if position_size_pct is not None:
@@ -275,6 +341,114 @@ class PositionManagementComponent:
             self._cache = cache
         if portfolio is not None:
             self._portfolio = portfolio
+        if allow_min_quantity_fallback is not None:
+            self._allow_min_quantity_fallback = allow_min_quantity_fallback
+
+    def _emit_fallback_metric(self, level: str) -> None:
+        """
+        Emit fallback activation metric for position sizing.
+        """
+        try:
+            get_counter(
+                "ml_fallback_activations_total",
+                "Fallback activations",
+                labelnames=("component", "level"),
+            ).labels(component="position_sizing", level=level).inc()
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.position_sizing_fallback_metric_failed",
+                strategy_id=self._strategy_id,
+                level=level,
+                exc_info=True,
+                error=str(exc),
+            )
+
+    def _fallback_min_quantity(
+        self,
+        instrument: Any,
+        *,
+        reason: str,
+    ) -> Quantity | None:
+        """
+        Resolve a minimal quantity fallback for order intent serialization.
+
+        Returns a ``Quantity`` derived from instrument min_quantity/lot_size,
+        or ``None`` if fallback is disabled or no minimum is available.
+
+        """
+        from nautilus_trader.model.objects import Quantity
+
+        if not self._allow_min_quantity_fallback:
+            return None
+
+        min_qty = self._resolve_min_quantity(instrument)
+        if min_qty <= 0.0:
+            self._log.debug(
+                "ml_strategy.position_sizing_fallback_unavailable",
+                strategy_id=self._strategy_id,
+                instrument=str(getattr(instrument, "id", self._instrument_id)),
+                reason=reason,
+            )
+            return None
+
+        precision = getattr(instrument, "size_precision", None)
+        if precision is not None:
+            try:
+                min_qty = round(min_qty, int(precision))
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.position_sizing_fallback_round_failed",
+                    strategy_id=self._strategy_id,
+                    instrument=str(getattr(instrument, "id", self._instrument_id)),
+                    exc_info=True,
+                    error=str(exc),
+                )
+
+        try:
+            quantity = Quantity.from_str(str(min_qty))
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.position_sizing_fallback_quantity_failed",
+                strategy_id=self._strategy_id,
+                instrument=str(getattr(instrument, "id", self._instrument_id)),
+                exc_info=True,
+                error=str(exc),
+            )
+            return None
+
+        self._emit_fallback_metric(reason)
+        self._log.warning(
+            "ml_strategy.position_sizing_fallback_used",
+            strategy_id=self._strategy_id,
+            instrument=str(getattr(instrument, "id", self._instrument_id)),
+            reason=reason,
+            quantity=str(quantity),
+        )
+        return quantity
+
+    def _portfolio_has_account(self, instrument: Any) -> bool:
+        """
+        Check if a portfolio account is available for the instrument venue.
+
+        Returns False if the portfolio is missing or does not expose an account.
+
+        """
+        if self._portfolio is None:
+            return False
+
+        try:
+            account = self._portfolio.account(instrument.venue)
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.portfolio_account_lookup_failed",
+                strategy_id=self._strategy_id,
+                instrument=str(getattr(instrument, "id", self._instrument_id)),
+                exc_info=True,
+                error=str(exc),
+            )
+            return False
+
+        return account is not None
 
     # -------------------------------------------------------------------------
     # Market Price Resolution
@@ -312,14 +486,19 @@ class PositionManagementComponent:
         target_id = instrument_id if instrument_id is not None else self._instrument_id
         if target_id is None:
             return None
+        instrument_label = getattr(target_id, "value", str(target_id))
 
         # Try trade tick first
         try:
             trade_tick = self._cache.trade_tick(target_id)
             if trade_tick is not None:
                 return float(trade_tick.price.as_double())
-        except (AttributeError, TypeError):
-            pass
+        except (AttributeError, TypeError) as exc:
+            self._log.debug(
+                f"Failed to resolve trade tick price for instrument {instrument_label} "
+                f"(strategy_id={self._strategy_id}): {exc}",
+                exc_info=True,
+            )
 
         # Fall back to quote tick midpoint
         try:
@@ -328,15 +507,66 @@ class PositionManagementComponent:
                 bid_price = float(quote_tick.bid_price.as_double())
                 ask_price = float(quote_tick.ask_price.as_double())
                 return (bid_price + ask_price) / 2.0
-        except (AttributeError, TypeError):
-            pass
+        except (AttributeError, TypeError) as exc:
+            self._log.debug(
+                f"Failed to resolve quote tick midpoint for instrument {instrument_label} "
+                f"(strategy_id={self._strategy_id}): {exc}",
+                exc_info=True,
+            )
+
+        # Fall back to cache price (includes bar close when ticks missing)
+        try:
+            if hasattr(self._cache, "price"):
+                from nautilus_trader.model.enums import PriceType
+
+                price = self._cache.price(target_id, PriceType.LAST)
+                if price is not None:
+                    return float(price.as_double())
+        except Exception as exc:
+            self._log.debug(
+                f"Failed to resolve cached price for instrument {instrument_label} "
+                f"(strategy_id={self._strategy_id}): {exc}",
+                exc_info=True,
+            )
 
         # Log error if no market data available
-        instrument_label = getattr(target_id, "value", str(target_id))
         self._log.error(
             f"No market price available for instrument {instrument_label}",
         )
         return None
+
+    def _resolve_min_quantity(self, instrument: Any) -> float:
+        """
+        Resolve the minimum tradable quantity for an instrument.
+
+        Falls back to ``lot_size`` when ``min_quantity`` is unavailable.
+
+        """
+        try:
+            min_quantity = getattr(instrument, "min_quantity", None)
+            if min_quantity is not None:
+                return float(min_quantity.as_double())
+        except (AttributeError, TypeError) as exc:
+            self._log.debug(
+                "ml_strategy.min_quantity_unavailable",
+                strategy_id=self._strategy_id,
+                exc_info=True,
+                error=str(exc),
+            )
+
+        try:
+            lot_size = getattr(instrument, "lot_size", None)
+            if lot_size is not None:
+                return float(lot_size.as_double())
+        except (AttributeError, TypeError) as exc:
+            self._log.debug(
+                "ml_strategy.lot_size_unavailable",
+                strategy_id=self._strategy_id,
+                exc_info=True,
+                error=str(exc),
+            )
+
+        return 0.0
 
     # -------------------------------------------------------------------------
     # Basic Position Sizing
@@ -403,6 +633,7 @@ class PositionManagementComponent:
         except (AttributeError, TypeError) as exc:
             self._log.error(
                 f"Cannot calculate position size: Failed to get account balance: {exc}",
+                exc_info=True,
             )
             return None
 
@@ -429,7 +660,7 @@ class PositionManagementComponent:
         quantity_value = round(raw_quantity, precision)
 
         # Ensure minimum size
-        min_quantity = float(instrument.min_quantity.as_double())
+        min_quantity = self._resolve_min_quantity(instrument)
         quantity_value = max(quantity_value, min_quantity)
 
         return Quantity.from_str(str(quantity_value))
@@ -482,7 +713,7 @@ class PositionManagementComponent:
         qty_value = round(raw_qty, precision)
 
         # Apply minimum quantity floor
-        min_quantity = float(instrument.min_quantity.as_double())
+        min_quantity = self._resolve_min_quantity(instrument)
         qty_value = max(qty_value, min_quantity)
 
         return Quantity.from_str(str(qty_value))
@@ -631,12 +862,24 @@ class PositionManagementComponent:
 
         account = self._cache.account_for_venue(instrument.venue)
         if account is None:
+            fallback_qty = self._fallback_min_quantity(
+                instrument,
+                reason="no_account",
+            )
+            if fallback_qty is not None:
+                return fallback_qty
             self._log.error(f"No account for venue {instrument.venue}")
             return None
 
         # Resolve market price
         market_price = self.resolve_market_price(self._instrument_id)
         if market_price is None:
+            fallback_qty = self._fallback_min_quantity(
+                instrument,
+                reason="no_market_price",
+            )
+            if fallback_qty is not None:
+                return fallback_qty
             return None
 
         # Gather current open positions
@@ -691,7 +934,7 @@ class PositionManagementComponent:
             scale = allocated_value / proposed_value
             scaled_qty = max(
                 float(proposed_value_qty.as_double()) * scale,
-                float(instrument.min_quantity.as_double()),
+                self._resolve_min_quantity(instrument),
             )
             precision = instrument.size_precision
             proposed_value_qty = Quantity.from_str(str(round(scaled_qty, precision)))
@@ -699,20 +942,43 @@ class PositionManagementComponent:
         # Step 3: Risk manager validation
         approved_value_qty: Quantity | None = proposed_value_qty
         if self._risk_manager is not None:
-            try:
-                approved_value_qty = self._risk_manager.check_position(
-                    proposed_size=proposed_value_qty,
-                    instrument=instrument.id,
-                    portfolio=self._portfolio,
-                )
-            except Exception as exc:
-                self._log.debug(
-                    "ml_strategy.risk_manager_failed",
+            if self._portfolio is None:
+                if self._allow_min_quantity_fallback:
+                    self._emit_fallback_metric("risk_manager_no_portfolio")
+                    self._log.warning(
+                        "ml_strategy.risk_manager_skipped_no_portfolio",
+                        strategy_id=self._strategy_id,
+                        instrument=str(signal.instrument_id),
+                    )
+                else:
+                    self._log.error(
+                        "ml_strategy.risk_manager_missing_portfolio",
+                        strategy_id=self._strategy_id,
+                        instrument=str(signal.instrument_id),
+                    )
+                    return None
+            elif self._allow_min_quantity_fallback and not self._portfolio_has_account(instrument):
+                self._emit_fallback_metric("risk_manager_no_account")
+                self._log.warning(
+                    "ml_strategy.risk_manager_skipped_no_account",
                     strategy_id=self._strategy_id,
-                    exc_info=True,
-                    error=str(exc),
+                    instrument=str(signal.instrument_id),
                 )
-                return None
+            else:
+                try:
+                    approved_value_qty = self._risk_manager.check_position(
+                        proposed_size=proposed_value_qty,
+                        instrument=instrument.id,
+                        portfolio=self._portfolio,
+                    )
+                except Exception as exc:
+                    self._log.debug(
+                        "ml_strategy.risk_manager_failed",
+                        strategy_id=self._strategy_id,
+                        exc_info=True,
+                        error=str(exc),
+                    )
+                    return None
 
         if approved_value_qty is None:
             return None

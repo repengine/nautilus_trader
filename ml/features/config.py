@@ -4,7 +4,7 @@ Feature configuration module.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeAlias
 
 import msgspec
 
@@ -169,10 +169,7 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
             )
 
         if self.macro_min_coverage is not None and not 0.0 < float(self.macro_min_coverage) <= 1.0:
-            msg = (
-                "macro_min_coverage must be within (0, 1], received "
-                f"{self.macro_min_coverage}"
-            )
+            msg = "macro_min_coverage must be within (0, 1], received " f"{self.macro_min_coverage}"
             raise ValueError(msg)
 
         # Note: Do not mutate fields in frozen msgspec.Struct. Compatibility
@@ -190,11 +187,12 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
                 )
 
     def resolved_data_requirements(self) -> DataRequirements:
-        """Return effective data requirements after applying feature constraints."""
+        """
+        Return effective data requirements after applying feature constraints.
+        """
         requirements = getattr(self, "data_requirements", DataRequirements.L1_ONLY)
-        if (
-            requirements == DataRequirements.L1_ONLY
-            and (self.include_microstructure or self.include_trade_flow)
+        if requirements == DataRequirements.L1_ONLY and (
+            self.include_microstructure or self.include_trade_flow
         ):
             return DataRequirements.L1_L2
         return requirements
@@ -268,7 +266,11 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
 
         return specs
 
-def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
+
+FeatureConfigLike: TypeAlias = FeatureConfig
+
+
+def build_pipeline_spec_from_feature_config(cfg: FeatureConfigLike) -> PipelineSpec:
     """
     Build a PipelineSpec from a FeatureConfig, including optional transforms.
 

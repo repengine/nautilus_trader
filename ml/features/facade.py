@@ -39,20 +39,17 @@ from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
 
-from ml.config.feature_flags import use_legacy_feature_engineer
 from ml.features.common.data_extractor import DataExtractor
 from ml.features.common.feature_calculator import FeatureCalculator
 from ml.features.common.feature_metrics_collector import FeatureMetricsCollector
 from ml.features.common.feature_registry_accessor import FeatureRegistryAccessor
 from ml.features.common.feature_store_accessor import FeatureStoreAccessor
-from ml.features.engineering import FeatureConfig as LegacyFeatureConfig
-from ml.features.engineering import FeatureConfigLike
-from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
-from ml.features.engineering import IndicatorManager
-from ml.features.engineering import IndicatorManagerLike
-from ml.features.engineering import build_pipeline_spec_from_feature_config
+from ml.features.config import FeatureConfig
+from ml.features.config import FeatureConfigLike
+from ml.features.config import build_pipeline_spec_from_feature_config
+from ml.features.indicators import IndicatorManager
+from ml.features.indicators import IndicatorManagerLike
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.ml_types import DataFrameLike
@@ -61,6 +58,7 @@ from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
+from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -87,9 +85,6 @@ if TYPE_CHECKING:
             **kwargs: object,
         ) -> None: ...
 
-
-# Re-export FeatureConfig from legacy for compatibility
-FeatureConfig = LegacyFeatureConfig
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +165,7 @@ class FeatureEngineer:
     >>> stores = init_ml_stores_and_registries(db_config)
     >>> engineer = FeatureEngineer(config, stores=stores)
     >>> # Now can persist features and register schemas
+
     """
 
     def __init__(
@@ -198,7 +194,7 @@ class FeatureEngineer:
             Logger instance
 
         """
-        if isinstance(config, LegacyFeatureConfig):
+        if isinstance(config, FeatureConfig):
             normalized_config = config
         else:
             raw: dict[str, object]
@@ -209,7 +205,7 @@ class FeatureEngineer:
             except Exception:
                 raw = cast(dict[str, object], getattr(config, "__dict__", {}) or {})
 
-            allowed_fields = set(LegacyFeatureConfig.__annotations__.keys())
+            allowed_fields = set(FeatureConfig.__annotations__.keys())
             filtered: dict[str, object] = {k: v for k, v in raw.items() if k in allowed_fields}
 
             # Coerce enum-like fields from persisted strings
@@ -221,15 +217,11 @@ class FeatureEngineer:
                     ...
 
             normalized_config = (
-                LegacyFeatureConfig(**cast(dict[str, Any], filtered))
-                if filtered
-                else LegacyFeatureConfig()
+                FeatureConfig(**cast(dict[str, Any], filtered)) if filtered else FeatureConfig()
             )
 
         self.config = normalized_config
         self._logger = logger if logger is not None else globals()["logger"]
-        self._use_legacy = use_legacy_feature_engineer()
-        self._legacy_impl: LegacyFeatureEngineer | None = None
 
         # Initialize all 5 extracted components
         # Component 1: DataExtractor (stateless data extraction)
@@ -252,15 +244,6 @@ class FeatureEngineer:
         # Internal indicator manager for convenience kwargs path (no legacy dependency)
         self._indicator_manager = IndicatorManager(normalized_config)
 
-        # Optional legacy implementation for gated fallback
-        if self._use_legacy:
-            self._legacy_impl = LegacyFeatureEngineer(
-                config=normalized_config,
-                metrics_collector=metrics_collector,
-                feature_store=feature_store,
-                stores=stores,
-            )
-
         # Store references for backward compatibility
         self._stores = stores
         self._feature_store = feature_store
@@ -279,6 +262,7 @@ class FeatureEngineer:
         >>> engineer = FeatureEngineer(config)
         >>> # ... compute features ...
         >>> engineer.reset()  # Clear all state
+
         """
         # Reset the facade's indicator manager directly - no legacy dependency
         self._indicator_manager.reset()
@@ -288,42 +272,58 @@ class FeatureEngineer:
 
     @property
     def feature_store(self) -> object | None:
-        """Access feature store via store accessor component."""
+        """
+        Access feature store via store accessor component.
+        """
         return self.store_accessor._feature_store
 
     @property
     def model_store(self) -> object | None:
-        """Access model store via registry accessor component."""
+        """
+        Access model store via registry accessor component.
+        """
         return self.registry_accessor.model_registry  # Note: legacy uses registry for store access
 
     @property
     def strategy_store(self) -> object | None:
-        """Access strategy store via registry accessor component."""
+        """
+        Access strategy store via registry accessor component.
+        """
         return self.registry_accessor.strategy_registry
 
     @property
     def data_store(self) -> object | None:
-        """Access data store via registry accessor component."""
+        """
+        Access data store via registry accessor component.
+        """
         return self.registry_accessor.data_registry
 
     @property
     def feature_registry(self) -> object | None:
-        """Access feature registry via registry accessor component."""
+        """
+        Access feature registry via registry accessor component.
+        """
         return self.registry_accessor.feature_registry
 
     @property
     def model_registry(self) -> object | None:
-        """Access model registry via registry accessor component."""
+        """
+        Access model registry via registry accessor component.
+        """
         return self.registry_accessor.model_registry
 
     @property
     def strategy_registry(self) -> object | None:
-        """Access strategy registry via registry accessor component."""
+        """
+        Access strategy registry via registry accessor component.
+        """
         return self.registry_accessor.strategy_registry
 
     @property
     def data_registry(self) -> object | None:
-        """Access data registry via registry accessor component."""
+        """
+        Access data registry via registry accessor component.
+        """
         return self.registry_accessor.data_registry
 
     @property
@@ -332,6 +332,7 @@ class FeatureEngineer:
         Return the number of features produced by this engineer.
 
         This is a compatibility attribute expected by legacy integration tests.
+
         """
         return len(self.config.get_feature_names())
 
@@ -347,9 +348,8 @@ class FeatureEngineer:
         -------
         npt.NDArray[np.float32]
             Pre-allocated buffer for feature values
+
         """
-        if self._use_legacy and self._legacy_impl is not None:
-            return self._legacy_impl.feature_buffer
         return self.calculator.feature_buffer
 
     # Public API methods - delegate to legacy implementation for now
@@ -501,7 +501,8 @@ class FeatureEngineer:
             try:
                 # Delegate to metrics collector component
                 metrics = self.metrics_collector_component._calculate_column_metrics(
-                    pdf_or_pl[col], total_rows
+                    pdf_or_pl[col],
+                    total_rows,
                 )
                 quality_metrics[col] = metrics
             except Exception:
@@ -511,7 +512,9 @@ class FeatureEngineer:
         return quality_metrics
 
     def _convert_to_polars(self, features_df: DataFrameLike) -> pl.DataFrame | None:
-        """Convert DataFrame to Polars if possible; return None on failure."""
+        """
+        Convert DataFrame to Polars if possible; return None on failure.
+        """
         try:
             import polars as _pl
 
@@ -585,18 +588,9 @@ class FeatureEngineer:
         and indicator state management.
 
         """
-        if self._legacy_impl is None:
-            # Lazily instantiate legacy for compatibility shim parity/performance
-            self._legacy_impl = LegacyFeatureEngineer(
-                config=self.config,
-                metrics_collector=self._metrics,
-                feature_store=self._feature_store,
-                stores=self._stores,
-            )
-        if self._use_legacy:
-            return self._legacy_impl.compute_features(bars)
-        # Prefer legacy implementation for this compatibility method to preserve parity
-        return self._legacy_impl.compute_features(bars)
+        if not bars:
+            return {}
+        return self.calculator.compute_features(bars)
 
     @overload
     def calculate_features(
@@ -687,22 +681,10 @@ class FeatureEngineer:
                 msg = "indicator_manager is required for online mode"
                 raise ValueError(msg)
             online_bar = cast(dict[str, float], data)
-            online_manager = cast(IndicatorManager, indicator_manager)
-            if self._use_legacy:
-                if self._legacy_impl is None:
-                    raise RuntimeError("Legacy FeatureEngineer not initialized")
-                return self._legacy_impl.calculate_features(
-                    online_bar,
-                    mode="online",
-                    indicator_manager=online_manager,
-                    fit_scaler=fit_scaler,
-                    scaler_fit_ratio=scaler_fit_ratio,
-                    scaler=scaler,
-                )
             return self.calculator.calculate_features(
                 data=online_bar,
                 mode="online",
-                indicator_manager=online_manager,
+                indicator_manager=indicator_manager,
                 fit_scaler=fit_scaler,
                 scaler_fit_ratio=scaler_fit_ratio,
                 scaler=scaler,
@@ -712,17 +694,6 @@ class FeatureEngineer:
             raise ValueError(f"Invalid mode: {mode}. Must be 'batch' or 'online'")
 
         batch_data = cast(DataFrameLike, data)
-        if self._use_legacy:
-            if self._legacy_impl is None:
-                raise RuntimeError("Legacy FeatureEngineer not initialized")
-            return self._legacy_impl.calculate_features(
-                batch_data,
-                mode="batch",
-                indicator_manager=None,
-                fit_scaler=fit_scaler,
-                scaler_fit_ratio=scaler_fit_ratio,
-                scaler=scaler,
-            )
         return self.calculator.calculate_features(
             data=batch_data,
             mode="batch",
@@ -769,14 +740,6 @@ class FeatureEngineer:
         >>> print(f"Computed {len(features_df.columns)} features for {len(features_df)} rows")
 
         """
-        if self._use_legacy:
-            if self._legacy_impl is None:
-                raise RuntimeError("Legacy FeatureEngineer not initialized")
-            return self._legacy_impl.calculate_features_batch(
-                df,
-                fit_scaler=fit_scaler,
-                scaler_fit_ratio=scaler_fit_ratio,
-            )
         # Delegate to calculator component (Phase 1.1 wiring)
         # Note: Component uses private _calculate_features_batch() method
         return self.calculator._calculate_features_batch(
@@ -886,7 +849,9 @@ class FeatureEngineer:
                 )
                 raise ValueError(msg)
             # Use facade's indicator manager by default - no legacy dependency
-            resolved_indicator_manager = self._indicator_manager if indicator_manager is None else indicator_manager
+            resolved_indicator_manager = (
+                self._indicator_manager if indicator_manager is None else indicator_manager
+            )
             # Update indicators from raw values
             resolved_indicator_manager.update_from_values(
                 close=float(close_price),
@@ -909,27 +874,18 @@ class FeatureEngineer:
             msg = "current_bar is required for calculate_features_online"
             raise ValueError(msg)
 
-        if self._use_legacy:
-            if self._legacy_impl is None:
-                raise RuntimeError("Legacy FeatureEngineer not initialized")
-            legacy_manager = cast(IndicatorManager, resolved_indicator_manager)
-            return self._legacy_impl.calculate_features_online(
-                resolved_current_bar,
-                legacy_manager,
-                scaler=scaler,
-            )
-
         # Delegate to calculator component (Phase 1.1 wiring)
         # Note: Component uses private _calculate_features_online() method
-        typed_indicator_manager = cast(IndicatorManager, resolved_indicator_manager)
         return self.calculator._calculate_features_online(
             current_bar=resolved_current_bar,
-            indicator_manager=typed_indicator_manager,
+            indicator_manager=resolved_indicator_manager,
             scaler=scaler,
         )
 
     def __repr__(self) -> str:
-        """Return string representation of the facade."""
+        """
+        Return string representation of the facade.
+        """
         return (
             f"FeatureEngineer(facade, "
             f"config={self.config}, "

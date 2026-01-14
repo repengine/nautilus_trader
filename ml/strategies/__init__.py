@@ -182,15 +182,11 @@ When upgrading from older ML strategy implementations:
 
 """
 
-import os
-
 from ml.strategies.analytics import AnalyticsConfig
 from ml.strategies.analytics import PerformanceTracker
 from ml.strategies.analytics import SignalRecord
-from ml.strategies.base import BaseMLStrategy as _LegacyBaseMLStrategy
-from ml.strategies.base import SimpleMLStrategy as _LegacySimpleMLStrategy
-from ml.strategies.base_facade import BaseMLStrategyFacade as _FacadeBaseMLStrategy
-from ml.strategies.base_facade import SimpleMLStrategyFacade as _FacadeSimpleMLStrategy
+from ml.strategies.base import BaseMLStrategy
+from ml.strategies.base import SimpleMLStrategy
 from ml.strategies.execution import ExecutionConfig
 from ml.strategies.execution import OrderExecutor
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -208,39 +204,6 @@ from ml.strategies.sizing import CompositeSizer
 from ml.strategies.sizing import KellySizer
 from ml.strategies.sizing import SizingConfig
 from ml.strategies.sizing import VolatilitySizer
-
-
-_USE_LEGACY_STRATEGY_BASE = os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "0") == "1"
-
-
-def _use_legacy_strategy_base() -> bool:
-    """
-    Check if legacy BaseMLStrategy should be used.
-
-    The ML_USE_LEGACY_STRATEGY_BASE environment variable controls which
-    implementation is used:
-    - "1": Use legacy BaseMLStrategy from ml.strategies.base
-    - "0" or not set: Use BaseMLStrategyFacade from ml.strategies.base_facade
-
-    Returns
-    -------
-    bool
-        True if legacy implementation should be used.
-
-    """
-    return _USE_LEGACY_STRATEGY_BASE
-
-
-BaseMLStrategy: type[_LegacyBaseMLStrategy] | type[_FacadeBaseMLStrategy]
-SimpleMLStrategy: type[_LegacySimpleMLStrategy] | type[_FacadeSimpleMLStrategy]
-
-
-if _USE_LEGACY_STRATEGY_BASE:
-    BaseMLStrategy = _LegacyBaseMLStrategy
-    SimpleMLStrategy = _LegacySimpleMLStrategy
-else:
-    BaseMLStrategy = _FacadeBaseMLStrategy
-    SimpleMLStrategy = _FacadeSimpleMLStrategy
 
 
 __all__ = [
@@ -266,5 +229,4 @@ __all__ = [
     "SimpleMLStrategy",
     "SizingConfig",
     "VolatilitySizer",
-    "_use_legacy_strategy_base",
 ]

@@ -26,51 +26,75 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class LoggerProtocol(Protocol):
-    """Protocol for logging interface."""
+    """
+    Protocol for logging interface.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """Log debug message."""
+        """
+        Log debug message.
+        """
         ...
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """Log info message."""
+        """
+        Log info message.
+        """
         ...
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """Log warning message."""
+        """
+        Log warning message.
+        """
         ...
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """Log error message."""
+        """
+        Log error message.
+        """
         ...
 
 
 @runtime_checkable
 class StrategyStoreProtocol(Protocol):
-    """Protocol for strategy store interface."""
+    """
+    Protocol for strategy store interface.
+    """
 
     def flush(self) -> None:
-        """Flush any pending writes to persistent storage."""
+        """
+        Flush any pending writes to persistent storage.
+        """
         ...
 
 
 class _NoOpLogger:
-    """No-op logger for when no logger is provided."""
+    """
+    No-op logger for when no logger is provided.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """No-op debug."""
+        """
+        No-op debug.
+        """
         del args, kwargs
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """No-op info."""
+        """
+        No-op info.
+        """
         del args, kwargs
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """No-op warning."""
+        """
+        No-op warning.
+        """
         del args, kwargs
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """No-op error."""
+        """
+        No-op error.
+        """
         del args, kwargs
 
 
@@ -96,6 +120,9 @@ class LifecycleComponent:
         The target instrument ID for subscriptions.
     signal_client_id : str | None, optional
         Specific client ID for ML signal subscriptions. If None, subscribes to all.
+    signal_source : str | None, optional
+        Actor identifier used to scope ML signal subscriptions. When set, the
+        DataType metadata includes ``{"source": signal_source}``.
     target_model_ids : list[str] | None, optional
         List of target model IDs for logging.
     aggregation_mode : str | None, optional
@@ -134,6 +161,7 @@ class LifecycleComponent:
         strategy_id: str,
         instrument_id: Any,
         signal_client_id: str | None = None,
+        signal_source: str | None = None,
         target_model_ids: list[str] | None = None,
         aggregation_mode: str | None = None,
         position_size_pct: float = 0.02,
@@ -143,10 +171,13 @@ class LifecycleComponent:
         subscribe_instrument_callback: Callable[..., None] | None = None,
         log: Any = None,
     ) -> None:
-        """Initialize the lifecycle component."""
+        """
+        Initialize the lifecycle component.
+        """
         self._strategy_id = strategy_id
         self._instrument_id = instrument_id
         self._signal_client_id = signal_client_id
+        self._signal_source = signal_source
         self._target_model_ids = target_model_ids
         self._aggregation_mode = aggregation_mode
         self._position_size_pct = position_size_pct
@@ -162,32 +193,51 @@ class LifecycleComponent:
 
     @property
     def strategy_id(self) -> str:
-        """Get the strategy identifier."""
+        """
+        Get the strategy identifier.
+        """
         return self._strategy_id
 
     @property
     def instrument_id(self) -> Any:
-        """Get the instrument ID."""
+        """
+        Get the instrument ID.
+        """
         return self._instrument_id
 
     @property
     def signal_client_id(self) -> str | None:
-        """Get the signal client ID."""
+        """
+        Get the signal client ID.
+        """
         return self._signal_client_id
 
     @property
+    def signal_source(self) -> str | None:
+        """
+        Get the signal source identifier.
+        """
+        return self._signal_source
+
+    @property
     def target_model_ids(self) -> list[str] | None:
-        """Get the target model IDs."""
+        """
+        Get the target model IDs.
+        """
         return self._target_model_ids
 
     @property
     def aggregation_mode(self) -> str | None:
-        """Get the aggregation mode."""
+        """
+        Get the aggregation mode.
+        """
         return self._aggregation_mode
 
     @property
     def execute_trades(self) -> bool:
-        """Get whether trades are being executed."""
+        """
+        Get whether trades are being executed.
+        """
         return self._execute_trades
 
     # -------------------------------------------------------------------------
@@ -335,7 +385,9 @@ class LifecycleComponent:
     # -------------------------------------------------------------------------
 
     def _subscribe_to_ml_signals(self) -> None:
-        """Subscribe to ML signals using the configured callback."""
+        """
+        Subscribe to ML signals using the configured callback.
+        """
         if self._subscribe_data_callback is None:
             self._log.warning(
                 "ml_strategy.subscribe_data_callback_not_configured "
@@ -344,13 +396,13 @@ class LifecycleComponent:
             return
 
         try:
+            from ml.actors.base import MLSignal
             from nautilus_trader.model.data import DataType
             from nautilus_trader.model.identifiers import ClientId
 
-            from ml.actors.base import MLSignal
-
-            # Build data type for ML signals
-            data_type = DataType(MLSignal)
+            # Build data type for ML signals (optionally scoped by source)
+            metadata = {"source": self._signal_source} if self._signal_source else None
+            data_type = DataType(MLSignal, metadata=metadata) if metadata else DataType(MLSignal)
 
             # Subscribe with or without client_id
             if self._signal_client_id is not None:
@@ -372,7 +424,9 @@ class LifecycleComponent:
             )
 
     def _subscribe_to_instrument(self) -> None:
-        """Subscribe to instrument using the configured callback."""
+        """
+        Subscribe to instrument using the configured callback.
+        """
         if self._subscribe_instrument_callback is None:
             self._log.warning(
                 "ml_strategy.subscribe_instrument_callback_not_configured "
@@ -395,7 +449,9 @@ class LifecycleComponent:
     # -------------------------------------------------------------------------
 
     def _log_configuration(self) -> None:
-        """Log strategy configuration details."""
+        """
+        Log strategy configuration details.
+        """
         self._log.info(
             f"ML Strategy configured: instrument={self._instrument_id}, "
             f"position_size={self._position_size_pct:.1%}, "
@@ -412,7 +468,9 @@ class LifecycleComponent:
         self,
         strategy_store: StrategyStoreProtocol | None,
     ) -> None:
-        """Flush the strategy store buffer."""
+        """
+        Flush the strategy store buffer.
+        """
         if strategy_store is None:
             return
 
@@ -433,7 +491,9 @@ class LifecycleComponent:
         total_pnl: Decimal,
         dry_run_trades: int,
     ) -> None:
-        """Log final statistics based on execution mode."""
+        """
+        Log final statistics based on execution mode.
+        """
         win_rate = (winning_trades / max(trades_executed, 1)) * 100.0
 
         if self._execute_trades:

@@ -5,25 +5,17 @@ Indicator management for feature engineering.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
 
 from ml._imports import HAS_POLARS
 from ml._imports import pl
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
-from ml.features.config import FeatureConfig
-
-
-if TYPE_CHECKING:
-    from ml.features.engineering import FeatureConfig as EngineeringFeatureConfig
-else:
-    EngineeringFeatureConfig = FeatureConfig
-
-FeatureConfigLike = FeatureConfig | EngineeringFeatureConfig
+from ml.features.config import FeatureConfigLike
+from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)
@@ -335,7 +327,11 @@ class IndicatorManager:
         if HAS_POLARS and pl is not None:
             try:
                 return self._update_batch_polars(
-                    open_prices, high_prices, low_prices, close_prices, volumes
+                    open_prices,
+                    high_prices,
+                    low_prices,
+                    close_prices,
+                    volumes,
                 )
             except Exception as e:
                 logger.warning(
@@ -407,6 +403,7 @@ class IndicatorManager:
         -------
         pl.DataFrame
             DataFrame containing indicator values.
+
         """
         if pl is None:
             raise RuntimeError("Polars is not available")
@@ -417,7 +414,7 @@ class IndicatorManager:
                 "low": low_prices,
                 "close": close_prices,
                 "volume": volumes,
-            }
+            },
         )
 
         specs = self.config.get_indicator_specs()
@@ -427,10 +424,7 @@ class IndicatorManager:
             if spec["type"] == "SMA":
                 input_col = spec.get("input", "close")
                 exprs.append(
-                    pl.col(input_col)
-                    .rolling_mean(spec["period"])
-                    .fill_null(0.0)
-                    .alias(name)
+                    pl.col(input_col).rolling_mean(spec["period"]).fill_null(0.0).alias(name),
                 )
             elif spec["type"] == "EMA":
                 # Standard EMA
@@ -438,7 +432,7 @@ class IndicatorManager:
                     pl.col("close")
                     .ewm_mean(span=spec["period"], adjust=False)
                     .fill_null(0.0)
-                    .alias(name)
+                    .alias(name),
                 )
             elif spec["type"] == "RSI":
                 # RSI with Wilder's smoothing
@@ -512,9 +506,15 @@ class IndicatorManager:
         close_prices: npt.NDArray[np.float64],
         volumes: npt.NDArray[np.float64],
     ) -> list[dict[str, float]]:
-        """Internal Polars implementation for batch updates."""
+        """
+        Internal Polars implementation for batch updates.
+        """
         df = self.update_batch_polars(
-            open_prices, high_prices, low_prices, close_prices, volumes
+            open_prices,
+            high_prices,
+            low_prices,
+            close_prices,
+            volumes,
         )
         return cast(list[dict[str, float]], df.to_dicts())
 
@@ -522,8 +522,9 @@ class IndicatorManager:
         """
         Populate a mapping with current indicator values.
 
-        This helper allows hot-path callers to reuse a preallocated dict to avoid
-        per-call allocations while preserving the public get_values snapshot API.
+        This helper allows hot-path callers to reuse a preallocated dict to avoid per-
+        call allocations while preserving the public get_values snapshot API.
+
         """
         for name, indicator in self.indicators.items():
             if indicator is not None and indicator.initialized:
@@ -623,3 +624,6 @@ class IndicatorManager:
         # Clear price history
         for key in self.price_history:
             self.price_history[key].clear()
+
+
+IndicatorManagerLike: TypeAlias = IndicatorManager

@@ -45,6 +45,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+
+from ml.common.logging_utils import log_best_effort
 from nautilus_trader.model.data import Bar
 
 
@@ -1011,10 +1013,12 @@ class SignalStrategyComponent:
                         actor=None,  # type: ignore[arg-type]  # Actor not needed for policy loading
                         config=cfg,
                     )
-                    return cast(SignalGenerationStrategy, strategy)
+                    return strategy
         except Exception as exc:
             # Silent fallback to built-ins; keep hot path clean — telemetry debug
-            self._log.debug(
+            log_best_effort(
+                self._log,
+                "debug",
                 f"ml_actor.decision_policy_load_failed error={exc!r}",
                 exc_info=True,
             )

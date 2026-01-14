@@ -24,42 +24,62 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class LoggerProtocol(Protocol):
-    """Protocol for logging interface."""
+    """
+    Protocol for logging interface.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """Log debug message."""
+        """
+        Log debug message.
+        """
         ...
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """Log info message."""
+        """
+        Log info message.
+        """
         ...
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """Log warning message."""
+        """
+        Log warning message.
+        """
         ...
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """Log error message."""
+        """
+        Log error message.
+        """
         ...
 
 
 class _NoOpLogger:
-    """No-op logger for when no logger is provided."""
+    """
+    No-op logger for when no logger is provided.
+    """
 
     def debug(self, *args: object, **kwargs: object) -> None:
-        """No-op debug."""
+        """
+        No-op debug.
+        """
         del args, kwargs
 
     def info(self, *args: object, **kwargs: object) -> None:
-        """No-op info."""
+        """
+        No-op info.
+        """
         del args, kwargs
 
     def warning(self, *args: object, **kwargs: object) -> None:
-        """No-op warning."""
+        """
+        No-op warning.
+        """
         del args, kwargs
 
     def error(self, *args: object, **kwargs: object) -> None:
-        """No-op error."""
+        """
+        No-op error.
+        """
         del args, kwargs
 
 
@@ -104,7 +124,9 @@ class PerformanceTrackingComponent:
         track_performance: bool = False,
         log: Any = None,
     ) -> None:
-        """Initialize the performance tracking component."""
+        """
+        Initialize the performance tracking component.
+        """
         self._strategy_id = strategy_id
         self._track_performance = track_performance
         self._log = log if log is not None else _NoOpLogger()
@@ -119,7 +141,9 @@ class PerformanceTrackingComponent:
         self._init_metrics()
 
     def _init_metrics(self) -> None:
-        """Initialize Prometheus metrics via centralized bootstrap."""
+        """
+        Initialize Prometheus metrics via centralized bootstrap.
+        """
         try:
             from ml.common.metrics_bootstrap import get_counter
             from ml.common.metrics_bootstrap import get_gauge
@@ -141,7 +165,21 @@ class PerformanceTrackingComponent:
             )
         except Exception:
             # Metrics unavailable - degrade gracefully
-            pass
+            self._log_metric_failure("metrics_bootstrap")
+
+    def _log_metric_failure(self, metric: str) -> None:
+        """
+        Log metric update failures with context.
+
+        Args:
+            metric: Metric identifier or operation name.
+
+        """
+        self._log.debug(
+            "Metrics update failed",
+            exc_info=True,
+            extra={"strategy_id": self._strategy_id, "metric": metric},
+        )
 
     # -------------------------------------------------------------------------
     # Public Properties
@@ -149,17 +187,23 @@ class PerformanceTrackingComponent:
 
     @property
     def strategy_id(self) -> str:
-        """Get the strategy identifier."""
+        """
+        Get the strategy identifier.
+        """
         return self._strategy_id
 
     @property
     def track_performance(self) -> bool:
-        """Get whether performance tracking is enabled."""
+        """
+        Get whether performance tracking is enabled.
+        """
         return self._track_performance
 
     @track_performance.setter
     def track_performance(self, value: bool) -> None:
-        """Set whether performance tracking is enabled."""
+        """
+        Set whether performance tracking is enabled.
+        """
         self._track_performance = value
 
     # -------------------------------------------------------------------------
@@ -360,7 +404,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).inc(signals_received)
             except Exception:
-                pass
+                self._log_metric_failure("signals_received")
 
         # Increment trades counter
         if self._trades_counter is not None and trades_executed > 0:
@@ -369,7 +413,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).inc(trades_executed)
             except Exception:
-                pass
+                self._log_metric_failure("trades_executed")
 
         # Set positions gauge
         if self._positions_gauge is not None:
@@ -378,7 +422,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).set(active_positions)
             except Exception:
-                pass
+                self._log_metric_failure("active_positions")
 
     def increment_signals_received(self, count: int = 1) -> None:
         """
@@ -396,7 +440,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).inc(count)
             except Exception:
-                pass
+                self._log_metric_failure("signals_received")
 
     def increment_trades_executed(self, count: int = 1) -> None:
         """
@@ -414,7 +458,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).inc(count)
             except Exception:
-                pass
+                self._log_metric_failure("trades_executed")
 
     def set_active_positions(self, count: int) -> None:
         """
@@ -432,7 +476,7 @@ class PerformanceTrackingComponent:
                     strategy_id=self._strategy_id,
                 ).set(count)
             except Exception:
-                pass
+                self._log_metric_failure("active_positions")
 
     # -------------------------------------------------------------------------
     # Statistics and Reporting

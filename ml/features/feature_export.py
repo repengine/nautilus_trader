@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from ml.config.constants import MLConstants
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
+from ml.features import FeatureConfig
+from ml.features import FeatureEngineer
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole

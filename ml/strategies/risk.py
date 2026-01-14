@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
@@ -24,7 +24,6 @@ from ml.common.metrics_bootstrap import get_histogram
 if TYPE_CHECKING:
     from nautilus_trader.model.identifiers import InstrumentId
     from nautilus_trader.model.objects import Quantity
-
     from nautilus_trader.portfolio import Portfolio
 
 
@@ -276,9 +275,16 @@ class RiskManager:
         """
         # Calculate current exposure
         total_exposure = 0.0
-        for position in portfolio.positions():
-            if position.is_open:
-                total_exposure += abs(float(position.quantity.as_double()))
+        for position in self._iter_positions(portfolio, instrument=None):
+            try:
+                if position.is_open:
+                    total_exposure += abs(float(position.quantity.as_double()))
+            except Exception as exc:
+                logger.debug(
+                    "risk.position_exposure_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
 
         # Add new position
         total_exposure += new_position_value
@@ -335,7 +341,17 @@ class RiskManager:
         """
         # Count correlated positions
         correlated_count = 0
-        open_instruments = [p.instrument_id for p in portfolio.positions() if p.is_open]
+        open_instruments: list[InstrumentId] = []
+        for position in self._iter_positions(portfolio, instrument=instrument):
+            try:
+                if position.is_open:
+                    open_instruments.append(position.instrument_id)
+            except Exception as exc:
+                logger.debug(
+                    "risk.position_correlation_failed",
+                    exc_info=True,
+                    extra={"error": str(exc), "instrument": str(instrument)},
+                )
 
         for open_inst in open_instruments:
             correlation = self._get_correlation(instrument, open_inst)
@@ -349,6 +365,51 @@ class RiskManager:
             return False
 
         return True
+
+    def _iter_positions(
+        self,
+        portfolio: Portfolio,
+        *,
+        instrument: InstrumentId | None,
+    ) -> list[Any]:
+        """
+        Safely retrieve positions from a portfolio with API-compat fallback.
+
+        Returns an empty list when the portfolio does not expose a compatible positions
+        API or when calls fail.
+
+        """
+        if hasattr(portfolio, "positions"):
+            try:
+                return list(portfolio.positions())
+            except Exception as exc:
+                logger.debug(
+                    "risk.positions_method_failed",
+                    exc_info=True,
+                    extra={
+                        "error": str(exc),
+                        "instrument": str(instrument) if instrument else None,
+                    },
+                )
+
+        if hasattr(portfolio, "positions_open"):
+            try:
+                return list(portfolio.positions_open())
+            except Exception as exc:
+                logger.debug(
+                    "risk.positions_open_method_failed",
+                    exc_info=True,
+                    extra={
+                        "error": str(exc),
+                        "instrument": str(instrument) if instrument else None,
+                    },
+                )
+
+        logger.debug(
+            "risk.positions_unavailable",
+            extra={"instrument": str(instrument) if instrument else None},
+        )
+        return []
 
     def _get_correlation(
         self,

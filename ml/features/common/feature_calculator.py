@@ -31,8 +31,8 @@ import numpy as np
 
 from ml.common.safe_math import safe_divide
 from ml.config.constants import IndicatorNames
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import IndicatorManager
+from ml.features.config import FeatureConfig
+from ml.features.indicators import IndicatorManager
 
 
 if TYPE_CHECKING:
@@ -63,6 +63,7 @@ def _normalize_atr(atr: float, close: float) -> float:
     -------
     float
         ATR normalized by close price (ATR / close)
+
     """
     return float(safe_divide(atr, close))
 
@@ -108,7 +109,7 @@ class FeatureCalculator:
     --------
     Batch mode (training):
     >>> import pandas as pd
-    >>> from ml.features.engineering import FeatureConfig
+    >>> from ml.features import FeatureConfig
     >>> config = FeatureConfig(return_periods=[1, 5], momentum_periods=[1])
     >>> calculator = FeatureCalculator(config)
     >>> df = pd.DataFrame({
@@ -122,7 +123,7 @@ class FeatureCalculator:
     >>> assert len(features_df) == 3
 
     Online mode (inference):
-    >>> from ml.features.engineering import IndicatorManager
+    >>> from ml.features import IndicatorManager
     >>> indicator_mgr = IndicatorManager(config)
     >>> # Warm up indicator manager with history
     >>> for i in range(50):
@@ -147,6 +148,7 @@ class FeatureCalculator:
             Feature configuration
         logger : logging.Logger | None
             Optional logger instance
+
         """
         self.config = config
         self._logger = logger if logger is not None else globals()["logger"]
@@ -216,6 +218,7 @@ class FeatureCalculator:
         -------
         int
             Total number of features to be computed
+
         """
         return len(self.config.get_feature_names())
 
@@ -251,7 +254,9 @@ class FeatureCalculator:
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
         scaler: Any | None = None,  # StandardScaler | None
-    ) -> tuple[Any, Any | None] | npt.NDArray[np.float32]:  # (DataFrame, StandardScaler | None) | ndarray
+    ) -> (
+        tuple[Any, Any | None] | npt.NDArray[np.float32]
+    ):  # (DataFrame, StandardScaler | None) | ndarray
         """
         Unified feature calculation method for both batch and online modes.
 
@@ -297,6 +302,7 @@ class FeatureCalculator:
         >>> features = calculator.calculate_features(
         ...     current_bar, mode="online", indicator_manager=indicator_mgr, scaler=scaler
         ... )
+
         """
         if mode == "batch":
             return self._calculate_features_batch(
@@ -342,6 +348,7 @@ class FeatureCalculator:
         -------
         tuple[DataFrameLike, StandardScaler | None]
             Tuple of (features DataFrame, fitted scaler or None)
+
         """
         # Create indicator manager for sequential processing
         indicator_mgr = IndicatorManager(self.config)
@@ -362,7 +369,9 @@ class FeatureCalculator:
             # Update indicator manager
             indicator_mgr.update_from_values(
                 close=float(close_prices[idx]),
-                high=float(high_prices[idx]) if high_prices is not None else float(close_prices[idx]),
+                high=(
+                    float(high_prices[idx]) if high_prices is not None else float(close_prices[idx])
+                ),
                 low=float(low_prices[idx]) if low_prices is not None else float(close_prices[idx]),
                 volume=float(volumes[idx]),
             )
@@ -380,8 +389,12 @@ class FeatureCalculator:
             # Calculate features using same logic as online mode
             current_bar = {
                 "open": float(close_prices[idx]),  # Using close as open fallback
-                "high": float(high_prices[idx]) if high_prices is not None else float(close_prices[idx]),
-                "low": float(low_prices[idx]) if low_prices is not None else float(close_prices[idx]),
+                "high": (
+                    float(high_prices[idx]) if high_prices is not None else float(close_prices[idx])
+                ),
+                "low": (
+                    float(low_prices[idx]) if low_prices is not None else float(close_prices[idx])
+                ),
                 "close": float(close_prices[idx]),
                 "volume": float(volumes[idx]),
             }
@@ -391,7 +404,11 @@ class FeatureCalculator:
                 scaler=None,
             )
             # Convert to dict - only use as many values as we have in features_array
-            feature_row = {name: float(features_array[i]) for i, name in enumerate(feature_names) if i < len(features_array)}
+            feature_row = {
+                name: float(features_array[i])
+                for i, name in enumerate(feature_names)
+                if i < len(features_array)
+            }
 
             feature_rows.append(feature_row)
 
@@ -399,34 +416,53 @@ class FeatureCalculator:
         features_df: Any
         if hasattr(data, "__class__") and "polars" in str(data.__class__):
             import polars as pl
+
             features_df = pl.DataFrame(feature_rows)
         else:
             import pandas as pd
+
             features_df = pd.DataFrame(feature_rows)
 
         # Fit scaler if requested
         fitted_scaler: Any | None = None  # StandardScaler | None
         if fit_scaler:
             from sklearn.preprocessing import StandardScaler
+
             fitted_scaler = StandardScaler()
             # Fit on first scaler_fit_ratio of data (no lookahead)
             fit_size = int(len(feature_rows) * scaler_fit_ratio)
             if fit_size > 0:
-                fit_data = features_df.iloc[:fit_size] if hasattr(features_df, "iloc") else features_df[:fit_size]
-                fitted_scaler.fit(fit_data.to_numpy() if hasattr(fit_data, "to_numpy") else fit_data.to_pandas().to_numpy())
+                fit_data = (
+                    features_df.iloc[:fit_size]
+                    if hasattr(features_df, "iloc")
+                    else features_df[:fit_size]
+                )
+                fitted_scaler.fit(
+                    (
+                        fit_data.to_numpy()
+                        if hasattr(fit_data, "to_numpy")
+                        else fit_data.to_pandas().to_numpy()
+                    ),
+                )
 
                 # Transform all data
                 transformed = fitted_scaler.transform(
-                    features_df.to_numpy() if hasattr(features_df, "to_numpy") else features_df.to_pandas().to_numpy()
+                    (
+                        features_df.to_numpy()
+                        if hasattr(features_df, "to_numpy")
+                        else features_df.to_pandas().to_numpy()
+                    ),
                 )
                 if hasattr(features_df, "__class__") and "polars" in str(features_df.__class__):
                     import polars as pl
+
                     features_df = pl.DataFrame(transformed, schema=feature_names)
                     # Add timestamp back if it exists in input (parity with legacy)
                     if "timestamp" in data.columns:
                         features_df = features_df.with_columns(data["timestamp"].alias("timestamp"))
                 else:
                     import pandas as pd
+
                     features_df = pd.DataFrame(transformed, columns=feature_names)
                     # Add timestamp back if it exists in input (parity with legacy)
                     if "timestamp" in data.columns:
@@ -574,6 +610,7 @@ class FeatureCalculator:
         -------
         int
             Next available feature_idx
+
         """
         for period in self.config.return_periods:
             if len(closes) > period:
@@ -614,6 +651,7 @@ class FeatureCalculator:
         -------
         int
             Next available feature_idx
+
         """
         for period in self.config.momentum_periods:
             if len(closes) > period:
@@ -650,6 +688,7 @@ class FeatureCalculator:
         -------
         int
             Next available feature_idx
+
         """
         if len(closes) >= 21:  # Need 21 prices to calculate 20 returns
             sum_5 = 0.0
@@ -715,6 +754,7 @@ class FeatureCalculator:
         -------
         int
             Next available feature_idx
+
         """
         for key in self._volume_ratio_keys:
             # Get indicator value, defaulting to volume if not available
@@ -765,6 +805,7 @@ class FeatureCalculator:
         -------
         int
             Next available feature_idx
+
         """
         # RSI features
         rsi_normalized = indicator_values.get("rsi", 0.0)  # Already in [-1, 1] range
@@ -862,6 +903,7 @@ class FeatureCalculator:
 
         Uses OHLCV-based approximations (no L2 required) to maintain parity with batch
         transforms while keeping hot-path allocations minimal.
+
         """
         close = float(current_bar["close"])
         high = float(current_bar["high"])
@@ -921,6 +963,7 @@ class FeatureCalculator:
         Calculate trade flow features in online mode.
 
         Uses OHLCV-based approximations when trade-level data is unavailable.
+
         """
         close = float(current_bar["close"])
         high = float(current_bar["high"])
@@ -976,6 +1019,7 @@ class FeatureCalculator:
             Current bar index in array
         features : dict[str, float]
             Feature dictionary to populate (mutated in place)
+
         """
         # Price returns
         for period in self.config.return_periods:
@@ -1012,6 +1056,7 @@ class FeatureCalculator:
         -------
         tuple[float, float]
             (return_std, return_autocorr)
+
         """
         if len(mid_prices) <= 1:
             return 0.0, 0.0
@@ -1064,6 +1109,7 @@ class FeatureCalculator:
         ------
         ValueError
             If bars list is empty
+
         """
         if hasattr(bars, "to_numpy"):
             if len(bars) == 0:
@@ -1087,16 +1133,25 @@ class FeatureCalculator:
         for b in bars:
             close_val = float(b.close)
             closes.append(close_val)
-            rows.append({
-                "open": float(b.open),
-                "high": float(b.high),
-                "low": float(b.low),
-                "close": close_val,
-                "volume": float(b.volume),
-            })
+            rows.append(
+                {
+                    "open": float(b.open),
+                    "high": float(b.high),
+                    "low": float(b.low),
+                    "close": close_val,
+                    "volume": float(b.volume),
+                },
+            )
 
-        import pandas as pd
-        df = pd.DataFrame(rows)
+        from ml._imports import check_ml_dependencies
+        from ml._imports import pd as pd_runtime
+
+        if pd_runtime is None:
+            check_ml_dependencies(["pandas"])
+            from ml._imports import pd as pd_runtime
+
+        assert pd_runtime is not None
+        df = pd_runtime.DataFrame(rows)
 
         # Calculate features in batch mode
         features_df, _ = self.calculate_features(df, mode="batch")
@@ -1114,14 +1169,18 @@ class FeatureCalculator:
     # Helper methods for DataFrame extraction
 
     def _extract_close_prices(self, df: Any) -> Any:  # ndarray[float64]
-        """Extract close prices from DataFrame."""
+        """
+        Extract close prices from DataFrame.
+        """
         if hasattr(df, "to_numpy"):  # pandas
             return df["close"].to_numpy()
         else:  # polars
             return df["close"].to_numpy()
 
     def _extract_high_prices(self, df: Any) -> Any:  # ndarray[float64] | None
-        """Extract high prices from DataFrame (returns None if column missing)."""
+        """
+        Extract high prices from DataFrame (returns None if column missing).
+        """
         try:
             if hasattr(df, "to_numpy"):  # pandas
                 return df["high"].to_numpy()
@@ -1131,7 +1190,9 @@ class FeatureCalculator:
             return None
 
     def _extract_low_prices(self, df: Any) -> Any:  # ndarray[float64] | None
-        """Extract low prices from DataFrame (returns None if column missing)."""
+        """
+        Extract low prices from DataFrame (returns None if column missing).
+        """
         try:
             if hasattr(df, "to_numpy"):  # pandas
                 return df["low"].to_numpy()
@@ -1141,7 +1202,9 @@ class FeatureCalculator:
             return None
 
     def _extract_volumes(self, df: Any) -> Any:  # ndarray[float64]
-        """Extract volumes from DataFrame."""
+        """
+        Extract volumes from DataFrame.
+        """
         if hasattr(df, "to_numpy"):  # pandas
             return df["volume"].to_numpy()
         else:  # polars

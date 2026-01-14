@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
+
     DataStoreFacadeLike = DataStoreFacadeProtocol | FileDataStore | DummyStore
 else:  # pragma: no cover - runtime fallback for type aliases
     DataStoreFacadeLike = Any
@@ -461,8 +462,13 @@ class StoreOperationsComponent:
             self._logger.info(
                 f"Starting ML persistence worker for actor {self._actor_id}",
             )
-            # Worker start is handled internally by the worker
-            # The worker thread starts in its __init__ method
+            try:
+                self._persistence_worker.start()
+            except Exception as e:
+                self._logger.error(
+                    f"Error starting persistence worker for actor {self._actor_id}: {e}",
+                    exc_info=True,
+                )
 
     def on_stop(self) -> None:
         """
@@ -482,39 +488,92 @@ class StoreOperationsComponent:
             )
 
             try:
-                # Stop worker with drain=True to flush pending writes
-                asyncio.run(
-                    self._persistence_worker.stop(
-                        drain=True,
-                        timeout=5.0,
-                    ),
-                )
-
-                final_queue_size = self._persistence_worker.queue_size()
-                self._logger.info(
-                    f"ML persistence worker stopped for actor {self._actor_id} "
-                    f"(final queue: {final_queue_size})",
-                )
+                drained = self._stop_persistence_worker()
+                if drained:
+                    final_queue_size = self._persistence_worker.queue_size()
+                    self._logger.info(
+                        f"ML persistence worker stopped for actor {self._actor_id} "
+                        f"(final queue: {final_queue_size})",
+                    )
+                else:
+                    self._logger.debug(
+                        "ML persistence worker stop scheduled for actor %s",
+                        self._actor_id,
+                    )
             except Exception as e:
                 self._logger.error(
                     f"Error stopping persistence worker for actor {self._actor_id}: {e}",
                     exc_info=True,
                 )
 
-        # Synchronous flush for stores without worker
         if self._persistence_worker is None:
             self._logger.debug("Flushing stores synchronously (no async worker)")
-            try:
-                if self._feature_store and hasattr(self._feature_store, "flush"):
-                    self._feature_store.flush()
-                if self._model_store and hasattr(self._model_store, "flush"):
-                    self._model_store.flush()
-                if self._strategy_store and hasattr(self._strategy_store, "flush"):
-                    self._strategy_store.flush()
-                if self._data_store and hasattr(self._data_store, "flush"):
-                    self._data_store.flush()
-            except Exception as e:
-                self._logger.error(
-                    f"Error during synchronous store flush: {e}",
-                    exc_info=True,
+        else:
+            self._logger.debug("Flushing stores after async worker stop")
+        self._flush_stores()
+
+    def _flush_stores(self) -> None:
+        """
+        Flush all initialized stores (best-effort).
+        """
+        try:
+            if self._feature_store and hasattr(self._feature_store, "flush"):
+                self._feature_store.flush()
+            if self._model_store and hasattr(self._model_store, "flush"):
+                self._model_store.flush()
+            if self._strategy_store and hasattr(self._strategy_store, "flush"):
+                self._strategy_store.flush()
+            if self._data_store and hasattr(self._data_store, "flush"):
+                self._data_store.flush()
+        except Exception as e:
+            self._logger.error(
+                f"Error during synchronous store flush: {e}",
+                exc_info=True,
+            )
+
+    def _stop_persistence_worker(self) -> bool:
+        """
+        Stop the persistence worker safely across loop contexts.
+
+        Returns
+        -------
+        bool
+            True if the stop call was awaited synchronously, False if scheduled.
+
+        """
+        worker = self._persistence_worker
+        if worker is None:
+            return True
+
+        timeout = 5.0
+        loop = getattr(worker, "_loop", None)
+        running_loop: asyncio.AbstractEventLoop | None = None
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if loop is not None:
+            if loop.is_closed():
+                self._logger.debug(
+                    "Persistence worker loop already closed for actor %s",
+                    self._actor_id,
                 )
+                return True
+            if loop.is_running():
+                if running_loop is loop:
+                    loop.create_task(worker.stop(drain=True, timeout=timeout))
+                    return False
+                future = asyncio.run_coroutine_threadsafe(
+                    worker.stop(drain=True, timeout=timeout),
+                    loop,
+                )
+                future.result(timeout=timeout)
+                return True
+
+        if running_loop is not None:
+            running_loop.create_task(worker.stop(drain=True, timeout=timeout))
+            return False
+
+        asyncio.run(worker.stop(drain=True, timeout=timeout))
+        return True

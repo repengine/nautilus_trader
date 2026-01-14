@@ -6,8 +6,8 @@ Feature writer component for FeatureStore.
 Extracted from FeatureStore (Phase 3.7.1). Provides write operations for feature data
 with circuit breaker integration, message bus publishing, and upsert semantics.
 
-All write operations are COLD path (async operations acceptable), except for the
-single-row write path which is designed to be fast but respects circuit breaker gating.
+All write operations are COLD path (async operations acceptable), except for the single-
+row write path which is designed to be fast but respects circuit breaker gating.
 
 """
 
@@ -17,6 +17,7 @@ import logging
 import time
 from collections.abc import Callable
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
@@ -47,8 +48,8 @@ class MessagePublisherProtocol(Protocol):
     """
     Protocol for message bus publishers.
 
-    Stores use this protocol to publish events to the message bus without
-    importing actor or bus modules. Keeps coupling minimal.
+    Stores use this protocol to publish events to the message bus without importing
+    actor or bus modules. Keeps coupling minimal.
 
     """
 
@@ -69,8 +70,8 @@ class FeatureWriterProtocol(Protocol):
     """
     Protocol for feature writing operations.
 
-    Defines the interface for writing computed features to storage with
-    circuit breaker integration and message bus publishing.
+    Defines the interface for writing computed features to storage with circuit breaker
+    integration and message bus publishing.
 
     """
 
@@ -103,6 +104,26 @@ class FeatureWriterProtocol(Protocol):
         """
         ...
 
+
+@runtime_checkable
+class FeatureMirrorWriterProtocol(Protocol):
+    """
+    Protocol for feature parquet mirror writers.
+    """
+
+    def write_rows(self, rows: Sequence[Mapping[str, object]]) -> int:
+        """
+        Write feature rows to a parquet mirror.
+
+        Args:
+            rows: Feature rows to mirror.
+
+        Returns:
+            Number of rows written.
+
+        """
+        ...
+
     def write_batch(self, data: list[object]) -> None:
         """
         Write a batch of FeatureData rows.
@@ -116,7 +137,6 @@ class FeatureWriterProtocol(Protocol):
     def store_features(self, *args: Any, **kwargs: Any) -> None:
         """
         Backward-compatible alias for write_features.
-
         """
         ...
 
@@ -150,11 +170,13 @@ class FeatureWriterConfig:
     topic_prefix: str = "events.ml"
 
     def __post_init__(self) -> None:
-        """Validate configuration values."""
+        """
+        Validate configuration values.
+        """
         if self.publish_mode not in ("batch", "row", "both"):
             raise ValueError(
                 f"Invalid publish_mode '{self.publish_mode}', "
-                "must be one of: 'batch', 'row', 'both'"
+                "must be one of: 'batch', 'row', 'both'",
             )
 
 
@@ -201,9 +223,12 @@ class FeatureWriterComponent:
     config: FeatureWriterConfig = field(default_factory=FeatureWriterConfig)
     _write_buffer: list[Any] = field(default_factory=list)
     _observability_service: Any = field(default=None)
+    mirror_writer: FeatureMirrorWriterProtocol | None = None
 
     def __post_init__(self) -> None:
-        """Initialize internal state."""
+        """
+        Initialize internal state.
+        """
         # Alias for backward compatibility (tests expect _buffer)
         self._buffer: list[Any] = self._write_buffer
 
@@ -275,12 +300,7 @@ class FeatureWriterComponent:
             return
 
         # Explicit-args mode
-        if (
-            feature_set_id is None
-            or instrument_id is None
-            or features is None
-            or ts_event is None
-        ):
+        if feature_set_id is None or instrument_id is None or features is None or ts_event is None:
             raise TypeError(
                 "write_features requires explicit arguments or a FeatureData batch",
             )
@@ -303,6 +323,7 @@ class FeatureWriterComponent:
             "source": "computed",
         }
         self._execute_write(row)
+        self._mirror_rows([row])
 
         # Optional publish single-row event
         if (
@@ -330,6 +351,7 @@ class FeatureWriterComponent:
 
         """
         # Perform upserts per item
+        mirror_rows: list[dict[str, Any]] = []
         for item in batch:
             fs_id = getattr(item, "feature_set_id", None)
             inst = getattr(item, "instrument_id", None)
@@ -351,6 +373,10 @@ class FeatureWriterComponent:
                 "source": "computed",
             }
             self._execute_write(row)
+            mirror_rows.append(row)
+
+        if mirror_rows:
+            self._mirror_rows(mirror_rows)
 
         # Optional publish per-batch summary
         if (
@@ -617,6 +643,24 @@ class FeatureWriterComponent:
                 exc_info=True,
             )
 
+    def _mirror_rows(self, rows: Sequence[Mapping[str, object]]) -> None:
+        """
+        Best-effort mirror write for feature rows.
+
+        Args:
+            rows: Feature row payloads to mirror.
+
+        """
+        if not rows or self.mirror_writer is None:
+            return
+        try:
+            self.mirror_writer.write_rows(rows)
+        except Exception:
+            logger.debug(
+                "FeatureStore mirror write failed",
+                exc_info=True,
+            )
+
     def write_batch(self, data: list[object]) -> None:
         """
         Write a batch of FeatureData rows (compat shim).
@@ -639,6 +683,7 @@ class FeatureWriterComponent:
         # the buffer is cleared after write_batch returns)
         self._write_buffer.extend(data)
 
+        mirror_rows: list[dict[str, Any]] = []
         for item in list(data):
             fs_id = getattr(item, "feature_set_id", None)
             inst = getattr(item, "instrument_id", None)
@@ -659,9 +704,13 @@ class FeatureWriterComponent:
                 "source": "computed",
             }
             self._execute_write(row)
+            mirror_rows.append(row)
 
         # Clear buffer after successful write
         self._write_buffer.clear()
+
+        if mirror_rows:
+            self._mirror_rows(mirror_rows)
 
         # Publish batch summary event if enabled
         if self.config.enable_publishing and self.publisher is not None and data:
@@ -708,6 +757,7 @@ class FeatureWriterComponent:
 
 
 __all__ = [
+    "FeatureMirrorWriterProtocol",
     "FeatureWriterComponent",
     "FeatureWriterConfig",
     "FeatureWriterProtocol",

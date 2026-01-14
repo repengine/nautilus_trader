@@ -160,9 +160,9 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from ml.features.engineering import FeatureConfig as FeatureConfig
-    from ml.features.engineering import FeatureEngineer as FeatureEngineer
-    from ml.features.engineering import IndicatorManager as IndicatorManager
+    from ml.features.facade import FeatureConfig as FeatureConfig
+    from ml.features.facade import FeatureEngineer as FeatureEngineer
+    from ml.features.facade import IndicatorManager as IndicatorManager
 
 # Use lazy imports to avoid circular import issues
 __all__ = [
@@ -207,39 +207,21 @@ def __getattr__(name: str) -> object:
     """
     Lazy import implementation to avoid circular imports.
 
-    Feature flag support: FeatureEngineer, FeatureConfig, and IndicatorManager
-    can be loaded from either legacy (engineering.py) or facade (facade.py)
-    based on the ML_USE_LEGACY_FEATURE_ENGINEER environment variable.
+    FeatureEngineer, FeatureConfig, and IndicatorManager are loaded from the component-
+    based facade implementation.
+
     """
-    if name == "FeatureConfig":
-        from ml.config.feature_flags import use_legacy_feature_engineer
+    if name in {"FeatureConfig", "FeatureEngineer", "IndicatorManager"}:
+        from ml.features.facade import FeatureConfig
+        from ml.features.facade import FeatureEngineer
+        from ml.features.facade import IndicatorManager
 
-        if use_legacy_feature_engineer():
-            from ml.features.engineering import FeatureConfig
-        else:
-            # Facade re-exports FeatureConfig from legacy for compatibility
-            from ml.features.facade import FeatureConfig
-
-        return FeatureConfig
-    elif name == "FeatureEngineer":
-        from ml.config.feature_flags import use_legacy_feature_engineer
-
-        if use_legacy_feature_engineer():
-            from ml.features.engineering import FeatureEngineer
-        else:
-            from ml.features.facade import FeatureEngineer  # type: ignore[assignment]
-
-        return FeatureEngineer
-    elif name == "IndicatorManager":
-        from ml.config.feature_flags import use_legacy_feature_engineer
-
-        if use_legacy_feature_engineer():
-            from ml.features.engineering import IndicatorManager
-        else:
-            # Facade re-exports IndicatorManager from legacy for compatibility
-            from ml.features.facade import IndicatorManager
-
-        return IndicatorManager
+        mapping = {
+            "FeatureConfig": FeatureConfig,
+            "FeatureEngineer": FeatureEngineer,
+            "IndicatorManager": IndicatorManager,
+        }
+        return mapping[name]
     elif name == "FeatureTransform":
         from ml.features.pipeline import FeatureTransform
 

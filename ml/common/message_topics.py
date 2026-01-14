@@ -30,6 +30,20 @@ _DOMAIN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z]+$")
 _OP_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z_]+$")
 _RESERVED_CHARS: Final[set[str]] = {"/", "*", "#", "+", "$"}
 _ALLOWED_INSTRUMENT_CHARS_RE: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9_.-]")
+_SCHEME_ALIASES: Final[dict[str, str]] = {
+    "hierarchical": "stage_first",
+    "stage-first": "stage_first",
+    "flat": "domain_op",
+    "domain-op": "domain_op",
+}
+
+
+def _normalize_scheme(scheme: str) -> str:
+    """
+    Normalize topic scheme aliases to canonical values.
+    """
+    token = scheme.strip().lower()
+    return _SCHEME_ALIASES.get(token, token)
 
 
 def _normalize_instrument_id(instrument_id: str) -> str:
@@ -181,10 +195,12 @@ def build_topic_for_stage(
     - ``domain_op`` (default): Uses canonical ``ml.{domain}.{operation}.{instrument}``
       via ``map_stage_to_topic_segments`` and ``build_topic``.
     - ``stage_first``: Uses ``build_stage_topic`` with the provided ``prefix``.
+    - Aliases: ``hierarchical`` -> ``stage_first``; ``flat`` -> ``domain_op``.
 
     """
     stage_enum = to_stage_enum(stage)
-    if scheme == "stage_first":
+    scheme_norm = _normalize_scheme(scheme)
+    if scheme_norm == "stage_first":
         return build_stage_topic(stage_enum, instrument_id, prefix=prefix)
     domain, op = map_stage_to_topic_segments(stage_enum)
     return build_topic(domain, op, instrument_id)

@@ -245,6 +245,7 @@ class ModelComponent:
 
         Returns:
             False (registry loading not performed by this component).
+
         """
         return False
 
@@ -252,9 +253,10 @@ class ModelComponent:
         """
         Compatibility hook for hot-reload timer scheduling.
 
-        Timer scheduling requires the Nautilus clock, which is owned by the actor runtime.
-        Component-level tests assert this method exists; the scheduling itself is performed
-        by actor lifecycle wiring.
+        Timer scheduling requires the Nautilus clock, which is owned by the actor
+        runtime. Component-level tests assert this method exists; the scheduling itself
+        is performed by actor lifecycle wiring.
+
         """
         return None
 
@@ -302,13 +304,14 @@ class ModelComponent:
             raise ValueError(
                 "Joblib models are disabled in ONNX-only mode. "
                 "Convert artifacts to ONNX for secure loading.",
-        )
+            )
 
         # Block pickle files (NEVER allowed - security risk)
         if file_ext in (".pkl", ".pickle"):
             self._security_counter.labels(result="blocked_pickle").inc()
             raise ValueError(
-                f"Pickle model formats are not allowed in production. Use ONNX instead. " f"File: {model_path}",
+                f"Pickle model formats are not allowed in production. Use ONNX instead. "
+                f"File: {model_path}",
             )
 
         allow_joblib = os.getenv("ML_ALLOW_JOBLIB", "0") == "1"
@@ -410,7 +413,10 @@ class ModelComponent:
                     return
             except Exception:
                 # XGBoost loading failed - try plain JSON
-                self._logger.debug("XGBoost JSON load failed, falling back to plain JSON", exc_info=True)
+                self._logger.debug(
+                    "XGBoost JSON load failed, falling back to plain JSON",
+                    exc_info=True,
+                )
 
             # Fallback to plain JSON
             import json
@@ -480,6 +486,8 @@ class ModelComponent:
 
             input_shape = tuple(inputs_meta[0].shape) if inputs_meta else ()
             output_shape = tuple(outputs_meta[0].shape) if outputs_meta else ()
+            input_names = [inp.name for inp in inputs_meta]
+            output_names = [out.name for out in outputs_meta]
 
             self._model_metadata = {
                 "input_shape": input_shape,
@@ -487,6 +495,8 @@ class ModelComponent:
                 "framework": "ONNX",
                 "version": "1.0.0",  # Default version
                 "opset_version": 13,  # Default opset
+                "input_names": input_names,
+                "output_names": output_names,
                 "inputs": [
                     {"name": inp.name, "shape": inp.shape, "type": str(inp.type)}
                     for inp in inputs_meta
@@ -502,12 +512,13 @@ class ModelComponent:
 
     def _determine_model_id(self) -> None:
         """
-        Determine model ID using three-level fallback.
+        Determine model ID using four-level fallback.
 
         Priority:
         1. self._model_metadata["model_id"] (from registry manifest)
         2. self._model_metadata["training_metadata"]["model_id"]
-        3. {Path(model_path).stem}_{version[:8]} (derived from path)
+        3. self._config.model_id (explicit config)
+        4. {Path(model_path).stem}_{version[:8]} (derived from path)
 
         Sets self._model_id to the determined value.
 
@@ -524,7 +535,13 @@ class ModelComponent:
                 self._model_id = training_meta["model_id"]
                 return
 
-        # Priority 3: Derive from path + version
+        # Priority 3: Explicit config model_id
+        config_model_id = getattr(self._config, "model_id", None)
+        if isinstance(config_model_id, str) and config_model_id:
+            self._model_id = config_model_id
+            return
+
+        # Priority 4: Derive from path + version
         if hasattr(self._config, "model_path") and self._config.model_path:
             path_stem = Path(self._config.model_path).stem
             version_suffix = self._model_version[:8] if self._model_version else "unknown"
@@ -558,7 +575,7 @@ class ModelComponent:
             {
                 "version": self._model_version,
                 "timestamp": timestamp_ns,
-            }
+            },
         )
         self._version_updated_at = timestamp_ns
 

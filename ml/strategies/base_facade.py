@@ -13,19 +13,16 @@ Components Wired:
 - LifecycleComponent: Strategy lifecycle management (startup, shutdown, subscriptions)
 - PerformanceTrackingComponent: Model performance tracking and metrics recording
 
-Feature Flag:
-- ML_USE_LEGACY_STRATEGY_BASE=1: Use legacy BaseMLStrategy
-- ML_USE_LEGACY_STRATEGY_BASE=0: Use BaseMLStrategyFacade (default)
-
 """
 
 from __future__ import annotations
 
-import os
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
+from collections.abc import Callable
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from ml.strategies.common import DecisionPersistenceComponent
@@ -34,31 +31,19 @@ from ml.strategies.common import OrderSubmissionComponent
 from ml.strategies.common import PerformanceTrackingComponent
 from ml.strategies.common import PositionManagementComponent
 from ml.strategies.common import SignalRoutingComponent
+from ml.strategies.common.order_submission import OrderIntentWriter
+from ml.strategies.common.order_submission import resolve_order_intent_path
 
 
 if TYPE_CHECKING:
-    from nautilus_trader.model.identifiers import ClientOrderId
-    from nautilus_trader.model.objects import Price
-    from nautilus_trader.model.objects import Quantity
-    from nautilus_trader.model.position import Position
-
     from ml.actors.base import MLSignal
     from ml.config.base import MLStrategyConfig
     from ml.stores.protocols import StrategyStoreProtocol
     from nautilus_trader.model.enums import OrderSide
-
-
-def _use_legacy_strategy_base() -> bool:
-    """
-    Check if legacy BaseMLStrategy should be used.
-
-    Returns
-    -------
-    bool
-        True if ML_USE_LEGACY_STRATEGY_BASE environment variable is "1".
-
-    """
-    return os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "0") == "1"
+    from nautilus_trader.model.identifiers import ClientOrderId
+    from nautilus_trader.model.objects import Price
+    from nautilus_trader.model.objects import Quantity
+    from nautilus_trader.model.position import Position
 
 
 # Import the runtime base class for inheritance
@@ -175,6 +160,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._bus_publisher: Any = None
         self._decision_publisher: Any = None
         self._init_optional_components()
+        self._order_intent_writer: OrderIntentWriter | None = None
+        self._order_intent_path: Path | None = None
+        self._init_order_intent_writer()
 
         # Initialize the 6 decomposed components
         self._signal_router: SignalRoutingComponent | None = None
@@ -185,8 +173,72 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._performance_tracker: PerformanceTrackingComponent | None = None
         self._init_components()
 
+    def _init_order_intent_writer(self) -> None:
+        """
+        Initialize order intent serialization when configured.
+        """
+        if not getattr(self._config, "serialize_order_intents", False):
+            return
+
+        try:
+            resolved = resolve_order_intent_path(
+                getattr(self._config, "order_intent_path", None),
+            )
+            if resolved is None:
+                self.log.warning(
+                    f"ml_strategy.order_intent_path_missing strategy_id={self.id}",
+                )
+                return
+            self._order_intent_path = resolved
+            self._order_intent_writer = OrderIntentWriter(resolved, log=self.log)
+            self.log.info(
+                f"ml_strategy.order_intent_serialization_enabled "
+                f"strategy_id={self.id} path={resolved}",
+            )
+        except Exception as exc:
+            self.log.debug(
+                f"ml_strategy.order_intent_writer_init_failed "
+                f"strategy_id={self.id} error={exc}",
+                exc_info=True,
+            )
+
+    def _resolve_submit_order_callback(self) -> Callable[[Any], None] | None:
+        """
+        Resolve the order submission callback based on configuration.
+
+        When order intent serialization is enabled, returns the JSONL writer stub to
+        avoid broker submission.
+
+        """
+        if getattr(self._config, "serialize_order_intents", False):
+            if self._order_intent_writer is None:
+                return None
+            return self._record_order_intent
+        if hasattr(self, "submit_order"):
+            return cast(Callable[[Any], None], self.submit_order)
+        return None
+
+    def _record_order_intent(self, order: Any) -> None:
+        """
+        Persist order intent to JSONL for manual inspection.
+        """
+        if self._order_intent_writer is None:
+            return
+        is_live = True
+        try:
+            if hasattr(self, "cache") and getattr(self.cache, "is_backtesting", False):
+                is_live = False
+        except Exception as exc:
+            self.log.debug(
+                f"ml_strategy.order_intent_live_check_failed " f"strategy_id={self.id} error={exc}",
+                exc_info=True,
+            )
+        self._order_intent_writer.write(order, is_live=is_live)
+
     def _init_strategy_store(self) -> None:
-        """Initialize strategy store via dependency injection or config."""
+        """
+        Initialize strategy store via dependency injection or config.
+        """
         # First try to get stores from injected container
         if self._stores is not None and hasattr(self._stores, "strategy_store"):
             self.strategy_store = self._stores.strategy_store
@@ -210,7 +262,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 self.strategy_store = None
 
     def _init_metrics(self) -> None:
-        """Initialize Prometheus metrics for monitoring."""
+        """
+        Initialize Prometheus metrics for monitoring.
+        """
         from ml.config.names import LABEL_INSTRUMENT
         from ml.config.names import LABEL_ORDER_SIDE
         from ml.config.names import LABEL_SIGNAL_SOURCE
@@ -280,7 +334,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._signal_to_trade_latency = None
 
     def _init_optional_components(self) -> None:
-        """Initialize optional sub-components (position sizer, risk manager, etc.)."""
+        """
+        Initialize optional sub-components (position sizer, risk manager, etc.).
+        """
         try:
             from ml.strategies.analytics import AnalyticsConfig
             from ml.strategies.analytics import PerformanceTracker
@@ -359,7 +415,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             )
 
     def _init_components(self) -> None:
-        """Initialize the 6 decomposed components."""
+        """
+        Initialize the 6 decomposed components.
+        """
         strategy_id = str(self.id)
 
         # 1. Signal Routing Component
@@ -389,7 +447,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             stop_loss_pct=self._config.stop_loss_pct,
             take_profit_pct=self._config.take_profit_pct,
             max_positions=self._config.max_positions,
-            is_backtesting=getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else False,
+            is_backtesting=(
+                getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else False
+            ),
             model_signals=self._model_signals,
         )
 
@@ -404,6 +464,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             instrument_id=self._config.instrument_id,
             log=self.log,
             strategy_id=strategy_id,
+            allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
         )
 
         # 4. Order Submission Component
@@ -413,7 +474,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             circuit_breaker=self._order_breaker,
             performance_tracker=self.performance,
             cache=self.cache if hasattr(self, "cache") else None,
-            submit_order_callback=self.submit_order if hasattr(self, "submit_order") else None,
+            submit_order_callback=self._resolve_submit_order_callback(),
             log=self.log,
             instrument_id=self._config.instrument_id,
             trader_id=self.trader_id if hasattr(self, "trader_id") else None,
@@ -426,13 +487,18 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             strategy_id=strategy_id,
             instrument_id=self._config.instrument_id,
             signal_client_id=getattr(self._config, "signal_client_id", None),
+            signal_source=getattr(self._config, "ml_signal_source", None),
             target_model_ids=self.target_model_ids,
             aggregation_mode=self.aggregation_mode,
             position_size_pct=self._config.position_size_pct,
             min_confidence=self._config.min_confidence,
             execute_trades=self._config.execute_trades,
-            subscribe_data_callback=self.subscribe_data if hasattr(self, "subscribe_data") else None,
-            subscribe_instrument_callback=self.subscribe_instrument if hasattr(self, "subscribe_instrument") else None,
+            subscribe_data_callback=(
+                self.subscribe_data if hasattr(self, "subscribe_data") else None
+            ),
+            subscribe_instrument_callback=(
+                self.subscribe_instrument if hasattr(self, "subscribe_instrument") else None
+            ),
             log=self.log,
         )
 
@@ -449,49 +515,63 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
 
     @property
     def feature_store(self) -> object | None:
-        """Access the feature store from the injected stores container."""
+        """
+        Access the feature store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "feature_store"):
             return cast(object, self._stores.feature_store)
         return None
 
     @property
     def model_store(self) -> object | None:
-        """Access the model store from the injected stores container."""
+        """
+        Access the model store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "model_store"):
             return cast(object, self._stores.model_store)
         return None
 
     @property
     def data_store(self) -> object | None:
-        """Access the data store from the injected stores container."""
+        """
+        Access the data store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "data_store"):
             return cast(object, self._stores.data_store)
         return None
 
     @property
     def feature_registry(self) -> object | None:
-        """Access the feature registry from the injected stores container."""
+        """
+        Access the feature registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "feature_registry"):
             return cast(object, self._stores.feature_registry)
         return None
 
     @property
     def model_registry(self) -> object | None:
-        """Access the model registry from the injected stores container."""
+        """
+        Access the model registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "model_registry"):
             return cast(object, self._stores.model_registry)
         return None
 
     @property
     def strategy_registry(self) -> object | None:
-        """Access the strategy registry from the injected stores container."""
+        """
+        Access the strategy registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "strategy_registry"):
             return cast(object, self._stores.strategy_registry)
         return None
 
     @property
     def data_registry(self) -> object | None:
-        """Access the data registry from the injected stores container."""
+        """
+        Access the data registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "data_registry"):
             return cast(object, self._stores.data_registry)
         return None
@@ -689,11 +769,18 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         if self._decision_persister is None:
             return
 
+        self._decision_persister.update_dependencies(
+            strategy_store=self.strategy_store,
+            bus_publisher=self._bus_publisher,
+        )
+
         # Update component state
         self._decision_persister.update_state(
             active_positions=self._active_positions,
             pending_orders=self._pending_orders,
-            is_backtesting=getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else False,
+            is_backtesting=(
+                getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else False
+            ),
             model_signals=self._model_signals,
         )
 
@@ -741,6 +828,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._position_manager.update_config(
                 cache=self.cache,
                 portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
             )
 
         return self._position_manager.calculate_position_size()
@@ -770,6 +858,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._position_manager.update_config(
                 cache=self.cache,
                 portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
             )
 
         return self._position_manager.size_and_validate(signal)
@@ -855,7 +944,8 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             # Update component config
             self._order_submitter.update_config(
                 cache=self.cache if hasattr(self, "cache") else None,
-                submit_order_callback=self.submit_order if hasattr(self, "submit_order") else None,
+                submit_order_callback=self._resolve_submit_order_callback(),
+                order_executor=self.order_executor if hasattr(self, "order_executor") else None,
                 trader_id=self.trader_id if hasattr(self, "trader_id") else None,
                 clock=self.clock if hasattr(self, "clock") else None,
             )
@@ -894,15 +984,25 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         if self._order_submitter is None:
             return None
 
+        if getattr(self, "order_executor", None) is None:
+            return self._place_market_order(
+                side=side,
+                quantity=quantity,
+                reduce_only=reduce_only,
+            )
+
         # Update component config
         self._order_submitter.update_config(
             cache=self.cache if hasattr(self, "cache") else None,
-            submit_order_callback=self.submit_order if hasattr(self, "submit_order") else None,
+            submit_order_callback=self._resolve_submit_order_callback(),
+            order_executor=self.order_executor if hasattr(self, "order_executor") else None,
             trader_id=self.trader_id if hasattr(self, "trader_id") else None,
             clock=self.clock if hasattr(self, "clock") else None,
         )
 
-        instrument = self.cache.instrument(self._config.instrument_id) if hasattr(self, "cache") else None
+        instrument = (
+            self.cache.instrument(self._config.instrument_id) if hasattr(self, "cache") else None
+        )
 
         order_id = self._order_submitter.submit_smart_order(
             signal=signal,
@@ -947,7 +1047,8 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             # Update component config
             self._order_submitter.update_config(
                 cache=self.cache if hasattr(self, "cache") else None,
-                submit_order_callback=self.submit_order if hasattr(self, "submit_order") else None,
+                submit_order_callback=self._resolve_submit_order_callback(),
+                order_executor=self.order_executor if hasattr(self, "order_executor") else None,
                 trader_id=self.trader_id if hasattr(self, "trader_id") else None,
                 clock=self.clock if hasattr(self, "clock") else None,
             )
@@ -1133,7 +1234,11 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
                 model_predictions=model_predictions,
-                is_live=not getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else True,
+                is_live=(
+                    not getattr(self.cache, "is_backtesting", False)
+                    if hasattr(self, "cache")
+                    else True
+                ),
             )
 
     # -------------------------------------------------------------------------
@@ -1229,7 +1334,6 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
     def on_order_filled(self, event: Any) -> None:
         """
         Handle order filled events for position tracking.
-
         """
         super().on_order_filled(event)
 
@@ -1312,5 +1416,4 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
 __all__ = [
     "BaseMLStrategyFacade",
     "SimpleMLStrategyFacade",
-    "_use_legacy_strategy_base",
 ]
