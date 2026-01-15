@@ -15,6 +15,7 @@ htmlcov/
 .claude/
 .playwright-mcp/
 .import_linter_cache/
+.worktrees/
 
 
 # Git
