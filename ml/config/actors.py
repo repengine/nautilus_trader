@@ -123,6 +123,7 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     onnx_runtime_config: OnnxRuntimeConfig | None = None
     # FeatureStore integration
     use_feature_store: bool = False
+    enable_parity_smoke_check: bool = False
     db_connection: str | None = msgspec.field(default_factory=_default_actor_db_connection)
     persist_features: bool = True
     pipeline_spec: Any | None = None

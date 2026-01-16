@@ -8,6 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 from ml.stores.data_store_facade import DataStore
 from ml.config.events import EventStatus, Source, Stage
@@ -183,6 +184,7 @@ def test_no_duplicate_publish_for_features(n: int) -> None:
             feature_store=cast(Any, feature_store),
             model_store=cast(Any, model_store),
             strategy_store=cast(Any, strategy_store),
+            earnings_store=DummyEarningsStore(),
             publisher=pub,
             enable_publishing=True,
         ),
@@ -233,6 +235,7 @@ def test_no_duplicate_publish_for_predictions(n: int) -> None:
             feature_store=cast(Any, feature_store),
             model_store=cast(Any, model_store),
             strategy_store=cast(Any, strategy_store),
+            earnings_store=DummyEarningsStore(),
             publisher=pub,
             enable_publishing=True,
         ),
@@ -274,6 +277,7 @@ def test_no_duplicate_publish_for_signals(n: int) -> None:
             feature_store=cast(Any, feature_store),
             model_store=cast(Any, model_store),
             strategy_store=cast(Any, strategy_store),
+            earnings_store=DummyEarningsStore(),
             publisher=pub,
             enable_publishing=True,
         ),

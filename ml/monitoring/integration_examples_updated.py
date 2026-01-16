@@ -425,12 +425,13 @@ def example_basic_monitoring() -> None:
     """
     Demonstrate basic monitoring setup.
     """
+    from ml.features import FeatureConfig
     from ml.features import FeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
     # Initialize components
     catalog = ParquetDataCatalog("./data")
-    feature_engineer = FeatureEngineer()
+    feature_engineer = FeatureEngineer(FeatureConfig())
     metrics_manager = ExtendedMetricsManager()
 
     # Create monitored pipeline
@@ -456,6 +457,7 @@ def example_production_monitoring() -> None:
     """
     Demonstrate production-grade monitoring with Prometheus export.
     """
+    from ml.features import FeatureConfig
     from ml.features import FeatureEngineer
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -464,7 +466,7 @@ def example_production_monitoring() -> None:
 
     # Setup components
     catalog = ParquetDataCatalog("./data")
-    feature_engineer = FeatureEngineer()
+    feature_engineer = FeatureEngineer(FeatureConfig())
 
     # Create monitored components
     monitored_catalog = MonitoredDataCatalog(catalog, metrics_manager)

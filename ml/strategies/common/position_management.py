@@ -22,9 +22,10 @@ from ml.strategies.common.decision_persistence import _SafeLogger
 
 
 if TYPE_CHECKING:
-    from ml.actors.base import MLSignal
     from nautilus_trader.model.objects import Quantity
     from nautilus_trader.model.position import Position
+
+    from ml.actors.base import MLSignal
 
 
 @runtime_checkable
@@ -956,7 +957,6 @@ class PositionManagementComponent:
                         strategy_id=self._strategy_id,
                         instrument=str(signal.instrument_id),
                     )
-                    return None
             elif self._allow_min_quantity_fallback and not self._portfolio_has_account(instrument):
                 self._emit_fallback_metric("risk_manager_no_account")
                 self._log.warning(
@@ -964,21 +964,20 @@ class PositionManagementComponent:
                     strategy_id=self._strategy_id,
                     instrument=str(signal.instrument_id),
                 )
-            else:
-                try:
-                    approved_value_qty = self._risk_manager.check_position(
-                        proposed_size=proposed_value_qty,
-                        instrument=instrument.id,
-                        portfolio=self._portfolio,
-                    )
-                except Exception as exc:
-                    self._log.debug(
-                        "ml_strategy.risk_manager_failed",
-                        strategy_id=self._strategy_id,
-                        exc_info=True,
-                        error=str(exc),
-                    )
-                    return None
+            try:
+                approved_value_qty = self._risk_manager.check_position(
+                    proposed_size=proposed_value_qty,
+                    instrument=instrument.id,
+                    portfolio=self._portfolio,
+                )
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.risk_manager_failed",
+                    strategy_id=self._strategy_id,
+                    exc_info=True,
+                    error=str(exc),
+                )
+                return None
 
         if approved_value_qty is None:
             return None

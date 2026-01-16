@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, TYPE_CHECKING, cast
 
@@ -11,6 +12,8 @@ from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.config.events import EventStatus, Source, Stage
 from ml.core.integration import MLIntegrationManager
+from ml.core.common.actor_factory import ActorFactoryComponent
+from ml.core.common.observability import ObservabilityComponent
 from ml.observability.service import ObservabilityService
 from ml.registry.dataclasses import (
     DataContract,
@@ -272,6 +275,7 @@ class SignalActorHarness:
     _feature_store: Any | None = None
     _indicator_manager: Any | None = None
     _feature_engineer: Any | None = None
+    _registry_feature_calculator: Any | None = None
     _feature_buffer: npt.NDArray[np.float32] | None = None
     _last_feature_time_ns: int = 0
     _publish_signal: Callable[[Any], None] = field(default_factory=lambda: lambda _sig: None)
@@ -438,6 +442,20 @@ def build_ml_trading_strategy_stub(
     return cast(MLTradingStrategy, _StrategyShim())
 
 
+class _StubEventIngestion:
+    """Minimal event ingestion stub for MLIntegrationManager tests."""
+
+    def ingest_events(self, config: object) -> Path:
+        out_dir = getattr(config, "out_dir", Path("."))
+        target = Path(out_dir) / "events.parquet"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
+        return target
+
+    def maybe_run_backfill_on_start(self) -> None:
+        return None
+
+
 def build_integration_manager_stub(
     *,
     service: ObservabilityService | None = None,
@@ -456,7 +474,16 @@ def build_integration_manager_stub(
     mgr.strategy_registry = RegistryTestStub()
     mgr.data_registry = RegistryTestStub()
     mgr.partition_manager = None
+    mgr._observability = ObservabilityComponent(stores=[])
     mgr.observability_service = service or ObservabilityService()
+    mgr._event_ingestion = _StubEventIngestion()
+    mgr._actor_factory = ActorFactoryComponent(
+        db_connection=mgr.db_connection,
+        feature_store=mgr.feature_store,
+        model_store=mgr.model_store,
+        strategy_store=mgr.strategy_store,
+        data_store=mgr.data_store,
+    )
     mgr._obs_flusher = None
     mgr._obs_async_worker = None
     mgr._obs_stop_event = None

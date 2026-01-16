@@ -436,7 +436,29 @@ class EvaluationComponent:
         }
 
 
+def calculate_regression_metrics(
+    y_true: npt.NDArray[np.float64],
+    y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
+) -> dict[str, float]:
+    """
+    Calculate regression metrics from numpy arrays.
+    """
+    mse = float(np.mean((y_true - y_pred) ** 2))
+    rmse = float(np.sqrt(mse))
+    mae = float(np.mean(np.abs(y_true - y_pred)))
+    ss_res = float(np.sum((y_true - y_pred) ** 2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+    r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+    return {
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "r2_score": r2,
+    }
+
+
 __all__ = [
     "EvaluationComponent",
     "EvaluationTrainerProtocol",
+    "calculate_regression_metrics",
 ]

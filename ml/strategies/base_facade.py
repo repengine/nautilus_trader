@@ -17,6 +17,8 @@ Components Wired:
 
 from __future__ import annotations
 
+import os
+
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
@@ -1413,7 +1415,15 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
             )
 
 
+def _use_legacy_strategy_base() -> bool:
+    """
+    Return True when legacy strategy base should be used.
+    """
+    return os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "").strip().lower() in {"1", "true", "yes"}
+
+
 __all__ = [
     "BaseMLStrategyFacade",
     "SimpleMLStrategyFacade",
+    "_use_legacy_strategy_base",
 ]

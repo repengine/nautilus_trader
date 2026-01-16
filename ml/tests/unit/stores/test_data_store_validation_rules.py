@@ -19,6 +19,7 @@ from ml.registry.dataclasses import (
     ValidationRule,
     ValidationRuleType,
 )
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 
 
@@ -65,6 +66,7 @@ def _make_store_with_contract(rules: list[ValidationRule]) -> DataStore:
         feature_store=cast(Any, DummyStore()),
         model_store=cast(Any, DummyStore()),
         strategy_store=cast(Any, DummyStore()),
+        earnings_store=cast(Any, DummyEarningsStore()),
         fail_on_validation_error=False,
     )
 
@@ -226,6 +228,7 @@ def _make_store_with_thresholds(null_rate_threshold: float) -> DataStore:
     reg.get_contract.return_value = contract
 
     from ml.stores.base import DummyStore
+    from ml.features.earnings.store import DummyEarningsStore
     from typing import Any, cast as _cast
 
     return DataStore(
@@ -234,6 +237,7 @@ def _make_store_with_thresholds(null_rate_threshold: float) -> DataStore:
         feature_store=_cast(Any, DummyStore()),
         model_store=_cast(Any, DummyStore()),
         strategy_store=_cast(Any, DummyStore()),
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 

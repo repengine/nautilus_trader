@@ -51,6 +51,7 @@ from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
+from ml.features.earnings.store import DummyEarningsStore
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
@@ -749,6 +750,7 @@ class TestEndToEndBenchmarks:
         )
         data_store = DataStore(
             connection_string=cloned_test_database,
+            earnings_store=DummyEarningsStore(),
         )
 
         # Create mock actor components

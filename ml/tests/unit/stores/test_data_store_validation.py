@@ -53,6 +53,8 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.utils import compute_dataset_schema_hash
 from ml.ml_types import PandasDF, PolarsDF
+from ml.features.earnings.store import DummyEarningsStore
+from ml.features.earnings.store import EarningsStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.model_store import ModelStore
@@ -265,6 +267,7 @@ def data_store(
         feature_store=cast(FeatureStore, mock_stores_bundle["feature_store"]),
         model_store=cast(ModelStore, mock_stores_bundle["model_store"]),
         strategy_store=cast(StrategyStore, mock_stores_bundle["strategy_store"]),
+        earnings_store=cast(EarningsStore, mock_stores_bundle["earnings_store"]),
         raw_writer=_UnitRawWriter(),
         fail_on_validation_error=True,
         allow_schema_migration=False,
@@ -765,7 +768,7 @@ class TestFailClosedWrites:
         valid_bar_data[0]["close"] = -1.0
 
         # Should not raise in monitor-only mode
-        with patch("ml.stores.data_store_facade.logger") as mock_logger:
+        with patch("ml.stores.common.data_writer.logger") as mock_logger:
             event = data_store.write_ingestion(
                 dataset_id="test_bars",
                 records=_maybe_polars_frame(valid_bar_data),
@@ -807,6 +810,7 @@ class TestSchemaMigration:
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
+            earnings_store=DummyEarningsStore(),
             fail_on_validation_error=True,
             allow_schema_migration=True,
             schema_migration_window_hours=1,
@@ -814,16 +818,16 @@ class TestSchemaMigration:
 
         # Start migration window
         manifest = mock_registry.get_manifest.return_value
-        store._start_migration_window("test_bars", manifest)
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
 
-        assert store._is_in_migration_window("test_bars") is True
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is True
 
         # Simulate window expiration
-        store._schema_migration_state["test_bars"]["start_time"] = (
+        store._contract_enforcer._schema_migration_state["test_bars"]["start_time"] = (
             time.time_ns() - 2 * 3600 * 1e9  # 2 hours ago
         )
 
-        assert store._is_in_migration_window("test_bars") is False
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
 
     def test_schema_migration_disabled_by_default(
         self,
@@ -840,19 +844,20 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,  # Explicitly disabled
         )
 
         # Should never be in migration window when disabled
-        assert store._is_in_migration_window("test_bars") is False
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
 
         # Even if we manually set state, should return False
-        store._schema_migration_state["test_bars"] = {
+        store._contract_enforcer._schema_migration_state["test_bars"] = {
             "start_time": time.time_ns(),
             "version": "1.0.0",
             "schema_hash": "test_hash",
         }
-        assert store._is_in_migration_window("test_bars") is False
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
 
     def test_migration_window_automatic_cleanup(
         self,
@@ -869,24 +874,25 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
 
         # Set up expired migration window
         expired_time = time.time_ns() - 2 * 3600 * 1e9  # 2 hours ago
-        store._schema_migration_state["test_bars"] = {
+        store._contract_enforcer._schema_migration_state["test_bars"] = {
             "start_time": expired_time,
             "version": "1.0.0",
             "schema_hash": "test_hash",
         }
 
         # Should be in state initially
-        assert "test_bars" in store._schema_migration_state
+        assert "test_bars" in store._contract_enforcer._schema_migration_state
 
         # Check should clean up expired state
-        assert store._is_in_migration_window("test_bars") is False
-        assert "test_bars" not in store._schema_migration_state
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
+        assert "test_bars" not in store._contract_enforcer._schema_migration_state
 
     def test_schema_hash_mismatch_outside_migration_window(
         self,
@@ -904,6 +910,7 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,  # No migration allowed
         )
 
@@ -940,6 +947,7 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,
         )
 
@@ -986,6 +994,7 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=2,  # 2 hour window
         )
@@ -993,24 +1002,24 @@ class TestSchemaMigration:
         current_time = time.time_ns()
 
         # Test within window - just started
-        store._schema_migration_state["test_bars"] = {
+        store._contract_enforcer._schema_migration_state["test_bars"] = {
             "start_time": current_time - (30 * 60 * 1e9),  # 30 minutes ago
             "version": "1.0.0",
             "schema_hash": "test_hash",
         }
-        assert store._is_in_migration_window("test_bars") is True
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is True
 
         # Test within window - near end
-        store._schema_migration_state["test_bars"]["start_time"] = current_time - (
+        store._contract_enforcer._schema_migration_state["test_bars"]["start_time"] = current_time - (
             119 * 60 * 1e9
         )  # 119 minutes ago (< 2 hours)
-        assert store._is_in_migration_window("test_bars") is True
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is True
 
         # Test just outside window
-        store._schema_migration_state["test_bars"]["start_time"] = current_time - (
+        store._contract_enforcer._schema_migration_state["test_bars"]["start_time"] = current_time - (
             121 * 60 * 1e9
         )  # 121 minutes ago (> 2 hours)
-        assert store._is_in_migration_window("test_bars") is False
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
 
     def test_schema_migration_prevents_accidental_writes(
         self,
@@ -1031,6 +1040,7 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             fail_on_validation_error=True,
             allow_schema_migration=False,  # No migration window
         )
@@ -1072,13 +1082,14 @@ class TestSchemaMigration:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
 
         # Start migration window
         manifest = mock_registry.get_manifest.return_value
-        store._start_migration_window("test_bars", manifest)
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
 
         # Modify data to create schema mismatch
         modified_data = [row.copy() for row in valid_bar_data]
@@ -1115,6 +1126,7 @@ class TestSchemaMigration:
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
         )
 
@@ -1144,8 +1156,8 @@ class TestSchemaMigration:
         _ = store._get_manifest("test_bars")
 
         # Clear cache to simulate version update
-        store._manifest_cache.clear()
-        store._schema_migration_state["test_bars"] = {"version": "1.0.0"}
+        store._contract_enforcer._manifest_cache.clear()
+        store._contract_enforcer._schema_migration_state["test_bars"] = {"version": "1.0.0"}
 
         # Create manifest with version 2.0.0
         manifest2 = DatasetManifest(
@@ -1169,8 +1181,8 @@ class TestSchemaMigration:
         mock_registry.get_manifest.return_value = manifest2
 
         # Should detect version change and start migration
-        target = store
-        with patch.object(target, "_start_migration_window") as mock_start:
+        target = store._contract_enforcer
+        with patch.object(target, "start_migration_window") as mock_start:
             _ = store._get_manifest("test_bars")
             mock_start.assert_called_once()
 
@@ -1195,13 +1207,14 @@ class TestSchemaMigration:
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
+            earnings_store=DummyEarningsStore(),
             fail_on_validation_error=True,
             allow_schema_migration=True,
         )
 
         # Start migration window
         manifest = mock_registry.get_manifest.return_value
-        store._start_migration_window("test_bars", manifest)
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
 
         # Add extra column (schema change)
         for row in valid_bar_data:
@@ -1365,6 +1378,7 @@ class TestPropertyBased:
             feature_store=MockBuilder.store_with_data(store_type="feature"),
             model_store=MockBuilder.store_with_data(store_type="model"),
             strategy_store=MockBuilder.store_with_data(store_type="strategy"),
+            earnings_store=DummyEarningsStore(),
             fail_on_validation_error=True,
         )
 
@@ -1477,6 +1491,7 @@ class TestPropertyBased:
             feature_store=MockBuilder.store_with_data(store_type="feature"),
             model_store=MockBuilder.store_with_data(store_type="model"),
             strategy_store=MockBuilder.store_with_data(store_type="strategy"),
+            earnings_store=DummyEarningsStore(),
         )
 
         # Generate data within and outside ranges
@@ -1609,6 +1624,7 @@ class TestPropertyBased:
             feature_store=MockBuilder.store_with_data(store_type="feature"),
             model_store=MockBuilder.store_with_data(store_type="model"),
             strategy_store=MockBuilder.store_with_data(store_type="strategy"),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,
         )
 
@@ -1698,6 +1714,7 @@ class TestSchemaMigrationContracts:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,
             fail_on_validation_error=True,
         )
@@ -1756,6 +1773,7 @@ class TestSchemaMigrationContracts:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -1773,20 +1791,20 @@ class TestSchemaMigrationContracts:
 
         # CONTRACT 2: Controlled access during migration window
         manifest = mock_registry.get_manifest.return_value
-        store._start_migration_window("test_bars", manifest)
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
 
         success, _error, details = store.preflight_check("test_bars", df, strict=False)
         assert success is True
         assert details.get("migration_mode") is True
 
         # CONTRACT 3: Access expires after window
-        store._schema_migration_state["test_bars"]["start_time"] = (
+        store._contract_enforcer._schema_migration_state["test_bars"]["start_time"] = (
             time.time_ns() - 2 * 3600 * 1e9  # 2 hours ago
         )
 
         # Check window expiration triggers cleanup
-        assert store._is_in_migration_window("test_bars") is False
-        assert "test_bars" not in store._schema_migration_state  # Auto-cleanup
+        assert store._contract_enforcer.is_in_migration_window("test_bars") is False
+        assert "test_bars" not in store._contract_enforcer._schema_migration_state  # Auto-cleanup
 
         # And preflight should now fail
         success, _error, _details = store.preflight_check("test_bars", df, strict=True)
@@ -1813,6 +1831,7 @@ class TestSchemaMigrationContracts:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=False,
         )
 
@@ -1861,6 +1880,7 @@ class TestSchemaMigrationContracts:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -1868,30 +1888,30 @@ class TestSchemaMigrationContracts:
         manifest = mock_registry.get_manifest.return_value
 
         # CONTRACT 1: Multiple starts should be safe
-        store._start_migration_window("test_bars", manifest)
-        initial_start_time = store._schema_migration_state["test_bars"]["start_time"]
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
+        initial_start_time = store._contract_enforcer._schema_migration_state["test_bars"]["start_time"]
 
-        store._start_migration_window("test_bars", manifest)
-        second_start_time = store._schema_migration_state["test_bars"]["start_time"]
+        store._contract_enforcer.start_migration_window("test_bars", manifest)
+        second_start_time = store._contract_enforcer._schema_migration_state["test_bars"]["start_time"]
 
         # Should update the start time (latest wins)
         assert second_start_time >= initial_start_time
 
         # CONTRACT 2: Window checks should be consistent
-        is_in_window_1 = store._is_in_migration_window("test_bars")
-        is_in_window_2 = store._is_in_migration_window("test_bars")
+        is_in_window_1 = store._contract_enforcer.is_in_migration_window("test_bars")
+        is_in_window_2 = store._contract_enforcer.is_in_migration_window("test_bars")
         assert is_in_window_1 == is_in_window_2
 
         # CONTRACT 3: Cleanup should be safe to call multiple times
-        store._schema_migration_state["test_bars"]["start_time"] = (
+        store._contract_enforcer._schema_migration_state["test_bars"]["start_time"] = (
             time.time_ns() - 2 * 3600 * 1e9  # Expired
         )
 
         # Multiple cleanup calls should be safe
-        store._is_in_migration_window("test_bars")  # Triggers cleanup
-        store._is_in_migration_window("test_bars")  # Should not error
+        store._contract_enforcer.is_in_migration_window("test_bars")  # Triggers cleanup
+        store._contract_enforcer.is_in_migration_window("test_bars")  # Should not error
 
-        assert "test_bars" not in store._schema_migration_state
+        assert "test_bars" not in store._contract_enforcer._schema_migration_state
 
     def test_contract_schema_hash_determinism(
         self,
@@ -1909,6 +1929,7 @@ class TestSchemaMigrationContracts:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
         )
 
         manifest = mock_registry.get_manifest.return_value
@@ -1968,6 +1989,7 @@ class TestNegativeEdgeCases:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
         )
 
         # Empty list
@@ -2020,6 +2042,7 @@ class TestNegativeEdgeCases:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
         )
 
         # Non-dictionary entries in list
@@ -2053,15 +2076,16 @@ class TestNegativeEdgeCases:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=0,
         )
 
         manifest = mock_registry.get_manifest.return_value
-        store_zero._start_migration_window("test_bars", manifest)
+        store_zero._contract_enforcer.start_migration_window("test_bars", manifest)
 
         # Should immediately expire
-        assert store_zero._is_in_migration_window("test_bars") is False
+        assert store_zero._contract_enforcer.is_in_migration_window("test_bars") is False
 
         # Very large window (should not overflow)
         store_large = data_store_cls(
@@ -2070,12 +2094,13 @@ class TestNegativeEdgeCases:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=8760,  # 1 year
         )
 
-        store_large._start_migration_window("test_bars", manifest)
-        assert store_large._is_in_migration_window("test_bars") is True
+        store_large._contract_enforcer.start_migration_window("test_bars", manifest)
+        assert store_large._contract_enforcer.is_in_migration_window("test_bars") is True
 
     def test_concurrent_migration_window_access(
         self,
@@ -2092,6 +2117,7 @@ class TestNegativeEdgeCases:
             feature_store=_store_mock(FeatureStore),
             model_store=_store_mock(ModelStore),
             strategy_store=_store_mock(StrategyStore),
+            earnings_store=DummyEarningsStore(),
             allow_schema_migration=True,
             schema_migration_window_hours=1,
         )
@@ -2100,23 +2126,23 @@ class TestNegativeEdgeCases:
 
         # Simulate rapid concurrent starts
         for i in range(10):
-            store._start_migration_window(f"dataset_{i}", manifest)
+            store._contract_enforcer.start_migration_window(f"dataset_{i}", manifest)
 
         # All should be in window
         for i in range(10):
-            assert store._is_in_migration_window(f"dataset_{i}") is True
+            assert store._contract_enforcer.is_in_migration_window(f"dataset_{i}") is True
 
         # Simulate rapid concurrent cleanups
         base_time = time.time_ns()
         for i in range(10):
-            store._schema_migration_state[f"dataset_{i}"]["start_time"] = base_time - (
+            store._contract_enforcer._schema_migration_state[f"dataset_{i}"]["start_time"] = base_time - (
                 2 * 3600 * 1e9
             )  # All expired
 
         # All should clean up properly
         for i in range(10):
-            assert store._is_in_migration_window(f"dataset_{i}") is False
-            assert f"dataset_{i}" not in store._schema_migration_state
+            assert store._contract_enforcer.is_in_migration_window(f"dataset_{i}") is False
+            assert f"dataset_{i}" not in store._contract_enforcer._schema_migration_state
 
 
 # ========================================================================

@@ -25,21 +25,34 @@ from ml.actors.common.signal_strategy import StrategySwapper
 from ml.actors.common.signal_strategy import ThresholdSignalStrategy
 from ml.actors.common.signal_strategy import ThresholdStrategy
 from ml.actors.signal_facade_impl import MLSignalActorFacade as MLSignalActor
-from ml.common.metrics_bootstrap import get_histogram
+from ml.common import metrics_bootstrap
+from ml.common.metrics_manager import MetricsManager
 from ml.config.actors import MLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
-from ml.config.names import FEATURE_TIME_BUCKETS
+from ml.config.names import FEATURE_TIME_BUCKETS, LABEL_ACTOR_ID
 
 
 AdaptiveSignal = MLSignal
 PerformanceMonitor = PerformanceMonitoringComponent
 
-_feature_time_by_feature_set_metric = get_histogram(
+_feature_time_by_feature_set_metric = metrics_bootstrap.get_histogram(
     "ml_feature_time_by_set_seconds",
     "Feature computation latency by feature_set_id",
     ["actor_id", "feature_set_id"],
     buckets=FEATURE_TIME_BUCKETS,
+)
+
+_metrics_manager = MetricsManager.default()
+_feature_parity_checks_total = _metrics_manager.counter(
+    "ml_feature_parity_checks_total",
+    "Total parity smoke-checks executed",
+    [LABEL_ACTOR_ID],
+)
+_feature_parity_drift = _metrics_manager.gauge(
+    "ml_feature_parity_drift",
+    "Max absolute feature difference in parity smoke-check",
+    [LABEL_ACTOR_ID],
 )
 
 

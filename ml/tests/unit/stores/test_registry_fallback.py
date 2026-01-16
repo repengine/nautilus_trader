@@ -15,6 +15,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -72,6 +73,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
         feature_store=mock_feat,
         model_store=mock_model,
         strategy_store=mock_strat,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
     registry = store._get_data_registry()

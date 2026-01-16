@@ -20,6 +20,7 @@ from ml.registry.dataclasses import (
     ValidationRule,
     ValidationRuleType,
 )
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
 
@@ -141,6 +142,7 @@ def test_market_data_writer_uses_datastore_and_emits_success(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         raw_writer=_FakeRawWriter(),
         fail_on_validation_error=False,
     )

@@ -17,9 +17,11 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.events_util import stage_for_dataset_type
 from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import EventStatus
 from ml.config.events import Source
+from ml.config.events import Stage
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
 from ml.stores.validation_types import DataEvent
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
     from ml.actors.types import ModelPrediction
     from ml.actors.types import StrategySignal
     from ml.registry.protocols import RegistryProtocol
+    from ml.stores.common.protocols import EventEmitterProtocol
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
     from ml.stores.feature_store_facade import FeatureStore
@@ -114,6 +117,7 @@ class DataWriterComponent:
         validator: SchemaValidatorProtocol,
         registry: RegistryProtocol,
         *,
+        event_emitter: EventEmitterProtocol | None = None,
         raw_writer: RawIngestionWriterProtocol | None = None,
         fail_on_validation_error: bool = True,
     ) -> None:
@@ -127,6 +131,7 @@ class DataWriterComponent:
             earnings_store: EarningsStore for earnings data
             validator: Schema validator component
             registry: Data registry for manifest/contract lookup
+            event_emitter: Optional event emitter for registry/bus events
             raw_writer: Raw ingestion writer for Parquet backup (dual-write)
             fail_on_validation_error: If True, raise on validation failures
 
@@ -135,6 +140,7 @@ class DataWriterComponent:
         self._model_store = model_store
         self._strategy_store = strategy_store
         self._earnings_store = earnings_store
+        self._event_emitter = event_emitter
         self._raw_writer = raw_writer
         self._validator = validator
         self._registry = registry
@@ -148,7 +154,7 @@ class DataWriterComponent:
         self,
         dataset_id: str,
         records: list[dict[str, Any]] | DataFrameLike,
-        source: str,
+        source: Source | str,
         run_id: str,
         instrument_id: str | None = None,
     ) -> DataEvent:
@@ -239,51 +245,167 @@ class DataWriterComponent:
         # Enforce quality thresholds
         self._enforce_quality_report(dataset_id, contract, quality_report)
 
-        # Calculate timestamp range
+        # Calculate timestamp range and stage
         ts_min, ts_max = self._extract_timestamp_range(data_frame, manifest)
-
-        # Determine target store based on dataset type
         dataset_type = manifest.dataset_type
+        stage = stage_for_dataset_type(dataset_type)
 
-        try:
-            if dataset_type == DatasetType.FEATURES:
-                # Write to FeatureStore
-                self._write_to_feature_store(data_frame, instrument_id)
-            elif dataset_type == DatasetType.PREDICTIONS:
-                # Write to ModelStore
-                self._write_to_model_store(data_frame, instrument_id)
-            elif dataset_type == DatasetType.SIGNALS:
-                # Write to StrategyStore
-                self._write_to_strategy_store(data_frame, instrument_id)
-            elif dataset_type in (DatasetType.BARS, DatasetType.QUOTES, DatasetType.TRADES):
-                # Write to appropriate ingestion target
-                logger.debug("Writing %s data for %s", dataset_type, instrument_id)
-            else:
-                logger.warning("Unknown dataset type: %s", dataset_type)
-
-        except Exception as exc:
-            logger.error(
-                "Write failed for %s: %s",
-                dataset_id,
-                exc,
-                exc_info=True,
-            )
-            # Record write rejection metric
-            if HAS_PROMETHEUS:
-                write_rejection_counter.labels(
-                    dataset_id=dataset_id,
-                    reason="write_failed",
-                ).inc()
-            raise RuntimeError(f"Write operation failed for {dataset_id}: {exc}") from exc
-
-        # Calculate write duration
-        write_duration_ms = (time.perf_counter() - start_time) * 1000.0
-
-        # Create success event
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
         ts_min_s = _sanitize(int(ts_min), context="data_writer.write_ingestion:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_writer.write_ingestion:ts_max")
+
+        try:
+            record_count = len(data_frame)
+        except Exception:
+            record_count = 0
+
+        base_metadata: dict[str, Any] = {"quality_score": quality_report.quality_score}
+
+        if dataset_type == DatasetType.FEATURES:
+            try:
+                self._write_to_feature_store(data_frame, instrument_id)
+            except Exception as exc:
+                self._emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id or "UNKNOWN",
+                    stage=stage,
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min_s,
+                    ts_max=ts_max_s,
+                    count=0,
+                    status=EventStatus.FAILED,
+                    error=str(exc),
+                    metadata=base_metadata,
+                )
+                raise RuntimeError(f"Write operation failed for {dataset_id}: {exc}") from exc
+
+        elif dataset_type == DatasetType.PREDICTIONS:
+            try:
+                self._write_to_model_store(data_frame, instrument_id)
+            except Exception as exc:
+                self._emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id or "UNKNOWN",
+                    stage=stage,
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min_s,
+                    ts_max=ts_max_s,
+                    count=0,
+                    status=EventStatus.FAILED,
+                    error=str(exc),
+                    metadata=base_metadata,
+                )
+                raise RuntimeError(f"Write operation failed for {dataset_id}: {exc}") from exc
+
+        elif dataset_type == DatasetType.SIGNALS:
+            try:
+                self._write_to_strategy_store(data_frame, instrument_id)
+            except Exception as exc:
+                self._emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id or "UNKNOWN",
+                    stage=stage,
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min_s,
+                    ts_max=ts_max_s,
+                    count=0,
+                    status=EventStatus.FAILED,
+                    error=str(exc),
+                    metadata=base_metadata,
+                )
+                raise RuntimeError(f"Write operation failed for {dataset_id}: {exc}") from exc
+
+        else:
+            if self._raw_writer is not None:
+                try:
+                    written = self._raw_writer.write(
+                        dataset_type=dataset_type,
+                        data=data_frame,
+                    )
+                    if written <= 0:
+                        event = self._create_partial_event(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id or "UNKNOWN",
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min_s,
+                            ts_max=ts_max_s,
+                            record_count=record_count,
+                            reason="no_records_written",
+                            metadata=base_metadata,
+                        )
+                        self._emit_event(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id or "UNKNOWN",
+                            stage=stage,
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min_s,
+                            ts_max=ts_max_s,
+                            count=record_count,
+                            status=EventStatus.PARTIAL,
+                            metadata=event.metadata,
+                        )
+                        return event
+                except Exception as exc:
+                    event = self._create_failed_event(
+                        dataset_id=dataset_id,
+                        instrument_id=instrument_id or "UNKNOWN",
+                        source=source,
+                        run_id=run_id,
+                        ts_min=ts_min_s,
+                        ts_max=ts_max_s,
+                        record_count=0,
+                        error=str(exc),
+                    )
+                    self._emit_event(
+                        dataset_id=dataset_id,
+                        instrument_id=instrument_id or "UNKNOWN",
+                        stage=stage,
+                        source=source,
+                        run_id=run_id,
+                        ts_min=ts_min_s,
+                        ts_max=ts_max_s,
+                        count=0,
+                        status=EventStatus.FAILED,
+                        error=str(exc),
+                        metadata=event.metadata,
+                    )
+                    return event
+            else:
+                if not self._fail_on_validation_error:
+                    event = self._create_partial_event(
+                        dataset_id=dataset_id,
+                        instrument_id=instrument_id or "UNKNOWN",
+                        source=source,
+                        run_id=run_id,
+                        ts_min=ts_min_s,
+                        ts_max=ts_max_s,
+                        record_count=record_count,
+                        reason="raw_writer_missing",
+                        metadata=base_metadata,
+                    )
+                    self._emit_event(
+                        dataset_id=dataset_id,
+                        instrument_id=instrument_id or "UNKNOWN",
+                        stage=stage,
+                        source=source,
+                        run_id=run_id,
+                        ts_min=ts_min_s,
+                        ts_max=ts_max_s,
+                        count=record_count,
+                        status=EventStatus.PARTIAL,
+                        metadata=event.metadata,
+                    )
+                    return event
+                logger.info("Raw writer not configured; proceeding with success for %s", dataset_id)
+
+        # Calculate write duration
+        write_duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -294,17 +416,37 @@ class DataWriterComponent:
             run_id=run_id,
             ts_min=ts_min_s,
             ts_max=ts_max_s,
-            record_count=len(data_frame),
+            record_count=record_count,
             status=EventStatus.SUCCESS.value,
             metadata={
-                "quality_score": quality_report.quality_score,
+                **base_metadata,
                 "write_duration_ms": write_duration_ms,
             },
         )
 
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id or "UNKNOWN",
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min_s,
+            ts_max=ts_max_s,
+            count=record_count,
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id or "UNKNOWN",
+            source=source,
+            last_success_ns=ts_max_s,
+            count=record_count,
+        )
+
         logger.debug(
             "Wrote %d records for %s (quality=%.2f, duration=%.1fms)",
-            len(data_frame),
+            record_count,
             dataset_id,
             quality_report.quality_score,
             write_duration_ms,
@@ -369,6 +511,17 @@ class DataWriterComponent:
                     f"got {feature_data.instrument_id}",
                 )
 
+        stage = stage_for_dataset_type(DatasetType.FEATURES)
+
+        # Calculate timestamp range
+        ts_min = min(f.ts_event for f in features)
+        ts_max = max(f.ts_event for f in features)
+
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
+        ts_min_s = _sanitize(int(ts_min), context="data_writer.write_features:ts_min")
+        ts_max_s = _sanitize(int(ts_max), context="data_writer.write_features:ts_max")
+
         try:
             for feature in features:
                 self._feature_store.write_features(
@@ -381,17 +534,19 @@ class DataWriterComponent:
                 )
         except Exception as exc:
             logger.error("Feature store write failed", exc_info=True)
+            self._emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=ts_min_s,
+                ts_max=ts_max_s,
+                count=0,
+                status=EventStatus.FAILED,
+                error=str(exc),
+            )
             raise RuntimeError(f"Feature write failed: {exc}") from exc
-
-        # Calculate timestamp range
-        ts_min = min(f.ts_event for f in features)
-        ts_max = max(f.ts_event for f in features)
-
-        # Create success event
-        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-
-        ts_min_s = _sanitize(int(ts_min), context="data_writer.write_features:ts_min")
-        ts_max_s = _sanitize(int(ts_max), context="data_writer.write_features:ts_max")
 
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -405,6 +560,26 @@ class DataWriterComponent:
             record_count=len(features),
             status=EventStatus.SUCCESS.value,
             metadata={},
+        )
+
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min_s,
+            ts_max=ts_max_s,
+            count=len(features),
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            source=source,
+            last_success_ns=ts_max_s,
+            count=len(features),
         )
 
         logger.debug(
@@ -467,22 +642,40 @@ class DataWriterComponent:
             instrument_id=instrument_id,
         )
 
-        # Store predictions
-        try:
-            self._model_store.write_batch(predictions, emit_events=False, publish_bus=False)
-        except TypeError:
-            # Fallback for legacy API
-            self._model_store.write_batch(predictions)
+        stage = stage_for_dataset_type(DatasetType.PREDICTIONS)
 
         # Calculate timestamp range
         ts_min = min(p.ts_event for p in predictions)
         ts_max = max(p.ts_event for p in predictions)
 
-        # Create success event
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
         ts_min_s = _sanitize(int(ts_min), context="data_writer.write_predictions:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_writer.write_predictions:ts_max")
+
+        # Store predictions
+        try:
+            try:
+                self._model_store.write_batch(predictions, emit_events=False, publish_bus=False)
+            except TypeError:
+                # Fallback for legacy API
+                self._model_store.write_batch(predictions)
+        except Exception as exc:
+            logger.error("Model store write failed", exc_info=True)
+            self._emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=ts_min_s,
+                ts_max=ts_max_s,
+                count=0,
+                status=EventStatus.FAILED,
+                error=str(exc),
+                metadata={"model_id": model_id},
+            )
+            raise RuntimeError(f"Prediction write failed: {exc}") from exc
 
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -496,6 +689,26 @@ class DataWriterComponent:
             record_count=len(predictions),
             status=EventStatus.SUCCESS.value,
             metadata={"model_id": model_id},
+        )
+
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min_s,
+            ts_max=ts_max_s,
+            count=len(predictions),
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            source=source,
+            last_success_ns=ts_max_s,
+            count=len(predictions),
         )
 
         logger.debug(
@@ -559,18 +772,36 @@ class DataWriterComponent:
             instrument_id=instrument_id,
         )
 
-        # Store signals
-        self._strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
+        stage = stage_for_dataset_type(DatasetType.SIGNALS)
 
         # Calculate timestamp range
         ts_min = min(s.ts_event for s in signals)
         ts_max = max(s.ts_event for s in signals)
 
-        # Create success event
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
         ts_min_s = _sanitize(int(ts_min), context="data_writer.write_signals:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_writer.write_signals:ts_max")
+
+        # Store signals
+        try:
+            self._strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
+        except Exception as exc:
+            logger.error("Strategy store write failed", exc_info=True)
+            self._emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=ts_min_s,
+                ts_max=ts_max_s,
+                count=0,
+                status=EventStatus.FAILED,
+                error=str(exc),
+                metadata={"strategy_id": strategy_id},
+            )
+            raise RuntimeError(f"Signal write failed: {exc}") from exc
 
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
@@ -584,6 +815,26 @@ class DataWriterComponent:
             record_count=len(signals),
             status=EventStatus.SUCCESS.value,
             metadata={"strategy_id": strategy_id},
+        )
+
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min_s,
+            ts_max=ts_max_s,
+            count=len(signals),
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            source=source,
+            last_success_ns=ts_max_s,
+            count=len(signals),
         )
 
         logger.debug(
@@ -667,6 +918,7 @@ class DataWriterComponent:
         run_id_local = run_id or f"earnings_actual_{time.time_ns()}"
         ts_event_s = _sanitize_ts(int(ts_event), context="data_writer.write_earnings_actual:ts_event")
         ts_init_s = _sanitize_ts(int(ts_init), context="data_writer.write_earnings_actual:ts_init")
+        stage = stage_for_dataset_type(DatasetType.EARNINGS_ACTUALS)
 
         # Ensure dataset is registered
         self._ensure_dataset_registered(
@@ -723,6 +975,18 @@ class DataWriterComponent:
             )
         except Exception as exc:
             logger.error("Earnings actual write failed for %s", ticker, exc_info=True)
+            self._emit_event(
+                dataset_id=dataset_id,
+                instrument_id=ticker,
+                stage=stage,
+                source=source,
+                run_id=run_id_local,
+                ts_min=ts_event_s,
+                ts_max=ts_event_s,
+                count=0,
+                status=EventStatus.FAILED,
+                error=str(exc),
+            )
             raise RuntimeError(f"Earnings actual write failed: {exc}") from exc
 
         # Dual-write to raw_writer (Parquet backup) if available
@@ -759,6 +1023,26 @@ class DataWriterComponent:
                 "quality_score": quality_report.quality_score,
                 "raw_writer_status": raw_writer_status,
             },
+        )
+
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=stage,
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            count=1,
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            source=source,
+            last_success_ns=ts_event_s,
+            count=1,
         )
 
         logger.debug("Wrote earnings actual for %s", ticker)
@@ -819,6 +1103,7 @@ class DataWriterComponent:
         run_id_local = run_id or f"earnings_estimate_{time.time_ns()}"
         ts_event_s = _sanitize_ts(int(ts_event), context="data_writer.write_earnings_estimate:ts_event")
         ts_init_s = _sanitize_ts(int(ts_init), context="data_writer.write_earnings_estimate:ts_init")
+        stage = stage_for_dataset_type(DatasetType.EARNINGS_ESTIMATES)
 
         # Ensure dataset is registered
         self._ensure_dataset_registered(
@@ -863,6 +1148,18 @@ class DataWriterComponent:
             )
         except Exception as exc:
             logger.error("Earnings estimate write failed for %s", ticker, exc_info=True)
+            self._emit_event(
+                dataset_id=dataset_id,
+                instrument_id=ticker,
+                stage=stage,
+                source=source,
+                run_id=run_id_local,
+                ts_min=ts_event_s,
+                ts_max=ts_event_s,
+                count=0,
+                status=EventStatus.FAILED,
+                error=str(exc),
+            )
             raise RuntimeError(f"Earnings estimate write failed: {exc}") from exc
 
         # Dual-write to raw_writer (Parquet backup) if available
@@ -899,6 +1196,26 @@ class DataWriterComponent:
                 "quality_score": quality_report.quality_score,
                 "raw_writer_status": raw_writer_status,
             },
+        )
+
+        self._emit_event(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            stage=stage,
+            source=source,
+            run_id=run_id_local,
+            ts_min=ts_event_s,
+            ts_max=ts_event_s,
+            count=1,
+            status=EventStatus.SUCCESS,
+            metadata=event.metadata,
+        )
+        self._update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=ticker,
+            source=source,
+            last_success_ns=ts_event_s,
+            count=1,
         )
 
         logger.debug("Wrote earnings estimate for %s", ticker)
@@ -958,6 +1275,13 @@ class DataWriterComponent:
                 if len(non_null) > 0:
                     return str(non_null.iloc[0])
 
+        if isinstance(data_frame_any, list) and data_frame_any:
+            for row in data_frame_any:
+                if isinstance(row, dict):
+                    instrument_value = row.get("instrument_id")
+                    if instrument_value is not None:
+                        return str(instrument_value)
+
         return "UNKNOWN"
 
     def _extract_timestamp_range(self, data_frame: DataFrameLike, manifest: Any) -> tuple[int, int]:
@@ -972,6 +1296,16 @@ class DataWriterComponent:
             ts_min = int(ts_col.min())
             ts_max = int(ts_col.max())
             return ts_min, ts_max
+
+        if isinstance(data_frame_any, list) and data_frame_any:
+            ts_values: list[int] = []
+            for row in data_frame_any:
+                if isinstance(row, dict) and ts_field in row:
+                    ts_value = row.get(ts_field)
+                    if ts_value is not None:
+                        ts_values.append(int(ts_value))
+            if ts_values:
+                return min(ts_values), max(ts_values)
 
         # Default to current time if no timestamp field
         current_ns = time.time_ns()
@@ -1000,14 +1334,22 @@ class DataWriterComponent:
                 f"Violations: {len(quality_report.violations)}",
             )
 
-        # Log warnings for non-strict mode
+        # Log advisory issues for non-strict modes
         if quality_report.quality_score < 1.0:
-            logger.warning(
-                "Quality issues for %s: score=%.2f, violations=%d",
-                dataset_id,
-                quality_report.quality_score,
-                len(quality_report.violations),
-            )
+            if contract.enforcement_mode == "monitor_only":
+                logger.info(
+                    "Quality issues for %s (monitor-only): score=%.2f, violations=%d",
+                    dataset_id,
+                    quality_report.quality_score,
+                    len(quality_report.violations),
+                )
+            else:
+                logger.warning(
+                    "Quality issues for %s: score=%.2f, violations=%d",
+                    dataset_id,
+                    quality_report.quality_score,
+                    len(quality_report.violations),
+                )
 
     def _ensure_dataset_registered(
         self,
@@ -1030,23 +1372,192 @@ class DataWriterComponent:
                 exc_info=True,
             )
 
+    def _emit_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage | str,
+        source: str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: EventStatus | str,
+        error: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Emit a dataset event using the configured event emitter (non-blocking).
+        """
+        if self._event_emitter is None:
+            logger.debug(
+                "Event emitter not configured; skipping event emission",
+                extra={"dataset_id": dataset_id, "instrument_id": instrument_id},
+            )
+            return
+        try:
+            self._event_emitter.emit_event(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage,
+                source=source,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=status,
+                error=error,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Event emission failed for %s: %s",
+                dataset_id,
+                exc,
+                exc_info=True,
+            )
+
+    def _update_watermark(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        source: Source | str,
+        last_success_ns: int,
+        count: int,
+    ) -> None:
+        """
+        Update registry watermark (best-effort, non-blocking).
+        """
+        from ml.common.events_util import to_source_enum
+
+        try:
+            self._registry.update_watermark(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                source=to_source_enum(source),
+                last_success_ns=last_success_ns,
+                count=count,
+                completeness_pct=100.0,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Watermark update failed for %s: %s",
+                dataset_id,
+                exc,
+                exc_info=True,
+            )
+
+    def _create_partial_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        source: str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        record_count: int,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> DataEvent:
+        """
+        Create a PARTIAL status event for ingestion.
+        """
+        event_metadata = metadata or {}
+        event_metadata["reason"] = reason
+        event_metadata["no_write"] = True
+
+        return DataEvent(
+            event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            operation="write_ingestion",
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            record_count=record_count,
+            status=EventStatus.PARTIAL.value,
+            metadata=event_metadata,
+        )
+
+    def _create_failed_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        source: str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        record_count: int,
+        error: str,
+    ) -> DataEvent:
+        """
+        Create a FAILED status event for ingestion.
+        """
+        return DataEvent(
+            event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            operation="write_ingestion",
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            record_count=record_count,
+            status=EventStatus.FAILED.value,
+            error_message=error,
+        )
+
     def _write_to_feature_store(self, data_frame: DataFrameLike, instrument_id: str) -> None:
         """
         Write data to FeatureStore.
         """
+        from ml.stores.common.data_frame_converters import data_frame_to_feature_data
+
         logger.debug("Writing features for %s", instrument_id)
-        # Implementation would extract features and call feature_store.write_features()
+        features = data_frame_to_feature_data(data_frame, instrument_id)
+        for feature in features:
+            try:
+                self._feature_store.write_features(
+                    feature_set_id=feature.feature_set_id,
+                    instrument_id=feature.instrument_id,
+                    features=feature.values,
+                    ts_event=feature.ts_event,
+                    ts_init=feature.ts_init,
+                    publish_bus=False,
+                )
+            except TypeError:
+                self._feature_store.write_features(
+                    feature_set_id=feature.feature_set_id,
+                    instrument_id=feature.instrument_id,
+                    features=feature.values,
+                    ts_event=feature.ts_event,
+                    ts_init=feature.ts_init,
+                )
 
     def _write_to_model_store(self, data_frame: DataFrameLike, instrument_id: str) -> None:
         """
         Write data to ModelStore.
         """
+        from ml.stores.common.data_frame_converters import data_frame_to_predictions
+
         logger.debug("Writing predictions for %s", instrument_id)
-        # Implementation would extract predictions and call model_store.write_batch()
+        predictions = data_frame_to_predictions(data_frame)
+        try:
+            self._model_store.write_batch(predictions, emit_events=False, publish_bus=False)
+        except TypeError:
+            self._model_store.write_batch(predictions)
 
     def _write_to_strategy_store(self, data_frame: DataFrameLike, instrument_id: str) -> None:
         """
         Write data to StrategyStore.
         """
+        from ml.stores.common.data_frame_converters import data_frame_to_signals
+
         logger.debug("Writing signals for %s", instrument_id)
-        # Implementation would extract signals and call strategy_store.write_batch()
+        signals = data_frame_to_signals(data_frame)
+        self._strategy_store.write_batch(signals, emit_events=False, publish_bus=False)

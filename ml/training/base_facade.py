@@ -1022,7 +1022,11 @@ class BaseMLTrainerFacade(ABC):
         logger.error(message, *args, **kwargs)
 
 
+BaseMLTrainer = BaseMLTrainerFacade
+
+
 __all__ = [
+    "BaseMLTrainer",
     "BaseMLTrainerFacade",
     "use_legacy_trainer",
 ]

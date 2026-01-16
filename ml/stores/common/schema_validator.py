@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
 from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -41,6 +42,7 @@ __all__ = [
     "QualityReport",
     "SchemaValidatorComponent",
     "ValidationViolation",
+    "quality_score_histogram",
 ]
 
 
@@ -54,6 +56,11 @@ schema_mismatch_counter = get_counter(
     "ml_schema_mismatch_total",
     "Total number of schema mismatches detected",
     labelnames=["dataset", "mismatch_type"],
+)
+quality_score_histogram = get_histogram(
+    "ml_quality_score",
+    "Distribution of data quality scores",
+    labelnames=["dataset_id"],
 )
 
 
@@ -93,6 +100,7 @@ class SchemaValidatorComponent:
         *,
         allow_schema_migration: bool = False,
         schema_migration_window_hours: int = 24,
+        migration_state: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         """
         Initialize schema validator with registry dependency.
@@ -101,6 +109,7 @@ class SchemaValidatorComponent:
             data_registry: Data registry for manifest/contract lookup
             allow_schema_migration: Whether to allow schema migration windows
             schema_migration_window_hours: Duration of migration window in hours
+            migration_state: Optional shared migration state across components
 
         """
         self._registry = data_registry
@@ -110,7 +119,7 @@ class SchemaValidatorComponent:
         # Caches for manifests and contracts
         self._manifest_cache: dict[str, DatasetManifest] = {}
         self._contract_cache: dict[str, DataContract] = {}
-        self._schema_migration_state: dict[str, dict[str, Any]] = {}
+        self._schema_migration_state = migration_state if migration_state is not None else {}
 
     # =========================================================================
     # Public API
@@ -413,8 +422,39 @@ class SchemaValidatorComponent:
         passed_records = total_records - failed_records
         quality_score = passed_records / total_records if total_records > 0 else 0.0
 
+        # Evaluate quality thresholds (null rate, etc.)
+        if contract.quality_thresholds:
+            try:
+                from ml.common.dataframe_utils import total_nulls as _total_nulls
+
+                columns_obj = getattr(data_frame, "columns", None)
+                column_count = len(columns_obj) if columns_obj is not None else 0
+                null_count_total = _total_nulls(data_frame)
+                base_count = total_records * column_count if total_records > 0 else 0
+                null_rate = float(null_count_total) / float(base_count) if base_count else 0.0
+
+                threshold = contract.quality_thresholds.get("null_rate")
+                if threshold is not None and null_rate > threshold:
+                    violations.append(
+                        ValidationViolation(
+                            rule_type=ValidationRuleType.NULLABILITY,
+                            field_name="*",
+                            severity=QualityFlag.WARN,
+                            violation_count=max(1, int(null_rate * total_records))
+                            if total_records
+                            else 1,
+                            sample_values=[],
+                            description=f"Null rate {null_rate:.2%} exceeds threshold",
+                        ),
+                    )
+            except Exception:
+                logger.debug("quality_threshold_evaluation_failed", exc_info=True)
+
         # Calculate validation time
         validation_time_ms = (time.perf_counter() - start_time) * 1000.0
+
+        if HAS_PROMETHEUS:
+            quality_score_histogram.labels(dataset_id=dataset_id).observe(quality_score)
 
         # Build quality report
         report = QualityReport(
@@ -1065,7 +1105,7 @@ class SchemaValidatorComponent:
             return False
 
         state = self._schema_migration_state.get(dataset_id, {})
-        window_start = state.get("window_start_ns", 0)
+        window_start = state.get("start_time") or state.get("window_start_ns", 0)
         if not window_start:
             return False
 

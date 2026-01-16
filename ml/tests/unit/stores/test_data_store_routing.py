@@ -21,6 +21,7 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.utils import compute_dataset_schema_hash
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 
 
@@ -120,6 +121,7 @@ def test_routing_predictions_to_model_store(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -165,6 +167,7 @@ def test_routing_signals_to_strategy_store(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -211,6 +214,7 @@ def test_read_routing_predictions_to_model_store(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -220,7 +224,9 @@ def test_read_routing_predictions_to_model_store(
         start_ns=111,
         end_ns=222,
     )
-    assert out is sentinel
+    assert hasattr(out, "columns")
+    assert "ok" in out.columns
+    assert out.to_dicts() == sentinel
     mock_model_store.read_predictions.assert_called_once_with(
         model_id="modelX",
         instrument_id="EUR/USD",
@@ -247,6 +253,7 @@ def test_read_routing_signals_to_strategy_store(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -256,7 +263,9 @@ def test_read_routing_signals_to_strategy_store(
         start_ns=333,
         end_ns=444,
     )
-    assert out is sentinel
+    assert hasattr(out, "columns")
+    assert "ok" in out.columns
+    assert out.to_dicts() == sentinel
     mock_strategy_store.read_signals.assert_called_once_with(
         strategy_id="stratB",
         instrument_id="EUR/USD",

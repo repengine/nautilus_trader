@@ -16,6 +16,7 @@ from typing import cast
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -39,6 +40,7 @@ def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
         feature_store=feature_store,
         model_store=model_store,
         strategy_store=strategy_store,
+        earnings_store=DummyEarningsStore(),
     )
 
     # Avoid auto-registration path during unit test

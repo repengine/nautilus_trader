@@ -8,108 +8,26 @@ with expected parameters when writing features/predictions/signals.
 
 from __future__ import annotations
 
-from typing import Any, Callable, cast
-
 import pytest
 
-from ml.config.events import EventStatus, Source, Stage
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
-from ml.stores.validation_types import DataEvent
 from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
 from nautilus_trader.model.identifiers import InstrumentId
 
 
 @pytest.fixture
-def stubbed_data_store(monkeypatch: pytest.MonkeyPatch) -> tuple[DataStore, RegistryTestStub]:
-    ds: DataStore = object.__new__(DataStore)
-    ds_any = cast(Any, ds)
-    ds_any.connection_string = "sqlite:///:memory:"
+def stubbed_data_store() -> tuple[DataStore, RegistryTestStub]:
     registry = RegistryTestStub()
-    ds_any.registry = registry
-    ds_any._data_registry = registry
-    ds_any.feature_store = FeatureStoreNoOp()
-    ds_any.model_store = ModelStoreNoOp()
-    ds_any.strategy_store = StrategyStoreNoOp()
-    ds_any._get_dataset_ids = lambda: {
-        "features": "features",
-        "predictions": "predictions",
-        "signals": "signals",
-    }
-    ds_any._use_legacy = True
-
-    class _LegacyShim:
-        def __init__(self, registry: RegistryTestStub) -> None:
-            self._registry = registry
-
-        def _record(
-            self,
-            *,
-            dataset_id: str,
-            instrument_id: str,
-            stage: Stage,
-        ) -> DataEvent:
-            self._registry.emit_event(
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                stage=stage,
-                source=Source.LIVE,
-                run_id="test",
-                ts_min=0,
-                ts_max=0,
-                count=1,
-                status=EventStatus.SUCCESS,
-                metadata={},
-            )
-            return DataEvent(
-                event_id="stub",
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                operation="stub",
-                source="live",
-                run_id="test",
-                ts_min=0,
-                ts_max=0,
-                record_count=1,
-                status="success",
-                metadata={},
-            )
-
-        def write_features(
-            self,
-            *,
-            instrument_id: str,
-            features: list[Any],
-            source: str = "computed",
-            run_id: str | None = None,
-        ) -> DataEvent:
-            return self._record(dataset_id="features", instrument_id=instrument_id, stage=Stage.FEATURE_COMPUTED)
-
-        def write_predictions(
-            self,
-            predictions: list[Any],
-            source: str = "inference",
-            run_id: str | None = None,
-        ) -> DataEvent:
-            instrument = predictions[0].instrument_id if predictions else "unknown"
-            return self._record(dataset_id="predictions", instrument_id=instrument, stage=Stage.PREDICTION_EMITTED)
-
-        def write_signals(
-            self,
-            signals: list[Any],
-            source: str = "strategy",
-            run_id: str | None = None,
-        ) -> DataEvent:
-            instrument = signals[0].instrument_id if signals else "unknown"
-            return self._record(dataset_id="signals", instrument_id=instrument, stage=Stage.SIGNAL_EMITTED)
-
-    ds_any._legacy_impl = _LegacyShim(registry)
-
-    class _Clock:
-        def timestamp_ns(self) -> int:
-            return 100
-
-    ds_any.clock = _Clock()
-    ds_any._ensure_dataset_registered = cast(Callable[..., None], lambda **kwargs: None)
+    ds = DataStore(
+        connection_string="sqlite:///:memory:",
+        registry=registry,
+        feature_store=FeatureStoreNoOp(),
+        model_store=ModelStoreNoOp(),
+        strategy_store=StrategyStoreNoOp(),
+        earnings_store=DummyEarningsStore(),
+        fail_on_validation_error=False,
+    )
     return ds, registry
 
 

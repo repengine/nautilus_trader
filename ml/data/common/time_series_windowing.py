@@ -127,7 +127,13 @@ class TimeSeriesWindowingComponent:
         if isinstance(value, int | float):
             return int(value)
         if isinstance(value, np.generic):
-            return int(value)
+            try:
+                scalar = value.item()
+            except Exception:
+                return None
+            if isinstance(scalar, (int, float)):
+                return int(scalar)
+            return None
         if isinstance(value, datetime):
             dt_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
             dt_utc = dt_value.astimezone(UTC)

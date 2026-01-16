@@ -1,5 +1,5 @@
 """
-Unit tests for DataStore conversion helpers (_df_to_predictions/_df_to_signals).
+Unit tests for dataframe conversion helpers.
 
 Ensures correct mapping from dict/pandas (and polars when available) to dataclasses.
 
@@ -12,33 +12,14 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from typing import cast
-
 from ml.stores.base import ModelPrediction, StrategySignal
-from ml.stores.data_store_facade import DataStore
-from ml.stores.feature_store_facade import FeatureStore
-from ml.stores.model_store import ModelStore
-from ml.stores.strategy_store import StrategyStore
-from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
-
-
-def _mk_store() -> DataStore:
-    feature_store = cast(FeatureStore, FeatureStoreNoOp())
-    model_store = cast(ModelStore, ModelStoreNoOp())
-    strategy_store = cast(StrategyStore, StrategyStoreNoOp())
-
-    return DataStore(
-        connection_string="sqlite:///:memory:",
-        registry=RegistryTestStub(),
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
-        fail_on_validation_error=False,
-    )
+from ml.stores.common.data_frame_converters import (
+    data_frame_to_predictions,
+    data_frame_to_signals,
+)
 
 
 def test_df_to_predictions_from_dicts() -> None:
-    ds = _mk_store()
     rows: list[dict[str, Any]] = [
         {
             "model_id": "m1",
@@ -50,7 +31,7 @@ def test_df_to_predictions_from_dicts() -> None:
             "features_used": {"f": 1.0},
         },
     ]
-    preds = ds._df_to_predictions(rows)
+    preds = data_frame_to_predictions(rows)
     assert len(preds) == 1
     p = preds[0]
     assert isinstance(p, ModelPrediction)
@@ -60,7 +41,6 @@ def test_df_to_predictions_from_dicts() -> None:
 
 
 def test_df_to_predictions_from_pandas() -> None:
-    ds = _mk_store()
     df = pd.DataFrame(
         [
             {
@@ -73,14 +53,13 @@ def test_df_to_predictions_from_pandas() -> None:
             },
         ],
     )
-    preds = ds._df_to_predictions(df)
+    preds = data_frame_to_predictions(df)
     assert len(preds) == 1
     assert preds[0].model_id == "m2"
     assert preds[0].instrument_id == "SPY"
 
 
 def test_df_to_signals_from_dicts() -> None:
-    ds = _mk_store()
     rows: list[dict[str, Any]] = [
         {
             "strategy_id": "s1",
@@ -92,7 +71,7 @@ def test_df_to_signals_from_dicts() -> None:
             "risk_metrics": {"r": 1},
         },
     ]
-    sigs = ds._df_to_signals(rows)
+    sigs = data_frame_to_signals(rows)
     assert len(sigs) == 1
     s = sigs[0]
     assert isinstance(s, StrategySignal)
@@ -108,7 +87,6 @@ def test_df_to_signals_from_dicts() -> None:
 def test_df_to_predictions_from_polars() -> None:
     import polars as pl
 
-    ds = _mk_store()
     pdf = pl.DataFrame(
         {
             "model_id": ["mP"],
@@ -119,7 +97,7 @@ def test_df_to_predictions_from_polars() -> None:
             "ts_init": [999],
         },
     )
-    preds = ds._df_to_predictions(pdf)
+    preds = data_frame_to_predictions(pdf)
     assert len(preds) == 1
     assert preds[0].model_id == "mP"
     assert preds[0].instrument_id == "AAPL"

@@ -22,6 +22,7 @@ from ml.registry.dataclasses import (
     QualityFlag,
 )
 from ml.registry.protocols import RegistryProtocol
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
@@ -233,6 +234,7 @@ def test_raw_write_without_writer_emits_partial_and_no_watermark(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -270,6 +272,7 @@ def test_raw_write_with_writer_emits_success_and_watermark(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 
@@ -304,6 +307,7 @@ def test_raw_read_with_reader_respects_range(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=DummyEarningsStore(),
         fail_on_validation_error=False,
     )
 

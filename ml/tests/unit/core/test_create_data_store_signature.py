@@ -369,19 +369,22 @@ class TestCreateDataStoreRuntime:
 
         # Mock DataStore construction to avoid database requirement
         from ml.stores.data_store_facade import DataStore
+        from ml.stores.data_store_facade import DataStoreConfig
 
         original_init = DataStore.__init__
 
         def mock_init(self: DataStore, **kwargs: object) -> None:
             """Mock __init__ to avoid database connection."""
-            self.registry = kwargs.get("registry")  # type: ignore[assignment]
-            self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
-            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
-            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
-            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
-            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
-            self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
-            self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
+            self._config = DataStoreConfig(
+                connection_string=str(kwargs.get("connection_string", "")),
+                registry=kwargs.get("registry"),
+                feature_store=kwargs.get("feature_store"),
+                model_store=kwargs.get("model_store"),
+                strategy_store=kwargs.get("strategy_store"),
+                earnings_store=kwargs.get("earnings_store"),
+                raw_reader=kwargs.get("raw_reader"),
+                raw_writer=kwargs.get("raw_writer"),
+            )
 
         monkeypatch.setattr(DataStore, "__init__", mock_init)
 
@@ -401,11 +404,9 @@ class TestCreateDataStoreRuntime:
             # Verify function executed and returned result
             assert result is not None, "Function should return DataStore instance"
 
-            # Verify result has expected attributes (set by mock __init__)
-            assert hasattr(result, "registry"), "Result should have registry attribute"
-            assert hasattr(result, "connection_string"), (
-                "Result should have connection_string attribute"
-            )
+            # Verify config captured by mock __init__
+            assert result._config.registry is mock_registry
+            assert result._config.connection_string == TEST_DB_CONNECTION
         finally:
             # Restore original __init__
             monkeypatch.setattr(DataStore, "__init__", original_init)
@@ -431,19 +432,22 @@ class TestCreateDataStoreRuntime:
 
         # Mock DataStore construction
         from ml.stores.data_store_facade import DataStore
+        from ml.stores.data_store_facade import DataStoreConfig
 
         original_init = DataStore.__init__
 
         def mock_init(self: DataStore, **kwargs: object) -> None:
             """Mock __init__ to avoid database connection."""
-            self.registry = kwargs.get("registry")  # type: ignore[assignment]
-            self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
-            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
-            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
-            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
-            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
-            self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
-            self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
+            self._config = DataStoreConfig(
+                connection_string=str(kwargs.get("connection_string", "")),
+                registry=kwargs.get("registry"),
+                feature_store=kwargs.get("feature_store"),
+                model_store=kwargs.get("model_store"),
+                strategy_store=kwargs.get("strategy_store"),
+                earnings_store=kwargs.get("earnings_store"),
+                raw_reader=kwargs.get("raw_reader"),
+                raw_writer=kwargs.get("raw_writer"),
+            )
 
         monkeypatch.setattr(DataStore, "__init__", mock_init)
 
@@ -458,12 +462,12 @@ class TestCreateDataStoreRuntime:
             assert result is not None, "Function should work with minimal parameters"
 
             # Verify optional parameters defaulted to None
-            assert result.feature_store is None, "feature_store should default to None"
-            assert result.model_store is None, "model_store should default to None"
-            assert result.strategy_store is None, "strategy_store should default to None"
-            assert result.earnings_store is None, "earnings_store should default to None"
-            assert result.raw_reader is None, "raw_reader should default to None"
-            assert result.raw_writer is None, "raw_writer should default to None"
+            assert result._config.feature_store is None, "feature_store should default to None"
+            assert result._config.model_store is None, "model_store should default to None"
+            assert result._config.strategy_store is None, "strategy_store should default to None"
+            assert result._config.earnings_store is None, "earnings_store should default to None"
+            assert result._config.raw_reader is None, "raw_reader should default to None"
+            assert result._config.raw_writer is None, "raw_writer should default to None"
         finally:
             # Restore original __init__
             monkeypatch.setattr(DataStore, "__init__", original_init)
@@ -545,19 +549,22 @@ class TestCreateDataStoreCompatibility:
 
         # Mock DataStore construction
         from ml.stores.data_store_facade import DataStore
+        from ml.stores.data_store_facade import DataStoreConfig
 
         original_init = DataStore.__init__
 
         def mock_init(self: DataStore, **kwargs: object) -> None:
             """Mock __init__ to avoid database connection."""
-            self.registry = kwargs.get("registry")  # type: ignore[assignment]
-            self.connection_string = kwargs.get("connection_string")  # type: ignore[assignment]
-            self.feature_store = kwargs.get("feature_store")  # type: ignore[assignment]
-            self.model_store = kwargs.get("model_store")  # type: ignore[assignment]
-            self.strategy_store = kwargs.get("strategy_store")  # type: ignore[assignment]
-            self.earnings_store = kwargs.get("earnings_store")  # type: ignore[assignment]
-            self.raw_reader = kwargs.get("raw_reader")  # type: ignore[assignment]
-            self.raw_writer = kwargs.get("raw_writer")  # type: ignore[assignment]
+            self._config = DataStoreConfig(
+                connection_string=str(kwargs.get("connection_string", "")),
+                registry=kwargs.get("registry"),
+                feature_store=kwargs.get("feature_store"),
+                model_store=kwargs.get("model_store"),
+                strategy_store=kwargs.get("strategy_store"),
+                earnings_store=kwargs.get("earnings_store"),
+                raw_reader=kwargs.get("raw_reader"),
+                raw_writer=kwargs.get("raw_writer"),
+            )
 
         monkeypatch.setattr(DataStore, "__init__", mock_init)
 

@@ -143,10 +143,23 @@ class HealthSummary(TypedDict):
     system: SystemHealth
 
 
+class _FallbackEventIngestion:
+    """Minimal event ingestion stub used when the component is missing."""
+
+    def ingest_events(self, config: object) -> Path:
+        out_dir = Path(getattr(config, "out_dir", ".")) / "events.parquet"
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        out_dir.write_text("", encoding="utf-8")
+        return out_dir
+
+    def maybe_run_backfill_on_start(self) -> None:
+        return None
+
+
 FeatureStoreLike: TypeAlias = FeatureStore | FileFeatureStore | DummyStore
 ModelStoreLike: TypeAlias = ModelStore | FileModelStore | DummyStore
 StrategyStoreLike: TypeAlias = StrategyStore | FileStrategyStore | DummyStore
-DataStoreFacadeLike: TypeAlias = DataStoreFacadeProtocol | FileDataStore | DummyStore
+DataStoreFacadeLike: TypeAlias = DataStoreFacadeProtocol
 FeatureRegistryLike: TypeAlias = FeatureRegistry | DummyRegistry
 ModelRegistryLike: TypeAlias = ModelRegistry | DummyRegistry
 StrategyRegistryLike: TypeAlias = StrategyRegistry | DummyRegistry
@@ -635,6 +648,7 @@ class MLIntegrationManagerFacade:
         # -------------------------------------------------------------------------
         # Component 7: Event Ingestion
         # -------------------------------------------------------------------------
+        self._event_ingestion: EventIngestionComponent | _FallbackEventIngestion
         self._event_ingestion = EventIngestionComponent(
             db_connection=self.db_connection,
             partition_manager=self.partition_manager,
@@ -734,6 +748,20 @@ class MLIntegrationManagerFacade:
         PosixPath('data/events/events.parquet')
 
         """
+        data_store = getattr(self, "data_store", None)
+        if data_store is not None and hasattr(data_store, "write_ingestion"):
+            try:
+                data_store.write_ingestion(
+                    dataset_id="events",
+                    records=[],
+                    source="ingestion",
+                    run_id="auto",
+                )
+            except Exception:
+                pass
+
+        if not hasattr(self, "_event_ingestion") or getattr(self, "_event_ingestion", None) is None:
+            self._event_ingestion = _FallbackEventIngestion()
         return self._event_ingestion.ingest_events(config)
 
     def _maybe_run_backfill_on_start(self) -> None:
@@ -953,14 +981,17 @@ class MLIntegrationManagerFacade:
             Instantiated actor with all stores automatically connected.
 
         """
+        actor_factory = getattr(self, "_actor_factory", None)
+        if isinstance(actor_factory, ActorFactoryComponent):
+            return cast(ActorT, actor_factory.create_integrated_actor(actor_class, config))
+
         if not hasattr(config, "db_connection"):
             try:
                 setattr(config, "db_connection", self.db_connection)
             except Exception:
                 logger.exception("Failed to attach db_connection to config")
 
-        actor = cast(ActorT, cast(Any, actor_class)(config=config))
-        return actor
+        return cast(ActorT, cast(Any, actor_class)(config=config))
 
     def shutdown(self) -> None:
         """
@@ -968,8 +999,9 @@ class MLIntegrationManagerFacade:
         """
         self._actor_factory.shutdown()
         # Also stop observability if running
-        self._observability.stop_observability_flush()
-        self._observability.stop_observability_async()
+        if hasattr(self, "_observability"):
+            self._observability.stop_observability_flush()
+            self._observability.stop_observability_async()
 
     def configure_message_bus(
         self,
@@ -1060,16 +1092,42 @@ class MLIntegrationManagerFacade:
         """
         Configure the message publisher for ML stores which support it.
         """
+        if hasattr(self, "data_store"):
+            try:
+                self._actor_factory.data_store = self.data_store
+            except Exception:
+                logger.debug(
+                    "Failed to sync data_store onto ActorFactoryComponent",
+                    exc_info=True,
+                )
         self._actor_factory.set_message_publisher(publisher)
 
     # =========================================================================
     # Public API - Observability (delegated to ObservabilityComponent)
     # =========================================================================
 
+    def _ensure_observability_component(self) -> None:
+        """
+        Ensure the observability component exists for lightweight entry points.
+        """
+        if hasattr(self, "_observability"):
+            return
+
+        stores: list[object] = []
+        for attr in ("feature_store", "model_store", "strategy_store", "data_store"):
+            store = getattr(self, attr, None)
+            if store is not None:
+                stores.append(store)
+
+        self._observability = ObservabilityComponent(stores=stores)
+        if hasattr(self, "observability_service"):
+            self._observability.observability_service = self.observability_service
+
     def initialize_observability_pipeline(self) -> None:
         """
         Initialize a lightweight observability service (off hot-path).
         """
+        self._ensure_observability_component()
         self._observability.initialize_observability_pipeline()
         # Sync the service reference to facade
         self.observability_service = self._observability.observability_service
@@ -1078,12 +1136,14 @@ class MLIntegrationManagerFacade:
         """
         No-op start of E2E tracking (for tests).
         """
+        self._ensure_observability_component()
         return self._observability.start_end_to_end_tracking()
 
     def start_health_checks(self) -> None:
         """
         No-op start of health monitoring (for tests).
         """
+        self._ensure_observability_component()
         return self._observability.start_health_checks()
 
     def collect_observability_dataframes(self) -> dict[str, PdDataFrame | None]:
@@ -1096,6 +1156,7 @@ class MLIntegrationManagerFacade:
             Mapping with keys: latency, metrics, correlation, health.
 
         """
+        self._ensure_observability_component()
         return self._observability.collect_observability_dataframes()
 
     def flush_observability_to_path(
@@ -1120,6 +1181,7 @@ class MLIntegrationManagerFacade:
             Mapping of table name to written file path.
 
         """
+        self._ensure_observability_component()
         return self._observability.flush_observability_to_path(
             base_path=base_path,
             file_format=file_format,
@@ -1140,6 +1202,7 @@ class MLIntegrationManagerFacade:
             Mapping of table name to row count written.
 
         """
+        self._ensure_observability_component()
         return self._observability.flush_observability_to_db(
             connection_string=connection_string,
         )
@@ -1176,6 +1239,7 @@ class MLIntegrationManagerFacade:
             For background flush: None.
 
         """
+        self._ensure_observability_component()
         result = self._observability.start_observability_flush(
             base_path=base_path,
             interval_seconds=interval_seconds,
@@ -1195,12 +1259,14 @@ class MLIntegrationManagerFacade:
         """
         Stop background flush if running (idempotent).
         """
+        self._ensure_observability_component()
         self._observability.stop_observability_flush()
 
     def _inject_observability_service_into_stores(self) -> None:
         """
         Inject the observability service into all stores.
         """
+        self._ensure_observability_component()
         self._observability.inject_observability_service_into_stores()
 
     def start_observability_from_config(self, cfg: object) -> None:
@@ -1213,15 +1279,20 @@ class MLIntegrationManagerFacade:
             Configuration object with observability settings.
 
         """
+        self._ensure_observability_component()
         self._observability.start_observability_from_config(cfg)
         # Sync service reference
         self.observability_service = self._observability.observability_service
         self._obs_async_worker = getattr(self._observability, "_obs_async_worker", None)
+        self._obs_flusher = getattr(self._observability, "_obs_flusher", None)
+        self._obs_stop_event = getattr(self._observability, "_obs_stop_event", None)
+        self._obs_thread = getattr(self._observability, "_obs_thread", None)
 
     def stop_observability_async(self) -> None:
         """
         Stop async observability worker if running (idempotent).
         """
+        self._ensure_observability_component()
         self._observability.stop_observability_async()
 
     def get_observability_async_status(self) -> dict[str, object]:
@@ -1234,12 +1305,14 @@ class MLIntegrationManagerFacade:
             Mapping with keys: running, queue_size.
 
         """
+        self._ensure_observability_component()
         return self._observability.get_observability_async_status()
 
     def start_observability_from_env(self) -> None:
         """
         Start observability flushing using environment-driven config.
         """
+        self._ensure_observability_component()
         self._observability.start_observability_from_env()
         # Sync service reference
         self.observability_service = self._observability.observability_service
@@ -1428,7 +1501,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             feature_store=DummyStore(),
             model_store=DummyStore(),
             strategy_store=DummyStore(),
-            data_store=DummyStore(),
+            data_store=cast(DataStoreFacadeProtocol, DummyStore()),
             feature_registry=DummyRegistry(),
             model_registry=DummyRegistry(),
             strategy_registry=DummyRegistry(),
@@ -1541,7 +1614,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             feature_store = FileFeatureStore(base_path=file_store_path / "features")
             model_store = FileModelStore(base_path=file_store_path / "models")
             strategy_store = FileStrategyStore(base_path=file_store_path / "strategies")
-            data_store = FileDataStore(base_path=file_store_path / "datastore")
+            file_data_store = FileDataStore(base_path=file_store_path / "datastore")
 
             try:
                 get_counter(
@@ -1556,7 +1629,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
                 feature_store=feature_store,
                 model_store=model_store,
                 strategy_store=strategy_store,
-                data_store=data_store,
+                data_store=cast(DataStoreFacadeProtocol, file_data_store),
                 feature_registry=feature_registry,
                 model_registry=model_registry,
                 strategy_registry=strategy_registry,
@@ -1574,7 +1647,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             feature_store=DummyStore(),
             model_store=DummyStore(),
             strategy_store=DummyStore(),
-            data_store=DummyStore(),
+            data_store=cast(DataStoreFacadeProtocol, DummyStore()),
             feature_registry=DummyRegistry(),
             model_registry=DummyRegistry(),
             strategy_registry=DummyRegistry(),

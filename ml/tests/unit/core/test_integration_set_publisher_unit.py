@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.core.integration import MLIntegrationManager
+from ml.features.earnings.store import DummyEarningsStore
 from ml.tests.utils.stubs import build_integration_manager_stub
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
@@ -36,6 +37,7 @@ class TestIntegrationPublisher:
             feature_store=cast(Any, object()),
             model_store=cast(Any, object()),
             strategy_store=cast(Any, object()),
+            earnings_store=DummyEarningsStore(),
         )
         mgr.data_store = store
 

@@ -265,6 +265,7 @@ def _create_test_datastore(
         feature_store=mock_feature_store,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
+        earnings_store=mock_earnings_store,
         fail_on_validation_error=not fail_validation,
         enable_publishing=enable_publishing,
         publisher=mock_publisher,

@@ -4,9 +4,11 @@ DataStore event emission error path: ensure write does not raise if registry fai
 
 from __future__ import annotations
 
-from typing import Any, Callable, cast
+from typing import Any, cast
+from unittest.mock import MagicMock
 
 from ml.stores.data_store_facade import DataStore
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -105,16 +107,15 @@ class _NoOpStore:
 
 
 def test_write_features_tolerates_registry_emit_error() -> None:
-    ds: DataStore = object.__new__(DataStore)
-    ds_any = cast(Any, ds)
-    ds_any.connection_string = "sqlite:///:memory:"
-    ds_any.feature_store = cast(FeatureStore, _NoOpStore())
-    ds_any.model_store = cast(ModelStore, _NoOpStore())
-    ds_any.strategy_store = cast(StrategyStore, _NoOpStore())
-    ds_any.registry = _FlakyRegistry("emit")
-    ds_any._data_registry = ds_any.registry
-    ds_any._ensure_dataset_registered = cast(Callable[..., None], lambda **kwargs: None)
-    ds_any.clock = type("_C", (), {"timestamp_ns": lambda self: 100})()
+    ds = DataStore(
+        connection_string="sqlite:///:memory:",
+        registry=_FlakyRegistry("emit"),
+        feature_store=cast(FeatureStore, _NoOpStore()),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
+        fail_on_validation_error=False,
+    )
 
     from ml.stores.base import FeatureData
 
@@ -131,16 +132,15 @@ def test_write_features_tolerates_registry_emit_error() -> None:
 
 
 def test_write_features_tolerates_watermark_error() -> None:
-    ds: DataStore = object.__new__(DataStore)
-    ds_any = cast(Any, ds)
-    ds_any.connection_string = "sqlite:///:memory:"
-    ds_any.feature_store = cast(FeatureStore, _NoOpStore())
-    ds_any.model_store = cast(ModelStore, _NoOpStore())
-    ds_any.strategy_store = cast(StrategyStore, _NoOpStore())
-    ds_any.registry = _FlakyRegistry("wm")
-    ds_any._data_registry = ds_any.registry
-    ds_any._ensure_dataset_registered = cast(Callable[..., None], lambda **kwargs: None)
-    ds_any.clock = type("_C", (), {"timestamp_ns": lambda self: 100})()
+    ds = DataStore(
+        connection_string="sqlite:///:memory:",
+        registry=_FlakyRegistry("wm"),
+        feature_store=cast(FeatureStore, _NoOpStore()),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
+        fail_on_validation_error=False,
+    )
 
     from ml.stores.base import FeatureData
 

@@ -21,8 +21,9 @@ Phase 2.4.7 - Final Facade Integration
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_POLARS
 from ml.common.message_bus import MessagePublisherProtocol
@@ -32,6 +33,7 @@ from ml.config.events import Stage
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DatasetType
 from ml.stores.io_raw import RawIngestionWriterProtocol
+from ml.stores.mixins import DataRegistryMixin
 
 
 if TYPE_CHECKING:
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import StoreOperationsProtocol
     from ml.stores.earnings_store import EarningsStore
     from ml.stores.feature_store_facade import FeatureStore
+    from ml.stores.io_raw import RawReaderProtocol
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
 
@@ -79,12 +82,16 @@ class DataStoreConfig:
         Strategy store instance
     earnings_store : EarningsStore | None
         Earnings store instance
+    raw_reader : RawReaderProtocol | None
+        Raw reader instance
     publisher : MessagePublisherProtocol | None
         Message bus publisher
     enable_publishing : bool
         Enable message bus publishing
     schema_migration_window_hours : int
         Schema migration window duration (hours)
+    allow_schema_migration : bool
+        Allow schema migration windows
     fail_closed : bool
         Fail-closed mode for validation failures
     auto_register_datasets : bool
@@ -104,10 +111,12 @@ class DataStoreConfig:
     model_store: ModelStore | None = None
     strategy_store: StrategyStore | None = None
     earnings_store: EarningsStore | None = None
+    raw_reader: RawReaderProtocol | None = None
     raw_writer: RawIngestionWriterProtocol | None = None
     publisher: MessagePublisherProtocol | None = None
     enable_publishing: bool = False
     schema_migration_window_hours: int = 24
+    allow_schema_migration: bool = False
     fail_closed: bool = True
     auto_register_datasets: bool = True
     cache_manifests: bool = True
@@ -129,7 +138,7 @@ class DataStoreConfig:
 # =========================================================================
 
 
-class DataStoreFacade:
+class DataStoreFacade(DataRegistryMixin):
     """
     Facade integrating all 6 DataStore components.
 
@@ -173,6 +182,8 @@ class DataStoreFacade:
 
     """
 
+    _registry: RegistryProtocol | None
+
     def __init__(
         self,
         config: DataStoreConfig | None = None,
@@ -184,11 +195,13 @@ class DataStoreFacade:
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
         earnings_store: EarningsStore | None = None,
+        raw_reader: RawReaderProtocol | None = None,
         raw_writer: RawIngestionWriterProtocol | None = None,
         publisher: MessagePublisherProtocol | None = None,
         enable_publishing: bool = False,
         fail_on_validation_error: bool = True,
         schema_migration_window_hours: int = 24,
+        allow_schema_migration: bool = False,
         # Component overrides
         schema_validator: SchemaValidatorProtocol | None = None,
         data_writer: DataWriterProtocol | None = None,
@@ -212,10 +225,12 @@ class DataStoreFacade:
             model_store: Model store instance (legacy)
             strategy_store: Strategy store instance (legacy)
             earnings_store: Earnings store instance (legacy)
+            raw_reader: Raw reader instance (legacy)
             publisher: Message bus publisher (legacy)
             enable_publishing: Enable message bus publishing (legacy)
             fail_on_validation_error: Fail-closed mode (legacy)
             schema_migration_window_hours: Schema migration window (legacy)
+            allow_schema_migration: Allow schema migration windows (legacy)
             batch_size: Default write batch size (legacy, forwarded to config)
             schema_validator: Schema validation component (auto-created if None)
             data_writer: Data writer component (auto-created if None)
@@ -240,16 +255,23 @@ class DataStoreFacade:
                 model_store=model_store,
                 strategy_store=strategy_store,
                 earnings_store=earnings_store,
+                raw_reader=raw_reader,
                 raw_writer=raw_writer,
                 publisher=publisher,
                 enable_publishing=enable_publishing,
                 fail_closed=fail_on_validation_error,
                 schema_migration_window_hours=schema_migration_window_hours,
+                allow_schema_migration=allow_schema_migration,
                 batch_size=int(kwargs.get("batch_size", 10000)),
             )
 
         self._config = config
         self._logger = logger
+        self._schema_migration_state: dict[str, dict[str, Any]] = {}
+        self.connection_string = config.connection_string
+        self._data_registry = config.registry
+        self._registry = self._get_data_registry()
+        self._publisher = config.publisher
 
         # Initialize components (auto-create if not provided)
         self._schema_validator = schema_validator or self._create_schema_validator()
@@ -269,6 +291,60 @@ class DataStoreFacade:
         )
 
     # =====================================================================
+    # Public Accessors (Legacy Compatibility)
+    # =====================================================================
+
+    @property
+    def feature_store(self) -> FeatureStore | None:
+        """
+        Return the configured FeatureStore (legacy compatibility).
+        """
+        return self._config.feature_store
+
+    @property
+    def model_store(self) -> ModelStore | None:
+        """
+        Return the configured ModelStore (legacy compatibility).
+        """
+        return self._config.model_store
+
+    @property
+    def strategy_store(self) -> StrategyStore | None:
+        """
+        Return the configured StrategyStore (legacy compatibility).
+        """
+        return self._config.strategy_store
+
+    @property
+    def earnings_store(self) -> EarningsStore | None:
+        """
+        Return the configured EarningsStore (legacy compatibility).
+        """
+        return self._config.earnings_store
+
+    @property
+    def publisher(self) -> MessagePublisherProtocol | None:
+        """
+        Return the configured message bus publisher (legacy compatibility).
+        """
+        return self._publisher
+
+    @publisher.setter
+    def publisher(self, publisher: MessagePublisherProtocol | None) -> None:
+        """
+        Update the message bus publisher and sync the event emitter.
+        """
+        self._publisher = publisher
+        if hasattr(self, "_event_emitter"):
+            try:
+                cast(Any, self._event_emitter)._publisher = publisher
+            except Exception:
+                self._logger.debug(
+                    "Failed to attach publisher to EventEmitterComponent",
+                    exc_info=True,
+                )
+
+    # =====================================================================
     # Component Factory Methods
     # =====================================================================
 
@@ -281,16 +357,17 @@ class DataStoreFacade:
         """
         from ml.stores.common.schema_validator import SchemaValidatorComponent
 
-        if self._config.registry is None:
+        if self._registry is None:
             raise ValueError(
                 "registry is required for SchemaValidatorComponent. "
                 "DataStoreFacade requires explicit registry for schema validation."
             )
 
         return SchemaValidatorComponent(
-            data_registry=self._config.registry,
-            allow_schema_migration=True,
+            data_registry=self._registry,
+            allow_schema_migration=self._config.allow_schema_migration,
             schema_migration_window_hours=self._config.schema_migration_window_hours,
+            migration_state=self._schema_migration_state,
         )
 
     def _create_contract_enforcer(self) -> ContractEnforcerProtocol:
@@ -302,17 +379,18 @@ class DataStoreFacade:
         """
         from ml.stores.common.contract_enforcer import ContractEnforcerComponent
 
-        if self._config.registry is None:
+        if self._registry is None:
             raise ValueError(
                 "registry is required for ContractEnforcerComponent. "
                 "DataStoreFacade requires explicit registry for contract enforcement."
             )
 
         return ContractEnforcerComponent(
-            registry=self._config.registry,
-            allow_schema_migration=True,
+            registry=self._registry,
+            allow_schema_migration=self._config.allow_schema_migration,
             schema_migration_window_hours=self._config.schema_migration_window_hours,
             fail_on_validation_error=self._config.fail_closed,
+            migration_state=self._schema_migration_state,
         )
 
     def _create_event_emitter(self) -> EventEmitterProtocol:
@@ -324,7 +402,7 @@ class DataStoreFacade:
         """
         from ml.stores.common.event_emitter import EventEmitterComponent
 
-        if self._config.registry is None:
+        if self._registry is None:
             raise ValueError(
                 "registry is required for EventEmitterComponent. "
                 "DataStoreFacade requires explicit registry for event emission."
@@ -344,8 +422,8 @@ class DataStoreFacade:
         self._topic_prefix = topic_prefix
 
         return EventEmitterComponent(
-            registry=self._config.registry,
-            publisher=self._config.publisher,
+            registry=self._registry,
+            publisher=self._publisher,
             enable_publishing=self._config.enable_publishing,
             topic_scheme=topic_scheme,
             topic_prefix=topic_prefix,
@@ -362,7 +440,7 @@ class DataStoreFacade:
 
         # Validate all required dependencies are provided
         missing: list[str] = []
-        if self._config.registry is None:
+        if self._registry is None:
             missing.append("registry")
         if self._config.feature_store is None:
             missing.append("feature_store")
@@ -382,16 +460,17 @@ class DataStoreFacade:
         assert self._config.model_store is not None
         assert self._config.strategy_store is not None
         assert self._config.earnings_store is not None
-        assert self._config.registry is not None
+        assert self._registry is not None
 
         return DataWriterComponent(
             feature_store=self._config.feature_store,
             model_store=self._config.model_store,
             strategy_store=self._config.strategy_store,
             earnings_store=self._config.earnings_store,
+            event_emitter=self._event_emitter,
             raw_writer=self._config.raw_writer,
             validator=self._schema_validator,
-            registry=self._config.registry,
+            registry=self._registry,
             fail_on_validation_error=self._config.fail_closed,
         )
 
@@ -406,7 +485,7 @@ class DataStoreFacade:
 
         # Validate all required dependencies are provided
         missing: list[str] = []
-        if self._config.registry is None:
+        if self._registry is None:
             missing.append("registry")
         if self._config.feature_store is None:
             missing.append("feature_store")
@@ -426,14 +505,15 @@ class DataStoreFacade:
         assert self._config.model_store is not None
         assert self._config.strategy_store is not None
         assert self._config.earnings_store is not None
-        assert self._config.registry is not None
+        assert self._registry is not None
 
         return DataReaderComponent(
             feature_store=self._config.feature_store,
             model_store=self._config.model_store,
             strategy_store=self._config.strategy_store,
             earnings_store=self._config.earnings_store,
-            registry=self._config.registry,
+            registry=self._registry,
+            raw_reader=self._config.raw_reader,
         )
 
     def _create_store_operations(self) -> StoreOperationsProtocol:
@@ -448,7 +528,7 @@ class DataStoreFacade:
             model_store=self._config.model_store,
             strategy_store=self._config.strategy_store,
             earnings_store=self._config.earnings_store,
-            data_registry=self._config.registry,
+            data_registry=self._registry,
         )
 
     # =====================================================================
@@ -1055,8 +1135,10 @@ class DataStoreFacade:
         *,
         dataset_id: str,
         instrument_id: str,
-        start_ts: int,
-        end_ts: int,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
     ) -> Any:  # pl.DataFrame
         """
         Read data range for any dataset type.
@@ -1067,38 +1149,79 @@ class DataStoreFacade:
         Args:
             dataset_id: Dataset identifier
             instrument_id: Instrument identifier
-            start_ts: Start timestamp in nanoseconds (inclusive)
-            end_ts: End timestamp in nanoseconds (exclusive)
+            start_ns: Start timestamp in nanoseconds (inclusive)
+            end_ns: End timestamp in nanoseconds (exclusive)
+            start_ts: Backward-compatible alias for start_ns
+            end_ts: Backward-compatible alias for end_ns
 
         Returns:
             DataFrame with data for the specified range
 
         """
+        if start_ns is None:
+            if start_ts is None:
+                raise ValueError("start_ns or start_ts is required")
+            start_ns = start_ts
+        elif start_ts is not None and start_ts != start_ns:
+            raise ValueError("start_ns and start_ts must match when both are provided")
+
+        if end_ns is None:
+            if end_ts is None:
+                raise ValueError("end_ns or end_ts is required")
+            end_ns = end_ts
+        elif end_ts is not None and end_ts != end_ns:
+            raise ValueError("end_ns and end_ts must match when both are provided")
+
+        start_ts_local = start_ns
+        end_ts_local = end_ns
+
+        dataset_id_lower = dataset_id.lower()
+
         # Route based on dataset_id prefix (simplified routing logic)
-        if "feature" in dataset_id.lower():
+        if "feature" in dataset_id_lower:
             return self.read_features(
                 instrument_id=instrument_id,
-                start_ts=start_ts,
-                end_ts=end_ts,
+                start_ts=start_ts_local,
+                end_ts=end_ts_local,
             )
-        elif "prediction" in dataset_id.lower() or "model" in dataset_id.lower():
+        elif "prediction" in dataset_id_lower or "model" in dataset_id_lower:
+            model_id: str | None = None
+            if dataset_id_lower.startswith(("predictions_", "prediction_")):
+                model_id = dataset_id.split("_", 1)[1]
+            elif dataset_id_lower.startswith("model_"):
+                model_id = dataset_id.split("_", 1)[1]
             return self.read_predictions(
                 instrument_id=instrument_id,
-                start_ts=start_ts,
-                end_ts=end_ts,
+                start_ts=start_ts_local,
+                end_ts=end_ts_local,
+                model_id=model_id,
             )
-        elif "signal" in dataset_id.lower() or "strategy" in dataset_id.lower():
+        elif "signal" in dataset_id_lower or "strategy" in dataset_id_lower:
+            strategy_id: str | None = None
+            if dataset_id_lower.startswith(("signals_", "signal_")):
+                strategy_id = dataset_id.split("_", 1)[1]
+            elif dataset_id_lower.startswith("strategy_"):
+                strategy_id = dataset_id.split("_", 1)[1]
             return self.read_signals(
                 instrument_id=instrument_id,
-                start_ts=start_ts,
-                end_ts=end_ts,
+                start_ts=start_ts_local,
+                end_ts=end_ts_local,
+                strategy_id=strategy_id,
             )
         else:
             # Default to ingestion data
+            dataset_type = None
+            try:
+                manifest = self._get_manifest(dataset_id)
+            except Exception:
+                manifest = None
+            if manifest is not None:
+                dataset_type = manifest.dataset_type
             return self.read_ingestion_data(
                 instrument_id=instrument_id,
-                start_ts=start_ts,
-                end_ts=end_ts,
+                start_ts=start_ts_local,
+                end_ts=end_ts_local,
+                dataset_type=dataset_type,
             )
 
     # =====================================================================
@@ -1231,30 +1354,114 @@ class DataStoreFacade:
         self,
         *,
         dataset_id: str,
-        status: EventStatus | str,
+        status: EventStatus | str | None = None,
         metadata: dict[str, Any] | None = None,
+        instrument_id: str | None = None,
+        stage: Stage | str | None = None,
+        source: Source | str | None = None,
+        run_id: str | None = None,
+        ts_min: int | None = None,
+        ts_max: int | None = None,
+        count: int | None = None,
+        error: str | None = None,
     ) -> None:
         """
-        Emit a dataset-specific event with simplified parameter set.
+        Emit a dataset event using the simplified or full parameter set.
 
-        COLD PATH: Event emission is async, non-blocking
-        Delegates to EventEmitterComponent.
+        When full parameters are provided (instrument_id, stage, source, run_id,
+        ts_min, ts_max, count), this delegates to emit_event for backward
+        compatibility. Otherwise, it emits a dataset-level event only.
 
         Args:
             dataset_id: Dataset identifier
             status: Event status (SUCCESS, FAILED, PARTIAL)
-            metadata: Additional event metadata
+            metadata: Optional event metadata
+            instrument_id: Instrument identifier (full event path)
+            stage: Processing stage (full event path)
+            source: Event source (full event path)
+            run_id: Processing run identifier (full event path)
+            ts_min: Minimum timestamp (full event path)
+            ts_max: Maximum timestamp (full event path)
+            count: Record count (full event path)
+            error: Optional error message for failed events
 
         """
-        self._event_emitter.emit_dataset_event(
+        full_params_provided = any(
+            value is not None
+            for value in (instrument_id, stage, source, run_id, ts_min, ts_max, count, error)
+        )
+
+        if not full_params_provided:
+            if status is None:
+                raise ValueError("status is required for dataset-level event emission")
+            self._event_emitter.emit_dataset_event(
+                dataset_id=dataset_id,
+                status=status,
+                metadata=metadata,
+            )
+            return
+
+        missing: list[str] = []
+        if instrument_id is None:
+            missing.append("instrument_id")
+        if stage is None:
+            missing.append("stage")
+        if source is None:
+            missing.append("source")
+        if ts_min is None:
+            missing.append("ts_min")
+        if ts_max is None:
+            missing.append("ts_max")
+        if count is None:
+            missing.append("count")
+
+        if missing:
+            raise ValueError(
+                "emit_dataset_event missing required fields for full emission: "
+                + ", ".join(missing),
+            )
+
+        if status is None:
+            raise ValueError("status is required for full event emission")
+
+        run_id_value = run_id or f"event_{time.time_ns()}"
+
+        assert instrument_id is not None
+        assert stage is not None
+        assert source is not None
+        assert ts_min is not None
+        assert ts_max is not None
+        assert count is not None
+
+        if self._config.enable_publishing and self._config.publisher is not None:
+            logger.debug(
+                "Emitting dataset event via facade",
+                extra={"dataset_id": dataset_id, "instrument_id": instrument_id},
+            )
+
+        self._event_emitter.emit_event(
             dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id_value,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
             status=status,
+            error=error,
             metadata=metadata,
         )
 
     # =====================================================================
     # Contract/Manifest Operations (Delegate to ContractEnforcerComponent)
     # =====================================================================
+
+    def _compute_schema_hash(self, data_frame: DataFrameLike, manifest: Any) -> str:
+        """
+        Compute schema hash for the provided data frame.
+        """
+        return self._contract_enforcer.compute_schema_hash(data_frame, manifest)
 
     def _get_manifest(self, dataset_id: str) -> Any:  # DatasetManifest
         """

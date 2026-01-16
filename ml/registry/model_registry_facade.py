@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ml.common.protocols import MLComponentMixin
 from ml.config.constants import SUFFIX_ONNX
 from ml.config.registry import RegistryPolicyConfig
 from ml.config.runtime import OnnxRuntimeConfig
@@ -53,7 +54,7 @@ except Exception:  # pragma: no cover
         raise RuntimeError("Dependency check unavailable")
 
 
-class ModelRegistryFacade:
+class ModelRegistryFacade(MLComponentMixin):
     """
     Facade wiring all ModelRegistry components.
 
@@ -1224,7 +1225,14 @@ class ModelRegistryFacade:
         # Feature parity validation
         if getattr(manifest, "serveable", True):
             strict_parity = os.getenv("ML_STRICT_FEATURE_PARITY", "0") == "1"
-            feature_registry_file = self.registry_path / "feature_registry.json"
+            feature_registry_root = self.registry_path
+            feature_registry_file = feature_registry_root / "feature_registry.json"
+            if not feature_registry_file.exists():
+                sibling_root = self.registry_path.parent / "features"
+                sibling_file = sibling_root / "feature_registry.json"
+                if sibling_file.exists():
+                    feature_registry_root = sibling_root
+                    feature_registry_file = sibling_file
 
             if not manifest.feature_set_id:
                 msg = "feature_set_id is missing for serveable model"
@@ -1241,7 +1249,7 @@ class ModelRegistryFacade:
             else:
                 from ml.registry.feature_registry import FeatureRegistry
 
-                freg = FeatureRegistry(self.registry_path)
+                freg = FeatureRegistry(feature_registry_root)
                 finfo = freg.get_feature_set(manifest.feature_set_id)
                 if finfo is None:
                     msg = f"feature_set_id {manifest.feature_set_id} not found"

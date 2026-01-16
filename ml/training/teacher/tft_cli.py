@@ -46,6 +46,80 @@ from ml.training.teacher.base import TeacherConfig
 logger = logging.getLogger(__name__)
 
 
+def _resolve_tft_feature_columns(
+    df: object,
+    *,
+    feature_names: list[str],
+    group_id_col: str,
+    static_categoricals: list[str] | None,
+) -> tuple[list[str], list[str], list[str]]:
+    """
+    Resolve numeric/static/encoded feature columns for TFT training.
+
+    Returns numeric feature names, static categorical feature names, and
+    dynamically encoded categorical feature names.
+    """
+    if not HAS_PANDAS or pd is None:
+        check_ml_dependencies(["pandas"])
+        raise ImportError("pandas is required for TFT feature resolution")
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+    if group_id_col not in df.columns:
+        raise ValueError(f"Missing group_id_col in DataFrame: {group_id_col}")
+
+    static_set = set(static_categoricals or [])
+    numeric_cols: list[str] = []
+    static_cols: list[str] = []
+    encoded_cols: list[str] = []
+
+    for name in feature_names:
+        if name not in df.columns:
+            continue
+        series = df[name]
+
+        if name in static_set:
+            df[name] = series.fillna("UNKNOWN").astype("category")
+            static_cols.append(name)
+            continue
+
+        if pd.api.types.is_numeric_dtype(series):
+            numeric_cols.append(name)
+            continue
+
+        if pd.api.types.is_datetime64_any_dtype(series):
+            converted = pd.to_datetime(series, errors="coerce")
+            values = converted.view("int64").astype("float64")
+            values[converted.isna()] = np.nan
+            df[name] = values
+            numeric_cols.append(name)
+            continue
+
+        coerced = pd.to_numeric(series, errors="coerce")
+        if coerced.notna().any():
+            df[name] = coerced
+            numeric_cols.append(name)
+            continue
+
+        if static_categoricals is None:
+            per_group = (
+                df[[group_id_col, name]]
+                .dropna(subset=[group_id_col])
+                .groupby(group_id_col)[name]
+                .nunique(dropna=True)
+            )
+            if not per_group.empty and (per_group <= 1).all():
+                df[name] = series.fillna("UNKNOWN").astype("category")
+                static_cols.append(name)
+                continue
+
+        categorical = series.astype("category")
+        df[name] = categorical.cat.codes.astype("int64")
+        numeric_cols.append(name)
+        encoded_cols.append(name)
+
+    return numeric_cols, static_cols, encoded_cols
+
+
 def _compute_sharpe_ratio(
     probabilities: npt.NDArray[np.float64],
     returns: npt.NDArray[np.float64],

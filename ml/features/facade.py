@@ -895,8 +895,12 @@ class FeatureEngineer:
         )
 
 
+LegacyFeatureEngineer = FeatureEngineer
+
+
 __all__ = [
     "FeatureConfig",
     "FeatureEngineer",
     "IndicatorManager",
+    "LegacyFeatureEngineer",
 ]

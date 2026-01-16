@@ -13,6 +13,7 @@ from ml.config.events import EventStatus, Stage
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
 from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -61,8 +62,18 @@ def _set_noop_preflight(store: DataStore) -> None:
     ) -> tuple[bool, None, dict[str, object]]:
         return True, None, {"warnings": []}
 
+    def _noop_validator_preflight(
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
     store_any = cast(Any, store)
     store_any.preflight_check = types.MethodType(_noop_preflight, store)
+    if hasattr(store_any, "_schema_validator"):
+        store_any._schema_validator.preflight_check = _noop_validator_preflight
+    if hasattr(store_any, "_data_writer"):
+        store_any._data_writer._validator.preflight_check = _noop_validator_preflight
 
 
 
@@ -84,6 +95,7 @@ def test_write_ingestion_failure_emits_failed_event_and_raises(tmp_path: Path) -
         feature_store=feature_store,
         model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
         strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
     )
 
     # Valid records so preflight passes; write_features then fails to exercise emit_event(status=failed)
@@ -131,7 +143,9 @@ def test_write_ingestion_updates_watermark_json(tmp_path: Path) -> None:
         feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
         model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
         strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
         publisher=pub,
+        enable_publishing=True,
     )
 
     records: list[dict[str, Any]] = [

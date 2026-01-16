@@ -13,6 +13,7 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 
 
@@ -72,7 +73,9 @@ class TestDataStoreWriteIngestion:
             feature_store=cast(Any, feature_store),
             model_store=cast(Any, model_store),
             strategy_store=cast(Any, strategy_store),
+            earnings_store=DummyEarningsStore(),
             publisher=pub,
+            enable_publishing=True,
             fail_on_validation_error=False,
         )
 
@@ -120,6 +123,7 @@ class TestDataStoreWriteIngestion:
             feature_store=cast(Any, object()),
             model_store=cast(Any, object()),
             strategy_store=cast(Any, object()),
+            earnings_store=DummyEarningsStore(),
         )
 
         # Missing required instrument_id column -> preflight should fail

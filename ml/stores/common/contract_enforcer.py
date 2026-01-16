@@ -92,6 +92,7 @@ class ContractEnforcerComponent:
         allow_schema_migration: bool = False,
         schema_migration_window_hours: int = 24,
         fail_on_validation_error: bool = False,
+        migration_state: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         """
         Initialize contract enforcer with registry and configuration.
@@ -101,6 +102,7 @@ class ContractEnforcerComponent:
             allow_schema_migration: If True, allow schema migrations with dual-write window
             schema_migration_window_hours: Duration of migration window in hours
             fail_on_validation_error: If True, raise on validation failures in strict mode
+            migration_state: Optional shared migration state across components
 
         """
         self._registry = registry
@@ -114,7 +116,7 @@ class ContractEnforcerComponent:
 
         # Schema migration state (in-memory, not persisted across restarts)
         # Format: {dataset_id: {"start_time": ns, "version": str, "schema_hash": str}}
-        self._schema_migration_state: dict[str, dict[str, Any]] = {}
+        self._schema_migration_state = migration_state if migration_state is not None else {}
 
     # =========================================================================
     # Public API - All COLD PATH

@@ -62,10 +62,8 @@ def _flatten(arr: ArrayLike) -> NDArray[np.float64]:
 
 def _compute_metrics(y_true: NDArray[np.float64], p_pred: NDArray[np.float64]) -> dict[str, float]:
     # Cast to explicit dtypes
-    from typing import cast as _cast
-
     y = y_true.astype(np.int32).reshape(-1)
-    p = _cast(NDArray[np.float64], p_pred.astype(np.float64).reshape(-1))
+    p = p_pred.astype(np.float64).reshape(-1)
     # Clip probabilities for logloss stability
     eps: Final[float] = 1e-15
     p = np.clip(p, eps, 1.0 - eps)

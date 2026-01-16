@@ -62,12 +62,11 @@ def pr_auc(
     order = np.argsort(recalls)
     r = np.asarray(recalls, dtype=np.float64)[order]
     p = np.asarray(precisions, dtype=np.float64)[order]
-    # Compute area via trapezoidal rule
-    trapezoid = getattr(np, "trapezoid", None)
-    if trapezoid is not None:  # NumPy >= 2.0
-        area = trapezoid(p, r)
-    else:  # NumPy < 2.0
-        area = np.trapz(p, r)  # noqa: NPY201
+    # Compute area via trapezoidal rule (manual to avoid versioned numpy stubs)
+    if r.size < 2:
+        return 0.0
+    deltas = r[1:] - r[:-1]
+    area = np.sum(deltas * (p[1:] + p[:-1]) * 0.5)
     return float(area)
 
 

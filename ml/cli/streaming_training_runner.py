@@ -280,10 +280,7 @@ def _normalize_metrics(result_metrics: Mapping[str, Any], artifact_path: Path) -
     if missing:
         try:
             with np.load(artifact_path) as payload:
-                logits = cast(
-                    npt.NDArray[np.float64],
-                    np.asarray(payload["z_val"], dtype=np.float64).reshape(-1),
-                )
+                logits = np.asarray(payload["z_val"], dtype=np.float64).reshape(-1)
                 targets = np.asarray(payload["y_val"], dtype=np.float64).reshape(-1)
         except (FileNotFoundError, KeyError, OSError, ValueError):
             logger.error(
@@ -301,7 +298,7 @@ def _normalize_metrics(result_metrics: Mapping[str, Any], artifact_path: Path) -
                 for name in missing:
                     metrics.setdefault(name, 0.0)
             else:
-                logits = cast(npt.NDArray[np.float64], np.clip(logits, -60.0, 60.0))
+                logits = np.clip(logits, -60.0, 60.0)
                 probabilities = 1.0 / (1.0 + np.exp(-logits))
                 prevalence = float(np.mean(targets)) if targets.size else 0.0
                 metrics.setdefault("roc_auc", roc_auc(targets, probabilities))

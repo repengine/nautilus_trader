@@ -29,6 +29,7 @@ import numpy.typing as npt
 
 from ml.common.db_utils import get_or_create_engine
 from ml.config.base import MLFeatureConfig
+from ml.core.db_engine import EngineManager
 from ml.features import FeatureConfig
 from ml.features import FeatureEngineer
 from ml.features.pipeline import PipelineRunner
@@ -977,8 +978,6 @@ def create_engine(connection_string: str) -> Any:
         SQLAlchemy engine instance
 
     """
-    from ml.core.db_engine import EngineManager
-
     return EngineManager.get_engine(connection_string)
 
 

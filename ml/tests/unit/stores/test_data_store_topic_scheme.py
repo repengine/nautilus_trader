@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from typing import Any, Iterator
+from unittest.mock import MagicMock
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus, Source, Stage
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.registry.protocols import RegistryProtocol
@@ -104,9 +106,16 @@ from pathlib import Path
 def test_data_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
+        feature_store = MagicMock()
+        model_store = MagicMock()
+        strategy_store = MagicMock()
         store = DataStore(
             connection_string=f"sqlite:///{tmp_path}/ds.db",
             registry=StubRegistry(),
+            feature_store=feature_store,
+            model_store=model_store,
+            strategy_store=strategy_store,
+            earnings_store=DummyEarningsStore(),
             publisher=pub,
             enable_publishing=True,
         )

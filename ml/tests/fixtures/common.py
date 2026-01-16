@@ -272,6 +272,7 @@ def mock_stores_bundle(
     mock_model_store: MagicMock,
     mock_strategy_store: MagicMock,
     mock_data_store: MagicMock,
+    mock_earnings_store: MagicMock,
 ) -> dict[str, MagicMock]:
     """
     Bundle of all store mocks for convenience.
@@ -284,6 +285,7 @@ def mock_stores_bundle(
         "model_store": mock_model_store,
         "strategy_store": mock_strategy_store,
         "data_store": mock_data_store,
+        "earnings_store": mock_earnings_store,
     }
 
 

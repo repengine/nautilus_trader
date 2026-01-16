@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from ml.features.earnings.store import EarningsStore
 from ml.stores.data_store_facade import DataStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -79,6 +80,7 @@ def mock_store_factory():
             "model": ModelStore,
             "strategy": StrategyStore,
             "data": DataStore,
+            "earnings": EarningsStore,
         }
 
         if store_type not in specs:
@@ -146,6 +148,12 @@ def mock_data_store(mock_store_factory) -> MagicMock:
     store.write = MagicMock(return_value=True)
     store.read_features = MagicMock(return_value={})
     return store
+
+
+@pytest.fixture
+def mock_earnings_store(mock_store_factory) -> MagicMock:
+    """Mock EarningsStore for unit tests."""
+    return mock_store_factory("earnings")
 
 
 @pytest.fixture

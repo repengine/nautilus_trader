@@ -1143,7 +1143,9 @@ def _execute_with_namespace(
         vintage_as_of=args.vintage_as_of,
     )
 
-    ds_cfg = orch._prepare_dataset_config(ds_cfg)
+    prepare_cfg = getattr(orch, "_prepare_dataset_config", None)
+    if callable(prepare_cfg):
+        ds_cfg = prepare_cfg(ds_cfg)
 
     auto_fill_cfg = _build_auto_fill_config_from_args(args, ds_cfg)
     ingestion_cfg = _build_ingestion_config_from_args(args, ds_cfg)
@@ -1576,7 +1578,9 @@ def _run_ingestion_stage(
                         ),
                     },
                 )
-                orch._auto_fill_universe(ds_cfg, auto_fill_cfg)
+                auto_fill = getattr(orch, "_auto_fill_universe", None)
+                if callable(auto_fill):
+                    auto_fill(ds_cfg, auto_fill_cfg)
 
         if not ingestion_cfg.enabled:
             stage_status = "success" if work_performed else "skipped"

@@ -4,11 +4,13 @@ DataStore failed event normalization: invalid source normalized to 'live'.
 
 from __future__ import annotations
 
-from typing import Any, Callable, cast
+from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 
 from ml.stores.data_store_facade import DataStore
+from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -113,18 +115,17 @@ class _FailStore:
 
 
 def test_failed_event_source_normalized_to_live() -> None:
-    ds: DataStore = object.__new__(DataStore)
-    setattr(ds, "connection_string", "sqlite:///:memory:")
     fail_store = _FailStore()
-    setattr(ds, "feature_store", cast(FeatureStore, fail_store))
-    setattr(ds, "model_store", cast(ModelStore, fail_store))
-    setattr(ds, "strategy_store", cast(StrategyStore, fail_store))
     reg = _RegistryCap()
-    setattr(ds, "registry", reg)
-    setattr(ds, "_data_registry", reg)
-    setattr(ds, "_ensure_dataset_registered", cast(Callable[..., None], lambda **kwargs: None))
-    clock = type("_C", (), {"timestamp_ns": lambda self: 100})()
-    setattr(ds, "clock", clock)
+    ds = DataStore(
+        connection_string="sqlite:///:memory:",
+        registry=reg,
+        feature_store=cast(FeatureStore, fail_store),
+        model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
+        strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
+        fail_on_validation_error=False,
+    )
 
     from ml.stores.base import FeatureData
 
@@ -136,7 +137,7 @@ def test_failed_event_source_normalized_to_live() -> None:
         _ts_init=1,
     )
     with pytest.raises(RuntimeError, match="Feature write failed: store failed"):
-        DataStore.write_features(ds, instrument_id="X.SIM", features=[fd], source="unit")
+        ds.write_features(instrument_id="X.SIM", features=[fd], source="unit")
     # Check last event has normalized source
     assert reg.events and reg.events[-1]["source"] == "live"
     assert reg.events[-1]["status"] == EventStatus.FAILED.value

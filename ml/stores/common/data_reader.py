@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
     from ml.stores.earnings_store import EarningsStore
     from ml.stores.feature_store_facade import FeatureStore
+    from ml.stores.io_raw import RawReaderProtocol
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
 
@@ -171,6 +172,8 @@ class DataReaderComponent:
         strategy_store: StrategyStore,
         earnings_store: EarningsStore,
         registry: RegistryProtocol,
+        *,
+        raw_reader: RawReaderProtocol | None = None,
     ) -> None:
         """
         Initialize data reader with store dependencies.
@@ -188,6 +191,7 @@ class DataReaderComponent:
         self._strategy_store = strategy_store
         self._earnings_store = earnings_store
         self._registry = registry
+        self._raw_reader = raw_reader
 
     # =========================================================================
     # Public API - HOT PATH
@@ -315,16 +319,25 @@ class DataReaderComponent:
             raise ValueError(f"Invalid time range: start={start_ts} >= end={end_ts}")
 
         try:
-            # Convert to datetime for store queries
-            start_dt = datetime.fromtimestamp(start_ts / 1e9)
-            end_dt = datetime.fromtimestamp(end_ts / 1e9)
+            raw_result: object
+            if self._raw_reader is not None and dataset_type is not None:
+                raw_result = self._raw_reader.read_range(
+                    dataset_type=dataset_type,
+                    instrument_id=instrument_id,
+                    start_ns=start_ts,
+                    end_ns=end_ts,
+                )
+            else:
+                # Convert to datetime for store queries
+                start_dt = datetime.fromtimestamp(start_ts / 1e9)
+                end_dt = datetime.fromtimestamp(end_ts / 1e9)
 
-            # For ingestion data, use feature store's training data method
-            raw_result = self._feature_store.get_training_data(
-                instrument_id=instrument_id,
-                start=start_dt,
-                end=end_dt,
-            )
+                # For ingestion data, use feature store's training data method
+                raw_result = self._feature_store.get_training_data(
+                    instrument_id=instrument_id,
+                    start=start_dt,
+                    end=end_dt,
+                )
 
             # Convert to Polars DataFrame if not already
             if isinstance(raw_result, pl.DataFrame):

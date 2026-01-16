@@ -17,6 +17,7 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Any
+from typing import cast
 
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -35,9 +36,12 @@ from ml.deployment._databento import is_valid_databento_key
 from ml.deployment.metrics_http import build_app
 from ml.deployment.security import assert_allowed_model_path
 from ml.observability.bootstrap import auto_start_if_configured
+from ml.registry.base import DummyRegistry
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.stores import DataStore
+from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.writers import CatalogWriteFacade
 from ml.stores.writers import LiveDataRecorder
 from ml.stores.writers import ParquetCatalogMarketDataWriter
@@ -349,9 +353,16 @@ class MLSignalActorNode:
                 )
                 if mgr.data_store is None:
                     raise RuntimeError("DataStore not initialized")
+                data_store = cast(
+                    DataStore | DataStoreFacadeProtocol,
+                    mgr.data_store,
+                )
+                data_registry = mgr.data_registry
+                if data_registry is None or isinstance(data_registry, DummyRegistry):
+                    raise RuntimeError("DataRegistry not initialized")
                 recorder = LiveDataRecorder(
-                    data_store=mgr.data_store,
-                    data_registry=mgr.data_registry,
+                    data_store=data_store,
+                    data_registry=data_registry,
                     buffer_size=int(os.getenv("ML_LIVE_RECORD_BUFFER", "1000")),
                     flush_interval_ms=int(os.getenv("ML_LIVE_RECORD_FLUSH_MS", "1000")),
                 )

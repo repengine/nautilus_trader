@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus, Stage
+from ml.features.earnings.store import DummyEarningsStore
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
 from ml.registry.persistence import BackendType, PersistenceConfig
@@ -34,8 +35,18 @@ def _set_noop_preflight(store: DataStore) -> None:
     ) -> tuple[bool, None, dict[str, object]]:
         return True, None, {"warnings": []}
 
+    def _noop_validator_preflight(
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[bool, None, dict[str, object]]:
+        return True, None, {"warnings": []}
+
     store_any = cast(Any, store)
     store_any.preflight_check = types.MethodType(_noop_preflight, store)
+    if hasattr(store_any, "_schema_validator"):
+        store_any._schema_validator.preflight_check = _noop_validator_preflight
+    if hasattr(store_any, "_data_writer"):
+        store_any._data_writer._validator.preflight_check = _noop_validator_preflight
 
 
 def _manifest(dataset_id: str, dataset_type: DatasetType, location: Path) -> DatasetManifest:
@@ -81,6 +92,7 @@ def test_ingestion_predictions_emits_event_and_updates_watermark(tmp_path: Path)
         feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
         model_store=model_store,
         strategy_store=cast(StrategyStore, MagicMock(spec=StrategyStore)),
+        earnings_store=DummyEarningsStore(),
         publisher=pub,
         enable_publishing=True,
     )
@@ -149,6 +161,7 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
         feature_store=cast(FeatureStore, MagicMock(spec=FeatureStore)),
         model_store=cast(ModelStore, MagicMock(spec=ModelStore)),
         strategy_store=strategy_store,
+        earnings_store=DummyEarningsStore(),
         publisher=pub,
         enable_publishing=True,
     )

@@ -31,6 +31,12 @@ def _db_fixtures() -> Any:
 
     return database_fixtures
 
+
+try:
+    from ml.tests.fixtures.database_fixtures import TestDatabase
+except ImportError:  # pragma: no cover - fixture import guard
+    TestDatabase = None  # type: ignore[assignment]
+
 warnings.filterwarnings(
     "ignore",
     message="pkg_resources is deprecated as an API.*",

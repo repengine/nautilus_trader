@@ -14,10 +14,11 @@ import ast
 import hashlib
 import logging
 import time
+from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, TypeVar, cast
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -25,6 +26,7 @@ from ml.dashboard.services.base_service import BaseIntegrationService
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureInfo
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
     from ml.core.integration import MLIntegrationManager
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # Metrics
 feature_operations_total = get_counter(
@@ -346,6 +349,10 @@ class FeatureEngineeringService(BaseIntegrationService):
         super().__init__(integration_manager)
         self._validator = FeatureCodeValidator()
 
+    async def _run_async_typed(self, func: Callable[[], _T]) -> _T:
+        runner = cast(Callable[[Callable[[], _T]], Awaitable[_T]], self._run_async)
+        return await runner(func)
+
     def get_service_name(self) -> str:
         """Return service name for metrics."""
         return "feature_engineering"
@@ -523,13 +530,13 @@ class FeatureEngineeringService(BaseIntegrationService):
                     error="Feature registry not available",
                 )
 
-            registry = self._integration.feature_registry
+            registry = cast(FeatureRegistry, self._integration.feature_registry)
 
             # Get feature manifest
             def _get_feature_set() -> FeatureInfo | None:
                 return registry.get_feature_set(request.feature_set_id)
 
-            feature_info = await self._run_async(_get_feature_set)
+            feature_info = await self._run_async_typed(_get_feature_set)
 
             if feature_info is None:
                 return FeatureAnalysisResult(
@@ -590,13 +597,13 @@ class FeatureEngineeringService(BaseIntegrationService):
                     "manifests": [],
                 }
 
-            registry = self._integration.feature_registry
+            registry = cast(FeatureRegistry, self._integration.feature_registry)
 
             # Get all manifests
             def _list_feature_sets() -> list[FeatureInfo]:
                 return registry.list_all()
 
-            manifests = await self._run_async(_list_feature_sets)
+            manifests = await self._run_async_typed(_list_feature_sets)
 
             # Convert manifests to dict format
             manifest_list = []
@@ -843,7 +850,7 @@ class FeatureEngineeringService(BaseIntegrationService):
         if not self._integration or not self._integration.feature_registry:
             return
 
-        registry = self._integration.feature_registry
+        registry = cast(FeatureRegistry, self._integration.feature_registry)
 
         def _register_feature_set() -> None:
             manifest = FeatureManifest(
@@ -872,7 +879,7 @@ class FeatureEngineeringService(BaseIntegrationService):
             )
             registry.register_feature_set(manifest)
 
-        await self._run_async(_register_feature_set)
+        await self._run_async_typed(_register_feature_set)
 
     def _manifest_to_dict(self, manifest: Any) -> dict[str, Any]:
         """
