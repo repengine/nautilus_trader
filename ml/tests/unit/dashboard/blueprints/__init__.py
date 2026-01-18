@@ -1,4 +1,7 @@
 """Tests for Dashboard API Blueprints."""
+
 from __future__ import annotations
 
-__all__: list[str] = []
+pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
+
+__all__ = ("pytest_plugins",)

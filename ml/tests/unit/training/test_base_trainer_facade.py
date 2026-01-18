@@ -12,7 +12,6 @@ which provides mock implementations for all 7 abstract methods.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -22,7 +21,7 @@ import numpy.typing as npt
 import pytest
 
 from ml.config.base import MLFeatureConfig, MLTrainingConfig
-from ml.training.base_facade import BaseMLTrainerFacade, use_legacy_trainer
+from ml.training.base_facade import BaseMLTrainerFacade
 
 
 # =============================================================================
@@ -517,45 +516,6 @@ class TestLoggingMethods:
         with caplog.at_level(logging.ERROR):
             trainer_facade._log_error("Test error message")
         assert "Test error message" in caplog.text
-
-
-# =============================================================================
-# Test: Feature Flag
-# =============================================================================
-
-
-class TestFeatureFlag:
-    """Test the use_legacy_trainer feature flag."""
-
-    def test_use_legacy_trainer_default_false(self) -> None:
-        """use_legacy_trainer returns False by default."""
-        # Ensure env var is not set
-        os.environ.pop("ML_USE_LEGACY_TRAINER", None)
-        assert use_legacy_trainer() is False
-
-    def test_use_legacy_trainer_when_set_to_1(self) -> None:
-        """use_legacy_trainer returns True when env var is '1'."""
-        original = os.environ.get("ML_USE_LEGACY_TRAINER")
-        try:
-            os.environ["ML_USE_LEGACY_TRAINER"] = "1"
-            assert use_legacy_trainer() is True
-        finally:
-            if original is not None:
-                os.environ["ML_USE_LEGACY_TRAINER"] = original
-            else:
-                os.environ.pop("ML_USE_LEGACY_TRAINER", None)
-
-    def test_use_legacy_trainer_when_set_to_0(self) -> None:
-        """use_legacy_trainer returns False when env var is '0'."""
-        original = os.environ.get("ML_USE_LEGACY_TRAINER")
-        try:
-            os.environ["ML_USE_LEGACY_TRAINER"] = "0"
-            assert use_legacy_trainer() is False
-        finally:
-            if original is not None:
-                os.environ["ML_USE_LEGACY_TRAINER"] = original
-            else:
-                os.environ.pop("ML_USE_LEGACY_TRAINER", None)
 
 
 # =============================================================================

@@ -17,6 +17,6 @@ __all__ = [
     "FeatureConfig",
     "FeatureConfigLike",
     "FeatureEngineer",
-    "LegacyFeatureEngineer",
     "IndicatorManager",
+    "LegacyFeatureEngineer",
 ]

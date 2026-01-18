@@ -396,9 +396,10 @@ class LifecycleComponent:
             return
 
         try:
-            from ml.actors.base import MLSignal
             from nautilus_trader.model.data import DataType
             from nautilus_trader.model.identifiers import ClientId
+
+            from ml.actors.base import MLSignal
 
             # Build data type for ML signals (optionally scoped by source)
             metadata = {"source": self._signal_source} if self._signal_source else None

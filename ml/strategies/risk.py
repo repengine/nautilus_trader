@@ -24,6 +24,7 @@ from ml.common.metrics_bootstrap import get_histogram
 if TYPE_CHECKING:
     from nautilus_trader.model.identifiers import InstrumentId
     from nautilus_trader.model.objects import Quantity
+
     from nautilus_trader.portfolio import Portfolio
 
 

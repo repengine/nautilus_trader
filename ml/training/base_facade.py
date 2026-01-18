@@ -22,7 +22,6 @@ Components:
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
@@ -44,29 +43,12 @@ from ml.training.common import TrainingOrchestratorComponent
 
 
 if TYPE_CHECKING:
+    from ml.config.shared import OptunaConfig
+    from ml.registry import ModelManifest
     from ml.stores.feature_store import FeatureStore
 
 
 logger = logging.getLogger(__name__)
-
-
-def use_legacy_trainer() -> bool:
-    """
-    Check if legacy trainer should be used.
-
-    Returns
-    -------
-    bool
-        True if ML_USE_LEGACY_TRAINER environment variable is set to "1".
-
-    Example
-    -------
-    >>> os.environ["ML_USE_LEGACY_TRAINER"] = "1"
-    >>> use_legacy_trainer()
-    True
-
-    """
-    return os.getenv("ML_USE_LEGACY_TRAINER", "0") == "1"
 
 
 class BaseMLTrainerFacade(ABC):
@@ -88,7 +70,6 @@ class BaseMLTrainerFacade(ABC):
     The facade preserves the exact public API of the legacy BaseMLTrainer while
     delegating to components for all concrete operations. This enables:
     - Incremental migration from legacy to facade
-    - Feature flag control via ML_USE_LEGACY_TRAINER environment variable
     - Better testability through component isolation
     - Clearer separation of concerns
 
@@ -671,6 +652,208 @@ class BaseMLTrainerFacade(ABC):
             **kwargs,
         )
 
+    def _resolve_optuna_metric_name(
+        self,
+        y_train: npt.NDArray[np.float64],
+        optuna_cfg: OptunaConfig | None,
+    ) -> str:
+        """
+        Resolve the Optuna metric name for optimization.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        y_train : npt.NDArray[np.float64]
+            Training targets to infer problem type.
+        optuna_cfg : OptunaConfig | None
+            Optional Optuna configuration.
+
+        Returns
+        -------
+        str
+            Metric name to optimize.
+
+        """
+        return self._hyperparameter._resolve_optuna_metric_name(y_train, optuna_cfg)
+
+    def _resolve_optuna_direction(
+        self,
+        metric_name: str,
+        optuna_cfg: OptunaConfig | None,
+    ) -> str:
+        """
+        Resolve Optuna optimization direction.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        metric_name : str
+            Metric name being optimized.
+        optuna_cfg : OptunaConfig | None
+            Optional Optuna configuration.
+
+        Returns
+        -------
+        str
+            Optimization direction ("maximize" or "minimize").
+
+        """
+        return self._hyperparameter._resolve_optuna_direction(metric_name, optuna_cfg)
+
+    @staticmethod
+    def _optuna_direction_for_metric(metric_name: str) -> str:
+        """
+        Map metric names to Optuna optimization direction.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        metric_name : str
+            Metric name (case-insensitive).
+
+        Returns
+        -------
+        str
+            "maximize" or "minimize".
+
+        """
+        return HyperparameterComponent._optuna_direction_for_metric(metric_name)
+
+    def _calculate_optuna_metric(
+        self,
+        metric_name: str,
+        y_true: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
+        *,
+        validation_returns: npt.NDArray[np.float64] | None = None,
+    ) -> float:
+        """
+        Calculate Optuna optimization metric value.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        metric_name : str
+            Metric name (case-insensitive).
+        y_true : npt.NDArray[np.float64]
+            Ground truth values.
+        y_pred : npt.NDArray[np.float32] | npt.NDArray[np.float64]
+            Predicted values or probabilities.
+        validation_returns : npt.NDArray[np.float64] | None, optional
+            Returns for Sharpe ratio calculation.
+
+        Returns
+        -------
+        float
+            Metric value.
+
+        """
+        return self._hyperparameter._calculate_optuna_metric(
+            metric_name,
+            y_true,
+            y_pred,
+            validation_returns=validation_returns,
+        )
+
+    @staticmethod
+    def _probabilities_to_labels(
+        predictions: npt.NDArray[np.float64],
+        threshold: float = 0.5,
+    ) -> npt.NDArray[np.int64]:
+        """
+        Convert probability predictions to binary labels.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        predictions : npt.NDArray[np.float64]
+            Probability predictions.
+        threshold : float, default 0.5
+            Decision threshold.
+
+        Returns
+        -------
+        npt.NDArray[np.int64]
+            Binary labels.
+
+        """
+        return HyperparameterComponent._probabilities_to_labels(predictions, threshold=threshold)
+
+    def _calculate_sharpe_metric(
+        self,
+        predictions: npt.NDArray[np.float64],
+        targets: npt.NDArray[np.float64],
+        validation_returns: npt.NDArray[np.float64],
+    ) -> float:
+        """
+        Calculate annualized Sharpe ratio for Optuna scoring.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        predictions : npt.NDArray[np.float64]
+            Model predictions.
+        targets : npt.NDArray[np.float64]
+            Ground truth values.
+        validation_returns : npt.NDArray[np.float64]
+            Returns aligned to predictions.
+
+        Returns
+        -------
+        float
+            Sharpe ratio.
+
+        """
+        return self._hyperparameter._calculate_sharpe_metric(
+            predictions,
+            targets,
+            validation_returns,
+        )
+
+    def _build_optuna_sampler(self, cfg: OptunaConfig) -> optuna.samplers.BaseSampler:
+        """
+        Build Optuna sampler from configuration.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        cfg : OptunaConfig
+            Optuna configuration.
+
+        Returns
+        -------
+        optuna.samplers.BaseSampler
+            Sampler instance.
+
+        """
+        return self._hyperparameter._build_optuna_sampler(cfg)
+
+    def _build_optuna_pruner(self, cfg: OptunaConfig) -> optuna.pruners.BasePruner | None:
+        """
+        Build Optuna pruner from configuration.
+
+        Delegates to HyperparameterComponent.
+
+        Parameters
+        ----------
+        cfg : OptunaConfig
+            Optuna configuration.
+
+        Returns
+        -------
+        optuna.pruners.BasePruner | None
+            Pruner instance or None.
+
+        """
+        return self._hyperparameter._build_optuna_pruner(cfg)
+
     def _train_with_params(
         self,
         X_train: npt.NDArray[np.float64],
@@ -969,6 +1152,25 @@ class BaseMLTrainerFacade(ABC):
         """
         return self._persistence.get_feature_importance()
 
+    def _create_model_manifest(self, save_path: Path) -> ModelManifest:
+        """
+        Create a model manifest for registry registration.
+
+        Delegates to PersistenceComponent.
+
+        Parameters
+        ----------
+        save_path : Path
+            Path where the model will be saved.
+
+        Returns
+        -------
+        ModelManifest
+            Model manifest for registry registration.
+
+        """
+        return self._persistence._create_model_manifest(save_path)
+
     # =========================================================================
     # Logging helpers
     # =========================================================================
@@ -1028,5 +1230,4 @@ BaseMLTrainer = BaseMLTrainerFacade
 __all__ = [
     "BaseMLTrainer",
     "BaseMLTrainerFacade",
-    "use_legacy_trainer",
 ]

@@ -21,9 +21,23 @@ def _build_parser() -> argparse.ArgumentParser:
     return validation_bundle.build_parser()
 
 
+def _sync_validation_bundle_defaults() -> None:
+    """
+    Mirror module-level defaults into the shared validation bundle.
+
+    This keeps CLI tests free to monkeypatch defaults on this module while
+    ensuring the underlying validation bundle sees the updated values.
+    """
+    _VALIDATION_BUNDLE.DEFAULT_DOC_PATHS = DEFAULT_DOC_PATHS
+    _VALIDATION_BUNDLE.DEFAULT_STATE_PATH = DEFAULT_STATE_PATH
+    _VALIDATION_BUNDLE.ALERTS_PATH = ALERTS_PATH
+    _VALIDATION_BUNDLE.DEFAULT_PYTEST_TARGETS = DEFAULT_PYTEST_TARGETS
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    _sync_validation_bundle_defaults()
     _VALIDATION_BUNDLE.run_command = run_command
     try:
         if args.alerts_only:

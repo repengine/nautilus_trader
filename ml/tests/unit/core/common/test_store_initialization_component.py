@@ -90,7 +90,7 @@ class TestHappyPath:
         Input: Valid connection, no fallback flags.
         Expected Behavior: FeatureStore, ModelStore, StrategyStore initialized with connection.
         """
-        from ml.stores.feature_store_facade import FeatureStore
+        from ml.stores.feature_store import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
 
@@ -100,7 +100,7 @@ class TestHappyPath:
         mock_strategy_store = MagicMock(spec=StrategyStore)
 
         # Patch at the module level where they are imported
-        with patch("ml.stores.feature_store_facade.FeatureStore", return_value=mock_feature_store), \
+        with patch("ml.stores.feature_store.FeatureStore", return_value=mock_feature_store), \
              patch("ml.stores.model_store.ModelStore", return_value=mock_model_store), \
              patch("ml.stores.strategy_store.StrategyStore", return_value=mock_strategy_store):
 
@@ -362,7 +362,7 @@ class TestEdgeCases:
         Expected Behavior: data_store is None after init_stores, set in registries.
         """
         # Mock the store constructors at the actual import locations
-        with patch("ml.stores.feature_store_facade.FeatureStore", return_value=MagicMock()), \
+        with patch("ml.stores.feature_store.FeatureStore", return_value=MagicMock()), \
              patch("ml.stores.model_store.ModelStore", return_value=MagicMock()), \
              patch("ml.stores.strategy_store.StrategyStore", return_value=MagicMock()):
 

@@ -284,7 +284,7 @@ class TestNoCircularImports:
         # Import in expected order
         try:
             from ml.stores.validation_types import DataEvent, QualityReport
-            from ml.stores.data_store_facade import DataStoreFacade
+            from ml.stores.data_store import DataStoreFacade
         except ImportError as e:
             pytest.fail(f"Circular import detected: {e}")
 
@@ -296,7 +296,7 @@ class TestNoCircularImports:
         # Clear cached modules
         modules = [
             "ml.stores.validation_types",
-            "ml.stores.data_store_facade",
+            "ml.stores.data_store",
         ]
         for mod in modules:
             if mod in sys.modules:
@@ -304,7 +304,7 @@ class TestNoCircularImports:
 
         # Try reverse order - should also work
         try:
-            import ml.stores.data_store_facade
+            import ml.stores.data_store
             import ml.stores.validation_types
         except ImportError as e:
             pytest.fail(f"Import order caused circular import: {e}")

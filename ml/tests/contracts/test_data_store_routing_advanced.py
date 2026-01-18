@@ -48,7 +48,7 @@ from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 
 if TYPE_CHECKING:
-    from ml.stores.data_store_facade import DataStore
+    from ml.stores.data_store import DataStore
 else:
     DataStore = Any  # pragma: no cover
 
@@ -67,7 +67,7 @@ def _configure_datastore_symbols(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Ensure tests run against both legacy and component DataStore implementations.
+    Ensure tests run against the component-based DataStore implementation.
 
     Note: Direct import instead of sys.modules[__name__] to avoid KeyError in
     pytest-xdist parallel execution where module may not be registered yet.
@@ -243,6 +243,7 @@ def _create_test_datastore(
     mock_feature_store = MagicMock()
     mock_model_store = MagicMock()
     mock_strategy_store = MagicMock()
+    mock_earnings_store = MagicMock()
     mock_publisher = MagicMock() if enable_publishing else None
 
     # Ensure query service fallbacks behave deterministically
@@ -270,9 +271,6 @@ def _create_test_datastore(
         enable_publishing=enable_publishing,
         publisher=mock_publisher,
     )
-    # Current component DataStore delegates directly to underlying stores; mark legacy flag
-    # so contract expectations align with the invoked code paths.
-    setattr(datastore, "_use_legacy", True)
 
     return datastore, mock_feature_store, mock_model_store, mock_strategy_store, mock_publisher
 
@@ -405,16 +403,13 @@ class TestDataStoreRouting:
             end_ns=2000000000,
         )
 
-        if getattr(pred_datastore, "_use_legacy", False):
-            mock_model_store.read_predictions.assert_called_once_with(
-                model_id="model_x",
-                instrument_id="EUR/USD.SIM",
-                start_ns=1000000000,
-                end_ns=2000000000,
-            )
-            mock_strategy_store.read_signals.assert_not_called()
-        else:
-            mock_model_store.read_predictions.assert_not_called()
+        mock_model_store.read_predictions.assert_called_once_with(
+            model_id="model_x",
+            instrument_id="EUR/USD.SIM",
+            start_ns=1000000000,
+            end_ns=2000000000,
+        )
+        mock_strategy_store.read_signals.assert_not_called()
 
         # Test signals read routing
         sig_dataset_id = "signals_strategy_y"
@@ -429,16 +424,13 @@ class TestDataStoreRouting:
             end_ns=2000000000,
         )
 
-        if getattr(sig_datastore, "_use_legacy", False):
-            mock_strategy_store2.read_signals.assert_called_once_with(
-                strategy_id="strategy_y",
-                instrument_id="EUR/USD.SIM",
-                start_ns=1000000000,
-                end_ns=2000000000,
-            )
-            mock_model_store2.read_predictions.assert_not_called()
-        else:
-            mock_strategy_store2.read_signals.assert_not_called()
+        mock_strategy_store2.read_signals.assert_called_once_with(
+            strategy_id="strategy_y",
+            instrument_id="EUR/USD.SIM",
+            start_ns=1000000000,
+            end_ns=2000000000,
+        )
+        mock_model_store2.read_predictions.assert_not_called()
 
 
 # ============================================================================
@@ -1010,12 +1002,18 @@ class TestDataStoreIntegrationContracts:
         )
 
         # Contract: Read result should match written data
-        if getattr(datastore, "_use_legacy", False):
-            assert write_event.status in {EventStatus.SUCCESS, EventStatus.SUCCESS.value}
-            assert read_result == original_records
-        else:
-            assert write_event.status in {EventStatus.SUCCESS.value, "success"}
-            assert read_result == []
+        import polars as pl
+
+        assert write_event.status in {EventStatus.SUCCESS.value, "success"}
+        assert isinstance(read_result, pl.DataFrame)
+        assert read_result.height == len(original_records)
+        assert read_result.to_dicts() == original_records
+        mock_model_store.read_predictions.assert_called_once_with(
+            model_id="workflow",
+            instrument_id="EUR/USD.SIM",
+            start_ns=999999999,
+            end_ns=1000000001,
+        )
 
     def test_concurrent_operations_contract(self):
         """Contract: Concurrent operations do not interfere with each other."""
@@ -1064,7 +1062,7 @@ class TestDataStoreCircuitBreaker:
 
     def test_circuit_breaker_activation_contract(self):
         """Contract: Circuit breaker activates after consecutive failures."""
-        with patch("ml.stores.data_store_facade.time.time") as mock_time:
+        with patch("ml.stores.data_store.time.time") as mock_time:
             mock_time.return_value = 1000.0
 
             datastore, _, mock_model_store, _, _ = _create_test_datastore(

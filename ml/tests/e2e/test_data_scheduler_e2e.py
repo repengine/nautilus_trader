@@ -2,7 +2,7 @@
 End-to-end tests for DataScheduler decomposition - Phase 3.4.
 
 These tests validate that the component-based DataScheduler implementation
-produces identical results to the legacy implementation.
+produces expected results and remains stable under E2E workflows.
 
 CRITICAL LESSON from Phases 3.1/3.2/3.3:
 - Phase 3.1: E2E tests found 5 critical bugs (121 unit tests missed them)
@@ -12,8 +12,7 @@ CRITICAL LESSON from Phases 3.1/3.2/3.3:
 
 This test suite validates:
 - All 6 components integrate correctly
-- Legacy and component modes produce identical results
-- Feature flag toggles between modes correctly
+- Component mode produces consistent results
 - Performance is within acceptable range (<10% regression)
 - Error handling is graceful across all components
 - Concurrent operations are thread-safe
@@ -33,8 +32,8 @@ Test Coverage:
 11. Error handling - invalid date range
 12. Initialization without dependencies (progressive fallback)
 13. Performance benchmarks (<10% regression)
-14. CRITICAL: Legacy vs component parity
-15. Feature flag runtime toggle
+14. CRITICAL: Component parity checks
+15. Component initialization sanity
 16. Orchestrator-based collection path (bonus test)
 
 Total: 16 E2E test scenarios
@@ -42,7 +41,6 @@ Total: 16 E2E test scenarios
 
 from __future__ import annotations
 
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
@@ -706,21 +704,19 @@ def test_13_performance_benchmarks_e2e(
 
 
 # =============================================================================
-# TEST 14: CRITICAL - Legacy vs Component Parity
+# TEST 14: CRITICAL - Component Parity Checks
 # =============================================================================
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("legacy_mode", ["0"])  # Only component mode for now
-def test_14_legacy_component_parity_e2e(
-    legacy_mode: str,
+def test_14_component_parity_e2e(
     mock_databento_client: Mock,
     mock_catalog: Mock,
     scheduler_config: SchedulerConfig,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    E2E Test 14: CRITICAL - Verify identical results in both modes.
+    E2E Test 14: CRITICAL - Verify component mode results.
 
     This is the MOST IMPORTANT test in the suite.
 
@@ -731,15 +727,8 @@ def test_14_legacy_component_parity_e2e(
 
     Validates:
     - Component mode works correctly
-    - Feature flag mechanism exists
     - No regressions introduced
-    - Backward compatibility maintained (100%)
-
-    Note: Legacy mode not yet implemented for DataScheduler,
-    so we validate component mode only for now.
     """
-    # Set feature flag (currently only component mode exists)
-    monkeypatch.setenv("ML_USE_LEGACY_DATA_SCHEDULER", legacy_mode)
     monkeypatch.setenv("DATABENTO_API_KEY", "test_key")
 
     from ml.data.scheduler import DataScheduler
@@ -794,7 +783,7 @@ def test_14_legacy_component_parity_e2e(
 
 
 # =============================================================================
-# TEST 15: Feature Flag Runtime Toggle
+# TEST 15: Component Initialization
 # =============================================================================
 
 
@@ -805,21 +794,13 @@ def test_15_feature_flag_toggle_e2e(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    E2E Test 15: Verify feature flag toggles correctly at runtime.
+    E2E Test 15: Verify component initialization works at runtime.
 
     Validates:
-    - Component mode can be activated
     - Module initialization works
     - No import errors
     - Safe initialization mechanism works
-
-    Note: Legacy mode not yet implemented, so we validate
-    component mode initialization only.
     """
-    # Test component mode (current implementation)
-    monkeypatch.setenv("ML_USE_LEGACY_DATA_SCHEDULER", "0")
-
-    # Import after setting env var
     from ml.data.scheduler import DataScheduler
 
     scheduler_component = DataScheduler(
@@ -938,7 +919,7 @@ def test_99_e2e_summary() -> None:
     print("✅ Test 11: Error handling - invalid date range")
     print("✅ Test 12: Initialization without dependencies")
     print("✅ Test 13: Performance benchmarks")
-    print("✅ Test 14: CRITICAL - Legacy vs component parity")
+    print("✅ Test 14: CRITICAL - Component parity checks")
     print("✅ Test 15: Feature flag runtime toggle")
     print("✅ Test 16: BONUS - Orchestrator-based collection")
     print("=" * 80)

@@ -7,9 +7,9 @@ from __future__ import annotations
 from typing import Any, cast
 from unittest.mock import MagicMock
 
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.registry.dataclasses import DataContract

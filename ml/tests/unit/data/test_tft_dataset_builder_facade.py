@@ -1,15 +1,14 @@
 """
 Unit tests for TFTDatasetBuilderFacade (Tests E1-E15).
 
-These tests verify the facade's core functionality, feature flag behavior, and error
-handling without requiring database or external resources.
+These tests verify the facade's core functionality and error handling without
+requiring database or external resources.
 
 """
 
 from __future__ import annotations
 
 import inspect
-import os
 from datetime import UTC
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -19,10 +18,7 @@ import numpy as np
 import pytest
 
 from ml.data.common import SchemaValidationError
-from ml.data.tft_dataset_builder_facade import (
-    TFTDatasetBuilderFacade,
-    use_legacy_builder,
-)
+from ml.data.tft_dataset_builder_facade import TFTDatasetBuilderFacade
 
 
 if TYPE_CHECKING:
@@ -373,104 +369,6 @@ class TestFacadeHappyPath:
 
             # Verify the call was made (threshold conversion happens in facade)
             mock_builder.build_training_dataset.assert_called_once()
-
-
-# =============================================================================
-# Feature Flag Tests (E9-E11)
-# =============================================================================
-
-
-class TestFeatureFlag:
-    """
-    Feature flag tests for TFTDatasetBuilderFacade (E9-E11).
-    """
-
-    def test_e9_feature_flag_uses_legacy_when_true(
-        self,
-        mock_parquet_catalog: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """
-        E9. Verify ML_USE_LEGACY_TFT_BUILDER=1 uses legacy implementation.
-
-        Input: Environment variable set
-        Expected: Legacy TFTDatasetBuilder code path executed
-
-        """
-        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
-
-        assert use_legacy_builder() is True
-
-        # Verify the facade logs the mode
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
-            # The facade exists regardless of flag, but use_legacy_builder() returns True
-            assert facade is not None
-
-    def test_e10_feature_flag_uses_facade_when_false(
-        self,
-        mock_parquet_catalog: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """
-        E10. Verify ML_USE_LEGACY_TFT_BUILDER=0 uses new implementation.
-
-        Input: Environment variable not set or =0
-        Expected: Component-based path executed
-
-        """
-        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "0")
-
-        assert use_legacy_builder() is False
-
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
-            assert facade is not None
-            # Components should be initialized
-            assert facade.windowing_component is not None
-            assert facade.feature_alignment_component is not None
-            assert facade.target_generation_component is not None
-            assert facade.schema_validator_component is not None
-
-    def test_e11_feature_flag_toggle_runtime(
-        self,
-        mock_parquet_catalog: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """
-        E11. Verify flag can be toggled at runtime.
-
-        Input: Change flag between calls
-        Expected: Different paths taken
-
-        """
-        # Start with legacy disabled
-        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "0")
-        assert use_legacy_builder() is False
-
-        # Toggle to enabled
-        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "1")
-        assert use_legacy_builder() is True
-
-        # Toggle back to disabled
-        monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", "false")
-        assert use_legacy_builder() is False
-
-        # Test various truthy values
-        for truthy in ["1", "true", "TRUE", "True", "yes", "YES"]:
-            monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", truthy)
-            assert use_legacy_builder() is True
-
-        # Test various falsy values
-        for falsy in ["0", "false", "FALSE", "no", "", "anything_else"]:
-            monkeypatch.setenv("ML_USE_LEGACY_TFT_BUILDER", falsy)
-            assert use_legacy_builder() is False
 
 
 # =============================================================================

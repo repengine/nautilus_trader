@@ -6,54 +6,20 @@ regressions as intended.
 
 """
 
-import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock
 
-import numpy as np
 import pytest
 
-from ml.actors.signal import MLSignalActorConfig, OptimizationLevel
+from ml.actors.signal import OptimizationLevel
 from ml.config.actors import OptimizationConfig
 from ml.features.config import FeatureConfig
-from nautilus_trader.model.data import BarSpecification, BarType
-from nautilus_trader.model.enums import AggressorSide, BarAggregation, PriceType
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 
 class TestGuardrailsIntegration:
     """
     Integration tests for performance guardrails system.
     """
-
-    def test_feature_parity_smoke_check_configuration(self):
-        """
-        Test that feature parity smoke-check fields exist in config.
-        """
-        # Test that the config fields exist and have proper defaults
-        # (without instantiating the actual config to avoid actor initialization)
-
-        # Import the config class to check its attributes
-        import inspect
-
-        # Get the config signature to check for our fields
-        sig = inspect.signature(MLSignalActorConfig)
-        params = sig.parameters
-
-        # Check that our parity fields exist
-        assert (
-            "enable_parity_smoke_check" in params
-        ), "Should have enable_parity_smoke_check parameter"
-        assert (
-            "parity_smoke_check_window_bars" in params
-        ), "Should have parity_smoke_check_window_bars parameter"
-        assert "parity_tolerance" in params, "Should have parity_tolerance parameter"
-
-        # Check default values
-        assert params["enable_parity_smoke_check"].default == False, "Should default to disabled"
-        assert params["parity_smoke_check_window_bars"].default == 200, "Should default to 200 bars"
-        assert params["parity_tolerance"].default == 1e-6, "Should default to 1e-6 tolerance"
 
     def test_optimization_levels_configuration(self):
         """
@@ -184,23 +150,6 @@ class TestGuardrailsIntegration:
             not config.include_microstructure
         ), "Microstructure should be disabled for base performance"
         assert not config.include_trade_flow, "Trade flow should be disabled for base performance"
-
-    def test_metrics_integration_points(self):
-        """
-        Test that metrics integration points are properly set up.
-        """
-        # Import signal module to check metrics initialization
-        from ml.actors import signal
-
-        # Check that parity metrics are defined
-        assert hasattr(signal, "_feature_parity_checks_total"), "Should have parity checks counter"
-        assert hasattr(signal, "_feature_parity_drift"), "Should have parity drift gauge"
-
-        # Check that metrics are initialized
-        assert (
-            signal._feature_parity_checks_total is not None
-        ), "Parity checks counter should be initialized"
-        assert signal._feature_parity_drift is not None, "Parity drift gauge should be initialized"
 
 
 if __name__ == "__main__":

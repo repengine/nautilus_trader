@@ -43,21 +43,19 @@ import math
 import os
 import sys
 import time
-from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_bootstrap import get_counter
-from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
 from ml.config.names import FEATURE_TIME_BUCKETS
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -279,9 +277,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 raise ValueError(
                     f"FeatureManifest not found for feature_set_id={self._feature_set_id}",
                 )
-            from ml.features.common.tft_realtime_feature_calculator import (
-                TFTRealtimeFeatureCalculator,
-            )
+            from ml.features.common.tft_realtime_feature_calculator import TFTRealtimeFeatureCalculator
 
             self._registry_feature_calculator = TFTRealtimeFeatureCalculator(
                 feature_names=list(manifest.feature_names),
@@ -401,14 +397,6 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         self._prediction_count: int = 0
         self._last_feature_time_ns: int = 0
 
-        # Parity smoke-check state (optional, delegated to Component 5)
-        self._parity_enabled: bool = bool(getattr(config, "enable_parity_smoke_check", False))
-        self._parity_window: int = int(getattr(config, "parity_smoke_check_window_bars", 200))
-        self._parity_tolerance: float = float(getattr(config, "parity_tolerance", 1e-6))
-        self._recent_bars: deque[Bar] = deque(maxlen=self._parity_window)
-        self._recent_features: deque[npt.NDArray[np.float32]] = deque(maxlen=self._parity_window)
-        self._parity_checked: bool = False
-
         # Hot reload state
         self._last_model_check: float = 0.0
         self._model_mtime: float | None = None
@@ -452,14 +440,14 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Orchestrate prediction and signal generation pipeline.
 
-        Order of operations (critical for parity):
+        Order of operations:
         1. Check hot reload (cold path, infrequent)
         2. Generate prediction (base class)
         3. Update buffer (hot path)
         4. Detect regime (warm path)
         5. Generate signal (hot path)
         6. Record performance (warm path)
-        7. Update parity bookkeeping (cold path, conditional)
+        7. Update health monitor (warm path)
 
         Parameters
         ----------
@@ -517,13 +505,6 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
             # 7. Update health monitor (base class)
             self._record_success()
-
-            # 8. Parity bookkeeping (Component 5 - cold path, conditional)
-            if self._parity_enabled:
-                self._recent_bars.append(bar)
-                self._recent_features.append(features.copy())
-                if not self._parity_checked and len(self._recent_bars) >= self._parity_window:
-                    self._run_parity_smoke_check()
 
         except Exception as e:
             self.log.exception(f"Error in prediction pipeline: {e}", e)
@@ -1180,53 +1161,6 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         except Exception as e:
             self.log.exception(f"Failed to hot reload model: {e}", e)
-
-    def _run_parity_smoke_check(self) -> None:
-        """
-        Compute features offline over the recent window and compare to online results.
-
-        Emits `ml_feature_parity_checks_total` and updates `ml_feature_parity_drift` gauge.
-
-        """
-        try:
-            offline_vectors: list[npt.NDArray[np.float32]] = []
-            for b in self._recent_bars:
-                vec = self._compute_features(b)
-                if vec is not None:
-                    offline_vectors.append(vec.copy())
-
-            n_online = len(self._recent_features)
-            n_offline = len(offline_vectors)
-            n = min(n_online, n_offline)
-            if n == 0:
-                return
-
-            online = np.stack(list(self._recent_features)[-n:])
-            offline = np.stack(offline_vectors[-n:])
-            drift = float(np.max(np.abs(online - offline)))
-
-            # Emit metrics
-            actor_label = str(self.id) if self.id is not None else "unknown"
-            parity_checks_counter = get_counter(
-                "ml_feature_parity_checks_total",
-                "Total feature parity checks performed",
-                ["actor_id"],
-            )
-            parity_drift_gauge = get_gauge(
-                "ml_feature_parity_drift",
-                "Feature parity drift (max absolute difference)",
-                ["actor_id"],
-            )
-
-            parity_checks_counter.labels(actor_id=actor_label).inc()
-            parity_drift_gauge.labels(actor_id=actor_label).set(drift)
-
-            if drift > self._parity_tolerance:
-                self.log.warning(
-                    f"Feature parity drift {drift:.3e} exceeded tolerance {self._parity_tolerance:.3e}",
-                )
-        finally:
-            self._parity_checked = True
 
     def _record_success(self) -> None:
         """

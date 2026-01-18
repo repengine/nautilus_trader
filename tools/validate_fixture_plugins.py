@@ -11,12 +11,16 @@ fixtures.  This script keeps two invariants in place:
    so adding new fixture modules forces the canonical export list to update.
 
 The script exits non-zero when either invariant is violated.
+It also enforces fixture-guide alignment by prohibiting direct fixture
+imports in tests (except helper shims) and disallowing pytest plug-in
+declarations in non-top-level conftest files.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import ast
 import importlib
 import inspect
 import re
@@ -29,6 +33,7 @@ PLUGIN_PATTERN = re.compile(
     r'pytest_plugins\s*=\s*\(\s*["\']ml\.tests\.fixtures\.pytest_plugins["\']\s*,\s*\)',
 )
 PLUGIN_EXCLUDES = frozenset({"fixtures"})
+ALLOWED_RUNTIME_FIXTURE_IMPORTS = frozenset({"ml.tests.fixtures.pandera"})
 
 
 def _iter_test_packages(root: Path) -> Iterable[Path]:
@@ -47,6 +52,14 @@ def _iter_test_packages(root: Path) -> Iterable[Path]:
 
 def _iter_test_modules(root: Path) -> Iterable[Path]:
     for file_path in root.rglob("test_*.py"):
+        rel = file_path.relative_to(root)
+        if rel.parts and rel.parts[0] in PLUGIN_EXCLUDES:
+            continue
+        yield file_path
+
+
+def _iter_conftest_files(root: Path) -> Iterable[Path]:
+    for file_path in root.rglob("conftest.py"):
         rel = file_path.relative_to(root)
         if rel.parts and rel.parts[0] in PLUGIN_EXCLUDES:
             continue
@@ -82,6 +95,86 @@ def _file_has_plugin(file_path: Path) -> bool:
     except UnicodeDecodeError:
         return False
     return PLUGIN_PATTERN.search(text) is not None
+
+
+def _contains_type_checking(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id == "TYPE_CHECKING":
+            return True
+        if isinstance(child, ast.Attribute) and child.attr == "TYPE_CHECKING":
+            return True
+    return False
+
+
+def _collect_direct_fixture_imports(root: Path) -> list[str]:
+    violations: list[str] = []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            super().__init__()
+            self._type_checking_stack: list[bool] = [False]
+
+        @property
+        def _in_type_checking(self) -> bool:
+            return any(self._type_checking_stack)
+
+        def visit_If(self, node: ast.If) -> None:
+            is_type_checking = _contains_type_checking(node.test)
+            self._type_checking_stack.append(self._in_type_checking or is_type_checking)
+            for child in node.body:
+                self.visit(child)
+            self._type_checking_stack.pop()
+
+            self._type_checking_stack.append(self._in_type_checking)
+            for child in node.orelse:
+                self.visit(child)
+            self._type_checking_stack.pop()
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            module = node.module or ""
+            if not module.startswith("ml.tests.fixtures"):
+                return
+            if self._in_type_checking:
+                return
+            if module in ALLOWED_RUNTIME_FIXTURE_IMPORTS:
+                return
+            violations.append(
+                f"{current_file}:{node.lineno}: direct fixture import ({module})",
+            )
+
+        def visit_Import(self, node: ast.Import) -> None:
+            for alias in node.names:
+                if not alias.name.startswith("ml.tests.fixtures"):
+                    continue
+                if self._in_type_checking:
+                    continue
+                if alias.name in ALLOWED_RUNTIME_FIXTURE_IMPORTS:
+                    continue
+                violations.append(
+                    f"{current_file}:{node.lineno}: direct fixture import ({alias.name})",
+                )
+
+    for file_path in _iter_test_modules(root):
+        current_file = file_path.relative_to(REPO_ROOT)
+        try:
+            tree = ast.parse(file_path.read_text())
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        visitor = _Visitor()
+        visitor.visit(tree)
+
+    return violations
+
+
+def _collect_nested_conftest_plugins(root: Path) -> list[str]:
+    violations: list[str] = []
+    root_conftest = root / "conftest.py"
+    for file_path in _iter_conftest_files(root):
+        if file_path == root_conftest:
+            continue
+        if _file_has_plugin(file_path):
+            violations.append(f"{file_path.relative_to(REPO_ROOT)} declares pytest_plugins")
+    return violations
 
 
 def _is_package_covered(file_path: Path, plugin_dirs: set[Path], root: Path) -> bool:
@@ -177,6 +270,8 @@ def main() -> int:
     plugin_dirs = _load_plugin_directories(TESTS_ROOT)
     missing_files = _collect_missing_plugin_files(plugin_dirs)
     bootstrap_violations = _collect_package_bootstrap_violations(TESTS_ROOT)
+    fixture_import_violations = _collect_direct_fixture_imports(TESTS_ROOT)
+    conftest_violations = _collect_nested_conftest_plugins(TESTS_ROOT)
     test_totals = _count_test_modules_by_package(TESTS_ROOT)
     missing_counts = _count_missing_by_package(missing_files, TESTS_ROOT)
     failures: list[str] = []
@@ -193,6 +288,16 @@ def main() -> int:
         failures.append(
             "Test packages missing canonical pytest plug-in bootstraps:\n"
             + "\n".join(f"  - {item}" for item in sorted(bootstrap_violations)),
+        )
+    if fixture_import_violations:
+        failures.append(
+            "Direct fixture imports detected (see FIXTURE_GUIDE.md):\n"
+            + "\n".join(f"  - {item}" for item in sorted(fixture_import_violations)),
+        )
+    if conftest_violations:
+        failures.append(
+            "pytest_plugins declared in non-top-level conftest.py (see FIXTURE_GUIDE.md):\n"
+            + "\n".join(f"  - {item}" for item in sorted(conftest_violations)),
         )
 
     failures.extend(_run_fixture_export_guards())

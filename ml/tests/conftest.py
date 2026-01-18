@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 # Default to CPU-only execution for deterministic test runs unless explicitly overridden.
@@ -25,17 +26,31 @@ from hypothesis import settings
 from ml.core.db_engine import EngineManager as _EngineManager
 
 
-def _db_fixtures() -> Any:
-    """Lazy import to avoid early fixture module loading before pytest rewrite."""
+_DB_FIXTURES_MODULE: ModuleType | None = None
+_PYTEST_CONFIG: pytest.Config | None = None
+
+
+def _db_fixtures() -> ModuleType:
+    """
+    Return the database fixtures module without forcing an early import.
+    """
+    global _DB_FIXTURES_MODULE
+    if _DB_FIXTURES_MODULE is not None:
+        return _DB_FIXTURES_MODULE
+    if _PYTEST_CONFIG is not None:
+        plugin_manager = _PYTEST_CONFIG.pluginmanager
+        plugin = plugin_manager.get_plugin("ml.tests.fixtures.database_fixtures")
+        if plugin is None:
+            plugin_manager.import_plugin("ml.tests.fixtures.database_fixtures")
+            plugin = plugin_manager.get_plugin("ml.tests.fixtures.database_fixtures")
+        if plugin is not None:
+            _DB_FIXTURES_MODULE = plugin
+            return plugin
+
     from ml.tests.fixtures import database_fixtures
 
+    _DB_FIXTURES_MODULE = database_fixtures
     return database_fixtures
-
-
-try:
-    from ml.tests.fixtures.database_fixtures import TestDatabase
-except ImportError:  # pragma: no cover - fixture import guard
-    TestDatabase = None  # type: ignore[assignment]
 
 warnings.filterwarnings(
     "ignore",
@@ -128,6 +143,9 @@ else:
 
 def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest markers and sensible defaults."""
+    global _PYTEST_CONFIG
+
+    _PYTEST_CONFIG = config
 
     config.addinivalue_line("markers", "database: requires PostgreSQL; may run serially")
     config.addinivalue_line("markers", "serial: run test in isolation (no xdist)")

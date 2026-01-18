@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.stores.protocols import (
@@ -30,7 +30,7 @@ def test_runtime_protocol_conformance_isinstance(
     monkeypatch.setattr(
         "ml.stores.strategy_store.StrategyStore._init_engine_and_tables", lambda self: None
     )
-    monkeypatch.setattr("ml.stores.feature_store_facade.FeatureStore._setup_tables", lambda self: None)
+    monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
 
     with patch_engine_manager():
         fs = FeatureStore(connection_string=build_postgres_url())

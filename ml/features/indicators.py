@@ -9,13 +9,13 @@ from typing import Any, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml._imports import HAS_POLARS
 from ml._imports import pl
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
 from ml.features.config import FeatureConfigLike
-from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)

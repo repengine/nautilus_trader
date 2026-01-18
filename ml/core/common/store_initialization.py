@@ -270,7 +270,7 @@ class StoreInitializationComponent:
         """Initialize PostgreSQL-backed stores."""
         from ml.registry.persistence import BackendType
         from ml.registry.persistence import PersistenceConfig
-        from ml.stores.feature_store_facade import FeatureStore
+        from ml.stores.feature_store import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
 

@@ -1,14 +1,3 @@
-import os
-
-# Ensure component facade stays active before importing orchestrator module.
-os.environ["ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR"] = "1"
-os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"
-import importlib
-
-# Placeholder defaults for legacy parity paths; fixtures supply concrete values when used.
-mock_data_registry = None
-mock_data_store = None
-
 #!/usr/bin/env python3
 
 """
@@ -23,8 +12,7 @@ Test Strategy:
 1. Use real component instances with minimal mocks
 2. Test actual coordination logic end-to-end
 3. Verify component delegation works correctly
-4. Compare legacy vs component mode outputs for parity
-5. Test full pipeline flows
+4. Test full pipeline flows
 
 Success Criteria:
 -----------------
@@ -32,7 +20,6 @@ Success Criteria:
 - Can resolve bindings correctly
 - Can build configurations properly
 - Can coordinate components end-to-end
-- Legacy and component modes produce identical results
 - No coordination failures
 """
 
@@ -46,11 +33,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ml.orchestration import MLPipelineOrchestrator
 from ml.orchestration.config_types import DatasetBuildConfig
-
-_pipeline_orchestrator_module = importlib.import_module("ml.orchestration.pipeline_orchestrator")
-_pipeline_orchestrator_module = importlib.reload(_pipeline_orchestrator_module)
-MLPipelineOrchestrator = _pipeline_orchestrator_module.MLPipelineOrchestrator
 
 pytestmark = [
     pytest.mark.usefixtures(
@@ -59,15 +43,6 @@ pytestmark = [
         "isolated_orchestrator_env",
     ),
 ]
-
-
-@pytest.fixture(autouse=True)
-def _component_mode_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Default all tests to the component-based orchestrator path.
-    """
-
-    monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
 
 
 @pytest.fixture(autouse=True)
@@ -710,122 +685,48 @@ class TestE2EHealthMonitoring:
 
 
 # ============================================================================
-# E2E Test Suite - Legacy vs Component Parity
+# E2E Test Suite - Component Behavior
 # ============================================================================
 
 
-class TestE2ELegacyComponentParity:
+class TestE2EComponentBehavior:
     """
-    Test legacy and component modes produce identical results.
+    Test component mode produces valid outputs.
     """
 
-    def test_e2e_config_resolution_parity(
+    def test_e2e_config_resolution_outputs(
         self,
-        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
+        orchestrator_factory: Any,
+    ) -> None:
         """
-        E2E Test: Config resolution identical in both modes.
+        E2E Test: Config resolution produces an ISO timestamp.
         """
-        # Legacy mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
-        orch_legacy = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
+        start_iso = orchestrator.compute_window_start_iso("2024-01-31", 1)
+        assert isinstance(start_iso, str)
 
-        try:
-            start_legacy = orch_legacy.compute_window_start_iso("2024-01-31", 1)
-        except Exception:
-            start_legacy = None
-
-        # Component mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
-        orch_component = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
-
-        start_component = orch_component.compute_window_start_iso("2024-01-31", 1)
-
-        # Compare (if legacy worked)
-        if start_legacy is not None:
-            assert start_component == start_legacy
-
-    def test_e2e_window_bounds_parity(
+    def test_e2e_window_bounds(
         self,
-        orchestrator_factory: Any, sample_dataset_config: DatasetBuildConfig,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
+        orchestrator_factory: Any,
+        sample_dataset_config: DatasetBuildConfig,
+    ) -> None:
         """
-        E2E Test: Window bounds resolution identical in both modes.
+        E2E Test: Window bounds resolution produces ordered timestamps.
         """
-        # Legacy mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
-        orch_legacy = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
+        orchestrator = orchestrator_factory()
+        start_ns, end_ns = orchestrator.resolve_window_bounds_ns(sample_dataset_config)
+        assert start_ns < end_ns
 
-        try:
-            start_ns_legacy, end_ns_legacy = orch_legacy.resolve_window_bounds_ns(
-                sample_dataset_config
-            )
-            legacy_worked = True
-        except Exception:
-            legacy_worked = False
-            start_ns_legacy = end_ns_legacy = None
-
-        # Component mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
-        orch_component = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
-
-        start_ns_component, end_ns_component = orch_component.resolve_window_bounds_ns(
-            sample_dataset_config
-        )
-
-        # Compare (if legacy worked)
-        if legacy_worked:
-            assert start_ns_component == start_ns_legacy
-            assert end_ns_component == end_ns_legacy
-
-    def test_e2e_health_status_structure_parity(
+    def test_e2e_health_status_structure(
         self,
-        orchestrator_factory: Any, monkeypatch: pytest.MonkeyPatch,
-    ):
+        orchestrator_factory: Any,
+    ) -> None:
         """
-        E2E Test: Health status structure consistent between modes.
+        E2E Test: Health status exposes implementation metadata.
         """
-        # Legacy mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "1")
-        orch_legacy = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
-
-        try:
-            health_legacy = orch_legacy.get_health_status()
-            legacy_worked = True
-        except Exception:
-            legacy_worked = False
-            health_legacy = {}
-
-        # Component mode
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
-        orch_component = MLPipelineOrchestrator(
-            registry=mock_data_registry,
-            data_store=mock_data_store,
-        )
-
-        health_component = orch_component.get_health_status()
-
-        # Verify structure (both should have implementation key)
-        assert "implementation" in health_component
-        if legacy_worked:
-            assert "implementation" in health_legacy
+        orchestrator = orchestrator_factory()
+        health = orchestrator.get_health_status()
+        assert "implementation" in health
 
 
 # ============================================================================

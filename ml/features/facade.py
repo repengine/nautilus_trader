@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml.features.common.data_extractor import DataExtractor
 from ml.features.common.feature_calculator import FeatureCalculator
@@ -58,7 +59,6 @@ from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:

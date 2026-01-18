@@ -17,8 +17,6 @@ Components Wired:
 
 from __future__ import annotations
 
-import os
-
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
@@ -38,14 +36,15 @@ from ml.strategies.common.order_submission import resolve_order_intent_path
 
 
 if TYPE_CHECKING:
-    from ml.actors.base import MLSignal
-    from ml.config.base import MLStrategyConfig
-    from ml.stores.protocols import StrategyStoreProtocol
-    from nautilus_trader.model.enums import OrderSide
     from nautilus_trader.model.identifiers import ClientOrderId
     from nautilus_trader.model.objects import Price
     from nautilus_trader.model.objects import Quantity
     from nautilus_trader.model.position import Position
+
+    from ml.actors.base import MLSignal
+    from ml.config.base import MLStrategyConfig
+    from ml.stores.protocols import StrategyStoreProtocol
+    from nautilus_trader.model.enums import OrderSide
 
 
 # Import the runtime base class for inheritance
@@ -1415,15 +1414,7 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
             )
 
 
-def _use_legacy_strategy_base() -> bool:
-    """
-    Return True when legacy strategy base should be used.
-    """
-    return os.getenv("ML_USE_LEGACY_STRATEGY_BASE", "").strip().lower() in {"1", "true", "yes"}
-
-
 __all__ = [
     "BaseMLStrategyFacade",
     "SimpleMLStrategyFacade",
-    "_use_legacy_strategy_base",
 ]

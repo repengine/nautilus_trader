@@ -22,7 +22,7 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.utils import compute_dataset_schema_hash
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 
 
 def _make_registry_for(

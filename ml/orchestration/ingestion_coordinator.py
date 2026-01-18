@@ -234,7 +234,6 @@ class IngestionCoordinator:
         domain_loader: DomainWindowLoaderProtocol | None = None,
         discovery_client: DiscoveryClient | None = None,
         write_mode_tokens: tuple[str, ...] = (),
-        orchestrator: object | None = None,
         data_store: object | None = None,
         data_registry: object | None = None,
         macro_config: MacroIngestionConfig | None = None,
@@ -281,12 +280,10 @@ class IngestionCoordinator:
         self.domain_loader = domain_loader
         self.discovery_client = discovery_client
         self.write_mode_tokens = write_mode_tokens
-        self._legacy_orchestrator = orchestrator
         self._data_store = data_store
         self._data_registry = data_registry
         self._macro_config = macro_config or MacroIngestionConfig()
         self._earnings_config = earnings_config or EarningsCoordinatorConfig()
-        self._structural_mode = orchestrator is not None or (coverage is None and writer is None)
         self._message_bus = message_bus
 
         # Initialize IngestState for state management (from ml.data.ingest.resume)
@@ -323,14 +320,6 @@ class IngestionCoordinator:
             Pre-ingestion options
 
         """
-        if self._structural_mode:
-            legacy = self._legacy_orchestrator
-            if legacy is not None:
-                delegate = getattr(legacy, "run_pre_ingestion", None)
-                if callable(delegate):
-                    delegate(catalog_path=catalog_path, scheduler_cfg=scheduler_cfg, options=options)
-            return None
-
         from ml.data.scheduler import DataScheduler
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -409,27 +398,6 @@ class IngestionCoordinator:
             Backfill results
 
         """
-        if self._structural_mode:
-            legacy = self._legacy_orchestrator
-            if legacy is not None:
-                delegate = getattr(legacy, "backfill", None)
-                if callable(delegate):
-                    return cast(
-                        BackfillWindowList,
-                        delegate(
-                            dataset_id=dataset_id,
-                            schema=schema,
-                            instrument_id=instrument_id,
-                            lookback_days=lookback_days,
-                        ),
-                    )
-            return BackfillWindowList(
-                persisted=(),
-                requested=(),
-                frames_written=0,
-                rows_written=0,
-            )
-
         orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_gaps(
             dataset_id=dataset_id,
@@ -460,17 +428,6 @@ class IngestionCoordinator:
             Backfill results by instrument
 
         """
-        if self._structural_mode:
-            legacy = self._legacy_orchestrator
-            if legacy is not None:
-                delegate = getattr(legacy, "backfill_binding", None)
-                if callable(delegate):
-                    return cast(
-                        dict[str, BackfillWindowList],
-                        delegate(binding=binding, lookback_days=lookback_days),
-                    )
-            return {}
-
         orchestrator = self._create_ingestion_orchestrator()
         return orchestrator.backfill_binding(
             binding=binding,
@@ -508,22 +465,6 @@ class IngestionCoordinator:
             Coverage gaps
 
         """
-        if self._structural_mode:
-            legacy = self._legacy_orchestrator
-            if legacy is not None:
-                delegate = getattr(legacy, "backfill_coverage", None)
-                if callable(delegate):
-                    return cast(
-                        list[tuple[int, int]],
-                        delegate(
-                            dataset_id=dataset_id,
-                            schema=schema,
-                            instrument_id=instrument_id,
-                            policy=policy,
-                        ),
-                    )
-            return []
-
         days = get_max_lookback_days(dataset_id, policy)
         return self.backfill(
             dataset_id=dataset_id,
@@ -1264,7 +1205,7 @@ class IngestionCoordinator:
             )
 
     # ------------------------------------------------------------------
-    # Structural compatibility helpers (Phase0 placeholders)
+    # Compatibility helpers
     # ------------------------------------------------------------------
 
     def coordinate_ingestion(
@@ -1276,27 +1217,37 @@ class IngestionCoordinator:
         lookback_days: int,
         policy: CoveragePolicy | None = None,
     ) -> dict[str, int | str]:
-        legacy = self._legacy_orchestrator
-        if legacy is not None:
-            delegate = getattr(legacy, "coordinate_ingestion", None)
-            if callable(delegate):
-                try:
-                    result = delegate(
-                        dataset_id=dataset_id,
-                        schema=schema,
-                        instrument_ids=instrument_ids,
-                        lookback_days=lookback_days,
-                        policy=policy,
-                    )
-                    if isinstance(result, dict):
-                        return result
-                except Exception:
-                    logger.debug("legacy coordinate_ingestion failed", exc_info=True)
-        return {
-            "rows_written": 0,
-            "fallback_level": "dummy",
-            "error": "Component structure only - implementation pending",
-        }
+        if not instrument_ids:
+            return {
+                "rows_written": 0,
+                "fallback_level": "dummy",
+                "error": "No instrument_ids provided",
+            }
+
+        effective_lookback = get_max_lookback_days(dataset_id, policy)
+        if effective_lookback <= 0:
+            effective_lookback = lookback_days
+
+        try:
+            rows_written = 0
+            for instrument_id in instrument_ids:
+                result = self.backfill(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    lookback_days=effective_lookback,
+                )
+                rows_written += result.rows_written
+            return {"rows_written": rows_written, "fallback_level": "primary"}
+        except Exception:
+            logger.debug("Primary ingestion failed; attempting fallback", exc_info=True)
+            return self._handle_ingestion_fallback(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_ids=instrument_ids,
+                lookback_days=effective_lookback,
+                level="cached",
+            )
 
     def ingest_from_databento(
         self,
@@ -1306,26 +1257,11 @@ class IngestionCoordinator:
         instrument_id: str,
         lookback_days: int,
     ) -> BackfillWindowList:
-        legacy = self._legacy_orchestrator
-        if legacy is not None:
-            delegate = getattr(legacy, "backfill", None)
-            if callable(delegate):
-                try:
-                    result = delegate(
-                        dataset_id=dataset_id,
-                        schema=schema,
-                        instrument_id=instrument_id,
-                        lookback_days=lookback_days,
-                    )
-                    if isinstance(result, BackfillWindowList):
-                        return result
-                except Exception:
-                    logger.debug("legacy backfill placeholder failed", exc_info=True)
-        return BackfillWindowList(
-            persisted=(),
-            requested=(),
-            frames_written=0,
-            rows_written=0,
+        return self.backfill(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            lookback_days=lookback_days,
         )
 
     def ingest_from_yahoo(
@@ -1335,15 +1271,6 @@ class IngestionCoordinator:
         start_date: str,
         end_date: str,
     ) -> int:
-        legacy = self._legacy_orchestrator
-        if legacy is not None:
-            delegate = getattr(legacy, "ingest_from_yahoo", None)
-            if callable(delegate):
-                try:
-                    result = delegate(symbol=symbol, start_date=start_date, end_date=end_date)
-                    return int(result) if isinstance(result, int | float) else 0
-                except Exception:
-                    logger.debug("legacy ingest_from_yahoo failed", exc_info=True)
         return 0
 
     def ingest_from_fred(
@@ -1539,6 +1466,7 @@ class IngestionCoordinator:
         self,
         *,
         dataset_id: str,
+        schema: str,
         instrument_ids: list[str],
         lookback_days: int,
         level: str,
@@ -1552,6 +1480,8 @@ class IngestionCoordinator:
         ----------
         dataset_id : str
             Dataset identifier
+        schema : str
+            Data schema
         instrument_ids : list[str]
             List of instrument identifiers
         lookback_days : int
@@ -1600,32 +1530,37 @@ class IngestionCoordinator:
         rows_written = 0
         error_msg: str | None = None
 
-        # PRIMARY level: Try backfill_binding via orchestrator
-        if current_idx == 0 and self._legacy_orchestrator is not None:
-            backfill_binding = getattr(self._legacy_orchestrator, "backfill_binding", None)
-            if backfill_binding is not None and callable(backfill_binding):
-                try:
-                    result = backfill_binding(instrument_ids=instrument_ids, lookback_days=lookback_days)
-                    if isinstance(result, dict):
-                        for binding_result in result.values():
-                            rows_written += getattr(binding_result, "rows_written", 0)
-                        return {"rows_written": rows_written, "fallback_level": "primary"}
-                except Exception as exc:
-                    error_msg = str(exc)
-                    logger.debug("PRIMARY fallback failed", exc_info=True)
+        # PRIMARY level: Try component backfill
+        if current_idx == 0:
+            try:
+                for instrument_id in instrument_ids:
+                    result = self.backfill(
+                        dataset_id=dataset_id,
+                        schema=schema,
+                        instrument_id=instrument_id,
+                        lookback_days=lookback_days,
+                    )
+                    rows_written += result.rows_written
+                return {"rows_written": rows_written, "fallback_level": "primary"}
+            except Exception as exc:
+                error_msg = str(exc)
+                logger.debug("PRIMARY fallback failed", exc_info=True)
 
-        # CACHED level: Try backfill_coverage via orchestrator
-        if current_idx <= 1 and self._legacy_orchestrator is not None:
-            backfill_coverage = getattr(self._legacy_orchestrator, "backfill_coverage", None)
-            if backfill_coverage is not None and callable(backfill_coverage):
-                try:
-                    windows = backfill_coverage(dataset_id=dataset_id, instrument_ids=instrument_ids)
-                    if windows:
-                        rows_written = len(windows)  # Approximate
-                        return {"rows_written": rows_written, "fallback_level": "cached"}
-                except Exception as exc:
-                    error_msg = str(exc)
-                    logger.debug("CACHED fallback failed", exc_info=True)
+        # CACHED level: Try component backfill_coverage
+        if current_idx <= 1:
+            try:
+                for instrument_id in instrument_ids:
+                    windows = self.backfill_coverage(
+                        dataset_id=dataset_id,
+                        schema=schema,
+                        instrument_id=instrument_id,
+                    )
+                    rows_written += len(windows)
+                if rows_written > 0:
+                    return {"rows_written": rows_written, "fallback_level": "cached"}
+            except Exception as exc:
+                error_msg = str(exc)
+                logger.debug("CACHED fallback failed", exc_info=True)
 
         # FILE level: Try local file lookup
         if current_idx <= 2:

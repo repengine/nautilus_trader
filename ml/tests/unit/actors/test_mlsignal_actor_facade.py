@@ -11,7 +11,6 @@ Test Categories (53 tests total):
 - Component Delegation Tests (15 tests): Verify facade delegates to components correctly
 - Integration Tests (10 tests): Verify components communicate correctly
 - Backward Compatibility Tests (8 tests): Verify MLSignalActor public API unchanged
-- Feature Flag Tests (8 tests): Verify legacy/facade mode switching
 - E2E Tests (5 tests): Verify end-to-end signal generation workflow
 
 IMPORTANT: These tests define the CONTRACT that the MLSignalActorFacade
@@ -22,10 +21,7 @@ is complete.
 
 from __future__ import annotations
 
-import os
-import tempfile
 import time
-import tracemalloc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, Mock, patch
@@ -47,7 +43,6 @@ from ml.actors.common.signal_strategy import (
     SignalStrategy,
     ThresholdSignalStrategy,
 )
-from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 
 
 if TYPE_CHECKING:
@@ -71,7 +66,7 @@ pytestmark = [
 
 
 @pytest.fixture
-def dummy_onnx_model_path(tmp_path: Path) -> Path:
+def dummy_onnx_model_path(dummy_onnx_model: Path) -> Path:
     """
     Create a dummy ONNX model for testing.
 
@@ -81,8 +76,7 @@ def dummy_onnx_model_path(tmp_path: Path) -> Path:
         Path to the created dummy model file.
 
     """
-    model_path = create_dummy_onnx_model(tmp_path / "test_model.onnx")
-    return model_path
+    return dummy_onnx_model
 
 
 @pytest.fixture
@@ -636,25 +630,6 @@ class TestFacadeComponentDelegation:
                 facade._model_warmup_component, "load_model"
             )
 
-    def test_facade_delegates_parity_check_to_component(
-        self,
-        base_ml_signal_config: Any,
-    ) -> None:
-        """
-        Verify parity checking capability exists on the facade.
-
-        The facade has _run_parity_smoke_check method for feature parity validation.
-
-        """
-        from ml.actors.signal_facade import MLSignalActorFacade
-
-        facade = MLSignalActorFacade(base_ml_signal_config)
-
-        # Verify facade has parity check capability
-        assert hasattr(facade, "_run_parity_smoke_check")
-        assert hasattr(facade, "_parity_enabled")
-        assert hasattr(facade, "_parity_checked")
-
     def test_facade_delegates_hot_reload_check_to_component(
         self,
         base_ml_signal_config: Any,
@@ -875,28 +850,6 @@ class TestFacadeIntegration:
         # Verify key metrics are present
         assert "signals_generated" in stats or "signal_count" in stats
         assert "bars_processed" in stats or "total_bars" in stats
-
-    def test_facade_parity_check_detects_drift(
-        self,
-        base_ml_signal_config: Any,
-    ) -> None:
-        """
-        Verify parity check capability exists on the facade.
-
-        The facade must have parity checking capability.
-
-        """
-        from ml.actors.signal_facade import MLSignalActorFacade
-
-        facade = MLSignalActorFacade(base_ml_signal_config)
-
-        # Verify parity check method exists
-        assert hasattr(facade, "_run_parity_smoke_check")
-
-        # Verify parity state attributes exist
-        assert hasattr(facade, "_parity_enabled")
-        assert hasattr(facade, "_parity_checked")
-        assert hasattr(facade, "_parity_tolerance")
 
     def test_facade_multiple_strategies_ensemble(
         self,
@@ -1168,173 +1121,6 @@ class TestFacadeBackwardCompatibility:
         facade = MLSignalActorFacade(base_ml_signal_config)
 
         assert hasattr(facade, "_window_count")
-
-
-# =============================================================================
-# Feature Flag Tests (8 tests)
-# =============================================================================
-
-
-class TestFeatureFlags:
-    """
-    Tests verifying legacy/facade mode switching via feature flags.
-
-    Feature flags MUST control which implementation is used without changing calling
-    code.
-
-    """
-
-    def test_feature_flag_defaults_to_facade(self) -> None:
-        """
-        Verify facade mode is default (no env var).
-
-        Without ML_USE_LEGACY_SIGNAL_ACTOR set, facade MUST be used.
-
-        """
-        # Clear any existing env var
-        os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-        from ml.actors import signal_facade
-
-        # Reload to pick up env changes
-        import importlib
-
-        importlib.reload(signal_facade)
-
-        # Default should use facade
-        # (Exact verification depends on implementation)
-
-    def test_feature_flag_uses_legacy_when_enabled(self) -> None:
-        """
-        Verify ML_USE_LEGACY_SIGNAL_ACTOR=1 uses legacy implementation.
-
-        When flag is set to 1, legacy MLSignalActor MUST be used.
-
-        """
-        os.environ["ML_USE_LEGACY_SIGNAL_ACTOR"] = "1"
-
-        try:
-            from ml.actors import signal_facade
-            import importlib
-
-            importlib.reload(signal_facade)
-
-            # Should use legacy implementation
-            # (Exact verification depends on implementation)
-        finally:
-            os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-    def test_feature_flag_env_var_controls_import(self) -> None:
-        """
-        Verify environment variable controls which class is imported.
-
-        The public import MUST resolve to correct implementation based on flag.
-
-        """
-        # Test with facade mode
-        os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-        # Re-import to test
-        # (Exact mechanism depends on implementation)
-
-    def test_feature_flag_both_modes_instantiate(
-        self,
-        base_ml_signal_config: Any,
-    ) -> None:
-        """
-        Verify both modes can be instantiated without errors.
-
-        Both legacy and facade implementations MUST instantiate cleanly.
-
-        """
-        from ml.actors.signal import MLSignalActor
-        from ml.actors.signal_facade import MLSignalActorFacade
-
-        # Both should instantiate without error
-        # (May need mocking for full instantiation)
-
-    def test_feature_flag_parity_config_accepted(
-        self,
-        base_ml_signal_config: Any,
-    ) -> None:
-        """
-        Verify same config works for both modes.
-
-        The same MLSignalActorConfig MUST be accepted by both implementations.
-
-        """
-        from ml.actors.signal import MLSignalActor
-        from ml.actors.signal_facade import MLSignalActorFacade
-
-        # Both should accept same config
-        # (Verification depends on implementation)
-
-    @pytest.mark.parametrize("legacy_mode", [False, True])
-    def test_feature_flag_parity_bars_processed(
-        self,
-        base_ml_signal_config: Any,
-        generate_test_bars: Any,
-        legacy_mode: bool,
-    ) -> None:
-        """
-        Verify both modes process bars identically.
-
-        Given identical input bars, both modes MUST produce same bar processing count.
-
-        """
-        if legacy_mode:
-            os.environ["ML_USE_LEGACY_SIGNAL_ACTOR"] = "1"
-        else:
-            os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-        try:
-            # Test bar processing parity
-            # (Implementation-dependent verification)
-            pass
-        finally:
-            os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-    def test_feature_flag_parity_signals_generated(
-        self,
-        base_ml_signal_config: Any,
-        generate_test_bars: Any,
-    ) -> None:
-        """
-        Verify both modes generate identical signals.
-
-        Given identical inputs, both modes MUST produce identical signals.
-
-        """
-        from ml.actors.signal import MLSignalActor
-        from ml.actors.signal_facade import MLSignalActorFacade
-
-        bars = generate_test_bars(50)
-
-        # Process through both and compare signals
-        # (Implementation-dependent verification)
-
-    def test_feature_flag_switch_no_state_corruption(
-        self,
-        base_ml_signal_config: Any,
-    ) -> None:
-        """
-        Verify switching modes doesn't corrupt global state.
-
-        Switching between modes MUST NOT affect other instances or global state.
-
-        """
-        # Create instance in facade mode
-        os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
-
-        # Create instance in legacy mode
-        os.environ["ML_USE_LEGACY_SIGNAL_ACTOR"] = "1"
-
-        try:
-            # Verify no corruption
-            # (Implementation-dependent verification)
-            pass
-        finally:
-            os.environ.pop("ML_USE_LEGACY_SIGNAL_ACTOR", None)
 
 
 # =============================================================================

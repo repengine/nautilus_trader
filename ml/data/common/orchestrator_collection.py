@@ -491,7 +491,6 @@ class OrchestratorCollectionComponent:
                             True if "ohlcv" in schema or "bar" in schema else False
                         ),
                         include_trades=True if "trade" in schema else False,
-                        as_legacy_cython=True,
                     )
                     return list(items) if items else []
 

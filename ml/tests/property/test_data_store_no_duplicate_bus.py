@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.features.earnings.store import DummyEarningsStore
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.config.events import EventStatus, Source, Stage
 from ml.registry.dataclasses import DataContract, DatasetManifest
 from ml.registry.dataclasses import QualityFlag

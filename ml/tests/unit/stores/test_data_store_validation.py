@@ -55,7 +55,7 @@ from ml.registry.utils import compute_dataset_schema_hash
 from ml.ml_types import PandasDF, PolarsDF
 from ml.features.earnings.store import DummyEarningsStore
 from ml.features.earnings.store import EarningsStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -73,7 +73,7 @@ StoreT = TypeVar("StoreT")
 
 if TYPE_CHECKING:
     import pandas as pd
-    from ml.stores.data_store_facade import DataStore
+    from ml.stores.data_store import DataStore
 else:
     DataStore = Any  # pragma: no cover - runtime fallback for type checking tools
 
@@ -246,7 +246,7 @@ def data_store_module() -> Generator[ModuleType, None, None]:
     """
     Provide the DataStore module (component-only).
     """
-    import ml.stores.data_store_facade as module
+    import ml.stores.data_store as module
 
     yield module
 

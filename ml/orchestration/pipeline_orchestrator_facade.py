@@ -8,11 +8,14 @@ internally delegating to 7 specialized components with minimal business logic.
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ml.data.ingest.subscription import SubscriptionPolicy as CoveragePolicy
 from ml.orchestration.common.stage_controller import IntegrationManagerProtocol
@@ -26,7 +29,6 @@ from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
 from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.orchestration.discovery_client import DiscoveryClient
-from ml.orchestration.feature_flags import use_legacy_orchestrator
 from ml.orchestration.ingestion_coordinator import IngestionCoordinator
 from ml.orchestration.pipeline_orchestrator_facade_helpers import OrchestratorFacadeHelpers
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
@@ -81,7 +83,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
     # Internal state
     write_mode_tokens: tuple[str, ...] = field(default_factory=tuple, init=False, repr=False)
     _integration_manager: IntegrationManagerProtocol | None = field(default=None, init=False, repr=False)
-    _legacy_orchestrator: object | None = field(default=None, init=False, repr=False)
     # Components
     _ingestion_coordinator: IngestionCoordinator | None = field(default=None, init=False, repr=False)
     _dataset_builder: DatasetBuilder | None = field(default=None, init=False, repr=False)
@@ -91,30 +92,14 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
     _config_resolver: ConfigResolver | None = field(default=None, init=False, repr=False)
     _discovery_client: DiscoveryClient | None = field(default=None, init=False, repr=False)
     _stage_controller: StageController | None = field(default=None, init=False, repr=False)
-    _use_legacy: bool = field(default_factory=use_legacy_orchestrator, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.registry is not None and self.data_registry is None:
             object.__setattr__(self, "data_registry", self.registry)
-        if self._use_legacy:
-            self._init_legacy_orchestrator()
         self._init_components()
-        logger.info("MLPipelineOrchestratorFacade initialized",
-                    extra={"has_legacy": self._legacy_orchestrator is not None})
-
-    def _init_legacy_orchestrator(self) -> None:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        self._legacy_orchestrator = MLPipelineOrchestrator(
-            coverage=self.coverage, writer=self.writer, build_main=self.build_main,
-            teacher_main=self.teacher_main, registry=self.registry,
-            data_registry=self.data_registry, ingestor=self.ingestor, hpo_main=self.hpo_main,
-            raw_writer=self.raw_writer, service=self.service, model_registry=self.model_registry,
-            feature_registry=self.feature_registry, strategy_registry=self.strategy_registry,
-            feature_store=self.feature_store, model_store=self.model_store,
-            strategy_store=self.strategy_store, data_store=self.data_store,
-            partition_manager=self.partition_manager, domain_loader=self.domain_loader,
-            integration_manager_factory=self.integration_manager_factory,
-            dataset_discovery=self.dataset_discovery,  # type: ignore[arg-type]
+        logger.info(
+            "MLPipelineOrchestratorFacade initialized",
+            extra={"implementation": "component-based"},
         )
 
     def _init_components(self) -> None:
@@ -141,21 +126,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
             registry_synchronizer=self._registry_synchronizer, runtime_attacher=self._runtime_attacher,
             feature_registry=self.feature_registry, model_registry=self.model_registry,
             data_registry=self.data_registry, integration_manager_factory=self.integration_manager_factory)
-        # Inject helper methods from legacy orchestrator for StageController
-        if self._legacy_orchestrator is not None and self._use_legacy:
-            from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-            legacy = self._legacy_orchestrator
-            if isinstance(legacy, MLPipelineOrchestrator):
-                self._stage_controller._prepare_dataset_config = legacy._prepare_dataset_config
-                self._stage_controller._auto_fill_universe = legacy._auto_fill_universe
-                self._stage_controller._handle_promotions = legacy._handle_promotions
-                self._stage_controller._attach_runtime = legacy._attach_runtime
-
-    def _get_legacy(self) -> object:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        if not isinstance(self._legacy_orchestrator, MLPipelineOrchestrator):
-            raise TypeError("Invalid legacy orchestrator type")
-        return self._legacy_orchestrator
 
     def get_health_status(self) -> dict[str, Any]:
         """
@@ -166,10 +136,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
         dict[str, Any]
             Health status dictionary with component availability.
         """
-        if use_legacy_orchestrator():
-            return cast(dict[str, Any], getattr(self._get_legacy(), "get_health_status")())
-
-        # Match legacy structure for parity, add components as additional info
         return {
             "implementation": "component-based",
             "coverage_provider": "healthy" if self.coverage else "unavailable",
@@ -191,10 +157,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     def run_pre_ingestion(self, *, catalog_path: Path, scheduler_cfg: SchedulerConfig,
                          options: PreIngestionOptions | None = None) -> None:
-        if use_legacy_orchestrator():
-            getattr(self._get_legacy(), "run_pre_ingestion")(
-                catalog_path=catalog_path, scheduler_cfg=scheduler_cfg, options=options)
-            return
         if self._ingestion_coordinator is None:
             raise RuntimeError("IngestionCoordinator not initialized")
         self._ingestion_coordinator.run_pre_ingestion(
@@ -202,11 +164,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     def backfill(self, *, dataset_id: str, schema: str, instrument_id: str,
                 lookback_days: int) -> BackfillWindowList:
-        if use_legacy_orchestrator():
-            result: BackfillWindowList = getattr(self._get_legacy(), "backfill")(
-                dataset_id=dataset_id, schema=schema, instrument_id=instrument_id,
-                lookback_days=lookback_days)
-            return result
         if self._ingestion_coordinator is None:
             raise RuntimeError("IngestionCoordinator not initialized")
         return self._ingestion_coordinator.backfill(
@@ -215,45 +172,28 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     def backfill_binding(self, *, binding: ResolvedMarketBinding,
                         lookback_days: int) -> dict[str, BackfillWindowList]:
-        if use_legacy_orchestrator():
-            result: dict[str, BackfillWindowList] = getattr(self._get_legacy(), "backfill_binding")(
-                binding=binding, lookback_days=lookback_days)
-            return result
         if self._ingestion_coordinator is None:
             raise RuntimeError("IngestionCoordinator not initialized")
         return self._ingestion_coordinator.backfill_binding(binding=binding, lookback_days=lookback_days)
 
     def backfill_coverage(self, *, dataset_id: str, schema: str, instrument_id: str,
                          policy: CoveragePolicy | None = None) -> list[tuple[int, int]]:
-        if use_legacy_orchestrator():
-            result: list[tuple[int, int]] = getattr(self._get_legacy(), "backfill_coverage")(
-                dataset_id=dataset_id, schema=schema, instrument_id=instrument_id, policy=policy)
-            return result
         if self._ingestion_coordinator is None:
             raise RuntimeError("IngestionCoordinator not initialized")
         return self._ingestion_coordinator.backfill_coverage(
             dataset_id=dataset_id, schema=schema, instrument_id=instrument_id, policy=policy)
 
     def build_dataset(self, cfg: DatasetBuildConfig) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "build_dataset")(cfg)
-            return result
         if self._dataset_builder is None:
             raise RuntimeError("DatasetBuilder not initialized")
         return self._dataset_builder.build_dataset(cfg)
 
     def run_hpo(self, cfg: HPOConfig | None, dataset_csv: Path, out_dir: Path) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "run_hpo")(cfg, dataset_csv, out_dir)
-            return result
         if self._training_coordinator is None:
             raise RuntimeError("TrainingCoordinator not initialized")
         return self._training_coordinator.run_hpo(cfg, dataset_csv, out_dir)
 
     def train_teacher(self, cfg: TeacherTrainConfig | None, dataset_csv: Path, out_dir: Path) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "train_teacher")(cfg, dataset_csv, out_dir)
-            return result
         if self._training_coordinator is None:
             raise RuntimeError("TrainingCoordinator not initialized")
         return self._training_coordinator.train_teacher(cfg, dataset_csv, out_dir)
@@ -264,10 +204,6 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
         dataset_dir: Path,
         teacher_cfg: TeacherTrainConfig | None,
     ) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "distill_student")(
-                cfg, dataset_dir=dataset_dir, teacher_cfg=teacher_cfg)
-            return result
         if self._training_coordinator is None:
             raise RuntimeError("TrainingCoordinator not initialized")
         return self._training_coordinator.distill_student(
@@ -275,18 +211,11 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     def run(self, cfg: OrchestratorConfig, *, checkpoint_file: Path | None = None,
            resume: bool = False) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "run")(
-                cfg, checkpoint_file=checkpoint_file, resume=resume)
-            return result
         if self._stage_controller is None:
             raise RuntimeError("StageController not initialized")
         return self._stage_controller.run_pipeline(cfg, checkpoint_file=checkpoint_file, resume=resume)
 
     def run_training_only(self, cfg: OrchestratorConfig) -> int:
-        if use_legacy_orchestrator():
-            result: int = getattr(self._get_legacy(), "run_training_only")(cfg)
-            return result
         if self._stage_controller is None:
             raise RuntimeError("StageController not initialized")
         return self._stage_controller.run_training_only(cfg)
@@ -297,32 +226,100 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     @staticmethod
     def _infer_dataset_row_count(result: object) -> int | None:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._infer_dataset_row_count(result)
+        """
+        Best-effort row count inference for API build results.
+        """
+        metadata = getattr(result, "metadata", None)
+        if metadata is not None:
+            overall_window = getattr(metadata, "overall_window", None)
+            ts_start = getattr(metadata, "ts_event_start", None)
+            ts_end = getattr(metadata, "ts_event_end", None)
+            if overall_window is None and ts_start is None and ts_end is None:
+                return 0
+
+        dataset_parquet = getattr(result, "dataset_parquet", None)
+        if isinstance(dataset_parquet, Path) and dataset_parquet.exists():
+            try:
+                import pyarrow.parquet as pq
+            except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
+                logger.debug(
+                    "pyarrow unavailable for row count inference",
+                    extra={"dataset_parquet": str(dataset_parquet)},
+                )
+            else:
+                try:
+                    return int(pq.ParquetFile(str(dataset_parquet)).metadata.num_rows)
+                except Exception:  # pragma: no cover - defensive best effort
+                    logger.debug(
+                        "Unable to infer row count from dataset parquet",
+                        exc_info=True,
+                        extra={"dataset_parquet": str(dataset_parquet)},
+                    )
+
+        dataset_csv = getattr(result, "dataset_csv", None)
+        if isinstance(dataset_csv, Path) and dataset_csv.exists():
+            try:
+                with dataset_csv.open("r", encoding="utf-8") as handle:
+                    next(handle, None)  # header (if any)
+                    has_data = next(handle, None)
+                return 0 if has_data is None else None
+            except Exception:  # pragma: no cover - defensive best effort
+                logger.debug(
+                    "Unable to infer row count from dataset CSV",
+                    exc_info=True,
+                    extra={"dataset_csv": str(dataset_csv)},
+                )
+
+        return None
 
     @staticmethod
     def _resolve_instrument_ids(dataset_cfg: DatasetBuildConfig,
                                override: tuple[str, ...] | None = None) -> tuple[str, ...]:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._resolve_instrument_ids(dataset_cfg, override)
+        if override:
+            return tuple(item.strip() for item in override if item.strip())
+        if dataset_cfg.instrument_ids:
+            return tuple(item.strip() for item in dataset_cfg.instrument_ids if item.strip())
+        symbols_raw = dataset_cfg.symbols.split(",")
+        return tuple(item.strip().upper() for item in symbols_raw if item.strip())
 
     @staticmethod
     def _infer_default_schema(cfg: DatasetBuildConfig) -> str:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._infer_default_schema(cfg)
+        """
+        Infer a reasonable default schema for discovery lookups.
+        """
+        return "ohlcv-1m"
 
     @staticmethod
     def _binding_priority_key(binding: ResolvedMarketBinding) -> tuple[int, str]:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._binding_priority_key(binding)
+        dataset_id = binding.dataset_id.upper()
+        if dataset_id == "EQUS.MINI":
+            return (0, dataset_id)
+        if dataset_id == "XNAS.ITCH":
+            return (1, dataset_id)
+        return (2, dataset_id)
 
     @staticmethod
     def _collect_instrument_ids(bindings: tuple[ResolvedMarketBinding, ...],
                                existing: tuple[str, ...] | None) -> tuple[str, ...]:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._collect_instrument_ids(bindings, existing)
+        collected: OrderedDict[str, None] = OrderedDict()
+        if existing:
+            for inst in existing:
+                token = inst.strip()
+                if token:
+                    collected.setdefault(token.upper(), None)
+
+        for binding in bindings:
+            for inst in binding.instrument_ids or (binding.symbol,):
+                token = inst.strip().upper()
+                if token:
+                    collected.setdefault(token, None)
+
+        return tuple(collected.keys())
 
     @staticmethod
     def _ns_to_datetime(value: int) -> object:
-        from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-        return MLPipelineOrchestrator._ns_to_datetime(value)
+        """
+        Convert nanoseconds since epoch to an aware UTC datetime.
+        """
+        seconds = value / 1_000_000_000
+        return datetime.fromtimestamp(seconds, tz=UTC)

@@ -17,8 +17,8 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
 
 from ml.config.base import MLFeatureConfig
-from ml.features.engineering import FeatureConfig, IndicatorManager
-from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+from ml.features.config import FeatureConfig
+from ml.features.indicators import IndicatorManager
 
 
 if TYPE_CHECKING:
@@ -210,16 +210,6 @@ def indicator_manager_with_history(feature_config: FeatureConfig) -> IndicatorMa
 
 
 @pytest.fixture
-def legacy_engineer(feature_config: FeatureConfig) -> LegacyFeatureEngineer:
-    """
-    Legacy FeatureEngineer instance for parity comparisons.
-
-    Creates a fresh legacy implementation using the shared feature_config.
-    """
-    return LegacyFeatureEngineer(feature_config)
-
-
-@pytest.fixture
 def prepared_indicator_manager(feature_config: FeatureConfig) -> IndicatorManager:
     """
     IndicatorManager with 50 bars of history (ready for inference).
@@ -301,7 +291,7 @@ def test_bars(test_bar: Bar) -> list[Bar]:
     """
     List of Nautilus Bar objects (100 bars).
 
-    Creates a sequence of bars for parity testing with legacy compute_features.
+    Creates a sequence of bars for parity testing with compute_features.
     """
     np.random.seed(42)
     bar_type = BarType.from_str("SPY.NYSE-1-MINUTE-LAST-EXTERNAL")

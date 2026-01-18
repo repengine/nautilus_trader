@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from ml.stores.adapters import DataStoreEarningsAdapter
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.stores.validation_types import QualityReport
 from ml.stores.earnings_store import DummyEarningsStore
 

@@ -18,7 +18,7 @@ import pytest
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind, ValidationRule, ValidationRuleType, QualityFlag
 from ml.registry.utils import compute_dataset_schema_hash
 from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
-from ml.stores.data_store_facade import DataStoreFacade, DataStoreConfig
+from ml.stores.data_store import DataStoreFacade, DataStoreConfig
 from ml.tests.utils.db import build_postgres_url
 
 

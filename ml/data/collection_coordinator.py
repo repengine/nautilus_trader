@@ -598,7 +598,6 @@ class CollectionCoordinator:
             path=file_path,
             instrument_id=instrument_id,
             price_precision=self._config.databento.price_precision,
-            as_legacy_cython=True,
             bars_timestamp_on_close=True if "ohlcv" in self._config.databento.schema else False,
             include_trades="trades" in self._config.databento.schema,
         )

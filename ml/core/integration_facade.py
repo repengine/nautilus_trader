@@ -64,7 +64,7 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.stores.base import DummyStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
@@ -1748,7 +1748,7 @@ def create_data_store(
 
     """
     from ml.features.earnings.store import EarningsStore
-    from ml.stores.data_store_facade import DataStore
+    from ml.stores.data_store import DataStore
 
     return cast(
         DataStoreFacadeProtocol,

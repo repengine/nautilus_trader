@@ -36,7 +36,7 @@ from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 
 
 pytestmark = [

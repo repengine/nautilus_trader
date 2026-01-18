@@ -25,6 +25,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -50,9 +53,6 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:

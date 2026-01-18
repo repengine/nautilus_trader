@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import func, select, text
 
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 
 

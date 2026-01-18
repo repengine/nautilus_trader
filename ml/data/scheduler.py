@@ -1086,7 +1086,6 @@ class DataScheduler:
             path=file_path,
             instrument_id=instrument_id,
             price_precision=self.config.databento.price_precision,
-            as_legacy_cython=True,
             bars_timestamp_on_close=True if "ohlcv" in self.config.databento.schema else False,
             include_trades="trades" in self.config.databento.schema,
         )
@@ -1185,7 +1184,6 @@ class DataScheduler:
                                 True if "ohlcv" in schema or "bar" in schema else False
                             ),
                             include_trades=True if "trade" in schema else False,
-                            as_legacy_cython=True,
                         )
                         return list(items) if items else []
 

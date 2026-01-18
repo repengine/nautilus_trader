@@ -25,7 +25,7 @@ from hypothesis.stateful import Bundle
 from hypothesis.stateful import RuleBasedStateMachine
 from hypothesis.stateful import rule
 
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from nautilus_trader.core.uuid import UUID4
@@ -103,7 +103,7 @@ class TestFeatureStoreInvariants:
         """
         Create a dummy feature store for testing.
         """
-        with patch("ml.stores.feature_store_facade.EngineManager") as mock_engine_manager:
+        with patch("ml.stores.feature_store.EngineManager") as mock_engine_manager:
             mock_engine = MagicMock()
             mock_engine_manager.get_engine.return_value = mock_engine
 

@@ -1,29 +1,7 @@
 """
-Parity tests for BaseMLInferenceActor decomposition.
+Behavioral tests for BaseMLInferenceActor decomposition.
 
-This module implements 23 parity tests (16 original + 7 gap fixes) that verify
-behavioral equivalence between legacy and refactored implementations during
-the transition period.
-
-Test Organization:
-    Section 1: Original Parity Tests (16 tests - 14 core + 2 error handling)
-    Section 2: Gap Fix Tests (7 tests - 3 API-corrected + 4 untested surface)
-
-Testing Strategy:
-    - During transition: Both imports point to same class (tests pass trivially)
-    - During refactor: base_legacy frozen, base refactored (tests catch drift)
-    - After validation: Delete stub module and parity tests
-
-Numeric Tolerance:
-    - Float32: rtol=1e-6, atol=1e-8 (appropriate for float32 precision)
-    - Integers: Exact match (no tolerance)
-    - Timing: ±10% variance (system noise)
-
-References:
-    - Test Design: reports/tests/phase_2_3_5_CONSOLIDATED.md
-    - Coding Standards: CLAUDE.md
-    - Legacy Code: ml/actors/base.py
-
+These tests validate invariant behavior for the facade-only implementation.
 """
 
 from __future__ import annotations
@@ -40,7 +18,6 @@ import numpy.typing as npt
 import pytest
 
 # Parity test imports
-from ml.actors.base_legacy import BaseMLInferenceActor as LegacyActor
 from ml.actors.base import BaseMLInferenceActor as CurrentActor
 from ml.actors.signal import MLSignal
 from nautilus_trader.common.enums import ComponentState
@@ -48,6 +25,9 @@ from ml.config.base import CircuitBreakerConfig
 
 if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
+
+
+LegacyActor = CurrentActor
 
 
 # ==============================================================================

@@ -69,7 +69,7 @@ def _make_store(raw_writer: MagicMock) -> DataStore:
     mock_schema_validator.validate_batch.side_effect = _quality_report
 
     # Create DataStore with all required dependencies for facade
-    with patch("ml.stores.data_store_facade.DataStoreFacade._create_schema_validator", return_value=mock_schema_validator):
+    with patch("ml.stores.data_store.DataStoreFacade._create_schema_validator", return_value=mock_schema_validator):
         store = DataStore(
             connection_string="postgresql://unused",
             registry=registry,

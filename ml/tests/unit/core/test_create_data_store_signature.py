@@ -368,8 +368,8 @@ class TestCreateDataStoreRuntime:
         mock_earnings_store = Mock()
 
         # Mock DataStore construction to avoid database requirement
-        from ml.stores.data_store_facade import DataStore
-        from ml.stores.data_store_facade import DataStoreConfig
+        from ml.stores.data_store import DataStore
+        from ml.stores.data_store import DataStoreConfig
 
         original_init = DataStore.__init__
 
@@ -431,8 +431,8 @@ class TestCreateDataStoreRuntime:
         mock_registry = Mock(spec=["register_dataset"])
 
         # Mock DataStore construction
-        from ml.stores.data_store_facade import DataStore
-        from ml.stores.data_store_facade import DataStoreConfig
+        from ml.stores.data_store import DataStore
+        from ml.stores.data_store import DataStoreConfig
 
         original_init = DataStore.__init__
 
@@ -482,10 +482,10 @@ class TestCreateDataStoreImportStyle:
 
         The original implementation used dynamic import to bypass mypy:
         - import importlib
-        - DataStore = getattr(importlib.import_module("ml.stores.data_store_facade"), "DataStore")
+        - DataStore = getattr(importlib.import_module("ml.stores.data_store"), "DataStore")
 
         This test verifies the workaround is removed and replaced with direct import:
-        - from ml.stores.data_store_facade import DataStore
+        - from ml.stores.data_store import DataStore
 
         Behavior tested: Import style (direct vs dynamic), not exact formatting.
 
@@ -499,7 +499,7 @@ class TestCreateDataStoreImportStyle:
         # Should NOT have dynamic import pattern
         assert "importlib" not in source, (
             "Function should not use dynamic import (importlib module). "
-            "Use direct import: from ml.stores.data_store_facade import DataStore"
+            "Use direct import: from ml.stores.data_store import DataStore"
         )
 
         assert "getattr(importlib" not in source, (
@@ -509,14 +509,14 @@ class TestCreateDataStoreImportStyle:
 
         # SHOULD have direct import (flexible - allow variations)
         has_direct_import = (
-            "from ml.stores.data_store_facade import DataStore" in source
-            or "from ml.stores.data_store_facade import" in source
+            "from ml.stores.data_store import DataStore" in source
+            or "from ml.stores.data_store import" in source
             or "import DataStore" in source
         )
 
         assert has_direct_import, (
             "Function should use direct import of DataStore. "
-            "Expected pattern: from ml.stores.data_store_facade import DataStore"
+            "Expected pattern: from ml.stores.data_store import DataStore"
         )
 
 
@@ -548,8 +548,8 @@ class TestCreateDataStoreCompatibility:
         mock_writer = Mock(spec=["write"])
 
         # Mock DataStore construction
-        from ml.stores.data_store_facade import DataStore
-        from ml.stores.data_store_facade import DataStoreConfig
+        from ml.stores.data_store import DataStore
+        from ml.stores.data_store import DataStoreConfig
 
         original_init = DataStore.__init__
 

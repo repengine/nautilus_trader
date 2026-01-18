@@ -6,11 +6,15 @@ from nautilus_trader.model.data import TradeTick
 
 from ml.registry.dataclasses import DatasetType
 from ml.schema import DEFAULT_BAR_IDENTIFIER_TEMPLATE
+from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
 from ml.schema import default_identifier_template_for_dataset_type
 from ml.schema import map_schema_to_dataset_type
 from ml.schema import schema_spec_for
 from ml.schema import schema_to_dataclass
 from ml.schema import schema_to_identifier_template
+from ml.schema import validate_dataset_type_templates
+from ml.schema import validate_identifier_template
+from ml.schema import validate_schema_identifier_templates
 from ml.stores.providers import resolve_catalog_identifier
 
 
@@ -72,3 +76,40 @@ def test_resolve_catalog_identifier_prefers_dataset_template_when_schema_missing
     )
 
     assert identifier == f"{instrument}-trades"
+
+
+@pytest.mark.unit
+def test_validate_identifier_template_requires_instrument_id() -> None:
+    with pytest.raises(ValueError, match="must include"):
+        validate_identifier_template("no-instrument", label="test template")
+
+
+@pytest.mark.unit
+def test_validate_schema_identifier_templates_normalizes_keys() -> None:
+    templates = {"TBBO": "{instrument_id}-TBBO"}
+
+    normalized = validate_schema_identifier_templates(templates)
+
+    assert normalized == {"tbbo": "{instrument_id}-TBBO"}
+
+
+@pytest.mark.unit
+def test_validate_schema_identifier_templates_rejects_unknown_schema() -> None:
+    templates = {"unknown-schema": "{instrument_id}-unknown"}
+
+    with pytest.raises(ValueError, match="Unknown schema"):
+        validate_schema_identifier_templates(templates)
+
+
+@pytest.mark.unit
+def test_validate_dataset_type_templates_rejects_non_dataset_type_key() -> None:
+    templates = {"TRADES": "{instrument_id}-trades"}
+
+    with pytest.raises(ValueError, match="keys must be DatasetType"):
+        validate_dataset_type_templates(templates)
+
+
+@pytest.mark.unit
+def test_dataset_type_identifier_defaults_require_instrument_id() -> None:
+    for dataset_type, template in DATASET_TYPE_IDENTIFIER_DEFAULTS.items():
+        assert "{instrument_id}" in template, f"{dataset_type} missing instrument_id template"

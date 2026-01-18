@@ -100,7 +100,6 @@ def patch_onnx_runtime(
     default_modules = (
         "ml._imports",
         "ml.common.security",
-        "ml.registry.model_persistence",
         "ml.registry.model_registry_facade",
     )
     target_modules = tuple(modules) if modules is not None else default_modules

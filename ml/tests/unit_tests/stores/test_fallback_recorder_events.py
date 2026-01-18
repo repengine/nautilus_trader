@@ -12,7 +12,7 @@ from ml.stores.writers import CatalogWriteFacade, LiveDataRecorder
 
 if TYPE_CHECKING:
     import pandas as pd
-    from ml.stores.data_store_facade import DataStore
+    from ml.stores.data_store import DataStore
 
 
 class _StubWriter(MarketDataWriterProtocol):

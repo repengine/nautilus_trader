@@ -27,9 +27,6 @@ from ml.orchestration.config_types import (
     StudentDistillConfig,
     TeacherTrainConfig,
 )
-from ml.orchestration.feature_flags import use_legacy_orchestrator
-
-
 if TYPE_CHECKING:
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 

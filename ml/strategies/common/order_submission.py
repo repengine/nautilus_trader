@@ -22,21 +22,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import VenueOrderId
+
 from ml.config.events import Source
 from ml.strategies.common.decision_persistence import _NoOpLogger
 from ml.strategies.common.decision_persistence import _SafeLogger
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.model.identifiers import ClientOrderId
-from nautilus_trader.model.identifiers import VenueOrderId
 
 
 if TYPE_CHECKING:
-    from ml.actors.base import MLSignal
-    from nautilus_trader.model.enums import OrderSide
     from nautilus_trader.model.identifiers import ClientOrderId
     from nautilus_trader.model.identifiers import InstrumentId
     from nautilus_trader.model.objects import Price
     from nautilus_trader.model.objects import Quantity
+
+    from ml.actors.base import MLSignal
+    from nautilus_trader.model.enums import OrderSide
 
 
 _UNSET: object = object()

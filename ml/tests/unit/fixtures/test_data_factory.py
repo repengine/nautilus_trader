@@ -10,11 +10,15 @@ class for correct behavior, error handling, and edge cases.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 
-from ml.tests.fixtures.model_factory import TestDataFactory
 from nautilus_trader.model.data import Bar
+
+if TYPE_CHECKING:
+    from ml.tests.fixtures.model_factory import TestDataFactory
 
 
 # ============================================================================
@@ -22,10 +26,9 @@ from nautilus_trader.model.data import Bar
 # ============================================================================
 
 
-def test_test_data_factory_bars_returns_list_of_bars() -> None:
+def test_test_data_factory_bars_returns_list_of_bars(test_data_factory: TestDataFactory) -> None:
     """Verify bars() method returns valid Bar objects."""
-    factory = TestDataFactory()
-    bars = factory.bars(n=10)
+    bars = test_data_factory.bars(n=10)
 
     assert isinstance(bars, list)
     assert len(bars) == 10
@@ -44,21 +47,22 @@ def test_test_data_factory_bars_returns_list_of_bars() -> None:
     assert timestamps == sorted(timestamps)
 
 
-def test_test_data_factory_bars_accepts_custom_instrument() -> None:
+def test_test_data_factory_bars_accepts_custom_instrument(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify bars() can generate for different instruments."""
-    factory = TestDataFactory()
-
-    eurusd_bars = factory.bars(n=5, instrument_id="EUR/USD.SIM")
-    btcusd_bars = factory.bars(n=5, instrument_id="BTC/USD.SIM")
+    eurusd_bars = test_data_factory.bars(n=5, instrument_id="EUR/USD.SIM")
+    btcusd_bars = test_data_factory.bars(n=5, instrument_id="BTC/USD.SIM")
 
     assert eurusd_bars[0].bar_type.instrument_id.value == "EUR/USD.SIM"
     assert btcusd_bars[0].bar_type.instrument_id.value == "BTC/USD.SIM"
 
 
-def test_test_data_factory_features_returns_array() -> None:
+def test_test_data_factory_features_returns_array(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify features() method returns numpy array."""
-    factory = TestDataFactory()
-    features = factory.features(n=50, n_features=10)
+    features = test_data_factory.features(n=50, n_features=10)
 
     assert isinstance(features, np.ndarray)
     assert features.shape == (50, 10)
@@ -67,13 +71,13 @@ def test_test_data_factory_features_returns_array() -> None:
     assert np.abs(features).max() < 100  # Reasonable range
 
 
-def test_test_data_factory_features_uses_seed_for_reproducibility() -> None:
+def test_test_data_factory_features_uses_seed_for_reproducibility(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify seed parameter produces reproducible results."""
-    factory = TestDataFactory()
-
-    features1 = factory.features(n=20, seed=42)
-    features2 = factory.features(n=20, seed=42)
-    features3 = factory.features(n=20, seed=99)
+    features1 = test_data_factory.features(n=20, seed=42)
+    features2 = test_data_factory.features(n=20, seed=42)
+    features3 = test_data_factory.features(n=20, seed=99)
 
     np.testing.assert_array_equal(features1, features2)
     assert not np.allclose(features1, features3)

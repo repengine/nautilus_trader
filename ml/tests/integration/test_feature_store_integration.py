@@ -21,7 +21,7 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.config.base import MLTrainingConfig
 from ml.features.config import FeatureConfig
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.training.base_facade import BaseMLTrainer
 from nautilus_trader.model.data import Bar
 

@@ -40,7 +40,6 @@ from ml.actors.common.model import ModelComponent
 from ml.actors.common.registry import RegistryComponent
 from ml.actors.common.store_operations import StoreOperationsComponent
 from ml.config.base import MLActorConfig
-from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 
 
 # =======================================================================================
@@ -68,20 +67,6 @@ def base_ml_config() -> MLActorConfig:
         enable_health_monitoring=True,
         enable_async_persistence=False,  # Disable async for simpler testing
     )
-
-
-@pytest.fixture(scope="session")
-def onnx_test_model_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """
-    Provide a lightweight, session-reused ONNX model to avoid per-test training/export.
-    """
-    model_dir = tmp_path_factory.mktemp("facade_dummy_model")
-    model_path = create_dummy_onnx_model(model_dir / "test_model.onnx")
-    yield model_path
-    try:
-        model_path.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 @pytest.fixture
@@ -147,7 +132,7 @@ def generate_test_bars(base_ml_config: MLActorConfig):
 @pytest.fixture
 def concrete_ml_inference_actor(
     base_ml_config: MLActorConfig,
-    onnx_test_model_path: Path,
+    dummy_onnx_model: Path,
 ):
     """
     Create concrete implementation of BaseMLInferenceActor for testing.
@@ -188,7 +173,7 @@ def concrete_ml_inference_actor(
     import msgspec
 
     config_with_model = msgspec.structs.replace(
-        base_ml_config, model_path=str(onnx_test_model_path)
+        base_ml_config, model_path=str(dummy_onnx_model)
     )
 
     actor = ConcreteMLInferenceActor(config_with_model)
@@ -668,7 +653,7 @@ def test_facade_preserves_all_public_attributes(
 
 
 def test_facade_mlsignalactor_subclass_still_works(
-    onnx_test_model_path,
+    dummy_onnx_model: Path,
     generate_test_bars,
 ):
     """
@@ -684,7 +669,7 @@ def test_facade_mlsignalactor_subclass_still_works(
 
     signal_config = MLSignalActorConfig(
         component_id="test_signal",
-        model_path=str(onnx_test_model_path),
+        model_path=str(dummy_onnx_model),
         model_id="test_signal_model",
         bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),

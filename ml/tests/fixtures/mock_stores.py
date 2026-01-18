@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from ml.features.earnings.store import EarningsStore
-from ml.stores.data_store_facade import DataStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 
@@ -41,7 +41,7 @@ def mock_store_factory():
     Parameters
     ----------
     store_type : str
-        Type of store to create. One of: "feature", "model", "strategy", "data"
+        Type of store to create. One of: "feature", "model", "strategy", "data", "earnings"
     use_spec : bool, default=True
         Whether to use the actual store class as spec for the mock.
         Set to False for tests that need fully dynamic mocks.
@@ -61,14 +61,14 @@ def mock_store_factory():
         If store_type is not one of the supported types
     """
     def _factory(
-        store_type: Literal["feature", "model", "strategy", "data"],
+        store_type: Literal["feature", "model", "strategy", "data", "earnings"],
         use_spec: bool = True,
         **kwargs: Any,
     ) -> MagicMock:
         """Create a mock store of the specified type.
 
         Args:
-            store_type: One of "feature", "model", "strategy", "data"
+            store_type: One of "feature", "model", "strategy", "data", "earnings"
             use_spec: Whether to use actual store class as spec
             **kwargs: Additional attributes to set on the mock
 

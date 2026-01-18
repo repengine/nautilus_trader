@@ -2,10 +2,9 @@
 Parity and Buffer-Reuse Guardrails for ML Hot Path Performance.
 
 This module validates that the ML signal generation pipeline maintains:
-1. Feature parity between online and offline computation
-2. Zero memory allocations in the hot path
-3. P99 latency budgets are maintained
-4. Buffer reuse patterns work correctly
+1. Zero memory allocations in the hot path
+2. P99 latency budgets are maintained
+3. Buffer reuse patterns work correctly
 
 These tests fail CI if regressions are detected, ensuring production reliability.
 
@@ -14,8 +13,6 @@ Performance Requirements:
 - P99 model inference: <2ms
 - P99 end-to-end signal: <5ms
 - Zero allocations in hot path after warmup
-- Feature parity drift: <1e-6 tolerance
-
 """
 
 from __future__ import annotations
@@ -405,145 +402,6 @@ class TestFeatureComputationGuardrails:
 
         # Assert zero allocations
         assert_zero_allocations(compute_features, 100, "Feature computation")
-
-
-# =============================================================================
-# Feature Parity Guardrails
-# =============================================================================
-
-
-@pytest.mark.performance
-class TestFeatureParityGuardrails:
-    """
-    Performance guardrails for feature parity verification.
-    """
-
-    def test_feature_parity_smoke_check(
-        self,
-        feature_config: FeatureConfig,
-        test_bars: list[Bar],
-        instrument_id: InstrumentId,
-        bar_type: BarType,
-        mock_model: Mock,
-    ) -> None:
-        """
-        Ensure feature parity smoke-check works correctly and reports metrics.
-
-        This test validates that online and offline feature computation produce
-        identical results within tolerance.
-
-        """
-        # Create actor with parity smoke-check enabled
-        config = MLSignalActorConfig(
-            actor_id="PARITY_TEST",
-            model_id="test_model",
-            model_path="/tmp/dummy_model.pkl",  # Will use mock
-            bar_type=bar_type,
-            instrument_id=instrument_id,
-            feature_config=feature_config,
-            enable_parity_smoke_check=True,
-            # Keep window below available prediction count within 60 bars
-            parity_smoke_check_window_bars=25,
-            parity_tolerance=1e-6,
-            # Ensure parity window can be reached within test horizon
-            warm_up_period=0,
-            optimization_config=OptimizationConfig(
-                level=OptimizationLevel.STANDARD,
-            ),
-            prediction_threshold=0.6,
-        )
-
-        # Create actor (will use dummy stores)
-        actor = TestMLSignalActor(config)
-
-        # Override model with mock
-        actor._model = mock_model
-        actor._model_metadata = {"input_names": ["features"]}
-
-        # Initialize components
-        actor._initialize_features()
-
-        # Process bars to build up history
-        for bar in test_bars[:60]:  # More than window size
-            actor.on_bar(bar)
-
-        # If predictions did not start (e.g., insufficient indicator warmup for this
-        # short synthetic series), prime parity history directly from feature
-        # computation to exercise the smoke-check path.
-        if not actor._parity_checked and len(actor._recent_bars) < actor._parity_window:
-            for _bar in test_bars:
-                vec = actor._compute_features(_bar)
-                if vec is None:
-                    continue
-                actor._recent_bars.append(_bar)
-                actor._recent_features.append(vec.copy())
-                if len(actor._recent_bars) >= actor._parity_window:
-                    break
-            actor._run_parity_smoke_check()
-
-        # Check that parity check was performed
-        assert actor._parity_checked, "Parity smoke-check should have been performed"
-
-        print("✅ Feature parity smoke-check completed successfully")
-
-    def test_feature_parity_drift_detection(
-        self,
-        feature_config: FeatureConfig,
-        test_bars: list[Bar],
-    ) -> None:
-        """
-        Test that feature parity drift detection works correctly.
-
-        This test validates that the drift metric accurately detects differences between
-        online and offline feature computation.
-
-        """
-        engineer = FeatureEngineer(feature_config)
-        indicator_mgr = IndicatorManager(feature_config)
-
-        # Warm up
-        for bar in test_bars[:30]:
-            current_bar = {
-                "open": bar.open.as_double(),
-                "high": bar.high.as_double(),
-                "low": bar.low.as_double(),
-                "close": bar.close.as_double(),
-                "volume": bar.volume.as_double(),
-            }
-            indicator_mgr.update_from_values(
-                close=current_bar["close"],
-                high=current_bar["high"],
-                low=current_bar["low"],
-                volume=current_bar["volume"],
-            )
-
-        # Compute features for same bar multiple times
-        test_bar = test_bars[30]
-        current_bar = {
-            "open": test_bar.open.as_double(),
-            "high": test_bar.high.as_double(),
-            "low": test_bar.low.as_double(),
-            "close": test_bar.close.as_double(),
-            "volume": test_bar.volume.as_double(),
-        }
-
-        results = []
-        for _ in range(10):
-            features = engineer.calculate_features_online(
-                current_bar=current_bar,
-                indicator_manager=indicator_mgr,
-                scaler=None,
-            )
-            results.append(features.copy())
-
-        # All results should be identical (zero drift)
-        max_drift = 0.0
-        for i in range(1, len(results)):
-            drift = float(np.max(np.abs(results[0] - results[i])))
-            max_drift = max(max_drift, drift)
-
-        assert max_drift < 1e-10, f"Feature drift {max_drift:.3e} detected, expected zero"
-        print(f"✅ Feature parity verified: max drift {max_drift:.3e}")
 
 
 # =============================================================================

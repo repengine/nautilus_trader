@@ -25,7 +25,6 @@ from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
-from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 if TYPE_CHECKING:
@@ -45,8 +44,19 @@ def _configure_test_model_factory(test_model_factory: TestModelFactory) -> None:
 
 
 def _create_model_path(*, n_features: int = 10, n_outputs: int = 1) -> Path:
-    # Use a lightweight dummy ONNX artifact to avoid per-test training/convert overhead.
-    return create_dummy_onnx_model()
+    # Use the shared test model factory to avoid direct fixture imports.
+    return _require_test_model_factory().create_onnx_model(
+        n_features=n_features,
+        n_outputs=n_outputs,
+    )
+
+
+def _require_test_model_factory() -> TestModelFactory:
+    if _TEST_MODEL_FACTORY is None:  # pragma: no cover - guardrail
+        raise RuntimeError(
+            "test_model_factory fixture not configured; ensure pytest plug-in is active.",
+        )
+    return _TEST_MODEL_FACTORY
 
 
 @pytest.mark.property

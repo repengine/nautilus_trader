@@ -18,7 +18,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, ContextManager, Protocol, cast
+from typing import TYPE_CHECKING, Any, Callable, ContextManager, Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -39,12 +39,33 @@ def datastore_variant(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture
-def datastore_module() -> Generator[ModuleType, None, None]:
+def component_data_store_factory() -> Callable[..., ContextManager[ModuleType]]:
+    """
+    Provide a context manager that yields the component DataStore module.
+
+    Legacy DataStore implementations are no longer supported, so the factory
+    always yields the component facade regardless of the requested mode.
+    """
+
+    @contextmanager
+    def _factory(*, use_component: bool = True) -> Generator[ModuleType, None, None]:
+        del use_component
+        module = import_module("ml.stores.data_store")
+        yield module
+
+    return _factory
+
+
+@pytest.fixture
+def datastore_module(
+    datastore_variant: bool,
+    component_data_store_factory: Callable[..., ContextManager[ModuleType]],
+) -> Generator[ModuleType, None, None]:
     """
     Provide the active DataStore module.
     """
-    module = import_module("ml.stores.data_store_facade")
-    yield module
+    with component_data_store_factory(use_component=datastore_variant) as module:
+        yield module
 
 
 @pytest.fixture
@@ -118,7 +139,7 @@ def module_store_bundle(
     """
 
     from ml.core.db_engine import EngineManager as _EM
-    from ml.stores.feature_store_facade import FeatureStore as _FeatureStore
+    from ml.stores.feature_store import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
 
@@ -260,7 +281,7 @@ def fresh_store_bundle(
     """
 
     from ml.core.db_engine import EngineManager as _EM
-    from ml.stores.feature_store_facade import FeatureStore as _FeatureStore
+    from ml.stores.feature_store import FeatureStore as _FeatureStore
     from ml.stores.model_store import ModelStore as _ModelStore
     from ml.stores.strategy_store import StrategyStore as _StrategyStore
 
@@ -621,6 +642,7 @@ def component_feature_store(
 
 __all__ = [
     "ModuleStoreBundle",
+    "component_data_store_factory",
     "component_feature_store",
     "data_processor",
     "data_store_session",

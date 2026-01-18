@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 from ml.features import FeatureConfig
-from ml.stores.feature_store_facade import FeatureStoreFacade
+from ml.stores.feature_store import FeatureStoreFacade
 
 
 if TYPE_CHECKING:
@@ -87,13 +87,13 @@ def facade_with_mocks(
 ) -> Generator[FeatureStoreFacade, None, None]:
     """Create a FeatureStoreFacade with mocked components."""
     with (
-        patch("ml.stores.feature_store_facade.get_or_create_engine") as mock_get_engine,
-        patch("ml.stores.feature_store_facade.FeatureSchemaComponent") as mock_schema_cls,
-        patch("ml.stores.feature_store_facade.FeatureWriterComponent") as mock_writer_cls,
-        patch("ml.stores.feature_store_facade.FeatureReaderComponent") as mock_reader_cls,
-        patch("ml.stores.feature_store_facade.FeatureHealthComponent") as mock_health_cls,
-        patch("ml.stores.feature_store_facade.FeatureEventComponent") as mock_event_cls,
-        patch("ml.stores.feature_store_facade.FeatureComputationComponent") as mock_comp_cls,
+        patch("ml.stores.feature_store.get_or_create_engine") as mock_get_engine,
+        patch("ml.stores.feature_store.FeatureSchemaComponent") as mock_schema_cls,
+        patch("ml.stores.feature_store.FeatureWriterComponent") as mock_writer_cls,
+        patch("ml.stores.feature_store.FeatureReaderComponent") as mock_reader_cls,
+        patch("ml.stores.feature_store.FeatureHealthComponent") as mock_health_cls,
+        patch("ml.stores.feature_store.FeatureEventComponent") as mock_event_cls,
+        patch("ml.stores.feature_store.FeatureComputationComponent") as mock_comp_cls,
     ):
         mock_get_engine.return_value = mock_engine
 
@@ -539,13 +539,13 @@ class TestEdgeCases:
     def test_facade_with_none_feature_config(self, connection_string: str) -> None:
         """Verify facade handles None feature_config."""
         with (
-            patch("ml.stores.feature_store_facade.get_or_create_engine") as mock_get_engine,
-            patch("ml.stores.feature_store_facade.FeatureSchemaComponent") as mock_schema_cls,
-            patch("ml.stores.feature_store_facade.FeatureWriterComponent"),
-            patch("ml.stores.feature_store_facade.FeatureReaderComponent"),
-            patch("ml.stores.feature_store_facade.FeatureHealthComponent"),
-            patch("ml.stores.feature_store_facade.FeatureEventComponent"),
-            patch("ml.stores.feature_store_facade.FeatureComputationComponent"),
+            patch("ml.stores.feature_store.get_or_create_engine") as mock_get_engine,
+            patch("ml.stores.feature_store.FeatureSchemaComponent") as mock_schema_cls,
+            patch("ml.stores.feature_store.FeatureWriterComponent"),
+            patch("ml.stores.feature_store.FeatureReaderComponent"),
+            patch("ml.stores.feature_store.FeatureHealthComponent"),
+            patch("ml.stores.feature_store.FeatureEventComponent"),
+            patch("ml.stores.feature_store.FeatureComputationComponent"),
         ):
             mock_engine = MagicMock()
             mock_engine.dialect.name = "postgresql"
@@ -571,13 +571,13 @@ class TestEdgeCases:
         from ml.config.base import MLFeatureConfig
 
         with (
-            patch("ml.stores.feature_store_facade.get_or_create_engine") as mock_get_engine,
-            patch("ml.stores.feature_store_facade.FeatureSchemaComponent") as mock_schema_cls,
-            patch("ml.stores.feature_store_facade.FeatureWriterComponent"),
-            patch("ml.stores.feature_store_facade.FeatureReaderComponent"),
-            patch("ml.stores.feature_store_facade.FeatureHealthComponent"),
-            patch("ml.stores.feature_store_facade.FeatureEventComponent"),
-            patch("ml.stores.feature_store_facade.FeatureComputationComponent"),
+            patch("ml.stores.feature_store.get_or_create_engine") as mock_get_engine,
+            patch("ml.stores.feature_store.FeatureSchemaComponent") as mock_schema_cls,
+            patch("ml.stores.feature_store.FeatureWriterComponent"),
+            patch("ml.stores.feature_store.FeatureReaderComponent"),
+            patch("ml.stores.feature_store.FeatureHealthComponent"),
+            patch("ml.stores.feature_store.FeatureEventComponent"),
+            patch("ml.stores.feature_store.FeatureComputationComponent"),
         ):
             mock_engine = MagicMock()
             mock_engine.dialect.name = "postgresql"

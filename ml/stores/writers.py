@@ -36,7 +36,7 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
 from ml.schema import map_schema_to_dataset_type
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.protocols import MarketDataWriterProtocol

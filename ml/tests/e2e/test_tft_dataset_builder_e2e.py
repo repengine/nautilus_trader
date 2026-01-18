@@ -13,21 +13,17 @@ Test Strategy:
 2. Test complete dataset building workflows
 3. Verify features and targets are computed correctly
 4. Test Polars vs Pandas parity
-5. Test legacy vs component mode parity
-6. Test save/load dataset workflows
-7. Test validation splits
+5. Test save/load dataset workflows
+6. Test validation splits
 
 Success Criteria:
 -----------------
-- Can build datasets in both legacy and component modes
 - Datasets have all required columns (timestamp, target, features)
 - Target values are computed correctly
 - Polars and Pandas produce equivalent results
-- Legacy and component modes produce identical results
 - Save/load round-trip preserves data
 """
 
-import os
 import tempfile
 import time
 from datetime import datetime, timedelta, UTC
@@ -227,7 +223,6 @@ class TestE2EBasicDatasetBuilding:
         """
         Ensure component-based mode for these tests.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_build_simple_tft_dataset(self, sample_catalog_with_bars: ParquetDataCatalog):
         """
@@ -396,7 +391,6 @@ class TestE2EPolarsPandasParity:
         """
         Ensure component-based mode.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_polars_pandas_produce_same_shape(
         self, sample_catalog_with_bars: ParquetDataCatalog
@@ -460,7 +454,6 @@ class TestE2ESaveLoadDatasets:
         """
         Ensure component-based mode.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_save_and_load_dataset(
         self, sample_catalog_with_bars: ParquetDataCatalog, tmp_path: Path
@@ -530,7 +523,6 @@ class TestE2EValidationSplits:
         """
         Ensure component-based mode.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_split_dataset(self, sample_catalog_with_bars: ParquetDataCatalog):
         """
@@ -580,113 +572,6 @@ class TestE2EValidationSplits:
 
 
 # ============================================================================
-# E2E Test Suite - Legacy vs Component Parity
-# ============================================================================
-
-
-class TestE2ELegacyComponentParity:
-    """
-    Test legacy and component modes produce identical results.
-
-    This is a CRITICAL test to ensure the refactoring preserves behavior.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _sample_bars_fixture(self, apply_sample_bars_patch):
-        apply_sample_bars_patch()
-
-    def test_e2e_legacy_vs_component_basic_parity(
-        self, sample_catalog_with_bars: ParquetDataCatalog
-    ):
-        """
-        E2E Test: Compare legacy and component modes for basic dataset.
-
-        NOTE: This test may reveal implementation differences. Document any
-        acceptable differences (e.g., column ordering, floating point precision).
-        """
-        # Build with legacy mode
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "1"
-        builder_legacy = TFTDatasetBuilder(
-            catalog=sample_catalog_with_bars,
-            symbols=["AAPL"],
-        )
-
-        try:
-            df_legacy = builder_legacy.build_training_dataset(
-                horizon_minutes=15,
-                min_return_threshold=0.001,
-                lookback_periods=30,
-                use_polars=True,
-            )
-            legacy_success = True
-        except Exception as e:
-            print(f"⚠️  Legacy mode failed: {e}")
-            legacy_success = False
-            df_legacy = None
-
-        # Build with component mode
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
-        builder_component = TFTDatasetBuilder(
-            catalog=sample_catalog_with_bars,
-            symbols=["AAPL"],
-            instrument_ids=["AAPL.NASDAQ"],
-        )
-
-        df_component = builder_component.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
-            lookback_periods=30,
-            use_polars=True,
-        )
-
-        # Verify component mode works
-        assert df_component is not None, "Component mode should produce dataset"
-        assert len(df_component) > 0, "Component mode should produce rows"
-
-        if not legacy_success:
-            pytest.skip("Legacy mode not available - likely not implemented yet")
-
-        # Compare outputs
-        print(f"Legacy shape: {len(df_legacy)} x {len(df_legacy.columns)}")
-        print(f"Component shape: {len(df_component)} x {len(df_component.columns)}")
-
-        # Basic parity checks
-        # NOTE: Exact parity is NOT expected due to known implementation differences:
-        # 1. Legacy mode filters out first N rows based on lookback_periods
-        # 2. Component mode preserves all rows (no lookback filtering)
-        # 3. Legacy mode adds calendar features by default
-        # 4. Component mode requires explicit augmenter enabling
-
-        # Verify both modes produce valid datasets
-        assert len(df_legacy) > 0, "Legacy mode should produce rows"
-        assert len(df_component) > 0, "Component mode should produce rows"
-
-        # Component mode should have more rows (no lookback filtering)
-        # Legacy mode: 100 - 30 (lookback) = 70 rows
-        # Component mode: 100 rows (no filtering)
-        print("✅ Row count difference is expected: Legacy filters lookback, Component preserves all")
-
-        legacy_cols = set(df_legacy.columns)
-        component_cols = set(df_component.columns)
-
-        # Check for major column differences
-        missing_in_component = legacy_cols - component_cols
-        extra_in_component = component_cols - legacy_cols
-
-        if missing_in_component:
-            print(f"⚠️  Columns in legacy but not component: {missing_in_component}")
-        if extra_in_component:
-            print(f"⚠️  Columns in component but not legacy: {extra_in_component}")
-
-        # At minimum, should have core columns
-        core_columns = {"instrument_id"}
-        for col in core_columns:
-            assert col in component_cols, f"Component missing core column: {col}"
-
-        print("✅ Legacy vs component parity check completed")
-
-
-# ============================================================================
 # E2E Test Suite - Error Handling
 # ============================================================================
 
@@ -701,7 +586,6 @@ class TestE2EErrorHandling:
         """
         Ensure component-based mode.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_empty_catalog_handled_gracefully(self, temp_catalog_path: Path):
         """
@@ -798,7 +682,6 @@ class TestE2EPerformance:
         """
         Ensure component-based mode.
         """
-        os.environ["ML_USE_LEGACY_TFT_DATASET_BUILDER"] = "0"
 
     def test_e2e_build_performance_baseline(self, sample_catalog_with_bars: ParquetDataCatalog):
         """
@@ -849,9 +732,8 @@ E2E Test Coverage Summary:
 ✅ Polars/Pandas parity (test_e2e_polars_pandas_produce_same_shape)
 ✅ Save/load round-trip (test_e2e_save_and_load_dataset)
 ✅ Validation splits (test_e2e_split_dataset)
-✅ Legacy vs component parity (test_e2e_legacy_vs_component_basic_parity)
 ✅ Error handling (test_e2e_empty_catalog_handled_gracefully, test_e2e_invalid_symbol_handled)
 ✅ Performance baseline (test_e2e_build_performance_baseline)
 
-Total: 13 E2E test scenarios covering all critical workflows.
+Total: 12 E2E test scenarios covering all critical workflows.
 """

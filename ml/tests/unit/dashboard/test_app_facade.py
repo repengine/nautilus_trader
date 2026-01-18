@@ -6,18 +6,12 @@ Tests the app_facade module functions and Flask app configuration.
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 from flask import Flask
 
-from ml.dashboard.app_facade import (
-    create_app,
-    create_app_facade,
-    use_legacy_dashboard_app,
-)
+from ml.dashboard.app_facade import create_app_facade
 from ml.dashboard.config import DashboardConfig
 
 
@@ -140,56 +134,6 @@ class TestRequireTokenHelper:
         # With no tokens configured, validation should pass
         # But if tokens ARE configured, this would fail
         assert isinstance(response.status_code, int)
-
-
-class TestFeatureFlagFunction:
-    """Tests for use_legacy_dashboard_app function."""
-
-    def test_returns_true_when_env_is_1(self) -> None:
-        """Test returns True when ML_USE_LEGACY_DASHBOARD_APP=1."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_DASHBOARD_APP": "1"}):
-            assert use_legacy_dashboard_app() is True
-
-    def test_returns_false_when_env_is_0(self) -> None:
-        """Test returns False when ML_USE_LEGACY_DASHBOARD_APP=0."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_DASHBOARD_APP": "0"}):
-            assert use_legacy_dashboard_app() is False
-
-    def test_returns_false_when_env_not_set(self) -> None:
-        """Test returns False when env var not set (default)."""
-        env_backup = os.environ.pop("ML_USE_LEGACY_DASHBOARD_APP", None)
-        try:
-            # Need to import fresh to get default behavior
-            assert use_legacy_dashboard_app() is False
-        finally:
-            if env_backup is not None:
-                os.environ["ML_USE_LEGACY_DASHBOARD_APP"] = env_backup
-
-
-class TestCreateApp:
-    """Tests for create_app factory function."""
-
-    def test_create_app_uses_feature_flag_for_legacy(
-        self,
-        dashboard_config: DashboardConfig,
-    ) -> None:
-        """Test create_app uses legacy when flag is set."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_DASHBOARD_APP": "1"}):
-            with patch("ml.dashboard.app_facade.use_legacy_dashboard_app", return_value=True):
-                with patch("ml.dashboard.app.create_app") as mock_legacy:
-                    mock_legacy.return_value = Flask(__name__)
-                    app = create_app(dashboard_config)
-                    mock_legacy.assert_called_once_with(dashboard_config)
-
-    def test_create_app_uses_feature_flag_for_facade(
-        self,
-        dashboard_config: DashboardConfig,
-    ) -> None:
-        """Test create_app uses facade when flag is not set."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_DASHBOARD_APP": "0"}):
-            app = create_app(dashboard_config)
-            # Should return a Flask app from facade
-            assert isinstance(app, Flask)
 
 
 class TestBlueprintPrefixes:

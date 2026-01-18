@@ -20,7 +20,7 @@ from ml.registry.dataclasses import (
     ValidationRuleType,
 )
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 
 
 def _make_store_with_contract(rules: list[ValidationRule]) -> DataStore:

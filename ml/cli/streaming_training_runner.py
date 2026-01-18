@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-import numpy.typing as npt
 
 from ml.common.logging_config import configure_logging
 from ml.common.metrics_bootstrap import get_counter

@@ -10,7 +10,7 @@ from ml.tests.utils.stubs import build_integration_manager_stub
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 
 
 class CapturePublisher(MessagePublisherProtocol):

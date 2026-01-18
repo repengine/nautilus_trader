@@ -10,9 +10,6 @@ This facade wires all 5 components extracted from the DataRegistry god class:
 - WatermarkManagerComponent
 - LineageTrackerComponent
 
-Feature Flag: ML_USE_LEGACY_DATA_REGISTRY (removed)
-- Always uses the facade implementation.
-
 Thread-safety: All operations are thread-safe via component locks.
 """
 

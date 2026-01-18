@@ -1,22 +1,9 @@
 """
-Parity tests for DashboardService facade vs legacy implementation.
-
-CRITICAL: These tests ensure 100% API compatibility between the new facade
-and the legacy monolithic implementation. Per CRITICAL_SAFEGUARDS.md Category 5,
-these tests MUST pass in BOTH modes:
-- ML_USE_LEGACY_DASHBOARD_SERVICE=0 (facade mode - DEFAULT)
-- ML_USE_LEGACY_DASHBOARD_SERVICE=1 (legacy mode)
-
-Test Strategy:
-1. Import DashboardService via ml.dashboard (feature flag controls which implementation)
-2. Run IDENTICAL tests against both implementations
-3. Verify IDENTICAL outputs for ALL 33 public methods
-4. Use property-based testing where appropriate for edge cases
+Contract tests for DashboardService facade behavior.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone, UTC
@@ -37,8 +24,6 @@ if TYPE_CHECKING:
     pass
 
 
-# Feature flag status for logging
-_IMPLEMENTATION = "FACADE" if os.getenv("ML_USE_LEGACY_DASHBOARD_SERVICE", "0") == "0" else "LEGACY"
 
 
 @pytest.fixture
@@ -704,16 +689,3 @@ class TestParityPropertyInvariants:
         assert isinstance(service.get_store_summary(), dict)
         assert isinstance(service.get_grafana_status(), dict)
 
-
-# Feature flag verification
-def test_feature_flag_controls_implementation() -> None:
-    """Test that feature flag controls which implementation is loaded."""
-    import ml.dashboard
-
-    # Check which implementation is active
-    if os.getenv("ML_USE_LEGACY_DASHBOARD_SERVICE", "0") == "1":
-        # Legacy mode
-        assert "service.py" in ml.dashboard.DashboardService.__module__
-    else:
-        # Facade mode (default)
-        assert "facade" in ml.dashboard.DashboardService.__module__ or "service" in ml.dashboard.DashboardService.__module__

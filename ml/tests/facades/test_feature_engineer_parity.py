@@ -1,14 +1,14 @@
-"""Parity tests for FeatureEngineer facade vs legacy implementation.
+"""Parity tests for FeatureEngineer facade vs calculator component.
 
-CRITICAL: These tests verify that legacy and facade implementations produce
-IDENTICAL numerical results. This is essential for ML training/inference parity.
+CRITICAL: These tests verify that the calculator and facade implementations
+produce IDENTICAL numerical results. This is essential for ML training/inference parity.
 
 VALUE TESTING PATTERN (Task 1.1b - 2025-12-01):
 All parity tests compare numerical VALUES, not container types.
 compute_features() returns dict[str, float], so we iterate over keys.
 
 Test Strategy:
-- Run same test data through facade and the standalone legacy FeatureEngineer
+- Run same test data through facade and the FeatureCalculator component
 - Assert numerical parity by comparing dict VALUES (rtol=1e-10)
 - Test multiple configurations
 - Test edge cases (empty, single bar, etc.)
@@ -25,8 +25,8 @@ import pytest
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.objects import Price, Quantity
 
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer as LegacyFeatureEngineer
+from ml.features.common.feature_calculator import FeatureCalculator
+from ml.features.config import FeatureConfig
 from ml.features.facade import FeatureEngineer
 
 
@@ -41,7 +41,7 @@ pytestmark = [pytest.mark.parity, pytest.mark.unit]
 
 
 def assert_dict_features_parity(
-    legacy_features: dict[str, float],
+    baseline_features: dict[str, float],
     facade_features: dict[str, float],
     rtol: float = 1e-10,
     context: str = "",
@@ -51,7 +51,7 @@ def assert_dict_features_parity(
     This is the VALUE TESTING pattern - compare VALUES, not container types.
 
     Args:
-        legacy_features: Features from legacy implementation
+        baseline_features: Features from calculator component
         facade_features: Features from facade implementation
         rtol: Relative tolerance for floating point comparison
         context: Context string for error messages
@@ -61,24 +61,24 @@ def assert_dict_features_parity(
 
     """
     # Key parity
-    assert set(legacy_features.keys()) == set(facade_features.keys()), (
+    assert set(baseline_features.keys()) == set(facade_features.keys()), (
         f"Feature names differ {context}: "
-        f"legacy={sorted(legacy_features.keys())} vs facade={sorted(facade_features.keys())}"
+        f"baseline={sorted(baseline_features.keys())} vs facade={sorted(facade_features.keys())}"
     )
 
     # Value parity (CRITICAL)
-    for feature_name in legacy_features:
+    for feature_name in baseline_features:
         np.testing.assert_allclose(
-            legacy_features[feature_name],
+            baseline_features[feature_name],
             facade_features[feature_name],
             rtol=rtol,
             err_msg=f"Feature {feature_name!r} parity failed {context}",
         )
 
 
-def _build_legacy(config: FeatureConfig) -> LegacyFeatureEngineer:
-    """Construct a legacy FeatureEngineer for parity checks."""
-    return LegacyFeatureEngineer(config)
+def _build_calculator(config: FeatureConfig) -> FeatureCalculator:
+    """Construct a FeatureCalculator for parity checks."""
+    return FeatureCalculator(config)
 
 
 # ==================== Fixtures ====================
@@ -203,37 +203,37 @@ def multi_instrument_bars() -> dict[str, list[Bar]]:
 
 
 class TestFeatureEngineerParity:
-    """Test mathematical parity between legacy and facade implementations.
+    """Test mathematical parity between calculator and facade implementations.
 
     VALUE TESTING: All tests compare dict VALUES, not container types.
     """
 
-    def test_legacy_vs_facade_compute_features_identical_single_bar(
+    def test_compute_features_matches_calculator_single_bar(
         self,
         feature_config: FeatureConfig,
         test_bar: Bar,
     ) -> None:
-        """Verify legacy and facade produce IDENTICAL features for a single bar.
+        """Verify calculator and facade produce IDENTICAL features for a single bar.
 
         This is the most basic parity test - if this fails, facade is broken.
 
         VALUE TESTING: compare dict values via loop, not direct comparison.
         """
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
         # Calculate features with both implementations
         facade_features = facade.compute_features([test_bar])
-        legacy_features = legacy.compute_features([test_bar])
+        calculator_features = calculator.compute_features([test_bar])
 
         # Assert VALUE parity (not container type)
         assert_dict_features_parity(
-            legacy_features,
+            calculator_features,
             facade_features,
             context="single bar",
         )
 
-    def test_legacy_vs_facade_compute_features_identical_100_bars(
+    def test_compute_features_matches_calculator_100_bars(
         self,
         feature_config: FeatureConfig,
         test_bars: list[Bar],
@@ -243,15 +243,15 @@ class TestFeatureEngineerParity:
         Tests that parity holds over a realistic workload, not just single bars.
         """
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
         # Calculate features with both implementations
         facade_features = facade.compute_features(test_bars)
-        legacy_features = legacy.compute_features(test_bars)
+        calculator_features = calculator.compute_features(test_bars)
 
         # Assert VALUE parity
         assert_dict_features_parity(
-            legacy_features,
+            calculator_features,
             facade_features,
             context="100 bars",
         )
@@ -264,8 +264,8 @@ class TestFeatureEngineerParity:
     ) -> None:
         """Verify parity across different lookback window configurations.
 
-        Note: FeatureConfig from ml.features.engineering may not have lookback_window.
-        If not supported, this test verifies basic parity with standard config.
+        Note: If lookback_window is unsupported, this test verifies basic parity
+        with the standard config.
         """
         # Use standard config - lookback may be handled differently
         config = FeatureConfig(
@@ -281,16 +281,16 @@ class TestFeatureEngineerParity:
         )
 
         facade = FeatureEngineer(config)
-        legacy = _build_legacy(config)
+        calculator = _build_calculator(config)
 
         # Use subset based on lookback to vary data size
         bars_subset = test_bars_200[:lookback * 2]  # Use 2x lookback bars
 
         facade_features = facade.compute_features(bars_subset)
-        legacy_features = legacy.compute_features(bars_subset)
+        calculator_features = calculator.compute_features(bars_subset)
 
         assert_dict_features_parity(
-            legacy_features,
+            calculator_features,
             facade_features,
             context=f"lookback={lookback}",
         )
@@ -314,13 +314,13 @@ class TestFeatureEngineerParity:
             )
 
             facade = FeatureEngineer(config)
-            legacy = _build_legacy(config)
+            calculator = _build_calculator(config)
 
             facade_features = facade.compute_features(test_bars)
-            legacy_features = legacy.compute_features(test_bars)
+            calculator_features = calculator.compute_features(test_bars)
 
             assert_dict_features_parity(
-                legacy_features,
+                calculator_features,
                 facade_features,
                 context=f"rsi_period={rsi_period}",
             )
@@ -344,13 +344,13 @@ class TestFeatureEngineerParity:
             )
 
             facade = FeatureEngineer(config)
-            legacy = _build_legacy(config)
+            calculator = _build_calculator(config)
 
             facade_features = facade.compute_features(test_bars)
-            legacy_features = legacy.compute_features(test_bars)
+            calculator_features = calculator.compute_features(test_bars)
 
             assert_dict_features_parity(
-                legacy_features,
+                calculator_features,
                 facade_features,
                 context=f"bb_period={bb_period}",
             )
@@ -359,33 +359,13 @@ class TestFeatureEngineerParity:
         self,
         feature_config: FeatureConfig,
     ) -> None:
-        """Verify both implementations handle empty data identically.
-
-        Expected Behavior:
-            - Both raise ValueError OR return empty dict
-            - Error messages match (if exception raised)
-        """
+        """Verify empty data handling for the facade and calculator component."""
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
-        # Both should raise ValueError or handle gracefully
-        legacy_error = None
-        facade_error = None
-
-        try:
-            legacy.compute_features([])
-        except (ValueError, IndexError) as e:
-            legacy_error = type(e)
-
-        try:
-            facade.compute_features([])
-        except (ValueError, IndexError) as e:
-            facade_error = type(e)
-
-        # Both should have same error behavior
-        assert legacy_error == facade_error, (
-            f"Error behavior mismatch: legacy={legacy_error}, facade={facade_error}"
-        )
+        with pytest.raises(ValueError):
+            calculator.compute_features([])
+        assert facade.compute_features([]) == {}
 
     def test_parity_with_edge_cases_single_bar(
         self,
@@ -399,13 +379,13 @@ class TestFeatureEngineerParity:
             - Results match
         """
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
         facade_features = facade.compute_features([test_bar])
-        legacy_features = legacy.compute_features([test_bar])
+        calculator_features = calculator.compute_features([test_bar])
 
         assert_dict_features_parity(
-            legacy_features,
+            calculator_features,
             facade_features,
             context="single bar edge case",
         )
@@ -421,14 +401,14 @@ class TestFeatureEngineerParity:
             - Features for each instrument identical between implementations
         """
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
         for symbol, bars in multi_instrument_bars.items():
             facade_features = facade.compute_features(bars)
-            legacy_features = legacy.compute_features(bars)
+            calculator_features = calculator.compute_features(bars)
 
             assert_dict_features_parity(
-                legacy_features,
+                calculator_features,
                 facade_features,
                 context=f"symbol={symbol}",
             )
@@ -442,27 +422,27 @@ class TestFeatureEngineerParity:
         """Verify facade performance overhead acceptable (<25%).
 
         Expected Behavior:
-            - Facade P99 <= legacy_p99 * 1.25 (within 25%)
+            - Facade P99 <= calculator_p99 * 1.25 (within 25%)
             - Numerical results still match (parity)
 
         Note: 25% tolerance accounts for system load variance in CI environments.
         The actual overhead is typically <5% but we use wider tolerance for stability.
         """
         facade = FeatureEngineer(feature_config)
-        legacy = _build_legacy(feature_config)
+        calculator = _build_calculator(feature_config)
 
         # Extended warmup for more stable measurements
         for _ in range(10):
-            legacy.compute_features(test_bars_1000)
+            calculator.compute_features(test_bars_1000)
             facade.compute_features(test_bars_1000)
 
-        # Legacy timing
-        times_legacy = []
+        # Calculator timing
+        times_calculator = []
         for _ in range(30):
             start = time.perf_counter()
-            legacy_features = legacy.compute_features(test_bars_1000)
-            times_legacy.append(time.perf_counter() - start)
-        legacy_p99 = np.percentile(times_legacy, 99)
+            calculator_features = calculator.compute_features(test_bars_1000)
+            times_calculator.append(time.perf_counter() - start)
+        calculator_p99 = np.percentile(times_calculator, 99)
 
         # Facade timing
         times_facade = []
@@ -473,13 +453,14 @@ class TestFeatureEngineerParity:
         facade_p99 = np.percentile(times_facade, 99)
 
         # Performance parity (within 25% - allows for CI variance)
-        assert facade_p99 <= legacy_p99 * 1.25, (
-            f"Facade P99 {facade_p99*1000:.2f}ms exceeds 125% of legacy {legacy_p99*1000:.2f}ms"
+        assert facade_p99 <= calculator_p99 * 1.25, (
+            "Facade P99 "
+            f"{facade_p99*1000:.2f}ms exceeds 125% of calculator {calculator_p99*1000:.2f}ms"
         )
 
         # Numerical parity (still must match!)
         assert_dict_features_parity(
-            legacy_features,
+            calculator_features,
             facade_features,
             context="performance test",
         )

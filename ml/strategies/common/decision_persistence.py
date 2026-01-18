@@ -20,9 +20,10 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
+    from nautilus_trader.model.objects import Quantity
+
     from ml.actors.base import MLSignal
     from ml.strategies.services import StrategyDecisionPublisher
-    from nautilus_trader.model.objects import Quantity
 
 
 logger = logging.getLogger(__name__)

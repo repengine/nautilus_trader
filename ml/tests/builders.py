@@ -32,7 +32,7 @@ from ml.config.registry import ModelRegistryConfig
 from ml.registry import FeatureManifest
 from ml.registry import ModelManifest
 from ml.registry import StrategyManifest
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.fixtures.model_factory import TestModelFactory
@@ -43,7 +43,7 @@ from nautilus_trader.model.identifiers import Venue
 
 
 if TYPE_CHECKING:
-    from ml.stores.data_store_facade import DataStore
+    from ml.stores.data_store import DataStore
 
 
 class MLConfigBuilder:

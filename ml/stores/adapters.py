@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from typing import Any
 
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.stores.protocols import EarningsStoreProtocol
 from ml.stores.protocols import FeatureStoreStrictProtocol
 from ml.stores.protocols import ModelStoreStrictProtocol

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import polars as pl
 
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 
 
 def test_read_range_features_routes_to_feature_store_with_datetimes() -> None:

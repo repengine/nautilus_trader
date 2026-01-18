@@ -36,6 +36,9 @@ from ml.orchestration.config_loader import TrainingStageConfig
 from ml.orchestration.config_loader import load_orchestrator_config
 from ml.orchestration.config_loader import load_orchestrator_run_config
 from ml.orchestration.config_loader import to_pipeline_args
+
+# Root module components (canonical implementations)
+from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
@@ -45,23 +48,10 @@ from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import PromotionsConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
-from ml.orchestration.feature_flags import use_legacy_orchestrator
-
-
-# Core orchestrator classes - feature flag based selection
-# When ML_USE_LEGACY_ORCHESTRATOR=1/true/yes: use legacy implementation
-# When ML_USE_LEGACY_ORCHESTRATOR=0/false/no (default): use facade
-if use_legacy_orchestrator():
-    from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
-else:
-    from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade as MLPipelineOrchestrator  # type: ignore[assignment]
-
-# Also export the facade directly for explicit usage
-# Root module components (canonical implementations)
-from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.orchestration.discovery_client import DiscoveryClient
 from ml.orchestration.ingestion_coordinator import IngestionCoordinator
+from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
 
 # Promotion helpers
@@ -122,5 +112,4 @@ __all__ = [
     "register_or_refresh_features",
     "run_forever",
     "to_pipeline_args",
-    "use_legacy_orchestrator",
 ]

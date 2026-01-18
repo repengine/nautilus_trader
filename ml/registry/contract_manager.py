@@ -21,11 +21,26 @@ from ml.registry.dataclasses import ValidationRuleType
 
 if TYPE_CHECKING:
     from ml.registry.dataclasses import DatasetManifest
-    from ml.registry.manifest_manager import ManifestManagerProtocol
     from ml.registry.persistence import PersistenceManager
 
 
 logger = logging.getLogger(__name__)
+
+
+class ManifestManagerProtocol(Protocol):
+    """
+    Protocol for manifest access needed by contract management.
+    """
+
+    def get_manifest(
+        self,
+        dataset_id: str,
+        persistence: PersistenceManager,
+    ) -> DatasetManifest:
+        """
+        Retrieve a dataset manifest by ID.
+        """
+        ...
 
 
 class ContractManagerProtocol(Protocol):

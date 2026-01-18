@@ -21,8 +21,9 @@ from ml.data.common.feature_alignment import FeatureAlignmentComponent
 
 
 if TYPE_CHECKING:
-    from ml.features.indicators import IndicatorManager
     from nautilus_trader.model.data import Bar
+
+    from ml.features.indicators import IndicatorManager
 
 
 logger = logging.getLogger(__name__)

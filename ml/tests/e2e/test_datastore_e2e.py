@@ -35,7 +35,7 @@ from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
-from ml.stores.data_store_facade import DataStoreConfig
+from ml.stores.data_store import DataStoreConfig
 
 
 # ============================================================================

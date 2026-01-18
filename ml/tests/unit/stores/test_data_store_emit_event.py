@@ -8,8 +8,8 @@ import pytest
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus, Source, Stage
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.registry.dataclasses import DataContract

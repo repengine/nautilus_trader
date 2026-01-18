@@ -202,47 +202,6 @@ class TestFacadeDelegation:
 
             mock_coordinator.run_pre_ingestion.assert_called_once()
 
-    def test_facade_has_no_legacy_delegation_when_flag_off(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        mock_coverage_provider: Mock,
-        mock_writer: Mock,
-        mock_build_main: Mock,
-        mock_teacher_main: Mock,
-    ) -> None:
-        """
-        Verify facade does not delegate to legacy when flag is off.
-
-        Given:
-        - ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=0
-
-        When:
-        - Calling any facade method
-
-        Then:
-        - _legacy_orchestrator NOT used for delegation
-        - Component-based implementation used
-        """
-        monkeypatch.setenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR", "0")
-
-        from ml.orchestration.pipeline_orchestrator_facade import (
-            MLPipelineOrchestratorFacade,
-        )
-
-        facade = MLPipelineOrchestratorFacade(
-            coverage=mock_coverage_provider,
-            writer=mock_writer,
-            build_main=mock_build_main,
-            teacher_main=mock_teacher_main,
-        )
-
-        # The facade should use components, not legacy
-        # This is verified by checking that component methods are called
-        assert facade._ingestion_coordinator is not None
-        assert facade._dataset_builder is not None
-        assert facade._training_coordinator is not None
-
-
 # ============================================================================
 # FACADE LINE COUNT TESTS (Category 14)
 # ============================================================================
@@ -352,9 +311,6 @@ class TestComponentInitialization:
         assert facade._runtime_attacher is not None
         assert facade._config_resolver is not None
         assert facade._discovery_client is not None
-        # Legacy orchestration should not be initialized by default
-        assert facade._legacy_orchestrator is None
-
     def test_stage_controller_initialized(
         self,
         mock_coverage_provider: Mock,

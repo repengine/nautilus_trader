@@ -8,24 +8,36 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 from pkgutil import iter_modules
+from types import ModuleType
 
 import ml.tests.fixtures as fixtures
-from ml.tests.fixtures import common
-from ml.tests.fixtures import database_fixtures
-from ml.tests.fixtures import datasets
-from ml.tests.fixtures import dummy_model
-from ml.tests.fixtures import integration
-from ml.tests.fixtures import mock_services
-from ml.tests.fixtures import mock_stores
-from ml.tests.fixtures import model_factory
-from ml.tests.fixtures import monitoring_collectors
-from ml.tests.fixtures import observability
-from ml.tests.fixtures import security
-from ml.tests.fixtures import streaming_events
-from ml.tests.fixtures import pandera as pandera_fixtures
-from ml.tests.fixtures import runtime
-from ml.tests.fixtures import stores
-from ml.tests.fixtures import universes
+
+_FIXTURE_MODULE_NAMES = (
+    "common",
+    "database_fixtures",
+    "datasets",
+    "dummy_model",
+    "integration",
+    "mock_services",
+    "mock_stores",
+    "model_factory",
+    "monitoring_collectors",
+    "observability",
+    "pandera",
+    "runtime",
+    "security",
+    "stores",
+    "streaming_events",
+    "universes",
+)
+
+
+def _load_fixture_modules() -> dict[str, ModuleType]:
+    """Load fixture modules on demand to avoid early imports."""
+    return {
+        name: importlib.import_module(f"{fixtures.__name__}.{name}")
+        for name in _FIXTURE_MODULE_NAMES
+    }
 
 
 def test_fixtures_all_is_alphabetical() -> None:
@@ -37,23 +49,24 @@ def test_fixtures_all_is_alphabetical() -> None:
 def test_fixtures_all_covers_submodules() -> None:
     """Ensure __all__ remains the single source of truth for fixture exports."""
 
+    modules = _load_fixture_modules()
     expected = (
-        set(common.__all__)
-        | set(database_fixtures.__all__)
-        | set(datasets.__all__)
-        | set(dummy_model.__all__)
-        | set(integration.__all__)
-        | set(mock_services.__all__)
-        | set(mock_stores.__all__)
-        | set(model_factory.__all__)
-        | set(monitoring_collectors.__all__)
-        | set(observability.__all__)
-        | set(pandera_fixtures.__all__)
-        | set(runtime.__all__)
-        | set(security.__all__)
-        | set(stores.__all__)
-        | set(streaming_events.__all__)
-        | set(universes.__all__)
+        set(modules["common"].__all__)
+        | set(modules["database_fixtures"].__all__)
+        | set(modules["datasets"].__all__)
+        | set(modules["dummy_model"].__all__)
+        | set(modules["integration"].__all__)
+        | set(modules["mock_services"].__all__)
+        | set(modules["mock_stores"].__all__)
+        | set(modules["model_factory"].__all__)
+        | set(modules["monitoring_collectors"].__all__)
+        | set(modules["observability"].__all__)
+        | set(modules["pandera"].__all__)
+        | set(modules["runtime"].__all__)
+        | set(modules["security"].__all__)
+        | set(modules["stores"].__all__)
+        | set(modules["streaming_events"].__all__)
+        | set(modules["universes"].__all__)
     )
     actual = set(fixtures.__all__)
 

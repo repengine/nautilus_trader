@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import queue
 import threading
 import time
 from concurrent.futures import Future
@@ -104,11 +105,12 @@ class MLPersistenceWorker:
     batch_size: int = 100
     component_label: str = "ml_persistence_worker"
 
-    _queue: asyncio.Queue[MLPersistenceItem] = field(init=False)
+    _queue: queue.Queue[MLPersistenceItem] = field(init=False)
     _task: asyncio.Task[None] | Future[None] | None = field(default=None, init=False)
-    _stop: asyncio.Event = field(init=False)
+    _stop: threading.Event = field(init=False)
     _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False)
     _loop_thread: threading.Thread | None = field(default=None, init=False)
+    _loop_ready: threading.Event = field(default_factory=threading.Event, init=False)
     _last_flush: float = field(default=0.0, init=False)
 
     # Metrics via MetricsManager
@@ -143,14 +145,24 @@ class MLPersistenceWorker:
     _LOGGER = logging.getLogger(__name__)
 
     def __post_init__(self) -> None:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        self._queue = queue.Queue(maxsize=int(self.queue_maxsize))
+        self._stop = threading.Event()
+
+    def _run_loop_thread(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         self._loop = loop
-        self._queue = asyncio.Queue(maxsize=int(self.queue_maxsize))
-        self._stop = asyncio.Event()
+        self._loop_ready.set()
+
+        try:
+            loop.run_forever()
+        finally:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
 
     # ------------------------------ API ----------------------------------
 
@@ -161,45 +173,44 @@ class MLPersistenceWorker:
         if self._task is not None and not self._task_done():
             return
 
-        loop = self._loop
-        if loop is None:
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            self._loop = loop
-
-        if loop is None:  # pragma: no cover - defensive safeguard
-            raise RuntimeError("MLAsyncPersistence loop initialization failed")
-        loop_for_worker = loop
-        loop = loop_for_worker
-
-        self._stop.clear()
-
         try:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
-            if not loop.is_running():
-                def _loop_runner() -> None:
-                    asyncio.set_event_loop(loop_for_worker)
-                    loop_for_worker.run_forever()
+            running_loop = None
 
-                thread = threading.Thread(
-                    target=_loop_runner,
-                    name="MLPersistenceWorkerLoop",
-                    daemon=True,
-                )
-                thread.start()
-                self._loop_thread = thread
+        if running_loop is not None:
+            self._stop.clear()
+            self._loop = running_loop
+            self._task = running_loop.create_task(self._run(), name="MLPersistenceWorker")
+            return
 
-            future = asyncio.run_coroutine_threadsafe(self._run(), loop)
-            self._task = future
-        else:
-            if running_loop is not loop:
-                self._loop = running_loop
-                loop = running_loop
-            self._task = loop.create_task(self._run(), name="MLPersistenceWorker")
+        self._stop.clear()
+
+        if self._loop_thread is None or not self._loop_thread.is_alive():
+            self._loop_ready.clear()
+            thread = threading.Thread(
+                target=self._run_loop_thread,
+                name="MLPersistenceWorkerLoop",
+                daemon=True,
+            )
+            thread.start()
+            self._loop_thread = thread
+
+        if not self._loop_ready.wait(timeout=1.0):
+            raise RuntimeError("MLAsyncPersistence loop initialization failed")
+
+        loop = self._loop
+        if loop is None:  # pragma: no cover - defensive safeguard
+            raise RuntimeError("MLAsyncPersistence loop initialization failed")
+
+        deadline = time.monotonic() + 1.0
+        while not loop.is_running() and time.monotonic() < deadline:
+            time.sleep(0.001)
+
+        if not loop.is_running():
+            raise RuntimeError("MLAsyncPersistence loop failed to start")
+
+        self._task = asyncio.run_coroutine_threadsafe(self._run(), loop)
 
     async def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
         """
@@ -243,10 +254,14 @@ class MLPersistenceWorker:
                 self._task = None
 
         if self._loop_thread is not None and loop is not None:
-            loop.call_soon_threadsafe(loop.stop)
-            self._loop_thread.join(timeout=timeout)
+            if loop.is_running():
+                if threading.current_thread() is self._loop_thread:
+                    loop.stop()
+                else:
+                    loop.call_soon_threadsafe(loop.stop)
+            if threading.current_thread() is not self._loop_thread:
+                self._loop_thread.join(timeout=timeout)
             self._loop_thread = None
-            loop.close()
             self._loop = None
 
     def queue_size(self) -> int:
@@ -373,7 +388,7 @@ class MLPersistenceWorker:
             # Update queue depth gauge cheaply
             self._Q_DEPTH.labels(component=self.component_label).set(self._queue.qsize())
             return True
-        except asyncio.QueueFull:
+        except queue.Full:
             # Record backpressure drop
             self._DROPS.labels(kind=item["kind"]).inc()
             self._LOGGER.debug(
@@ -388,16 +403,18 @@ class MLPersistenceWorker:
         prediction_batch: list[_PredictionItem] = []
 
         while not self._stop.is_set():
+            pulled = 0
             try:
                 # Pull at most batch_size items to avoid starving flush
                 for _ in range(self.batch_size):
-                    item = await asyncio.wait_for(self._queue.get(), timeout=0.05)
+                    item = self._queue.get_nowait()
                     if item["kind"] == "feature":
                         feature_batch.append(item)
                     else:
                         prediction_batch.append(item)
                     self._queue.task_done()
-            except TimeoutError:
+                    pulled += 1
+            except queue.Empty:
                 # Normal during idle periods; intentionally ignore
                 pass
             except Exception as proc_exc:
@@ -408,6 +425,9 @@ class MLPersistenceWorker:
                     proc_exc,
                     exc_info=True,
                 )
+
+            if pulled == 0:
+                await asyncio.sleep(0.05)
 
             # Update queue depth gauge
             self._Q_DEPTH.labels(component=self.component_label).set(self._queue.qsize())

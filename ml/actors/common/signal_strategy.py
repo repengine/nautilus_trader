@@ -45,9 +45,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml.common.logging_utils import log_best_effort
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:

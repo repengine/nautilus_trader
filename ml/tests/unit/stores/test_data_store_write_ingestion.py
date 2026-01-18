@@ -14,7 +14,7 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 
 
 def _make_manifest(dataset_id: str, location: Path) -> DatasetManifest:

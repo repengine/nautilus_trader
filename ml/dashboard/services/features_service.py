@@ -14,11 +14,12 @@ import ast
 import hashlib
 import logging
 import time
+from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Awaitable, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram

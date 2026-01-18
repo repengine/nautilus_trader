@@ -14,7 +14,7 @@ from sqlalchemy import text
 from ml.tests.utils.db import build_postgres_url
 
 if TYPE_CHECKING:
-    from ml.stores.feature_store_facade import FeatureStore
+    from ml.stores.feature_store import FeatureStore
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
     from ml.tests.fixtures.stores import ModuleStoreBundle

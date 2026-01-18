@@ -6,12 +6,6 @@ Pipeline checkpoint support for resumability.
 This module provides checkpoint persistence to enable pipeline execution to resume
 from interruption points without re-executing completed stages.
 
-Universal ML Architecture Patterns Compliance:
-- Pattern 2: Protocol-first design (PipelineCheckpointProtocol)
-- Pattern 3: Cold-path only (file I/O for checkpoint persistence)
-- Pattern 4: Progressive fallback (graceful handling of missing/corrupt checkpoints)
-- Pattern 5: Centralized metrics bootstrap for checkpoint operations
-
 """
 
 from __future__ import annotations

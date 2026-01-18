@@ -1,16 +1,21 @@
 # Legacy Removal Plan (Component-Facade Only)
 
 ## Objective
-Remove legacy implementations and feature flags while keeping the codebase efficient, streamlined, and fully functional. The component-facade path becomes the single production path with explicit parity guarantees, performance guardrails, and observability.
+Remove legacy implementations and feature flags while preserving real functional behavior. Implementation-specific differences (and tests that encode them) are expected to change; what must remain is the observable, contract-defined behavior. Any functionality lost by removing legacy paths must be replaced by explicit, tested behavior in the canonical implementation. The component-facade path becomes the single production path with explicit contracts, performance guardrails, and observability.
 
 ## Guiding Principles
+- Use the objective above as the decision filter: prioritize real behavior and explicit contracts over legacy-implementation equivalence.
 - Keep changes minimal, typed, and safe (mypy/ruff clean).
 - Maintain hot-path rules (no I/O, no DataFrame creation, no allocations in tight loops).
 - Preserve config-driven behavior and explicit event/bus schemas.
 - Parity tests prove behavior; shadow/dual-run proves real data safety.
 
+## Current Focus (Legacy Removal Closure)
+- [x] Confirm no legacy switches, flags, or selectors remain in code (facade-only path).
+- [x] Update docs/tests to remove legacy-flag semantics (remaining references are historical notes).
+- [x] Confirm no orphaned legacy modules remain on disk.
+
 ## Current Baseline (as of this plan)
-- `pytest ml` under coverage: 2 failing tests in `ml/tests/unit/scripts/test_validate_wave.py`.
 - ML-only coverage: 59.76% (`poetry run coverage report --include='ml/*'`).
 - Performance tests skipped under coverage by design.
 
@@ -51,10 +56,10 @@ Note: repo scan shows several dual-implementation pairs still present; validate 
 
 ### Warnings Observed (to investigate)
 - PytestCollectionWarning: helper classes with `Test*` names and `__init__` (fix by marking `__test__ = False` or renaming).
-- PytestAssertRewriteWarning: fixture plugins imported before rewrite (`ml.tests.fixtures.database_fixtures` still triggering; likely import-order; consider filtering or revisiting plugin load order).
+- PytestAssertRewriteWarning: fixture plugins imported before rewrite (resolved by deferring `database_fixtures` import via plugin manager + lazy fixture exports).
 - Deprecation warnings from `edgar` and Databento coverage policy (external deps).
 - Mypy warning: unused section(s) in `pyproject.toml` (config hygiene; not a functional failure).
-- Latest warning repro: `poetry run pytest ml/tests/unit/core/test_integration_manager_types.py::TestMLIntegrationManagerTypeAnnotations::test_data_store_has_concrete_type_with_optional_none` (assert-rewrite + edgar deprecation).
+- Latest warning repro: `poetry run pytest ml/tests/unit/core/test_integration_manager_types.py::TestMLIntegrationManagerTypeAnnotations::test_data_store_has_concrete_type_with_optional_none` (edgar deprecation).
 
 ## Next Steps (handoff order)
 1. **Remove remaining legacy runtime paths** (done)
@@ -70,10 +75,10 @@ Note: repo scan shows several dual-implementation pairs still present; validate 
    - [x] Make `ml/training/base.py` a shim to `ml/training/base_facade.py` and update imports.
    - [x] Convert `ml/features/engineering.py` into a shim for `ml/features/facade.py` and update imports to use shared config/indicator modules.
 4. **Pytest warning cleanup (optional but recommended)**
-   - Remove remaining runtime imports of `ml.tests.fixtures.database_fixtures`
+   - [x] Remove remaining runtime imports of `ml.tests.fixtures.database_fixtures`
      (see `ml/docs/test_restoration_plan.md`) to eliminate the assert-rewrite warning.
 5. **Stabilize and gate**
-   - Fix `ml/tests/unit/scripts/test_validate_wave.py` failures and re-run mypy/ruff/pytest/coverage gates.
+   - [ ] Re-run mypy/ruff/pytest/coverage gates to reach ML ≥ 90%.
 
 ## Scope
 ### In Scope
@@ -101,49 +106,82 @@ Note: repo scan shows several dual-implementation pairs still present; validate 
 | `ML_USE_LEGACY_TFT_BUILDER` | Removed (legacy builder deleted) | `ml/data/tft_dataset_builder.py` | Removed; `use_legacy_builder()` helper deleted. |
 | `ML_USE_LEGACY_ML_SIGNAL_ACTOR` | Removed (legacy actor deleted) | `ml/actors/signal_facade_impl.py` | Removed; helper deleted. |
 | `ML_USE_LEGACY_STRATEGY_BASE` | Removed (legacy base deleted) | `ml/strategies/base_facade.py` | Removed; `_use_legacy_strategy_base()` deleted. |
-| `ML_USE_LEGACY_PIPELINE_ORCHESTRATOR` | Removed (legacy orchestrator deleted) | `ml/orchestration/pipeline_orchestrator.py` | No-op helper still exported in `ml/orchestration/feature_flags.py`. |
+| `ML_USE_LEGACY_PIPELINE_ORCHESTRATOR` | Removed (legacy orchestrator deleted) | `ml/orchestration/pipeline_orchestrator.py` | Removed; facade-only path enforced. |
 | `ML_USE_LEGACY_INTEGRATION_MANAGER` | Removed (legacy integration manager deleted) | `ml/core/integration_facade.py` | Selector removed. |
 | `ML_USE_LEGACY_DATA_REGISTRY` | Removed (legacy registry deleted) | `ml/registry/data_registry.py` | Flag removed; factory always returns canonical registry. |
 | `ML_USE_LEGACY_MODEL_REGISTRY` | Removed (legacy registry deleted) | `ml/registry/model_registry_facade.py` | Flag removed; `ml/registry/model_registry.py` shim added. |
 
 ### Facade/Non-Facade Pair Inventory (Needs Consolidation)
-**Compatibility shims (single implementation already)**
-- `ml/core/integration.py` re-exports `ml/core/integration_facade.py`.
-- `ml/stores/data_store.py` re-exports `ml/stores/data_store_facade.py`.
-- `ml/stores/feature_store.py` re-exports `ml/stores/feature_store_facade.py`.
-- `ml/actors/signal.py` re-exports `ml/actors/signal_facade_impl.py`.
-- `ml/actors/signal_facade.py` re-exports `ml/actors/signal_facade_impl.py`.
-- `ml/data/scheduler_facade.py` re-exports `ml/data/scheduler.py`.
-- `ml/data/tft_dataset_builder_facade.py` re-exports `ml/data/tft_dataset_builder.py`.
-- `ml/dashboard/app_facade.py` re-exports `ml/dashboard/app.py`.
-- `ml/dashboard/service_facade.py` re-exports `ml/dashboard/service.py`.
-- `ml/orchestration/pipeline_orchestrator_facade.py` re-exports `ml/orchestration/pipeline_orchestrator.py`.
-- `ml/registry/data_registry_facade.py` re-exports `ml/registry/data_registry.py`.
-- `ml/registry/model_registry.py` re-exports `ml/registry/model_registry_facade.py`.
-- `ml/strategies/base.py` re-exports `ml/strategies/base_facade.py`.
-- `ml/training/base.py` re-exports `ml/training/base_facade.py`.
+**Compatibility entrypoints (current behavior)**
+Importer counts are unique importing modules (excludes `__init__.py`).
+- `ml/core/integration.py` re-exports `ml/core/integration_facade.py` (72 / 3).
+- `ml/stores/data_store.py` re-exports `ml/stores/data_store_facade.py` (11 / 42).
+- `ml/stores/feature_store.py` re-exports `ml/stores/feature_store_facade.py` (19 / 43).
+- `ml/actors/signal.py` is a compatibility layer delegating to `ml/actors/signal_facade_impl.py` (59 / 2).
+- `ml/actors/signal_facade.py` re-exports `ml/actors/signal_facade_impl.py` (1 / 2).
+- `ml/data/scheduler_facade.py` wraps `ml/data/scheduler.py` (1 / 20).
+- `ml/data/tft_dataset_builder_facade.py` re-exports `ml/data/tft_dataset_builder.py` (3 / 14).
+- `ml/dashboard/app_facade.py` re-exports `ml/dashboard/app.py` (2 / 5).
+- `ml/dashboard/service_facade.py` re-exports `ml/dashboard/service.py` (1 / 19).
+- `ml/orchestration/pipeline_orchestrator.py` re-exports `ml/orchestration/pipeline_orchestrator_facade.py` (16 / 5).
+- `ml/registry/model_registry.py` re-exports `ml/registry/model_registry_facade.py` (3 / 5).
+- `ml/strategies/base.py` re-exports `ml/strategies/base_facade.py` (5 / 3).
+
+**Parallel facades still imported directly**
+- `ml/registry/data_registry_facade.py` (2 importers) alongside canonical `ml/registry/data_registry.py` (44).
+- `ml/training/base_facade.py` (3 importers) alongside canonical `ml/training/base.py` (5).
+- `ml/actors/signal_facade_impl.py` is imported directly by 2 modules; intended as implementation detail.
 
 **Facade-only module (no non-facade counterpart)**
 - None (feature engineering now has a non-facade shim).
 
 ### Legacy Modules Not On Any Flagged Path
-None (legacy shim removed).
+None (legacy shims removed).
 
 ### Legacy-Named Files Still Present (from scan)
 None (legacy-named artifacts removed).
 
 ### Flag Name Aliases Still Present
-- Alias env vars still appear in tests/docs: `ML_USE_LEGACY_ORCHESTRATOR`,
-  `ML_USE_LEGACY_ML_PIPELINE_ORCHESTRATOR`, `ML_USE_LEGACY_DASHBOARD_SERVICE`,
-  `ML_USE_LEGACY_TFT_DATASET_BUILDER`, `ML_USE_LEGACY_DATA_SCHEDULER`.
+None in code/tests; only historical references remain in documentation/report files.
+
+### Remaining Removal Targets
+- Root/common duplicate modules and duplicate tests (see "Duplicate Module Audit" below).
+- [x] Pytest warning cleanup (assert-rewrite/import-order).
+- [ ] Stabilize lint/test/coverage gates for the legacy removal scope (deferred).
+
+### Duplicate Module Audit (Root vs common)
+Explicit root/common pairs to audit, migrate, and delete or shim (exclude `__init__.py`).
+
+**Stores**
+- [x] `ml/stores/data_writer.py` vs `ml/stores/common/data_writer.py` (canonical: common component; root removed)
+- [x] `ml/stores/data_reader.py` vs `ml/stores/common/data_reader.py` (canonical: common component; root removed)
+- [x] `ml/stores/schema_validator.py` vs `ml/stores/common/schema_validator.py` (canonical: common component; root removed)
+- [x] `ml/stores/contract_enforcer.py` vs `ml/stores/common/contract_enforcer.py` (canonical: common component; root removed)
+- [x] `ml/stores/protocols.py` vs `ml/stores/common/protocols.py` (audited; distinct layers, keep both)
+
+**Registry**
+- [x] `ml/registry/manifest_manager.py` vs `ml/registry/common/manifest_manager.py` (canonical: common component; root removed)
+- [x] `ml/registry/model_persistence.py` vs `ml/registry/common/model_persistence.py` (canonical: common component; root removed)
+- [x] `ml/registry/watermark_manager.py` vs `ml/registry/common/watermark_manager.py` (canonical: common component; root removed)
+
+**Orchestration**
+- [x] `ml/orchestration/protocols.py` vs `ml/orchestration/common/protocols.py` (audited; root shim retained for public import path)
+
+**Tests (duplicate suites)**
+- [x] `ml/tests/unit/stores/test_data_writer.py` vs `ml/tests/unit/stores/common/test_data_writer.py` (root test removed)
+- [x] `ml/tests/unit/stores/test_data_reader.py` vs `ml/tests/unit/stores/common/test_data_reader.py` (root test removed)
+- [x] `ml/tests/unit/stores/test_schema_validator.py` vs `ml/tests/unit/stores/common/test_schema_validator.py` (root test removed)
+- [x] `ml/tests/unit/stores/test_contract_enforcer.py` vs `ml/tests/unit/stores/common/test_contract_enforcer.py` (root test removed)
+- [x] `ml/tests/unit/orchestration/test_config_resolver.py` vs `ml/tests/unit/orchestration/common/test_config_resolver.py` (common test removed)
+- [x] `ml/tests/unit/registry/test_deployment_manager.py` vs `ml/tests/unit/registry/common/test_deployment_manager.py` (audited; integration vs component coverage, keep both)
+- [x] `ml/tests/unit/registry/test_model_persistence.py` vs `ml/tests/unit/registry/common/test_model_persistence.py` (root test removed)
 
 ### Inventory Sweep Results (Code + Docs)
-- **Flags present in code**: no legacy flag selectors remain; `ml/orchestration/feature_flags.use_legacy_orchestrator()` is a no-op helper.
+- **Flags present in code**: none (legacy selectors removed).
 - **Legacy-named files still present**: none.
-- **Non-env legacy toggles**: removed (`_legacy_orchestrator`, `_legacy_impl`, `as_legacy_cython`).
-- **Legacy tests**: updated to facade-only paths (parity suites now validate invariants).
-- **Deprecation scope**: treat *all* remaining legacy surfaces (env flags, injected fallbacks,
-  tests/docs, and backup artifacts) as in-scope for graceful deprecation and staged removal.
+- **Non-env legacy toggles**: removed (`_legacy_orchestrator`, `_legacy_builder`, `as_legacy_cython`).
+- **Legacy tests**: replaced with facade-only contract checks or removed.
+- **Deprecation scope**: only historical doc/report references remain.
 
 ## Decision Register: Legacy Env Vars
 
@@ -184,37 +222,40 @@ None (legacy-named artifacts removed).
 - `ML_USE_LEGACY_DATA_SCHEDULER` (still referenced in tests).
 
 ## Phase 1 Task List (Inventory + Consistency)
-- [ ] Confirm legacy switches removed or shimmed (facade-only). (feature engineer + data store/orchestrator paths remain)
-- [ ] Remove legacy flag semantics; update tests/docs to match. (flags still active or no-op in `ml/config/feature_flags.py`)
-- [ ] Inventory facade/non-facade duplicates and define canonical module names.
-- [ ] Remove or archive orphaned legacy modules not reachable from any selector.
-- [ ] Produce a dependency graph of legacy entrypoints → facade components.
-- [ ] Record parity surface per domain (actors, stores, schedulers, registries, training, dashboard).
+- [x] Confirm legacy switches removed or shimmed (facade-only).
+- [x] Remove legacy flag semantics; update tests/docs to match.
+- [x] Inventory facade/non-facade duplicates and define canonical module names.
+- [x] Audit duplicate/unused modules created during component extraction (e.g., root vs `common/` modules), remove or shim non-canonical copies, and update tests/docs.
+- [x] Remove or archive orphaned legacy modules not reachable from any selector (none found).
+- [x] Produce a dependency graph of legacy entrypoints → facade components.
+- [x] Record parity surface per domain (actors, stores, schedulers, registries, training, dashboard).
 
 ## Next Execution Checklist (Immediate)
 1. **Facade consolidation execution (single canonical modules)**
    - [x] Confirm canonical module names (prefer non-facade import paths).
    - [x] Collapse dual-implementation pairs into single implementations (see consolidation plan below).
    - [x] Convert non-canonical modules to thin shims and remove feature-flag branches.
-   - [ ] Add non-facade shims for facade-only modules (e.g., `model_registry_facade.py`, `base_facade.py`).
-   - [ ] Update internal imports/docs to canonical paths where shims are in place.
+   - [x] Confirm non-facade shim coverage (`model_registry.py` exists; decide whether to add a shim for `base_facade.py` or keep direct imports).
+   - [x] Update internal imports/docs to canonical paths where shims are in place.
 2. **Inventory sweep + mapping refresh**
-   - [ ] `rg "USE_LEGACY" ml` + `rg "_legacy" ml` to confirm remaining switches and modules.
-   - [ ] Update the inventory table and dependency graph to match current call sites.
-   - [ ] Cross-check dataset/schema references against `ml/schema.py` for identifier template parity.
+   - [x] `rg "USE_LEGACY" ml` + `rg "_legacy" ml` to confirm remaining switches and modules (only docs/tests remain).
+   - [x] Update the inventory table and dependency graph to match current call sites.
+   - [x] Cross-check dataset/schema references against `ml/schema.py` for identifier template parity.
+   - [x] Enumerate duplicate modules from component extraction (root vs `common/` or renamed modules), confirm canonical imports, then remove or convert unused modules to shims with tests/docs updated (only `stores/protocols.py` + `orchestration/protocols.py` remain; both intentionally kept).
 3. **Legacy flag cleanup verification**
-   - [ ] Remove runtime legacy toggles and update docs/tests (feature engineer + no-op flags remain).
-   - [ ] Update `ML_DEPLOYMENT_README.md` with facade-only behavior if needed.
+   - [x] Remove runtime legacy toggles and update docs/tests (remaining references only in plan/docs).
+   - [x] Update `ML_DEPLOYMENT_README.md` with facade-only behavior if needed (no changes required).
 4. **Parity contract definition**
-   - [ ] Define parity contracts per domain (actors/stores/scheduler/registry/training/dashboard).
-   - [ ] Specify schema/topic invariants and event semantics (Stage/Source/EventStatus, message topic builder).
+   - [x] Define parity contracts per domain (actors/stores/scheduler/registry/training/dashboard).
+   - [x] Specify schema/topic invariants and event semantics (Stage/Source/EventStatus, message topic builder).
 5. **Parity test suite build-out**
-   - [ ] Add property/contract/metamorphic tests using shared fixtures (`ml/tests/fixtures/**`).
-   - [ ] Target contract boundaries: schemas, event payloads, bus topics, identifier templates.
-   - [ ] Document expected tolerances + invariants in test docstrings.
+   - [ ] Deferred: convert legacy-vs-facade parity tests into contract/invariant tests for the canonical path.
+   - [ ] Deferred: add property/contract/metamorphic tests using shared fixtures (`ml/tests/fixtures/**`) only when they validate real behavior.
+   - [ ] Deferred: target contract boundaries (schemas, event payloads, bus topics, identifier templates).
+   - [ ] Deferred: document expected tolerances + invariants in test docstrings.
 6. **Shadow/dual-run validation**
-   - [ ] Implement mismatch metrics (`ml_parity_mismatch_total`, max diff stats).
-   - [ ] Store diffs under `ml/tests/validation_reports/` and record thresholds.
+   - [x] Implement mismatch metrics (`ml_parity_mismatch_total`, max diff stats) and parity helpers.
+   - [ ] Deferred: store diffs under `ml/tests/validation_reports/` and record thresholds (run shadow/dual-run).
 7. **Removal order (low-risk → high-risk)**
  - [x] Dashboard app/service switches
  - [x] Trainer switch
@@ -224,8 +265,55 @@ None (legacy-named artifacts removed).
  - [x] Pipeline orchestrator switch
  - [x] Signal actor switch
 8. **Stabilize and gate**
-   - [ ] Fix `ml/tests/unit/scripts/test_validate_wave.py` failures.
-   - [ ] Re-run `mypy`, `ruff`, focused `pytest -k <area>`, and coverage to reach ML ≥ 90%.
+   - [x] Re-run `mypy`, `ruff`, focused `pytest -k <area>`, and coverage (current ML coverage: 9.82%).
+   - [ ] Defer coverage gates (ML ≥ 90%, general ≥ 80%) until plan completion.
+
+## Coverage + Shadow Validation Plan (Draft)
+- Coverage sweep (post-removal): run `pytest -q ml` with coverage, capture top 15 lowest-coverage modules, and add contract/property tests targeting stores, training components, and event payloads.
+- Prioritize high-impact zero-coverage areas: `ml/actors/**`, `ml/training/datasets/**`, `ml/tasks/**`, and `ml/observability/**` with deterministic fixtures after removal scope is final.
+- Add component-level tests for training common modules (`hyperparameter`, `persistence`, `evaluation`) and store shims to raise baseline coverage once the removal plan completes.
+- Shadow/dual-run: implement mismatch counters (`ml_parity_mismatch_total`, max diff stats) in integration manager or pipeline orchestrator, store diffs under `ml/tests/validation_reports/`, and document tolerances per feature family.
+- Gate: require CI to run `poetry run coverage report --include='ml/*'` + dual-run parity test marker before removal completion.
+
+## Parity Test Strategy (Post-Legacy)
+- Legacy-vs-facade parity tests are transitional; once legacy paths are removed, retire or convert them.
+- Keep parity testing only where it validates real behavior (feature parity, schema/topic invariants, event semantics).
+- Avoid tests that assert internal delegation details; prefer contracts against observable outputs and published schemas.
+- Shadow/dual-run parity checks are for runtime safety, not for preserving implementation-specific equivalence.
+
+## Parity Contracts (Current Definition)
+### Global invariants
+- Use `Stage`, `Source`, and `EventStatus` enums for events; never raw strings.
+- Build topics with `ml.common.message_topics.build_topic_for_stage` and `MessageBusConfig.from_env()`.
+- Identifier templates must include `{instrument_id}` and use `ml/schema.py` defaults; overrides must pass `validate_identifier_template`/`validate_schema_identifier_templates`.
+- Required record fields: `instrument_id`, `ts_event`, `ts_init` (nanoseconds) on persisted records.
+- Hot-path rule: no DataFrames, file I/O, network calls, or training.
+
+### Actors (inference + signal)
+- Inherit `BaseMLInferenceActor` and call `super().__init__(config)` first.
+- Use integration manager-provided stores/registries; do not instantiate stores directly.
+- Signal emission remains non-blocking; wrap bus publish in `try/except` and log with `exc_info=True`.
+- Feature parity checks and confidence metrics use `ml.common.metrics_bootstrap`.
+
+### Stores (data/feature/model/strategy)
+- Preserve 4-store responsibilities and 4-registry alignment; no cross-store writes.
+- Schema/contract validation uses registry dataclasses and enforcement helpers; watermark progression must be monotonic.
+- Progressive fallback chain (PRIMARY → CACHED → FILE → DUMMY) with `ml_fallback_activations_total` metrics.
+
+### Scheduler / ingestion
+- Dataset identifiers and templates resolve through `ml/schema.py` (schema + dataset-type overrides validated).
+- Orchestrator/collector integration must preserve dataset types, stages, and topic semantics.
+
+### Registry (data/model/strategy/feature)
+- DataRegistry maintains manifests, lineage, and watermarks; event emissions use `Stage`/`Source`/`EventStatus`.
+- ModelRegistry maintains deployment/version compatibility and uses ONNX artifacts (no pickles).
+
+### Training
+- Training uses `ml/_imports.py` for optional deps and exports ONNX artifacts.
+- FeatureStore access stays consistent with training/inference parity requirements.
+
+### Dashboard / services
+- Dashboard services obtain stores via `get_integration_manager()` and keep API response schemas stable.
 
 ## Facade Consolidation Plan (Single Canonical Modules)
 Canonical module names should drop the `_facade` suffix; the component-based implementation remains
@@ -286,7 +374,7 @@ Exit Criteria:
 - P99 hot-path constraints remain within limits.
 
 ### 6) Coverage and Regression Validation
-- Fix failing `validate_wave` tests.
+- Fix remaining legacy-removal test failures.
 - Run `pytest ml` without coverage for fast feedback, then with coverage.
 - Achieve ML coverage >= 90%.
 

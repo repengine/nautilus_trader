@@ -52,7 +52,18 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"postgresql://postgres:postgres@localhost:{_DEFAULT_TEST_DB_PORT}/nautilus_test",
 )
-_TEMPLATE_DB_NAME = os.getenv("TEST_DB_TEMPLATE_NAME", "nautilus_template")
+def _resolve_template_db_name() -> str:
+    """
+    Resolve the template DB name, scoping by xdist worker when present.
+    """
+    base_name = os.getenv("TEST_DB_TEMPLATE_NAME", "nautilus_template")
+    worker = os.getenv("PYTEST_XDIST_WORKER")
+    if worker and worker not in base_name:
+        return f"{base_name}_{worker}"
+    return base_name
+
+
+_TEMPLATE_DB_NAME = _resolve_template_db_name()
 
 _ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
     "ml.common.db_utils.EngineManager.get_engine",
@@ -61,8 +72,8 @@ _ENGINE_MANAGER_PATCH_TARGETS: tuple[str, ...] = (
     "ml.dashboard.services.trading_service.EngineManager.get_engine",
     "ml.observability.db_persistence.EngineManager.get_engine",
     "ml.stores.data_processor.EngineManager.get_engine",
-    "ml.stores.data_store_facade.EngineManager.get_engine",
-    "ml.stores.feature_store_facade.EngineManager.get_engine",
+    "ml.stores.data_store.EngineManager.get_engine",
+    "ml.stores.feature_store.EngineManager.get_engine",
     "ml.stores.model_store.EngineManager.get_engine",
     "ml.stores.strategy_store.EngineManager.get_engine",
 )
@@ -173,7 +184,9 @@ def template_database() -> Generator[str, None, None]:
     """
     Create a session-scoped template database for clones (PostgreSQL only).
 
-    Returns the connection string pointing to the template DB.
+    Returns the connection string pointing to the template DB. When running
+    under xdist, the template name is worker-scoped to avoid cross-worker
+    contention.
     """
     if "sqlite" in DATABASE_URL:
         # SQLite path uses the base URL directly

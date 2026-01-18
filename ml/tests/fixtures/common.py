@@ -10,7 +10,6 @@ maintainability.
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -156,6 +155,37 @@ def dummy_xgboost_model() -> Path:
         meta_path.unlink()
 
 
+@pytest.fixture(scope="session")
+def perf_dummy_onnx_model(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """
+    Session-scoped ONNX model for performance benchmarks.
+    """
+    model_dir = tmp_path_factory.mktemp("perf_dummy_onnx")
+    model_path = create_dummy_onnx_model(model_dir / "dummy_model.onnx")
+    yield model_path
+    if model_path.exists():
+        model_path.unlink()
+
+
+@pytest.fixture(scope="session")
+def perf_xgboost_model(
+    tmp_path_factory: pytest.TempPathFactory,
+    test_model_factory: TestModelFactory,
+) -> Path:
+    """
+    Session-scoped XGBoost model for performance benchmarks.
+    """
+    model_dir = tmp_path_factory.mktemp("perf_xgboost")
+    model_path = test_model_factory.create_minimal_xgboost_model(
+        n_features=10,
+        model_type="classification",
+        output_path=model_dir / "model.json",
+        n_samples=10,
+    )
+    yield model_path
+    if model_path.exists():
+        model_path.unlink()
+
 @pytest.fixture
 def base_ml_config(
     default_bar_type: BarType,
@@ -237,17 +267,11 @@ def in_memory_publisher() -> InMemoryPublisher:
 
 
 @pytest.fixture
-def model_registry_config() -> ModelRegistryConfig:
+def model_registry_config(tmp_path: Path) -> ModelRegistryConfig:
     """
     Standard model registry configuration for testing.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        return ModelRegistryConfig(
-            backend="json",
-            backend_config={
-                "storage_path": tmpdir,
-            },
-        )
+    return ModelRegistryConfig(registry_path=str(tmp_path))
 
 
 # ============================================================================
@@ -499,6 +523,8 @@ __all__ = [
     "in_memory_publisher",
     "mock_stores_bundle",
     "model_registry_config",
+    "perf_dummy_onnx_model",
+    "perf_xgboost_model",
     "sample_feature_array",
     "sample_feature_manifest",
     "sample_features",

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.tests.utils.stubs import FeatureStoreNoOp, ModelStoreNoOp, RegistryTestStub, StrategyStoreNoOp
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -35,7 +35,6 @@ def test_data_store_emits_feature_events(
     stubbed_data_store: tuple[DataStore, RegistryTestStub],
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
-    use_component_datastore: bool,
 ) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import FeatureData
@@ -58,7 +57,6 @@ def test_data_store_emits_prediction_events(
     stubbed_data_store: tuple[DataStore, RegistryTestStub],
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
-    use_component_datastore: bool,
 ) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import ModelPrediction
@@ -84,7 +82,6 @@ def test_data_store_emits_signal_events(
     stubbed_data_store: tuple[DataStore, RegistryTestStub],
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
-    use_component_datastore: bool,
 ) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import StrategySignal

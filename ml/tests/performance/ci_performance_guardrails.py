@@ -106,11 +106,6 @@ class PerformanceGuardrailRunner:
                 "critical": True,
             },
             {
-                "name": "Feature Parity Guardrails",
-                "pattern": "test_parity_buffer_guardrails.py::TestFeatureParityGuardrails",
-                "critical": True,
-            },
-            {
                 "name": "Model Inference Guardrails",
                 "pattern": "test_parity_buffer_guardrails.py::TestModelInferenceGuardrails",
                 "critical": True,

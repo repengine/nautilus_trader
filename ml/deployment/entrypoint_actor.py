@@ -16,8 +16,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
-from typing import cast
+from typing import Any, cast
 
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId

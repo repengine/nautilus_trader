@@ -23,7 +23,7 @@ from ml.registry.dataclasses import (
 )
 from ml.registry.protocols import RegistryProtocol
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
+from ml.stores.data_store import DataStore
 from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
 

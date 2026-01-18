@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import EventEmitterProtocol
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
-    from ml.stores.feature_store_facade import FeatureStore
+    from ml.stores.feature_store import FeatureStore
     from ml.stores.io_raw import RawIngestionWriterProtocol
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore

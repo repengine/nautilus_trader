@@ -16,10 +16,9 @@ Tests covered:
 
 from __future__ import annotations
 
-import os
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -336,42 +335,6 @@ class TestComponentMethods:
 
 
 # ---------------------------------------------------------------------------
-# Feature Flag Tests
-# ---------------------------------------------------------------------------
-
-
-class TestFeatureFlagSwitching:
-    """Tests for feature flag switching."""
-
-    def test_use_legacy_returns_false_by_default(self) -> None:
-        """Test that _use_legacy_strategy_base returns False by default."""
-        with patch.dict(os.environ, {}, clear=True):
-            from ml.strategies.base_facade import _use_legacy_strategy_base
-
-            result = _use_legacy_strategy_base()
-
-        assert result is False
-
-    def test_use_legacy_returns_true_when_set(self) -> None:
-        """Test that _use_legacy_strategy_base returns True when env is set."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_STRATEGY_BASE": "1"}):
-            from ml.strategies.base_facade import _use_legacy_strategy_base
-
-            result = _use_legacy_strategy_base()
-
-        assert result is True
-
-    def test_use_legacy_returns_false_when_zero(self) -> None:
-        """Test that _use_legacy_strategy_base returns False when set to 0."""
-        with patch.dict(os.environ, {"ML_USE_LEGACY_STRATEGY_BASE": "0"}):
-            from ml.strategies.base_facade import _use_legacy_strategy_base
-
-            result = _use_legacy_strategy_base()
-
-        assert result is False
-
-
-# ---------------------------------------------------------------------------
 # Module Import Tests
 # ---------------------------------------------------------------------------
 
@@ -542,7 +505,6 @@ __all__ = [
     "TestComponentInitialization",
     "TestComponentMethods",
     "TestFacadeClassStructure",
-    "TestFeatureFlagSwitching",
     "TestHelperFunctions",
     "TestModuleImports",
 ]

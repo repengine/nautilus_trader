@@ -76,12 +76,12 @@ from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
-from ml.stores.data_store_facade import DataStore
-from ml.stores.data_store_facade import DataStoreFacade
+from ml.stores.data_store import DataStore
+from ml.stores.data_store import DataStoreFacade
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.earnings_store import EarningsStore
-from ml.stores.feature_store_facade import FeatureStore
-from ml.stores.feature_store_facade import FeatureStoreFacade
+from ml.stores.feature_store import FeatureStore
+from ml.stores.feature_store import FeatureStoreFacade
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
 from ml.stores.file_backed import FileFeatureStore

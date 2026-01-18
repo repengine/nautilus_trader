@@ -9,7 +9,7 @@ import pandas as pd
 
 from ml.data.fixtures import make_tbbo_fixture
 from ml.stores.base import FeatureData
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.feature_store import FeatureStore
 
 
 pytestmark = pytest.mark.usefixtures(

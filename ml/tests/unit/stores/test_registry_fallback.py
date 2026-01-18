@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 
 from ml.registry.persistence import BackendType, PersistenceConfig
 from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store_facade import DataStore
-from ml.stores.feature_store_facade import FeatureStore
+from ml.stores.data_store import DataStore
+from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.utils.db import build_postgres_url
