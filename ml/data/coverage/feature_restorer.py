@@ -11,6 +11,7 @@ events, and validation continue to function exactly as the ingestion path.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
@@ -29,6 +30,7 @@ from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import FEATURE_VALUES_DATASET_ID
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
@@ -37,7 +39,7 @@ from ml.config.events import Source
 from ml.data.coverage.manager import BucketSpec
 from ml.data.coverage.types import DAY_NS
 from ml.ml_types import DataFrameLike
-from ml.stores import DataStore
+from ml.stores.base import FeatureData
 from ml.stores.providers import ParquetCoverageSpec
 
 
@@ -92,6 +94,14 @@ if TYPE_CHECKING:
             run_id: str,
             instrument_id: str | None = ...,
         ) -> object: ...
+
+        def write_features(
+            self,
+            instrument_id: str,
+            features: list[FeatureData],
+            source: str = ...,
+            run_id: str | None = ...,
+        ) -> object: ...
 else:
     _PandasDataFrame = Any  # type: ignore[assignment]
     _PandasSeries = Any  # type: ignore[assignment]
@@ -121,6 +131,7 @@ SUPPORTED_FEATURE_DATASET_IDS: Final[frozenset[str]] = frozenset(
     {
         EARNINGS_ACTUALS_DATASET_ID,
         EARNINGS_ESTIMATES_DATASET_ID,
+        FEATURE_VALUES_DATASET_ID,
         *tuple(_GENERAL_DATASETS),
     },
 )
@@ -352,6 +363,19 @@ class FeatureCoverageRestorer:
                     if restored_buckets >= bucket_targets:
                         break
                 continue
+            if dataset_id == FEATURE_VALUES_DATASET_ID:
+                written_rows = self._write_feature_values(
+                    writer=writer,
+                    instrument_id=instrument_id,
+                    frame=filtered,
+                    timestamp_field=timestamp_field,
+                )
+                if written_rows > 0:
+                    rows_written += written_rows
+                    restored_buckets.update(general_bucket_indices)
+                    if restored_buckets >= bucket_targets:
+                        break
+                continue
 
             for record in records:
                 bucket_index_value = record.pop("_bucket_index", None)
@@ -470,6 +494,59 @@ class FeatureCoverageRestorer:
             source=Source.BACKFILL.value,
             run_id="feature_catalog_restore",
         )
+
+    def _write_feature_values(
+        self,
+        *,
+        writer: _FeatureDatasetWriter,
+        instrument_id: str,
+        frame: _PandasDataFrame,
+        timestamp_field: str,
+    ) -> int:
+        """
+        Restore computed FeatureStore values from a parquet mirror.
+
+        Args:
+            writer: DataStore-compatible writer instance.
+            instrument_id: Instrument being restored.
+            frame: Filtered parquet frame for the bucket range.
+            timestamp_field: Column containing ts_event values.
+
+        Returns:
+            Number of rows written.
+        """
+        if frame.empty:
+            return 0
+        values_column = "values"
+        rows: list[FeatureData] = []
+        for raw in frame.to_dict("records"):
+            feature_set_id = self._coerce_str(raw.get("feature_set_id"))
+            row_instrument = self._coerce_str(raw.get("instrument_id")) or instrument_id
+            ts_event = self._coerce_int(raw.get(timestamp_field))
+            ts_init = self._coerce_int(raw.get("ts_init"), default=ts_event)
+            if ts_event is None or ts_init is None:
+                continue
+            values = self._coerce_feature_values(raw.get(values_column))
+            if values is None:
+                continue
+            payload = FeatureData(
+                feature_set_id=feature_set_id,
+                instrument_id=row_instrument,
+                values=values,
+                ts_event=ts_event,
+                ts_init=ts_init,
+                quality_flags=self._coerce_int(raw.get("quality_flags"), default=0) or 0,
+            )
+            rows.append(payload)
+        if not rows:
+            return 0
+        writer.write_features(
+            instrument_id=instrument_id,
+            features=rows,
+            source=Source.BACKFILL.value,
+            run_id="feature_catalog_restore",
+        )
+        return len(rows)
 
     def _write_general_dataset(
         self,
@@ -674,6 +751,29 @@ class FeatureCoverageRestorer:
         text = str(value).strip()
         return text or None
 
+    @staticmethod
+    def _coerce_feature_values(value: object) -> dict[str, float] | None:
+        if value is None:
+            return None
+        raw = value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                raw = json.loads(text)
+            except Exception:
+                return None
+        if not isinstance(raw, dict):
+            return None
+        converted: dict[str, float] = {}
+        for key, item in raw.items():
+            try:
+                converted[str(key)] = float(item)
+            except (TypeError, ValueError):
+                continue
+        return converted if converted else None
+
     def _resolve_writer(self, dataset_id: str) -> _FeatureDatasetWriter | None:
         if dataset_id not in _SUPPORTED_DATASETS:
             msg = f"Unsupported dataset_id for feature restoration: {dataset_id}"
@@ -682,13 +782,60 @@ class FeatureCoverageRestorer:
 
     def _get_writer(self) -> _FeatureDatasetWriter:
         if self._writer is None:
-            factory: Callable[[str], _FeatureDatasetWriter]
             if self._writer_factory is not None:
-                factory = self._writer_factory
+                self._writer = self._writer_factory(self._db_connection)
             else:
-                factory = cast(Callable[[str], _FeatureDatasetWriter], DataStore)
-            self._writer = factory(self._db_connection)
+                self._writer = self._build_default_writer(self._db_connection)
         return self._writer
+
+    @staticmethod
+    def _build_default_writer(connection_string: str) -> _FeatureDatasetWriter:
+        """
+        Build a fully wired DataStore writer for feature restoration.
+
+        Ensures registries and stores are initialized so write validation and
+        data registry updates occur as in the normal ingestion path.
+        """
+        from ml.core.common.registry_initialization import RegistryInitializationComponent
+        from ml.core.common.store_initialization import StoreInitializationComponent
+        from ml.registry.base import DummyRegistry
+        from ml.stores.protocols import EarningsStoreProtocol
+        from ml.stores.protocols import FeatureStoreProtocol
+        from ml.stores.protocols import ModelStoreProtocol
+        from ml.stores.protocols import StrategyStoreProtocol
+
+        store_init = StoreInitializationComponent(db_connection=connection_string)
+        store_init.init_stores()
+        if store_init.file_fallback or store_init.json_fallback:
+            msg = "Feature restore requires PostgreSQL-backed stores"
+            raise RuntimeError(msg)
+
+        registry_init = RegistryInitializationComponent(db_connection=connection_string)
+        registry_init.init_registries()
+        if isinstance(registry_init.data_registry, DummyRegistry):
+            msg = "Feature restore requires an initialized DataRegistry"
+            raise RuntimeError(msg)
+
+        registry_init.inject_data_registry_into_stores(
+            store_init.feature_store,
+            store_init.model_store,
+        )
+
+        try:
+            data_store = registry_init.create_data_store(
+                feature_store=cast(FeatureStoreProtocol, store_init.feature_store),
+                model_store=cast(ModelStoreProtocol, store_init.model_store),
+                strategy_store=cast(StrategyStoreProtocol, store_init.strategy_store),
+                earnings_store=cast(EarningsStoreProtocol, store_init.earnings_store),
+            )
+        except Exception:
+            logger.warning(
+                "feature_restore.writer_init_failed",
+                exc_info=True,
+                extra={"db_connection": connection_string},
+            )
+            raise
+        return cast(_FeatureDatasetWriter, data_store)
 
     @staticmethod
     def _read_parquet(path: Path, *, timestamp_field: str) -> _PandasDataFrame | None:

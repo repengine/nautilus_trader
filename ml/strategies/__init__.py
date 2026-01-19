@@ -147,7 +147,9 @@ Set `execute_trades=False` to run strategies without placing actual orders:
 - Risk metrics and performance tracking remain active
 - Strategy decisions are persisted to stores
 - Metrics are updated for monitoring
-- No actual orders submitted to brokers
+- No actual orders submitted to brokers while `execute_trades=False`; set `execute_trades=True`
+  and provide an OrderExecutor/submit-order callback to route orders through Nautilus and
+  any configured broker adapters (order intents can still be serialized for review).
 
 ### Dummy Stores
 Use `use_dummy_stores=True` for testing without PostgreSQL:

@@ -193,6 +193,7 @@ class _CheckpointRecord:
 
     plan_id: str
     dataset_id: str
+    checkpoint_key: str | None
     path: Path
     epoch: int
     global_step: int
@@ -219,6 +220,7 @@ class StreamingCheckpointManager:
         self._interval_seconds = float(interval_seconds) if interval_seconds is not None else None
         self._interval_steps = int(interval_steps) if interval_steps is not None else None
         self._active_plan_id: str | None = None
+        self._active_checkpoint_key: str | None = None
         self._active_dataset_id: str | None = None
         self._trainer: Any | None = None
         self._pl_module: Any | None = None
@@ -238,24 +240,41 @@ class StreamingCheckpointManager:
         """Return metadata for the most recent checkpoint written during this plan."""
         return self._latest_record
 
-    def prepare_plan(self, plan_id: str, dataset_id: str) -> _CheckpointRecord | None:
-        """Reset manager state for a new plan and return any resumable checkpoint."""
+    def prepare_plan(
+        self,
+        plan_id: str,
+        dataset_id: str,
+        *,
+        checkpoint_key: str | None = None,
+    ) -> _CheckpointRecord | None:
+        """
+        Reset manager state for a new plan and return any resumable checkpoint.
+
+        Args:
+            plan_id: Identifier for the plan being executed.
+            dataset_id: Dataset identifier for the plan.
+            checkpoint_key: Optional checkpoint namespace shared across plans.
+
+        Returns:
+            _CheckpointRecord | None: Loaded checkpoint metadata when available.
+        """
         self._active_plan_id = plan_id
+        self._active_checkpoint_key = checkpoint_key or plan_id
         self._active_dataset_id = dataset_id
         self._trainer = None
         self._pl_module = None
         self._last_checkpoint_time = None
         self._last_checkpoint_step = None
         self._pending_manual_requests.clear()
-        self._resume_record = self._load_latest(plan_id)
+        self._resume_record = self._load_latest(self._active_checkpoint_key)
         self._latest_record = self._resume_record
         return self._resume_record
 
     def refresh_latest(self) -> _CheckpointRecord | None:
         """Reload checkpoint metadata from disk for the active plan."""
-        if self._active_plan_id is None:
+        if self._active_checkpoint_key is None:
             return None
-        self._latest_record = self._load_latest(self._active_plan_id)
+        self._latest_record = self._load_latest(self._active_checkpoint_key)
         return self._latest_record
 
     def create_callbacks(self) -> tuple[StreamingCheckpointCallback, ...]:
@@ -343,6 +362,7 @@ class StreamingCheckpointManager:
     ) -> Path | None:
         if self._active_plan_id is None or self._active_dataset_id is None:
             return None
+        checkpoint_key = self._active_checkpoint_key or self._active_plan_id
         step_value = int(global_step if global_step is not None else getattr(trainer, "global_step", 0))
         if step_value <= 0 and not force:
             return None
@@ -350,7 +370,7 @@ class StreamingCheckpointManager:
         save_time = float(timestamp if timestamp is not None else time.monotonic())
         utc_now = datetime.now(UTC).replace(microsecond=0)
         timestamp_label = utc_now.strftime("%Y%m%dT%H%M%SZ")
-        unique_name = f"{self._active_plan_id}_{timestamp_label}_step{step_value}.ckpt"
+        unique_name = f"{checkpoint_key}_{timestamp_label}_step{step_value}.ckpt"
         temp_path = self._directory / unique_name
         try:
             trainer.save_checkpoint(str(temp_path))
@@ -372,10 +392,10 @@ class StreamingCheckpointManager:
                 _CHECKPOINT_SIGNAL_TOTAL.labels(outcome="failed").inc()
             return None
 
-        latest_path = self._directory / f"{self._active_plan_id}_latest.ckpt"
+        latest_path = self._directory / f"{checkpoint_key}_latest.ckpt"
         if latest_path.exists():
             if self._retention >= 2:
-                previous_path = self._directory / f"{self._active_plan_id}_previous.ckpt"
+                previous_path = self._directory / f"{checkpoint_key}_previous.ckpt"
                 try:
                     latest_path.replace(previous_path)
                 except Exception:
@@ -418,7 +438,7 @@ class StreamingCheckpointManager:
             return None
 
         if self._retention > 2:
-            archive_name = self._directory / f"{self._active_plan_id}_{timestamp_label}_archive.ckpt"
+            archive_name = self._directory / f"{checkpoint_key}_{timestamp_label}_archive.ckpt"
             try:
                 shutil.copy2(latest_path, archive_name)
             except Exception:
@@ -431,7 +451,7 @@ class StreamingCheckpointManager:
                     },
                     exc_info=True,
                 )
-            self._prune_archives(self._active_plan_id)
+            self._prune_archives(checkpoint_key)
 
         self._last_checkpoint_time = save_time
         self._last_checkpoint_step = step_value
@@ -439,6 +459,7 @@ class StreamingCheckpointManager:
         record = _CheckpointRecord(
             plan_id=self._active_plan_id,
             dataset_id=self._active_dataset_id,
+            checkpoint_key=checkpoint_key,
             path=latest_path,
             epoch=epoch_value,
             global_step=step_value,
@@ -492,6 +513,7 @@ class StreamingCheckpointManager:
         payload = {
             "plan_id": record.plan_id,
             "dataset_id": record.dataset_id,
+            "checkpoint_key": record.checkpoint_key,
             "checkpoint_path": str(record.path),
             "epoch": record.epoch,
             "global_step": record.global_step,
@@ -500,7 +522,8 @@ class StreamingCheckpointManager:
             "trigger": record.trigger,
             "metrics": dict(record.metrics),
         }
-        metadata_path = self._directory / f"{record.plan_id}_latest.json"
+        checkpoint_key = record.checkpoint_key or record.plan_id
+        metadata_path = self._directory / f"{checkpoint_key}_latest.json"
         try:
             metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         except Exception:
@@ -510,8 +533,8 @@ class StreamingCheckpointManager:
                 exc_info=True,
             )
 
-    def _load_latest(self, plan_id: str) -> _CheckpointRecord | None:
-        metadata_path = self._directory / f"{plan_id}_latest.json"
+    def _load_latest(self, checkpoint_key: str) -> _CheckpointRecord | None:
+        metadata_path = self._directory / f"{checkpoint_key}_latest.json"
         if not metadata_path.exists():
             return None
         try:
@@ -519,7 +542,7 @@ class StreamingCheckpointManager:
         except Exception:
             logger.debug(
                 "checkpoint_metadata_parse_failed",
-                extra={"plan_id": plan_id, "path": str(metadata_path)},
+                extra={"plan_id": checkpoint_key, "path": str(metadata_path)},
                 exc_info=True,
             )
             return None
@@ -527,7 +550,7 @@ class StreamingCheckpointManager:
         if not checkpoint_path.exists():
             logger.warning(
                 "checkpoint_metadata_missing_file",
-                extra={"plan_id": plan_id, "checkpoint_path": str(checkpoint_path)},
+                extra={"plan_id": checkpoint_key, "checkpoint_path": str(checkpoint_path)},
             )
             return None
         metrics_payload = payload.get("metrics", {})
@@ -538,8 +561,11 @@ class StreamingCheckpointManager:
                 if numeric is not None:
                     metrics[str(key)] = numeric
         return _CheckpointRecord(
-            plan_id=str(payload.get("plan_id", plan_id)),
+            plan_id=str(payload.get("plan_id", checkpoint_key)),
             dataset_id=str(payload.get("dataset_id", "")),
+            checkpoint_key=str(payload.get("checkpoint_key", checkpoint_key))
+            if payload.get("checkpoint_key") is not None
+            else checkpoint_key,
             path=checkpoint_path,
             epoch=int(payload.get("epoch", 0)),
             global_step=int(payload.get("global_step", 0)),
@@ -665,7 +691,11 @@ class LightningStreamingWorker(TrainingWorker):
         checkpoint_manager = self._checkpoint_manager
         resume_record: _CheckpointRecord | None = None
         if checkpoint_manager is not None:
-            resume_record = checkpoint_manager.prepare_plan(plan.plan_id, dataset_id)
+            resume_record = checkpoint_manager.prepare_plan(
+                plan.plan_id,
+                dataset_id,
+                checkpoint_key=plan.checkpoint_key,
+            )
             self._resume_record = resume_record
             if resume_record is not None:
                 _CHECKPOINT_RESUMES_TOTAL.labels(outcome="detected").inc()
@@ -948,20 +978,53 @@ class LightningStreamingWorker(TrainingWorker):
             plan.metadata,
             worker_streaming_cfg,
         )
-        curriculum_resolution = self._resolve_train_fraction(plan.metadata_summary, plan.caps)
-        train_fraction = curriculum_resolution.train_fraction
-        train_metadata, val_metadata = stream.split_metadata_by_row_fraction(
-            limited_metadata,
-            train_fraction,
-        )
-        train_metadata, train_limits = stream.apply_streaming_limits(
-            train_metadata,
-            worker_streaming_cfg,
-        )
-        val_metadata, val_limits = stream.apply_streaming_limits(
-            val_metadata,
-            worker_streaming_cfg,
-        )
+        train_metadata_override = plan.train_metadata
+        val_metadata_override = plan.val_metadata
+        curriculum_stage_label: str | None = None
+        curriculum_guard_reason: str | None = None
+        if train_metadata_override is not None and val_metadata_override is not None:
+            cap_fraction = _coerce_float(plan.caps.get("global_train_fraction"))
+            train_fraction = (
+                cap_fraction
+                if cap_fraction is not None
+                else float(self.config.train_fraction)
+            )
+            train_fraction = max(0.0, min(1.0, float(train_fraction)))
+            train_metadata, train_limits = stream.apply_streaming_limits(
+                train_metadata_override,
+                worker_streaming_cfg,
+            )
+            val_metadata, val_limits = stream.apply_streaming_limits(
+                val_metadata_override,
+                worker_streaming_cfg,
+            )
+        else:
+            if train_metadata_override is not None or val_metadata_override is not None:
+                logger.warning(
+                    "streaming worker ignoring partial pre-split metadata",
+                    extra={
+                        "plan_id": plan.plan_id,
+                        "dataset_id": plan.dataset_id,
+                        "has_train_metadata": train_metadata_override is not None,
+                        "has_val_metadata": val_metadata_override is not None,
+                    },
+                )
+            curriculum_resolution = self._resolve_train_fraction(plan.metadata_summary, plan.caps)
+            train_fraction = curriculum_resolution.train_fraction
+            curriculum_stage_label = curriculum_resolution.stage_label
+            curriculum_guard_reason = curriculum_resolution.guard_reason
+            train_metadata, val_metadata = stream.split_metadata_by_row_fraction(
+                limited_metadata,
+                train_fraction,
+            )
+            train_metadata, train_limits = stream.apply_streaming_limits(
+                train_metadata,
+                worker_streaming_cfg,
+            )
+            val_metadata, val_limits = stream.apply_streaming_limits(
+                val_metadata,
+                worker_streaming_cfg,
+            )
         telemetry = self._build_telemetry(
             plan_caps=plan.caps,
             full_metadata=limited_metadata,
@@ -972,8 +1035,8 @@ class LightningStreamingWorker(TrainingWorker):
             val_limits=val_limits,
             worker_config=worker_streaming_cfg,
             train_fraction=train_fraction,
-            curriculum_stage=curriculum_resolution.stage_label,
-            curriculum_guard_reason=curriculum_resolution.guard_reason,
+            curriculum_stage=curriculum_stage_label,
+            curriculum_guard_reason=curriculum_guard_reason,
             amp_enabled=amp_enabled,
             amp_guard_reason=amp_guard_reason,
         )
@@ -987,8 +1050,8 @@ class LightningStreamingWorker(TrainingWorker):
             val_limits=val_limits,
             telemetry=telemetry,
             train_fraction=train_fraction,
-            curriculum_stage_label=curriculum_resolution.stage_label,
-            curriculum_guard_reason=curriculum_resolution.guard_reason,
+            curriculum_stage_label=curriculum_stage_label,
+            curriculum_guard_reason=curriculum_guard_reason,
             amp_enabled=amp_enabled,
             amp_guard_reason=amp_guard_reason,
         )

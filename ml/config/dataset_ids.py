@@ -32,6 +32,7 @@ __all__ = [
     "EARNINGS_ESTIMATES_DATASET_ID",
     "EQUS_MINI_DATASET_ID",
     "EVENTS_CALENDAR_DATASET_ID",
+    "FEATURE_VALUES_DATASET_ID",
     "L2_MINUTE_DATASET_ID",
     "MACRO_OBSERVATIONS_DATASET_ID",
     "MACRO_RELEASES_DATASET_ID",
@@ -56,6 +57,9 @@ MACRO_OBSERVATIONS_DATASET_ID: Final[str] = "ml.macro_observations"
 
 EVENTS_CALENDAR_DATASET_ID: Final[str] = "ml.events_calendar"
 """Dataset identifier for normalized events/calendar features."""
+
+FEATURE_VALUES_DATASET_ID: Final[str] = "ml.feature_values"
+"""Dataset identifier for computed FeatureStore values."""
 
 MICRO_MINUTE_DATASET_ID: Final[str] = "ml.microstructure_minute"
 """Dataset identifier for aggregated microstructure per-minute features."""

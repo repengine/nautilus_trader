@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pytest
@@ -26,12 +26,16 @@ from ml.training.teacher.streaming_loader import (
     collect_streaming_metadata,
     count_sequences,
     filter_metadata_by_instruments,
+    filter_metadata_by_shard_ids,
     instrument_row_counts,
     is_within_shard_budget,
+    materialize_streaming_frame,
+    resolve_shard_order,
     split_metadata_by_row_fraction,
     split_metadata_by_time,
     summarize_metadata,
 )
+from ml.training.datasets.time_series_formatter import TimeSeriesFormatter
 
 try:  # optional dependency for parity comparison
     from pytorch_forecasting import TimeSeriesDataSet
@@ -42,6 +46,14 @@ except Exception:  # pragma: no cover - dependency missing
     HAS_PYTORCH_FORECASTING = False
 
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
+
+
+def _to_pandas(frame: Any) -> Any:
+    if pd is None:
+        raise RuntimeError("pandas dependency required for conversion")
+    if hasattr(frame, "to_pandas"):
+        return frame.to_pandas()
+    return frame
 
 
 @pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
@@ -113,6 +125,54 @@ def test_collect_streaming_metadata_counts_and_vocab(tmp_path: Path) -> None:
     shard_counter = getattr(streaming_loader_module, "_METADATA_SHARDS_COUNTER", None)
     counter_value = getattr(getattr(shard_counter, "_value", None), "get", lambda: 0)()
     assert counter_value >= summary.total_shards
+
+
+def test_filter_metadata_by_shard_ids_recomputes_counts() -> None:
+    shards = (
+        TFTShardIndex(
+            shard_id="A-1",
+            instrument_id="AAPL",
+            row_start=0,
+            row_end=9,
+            row_count=10,
+            time_start=0,
+            time_end=9,
+        ),
+        TFTShardIndex(
+            shard_id="A-2",
+            instrument_id="AAPL",
+            row_start=10,
+            row_end=19,
+            row_count=10,
+            time_start=10,
+            time_end=19,
+        ),
+        TFTShardIndex(
+            shard_id="B-1",
+            instrument_id="MSFT",
+            row_start=0,
+            row_end=4,
+            row_count=5,
+            time_start=0,
+            time_end=4,
+        ),
+    )
+    metadata = TFTStreamingMetadata(
+        shard_indices=shards,
+        numeric_stats={},
+        categorical_vocab={},
+        instrument_row_counts={"AAPL": 20, "MSFT": 5},
+        instrument_target_stats={
+            "AAPL": streaming_loader_module.RunningStats(count=20, mean=1.0, m2=2.0),
+            "MSFT": streaming_loader_module.RunningStats(count=5, mean=2.0, m2=1.0),
+        },
+    )
+
+    filtered = filter_metadata_by_shard_ids(metadata, ["A-2", "B-1"])
+
+    assert {shard.shard_id for shard in filtered.shard_indices} == {"A-2", "B-1"}
+    assert filtered.instrument_row_counts == {"AAPL": 10, "MSFT": 5}
+    assert set(filtered.instrument_target_stats.keys()) == {"AAPL", "MSFT"}
 
 
 @pytest.mark.skipif(not (HAS_PANDAS and HAS_TORCH), reason="pandas and torch required")
@@ -706,6 +766,139 @@ def test_streaming_matches_pytorch_forecasting_batch(tmp_path: Path) -> None:
         pf_targets[0].detach().cpu().numpy(),
         atol=1e-5,
     )
+
+
+@pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
+def test_materialize_streaming_frame_matches_time_series_formatter(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+    if not streaming_loader_module.HAS_PYARROW:
+        check_ml_dependencies(["pyarrow"])
+        pytest.skip("pyarrow import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(6, dtype=np.int64),
+            "ts_event": np.arange(6, dtype=np.int64) + 1,
+            "instrument_id": ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT"],
+            "y": np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float32),
+            "feature": np.array([1.0, 1.1, 1.2, 2.0, 2.1, 2.2], dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "dataset.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        target_col="y",
+        shard_row_budget=2,
+    )
+
+    config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=2,
+        max_prediction_length=1,
+        batch_size=2,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=0,
+        num_workers=0,
+    )
+
+    streaming_frame = materialize_streaming_frame(
+        parquet_path,
+        metadata=metadata,
+        config=config,
+        max_rows=len(frame),
+    )
+
+    formatter = TimeSeriesFormatter()
+    offline_frame = formatter.format_for_tft(
+        frame,
+        lookback_periods=config.max_encoder_length,
+        use_polars=False,
+        timestamp_col="ts_event",
+        time_index_col="time_index",
+        group_id_col="instrument_id",
+    )
+
+    streaming_pd = _to_pandas(streaming_frame).sort_values(
+        ["instrument_id", "time_index"],
+        kind="mergesort",
+    )
+    offline_pd = _to_pandas(offline_frame).sort_values(
+        ["instrument_id", "time_index"],
+        kind="mergesort",
+    )
+
+    streaming_pd = streaming_pd.reset_index(drop=True)
+    offline_pd = offline_pd.reset_index(drop=True)
+
+    assert "sequence_id" in streaming_pd.columns
+    assert "sequence_id" in offline_pd.columns
+    assert np.issubdtype(streaming_pd["time_index"].dtype, np.integer)
+    assert np.issubdtype(offline_pd["time_index"].dtype, np.integer)
+
+    common_cols = ["instrument_id", "time_index", "y", "feature"]
+    pd.testing.assert_frame_equal(
+        streaming_pd[common_cols],
+        offline_pd[common_cols],
+        check_dtype=False,
+    )
+
+
+@pytest.mark.skipif(not HAS_PANDAS, reason="pandas dependency required")
+def test_resolve_shard_order_deterministic(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+    if not streaming_loader_module.HAS_PYARROW:
+        check_ml_dependencies(["pyarrow"])
+        pytest.skip("pyarrow import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(8, dtype=np.int64),
+            "instrument_id": ["AAPL"] * 4 + ["MSFT"] * 4,
+            "y": np.linspace(0.0, 0.7, num=8, dtype=np.float32),
+            "feature": np.linspace(1.0, 1.7, num=8, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "order.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        target_col="y",
+        shard_row_budget=2,
+    )
+
+    order_a = resolve_shard_order(metadata, shuffle=True, seed=11).tolist()
+    order_b = resolve_shard_order(metadata, shuffle=True, seed=11).tolist()
+    assert order_a == order_b
+    if len(order_a) > 1:
+        order_c = resolve_shard_order(metadata, shuffle=True, seed=12).tolist()
+        assert order_a != order_c
+
+    sequential = resolve_shard_order(metadata, shuffle=False, seed=99).tolist()
+    assert sequential == list(range(len(metadata.shard_indices)))
 try:  # optional dependency for regression parity test
     from pytorch_forecasting import TimeSeriesDataSet
 

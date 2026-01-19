@@ -721,6 +721,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         try:
             from ml.common.correlation import make_correlation_id
+            from ml.common.events_util import build_bus_payload
             from ml.common.message_topics import build_topic_for_stage
             from ml.config.events import EventStatus
             from ml.config.events import Source
@@ -748,19 +749,26 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 ts_max=ts_event,
                 count=1,
             )
-
-            payload = {
-                "dataset_id": "signals",
-                "instrument_id": instrument_str,
-                "stage": Stage.SIGNAL_EMITTED.value,
-                "status": EventStatus.SUCCESS.value,
-                "source": source,
-                "model_id": signal.model_id,
-                "prediction": float(signal.prediction),
-                "confidence": float(signal.confidence),
-                "ts_event": ts_event,
-                "metadata": {"correlation_id": correlation_id},
-            }
+            payload = build_bus_payload(
+                dataset_id="signals",
+                instrument_id=instrument_str,
+                stage=Stage.SIGNAL_EMITTED,
+                source=source,
+                run_id=f"actor_{self.id}",
+                ts_min=ts_event,
+                ts_max=ts_event,
+                count=1,
+                status=EventStatus.SUCCESS,
+                metadata={
+                    "correlation_id": correlation_id,
+                    "model_id": signal.model_id,
+                    "prediction": float(signal.prediction),
+                    "confidence": float(signal.confidence),
+                    "ts_event": ts_event,
+                    "ts_init": int(signal.ts_init),
+                },
+                inject_trace_context=True,
+            )
 
             bridge.publish(topic, payload)
         except Exception as exc:

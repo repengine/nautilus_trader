@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 
 
-BusBackend = Literal["noop", "redis"]
+BusBackend = Literal["noop", "redis", "file"]
 TopicScheme = Literal["domain_op", "stage_first"]
 
 
@@ -46,6 +46,8 @@ class MessageBusConfig:
         Stream name to append events to. Default "ml-events".
     redis_maxlen : int | None
         Optional approximate max length for the stream (XADD MAXLEN ~). If None, unbounded.
+    file_path : str | None
+        JSONL file path for the file-backed publisher (optional).
 
     """
 
@@ -56,6 +58,7 @@ class MessageBusConfig:
     redis_url: str = "redis://localhost:6379/0"
     redis_stream: str = "ml-events"
     redis_maxlen: int | None = None
+    file_path: str | None = None
 
     @staticmethod
     def from_env() -> MessageBusConfig:
@@ -71,11 +74,17 @@ class MessageBusConfig:
         - ML_BUS_REDIS_URL: str (default: "redis://localhost:6379/0")
         - ML_BUS_REDIS_STREAM: str (default: "ml-events")
         - ML_BUS_REDIS_MAXLEN: int (optional; default: unset)
+        - ML_BUS_FILE_PATH: str (optional; JSONL path for file backend)
 
         """
         enabled = _env_truthy("ML_BUS_ENABLE", default=False)
         backend_env = (os.getenv("ML_BUS_BACKEND") or "noop").strip().lower()
-        backend: BusBackend = "redis" if backend_env == "redis" else "noop"
+        if backend_env == "redis":
+            backend: BusBackend = "redis"
+        elif backend_env == "file":
+            backend = "file"
+        else:
+            backend = "noop"
         scheme_env = (os.getenv("ML_BUS_SCHEME") or "domain_op").strip().lower()
         scheme: TopicScheme = "stage_first" if scheme_env == "stage_first" else "domain_op"
         topic_prefix = os.getenv("ML_BUS_TOPIC_PREFIX", "events.ml").strip() or "events.ml"
@@ -88,6 +97,8 @@ class MessageBusConfig:
                 redis_maxlen = int(redis_maxlen_str)
             except ValueError:
                 redis_maxlen = None
+        file_path = os.getenv("ML_BUS_FILE_PATH")
+        file_path = file_path.strip() if file_path else None
 
         return MessageBusConfig(
             enabled=enabled,
@@ -97,6 +108,7 @@ class MessageBusConfig:
             redis_url=redis_url,
             redis_stream=redis_stream,
             redis_maxlen=redis_maxlen,
+            file_path=file_path,
         )
 
 

@@ -30,6 +30,7 @@ import numpy.typing as npt
 from ml.common.db_utils import get_or_create_engine
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import MLFeatureConfig
+from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
 from ml.core.db_engine import EngineManager
 from ml.features import FeatureConfig
 from ml.features import FeatureEngineer
@@ -48,6 +49,7 @@ from ml.stores.common.feature_schema import FeatureSchemaConfig
 from ml.stores.common.feature_writer import FeatureWriterComponent
 from ml.stores.common.feature_writer import FeatureWriterConfig
 from ml.stores.common.feature_writer import MessagePublisherProtocol
+from ml.stores.feature_raw_writer import FeatureValuesParquetMirrorWriter
 from ml.stores.mixins import DataRegistryMixin
 
 
@@ -111,6 +113,7 @@ class FeatureStoreFacade(MLComponentMixin, DataRegistryMixin):
         feature_config: FeatureConfig | MLFeatureConfig | None = None,
         pipeline_spec: PipelineSpec | None = None,
         persistence_manager: object | None = None,
+        mirror_config: FeatureStoreMirrorConfig | None = None,
         enable_publishing: bool = False,
         publisher: MessagePublisherProtocol | None = None,
         publish_mode: Literal["batch", "row", "both"] = "batch",
@@ -131,6 +134,8 @@ class FeatureStoreFacade(MLComponentMixin, DataRegistryMixin):
             Pipeline specification for feature computation.
         persistence_manager : object | None
             Optional persistence/session provider (used by tests for mocking).
+        mirror_config : FeatureStoreMirrorConfig | None
+            Optional configuration for parquet mirror writes.
         enable_publishing : bool, default False
             When True, publish store events to the optional message bus.
         publisher : MessagePublisherProtocol | None
@@ -189,6 +194,17 @@ class FeatureStoreFacade(MLComponentMixin, DataRegistryMixin):
             topic_scheme = "domain_op"
             topic_prefix = "events.ml"
 
+        # Resolve mirror configuration (cold path only)
+        resolved_mirror_config = mirror_config or FeatureStoreMirrorConfig.from_env()
+        mirror_writer: FeatureValuesParquetMirrorWriter | None = None
+        if resolved_mirror_config.enabled:
+            mirror_writer = FeatureValuesParquetMirrorWriter(
+                base_dir=resolved_mirror_config.base_dir,
+                partition_field=resolved_mirror_config.partition_field,
+                timestamp_field=resolved_mirror_config.timestamp_field,
+                values_field=resolved_mirror_config.values_field,
+            )
+
         # Initialize writer component
         self._writer_config = FeatureWriterConfig(
             enable_publishing=enable_publishing,
@@ -202,6 +218,7 @@ class FeatureStoreFacade(MLComponentMixin, DataRegistryMixin):
             get_feature_set_id=self._get_feature_set_id,
             publisher=publisher,
             config=self._writer_config,
+            mirror_writer=mirror_writer,
         )
 
         # Store the original component execute method and redirect through facade

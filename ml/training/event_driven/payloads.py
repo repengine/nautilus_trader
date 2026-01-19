@@ -135,6 +135,7 @@ class StreamingPlanMessage:
     correlation_id: str
     dataset_id: str
     plan_id: str
+    checkpoint_key: str | None
     created_at: str
     parquet_path: str
     caps: Mapping[str, float | int | None]
@@ -146,6 +147,21 @@ class StreamingPlanMessage:
     phase_one_signals: Mapping[str, Sequence[str]]
 
     def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "created_at": self.created_at,
+            "parquet_path": self.parquet_path,
+            "caps": dict(self.caps),
+            "limits": dict(self.limits),
+            "metadata_summary": dict(self.metadata_summary),
+            "streaming_config": dict(self.streaming_config),
+            "capability_flags": dict(self.capability_flags),
+            "publication_lags": dict(self.publication_lags),
+            "phase_one_signals": {
+                key: list(values) for key, values in self.phase_one_signals.items()
+            },
+        }
+        if self.checkpoint_key is not None:
+            payload["checkpoint_key"] = self.checkpoint_key
         return {
             "schema_version": self.schema_version,
             "stage": self.stage.value,
@@ -155,19 +171,7 @@ class StreamingPlanMessage:
             "dataset_id": self.dataset_id,
             "plan_id": self.plan_id,
             "payload_type": "streaming_plan",
-            "payload": {
-                "created_at": self.created_at,
-                "parquet_path": self.parquet_path,
-                "caps": dict(self.caps),
-                "limits": dict(self.limits),
-                "metadata_summary": dict(self.metadata_summary),
-                "streaming_config": dict(self.streaming_config),
-                "capability_flags": dict(self.capability_flags),
-                "publication_lags": dict(self.publication_lags),
-                "phase_one_signals": {
-                    key: list(values) for key, values in self.phase_one_signals.items()
-                },
-            },
+            "payload": payload,
         }
 
 
@@ -294,6 +298,7 @@ def build_plan_message(plan: DatasetPlanEvent, *, source: Source = _DEFAULT_SOUR
         correlation_id=_make_correlation_id(plan.dataset_id, plan.plan_id, "plan"),
         dataset_id=plan.dataset_id,
         plan_id=plan.plan_id,
+        checkpoint_key=plan.checkpoint_key,
         created_at=_isoformat(plan.created_at),
         parquet_path=str(plan.parquet_path),
         caps=dict(plan.caps),

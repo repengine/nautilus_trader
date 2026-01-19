@@ -35,6 +35,7 @@ from ml.config.streaming_pipeline import CurriculumStageConfig
 from ml.config.streaming_pipeline import DatasetServiceConfig
 from ml.config.streaming_pipeline import EnsembleMemberConfig
 from ml.config.streaming_pipeline import StreamingEnsembleConfig
+from ml.config.streaming_pipeline import StreamingGlobalRunConfig
 from ml.config.streaming_pipeline import StreamingPromotionConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
@@ -54,11 +55,14 @@ from ml.registry.feature_registry import compute_schema_hash
 from ml.training.event_driven.azure_events import AzureScheduledEventsWatcher
 from ml.training.event_driven.azure_events import ScheduledEventNotice
 from ml.training.event_driven.dataset_service import StreamingDatasetPlanner
+from ml.training.event_driven.global_run import StreamingGlobalRunPlanner
+from ml.training.event_driven.global_run import StreamingGlobalRunStateStore
 from ml.training.event_driven.orchestrator import AdaptiveSchedulingDeferred
 from ml.training.event_driven.orchestrator import InMemoryStreamingOrchestrator
 from ml.training.event_driven.payloads import build_plan_message
 from ml.training.event_driven.payloads import build_result_message
 from ml.training.event_driven.services import DatasetPlanEvent
+from ml.training.event_driven.services import DatasetPlanner
 from ml.training.event_driven.services import DatasetPlanRequest
 from ml.training.event_driven.services import TrainingResultEvent
 from ml.training.event_driven.worker import LightningStreamingWorker
@@ -128,7 +132,9 @@ class RunnerConfig:
     pipeline_signature: str
     pipeline_version: str
     persist_snapshot: bool
+    feature_set_id: str | None = None
     scheduled_events: AzureScheduledEventsConfig = field(default_factory=AzureScheduledEventsConfig)
+    global_run: StreamingGlobalRunConfig = field(default_factory=StreamingGlobalRunConfig)
 
 
 @dataclass(slots=True, frozen=True)
@@ -873,6 +879,7 @@ def _register_model(
     worker_config: StreamingWorkerConfig,
     pipeline_signature: str,
     pipeline_version: str,
+    feature_set_id: str | None = None,
 ) -> str:
     registry = ModelRegistry(registry_root)
     feature_names = list(spec.feature_layout.feature_schema.keys())
@@ -912,7 +919,7 @@ def _register_model(
         version="1.0.0",
         serveable=False,
         artifact_format="npz",
-        feature_set_id=None,
+        feature_set_id=feature_set_id,
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
         decision_policy=None,
@@ -1023,6 +1030,13 @@ class StreamingTrainingRunner:
         if watcher is not None:
             watcher.stop()
 
+    def _resolve_global_run_state_path(self) -> Path:
+        """Resolve the global run state path from configuration."""
+        global_cfg = self._config.global_run
+        if global_cfg.state_path:
+            return Path(global_cfg.state_path).expanduser().resolve()
+        return self._config.state_path.parent / global_cfg.state_filename
+
     def _should_defer_due_to_backlog(
         self,
         orchestrator: InMemoryStreamingOrchestrator,
@@ -1085,7 +1099,21 @@ class StreamingTrainingRunner:
     def run(self) -> None:
         """Execute streaming cohorts according to configuration."""
         config = self._config
-        planner = StreamingDatasetPlanner(config.planner)
+        planner: DatasetPlanner
+        global_planner: StreamingGlobalRunPlanner | None = None
+        if config.global_run.enabled:
+            state_path = self._resolve_global_run_state_path()
+            state_store = StreamingGlobalRunStateStore(state_path)
+            global_planner = StreamingGlobalRunPlanner(
+                config.planner,
+                global_config=config.global_run,
+                state_store=state_store,
+                train_fraction=float(config.worker.train_fraction),
+                worker_max_shards=config.worker.max_shards,
+            )
+            planner = global_planner
+        else:
+            planner = StreamingDatasetPlanner(config.planner)
         worker = RecordingStreamingWorker(config.worker, output_dir=config.output_dir)
         self._active_worker = worker
         self._start_scheduled_event_monitoring()
@@ -1104,6 +1132,12 @@ class StreamingTrainingRunner:
             plans_run = 0
             while not self._stop_requested:
                 if config.max_plans is not None and plans_run >= config.max_plans:
+                    break
+                if global_planner is not None and not global_planner.has_remaining_plans():
+                    logger.info(
+                        "global run complete; no remaining plans",
+                        extra={"dataset_id": config.dataset.dataset_id},
+                    )
                     break
                 if self._should_defer_due_to_backlog(orchestrator):
                     self._sleep_with_stop_check(float(config.orchestrator.adaptive_cooldown_seconds))
@@ -1126,7 +1160,21 @@ class StreamingTrainingRunner:
                     RUN_COUNTER.labels(status=EventStatus.FAILED.value).inc()
                     raise RuntimeError("worker did not produce a training result event")
 
-                self._handle_result(plan_event, result_event)
+                finalize = True
+                if global_planner is not None:
+                    if result_event.status != EventStatus.SUCCESS:
+                        logger.error(
+                            "global run plan failed; stopping runner",
+                            extra={
+                                "plan_id": plan_event.plan_id,
+                                "dataset_id": plan_event.dataset_id,
+                                "status": result_event.status.value,
+                            },
+                        )
+                        self._handle_result(plan_event, result_event, finalize=False)
+                        break
+                    finalize = global_planner.mark_plan_completed(plan_event, result_event)
+                self._handle_result(plan_event, result_event, finalize=finalize)
                 plans_run += 1
 
                 interval = self._next_plan_interval(result_event)
@@ -1138,7 +1186,13 @@ class StreamingTrainingRunner:
             self._stop_scheduled_event_monitoring()
             self._active_worker = None
 
-    def _handle_result(self, plan: DatasetPlanEvent, result: TrainingResultEvent) -> None:
+    def _handle_result(
+        self,
+        plan: DatasetPlanEvent,
+        result: TrainingResultEvent,
+        *,
+        finalize: bool = True,
+    ) -> None:
         config = self._config
         artifact_local_path = Path(result.artifact_paths[config.logits_key]).resolve()
         if not artifact_local_path.exists():
@@ -1147,141 +1201,158 @@ class StreamingTrainingRunner:
         metrics = _normalize_metrics(result.metrics, artifact_local_path)
         result = replace(result, metrics=metrics)
 
-        registry_artifact = config.registry_root / "staging" / artifact_local_path.name
-        _copy_artifact(artifact_local_path, registry_artifact)
-        artifact_digest = _compute_sha256(registry_artifact)
+        manifest_path: Path | None = None
+        model_id: str | None = None
+        registry_artifact: Path | None = None
+        if finalize:
+            registry_artifact = config.registry_root / "staging" / artifact_local_path.name
+            _copy_artifact(artifact_local_path, registry_artifact)
+            artifact_digest = _compute_sha256(registry_artifact)
 
-        model_id = _register_model(
-            registry_root=config.registry_root,
-            artifact_path=registry_artifact,
-            artifact_digest=artifact_digest,
-            spec=config.dataset,
-            plan=plan,
-            result=result,
-            worker_config=config.worker,
-            pipeline_signature=config.pipeline_signature,
-            pipeline_version=config.pipeline_version,
-        )
+            model_id = _register_model(
+                registry_root=config.registry_root,
+                artifact_path=registry_artifact,
+                artifact_digest=artifact_digest,
+                spec=config.dataset,
+                plan=plan,
+                result=result,
+                worker_config=config.worker,
+                pipeline_signature=config.pipeline_signature,
+                pipeline_version=config.pipeline_version,
+                feature_set_id=config.feature_set_id,
+            )
 
-        dataset_shape = _parquet_shape(config.dataset.dataset_dir / "dataset_with_vintage_age.parquet")
-        target_stats = _extract_target_stats(config.dataset.report)
-        manifest_payload = _build_manifest_payload(
-            spec=config.dataset,
-            plan=plan,
-            result=result,
-            worker_config=config.worker,
-            registry_path=config.registry_root,
-            artifact_path=registry_artifact,
-            artifact_digest=artifact_digest,
-            state_path=config.state_path,
-            dataset_shape=dataset_shape,
-            target_stats=target_stats,
-            model_id=model_id,
-        )
+            dataset_shape = _parquet_shape(config.dataset.dataset_dir / "dataset_with_vintage_age.parquet")
+            target_stats = _extract_target_stats(config.dataset.report)
+            manifest_payload = _build_manifest_payload(
+                spec=config.dataset,
+                plan=plan,
+                result=result,
+                worker_config=config.worker,
+                registry_path=config.registry_root,
+                artifact_path=registry_artifact,
+                artifact_digest=artifact_digest,
+                state_path=config.state_path,
+                dataset_shape=dataset_shape,
+                target_stats=target_stats,
+                model_id=model_id,
+            )
 
-        manifest_path = config.output_dir / f"{plan.plan_id}_manifest.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        logger.info(
-            "manifest_written",
-            extra={
-                "manifest_path": str(manifest_path),
-                "model_id": model_id,
-                "metrics": metrics,
-            },
-        )
+            manifest_path = config.output_dir / f"{plan.plan_id}_manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps(manifest_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            logger.info(
+                "manifest_written",
+                extra={
+                    "manifest_path": str(manifest_path),
+                    "model_id": model_id,
+                    "metrics": metrics,
+                },
+            )
+        else:
+            logger.info(
+                "global_run_intermediate_result",
+                extra={
+                    "plan_id": plan.plan_id,
+                    "dataset_id": plan.dataset_id,
+                    "metrics": metrics,
+                    "artifact": str(artifact_local_path),
+                },
+            )
 
-        promotion_gate = config.promotion_threshold
         status_label = result.status.value
-        threshold_met = True
-        primary_metric_name = config.worker.validation_metric
-        primary_value = metrics.get(primary_metric_name)
+        threshold_met = False
+        if finalize:
+            promotion_gate = config.promotion_threshold
+            threshold_met = True
+            primary_metric_name = config.worker.validation_metric
+            primary_value = metrics.get(primary_metric_name)
 
-        if promotion_gate is not None:
-            if primary_value is None:
-                logger.warning(
-                    "promotion_metric_missing",
-                    extra={
-                        "metric": primary_metric_name,
-                        "threshold": promotion_gate,
-                        "plan_id": plan.plan_id,
-                    },
-                )
-                threshold_met = False
-            elif primary_value >= promotion_gate:
-                logger.info(
-                    "promotion_threshold_met",
-                    extra={
-                        "metric": primary_metric_name,
-                        "metric_value": primary_value,
-                        "threshold": promotion_gate,
-                        "plan_id": plan.plan_id,
-                        "model_id": model_id,
-                    },
-                )
-            else:
-                logger.info(
-                    "promotion_threshold_not_met",
-                    extra={
-                        "metric": primary_metric_name,
-                        "metric_value": primary_value,
-                        "threshold": promotion_gate,
-                        "plan_id": plan.plan_id,
-                    },
-                )
-                threshold_met = False
-
-        if threshold_met and config.promotion_checks:
-            failed_checks: list[PromotionMetricCheck] = []
-            for check in config.promotion_checks:
-                if not check.evaluate(metrics):
-                    failed_checks.append(check)
-            if failed_checks:
-                threshold_met = False
-                for check in failed_checks:
-                    observed_value = _observed_metric_value(check, metrics)
-                    logger.info(
-                        "promotion_secondary_metric_not_met",
+            if promotion_gate is not None:
+                if primary_value is None:
+                    logger.warning(
+                        "promotion_metric_missing",
                         extra={
-                            "metric": check.metric,
-                            "comparator": check.comparator,
-                            "threshold": check.threshold,
-                            "observed": observed_value,
+                            "metric": primary_metric_name,
+                            "threshold": promotion_gate,
                             "plan_id": plan.plan_id,
                         },
                     )
-            else:
-                logger.info(
-                    "promotion_secondary_metrics_met",
-                    extra={
-                        "plan_id": plan.plan_id,
-                        "checks": [
-                            {
+                    threshold_met = False
+                elif primary_value >= promotion_gate:
+                    logger.info(
+                        "promotion_threshold_met",
+                        extra={
+                            "metric": primary_metric_name,
+                            "metric_value": primary_value,
+                            "threshold": promotion_gate,
+                            "plan_id": plan.plan_id,
+                            "model_id": model_id,
+                        },
+                    )
+                else:
+                    logger.info(
+                        "promotion_threshold_not_met",
+                        extra={
+                            "metric": primary_metric_name,
+                            "metric_value": primary_value,
+                            "threshold": promotion_gate,
+                            "plan_id": plan.plan_id,
+                        },
+                    )
+                    threshold_met = False
+
+            if threshold_met and config.promotion_checks:
+                failed_checks: list[PromotionMetricCheck] = []
+                for check in config.promotion_checks:
+                    if not check.evaluate(metrics):
+                        failed_checks.append(check)
+                if failed_checks:
+                    threshold_met = False
+                    for check in failed_checks:
+                        observed_value = _observed_metric_value(check, metrics)
+                        logger.info(
+                            "promotion_secondary_metric_not_met",
+                            extra={
                                 "metric": check.metric,
                                 "comparator": check.comparator,
                                 "threshold": check.threshold,
-                                "observed": _observed_metric_value(check, metrics),
-                            }
-                            for check in config.promotion_checks
-                        ],
-                    },
-                )
+                                "observed": observed_value,
+                                "plan_id": plan.plan_id,
+                            },
+                        )
+                else:
+                    logger.info(
+                        "promotion_secondary_metrics_met",
+                        extra={
+                            "plan_id": plan.plan_id,
+                            "checks": [
+                                {
+                                    "metric": check.metric,
+                                    "comparator": check.comparator,
+                                    "threshold": check.threshold,
+                                    "observed": _observed_metric_value(check, metrics),
+                                }
+                                for check in config.promotion_checks
+                            ],
+                        },
+                    )
 
-        if threshold_met:
-            status_label = "promotable"
+            if threshold_met:
+                status_label = "promotable"
 
         RUN_COUNTER.labels(status=status_label).inc()
 
-        if threshold_met and config.promotion_command is not None:
+        if threshold_met and finalize and config.promotion_command is not None:
             self._run_promotion_command(
                 config.promotion_command,
-                manifest_path=manifest_path,
+                manifest_path=manifest_path or artifact_local_path,
                 worker_artifact=artifact_local_path,
-                registry_artifact=registry_artifact,
-                model_id=model_id,
+                registry_artifact=registry_artifact or artifact_local_path,
+                model_id=model_id or "",
                 plan=plan,
             )
 
@@ -1378,6 +1449,12 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=Path(os.environ.get("ML_MODEL_REGISTRY_PATH", "~/.nautilus/ml/models")).expanduser(),
         help="Registry root directory used for model artifacts (default: ~/.nautilus/ml/models).",
+    )
+    parser.add_argument(
+        "--feature-set-id",
+        type=str,
+        default=None,
+        help="Optional feature set identifier recorded in the registry manifest.",
     )
     parser.add_argument(
         "--state-path",
@@ -2075,6 +2152,39 @@ def _add_orchestrator_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_global_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--global-run",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable multi-plan global run with checkpoint carry-over.",
+    )
+    parser.add_argument(
+        "--global-run-id",
+        type=str,
+        default=None,
+        help="Optional global run identifier (default uses dataset id + timestamp).",
+    )
+    parser.add_argument(
+        "--global-run-state-path",
+        type=Path,
+        default=None,
+        help="Path for global run state persistence (defaults near state snapshot).",
+    )
+    parser.add_argument(
+        "--global-run-shards-per-plan",
+        type=int,
+        default=None,
+        help="Shard slice size per plan (defaults to --max-shards or worker cap).",
+    )
+    parser.add_argument(
+        "--global-run-shuffle-train-shards",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override shard shuffle for global run ordering (defaults to streaming config).",
+    )
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run continuous event-driven streaming training cohorts.",
@@ -2084,6 +2194,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     _add_streaming_config_args(parser)
     _add_worker_args(parser)
     _add_orchestrator_args(parser)
+    _add_global_run_args(parser)
     return parser.parse_args(argv)
 
 
@@ -2344,6 +2455,28 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         event_types=azure_event_types_values,
         status_filter=azure_status_values,
     )
+    feature_set_id_value = (
+        str(args.feature_set_id).strip() if getattr(args, "feature_set_id", None) else None
+    )
+    global_run_enabled = bool(getattr(args, "global_run", False))
+    global_run_id = getattr(args, "global_run_id", None)
+    global_run_shards = getattr(args, "global_run_shards_per_plan", None)
+    if global_run_shards is not None and int(global_run_shards) <= 0:
+        global_run_shards = None
+    global_run_shuffle = getattr(args, "global_run_shuffle_train_shards", None)
+    state_filename = StreamingGlobalRunConfig().state_filename
+    global_state_path = getattr(args, "global_run_state_path", None)
+    if global_state_path is None:
+        resolved_global_state = state_path.parent / state_filename
+    else:
+        resolved_global_state = Path(global_state_path).expanduser().resolve()
+    global_run_config = StreamingGlobalRunConfig(
+        enabled=global_run_enabled,
+        run_id=str(global_run_id).strip() if global_run_id else None,
+        state_path=str(resolved_global_state),
+        shards_per_plan=global_run_shards,
+        shuffle_train_shards=global_run_shuffle,
+    )
 
     return RunnerConfig(
         dataset=dataset_spec,
@@ -2353,6 +2486,7 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         state_path=state_path,
         output_dir=output_dir,
         registry_root=registry_root,
+        feature_set_id=feature_set_id_value,
         logits_key=str(args.logits_key),
         plan_interval_seconds=float(args.plan_interval_seconds),
         max_plans=max_plans_value,
@@ -2363,6 +2497,7 @@ def _build_runner_config(args: argparse.Namespace) -> RunnerConfig:
         pipeline_version=str(args.pipeline_version),
         persist_snapshot=bool(args.persist_snapshot),
         scheduled_events=azure_events_config,
+        global_run=global_run_config,
     )
 
 

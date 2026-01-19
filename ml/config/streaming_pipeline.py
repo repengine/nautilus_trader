@@ -966,6 +966,26 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
         )
 
 
+class StreamingGlobalRunConfig(NautilusConfig, kw_only=True, frozen=True):
+    """Configuration for multi-plan streaming runs that produce a single global model."""
+
+    enabled: bool = False
+    run_id: str | None = None
+    state_path: str | None = None
+    state_filename: str = "streaming_global_run_state.json"
+    shards_per_plan: PositiveInt | None = None
+    shuffle_train_shards: bool | None = None
+
+    def __post_init__(self) -> None:
+        """Validate global run settings."""
+        if self.run_id is not None and not self.run_id.strip():
+            raise ValidationError("run_id must be non-empty when provided")
+        if self.state_path is not None and not self.state_path.strip():
+            raise ValidationError("state_path must be non-empty when provided")
+        if self.state_filename and not self.state_filename.strip():
+            raise ValidationError("state_filename must be non-empty")
+
+
 class TrainingOrchestratorConfig(NautilusConfig, kw_only=True, frozen=True):
     """Configuration for event-driven streaming orchestrator."""
 
@@ -1268,6 +1288,7 @@ __all__ = [
     "DatasetServiceConfig",
     "EnsembleMemberConfig",
     "StreamingEnsembleConfig",
+    "StreamingGlobalRunConfig",
     "StreamingPersistenceConfig",
     "StreamingPromotionConfig",
     "StreamingWorkerConfig",

@@ -3,21 +3,64 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from ml.actors.ml_domain_events import DomainEventBridge, TopicThrottleConfig
+from ml.common.events_util import build_bus_payload
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.metrics_manager import MetricsManager
 from ml.common.throttler import Throttler
+from ml.config.events import EventStatus, Source, Stage
+
+
+def _make_payload(
+    *,
+    ts_min: int = 1,
+    ts_max: int = 1,
+    count: int = 1,
+    dataset_id: str = "dataset",
+    instrument_id: str = "EURUSD",
+    run_id: str = "run",
+    metadata: dict[str, object] | None = None,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload = build_bus_payload(
+        dataset_id=dataset_id,
+        instrument_id=instrument_id,
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        run_id=run_id,
+        ts_min=ts_min,
+        ts_max=ts_max,
+        count=count,
+        status=EventStatus.SUCCESS,
+        metadata=metadata,
+    )
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 class CapturePublisher(MessagePublisherProtocol):
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self._condition = threading.Condition()
 
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
-        self.calls.append((topic, payload))
+        with self._condition:
+            self.calls.append((topic, payload))
+            self._condition.notify_all()
         return True
+
+    def wait_for_calls(self, expected: int, timeout: float = 1.0) -> bool:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while len(self.calls) < expected:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(timeout=remaining)
+        return len(self.calls) >= expected
 
 
 class SlowPublisher(MessagePublisherProtocol):
@@ -74,9 +117,9 @@ def test_bridge_enqueues_and_flushes() -> None:
     bridge.start()
     try:
         for i in range(4):
-            assert bridge.publish("topic", {"i": i}) is True
-        # Give background thread a moment to drain
-        time.sleep(0.05)
+            payload = _make_payload(ts_min=i + 1, ts_max=i + 1, extra={"i": i})
+            assert bridge.publish("topic", payload) is True
+        assert cap.wait_for_calls(1, timeout=1.0)
         # Stop and drain
     finally:
         bridge.stop(drain=True, timeout=1.0)
@@ -89,9 +132,9 @@ def test_bridge_backpressure_drop() -> None:
     bridge = DomainEventBridge(cap, max_queue=1)
     bridge.start()
     try:
-        assert bridge.publish("t1", {"i": 1}) is True
+        assert bridge.publish("t1", _make_payload(extra={"i": 1})) is True
         # Immediately fill the queue; next may drop
-        dropped = not bridge.publish("t2", {"i": 2})
+        dropped = not bridge.publish("t2", _make_payload(extra={"i": 2}))
         assert dropped in {True, False}
     finally:
         bridge.stop(drain=True, timeout=1.0)
@@ -103,8 +146,8 @@ def test_bridge_respects_throttler() -> None:
     bridge = DomainEventBridge(cap, max_queue=8, throttler=throttler)
     bridge.start()
     try:
-        payload1 = {"ts_max": 0}
-        payload2 = {"ts_max": 0}
+        payload1 = _make_payload(ts_min=1, ts_max=1)
+        payload2 = _make_payload(ts_min=1, ts_max=1)
         assert bridge.publish("topic", payload1) is True
         # Without time advancing, throttler should drop the next publish
         assert bridge.publish("topic", payload2) is False
@@ -127,7 +170,7 @@ def test_per_topic_throttling() -> None:
     try:
         # Test ml.features throttling (rate: 2/sec, burst: 1)
         now = time.time_ns()
-        payload = {"ts_max": now}
+        payload = _make_payload(ts_min=now, ts_max=now)
 
         # First should succeed (uses burst token for first topic)
         assert bridge.publish("ml.features.computed.EURUSD", payload) is True
@@ -160,7 +203,8 @@ def test_stress_queue_capacity_exceeds_limit() -> None:
             # Rapidly enqueue more than capacity
             results = []
             for i in range(20):
-                result = bridge.publish(f"topic.{i % 3}", {"event_id": i})
+                payload = _make_payload(ts_min=i + 1, ts_max=i + 1, extra={"event_id": i})
+                result = bridge.publish(f"topic.{i % 3}", payload)
                 results.append(result)
                 if i < 10:
                     time.sleep(0.01)  # Small delay to allow some processing
@@ -211,7 +255,7 @@ def test_stress_throttling_behavior_under_load() -> None:
 
             for i in range(50):
                 topic = "high_volume.topic" if i % 2 == 0 else "normal.topic"
-                payload = {"ts_max": now, "event_id": i}
+                payload = _make_payload(ts_min=now, ts_max=now, extra={"event_id": i})
                 result = bridge.publish(topic, payload)
                 results.append((topic, result))
 
@@ -245,7 +289,12 @@ def test_stress_concurrent_publishing() -> None:
         thread_results = []
         for i in range(events_per_thread):
             topic = f"thread.{thread_id}.topic"
-            payload = {"thread_id": thread_id, "event_id": i, "ts_max": time.time_ns()}
+            now_ns = time.time_ns()
+            payload = _make_payload(
+                ts_min=now_ns,
+                ts_max=now_ns,
+                extra={"thread_id": thread_id, "event_id": i},
+            )
             result = bridge.publish(topic, payload)
             thread_results.append(result)
             time.sleep(0.001)  # Small delay to create some contention
@@ -292,7 +341,7 @@ def test_bridge_does_not_mutate_watermark_fields_throttled_and_published() -> No
     bridge.start()
     try:
         # Prepare payload with watermark fields
-        base_payload = {"ts_min": 111, "ts_max": 222, "event_id": 1}
+        base_payload = _make_payload(ts_min=111, ts_max=222, extra={"event_id": 1})
 
         # First publish uses burst token → should enqueue
         payload1 = dict(base_payload)
@@ -306,8 +355,7 @@ def test_bridge_does_not_mutate_watermark_fields_throttled_and_published() -> No
         # Still must not mutate payload even when throttled
         assert payload2["ts_min"] == 111 and payload2["ts_max"] == 222
 
-        # Allow some time for background worker to drain
-        time.sleep(0.05)
+        assert cap.wait_for_calls(1, timeout=1.0)
 
     finally:
         bridge.stop(drain=True, timeout=1.0)
@@ -337,7 +385,7 @@ def test_stress_metrics_accuracy_under_load() -> None:
 
             for i in range(total_events):
                 # Use same timestamp to trigger throttling
-                payload = {"ts_max": 0, "event_id": i}
+                payload = _make_payload(ts_min=1, ts_max=1, extra={"event_id": i})
                 result = bridge.publish(f"topic.{i % 5}", payload)
                 results.append(result)
 
@@ -372,7 +420,7 @@ def test_throttle_stats_tracking() -> None:
 
     try:
         # Publish events to trigger various outcomes
-        payload = {"ts_max": 0}
+        payload = _make_payload(ts_min=1, ts_max=1)
 
         # First should succeed (burst token)
         assert bridge.publish("topic1", payload) is True

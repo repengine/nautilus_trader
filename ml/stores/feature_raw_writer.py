@@ -9,8 +9,11 @@ callers can fan out to multiple raw writers (e.g., catalog + feature mirrors).
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterable
+from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -225,6 +228,174 @@ class FeatureDatasetParquetRawWriter(RawIngestionWriterProtocol):
 
 
 @dataclass(slots=True)
+class FeatureValuesParquetMirrorWriter:
+    """
+    Mirror writer for computed FeatureStore values (ml_feature_values).
+    """
+
+    base_dir: Path
+    partition_field: str = "instrument_id"
+    timestamp_field: str = "ts_event"
+    values_field: str = "values"
+
+    def __init__(
+        self,
+        *,
+        base_dir: Path,
+        partition_field: str = "instrument_id",
+        timestamp_field: str = "ts_event",
+        values_field: str = "values",
+    ) -> None:
+        self.base_dir = base_dir.resolve()
+        self.partition_field = partition_field
+        self.timestamp_field = timestamp_field
+        self.values_field = values_field
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_rows(self, rows: Sequence[Mapping[str, object]]) -> int:
+        """
+        Persist feature value rows into partitioned parquet mirrors.
+
+        Args:
+            rows: Sequence of row-like mappings for feature values.
+
+        Returns:
+            Number of rows written.
+        """
+        if not rows:
+            return 0
+        frame = _to_pandas_frame(list(rows))
+        if frame.empty:
+            return 0
+        if self.partition_field not in frame.columns or self.timestamp_field not in frame.columns:
+            logger.warning(
+                "feature_values_mirror.missing_columns",
+                extra={
+                    "partition_field": self.partition_field,
+                    "timestamp_field": self.timestamp_field,
+                },
+            )
+            return 0
+        assert pd is not None
+        work = frame.copy(deep=False)
+        work[self.partition_field] = work[self.partition_field].fillna("").astype(str)
+        ts_series = work[self.timestamp_field]
+        if pd.api.types.is_datetime64_any_dtype(ts_series):
+            numeric_ts = ts_series.view("int64")
+        else:
+            numeric_ts = pd.to_numeric(ts_series, errors="coerce")
+        work = work.loc[numeric_ts.notna()].copy()
+        if work.empty:
+            return 0
+        numeric_ts = pd.to_numeric(numeric_ts.loc[work.index], errors="coerce").astype("int64")
+        work[self.timestamp_field] = numeric_ts
+        if "ts_init" not in work.columns:
+            work["ts_init"] = work[self.timestamp_field]
+        else:
+            work["ts_init"] = (
+                pd.to_numeric(work["ts_init"], errors="coerce")
+                .fillna(work[self.timestamp_field])
+                .astype("int64")
+            )
+        work["_day"] = pd.to_datetime(work[self.timestamp_field], unit="ns", utc=True).dt.date
+        if self.values_field in work.columns:
+            values_series = work[self.values_field].tolist()
+            serialized: list[str] = []
+            for value in values_series:
+                if isinstance(value, str):
+                    serialized.append(value)
+                else:
+                    try:
+                        serialized.append(json.dumps(value, sort_keys=True))
+                    except TypeError:
+                        serialized.append(json.dumps(str(value)))
+            work[self.values_field] = serialized
+        total_rows = 0
+        for (instrument, day), group in work.groupby(
+            [self.partition_field, "_day"],
+            sort=False,
+        ):
+            instrument_id = str(instrument).strip()
+            if not instrument_id:
+                continue
+            path = day_partition_path(self.base_dir, instrument_id, day)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            to_write = group.drop(columns=["_day"])
+            combined = to_write
+            if path.exists():
+                try:
+                    existing = pd.read_parquet(path)
+                    combined = pd.concat([existing, to_write], ignore_index=True)
+                except Exception:
+                    logger.warning(
+                        "feature_values_mirror.read_failed",
+                        exc_info=True,
+                        extra={"path": str(path)},
+                    )
+                    combined = to_write
+            dedup_keys = [
+                key
+                for key in ("feature_set_id", "instrument_id", "ts_event")
+                if key in combined.columns
+            ]
+            if dedup_keys:
+                combined = combined.drop_duplicates(
+                    subset=dedup_keys,
+                    keep="last",
+                    ignore_index=True,
+                )
+            try:
+                combined.to_parquet(path, index=False)
+            except Exception:
+                logger.warning(
+                    "feature_values_mirror.write_failed",
+                    exc_info=True,
+                    extra={"path": str(path), "instrument": instrument_id},
+                )
+                continue
+            total_rows += len(to_write)
+        return total_rows
+
+    def write_batch(self, data: list[object]) -> None:
+        """
+        Write a batch of FeatureData-style objects.
+
+        Args:
+            data: List of objects to mirror.
+        """
+        if not data:
+            return
+        rows: list[dict[str, object]] = []
+        for item in data:
+            if isinstance(item, Mapping):
+                rows.append(dict(item))
+                continue
+            raw = getattr(item, "__dict__", None)
+            if isinstance(raw, dict):
+                rows.append(dict(raw))
+                continue
+            row: dict[str, object] = {}
+            for field in ("feature_set_id", "instrument_id", "values", "ts_event", "ts_init", "quality_flags"):
+                if hasattr(item, field):
+                    row[field] = getattr(item, field)
+            if row:
+                rows.append(row)
+        self.write_rows(rows)
+
+    def store_features(self, *args: object, **kwargs: object) -> None:
+        """
+        Backward-compatible alias for mirror writes.
+        """
+        data = kwargs.get("data")
+        if data is None and args:
+            data = args[0]
+        if isinstance(data, list):
+            self.write_batch(data)
+        elif data is not None:
+            self.write_batch([data])
+
+
+@dataclass(slots=True)
 class CompositeRawIngestionWriter(RawIngestionWriterProtocol):
     """
     Fan-out writer that forwards writes to multiple raw writers.
@@ -273,4 +444,5 @@ class CompositeRawIngestionWriter(RawIngestionWriterProtocol):
 __all__ = [
     "CompositeRawIngestionWriter",
     "FeatureDatasetParquetRawWriter",
+    "FeatureValuesParquetMirrorWriter",
 ]

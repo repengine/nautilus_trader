@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import ModuleType
 
 import pytest
 
 from ml import _imports as ml_imports
-from ml.common.message_bus import NoopPublisher, RedisStreamsPublisher, publisher_from_config
+from ml.common.message_bus import FilePublisher, NoopPublisher, RedisStreamsPublisher, publisher_from_config
 from ml.config.bus import MessageBusConfig
 
 
@@ -40,3 +41,15 @@ def test_publisher_from_config_redis_backend(monkeypatch: pytest.MonkeyPatch) ->
     )
     pub = publisher_from_config(cfg)
     assert isinstance(pub, RedisStreamsPublisher)
+
+
+def test_publisher_from_config_file_backend(tmp_path: Path) -> None:
+    cfg = MessageBusConfig(
+        enabled=True,
+        backend="file",
+        scheme="domain_op",
+        topic_prefix="events.ml",
+        file_path=str(tmp_path / "bus.jsonl"),
+    )
+    pub = publisher_from_config(cfg)
+    assert isinstance(pub, FilePublisher)

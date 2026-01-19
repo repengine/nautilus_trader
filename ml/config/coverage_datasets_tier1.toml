@@ -126,3 +126,21 @@ path = "data/features/l2_minute"
 partition_field = "instrument_id"
 partition_template = "{value}"
 timestamp_field = "timestamp"
+
+[[datasets]]
+dataset_id = "ml.feature_values"
+schema = "feature_values"
+entities = "@tier1_full"
+entity_field = "instrument_id"
+
+[datasets.sql]
+table = "ml_feature_values"
+schema = "public"
+ts_field = "ts_event"
+entity_field = "instrument_id"
+
+[datasets.parquet]
+path = "data/features/store/feature_values"
+partition_field = "instrument_id"
+partition_template = "{value}"
+timestamp_field = "ts_event"

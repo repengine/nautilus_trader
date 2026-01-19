@@ -712,6 +712,38 @@ def test_curriculum_guard_and_amp_guard_annotations(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_prepare_context_uses_presplit_metadata(tmp_path: Path) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    train_metadata, val_metadata = stream.split_metadata_by_row_fraction(
+        plan.metadata,
+        train_fraction=0.5,
+    )
+    override_plan = replace(
+        plan,
+        train_metadata=train_metadata,
+        val_metadata=val_metadata,
+        caps={**plan.caps, "global_train_fraction": 0.4},
+    )
+    worker_config = StreamingWorkerConfig(
+        train_fraction=0.9,
+        max_total_rows=None,
+        max_total_sequences=None,
+        max_shards=None,
+    )
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "artifacts")
+    context = worker._prepare_context(override_plan)
+
+    assert context.train_fraction == pytest.approx(0.4)
+    assert {shard.shard_id for shard in context.train_metadata.shard_indices} == {
+        shard.shard_id for shard in train_metadata.shard_indices
+    }
+    assert {shard.shard_id for shard in context.val_metadata.shard_indices} == {
+        shard.shard_id for shard in val_metadata.shard_indices
+    }
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
 def test_build_teacher_uses_loss_configuration(tmp_path: Path) -> None:
     planner, request = _planner_and_request(tmp_path)
     plan = planner.plan(request)
@@ -964,6 +996,39 @@ def test_checkpoint_manager_interval_triggers_save(tmp_path: Path) -> None:
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert payload["trigger"] == "interval_steps"
     manager.detach_trainer()
+
+
+def test_checkpoint_manager_uses_checkpoint_key(tmp_path: Path) -> None:
+    manager = StreamingCheckpointManager(
+        tmp_path / "global",
+        retention=1,
+        interval_seconds=None,
+        interval_steps=None,
+    )
+    assert manager.prepare_plan(
+        "plan-global",
+        "dataset-global",
+        checkpoint_key="global-run",
+    ) is None
+    trainer = _TrainerStub()
+    manager.attach_trainer(trainer, object())
+    manager.request_manual_save(reason="global-run", triggered_by_signal=False)
+    manager.detach_trainer()
+
+    latest_ckpt = tmp_path / "global" / "global-run_latest.ckpt"
+    metadata_path = tmp_path / "global" / "global-run_latest.json"
+    assert latest_ckpt.exists()
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["checkpoint_key"] == "global-run"
+
+    resume_record = manager.prepare_plan(
+        "plan-global",
+        "dataset-global",
+        checkpoint_key="global-run",
+    )
+    assert resume_record is not None
+    assert resume_record.checkpoint_key == "global-run"
+    assert resume_record.path == latest_ckpt
 
 
 def test_worker_checkpoint_telemetry_block(tmp_path: Path) -> None:

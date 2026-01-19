@@ -63,6 +63,7 @@ from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import FEATURE_VALUES_DATASET_ID
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
@@ -72,6 +73,12 @@ from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.events import EventStatus
 from ml.config.events import Source as EventSource
 from ml.config.events import Stage as EventStage
+
+# =============================================================================
+# SPECIALIZED CONFIGURATIONS
+# =============================================================================
+# Registry and storage
+from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
 
 # Framework-specific training
 from ml.config.lightgbm import LightGBMTrainingConfig
@@ -91,13 +98,9 @@ from ml.config.market_data import load_market_feed_descriptors
 from ml.config.observability import ObservabilityConfig
 from ml.config.playground import LiquidityScalingDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
-
-# =============================================================================
-# SPECIALIZED CONFIGURATIONS
-# =============================================================================
-# Registry and storage
 from ml.config.registry import ModelRegistryConfig
 from ml.config.registry import RegistryPolicyConfig
+from ml.config.replay import LiveReplayConfig
 
 # Runtime and inference
 from ml.config.runtime import OnnxRuntimeConfig
@@ -119,6 +122,7 @@ from ml.config.shared import LightGBMGPUConfig
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig
 from ml.config.streaming_pipeline import DatasetServiceConfig
+from ml.config.streaming_pipeline import StreamingGlobalRunConfig
 from ml.config.streaming_pipeline import StreamingPersistenceConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
@@ -207,6 +211,7 @@ __all__ = [
     "EARNINGS_ESTIMATES_DATASET_ID",
     "EQUS_MINI_DATASET_ID",
     "EVENTS_CALENDAR_DATASET_ID",
+    "FEATURE_VALUES_DATASET_ID",
     "L2_MINUTE_DATASET_ID",
     "MACRO_OBSERVATIONS_DATASET_ID",
     "MACRO_RELEASES_DATASET_ID",
@@ -221,10 +226,12 @@ __all__ = [
     "EventStage",
     "EventStatus",
     "FeatureColumns",
+    "FeatureStoreMirrorConfig",
     "IndicatorNames",
     "LightGBMGPUConfig",
     "LightGBMTrainingConfig",
     "LiquidityScalingDefaults",
+    "LiveReplayConfig",
     "MLActorConfig",
     "MLConstants",
     "MLFeatureConfig",
@@ -246,6 +253,7 @@ __all__ = [
     "RegistryPolicyConfig",
     "SchedulerConfig",
     "StrategyConfig",
+    "StreamingGlobalRunConfig",
     "StreamingPersistenceConfig",
     "StreamingWorkerConfig",
     "SystemConstants",

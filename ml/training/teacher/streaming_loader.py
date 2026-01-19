@@ -125,9 +125,11 @@ __all__ = [
     "collect_streaming_metadata",
     "count_sequences",
     "filter_metadata_by_instruments",
+    "filter_metadata_by_shard_ids",
     "instrument_row_counts",
     "is_within_shard_budget",
     "materialize_streaming_frame",
+    "resolve_shard_order",
     "split_metadata_by_row_fraction",
     "split_metadata_by_time",
     "summarize_metadata",
@@ -968,6 +970,22 @@ def _limit_metadata_for_streaming(
     return limited_metadata, summary
 
 
+def resolve_shard_order(
+    metadata: TFTStreamingMetadata,
+    *,
+    shuffle: bool,
+    seed: int | None,
+) -> IntArray:
+    """Return deterministic shard order indices for streaming iteration."""
+    shard_count = len(metadata.shard_indices)
+    if shard_count == 0:
+        return np.array([], dtype=np.int64)
+    if shuffle:
+        rng = np.random.default_rng(seed or 0)
+        return np.asarray(rng.permutation(shard_count), dtype=np.int64)
+    return np.arange(shard_count, dtype=np.int64)
+
+
 class TFTStreamingDataset(StreamIterableDatasetBase):
     """Iterable dataset yielding TFT-compatible batches from parquet shards."""
 
@@ -1092,10 +1110,11 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         if shard_count == 0:
             return
 
-        if self._config.shuffle_shards:
-            shard_order = np.random.default_rng(base_seed).permutation(shard_count)
-        else:
-            shard_order = np.arange(shard_count)
+        shard_order = resolve_shard_order(
+            self._metadata,
+            shuffle=self._config.shuffle_shards,
+            seed=base_seed,
+        )
 
         shards = self._resolve_shards(
             worker_id=worker_id,
@@ -1676,6 +1695,44 @@ def filter_metadata_by_instruments(
             for instrument in allowed
             if instrument in metadata.instrument_target_stats
         },
+    )
+
+
+def filter_metadata_by_shard_ids(
+    metadata: TFTStreamingMetadata,
+    shard_ids: Iterable[str],
+) -> TFTStreamingMetadata:
+    """
+    Return metadata containing only shards with ids in ``shard_ids``.
+
+    Args:
+        metadata: Base metadata to filter.
+        shard_ids: Shard identifiers to retain.
+
+    Returns:
+        TFTStreamingMetadata: Filtered metadata with per-instrument row counts recomputed.
+    """
+    allowed = {str(shard_id) for shard_id in shard_ids}
+    filtered_shards = tuple(
+        shard for shard in metadata.shard_indices if shard.shard_id in allowed
+    )
+    instrument_row_counts: dict[str, int] = {}
+    for shard in filtered_shards:
+        instrument_row_counts[shard.instrument_id] = (
+            instrument_row_counts.get(shard.instrument_id, 0) + shard.row_count
+        )
+    instrument_target_stats = {
+        instrument: metadata.instrument_target_stats[instrument]
+        for instrument in instrument_row_counts
+        if instrument in metadata.instrument_target_stats
+    }
+    return TFTStreamingMetadata(
+        shard_indices=filtered_shards,
+        numeric_stats=metadata.numeric_stats,
+        categorical_vocab=metadata.categorical_vocab,
+        instrument_row_counts=instrument_row_counts,
+        instrument_target_stats=instrument_target_stats,
+        phase_one_signals=metadata.phase_one_signals,
     )
 
 

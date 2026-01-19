@@ -213,6 +213,15 @@ _register(
         identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
     ),
 )
+_register(
+    _SCHEMA_REGISTRY,
+    ("feature_values", "feature-values", "features"),
+    SchemaSpec(
+        dataset_type=DatasetType.FEATURES,
+        data_class=dict,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
 
 
 def schema_spec_for(schema: str) -> SchemaSpec:

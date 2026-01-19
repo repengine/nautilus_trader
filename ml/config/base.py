@@ -605,6 +605,11 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Whether to execute actual trades. If False, the strategy will process signals,
         calculate decisions, persist to stores, and update metrics, but will not submit
         orders to the broker. Useful for testing in production without financial risk.
+    serialize_order_intents : bool, default False
+        Whether to serialize order intents to JSONL instead of submitting to a broker.
+    order_intent_path : str | None, optional
+        Explicit JSONL output path for order intents. If None, uses ML_FILE_STORE_PATH
+        when serialization is enabled.
 
     """
 
@@ -619,6 +624,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     strategy_store_config: dict[str, Any] | None = None
     persist_all_signals: bool = False
     execute_trades: bool = False
+    serialize_order_intents: bool = False
+    order_intent_path: str | None = None
     # Optional sub-configs for strategy components (protocol-first)
     sizing_config: _SizingConfig | None = None
     risk_config: _RiskConfig | None = None
@@ -672,6 +679,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Toggle persistence of HOLD/neutral signals.
         ML_EXECUTE_TRADES
             Toggle live order submission.
+        ML_SERIALIZE_ORDER_INTENTS
+            Toggle JSONL order intent serialization.
+        ML_ORDER_INTENT_PATH
+            Explicit JSONL path for order intent outputs.
 
         """
         source = _ensure_env(env)
@@ -711,6 +722,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         use_strategy_store = _env_truthy(source, "ML_USE_STRATEGY_STORE", True)
         persist_all_signals = _env_truthy(source, "ML_PERSIST_ALL_SIGNALS", False)
         execute_trades = _env_truthy(source, "ML_EXECUTE_TRADES", False)
+        serialize_order_intents = _env_truthy(source, "ML_SERIALIZE_ORDER_INTENTS", False)
+        order_intent_path = source.get("ML_ORDER_INTENT_PATH")
 
         return cls(
             instrument_id=instrument_id,
@@ -724,6 +737,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             strategy_store_config=None,
             persist_all_signals=persist_all_signals,
             execute_trades=execute_trades,
+            serialize_order_intents=serialize_order_intents,
+            order_intent_path=order_intent_path,
             sizing_config=None,
             risk_config=None,
             execution_config=None,

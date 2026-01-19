@@ -30,7 +30,25 @@ def _utcnow() -> datetime:
 
 @dataclass(slots=True, frozen=True)
 class DatasetPlanEvent:
-    """Event emitted when a dataset plan is created."""
+    """
+    Event emitted when a dataset plan is created.
+
+    Args:
+        plan_id: Unique identifier for the plan.
+        dataset_id: Dataset identifier being planned.
+        parquet_path: Path to the parquet dataset backing the plan.
+        metadata: Metadata describing shards and feature stats.
+        metadata_summary: Summary statistics for the metadata.
+        limits: Summary of any applied planning limits.
+        streaming_config: Streaming configuration used for this plan.
+        caps: Planning caps applied to the plan.
+        train_metadata: Optional pre-split training metadata (global runs).
+        val_metadata: Optional pre-split validation metadata (global runs).
+        checkpoint_key: Optional checkpoint namespace shared across plans.
+        phase_one_signals: Feature-signal metadata collected during scan.
+        created_at: Timestamp when the plan was created (UTC).
+        status: Event status for the plan.
+    """
 
     plan_id: str
     dataset_id: str
@@ -40,6 +58,9 @@ class DatasetPlanEvent:
     limits: StreamingLimitSummary
     streaming_config: TFTStreamingConfig
     caps: dict[str, float | int | None]
+    train_metadata: TFTStreamingMetadata | None = None
+    val_metadata: TFTStreamingMetadata | None = None
+    checkpoint_key: str | None = None
     phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
     created_at: datetime = field(default_factory=_utcnow)
     status: EventStatus = EventStatus.SUCCESS

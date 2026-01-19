@@ -16,6 +16,7 @@ DATASET_ID_EXPECTATIONS: Final[tuple[tuple[str, str], ...]] = (
     ("EARNINGS_ESTIMATES_DATASET_ID", "ml.earnings_estimates"),
     ("EQUS_MINI_DATASET_ID", "EQUS.MINI"),
     ("EVENTS_CALENDAR_DATASET_ID", "ml.events_calendar"),
+    ("FEATURE_VALUES_DATASET_ID", "ml.feature_values"),
     ("L2_MINUTE_DATASET_ID", "ml.l2_minute"),
     ("MACRO_OBSERVATIONS_DATASET_ID", "ml.macro_observations"),
     ("MACRO_RELEASES_DATASET_ID", "ml.macro_release_calendar"),

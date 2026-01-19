@@ -6,9 +6,39 @@ from typing import Any
 import pytest
 
 from ml.actors.ml_domain_events import DomainEventBridge
+from ml.common.events_util import build_bus_payload
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.metrics_manager import MetricsManager
 from ml.common.throttler import Throttler
+from ml.config.events import EventStatus, Source, Stage
+
+
+def _make_payload(
+    *,
+    ts_min: int = 1,
+    ts_max: int = 1,
+    count: int = 1,
+    dataset_id: str = "dataset",
+    instrument_id: str = "EURUSD",
+    run_id: str = "run",
+    metadata: dict[str, object] | None = None,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload = build_bus_payload(
+        dataset_id=dataset_id,
+        instrument_id=instrument_id,
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        run_id=run_id,
+        ts_min=ts_min,
+        ts_max=ts_max,
+        count=count,
+        status=EventStatus.SUCCESS,
+        metadata=metadata,
+    )
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 class CapturePublisher(MessagePublisherProtocol):
@@ -62,9 +92,11 @@ def test_metrics_increment_on_queue_full(metrics_patch: FakeMM) -> None:
     bridge = DomainEventBridge(cap, max_queue=1)
     bridge.start()
     try:
-        assert bridge.publish("t1", {"created_at": time.time_ns()}) is True
+        now = time.time_ns()
+        assert bridge.publish("t1", _make_payload(ts_min=now, ts_max=now)) is True
         # Next enqueue likely drops due to full queue
-        _ = bridge.publish("t2", {"created_at": time.time_ns()})
+        now = time.time_ns()
+        _ = bridge.publish("t2", _make_payload(ts_min=now, ts_max=now))
     finally:
         bridge.stop(drain=True)
 
@@ -85,7 +117,7 @@ def test_metrics_increment_on_throttle(metrics_patch: FakeMM) -> None:
     bridge = DomainEventBridge(cap, max_queue=8, throttler=throttler)
     bridge.start()
     try:
-        p = {"ts_max": 0}
+        p = _make_payload(ts_min=1, ts_max=1)
         assert bridge.publish("topic", p) is True
         # Second publish with same timestamp should be throttled
         assert bridge.publish("topic", p) is False
@@ -105,10 +137,27 @@ def test_queue_depth_gauge_updates(metrics_patch: FakeMM) -> None:
     bridge = DomainEventBridge(cap, max_queue=8)
     bridge.start()
     try:
-        assert bridge.publish("topic", {"created_at": time.time_ns()}) is True
+        now = time.time_ns()
+        assert bridge.publish("topic", _make_payload(ts_min=now, ts_max=now)) is True
         time.sleep(0.05)
     finally:
         bridge.stop(drain=True)
 
     gauge_names = [name for name, _labels, _v in metrics_patch.gauges]
     assert "nautilus_ml_backpressure_queue_depth" in gauge_names
+
+
+def test_invalid_payload_is_dropped(metrics_patch: FakeMM) -> None:
+    cap = CapturePublisher()
+    bridge = DomainEventBridge(cap, max_queue=8)
+    bridge.start()
+    try:
+        assert bridge.publish("topic", {"invalid": "payload"}) is True
+        time.sleep(0.05)
+    finally:
+        bridge.stop(drain=True)
+
+    assert not cap.calls
+    assert any(
+        name == "nautilus_ml_invalid_payload_total" for name, _labels in metrics_patch.incs
+    )

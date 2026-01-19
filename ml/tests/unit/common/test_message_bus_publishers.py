@@ -2,10 +2,12 @@ from __future__ import annotations
 
 # ruff: noqa: I001
 
+import json
 from typing import Any
 from types import ModuleType
 
 from ml import _imports as ml_imports
+from ml.common.message_bus import FilePublisher
 from ml.common.message_bus import NoopPublisher
 from ml.common.message_bus import publisher_from_config
 from ml.common.message_bus import RedisStreamsPublisher
@@ -68,6 +70,27 @@ def test_publisher_from_config_factory(monkeypatch: Any) -> None:
     cfg2 = MessageBusConfig(enabled=True, backend="redis")
     pub2 = publisher_from_config(cfg2)
     assert isinstance(pub2, RedisStreamsPublisher)
+
+    cfg3 = MessageBusConfig(
+        enabled=True,
+        backend="file",
+        file_path="ml_out/bus.jsonl",
+    )
+    pub3 = publisher_from_config(cfg3)
+    assert isinstance(pub3, FilePublisher)
+
+
+def test_file_publisher_writes_jsonl(tmp_path) -> None:
+    path = tmp_path / "bus.jsonl"
+    pub = FilePublisher(path=path)
+    ok = pub.publish("topic.sample", {"payload": 1})
+    assert ok is True
+
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["topic"] == "topic.sample"
+    assert record["payload"] == {"payload": 1}
 
 
 def test_redis_publisher_falls_back_without_dependency(monkeypatch: Any) -> None:

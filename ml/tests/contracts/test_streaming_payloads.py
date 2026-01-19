@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +162,7 @@ def _heartbeat_event(plan: DatasetPlanEvent) -> TrainingHeartbeatEvent:
 
 def test_streaming_plan_message_contract(tmp_path: Path) -> None:
     plan = _plan_event(tmp_path)
+    plan = replace(plan, checkpoint_key="checkpoint-1")
     message = build_plan_message(plan).as_dict()
 
     assert message["schema_version"] == "1.0.0"
@@ -174,6 +176,7 @@ def test_streaming_plan_message_contract(tmp_path: Path) -> None:
     assert payload["created_at"].endswith("Z")
     assert payload["parquet_path"].endswith("dataset.parquet")
     assert payload["caps"]["max_total_rows"] == 100
+    assert payload["checkpoint_key"] == "checkpoint-1"
     limits_payload = payload["limits"]
     assert limits_payload["skipped_shards"] == 0
     assert limits_payload["instrument_rows_total"] == {"AAPL": 5}
@@ -221,6 +224,14 @@ def test_streaming_plan_message_contract(tmp_path: Path) -> None:
     assert config["phase_one_signals"] == phase_one_signals
     serialized = json.dumps(message)
     assert "streaming_plan" in serialized
+
+
+def test_streaming_plan_message_omits_checkpoint_key_when_absent(tmp_path: Path) -> None:
+    plan = _plan_event(tmp_path)
+    message = build_plan_message(plan).as_dict()
+
+    payload = message["payload"]
+    assert "checkpoint_key" not in payload
 
 
 def test_streaming_config_negative_lag_rejected() -> None:

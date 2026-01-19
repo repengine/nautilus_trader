@@ -18,6 +18,7 @@ def test_message_bus_config_from_env_defaults(monkeypatch: MonkeyPatch) -> None:
         "ML_BUS_REDIS_URL",
         "ML_BUS_REDIS_STREAM",
         "ML_BUS_REDIS_MAXLEN",
+        "ML_BUS_FILE_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -29,6 +30,7 @@ def test_message_bus_config_from_env_defaults(monkeypatch: MonkeyPatch) -> None:
     assert cfg.redis_url.startswith("redis://")
     assert cfg.redis_stream == "ml-events"
     assert cfg.redis_maxlen is None
+    assert cfg.file_path is None
 
 
 def test_message_bus_config_from_env_overrides(monkeypatch: MonkeyPatch) -> None:
@@ -39,6 +41,7 @@ def test_message_bus_config_from_env_overrides(monkeypatch: MonkeyPatch) -> None
     monkeypatch.setenv("ML_BUS_REDIS_URL", "redis://example:6380/1")
     monkeypatch.setenv("ML_BUS_REDIS_STREAM", "custom-stream")
     monkeypatch.setenv("ML_BUS_REDIS_MAXLEN", "1000")
+    monkeypatch.setenv("ML_BUS_FILE_PATH", "/tmp/ml-events.jsonl")
 
     cfg = MessageBusConfig.from_env()
     assert cfg.enabled is True
@@ -48,3 +51,4 @@ def test_message_bus_config_from_env_overrides(monkeypatch: MonkeyPatch) -> None
     assert cfg.redis_url == "redis://example:6380/1"
     assert cfg.redis_stream == "custom-stream"
     assert cfg.redis_maxlen == 1000
+    assert cfg.file_path == "/tmp/ml-events.jsonl"

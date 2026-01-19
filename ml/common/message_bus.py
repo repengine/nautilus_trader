@@ -10,10 +10,15 @@ optional Redis Streams adapter can be enabled via configuration.
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 from ml import _imports as ml_imports
 from ml.config.bus import MessageBusConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -98,6 +103,44 @@ class RedisStreamsPublisher:
             return False
 
 
+class FilePublisher:
+    """
+    File-backed publisher writing JSONL records.
+
+    Each line is a JSON object with keys: {"topic": ..., "payload": ...}.
+    """
+
+    def __init__(self, *, path: Path) -> None:
+        self._path = path
+        self._available = True
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            self._available = False
+            logger.debug(
+                "message_bus.file_publisher_unavailable",
+                exc_info=True,
+                extra={"error": str(exc), "path": str(path)},
+            )
+
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool:
+        if not self._available:
+            return False
+        record = {"topic": topic, "payload": payload}
+        try:
+            serialized = json.dumps(record, separators=(",", ":"))
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(serialized + "\n")
+            return True
+        except Exception as exc:
+            logger.debug(
+                "message_bus.file_publish_failed",
+                exc_info=True,
+                extra={"error": str(exc), "path": str(self._path)},
+            )
+            return False
+
+
 def publisher_from_config(cfg: MessageBusConfig) -> MessagePublisherProtocol:
     """
     Construct a publisher from the given configuration.
@@ -116,6 +159,10 @@ def publisher_from_config(cfg: MessageBusConfig) -> MessagePublisherProtocol:
             stream=cfg.redis_stream,
             maxlen=cfg.redis_maxlen,
         )
+    if cfg.backend == "file":
+        if not cfg.file_path:
+            return NoopPublisher()
+        return FilePublisher(path=Path(cfg.file_path))
     return NoopPublisher()
 
 
@@ -159,6 +206,7 @@ class BusPublisherMixin:
 
 __all__ = [
     "BusPublisherMixin",
+    "FilePublisher",
     "MessagePublisherProtocol",
     "NoopPublisher",
     "RedisStreamsPublisher",

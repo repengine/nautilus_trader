@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
@@ -11,75 +10,17 @@ from uuid import uuid4
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import DatasetServiceConfig
 from ml.training.event_driven.guardrails import enforce_dataset_guardrails
+from ml.training.event_driven.plan_helpers import apply_service_caps
+from ml.training.event_driven.plan_helpers import ensure_target_in_numeric
 from ml.training.event_driven.services import DatasetPlanEvent
 from ml.training.event_driven.services import DatasetPlanner
 from ml.training.event_driven.services import DatasetPlanRequest
 from ml.training.teacher import streaming_loader as stream
-from ml.training.teacher.streaming_loader import TFTStreamingConfig
 
 
 logger = logging.getLogger(__name__)
 
 _CAP_KEYS: Final[tuple[str, ...]] = ("max_shards", "max_total_rows", "max_total_sequences")
-
-
-def _combine_limit(service_value: int | None, request_value: int | None) -> int | None:
-    if service_value is None:
-        return request_value
-    if request_value is None:
-        return service_value
-    return min(service_value, request_value)
-
-
-def _apply_service_caps(
-    service_config: DatasetServiceConfig,
-    request_config: TFTStreamingConfig,
-) -> TFTStreamingConfig:
-    merged = replace(
-        request_config,
-        max_total_rows=_combine_limit(service_config.max_total_rows, request_config.max_total_rows),
-        max_total_sequences=_combine_limit(
-            service_config.max_total_sequences,
-            request_config.max_total_sequences,
-        ),
-        max_shards=_combine_limit(service_config.max_shards, request_config.max_shards),
-    )
-    if service_config.include_macro:
-        merged = replace(merged, include_macro=True)
-    if service_config.include_calendar:
-        merged = replace(merged, include_calendar=True)
-    if service_config.include_events:
-        merged = replace(merged, include_events=True)
-    if service_config.include_earnings:
-        merged = replace(merged, include_earnings=True)
-    if service_config.include_micro:
-        merged = replace(merged, include_micro=True)
-    if service_config.include_l2:
-        merged = replace(merged, include_l2=True)
-    if service_config.include_macro_revisions:
-        merged = replace(merged, include_macro_revisions=True)
-    if service_config.include_macro_deltas:
-        merged = replace(merged, include_macro_deltas=True)
-    if service_config.include_calendar_lags:
-        merged = replace(merged, include_calendar_lags=True)
-    if service_config.include_clustering_tags:
-        merged = replace(merged, include_clustering_tags=True)
-    if service_config.include_context_features:
-        merged = replace(merged, include_context_features=True)
-    if merged.include_l2 and not merged.include_micro:
-        merged = replace(merged, include_micro=True)
-    return merged
-
-
-def _ensure_target_in_numeric(
-    numeric_columns: tuple[str, ...],
-    target_col: str,
-) -> tuple[str, ...]:
-    if target_col in numeric_columns:
-        return numeric_columns
-    ordered = list(numeric_columns)
-    ordered.append(target_col)
-    return tuple(dict.fromkeys(ordered))
 
 
 class StreamingDatasetPlanner(DatasetPlanner):
@@ -90,7 +31,7 @@ class StreamingDatasetPlanner(DatasetPlanner):
 
     def plan(self, request: DatasetPlanRequest) -> DatasetPlanEvent:
         parquet_path = self._resolve_parquet_path(request)
-        numeric_columns = _ensure_target_in_numeric(
+        numeric_columns = ensure_target_in_numeric(
             request.numeric_columns,
             request.streaming_config.target_col,
         )
@@ -106,7 +47,7 @@ class StreamingDatasetPlanner(DatasetPlanner):
             shard_row_budget=int(self.config.shard_row_budget),
             phase_one_signals=request.phase_one_signals,
         )
-        planner_config = _apply_service_caps(self.config, request.streaming_config)
+        planner_config = apply_service_caps(self.config, request.streaming_config)
         limited_metadata, limits = stream.apply_streaming_limits(metadata, planner_config)
         limited_summary = stream.summarize_metadata(limited_metadata)
 

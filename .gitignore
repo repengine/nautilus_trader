@@ -256,3 +256,13 @@ TEST_POLLUTION_ELIMINATION_SUMMARY.md
 
 .gemini/
 gha-creds-*.json
+codex-session-checklist.md
+codex-session-review.md
+test_triage.md
+docs/plans/2025-01-16-full-verification-plan.md
+docs/plans/2026-01-18-codex-session-exec-command-audit.md
+docs/plans/2026-01-18-codex-session-gaps.md
+docs/plans/2026-01-18-codex-session-reconstruction.md
+docs/plans/2026-01-18-codex-session-recovery.md
+docs/plans/2026-01-18-gap-recovery-decisions.md
+docs/plans/2026-01-18-gap-recovery-plan.md

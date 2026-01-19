@@ -6,6 +6,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -22,6 +24,9 @@ from sqlalchemy.sql import func as sa_func
 from sqlalchemy.sql import select as sa_select
 from sqlalchemy.sql import table as sa_table
 
+from ml._imports import HAS_PANDAS
+from ml._imports import check_ml_dependencies
+from ml._imports import pd as pd_runtime
 from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
 from ml.schema import default_identifier_template_for_dataset_type
@@ -49,6 +54,35 @@ def _validate_identifier(identifier: str, *, label: str) -> str:
     if not _IDENTIFIER_RE.match(identifier):
         raise ValueError(f"Invalid SQL identifier for {label}: {identifier!r}")
     return identifier
+
+
+def _bucket_from_path(path: Path) -> int | None:
+    year = None
+    month = None
+    day = None
+    for part in path.parts:
+        if part.startswith("year="):
+            try:
+                year = int(part.split("=", 1)[1])
+            except ValueError:
+                continue
+        elif part.startswith("month="):
+            try:
+                month = int(part.split("=", 1)[1])
+            except ValueError:
+                continue
+        elif part.startswith("day="):
+            try:
+                day = int(part.split("=", 1)[1].split(".", 1)[0])
+            except ValueError:
+                continue
+    if year is None or month is None or day is None:
+        return None
+    try:
+        dt = datetime(year, month, day, tzinfo=UTC)
+    except ValueError:
+        return None
+    return int(dt.timestamp() * 1_000_000_000) // DAY_NS
 
 
 def _schema_to_dataclass(schema: str) -> type[Any]:
@@ -152,16 +186,22 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
-        table = sa_table(
-            self.table_name,
-            sa_column("instrument_id"),
-            sa_column(self.ts_field),
+        _ = schema
+        table_name, schema_name, ts_field, entity = self._resolve_override(
+            dataset_id=dataset_id,
+            entity_field=entity_field,
         )
-        bucket_expr = sa_func.floor(sa_column(self.ts_field) / bindparam("day_ns")).label("bucket")
+        table = sa_table(
+            table_name,
+            sa_column(entity),
+            sa_column(ts_field),
+            schema=schema_name,
+        )
+        bucket_expr = sa_func.floor(sa_column(ts_field) / bindparam("day_ns")).label("bucket")
         stmt = sa_select(bucket_expr).select_from(table).where(
-            sa_column("instrument_id") == bindparam("instrument_id"),
-            sa_column(self.ts_field) >= bindparam("start_ns"),
-            sa_column(self.ts_field) < bindparam("end_ns"),
+            sa_column(entity) == bindparam("instrument_id"),
+            sa_column(ts_field) >= bindparam("start_ns"),
+            sa_column(ts_field) < bindparam("end_ns"),
         ).group_by(bucket_expr)
         params = {
             "day_ns": DAY_NS,
@@ -177,20 +217,52 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         """
         Return the latest timestamp seen for an instrument, or None when missing.
         """
-        _ = dataset_id
+        table_name, schema_name, ts_field, entity = self._resolve_override(
+            dataset_id=dataset_id,
+            entity_field=None,
+        )
         table = sa_table(
-            self.table_name,
-            sa_column("instrument_id"),
-            sa_column(self.ts_field),
+            table_name,
+            sa_column(entity),
+            sa_column(ts_field),
+            schema=schema_name,
         )
         stmt: Any = (
-            sa_select(sa_func.max(sa_column(self.ts_field)))
+            sa_select(sa_func.max(sa_column(ts_field)))
             .select_from(table)
-            .where(sa_column("instrument_id") == bindparam("instrument_id"))
+            .where(sa_column(entity) == bindparam("instrument_id"))
         )
         with self._engine.connect() as conn:
             result = conn.execute(stmt, {"instrument_id": instrument_id}).scalar()
         return int(result) if result is not None else None
+
+    def _resolve_override(
+        self,
+        *,
+        dataset_id: str,
+        entity_field: str | None,
+    ) -> tuple[str, str | None, str, str]:
+        override = None
+        if self.dataset_overrides is not None:
+            candidate = self.dataset_overrides.get(dataset_id)
+            if isinstance(candidate, SqlCoverageOverride):
+                override = candidate
+        table_name = override.table_name if override and override.table_name else self.table_name
+        ts_field = override.ts_field if override and override.ts_field else self.ts_field
+        entity = (
+            override.entity_field
+            if override and override.entity_field
+            else entity_field
+            if entity_field
+            else "instrument_id"
+        )
+        schema_name = override.schema if override and override.schema else None
+        _validate_identifier(table_name, label="coverage.table")
+        _validate_identifier(ts_field, label="coverage.ts_field")
+        _validate_identifier(entity, label="coverage.entity_field")
+        if schema_name:
+            _validate_identifier(schema_name, label="coverage.schema")
+        return table_name, schema_name, ts_field, entity
 
 
 @dataclass(slots=True)
@@ -541,7 +613,7 @@ class ParquetCoverageSpec:
             if candidate.is_file():
                 return [str(candidate)] if candidate.suffix == ".parquet" else []
             if candidate.is_dir():
-                return sorted(str(path) for path in candidate.glob("*.parquet") if path.is_file())
+                return sorted(str(path) for path in candidate.rglob("*.parquet") if path.is_file())
             return []
 
         template = self.partition_template
@@ -593,15 +665,74 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
         end_ns: int,
     ) -> set[int]:
         """Read coverage from partitioned parquet files."""
-        _ = schema, instrument_id, entity_field, start_ns, end_ns
+        _ = schema, entity_field
         if not self.specs:
             return set()
         spec = self.specs.get(dataset_id)
         if spec is None:
             return set()
-        # TODO: Implement actual parquet reading using spec.base_path/partition_field/timestamp_field
-        _ = spec
-        return set()
+        if not HAS_PANDAS or pd_runtime is None:
+            check_ml_dependencies(["pandas"])
+        assert pd_runtime is not None
+        pd_local = pd_runtime
+        files = spec.files_for_instrument(instrument_id)
+        if not files:
+            return set()
+        window_start = int(start_ns)
+        window_end = int(end_ns)
+        start_bucket = window_start // DAY_NS
+        end_bucket = (window_end - 1) // DAY_NS
+        buckets: set[int] = set()
+        for path_str in files:
+            path = Path(path_str)
+            bucket_idx = _bucket_from_path(path)
+            if bucket_idx is not None:
+                if start_bucket <= bucket_idx <= end_bucket:
+                    buckets.add(bucket_idx)
+                continue
+            try:
+                columns = [spec.timestamp_field]
+                if spec.partition_field:
+                    columns.append(spec.partition_field)
+                try:
+                    frame = pd_local.read_parquet(path, columns=columns)
+                except Exception:
+                    frame = pd_local.read_parquet(path, columns=[spec.timestamp_field])
+            except Exception:
+                logger.debug(
+                    "parquet_coverage.read_failed",
+                    exc_info=True,
+                    extra={"path": str(path), "dataset_id": dataset_id},
+                )
+                continue
+            if spec.timestamp_field not in frame.columns:
+                continue
+            if spec.partition_field in frame.columns:
+                mask = (
+                    frame[spec.partition_field]
+                    .astype(str)
+                    .str.strip()
+                    .eq(instrument_id.strip())
+                )
+                frame = frame.loc[mask]
+                if frame.empty:
+                    continue
+            ts_series = frame[spec.timestamp_field]
+            if pd_local.api.types.is_datetime64_any_dtype(ts_series):
+                numeric_ts = ts_series.view("int64")
+            else:
+                numeric_ts = pd_local.to_numeric(ts_series, errors="coerce")
+            numeric_ts = numeric_ts.dropna()
+            if numeric_ts.empty:
+                continue
+            numeric_ts = numeric_ts.astype("int64")
+            numeric_ts = numeric_ts[(numeric_ts >= window_start) & (numeric_ts < window_end)]
+            if numeric_ts.empty:
+                continue
+            bucket_values = (numeric_ts // DAY_NS).astype("int64").unique()
+            for bucket in bucket_values:
+                buckets.add(int(bucket))
+        return buckets
 
 
 @dataclass(frozen=True, slots=True)

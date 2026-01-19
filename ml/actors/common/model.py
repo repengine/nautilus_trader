@@ -357,23 +357,36 @@ class ModelComponent:
 
         """
         try:
-            import onnx
-            import onnxruntime
+            from ml._imports import HAS_ONNX
+            from ml._imports import HAS_ONNX_CORE
+            from ml._imports import ONNX_CORE_IMPORT_ERROR
+            from ml._imports import check_ml_dependencies
+            from ml._imports import onnx
+            from ml._imports import ort
+
+            if not HAS_ONNX:
+                check_ml_dependencies(["onnx"])
+            if not HAS_ONNX_CORE:
+                raise ImportError(
+                    f"ONNX core required. Original error: {ONNX_CORE_IMPORT_ERROR}",
+                )
+            if onnx is None or ort is None:
+                raise ImportError("ONNX dependencies not available")
 
             # Validate ONNX model before loading
             try:
                 onnx_model = onnx.load(str(model_path))
                 onnx.checker.check_model(onnx_model)
-            except Exception as e:
-                raise ValueError(f"Invalid ONNX model: {e}") from e
+            except Exception as exc:
+                raise ValueError(f"Invalid ONNX model: {exc}") from exc
 
             # Load with ONNXRuntime
-            sess_options = onnxruntime.SessionOptions()
+            sess_options = ort.SessionOptions()
             sess_options.graph_optimization_level = (
-                onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+                ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             )
 
-            self._model = onnxruntime.InferenceSession(
+            self._model = ort.InferenceSession(
                 str(model_path),
                 sess_options=sess_options,
             )

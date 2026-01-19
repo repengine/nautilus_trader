@@ -10,6 +10,8 @@ dependency injection.
 """
 
 from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
+from ml.actors.common.chronos_inference import ChronosInferenceAdapter
+from ml.actors.common.chronos_inference import ChronosPredictorProtocol
 from ml.actors.common.features import FeaturesComponent
 from ml.actors.common.features import FeaturesProtocol
 from ml.actors.common.model import ModelComponent
@@ -38,6 +40,8 @@ from ml.actors.common.store_operations import StoreOperationsProtocol
 __all__ = [
     "AdaptiveStrategy",
     "AdaptiveThresholdComponent",
+    "ChronosInferenceAdapter",
+    "ChronosPredictorProtocol",
     "EnsembleStrategy",
     "ExtremesStrategy",
     "FeaturesComponent",

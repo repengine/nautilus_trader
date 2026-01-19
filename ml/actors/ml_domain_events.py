@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
+from ml.common.events_util import validate_bus_payload
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_bus import publisher_from_config  # re-exported for tests
 from ml.common.metrics_manager import MetricsManager
@@ -316,6 +317,30 @@ class DomainEventBridge:
                 exc,
             )
 
+    def _record_invalid_payload_metric(self, reason: str) -> None:
+        """
+        Record invalid payload metrics.
+
+        Parameters
+        ----------
+        reason : str
+            Reason for payload rejection (e.g., "validation_failed").
+        """
+        try:
+            mm = MetricsManager.default()
+            mm.inc(
+                "nautilus_ml_invalid_payload_total",
+                "Total events dropped due to payload validation failures",
+                labels={"component": self._component_id, "reason": reason},
+                labelnames=("component", "reason"),
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Invalid payload metric emit failed: %s",
+                exc,
+                exc_info=True,
+            )
+
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         """
         Enqueue an event for background publishing.
@@ -392,6 +417,17 @@ class DomainEventBridge:
             except queue.Empty:
                 continue
             try:
+                is_valid, errors = validate_bus_payload(evt.payload)
+                if not is_valid:
+                    self._record_invalid_payload_metric("validation_failed")
+                    logging.getLogger(__name__).warning(
+                        "ml_domain_event_invalid_payload",
+                        extra={
+                            "topic": evt.topic,
+                            "errors": errors,
+                        },
+                    )
+                    continue
                 self._publisher.publish(evt.topic, evt.payload)
             finally:
                 self._queue.task_done()

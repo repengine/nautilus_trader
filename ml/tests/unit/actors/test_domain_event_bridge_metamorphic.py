@@ -1,26 +1,70 @@
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
 import pytest
 
 from ml.actors.ml_domain_events import DomainEventBridge
+from ml.common.events_util import build_bus_payload
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.metrics_manager import MetricsManager
 from ml.common.throttler import Throttler
+from ml.config.events import EventStatus, Source, Stage
+
+
+def _make_payload(
+    *,
+    ts_min: int = 1,
+    ts_max: int = 1,
+    count: int = 1,
+    dataset_id: str = "dataset",
+    instrument_id: str = "EURUSD",
+    run_id: str = "run",
+    metadata: dict[str, object] | None = None,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload = build_bus_payload(
+        dataset_id=dataset_id,
+        instrument_id=instrument_id,
+        stage=Stage.FEATURE_COMPUTED,
+        source=Source.LIVE,
+        run_id=run_id,
+        ts_min=ts_min,
+        ts_max=ts_max,
+        count=count,
+        status=EventStatus.SUCCESS,
+        metadata=metadata,
+    )
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 class CapturePublisher(MessagePublisherProtocol):
     def __init__(self, delay_ms: float = 0.0) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._delay = delay_ms
+        self._condition = threading.Condition()
 
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         if self._delay > 0:
             time.sleep(self._delay / 1000.0)
-        self.calls.append((topic, payload))
+        with self._condition:
+            self.calls.append((topic, payload))
+            self._condition.notify_all()
         return True
+
+    def wait_for_calls(self, expected: int, timeout: float = 1.0) -> bool:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while len(self.calls) < expected:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(timeout=remaining)
+        return len(self.calls) >= expected
 
 
 class FakeMM:
@@ -66,12 +110,12 @@ def test_throttled_duplicates_publish_once(metrics_patch: FakeMM) -> None:
     bridge.start()
     try:
         now_ns = time.time_ns()
-        payload = {"ts_max": now_ns}
+        payload = _make_payload(ts_min=now_ns, ts_max=now_ns)
         assert bridge.publish("topic", payload) is True
         # Immediate duplicates should be throttled and not published again
         assert bridge.publish("topic", payload) is False
         assert bridge.publish("topic", payload) is False
-        time.sleep(0.05)
+        assert cap.wait_for_calls(1, timeout=1.0)
     finally:
         bridge.stop(drain=True)
 
@@ -92,17 +136,18 @@ def test_bounded_queue_backpressure_and_drain(metrics_patch: FakeMM) -> None:
     bridge.start()
     try:
         # Enqueue one; next immediate enqueue should drop due to full queue
-        assert bridge.publish("topic", {"created_at": time.time_ns()}) is True
+        now = time.time_ns()
+        assert bridge.publish("topic", _make_payload(ts_min=now, ts_max=now)) is True
         drops = 0
         # Attempt several more while first is still processing
         for _ in range(5):
-            ok = bridge.publish("topic", {"created_at": time.time_ns()})
+            now = time.time_ns()
+            ok = bridge.publish("topic", _make_payload(ts_min=now, ts_max=now))
             if not ok:
                 drops += 1
         # Some should have dropped due to queue_full
         assert drops >= 1
-        # Allow background to drain
-        time.sleep(0.1)
+        assert cap.wait_for_calls(1, timeout=1.0)
     finally:
         bridge.stop(drain=True)
 

@@ -36,6 +36,26 @@ SourceStr = Literal["live", "historical", "backfill", "batch"]
 _ALLOWED: tuple[SourceStr, ...] = ("live", "historical", "backfill", "batch")
 
 
+def _coerce_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value != value:
+            return None
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
+    return None
+
+
 def to_source_enum(x: Source | str) -> Source:
     """
     Convert a persisted source string or Source enum to Source.
@@ -307,6 +327,82 @@ def to_status_str(status: EventStatus | str) -> str:
     return to_status_enum(status).value
 
 
+def validate_bus_payload(payload: Mapping[str, object]) -> tuple[bool, list[str]]:
+    """
+    Validate a canonical message bus payload.
+
+    Returns a tuple of (is_valid, errors). This is a best-effort validator for
+    the canonical bus payload shape used by build_bus_payload.
+    """
+    errors: list[str] = []
+    required = (
+        "dataset_id",
+        "instrument_id",
+        "stage",
+        "source",
+        "run_id",
+        "ts_min",
+        "ts_max",
+        "count",
+        "status",
+        "metadata",
+    )
+    for key in required:
+        if key not in payload:
+            errors.append(f"missing {key}")
+
+    if errors:
+        return False, errors
+
+    dataset_id = payload.get("dataset_id")
+    instrument_id = payload.get("instrument_id")
+    run_id = payload.get("run_id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        errors.append("dataset_id must be a non-empty string")
+    if not isinstance(instrument_id, str) or not instrument_id.strip():
+        errors.append("instrument_id must be a non-empty string")
+    if not isinstance(run_id, str) or not run_id.strip():
+        errors.append("run_id must be a non-empty string")
+
+    try:
+        _ = to_stage_enum(cast(Stage | str, payload.get("stage")))
+    except Exception as exc:
+        errors.append(f"invalid stage: {exc}")
+    try:
+        _ = to_source_str(cast(Source | str, payload.get("source")))
+    except Exception as exc:
+        errors.append(f"invalid source: {exc}")
+    try:
+        _ = to_status_enum(cast(EventStatus | str, payload.get("status")))
+    except Exception as exc:
+        errors.append(f"invalid status: {exc}")
+
+    ts_min = payload.get("ts_min")
+    ts_max = payload.get("ts_max")
+    ts_min_val = _coerce_int(ts_min)
+    ts_max_val = _coerce_int(ts_max)
+    if ts_min_val is None or ts_max_val is None:
+        errors.append("ts_min and ts_max must be integers")
+    else:
+        if ts_min_val < 0 or ts_max_val < 0:
+            errors.append("timestamps must be non-negative")
+        if ts_min_val > ts_max_val:
+            errors.append("ts_min must be <= ts_max")
+
+    count = payload.get("count")
+    count_val = _coerce_int(count)
+    if count_val is None:
+        errors.append("count must be an integer")
+    elif count_val < 0:
+        errors.append("count must be >= 0")
+
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, Mapping):
+        errors.append("metadata must be a mapping")
+
+    return len(errors) == 0, errors
+
+
 __all__ = [
     "SourceStr",
     "build_bus_payload",
@@ -317,4 +413,5 @@ __all__ = [
     "to_stage_enum",
     "to_status_enum",
     "to_status_str",
+    "validate_bus_payload",
 ]

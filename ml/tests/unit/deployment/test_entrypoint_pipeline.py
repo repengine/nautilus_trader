@@ -11,6 +11,7 @@ import pytest
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import FEATURE_VALUES_DATASET_ID
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
@@ -333,6 +334,7 @@ def test_load_feature_coverage_entries_includes_feature_datasets(
     expected = {
         EARNINGS_ACTUALS_DATASET_ID,
         EARNINGS_ESTIMATES_DATASET_ID,
+        FEATURE_VALUES_DATASET_ID,
         MACRO_RELEASES_DATASET_ID,
         MACRO_OBSERVATIONS_DATASET_ID,
         EVENTS_CALENDAR_DATASET_ID,
