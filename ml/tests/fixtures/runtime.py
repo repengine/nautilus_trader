@@ -53,6 +53,8 @@ def cleanup_after_test() -> Generator[None, None, None]:
     except ImportError:
         pass
 
+    if os.getenv("PYTEST_XDIST_WORKER"):
+        return
     gc.collect()
 
 

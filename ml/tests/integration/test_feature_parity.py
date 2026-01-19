@@ -338,6 +338,7 @@ class TestFeatureParity:
                 instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
                 model_path="./test_model.onnx",
                 db_connection=cloned_test_database,
+                use_feature_store=True,
             )
 
             # Create actor

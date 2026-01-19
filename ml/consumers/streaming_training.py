@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -527,7 +528,7 @@ class StreamingTrainingConsumer:
         dataset_key = dataset_id or "UNKNOWN"
         _BACKLOG_GAUGE.labels(dataset_id=dataset_key).set(float(outstanding))
         if self._observability is not None:
-            timestamp_ns = int(datetime.utcnow().timestamp() * 1_000_000_000)
+            timestamp_ns = int(datetime.now(UTC).timestamp() * 1_000_000_000)
             self._observability.add_metric(
                 metric_name="ml_tft_streaming_training_backlog",
                 metric_type="gauge",
@@ -591,7 +592,11 @@ class StreamingTrainingConsumer:
             return
         dataset_key = record.dataset_id or "UNKNOWN"
         plan_key = record.plan_id or "UNKNOWN"
-        completed_at = record.completed_at if isinstance(record.completed_at, datetime) else datetime.utcnow()
+        completed_at = (
+            record.completed_at
+            if isinstance(record.completed_at, datetime)
+            else datetime.now(UTC)
+        )
         timestamp_ns = int(completed_at.timestamp() * 1_000_000_000)
         for metric_name, value in record.metrics.items():
             try:

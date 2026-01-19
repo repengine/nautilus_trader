@@ -14,7 +14,8 @@ from datetime import date
 from datetime import datetime
 from typing import Protocol
 
-from ml._imports import edgartools
+from ml._imports import HAS_EDGARTOOLS
+from ml._imports import load_edgartools
 from ml.config.earnings_ingestion import EarningsIngestionConfig
 from ml.features.earnings.ingestion.edgar_fetcher import EarningsActual
 from ml.features.earnings.ingestion.edgar_fetcher import EdgarFetcher
@@ -103,9 +104,10 @@ class EarningsIngestionService:
             rate_limit_delay=config.yahoo_rate_limit,
             max_retries=config.yahoo_max_retries,
         )
-        if config.sec_identity and edgartools is not None:
+        if config.sec_identity and HAS_EDGARTOOLS:
             try:
-                edgartools.set_identity(config.sec_identity)
+                tools = load_edgartools()
+                tools.set_identity(config.sec_identity)
             except Exception as exc:  # pragma: no cover - environment dependent
                 logger.warning("Failed to set SEC identity: %s", exc, exc_info=True)
 

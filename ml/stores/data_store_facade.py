@@ -323,6 +323,13 @@ class DataStoreFacade(DataRegistryMixin):
         return self._config.earnings_store
 
     @property
+    def registry(self) -> RegistryProtocol | None:
+        """
+        Return the configured data registry (legacy compatibility).
+        """
+        return self._registry
+
+    @property
     def publisher(self) -> MessagePublisherProtocol | None:
         """
         Return the configured message bus publisher (legacy compatibility).
@@ -1451,6 +1458,64 @@ class DataStoreFacade(DataRegistryMixin):
             status=status,
             error=error,
             metadata=metadata,
+        )
+
+    def _emit_partial_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage | str,
+        source: Source | str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        reason: str,
+    ) -> None:
+        """
+        Legacy compatibility helper for partial dataset events.
+        """
+        self._event_emitter.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=EventStatus.PARTIAL.value,
+            metadata={"reason": reason},
+        )
+
+    def _emit_failed_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage | str,
+        source: Source | str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        error: str,
+    ) -> None:
+        """
+        Legacy compatibility helper for failed dataset events.
+        """
+        self._event_emitter.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=EventStatus.FAILED.value,
+            error=error,
         )
 
     # =====================================================================

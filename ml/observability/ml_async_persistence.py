@@ -239,10 +239,13 @@ class MLPersistenceWorker:
                 if isinstance(task, asyncio.Task):
                     await asyncio.wait_for(task, timeout=timeout)
                 else:
-                    if timeout is None:
-                        task.result()
+                    if loop is not None and loop.is_running():
+                        await asyncio.wait_for(asyncio.wrap_future(task), timeout=timeout)
                     else:
-                        task.result(timeout=timeout)
+                        if timeout is None:
+                            task.result()
+                        else:
+                            task.result(timeout=timeout)
             except Exception:
                 if isinstance(task, asyncio.Task):
                     task.cancel()
@@ -442,6 +445,33 @@ class MLPersistenceWorker:
                     await self._flush_predictions(prediction_batch)
                     prediction_batch.clear()
                 self._last_flush = now
+
+        # Final drain on stop: capture any queued or buffered items before exit.
+        try:
+            while True:
+                item = self._queue.get_nowait()
+                if item["kind"] == "feature":
+                    feature_batch.append(item)
+                else:
+                    prediction_batch.append(item)
+                self._queue.task_done()
+        except queue.Empty:
+            pass
+        except Exception as proc_exc:
+            self._ERRORS.labels(component=self.component_label, kind="process").inc()
+            self._LOGGER.debug(
+                "ML persistence worker drain encountered an error: %s",
+                proc_exc,
+                exc_info=True,
+            )
+
+        if feature_batch:
+            await self._flush_features(feature_batch)
+            feature_batch.clear()
+        if prediction_batch:
+            await self._flush_predictions(prediction_batch)
+            prediction_batch.clear()
+        self._Q_DEPTH.labels(component=self.component_label).set(self._queue.qsize())
 
     async def _flush_features(self, batch: list[_FeatureItem]) -> None:
         """Flush feature batch to store (off event loop via thread)."""

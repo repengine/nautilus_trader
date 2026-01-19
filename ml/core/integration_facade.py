@@ -44,6 +44,7 @@ from typing import (
 
 from sqlalchemy import text
 
+from ml.common import metrics_bootstrap
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
 from ml.common.metrics_bootstrap import get_counter
@@ -63,6 +64,7 @@ from ml.registry.model_registry_facade import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
+from ml.registry.utils import get_default_registry_path
 from ml.stores.base import DummyStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
@@ -318,6 +320,13 @@ def _ensure_directory(path: Path) -> Path:
     return path
 
 
+def _resolve_registry_root() -> Path:
+    """
+    Resolve the registry root path, honoring environment overrides.
+    """
+    return get_default_registry_path()
+
+
 @runtime_checkable
 class HasDBConnection(Protocol):
     """
@@ -516,7 +525,7 @@ class MLIntegrationManagerFacade:
         # -------------------------------------------------------------------------
         # Component 3: Registry Initialization
         # -------------------------------------------------------------------------
-        registry_path = Path("./ml_registry")
+        registry_path = _resolve_registry_root()
         self._registry_init = RegistryInitializationComponent(
             db_connection=self.db_connection,
             json_fallback=False,
@@ -588,7 +597,12 @@ class MLIntegrationManagerFacade:
 
         # Wire DataStore if in PostgreSQL mode
         if not is_fallback:
-            data_store = self._registry_init.create_data_store()
+            data_store = self._registry_init.create_data_store(
+                feature_store=cast(FeatureStoreProtocol | None, self._store_init.feature_store),
+                model_store=cast(ModelStoreProtocol | None, self._store_init.model_store),
+                strategy_store=cast(StrategyStoreProtocol | None, self._store_init.strategy_store),
+                earnings_store=cast(EarningsStoreProtocol | None, self._store_init.earnings_store),
+            )
             self._store_init.set_data_store(data_store)
             # Inject DataRegistry into stores
             self._registry_init.inject_data_registry_into_stores(
@@ -768,6 +782,12 @@ class MLIntegrationManagerFacade:
         """
         Optionally run a gap backfill on startup using CLI.
         """
+        if not hasattr(self, "_event_ingestion") or getattr(self, "_event_ingestion", None) is None:
+            self._event_ingestion = EventIngestionComponent(
+                db_connection=getattr(self, "db_connection", None),
+                partition_manager=getattr(self, "partition_manager", None),
+                init_partition_manager=lambda: getattr(self, "partition_manager", None),
+            )
         self._event_ingestion.maybe_run_backfill_on_start()
 
     # =========================================================================
@@ -1267,7 +1287,14 @@ class MLIntegrationManagerFacade:
         Inject the observability service into all stores.
         """
         self._ensure_observability_component()
+        self._observability.stores = [
+            self.feature_store,
+            self.model_store,
+            self.strategy_store,
+            self.data_store,
+        ]
         self._observability.inject_observability_service_into_stores()
+        self.observability_service = self._observability.observability_service
 
     def start_observability_from_config(self, cfg: object) -> None:
         """
@@ -1528,7 +1555,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             backend = BackendType.JSON
             db_connection = ""
             try:
-                get_counter(
+                metrics_bootstrap.get_counter(
                     "ml_fallback_activations_total",
                     "Fallback activations",
                     labelnames=("component", "level"),
@@ -1554,7 +1581,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             if getattr(config, "allow_dummy_fallback", True):
                 backend = BackendType.JSON
                 try:
-                    get_counter(
+                    metrics_bootstrap.get_counter(
                         "ml_fallback_activations_total",
                         "Fallback activations",
                         labelnames=("component", "level"),
@@ -1617,7 +1644,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             file_data_store = FileDataStore(base_path=file_store_path / "datastore")
 
             try:
-                get_counter(
+                metrics_bootstrap.get_counter(
                     "ml_fallback_activations_total",
                     "Fallback activations",
                     labelnames=("component", "level"),

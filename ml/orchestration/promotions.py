@@ -13,6 +13,7 @@ They avoid expanding orchestrator complexity and keep all work off hot paths.
 """
 
 import logging
+import math
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -94,7 +95,11 @@ def _ensure_parent_dir(path: Path) -> None:
 def _resolve_dataset_metadata_path(cfg: Stage2Config) -> Path:
     if cfg.dataset_metadata_path:
         return Path(cfg.dataset_metadata_path)
-    return Path(cfg.dataset_csv).with_name("dataset_metadata.json")
+    if cfg.dataset_csv:
+        return Path(cfg.dataset_csv).with_name("dataset_metadata.json")
+    if cfg.dataset_parquet:
+        return Path(cfg.dataset_parquet).with_name("dataset_metadata.json")
+    return Path(cfg.out_dir).joinpath("dataset_metadata.json")
 
 
 def _load_stage2_metadata(cfg: Stage2Config) -> DatasetMetadata:
@@ -446,6 +451,7 @@ class Stage2Config:
     dataset_csv: str
     data_dir: str
     horizon_minutes: int
+    dataset_parquet: str | None = None
     # Engine selection: 'returns' (default) or 'backtest' (advisory)
     engine_mode: Literal["returns", "backtest"] = "returns"
     # Cost model knobs (bps) — applied in returns engine and advisory for backtest
@@ -493,20 +499,30 @@ def _evaluate_gates(
             if g.required:
                 failures.append(f"missing:{g.metric_name}")
             continue
+        try:
+            numeric_val = float(val)
+        except (TypeError, ValueError):
+            if g.required:
+                failures.append(f"invalid:{g.metric_name}")
+            continue
+        if not math.isfinite(numeric_val):
+            if g.required:
+                failures.append(f"non_finite:{g.metric_name}")
+            continue
         ok = True
         cmp = (g.comparison or "gte").lower()
         if cmp == "gte":
-            ok = float(val) >= float(g.threshold)
+            ok = numeric_val >= float(g.threshold)
         elif cmp == "lte":
-            ok = float(val) <= float(g.threshold)
+            ok = numeric_val <= float(g.threshold)
         elif cmp == "gt":
-            ok = float(val) > float(g.threshold)
+            ok = numeric_val > float(g.threshold)
         elif cmp == "lt":
-            ok = float(val) < float(g.threshold)
+            ok = numeric_val < float(g.threshold)
         else:
-            ok = float(val) >= float(g.threshold)
+            ok = numeric_val >= float(g.threshold)
         if not ok and g.required:
-            failures.append(f"{g.metric_name}:{val} !{cmp} {g.threshold}")
+            failures.append(f"{g.metric_name}:{numeric_val} !{cmp} {g.threshold}")
     return (len(failures) == 0, failures)
 
 
@@ -716,6 +732,10 @@ def dataclass_replace(cfg: Stage2Config, **updates: object) -> Stage2Config:
     return Stage2Config(
         out_dir=cast(str, updates.get("out_dir", cfg.out_dir)),
         dataset_csv=cast(str, updates.get("dataset_csv", cfg.dataset_csv)),
+        dataset_parquet=cast(
+            str | None,
+            updates.get("dataset_parquet", cfg.dataset_parquet),
+        ),
         data_dir=cast(str, updates.get("data_dir", cfg.data_dir)),
         horizon_minutes=cast(int, updates.get("horizon_minutes", cfg.horizon_minutes)),
         engine_mode=cast(

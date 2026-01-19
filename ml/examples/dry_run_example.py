@@ -14,6 +14,7 @@ What it DOES require:
 
 """
 
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -187,8 +188,8 @@ def run_dry_run_backtest() -> None:
     bars = cast(Any, provider).generate_bar_data(
         instrument_id=configs["instrument_id"],
         bar_type=configs["bar_type"],
-        start_time=datetime.utcnow() - timedelta(hours=2),
-        end_time=datetime.utcnow(),
+        start_time=datetime.now(UTC) - timedelta(hours=2),
+        end_time=datetime.now(UTC),
         frequency=timedelta(minutes=1),
     )
 

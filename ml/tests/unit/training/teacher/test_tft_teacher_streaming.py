@@ -52,6 +52,7 @@ def test_fit_streaming_returns_logits(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=10,
     )
     metadata = stream.filter_metadata_by_instruments(metadata, ["AAPL"])

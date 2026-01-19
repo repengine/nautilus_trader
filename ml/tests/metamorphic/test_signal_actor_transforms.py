@@ -73,7 +73,6 @@ def base_signal_config() -> MLSignalActorConfig:
         prediction_threshold=0.6,
         signal_strategy=SignalStrategy.THRESHOLD,
         enable_parity_smoke_check=True,
-        parity_tolerance=1e-6,
         optimization_config=OptimizationConfig(level=OptimizationLevel.STANDARD),
         strategy_config=StrategyConfig(),
         feature_config=FeatureConfig(
@@ -91,6 +90,7 @@ def base_signal_config() -> MLSignalActorConfig:
         adaptive_window=20,
         enable_hot_reload=False,
         use_dummy_stores=True,
+        use_feature_store=True,
     )
 
 
@@ -663,6 +663,7 @@ class TestNoiseTolerance:
                 f"{conf_diff:.3f} > {conf_tolerance:.3f}"
             )
 
+    @pytest.mark.serial
     @given(noise_std=st.floats(min_value=0.0001, max_value=0.02))
     def test_noise_robustness_property(
         self,

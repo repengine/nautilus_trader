@@ -22,6 +22,8 @@ Architecture Patterns (CLAUDE.md):
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import tracemalloc
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -35,6 +37,20 @@ from hypothesis import strategies as st
 # =============================================================================
 # Fixtures
 # =============================================================================
+
+
+def _under_coverage() -> bool:
+    if os.getenv("COV_CORE_SOURCE") or os.getenv("COVERAGE_PROCESS_START"):
+        return True
+    addopts = os.getenv("PYTEST_ADDOPTS", "")
+    if "--cov" in addopts:
+        return True
+    gettrace = getattr(sys, "gettrace", None)
+    return bool(callable(gettrace) and gettrace())
+
+
+def _allocation_threshold() -> int:
+    return 2000 if _under_coverage() else 1000
 
 
 @pytest.fixture
@@ -322,7 +338,7 @@ class TestTimingCapture:
 
         # Assert: Allow small threshold for interpreter overhead
         # Ring buffer updates should not allocate new arrays
-        assert total_new_bytes < 1000, (
+        assert total_new_bytes < _allocation_threshold(), (
             f"Hot path record_timing() should not allocate significant memory, "
             f"but allocated {total_new_bytes} bytes"
         )
@@ -400,7 +416,7 @@ class TestSignalAndErrorRecording:
 
         # Assert: Should be zero or very minimal allocations
         # Allow small threshold for interpreter overhead in test loop
-        assert total_new_bytes < 1000, (
+        assert total_new_bytes < _allocation_threshold(), (
             f"Hot path record_signal() should not allocate significant memory, "
             f"but allocated {total_new_bytes} bytes"
         )
@@ -433,7 +449,7 @@ class TestSignalAndErrorRecording:
 
         # Assert: Should be zero or very minimal allocations
         # Allow small threshold for interpreter overhead in test loop
-        assert total_new_bytes < 1000, (
+        assert total_new_bytes < _allocation_threshold(), (
             f"Hot path record_error() should not allocate significant memory, "
             f"but allocated {total_new_bytes} bytes"
         )

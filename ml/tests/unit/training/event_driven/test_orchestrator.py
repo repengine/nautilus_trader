@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +181,7 @@ def test_orchestrator_enqueue_publishes_plan() -> None:
         progress_pct=50.0,
         rss_mb=128.0,
         shards_processed=1,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
     orchestrator.handle_heartbeat(heartbeat)
     published_hb = bus.heartbeats[-1]
@@ -266,13 +268,13 @@ def test_orchestrator_detects_expired_plan() -> None:
         progress_pct=0.0,
         rss_mb=0.0,
         shards_processed=0,
-        timestamp=datetime.utcnow() - timedelta(seconds=5),
+        timestamp=datetime.now(UTC) - timedelta(seconds=5),
     )
     orchestrator.handle_heartbeat(heartbeat)
     expired = orchestrator.expired_plans()
     assert expired == []
     state = orchestrator._plans[plan.plan_id]
-    state.next_retry_at = datetime.utcnow() - timedelta(seconds=1)
+    state.next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
     expired = orchestrator.expired_plans()
     assert expired and expired[0].plan_id == plan.plan_id
 
@@ -330,7 +332,7 @@ def test_orchestrator_publishes_via_message_bus() -> None:
         progress_pct=12.5,
         rss_mb=256.0,
         shards_processed=1,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
     orchestrator.handle_heartbeat(heartbeat)
     assert len(captured) >= 2
@@ -438,7 +440,7 @@ def test_orchestrator_marks_saturation_and_resets() -> None:
         progress_pct=10.0,
         rss_mb=64.0,
         shards_processed=1,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
     orchestrator.handle_heartbeat(heartbeat)
     orchestrator.handle_heartbeat(heartbeat)
@@ -451,7 +453,7 @@ def test_orchestrator_marks_saturation_and_resets() -> None:
         progress_pct=20.0,
         rss_mb=64.0,
         shards_processed=2,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
     orchestrator.handle_heartbeat(progress_heartbeat)
     assert orchestrator.saturated_plan_ids() == ()
@@ -539,14 +541,14 @@ def test_orchestrator_retry_window_delays_requeue() -> None:
     )
     plan = orchestrator.enqueue_training(_request())
     state = orchestrator._plans[plan.plan_id]
-    state.last_heartbeat = datetime.utcnow() - timedelta(seconds=10)
+    state.last_heartbeat = datetime.now(UTC) - timedelta(seconds=10)
     expired = orchestrator.expired_plans()
     assert expired == []
     assert state.next_retry_at is not None
     # Still within retry window
     expired = orchestrator.expired_plans()
     assert expired == []
-    state.next_retry_at = datetime.utcnow() - timedelta(seconds=1)
+    state.next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
     expired = orchestrator.expired_plans()
     assert expired and expired[0].plan_id == plan.plan_id
 
@@ -567,15 +569,15 @@ def test_orchestrator_retry_limit_removes_plan() -> None:
     )
     plan = orchestrator.enqueue_training(_request())
     state = orchestrator._plans[plan.plan_id]
-    state.last_heartbeat = datetime.utcnow() - timedelta(seconds=10)
-    state.next_retry_at = datetime.utcnow() - timedelta(seconds=2)
+    state.last_heartbeat = datetime.now(UTC) - timedelta(seconds=10)
+    state.next_retry_at = datetime.now(UTC) - timedelta(seconds=2)
     expired = orchestrator.expired_plans()
     assert expired and expired[0].plan_id == plan.plan_id
     # Next timeout should remove plan instead of retrying again
     state = orchestrator._plans.get(plan.plan_id)
     if state is not None:
-        state.last_heartbeat = datetime.utcnow() - timedelta(seconds=10)
-        state.next_retry_at = datetime.utcnow() - timedelta(seconds=2)
+        state.last_heartbeat = datetime.now(UTC) - timedelta(seconds=10)
+        state.next_retry_at = datetime.now(UTC) - timedelta(seconds=2)
     expired = orchestrator.expired_plans()
     assert expired == []
     assert plan.plan_id not in orchestrator._plans

@@ -68,12 +68,14 @@ def _load_validation_arrays(out_dir: str) -> tuple[NDArray[np.float64], NDArray[
         return None
 
 
-def _load_validation_tail(dataset_csv: str, n_tail: int) -> tuple[Any, Any] | None:
+def _load_validation_tail_parquet(
+    dataset_parquet: str,
+    n_tail: int,
+) -> tuple[Any, Any] | None:
     """
-    Load last n_tail rows from dataset_csv sorted by time_index.
+    Load last n_tail rows from dataset_parquet sorted by time_index.
 
     Returns (df_tail: pandas.DataFrame, pandas_module) or None.
-
     """
     try:
         from ml._imports import pd as _pd
@@ -84,7 +86,27 @@ def _load_validation_tail(dataset_csv: str, n_tail: int) -> tuple[Any, Any] | No
             _check(["pandas"])  # cold-path guard
             from ml._imports import pd as _pd
         pd_mod = cast(Any, _pd)
-        df = pd_mod.read_csv(dataset_csv)
+        import pyarrow.parquet as pq
+
+        parquet_file = pq.ParquetFile(dataset_parquet)
+        if parquet_file.metadata is None:
+            return None
+        if parquet_file.metadata.num_rows == 0:
+            return None
+        row_groups: list[int] = []
+        rows_remaining = int(n_tail)
+        for rg_index in range(parquet_file.num_row_groups - 1, -1, -1):
+            rg_meta = parquet_file.metadata.row_group(rg_index)
+            row_groups.append(rg_index)
+            rows_remaining -= int(rg_meta.num_rows)
+            if rows_remaining <= 0:
+                break
+        row_groups = sorted(row_groups)
+        table = parquet_file.read_row_groups(
+            row_groups,
+            columns=["time_index", "timestamp", "instrument_id"],
+        )
+        df = table.to_pandas()
         if "time_index" not in df.columns:
             return None
         df_sorted = df.sort_values("time_index")
@@ -94,6 +116,45 @@ def _load_validation_tail(dataset_csv: str, n_tail: int) -> tuple[Any, Any] | No
         return (tail, pd_mod)
     except Exception:
         return None
+
+
+def _load_validation_tail(
+    dataset_csv: str | None,
+    dataset_parquet: str | None,
+    n_tail: int,
+) -> tuple[Any, Any] | None:
+    """
+    Load last n_tail rows from dataset artifacts sorted by time_index.
+
+    Returns (df_tail: pandas.DataFrame, pandas_module) or None.
+    """
+    if dataset_parquet:
+        tail = _load_validation_tail_parquet(dataset_parquet, n_tail)
+        if tail is not None:
+            return tail
+
+    if dataset_csv:
+        try:
+            from ml._imports import pd as _pd
+
+            if _pd is None:
+                from ml._imports import check_ml_dependencies as _check
+
+                _check(["pandas"])  # cold-path guard
+                from ml._imports import pd as _pd
+            pd_mod = cast(Any, _pd)
+            df = pd_mod.read_csv(dataset_csv)
+            if "time_index" not in df.columns:
+                return None
+            df_sorted = df.sort_values("time_index")
+            tail = df_sorted.tail(int(n_tail))
+            if "timestamp" not in tail.columns or "instrument_id" not in tail.columns:
+                return None
+            return (tail, pd_mod)
+        except Exception:
+            return None
+
+    return None
 
 
 class ReturnsStage2Engine:
@@ -113,7 +174,11 @@ class ReturnsStage2Engine:
         if q_val.size == 0:
             return Stage2Result(status="skipped", metrics={}, reason="empty validation window")
 
-        tail = _load_validation_tail(cfg.dataset_csv, int(q_val.size))
+        tail = _load_validation_tail(
+            cfg.dataset_csv,
+            cfg.dataset_parquet,
+            int(q_val.size),
+        )
         if tail is None:
             return Stage2Result(status="skipped", metrics={}, reason="dataset tail missing cols")
         df_val, pd_mod = tail
@@ -256,7 +321,11 @@ class BacktestStage2EngineRunner:
         q_val, _ = arrays
         if q_val.size == 0:
             return Stage2Result(status="skipped", metrics={}, reason="empty validation window")
-        tail = _load_validation_tail(cfg.dataset_csv, int(q_val.size))
+        tail = _load_validation_tail(
+            cfg.dataset_csv,
+            cfg.dataset_parquet,
+            int(q_val.size),
+        )
         if tail is None:
             return Stage2Result(status="skipped", metrics={}, reason="dataset tail missing cols")
         df_val, pd_mod = tail

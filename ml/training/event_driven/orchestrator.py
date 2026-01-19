@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -59,11 +62,15 @@ _ADAPTIVE_COOLDOWN_SECONDS = get_gauge(
     labelnames=("dataset_id",),
 )
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
 def _parse_iso_datetime(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
     except Exception:
-        return datetime.utcnow()
+        return _utcnow()
 
 
 @dataclass(slots=True)
@@ -184,7 +191,7 @@ class PublisherOrchestratorBus(OrchestratorBus):
 class _PlanState:
     event: DatasetPlanEvent | None
     dataset_id: str
-    enqueued_at: datetime = field(default_factory=datetime.utcnow)
+    enqueued_at: datetime = field(default_factory=_utcnow)
     last_heartbeat: datetime | None = None
     completed: bool = False
     retry_attempts: int = 0
@@ -330,7 +337,13 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
         self._dataset_gpu_mb: dict[str, float] = {}
         self._plan_state_store: _PlanStateStore | None = None
         if self.config.enable_state_persistence:
-            path = state_path or Path("ml_out/streaming_orchestrator_state.json")
+            path = state_path
+            if path is None:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    tmp_dir = Path(tempfile.mkdtemp(prefix="ml_streaming_orchestrator_"))
+                    path = tmp_dir / "streaming_orchestrator_state.json"
+                else:
+                    path = Path("ml_out/streaming_orchestrator_state.json")
             self._plan_state_store = _FileBackedPlanStateStore(path)
             self._load_plan_states()
         self._refresh_backlog_gauge()
@@ -405,7 +418,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
         return True, reason
 
     def _should_defer_dataset(self, dataset_id: str) -> tuple[bool, str | None]:
-        now = datetime.utcnow()
+        now = _utcnow()
         next_allowed = self._adaptive_next_allowed.get(dataset_id)
         if next_allowed is not None and now < next_allowed:
             _ADAPTIVE_DEFERRALS.labels(reason="cooldown").inc()
@@ -483,7 +496,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
         state.saturated = False
         state.stalled_heartbeats = 0
         state.last_progress_pct = 0.0
-        state.last_heartbeat = datetime.utcnow()
+        state.last_heartbeat = _utcnow()
         self._persist_plan_states()
         return True
 
@@ -498,7 +511,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
                 remaining = self._adaptive_next_allowed.get(dataset_key)
                 seconds_remaining = 0.0
                 if remaining is not None:
-                    delta = (remaining - datetime.utcnow()).total_seconds()
+                    delta = (remaining - _utcnow()).total_seconds()
                     seconds_remaining = max(0.0, float(delta))
                 logger.info(
                     "adaptive scheduling cooldown active; skipping enqueue",
@@ -607,7 +620,7 @@ class InMemoryStreamingOrchestrator(StreamingTrainingOrchestrator):
 
     def expired_plans(self) -> list[DatasetPlanEvent]:
         """Return plans whose heartbeats have timed out and are ready for retry."""
-        now = datetime.utcnow()
+        now = _utcnow()
         timeout = timedelta(seconds=self.config.worker_timeout_seconds)
         retry_window = timedelta(seconds=self.config.retry_window_seconds)
         max_age = timedelta(seconds=self.config.max_plan_age_seconds)

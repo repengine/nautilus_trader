@@ -393,6 +393,10 @@ class DatasetBuildConfig:
     start: datetime | None = None
     end: datetime | None = None
     chunk_days: int = 0
+    # Output controls
+    write_csv: bool | None = None
+    csv_max_rows: int = 1_000_000
+    csv_sample_rows: int = 0
     # Optional feature registration
     register_features: bool = False
     feature_registry_dir: Path | None = None
@@ -758,26 +762,50 @@ def _infer_feature_columns(df: Any) -> list[str]:
     """
     Infer numeric feature columns, excluding label/index/meta fields.
     """
-    exclude = {
-        "y",
-        "forward_return",
-        "time_index",
-        "timestamp",
-        "instrument_id",
-        "ts_event",
-    }
-    from ml._imports import HAS_PANDAS
-    from ml._imports import pd
-    from ml._imports import pl
+    from ml.data.feature_columns import infer_numeric_feature_columns
 
-    if pl is not None and isinstance(df, pl.DataFrame):
-        return [c for c in df.columns if df[c].dtype.is_numeric() and c not in exclude]
-    if (
-        HAS_PANDAS and pd is not None and isinstance(df, pd.DataFrame)
-    ):  # pragma: no cover - alt path
-        numeric = df.select_dtypes(include=[np.number]).columns.tolist()
-        return [c for c in numeric if c not in exclude]
-    return []
+    return infer_numeric_feature_columns(df)
+
+
+def _resolve_write_csv(cfg: DatasetBuildConfig, row_count: int) -> bool:
+    """
+    Determine whether to write the full dataset CSV for the given row count.
+    """
+    if cfg.write_csv is not None:
+        return bool(cfg.write_csv)
+    max_rows = max(int(cfg.csv_max_rows), 0)
+    return row_count <= max_rows
+
+
+def _write_dataset_csv(
+    df_sorted: PolarsDF,
+    cfg: DatasetBuildConfig,
+    *,
+    dataset_csv: Path,
+) -> Path | None:
+    """
+    Write dataset CSV output or a sample CSV when configured.
+
+    Returns the written CSV path, or None when no CSV is emitted.
+    """
+    row_count = int(df_sorted.height)
+    write_full = _resolve_write_csv(cfg, row_count)
+    sample_rows = max(int(cfg.csv_sample_rows), 0)
+
+    if write_full:
+        df_sorted.write_csv(str(dataset_csv))
+        return dataset_csv
+
+    if dataset_csv.exists():
+        dataset_csv.unlink()
+
+    if sample_rows <= 0:
+        return None
+
+    sample_path = dataset_csv.with_name("dataset_sample.csv")
+    sample_df = df_sorted.head(sample_rows)
+    sample_df.write_csv(str(sample_path))
+    return sample_path
 
 
 def _write_feature_npz_from_polars(
@@ -1204,7 +1232,7 @@ def _build_dataset_chunked(
             dataset_csv.unlink()
         empty_df = polars_module.DataFrame()
         empty_df.write_parquet(str(dataset_parquet))
-        empty_df.write_csv(str(dataset_csv))
+        _write_dataset_csv(empty_df, cfg, dataset_csv=dataset_csv)
         np.savez(
             features_npz,
             X_train=np.empty((0, 0), dtype=np.float32),
@@ -1270,6 +1298,11 @@ def _build_dataset_chunked(
         dataset_csv.unlink()
     if features_npz.exists():
         features_npz.unlink()
+    write_csv = _resolve_write_csv(cfg, total_rows)
+    sample_rows = max(int(cfg.csv_sample_rows), 0)
+    sample_path = dataset_csv.with_name("dataset_sample.csv")
+    if not write_csv and sample_path.exists():
+        sample_path.unlink()
 
     validation_cfg = cfg.validation or DatasetValidationConfig(require_macro_series=cfg.macro_series_ids)
     if validation_cfg.require_macro_series is None and cfg.macro_series_ids:
@@ -1288,6 +1321,8 @@ def _build_dataset_chunked(
 
     pq_writer: pq.ParquetWriter | None = None
     csv_header_written = False
+    sample_header_written = False
+    sample_remaining = sample_rows
     feature_names: list[str] | None = None
     non_null_counts: dict[str, int] | None = None
     feature_writer: _StreamingFeatureWriter | None = None
@@ -1347,10 +1382,18 @@ def _build_dataset_chunked(
             pq_writer = pq.ParquetWriter(str(dataset_parquet), table.schema, compression="zstd")
         pq_writer.write_table(table)
 
-        mode = "w" if not csv_header_written else "a"
-        with open(dataset_csv, mode, newline="") as csv_handle:
-            df_chunk.write_csv(csv_handle, include_header=not csv_header_written)
-        csv_header_written = True
+        if write_csv:
+            mode = "w" if not csv_header_written else "a"
+            with open(dataset_csv, mode, newline="") as csv_handle:
+                df_chunk.write_csv(csv_handle, include_header=not csv_header_written)
+            csv_header_written = True
+        elif sample_remaining > 0:
+            sample_df = df_chunk.head(sample_remaining)
+            mode = "w" if not sample_header_written else "a"
+            with open(sample_path, mode, newline="") as csv_handle:
+                sample_df.write_csv(csv_handle, include_header=not sample_header_written)
+            sample_remaining -= sample_df.height
+            sample_header_written = True
 
         offset += df_chunk.height
         meta.path.unlink(missing_ok=True)
@@ -1804,7 +1847,7 @@ def build_tft_dataset(
     dataset_parquet = cfg.out_dir / "dataset.parquet"
     dataset_csv = cfg.out_dir / "dataset.csv"
     dataset_df.write_parquet(str(dataset_parquet))
-    dataset_df.write_csv(str(dataset_csv))
+    _write_dataset_csv(dataset_df, cfg, dataset_csv=dataset_csv)
 
     # Build feature matrix artifacts without materialising the entire dataset in memory
     feature_names = _infer_feature_columns(dataset_df)

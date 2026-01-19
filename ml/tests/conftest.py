@@ -180,33 +180,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     _mark_prototypes(items)
 
-    def _selection_is_db_free(args: list[str]) -> bool:
-        """
-        Return True when the selected paths are limited to DB-free suites.
-
-        DB-free suites: unit/contracts/property/metamorphic/combinatorial.
-        """
-        if not args:
-            return False
-
-        db_required_segments = {"integration", "e2e", "performance"}
-        db_free_segments = {"unit", "contracts", "property", "metamorphic", "combinatorial"}
-
-        normalized: list[list[str]] = []
-        for raw in args:
-            path = raw.split("::", 1)[0].replace("\\", "/").strip("/")
-            if not path or path in {".", "ml/tests"}:
-                return False
-            segments = [seg for seg in path.split("/") if seg]
-            if any(seg in db_required_segments for seg in segments):
-                return False
-            normalized.append(segments)
-
-        # Every arg must explicitly target one of the DB-free suite segments.
-        return all(any(seg in db_free_segments for seg in segments) for segments in normalized)
-
-    db_free_selection = _selection_is_db_free(list(getattr(config, "args", [])))
-
     # Auto-mark tests as database when they request DB-backed fixtures.
     db_fixtures = {
         # Database engines/sessions
@@ -235,14 +208,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(pytest.mark.database)
             if "serial" not in item.keywords:
                 item.add_marker(pytest.mark.serial)
-
-    if db_free_selection:
-        skip_db = pytest.mark.skip(
-            reason="DB-free suite selection; skipping @pytest.mark.database tests",
-        )
-        for item in items:
-            if "database" in item.keywords:
-                item.add_marker(skip_db)
 
     db_fixtures = _db_fixtures()
     if not db_fixtures.is_postgresql_running():
@@ -333,32 +298,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     if os.environ.get("SKIP_DB_INIT", "").lower() in ("1", "true", "yes"):
         print("Skipping database initialization (SKIP_DB_INIT is set)")
-        return
-
-    args = list(getattr(session.config, "args", []))
-    force_db = os.environ.get("ML_FORCE_DB_INIT", "").lower() in {"1", "true", "yes"}
-    db_free_selection = False
-    if args and not force_db:
-        db_required_segments = {"integration", "e2e", "performance"}
-        db_free_segments = {"unit", "contracts", "property", "metamorphic", "combinatorial"}
-
-        normalized: list[list[str]] = []
-        for raw in args:
-            path = raw.split("::", 1)[0].replace("\\", "/").strip("/")
-            if not path or path in {".", "ml/tests"}:
-                normalized = []
-                break
-            segments = [seg for seg in path.split("/") if seg]
-            if any(seg in db_required_segments for seg in segments):
-                normalized = []
-                break
-            normalized.append(segments)
-
-        if normalized and all(any(seg in db_free_segments for seg in segments) for segments in normalized):
-            db_free_selection = True
-
-    if db_free_selection and not force_db:
-        print("Skipping database initialization (DB-free suite selection)")
         return
 
     try:

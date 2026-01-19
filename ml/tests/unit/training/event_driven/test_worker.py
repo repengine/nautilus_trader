@@ -163,10 +163,19 @@ class _DeterministicTeacher:
         val_metadata,
         full_metadata,
         streaming_config,
+        bootstrap_sample_rows: int | None = None,
         callbacks=None,
         checkpoint_path=None,
     ) -> StreamingFitResult:
-        del parquet_path, train_loader, val_loader, full_metadata, callbacks, checkpoint_path  # unused in stub
+        del (
+            parquet_path,
+            train_loader,
+            val_loader,
+            full_metadata,
+            bootstrap_sample_rows,
+            callbacks,
+            checkpoint_path,
+        )  # unused in stub
         train_sequences = max(1, stream.count_sequences(train_metadata, streaming_config))
         val_sequences = max(2, stream.count_sequences(val_metadata, streaming_config))
         z_train = np.linspace(-0.2, 0.2, num=train_sequences, dtype=np.float64)
@@ -610,6 +619,7 @@ def test_lightning_worker_integration_with_orchestrator(tmp_path: Path) -> None:
             result_topic="",
             heartbeat_topic="",
             worker_timeout_seconds=90,
+            enable_state_persistence=False,
         ),
         planner,
         bus,

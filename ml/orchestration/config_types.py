@@ -82,6 +82,9 @@ class DatasetBuildConfig:
     start_iso: str | None = None
     end_iso: str | None = None
     chunk_days: int = 0
+    write_csv: bool | None = None
+    csv_max_rows: int = 1_000_000
+    csv_sample_rows: int = 0
     register_features: bool = False
     feature_registry_dir: str | None = None
     feature_role: str = "teacher"

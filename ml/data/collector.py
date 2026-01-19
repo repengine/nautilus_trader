@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from ml.config.base import DataCollectorConfig
-from ml.data.ingest.policy import DatabentoCoveragePolicy
+from ml.data.ingest.subscription import SubscriptionPolicy
 
 
 warnings.filterwarnings("ignore")
@@ -128,7 +128,7 @@ class DataCollector:
         # Load existing symbols
         self.existing_symbols = self._load_existing_symbols()
         # Optional coverage guard (env-driven; no-ops if unset)
-        self._policy = DatabentoCoveragePolicy.from_env()
+        self._policy = SubscriptionPolicy.from_env()
 
         # Priority symbols for deep historical data
         self.PRIORITY_SYMBOLS = [

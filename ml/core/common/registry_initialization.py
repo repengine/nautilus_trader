@@ -42,6 +42,10 @@ from ml.stores.io_raw import RawReaderProtocol
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ml.stores.protocols import DataStoreFacadeProtocol
+    from ml.stores.protocols import EarningsStoreProtocol
+    from ml.stores.protocols import FeatureStoreProtocol
+    from ml.stores.protocols import ModelStoreProtocol
+    from ml.stores.protocols import StrategyStoreProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -220,6 +224,10 @@ class RegistryInitializationComponent:
 
     def create_data_store(
         self,
+        feature_store: FeatureStoreProtocol | None = None,
+        model_store: ModelStoreProtocol | None = None,
+        strategy_store: StrategyStoreProtocol | None = None,
+        earnings_store: EarningsStoreProtocol | None = None,
         raw_reader: object | None = None,
         raw_writer: object | None = None,
     ) -> DataStoreFacadeProtocol:
@@ -232,6 +240,14 @@ class RegistryInitializationComponent:
 
         Parameters
         ----------
+        feature_store : FeatureStoreProtocol | None
+            FeatureStore to attach to the DataStore.
+        model_store : ModelStoreProtocol | None
+            ModelStore to attach to the DataStore.
+        strategy_store : StrategyStoreProtocol | None
+            StrategyStore to attach to the DataStore.
+        earnings_store : EarningsStoreProtocol | None
+            EarningsStore to attach to the DataStore.
         raw_reader : object | None
             Optional raw data reader (e.g., SqlMarketDataReader).
             If None in PostgreSQL mode, creates SqlMarketDataReader automatically.
@@ -300,6 +316,10 @@ class RegistryInitializationComponent:
         data_store = _create_data_store(
             registry=cast(DataRegistry, self.data_registry),
             connection_string=connection_string,
+            feature_store=feature_store,
+            model_store=model_store,
+            strategy_store=strategy_store,
+            earnings_store=earnings_store,
             raw_reader=cast(RawReaderProtocol | None, raw_reader),
             raw_writer=cast(RawIngestionWriterProtocol | None, raw_writer),
         )

@@ -47,6 +47,7 @@ from ml.features.indicators import IndicatorManager
 from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRole
+from ml.registry.base import DummyRegistry
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -750,6 +751,10 @@ class TestEndToEndBenchmarks:
         )
         data_store = DataStore(
             connection_string=cloned_test_database,
+            registry=DummyRegistry(),
+            feature_store=feature_store,
+            model_store=model_store,
+            strategy_store=strategy_store,
             earnings_store=DummyEarningsStore(),
         )
 

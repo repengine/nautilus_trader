@@ -24,9 +24,6 @@ from ml.registry.protocols import RegistryProtocol
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
 
-pytestmark = pytest.mark.usefixtures("patch_datastore")
-
-
 class CapturePublisher(MessagePublisherProtocol):
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []

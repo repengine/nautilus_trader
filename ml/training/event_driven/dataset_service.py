@@ -100,6 +100,7 @@ class StreamingDatasetPlanner(DatasetPlanner):
             feature_names=request.feature_names,
             categorical_columns=request.categorical_columns,
             numeric_columns=numeric_columns,
+            target_col=request.streaming_config.target_col,
             group_id_col=request.streaming_config.group_id_col,
             time_index_col=request.streaming_config.time_idx_col,
             shard_row_budget=int(self.config.shard_row_budget),

@@ -250,6 +250,9 @@ class DatasetBuilder:
                     else __import__("datetime").datetime.fromisoformat(cfg.end_iso)
                 ),
                 chunk_days=int(cfg.chunk_days or 0),
+                write_csv=cfg.write_csv,
+                csv_max_rows=cfg.csv_max_rows,
+                csv_sample_rows=cfg.csv_sample_rows,
                 emit_dataset_events=cfg.emit_dataset_events,
                 register_features=cfg.register_features,
                 feature_registry_dir=(

@@ -398,7 +398,7 @@ class ModelHealthMonitor:
             "current_accuracy": np.mean(self.recent_accuracies),
             "threshold": self.accuracy_threshold,
             "action_required": "model_replacement",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         }
 
         # Log alert

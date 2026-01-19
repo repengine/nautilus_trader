@@ -18,6 +18,7 @@ import importlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -25,8 +26,6 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
-from ml.config.coverage import CoveragePolicy
-from ml.config.coverage import get_max_lookback_days
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import BackfillWindowList
@@ -34,6 +33,8 @@ from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.service import DatabentoIngestionService
+from ml.data.ingest.subscription import SubscriptionPolicy as CoveragePolicy
+from ml.data.ingest.subscription import get_max_lookback_days
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import EarningsCoordinatorConfig
@@ -41,17 +42,17 @@ from ml.orchestration.config_types import MacroIngestionConfig
 from ml.orchestration.config_types import PreIngestionOptions
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
-from ml.schema import map_schema_to_dataset_type
-
-
-__all__ = ["IngestionCoordinator", "IngestionOrchestrator"]
 from ml.registry.protocols import RegistryProtocol
+from ml.schema import map_schema_to_dataset_type
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import DAY_NS
 from ml.stores.raw_protocols import RawIngestionWriterProtocol
 from ml.tasks.ingest import PopulateL2TaskConfig
 from ml.tasks.ingest import populate_l2_efficient
+
+
+__all__ = ["IngestionCoordinator", "IngestionOrchestrator"]
 
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
@@ -477,6 +478,22 @@ class IngestionCoordinator:
     # Auto-fill universe
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_coverage_policy() -> CoveragePolicy:
+        """
+        Resolve the coverage policy, honoring pipeline orchestrator overrides.
+        """
+        import sys
+
+        module = sys.modules.get("ml.orchestration.pipeline_orchestrator")
+        policy_cls = getattr(module, "CoveragePolicy", None) if module is not None else None
+        if isinstance(policy_cls, type) and issubclass(policy_cls, CoveragePolicy):
+            try:
+                return policy_cls.from_env()
+            except Exception:
+                logger.debug("CoveragePolicy override unavailable; using default", exc_info=True)
+        return CoveragePolicy.from_env()
+
     def auto_fill_universe(
         self,
         dataset_cfg: DatasetBuildConfig,
@@ -508,7 +525,7 @@ class IngestionCoordinator:
             return
 
         metrics = _AutoFillMetrics.default()
-        policy = CoveragePolicy.from_env()
+        policy = self._resolve_coverage_policy()
         schema_aliases = {
             "bars": "ohlcv-1m",
             "tbbo": "tbbo",
@@ -932,6 +949,19 @@ class IngestionCoordinator:
                 gaps.append((bucket * DAY_NS, (bucket + 1) * DAY_NS))
         return gaps
 
+    @staticmethod
+    def _resolve_populate_l2() -> Callable[[PopulateL2TaskConfig], object]:
+        """
+        Resolve the L2 populate handler, honoring pipeline orchestrator overrides.
+        """
+        import sys
+
+        module = sys.modules.get("ml.orchestration.pipeline_orchestrator")
+        override = getattr(module, "populate_l2_efficient", None) if module is not None else None
+        if callable(override):
+            return cast(Callable[[PopulateL2TaskConfig], object], override)
+        return populate_l2_efficient
+
     def _auto_fill_l2(
         self,
         *,
@@ -1005,7 +1035,8 @@ class IngestionCoordinator:
                 auto_fill_cfg.l2_dataset_id,
                 auto_fill_cfg.l2_schema,
             )
-            populate_l2_efficient(config)
+            populate_fn = self._resolve_populate_l2()
+            populate_fn(config)
         except Exception as exc:  # pragma: no cover - defensive guard
             status = "error"
             logger.error("Auto-fill L2 failed: %s", exc, exc_info=True)

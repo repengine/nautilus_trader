@@ -30,26 +30,17 @@ if TYPE_CHECKING:
     from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
-@pytest.fixture(params=[True])
-def datastore_variant(request: pytest.FixtureRequest) -> bool:
-    """
-    Parameterize tests across DataStore implementations (Legacy removed, always True).
-    """
-    return True
-
-
 @pytest.fixture
-def component_data_store_factory() -> Callable[..., ContextManager[ModuleType]]:
+def component_data_store_factory() -> Callable[[], ContextManager[ModuleType]]:
     """
     Provide a context manager that yields the component DataStore module.
 
-    Legacy DataStore implementations are no longer supported, so the factory
-    always yields the component facade regardless of the requested mode.
+    Legacy DataStore implementations are no longer supported; always yield
+    the canonical facade module.
     """
 
     @contextmanager
-    def _factory(*, use_component: bool = True) -> Generator[ModuleType, None, None]:
-        del use_component
+    def _factory() -> Generator[ModuleType, None, None]:
         module = import_module("ml.stores.data_store")
         yield module
 
@@ -58,33 +49,13 @@ def component_data_store_factory() -> Callable[..., ContextManager[ModuleType]]:
 
 @pytest.fixture
 def datastore_module(
-    datastore_variant: bool,
-    component_data_store_factory: Callable[..., ContextManager[ModuleType]],
+    component_data_store_factory: Callable[[], ContextManager[ModuleType]],
 ) -> Generator[ModuleType, None, None]:
     """
     Provide the active DataStore module.
     """
-    with component_data_store_factory(use_component=datastore_variant) as module:
+    with component_data_store_factory() as module:
         yield module
-
-
-@pytest.fixture
-def patch_datastore(request: pytest.FixtureRequest) -> Generator[None, None, None]:
-    """
-    No-op fixture for backward compatibility during refactor.
-    """
-    yield
-
-
-@pytest.fixture
-def use_component_datastore(
-    datastore_variant: bool,
-    patch_datastore: None,
-) -> bool:
-    """
-    Expose whether the component DataStore implementation is active for the test.
-    """
-    return True
 
 
 @pytest.fixture
@@ -648,15 +619,12 @@ __all__ = [
     "data_store_session",
     "datastore_class",
     "datastore_module",
-    "datastore_variant",
     "feature_store",
     "fresh_store_bundle",
     "mock_persistence_manager",
     "model_store",
     "module_store_bundle",
-    "patch_datastore",
     "store_bundle",
     "store_integration_metrics_database",
     "strategy_store",
-    "use_component_datastore",
 ]

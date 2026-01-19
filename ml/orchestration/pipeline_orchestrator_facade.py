@@ -8,12 +8,9 @@ internally delegating to 7 specialized components with minimal business logic.
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
-from datetime import UTC
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -23,6 +20,7 @@ from ml.orchestration.common.stage_controller import StageController
 from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import IntegrationConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import PreIngestionOptions
 from ml.orchestration.config_types import StudentDistillConfig
@@ -34,6 +32,8 @@ from ml.orchestration.pipeline_orchestrator_facade_helpers import OrchestratorFa
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 from ml.orchestration.runtime_attacher import RuntimeAttacher
 from ml.orchestration.training_coordinator import TrainingCoordinator
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import StorageKind
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 
@@ -83,6 +83,22 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
     # Internal state
     write_mode_tokens: tuple[str, ...] = field(default_factory=tuple, init=False, repr=False)
     _integration_manager: IntegrationManagerProtocol | None = field(default=None, init=False, repr=False)
+    _ingestion_backfill: Callable[..., BackfillWindowList] | None = field(default=None, init=False, repr=False)
+    _ingestion_backfill_binding: Callable[..., dict[str, BackfillWindowList]] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _ingestion_backfill_coverage: Callable[..., list[tuple[int, int]]] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _ingestion_ensure_dataset_registered: Callable[..., None] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     # Components
     _ingestion_coordinator: IngestionCoordinator | None = field(default=None, init=False, repr=False)
     _dataset_builder: DatasetBuilder | None = field(default=None, init=False, repr=False)
@@ -120,12 +136,65 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
             ingestor=self.ingestor,  # type: ignore[arg-type]
             service=self.service, raw_writer=self.raw_writer,
             domain_loader=self.domain_loader, discovery_client=self._discovery_client)
+        self._ingestion_backfill = self._ingestion_coordinator.backfill
+        self._ingestion_backfill_binding = self._ingestion_coordinator.backfill_binding
+        self._ingestion_backfill_coverage = self._ingestion_coordinator.backfill_coverage
+        self._ingestion_ensure_dataset_registered = (
+            self._ingestion_coordinator._ensure_dataset_registered
+        )
         self._stage_controller = StageController(
             ingestion_coordinator=self._ingestion_coordinator, dataset_builder=self._dataset_builder,
             training_coordinator=self._training_coordinator,
             registry_synchronizer=self._registry_synchronizer, runtime_attacher=self._runtime_attacher,
             feature_registry=self.feature_registry, model_registry=self.model_registry,
             data_registry=self.data_registry, integration_manager_factory=self.integration_manager_factory)
+        self._stage_controller._attach_runtime = self._attach_runtime
+        self._stage_controller._prepare_dataset_config = self._prepare_dataset_config
+        self._stage_controller._auto_fill_universe = self._auto_fill_universe
+
+    def _attach_runtime(
+        self,
+        integration_cfg: IntegrationConfig | None,
+        *,
+        dataset_out_dir: Path,
+    ) -> None:
+        """
+        Attach runtime stores/registries via the RuntimeAttacher and sync state.
+
+        Args:
+            integration_cfg: Integration configuration to apply.
+            dataset_out_dir: Dataset output directory for validator context.
+        """
+        if self._runtime_attacher is None:
+            raise RuntimeError("RuntimeAttacher not initialized")
+        manager = self._runtime_attacher.attach_runtime(
+            integration_cfg,
+            dataset_out_dir=dataset_out_dir,
+        )
+        self._integration_manager = manager
+        self._sync_runtime_components()
+
+    def _sync_runtime_components(self) -> None:
+        """Sync attached runtime components onto the facade and stage controller."""
+        if self._runtime_attacher is None:
+            return
+        for attr in (
+            "data_registry",
+            "feature_registry",
+            "model_registry",
+            "strategy_registry",
+            "feature_store",
+            "model_store",
+            "strategy_store",
+            "data_store",
+            "partition_manager",
+        ):
+            value = getattr(self._runtime_attacher, attr, None)
+            if value is None:
+                continue
+            setattr(self, attr, value)
+            if self._stage_controller is not None:
+                setattr(self._stage_controller, attr, value)
 
     def get_health_status(self) -> dict[str, Any]:
         """
@@ -136,20 +205,7 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
         dict[str, Any]
             Health status dictionary with component availability.
         """
-        return {
-            "implementation": "component-based",
-            "coverage_provider": "healthy" if self.coverage else "unavailable",
-            "writer": "healthy" if self.writer else "unavailable",
-            "build_main": "healthy" if self.build_main else "unavailable",
-            "teacher_main": "healthy" if self.teacher_main else "unavailable",
-            "has_registry": self.registry is not None,
-            "has_data_registry": self.data_registry is not None,
-            "has_ingestor": self.ingestor is not None,
-            "has_model_registry": self.model_registry is not None,
-            "has_feature_registry": self.feature_registry is not None,
-            "has_strategy_registry": self.strategy_registry is not None,
-            "has_integration_manager_factory": self.integration_manager_factory is not None,
-        }
+        return self._build_health_status()
 
     # -------------------------------------------------------------------------
     # Public API - Pure delegation
@@ -164,23 +220,23 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
 
     def backfill(self, *, dataset_id: str, schema: str, instrument_id: str,
                 lookback_days: int) -> BackfillWindowList:
-        if self._ingestion_coordinator is None:
+        if self._ingestion_backfill is None:
             raise RuntimeError("IngestionCoordinator not initialized")
-        return self._ingestion_coordinator.backfill(
+        return self._ingestion_backfill(
             dataset_id=dataset_id, schema=schema, instrument_id=instrument_id,
             lookback_days=lookback_days)
 
     def backfill_binding(self, *, binding: ResolvedMarketBinding,
                         lookback_days: int) -> dict[str, BackfillWindowList]:
-        if self._ingestion_coordinator is None:
+        if self._ingestion_backfill_binding is None:
             raise RuntimeError("IngestionCoordinator not initialized")
-        return self._ingestion_coordinator.backfill_binding(binding=binding, lookback_days=lookback_days)
+        return self._ingestion_backfill_binding(binding=binding, lookback_days=lookback_days)
 
     def backfill_coverage(self, *, dataset_id: str, schema: str, instrument_id: str,
                          policy: CoveragePolicy | None = None) -> list[tuple[int, int]]:
-        if self._ingestion_coordinator is None:
+        if self._ingestion_backfill_coverage is None:
             raise RuntimeError("IngestionCoordinator not initialized")
-        return self._ingestion_coordinator.backfill_coverage(
+        return self._ingestion_backfill_coverage(
             dataset_id=dataset_id, schema=schema, instrument_id=instrument_id, policy=policy)
 
     def build_dataset(self, cfg: DatasetBuildConfig) -> int:
@@ -220,106 +276,28 @@ class MLPipelineOrchestratorFacade(OrchestratorFacadeHelpers):
             raise RuntimeError("StageController not initialized")
         return self._stage_controller.run_training_only(cfg)
 
-    # -------------------------------------------------------------------------
-    # Legacy API static methods - Pure delegation
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _infer_dataset_row_count(result: object) -> int | None:
+    def _ensure_dataset_registered(
+        self,
+        *,
+        dataset_id: str,
+        dataset_type: DatasetType,
+        location: str,
+        storage_kind: StorageKind = StorageKind.PARQUET,
+    ) -> None:
         """
-        Best-effort row count inference for API build results.
+        Ensure dataset registration is delegated to the ingestion coordinator.
+
+        Args:
+            dataset_id: Dataset identifier to register.
+            dataset_type: Dataset type metadata.
+            location: Storage location string.
+            storage_kind: Storage kind enum (default PARQUET).
         """
-        metadata = getattr(result, "metadata", None)
-        if metadata is not None:
-            overall_window = getattr(metadata, "overall_window", None)
-            ts_start = getattr(metadata, "ts_event_start", None)
-            ts_end = getattr(metadata, "ts_event_end", None)
-            if overall_window is None and ts_start is None and ts_end is None:
-                return 0
-
-        dataset_parquet = getattr(result, "dataset_parquet", None)
-        if isinstance(dataset_parquet, Path) and dataset_parquet.exists():
-            try:
-                import pyarrow.parquet as pq
-            except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
-                logger.debug(
-                    "pyarrow unavailable for row count inference",
-                    extra={"dataset_parquet": str(dataset_parquet)},
-                )
-            else:
-                try:
-                    return int(pq.ParquetFile(str(dataset_parquet)).metadata.num_rows)
-                except Exception:  # pragma: no cover - defensive best effort
-                    logger.debug(
-                        "Unable to infer row count from dataset parquet",
-                        exc_info=True,
-                        extra={"dataset_parquet": str(dataset_parquet)},
-                    )
-
-        dataset_csv = getattr(result, "dataset_csv", None)
-        if isinstance(dataset_csv, Path) and dataset_csv.exists():
-            try:
-                with dataset_csv.open("r", encoding="utf-8") as handle:
-                    next(handle, None)  # header (if any)
-                    has_data = next(handle, None)
-                return 0 if has_data is None else None
-            except Exception:  # pragma: no cover - defensive best effort
-                logger.debug(
-                    "Unable to infer row count from dataset CSV",
-                    exc_info=True,
-                    extra={"dataset_csv": str(dataset_csv)},
-                )
-
-        return None
-
-    @staticmethod
-    def _resolve_instrument_ids(dataset_cfg: DatasetBuildConfig,
-                               override: tuple[str, ...] | None = None) -> tuple[str, ...]:
-        if override:
-            return tuple(item.strip() for item in override if item.strip())
-        if dataset_cfg.instrument_ids:
-            return tuple(item.strip() for item in dataset_cfg.instrument_ids if item.strip())
-        symbols_raw = dataset_cfg.symbols.split(",")
-        return tuple(item.strip().upper() for item in symbols_raw if item.strip())
-
-    @staticmethod
-    def _infer_default_schema(cfg: DatasetBuildConfig) -> str:
-        """
-        Infer a reasonable default schema for discovery lookups.
-        """
-        return "ohlcv-1m"
-
-    @staticmethod
-    def _binding_priority_key(binding: ResolvedMarketBinding) -> tuple[int, str]:
-        dataset_id = binding.dataset_id.upper()
-        if dataset_id == "EQUS.MINI":
-            return (0, dataset_id)
-        if dataset_id == "XNAS.ITCH":
-            return (1, dataset_id)
-        return (2, dataset_id)
-
-    @staticmethod
-    def _collect_instrument_ids(bindings: tuple[ResolvedMarketBinding, ...],
-                               existing: tuple[str, ...] | None) -> tuple[str, ...]:
-        collected: OrderedDict[str, None] = OrderedDict()
-        if existing:
-            for inst in existing:
-                token = inst.strip()
-                if token:
-                    collected.setdefault(token.upper(), None)
-
-        for binding in bindings:
-            for inst in binding.instrument_ids or (binding.symbol,):
-                token = inst.strip().upper()
-                if token:
-                    collected.setdefault(token, None)
-
-        return tuple(collected.keys())
-
-    @staticmethod
-    def _ns_to_datetime(value: int) -> object:
-        """
-        Convert nanoseconds since epoch to an aware UTC datetime.
-        """
-        seconds = value / 1_000_000_000
-        return datetime.fromtimestamp(seconds, tz=UTC)
+        if self._ingestion_ensure_dataset_registered is None:
+            raise RuntimeError("IngestionCoordinator not initialized")
+        self._ingestion_ensure_dataset_registered(
+            dataset_id=dataset_id,
+            dataset_type=dataset_type,
+            location=location,
+            storage_kind=storage_kind,
+        )

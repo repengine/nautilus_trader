@@ -9,9 +9,10 @@ are required.
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import os
 
@@ -43,6 +44,84 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 TEST_VENUE = Venue("SIM")
 TEST_SYMBOL = Symbol("EURUSD")
 TEST_INSTRUMENT_ID = InstrumentId(TEST_SYMBOL, TEST_VENUE)
+
+_REAL_CATALOG_PREFERRED_SYMBOLS = ("AAPL", "MSFT", "SPY")
+_REAL_CATALOG_START_OFFSET_MINUTES = 60
+_REAL_CATALOG_WINDOW_MINUTES = 240
+
+
+@dataclass(frozen=True, slots=True)
+class RealCatalogSlice:
+    """Slice definition for running tests against a real Parquet catalog."""
+
+    catalog_path: Path
+    instrument_id: str
+    symbol: str
+    start: datetime
+    end: datetime
+
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            msg = "real catalog window start must be < end"
+            raise ValueError(msg)
+
+
+def _parse_catalog_timestamp(value: str) -> datetime:
+    token = value.rstrip("Z")
+    date_raw, time_raw = token.split("T", maxsplit=1)
+    year_str, month_str, day_str = date_raw.split("-")
+    time_parts = time_raw.split("-")
+    if len(time_parts) < 3:
+        msg = f"Invalid catalog timestamp: {value}"
+        raise ValueError(msg)
+    hour_str, minute_str, second_str = time_parts[:3]
+    nanos_raw = time_parts[3] if len(time_parts) > 3 else "0"
+    nanos_padded = nanos_raw.ljust(9, "0")
+    microsecond = int(nanos_padded[:6])
+    return datetime(
+        int(year_str),
+        int(month_str),
+        int(day_str),
+        int(hour_str),
+        int(minute_str),
+        int(second_str),
+        microsecond,
+        tzinfo=UTC,
+    )
+
+
+def _parse_catalog_range(path: Path) -> tuple[datetime, datetime]:
+    stem = path.stem
+    try:
+        start_raw, end_raw = stem.split("_", maxsplit=1)
+    except ValueError as exc:
+        msg = f"Unexpected catalog filename: {path.name}"
+        raise ValueError(msg) from exc
+    return (_parse_catalog_timestamp(start_raw), _parse_catalog_timestamp(end_raw))
+
+
+def _find_real_catalog_bar_dataset(catalog_root: Path) -> tuple[Path, str, str]:
+    bar_root = catalog_root / "data" / "bar"
+    if not bar_root.exists():
+        raise FileNotFoundError("Catalog bar root missing")
+
+    for symbol in _REAL_CATALOG_PREFERRED_SYMBOLS:
+        for path in sorted(bar_root.glob(f"{symbol}.*-1-MINUTE-LAST-EXTERNAL")):
+            if path.is_dir():
+                instrument_id = path.name.split("-1-MINUTE", maxsplit=1)[0]
+                return path, instrument_id, symbol
+
+    for path in sorted(bar_root.glob("*-1-MINUTE-LAST-EXTERNAL")):
+        if path.is_dir():
+            instrument_id = path.name.split("-1-MINUTE", maxsplit=1)[0]
+            symbol = instrument_id.split(".", maxsplit=1)[0]
+            return path, instrument_id, symbol
+
+    raise FileNotFoundError("No minute bar datasets found")
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ml.data import BuildResult
 
 
 @pytest.fixture
@@ -128,6 +207,94 @@ def mock_parquet_catalog(tmp_path: Path, generate_test_bars: list[Bar]) -> Parqu
     catalog = ParquetDataCatalog(str(tmp_path))
     catalog.write_data(generate_test_bars)
     return catalog
+
+
+@pytest.fixture(scope="session")
+def real_catalog_slice() -> RealCatalogSlice:
+    """
+    Provide a deterministic time slice from the real Parquet catalog.
+    """
+    catalog_root = Path("data/catalog")
+    if not catalog_root.exists():
+        pytest.skip("Real catalog not available")
+
+    try:
+        dataset_dir, instrument_id, symbol = _find_real_catalog_bar_dataset(catalog_root)
+    except FileNotFoundError as exc:
+        pytest.skip(str(exc))
+
+    parquet_files = sorted(dataset_dir.glob("*.parquet"))
+    if not parquet_files:
+        pytest.skip("Real catalog has no parquet files for selected instrument")
+
+    start_dt, end_dt = _parse_catalog_range(parquet_files[0])
+    offset = timedelta(minutes=_REAL_CATALOG_START_OFFSET_MINUTES)
+    window = timedelta(minutes=_REAL_CATALOG_WINDOW_MINUTES)
+    start = start_dt + offset
+    end = start + window
+
+    if end > end_dt:
+        end = end_dt - timedelta(minutes=1)
+        start = end - window
+    if start < start_dt:
+        start = start_dt
+    if start >= end:
+        pytest.skip("Real catalog window too small for deterministic slice")
+
+    return RealCatalogSlice(
+        catalog_path=catalog_root,
+        instrument_id=instrument_id,
+        symbol=symbol,
+        start=start,
+        end=end,
+    )
+
+
+@pytest.fixture(scope="session")
+def real_catalog_dataset(
+    real_catalog_slice: RealCatalogSlice,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> BuildResult:
+    """
+    Build a bounded TFT dataset from the real catalog for integration tests.
+    """
+    from ml._imports import HAS_POLARS
+    from ml._imports import pl
+
+    if not HAS_POLARS:
+        pytest.skip("Polars not installed")
+
+    from ml.data import DatasetBuildConfig
+    from ml.data import build_tft_dataset
+
+    out_dir = tmp_path_factory.mktemp("real_catalog_dataset")
+    cfg = DatasetBuildConfig(
+        data_dir=real_catalog_slice.catalog_path,
+        out_dir=out_dir,
+        symbols=[real_catalog_slice.symbol],
+        instrument_ids=[real_catalog_slice.instrument_id],
+        include_macro=False,
+        include_micro=False,
+        include_l2=False,
+        include_events=False,
+        include_calendar=False,
+        include_earnings=False,
+        auto_refresh_macro=False,
+        horizon_minutes=5,
+        threshold=0.0005,
+        lookback_periods=30,
+        start=real_catalog_slice.start,
+        end=real_catalog_slice.end,
+    )
+
+    result = build_tft_dataset(cfg)
+    if pl is not None:
+        dataset_df = pl.read_parquet(str(result.dataset_parquet))
+        if dataset_df.is_empty():
+            pytest.skip("Real catalog slice produced empty dataset")
+        if not result.feature_names:
+            pytest.skip("Real catalog dataset has no feature columns")
+    return result
 
 
 @pytest.fixture
@@ -373,12 +540,15 @@ __all__ = [
     "TEST_INSTRUMENT_ID",
     "TEST_SYMBOL",
     "TEST_VENUE",
+    "RealCatalogSlice",
     "create_onnx_model_for_features",
     "generate_test_bars",
     "lightgbm_test_model",
     "mock_parquet_catalog",
     "multi_instrument_bars",
     "onnx_test_model_path",
+    "real_catalog_dataset",
+    "real_catalog_slice",
     "test_bar_type",
     "test_feature_data",
     "test_instrument",

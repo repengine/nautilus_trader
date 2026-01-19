@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -1436,7 +1437,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--pipeline-version",
         type=str,
-        default=datetime.utcnow().date().isoformat(),
+        default=datetime.now(UTC).date().isoformat(),
         help="Pipeline version string stored in registry manifests.",
     )
     parser.add_argument(

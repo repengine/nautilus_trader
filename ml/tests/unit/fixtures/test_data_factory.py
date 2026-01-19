@@ -83,9 +83,11 @@ def test_test_data_factory_features_uses_seed_for_reproducibility(
     assert not np.allclose(features1, features3)
 
 
-def test_test_data_factory_predictions_returns_list_of_dicts() -> None:
+def test_test_data_factory_predictions_returns_list_of_dicts(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify predictions() method returns valid predictions."""
-    factory = TestDataFactory()
+    factory = test_data_factory
     predictions = factory.predictions(n=20, instrument="EUR/USD.SIM")
 
     assert isinstance(predictions, list)
@@ -109,9 +111,11 @@ def test_test_data_factory_predictions_returns_list_of_dicts() -> None:
 # ============================================================================
 
 
-def test_test_data_factory_bars_rejects_invalid_n() -> None:
+def test_test_data_factory_bars_rejects_invalid_n(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify bars() validates n parameter."""
-    factory = TestDataFactory()
+    factory = test_data_factory
 
     with pytest.raises(ValueError, match="n must be greater than 0"):
         factory.bars(n=0)
@@ -120,9 +124,11 @@ def test_test_data_factory_bars_rejects_invalid_n() -> None:
         factory.bars(n=-1)
 
 
-def test_test_data_factory_features_rejects_invalid_dimensions() -> None:
+def test_test_data_factory_features_rejects_invalid_dimensions(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify features() validates dimensions."""
-    factory = TestDataFactory()
+    factory = test_data_factory
 
     with pytest.raises(ValueError, match="n_samples must be greater than 0"):
         factory.features(n=0, n_features=10)
@@ -131,9 +137,11 @@ def test_test_data_factory_features_rejects_invalid_dimensions() -> None:
         factory.features(n=10, n_features=0)
 
 
-def test_test_data_factory_predictions_rejects_invalid_instrument() -> None:
+def test_test_data_factory_predictions_rejects_invalid_instrument(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify predictions() validates instrument parameter."""
-    factory = TestDataFactory()
+    factory = test_data_factory
 
     with pytest.raises(ValueError, match="instrument must not be empty"):
         factory.predictions(n=20, instrument="")
@@ -144,9 +152,11 @@ def test_test_data_factory_predictions_rejects_invalid_instrument() -> None:
 # ============================================================================
 
 
-def test_test_data_factory_bars_single_bar() -> None:
+def test_test_data_factory_bars_single_bar(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify bars() works with n=1."""
-    factory = TestDataFactory()
+    factory = test_data_factory
     bars = factory.bars(n=1)
 
     assert len(bars) == 1
@@ -154,18 +164,22 @@ def test_test_data_factory_bars_single_bar() -> None:
     assert float(bars[0].high) >= float(bars[0].low)
 
 
-def test_test_data_factory_features_minimal_dimensions() -> None:
+def test_test_data_factory_features_minimal_dimensions(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify features() works with n=1, n_features=1."""
-    factory = TestDataFactory()
+    factory = test_data_factory
     features = factory.features(n=1, n_features=1)
 
     assert features.shape == (1, 1)
     assert isinstance(features[0, 0], (np.floating, float))
 
 
-def test_test_data_factory_predictions_single_prediction() -> None:
+def test_test_data_factory_predictions_single_prediction(
+    test_data_factory: TestDataFactory,
+) -> None:
     """Verify predictions() handles edge cases gracefully."""
-    factory = TestDataFactory()
+    factory = test_data_factory
     predictions = factory.predictions(n=1)
 
     assert len(predictions) == 1

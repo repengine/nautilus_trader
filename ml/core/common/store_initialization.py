@@ -5,6 +5,7 @@ This module provides store initialization extracted from MLIntegrationManager
 as part of the god-class decomposition effort (Phase 3.6.2). The component handles:
 
 - Initialize 4 stores (FeatureStore, ModelStore, StrategyStore, DataStore)
+- Initialize EarningsStore for DataStore wiring
 - Progressive fallback: PostgreSQL -> File -> Dummy
 - File-backed store creation when PostgreSQL unavailable
 - Dummy store creation for testing
@@ -95,6 +96,8 @@ class StoreInitializationComponent:
         Initialized StrategyStore (PostgreSQL, File, or Dummy).
     data_store : object | None
         Initialized DataStore (set in registries init, or via set_data_store).
+    earnings_store : object | None
+        Initialized EarningsStore (PostgreSQL, File, or Dummy).
 
     Example
     -------
@@ -125,6 +128,7 @@ class StoreInitializationComponent:
     model_store: object = field(default=None, init=False)
     strategy_store: object = field(default=None, init=False)
     data_store: object | None = field(default=None, init=False)
+    earnings_store: object | None = field(default=None, init=False)
 
     def enable_file_fallback(self) -> bool:
         """
@@ -171,8 +175,9 @@ class StoreInitializationComponent:
         Initialize in-memory dummy components for testing fallback.
 
         This mode provides protocol-compatible components without persistence.
-        Creates 4 DummyStore instances for stores and 4 DummyRegistry instances
-        for registries (registries are set as attributes for consistency).
+        Creates 4 DummyStore instances plus a DummyEarningsStore instance,
+        along with 4 DummyRegistry instances for registries (registries are set
+        as attributes for consistency).
 
         Example
         -------
@@ -190,6 +195,9 @@ class StoreInitializationComponent:
         self.model_store = DummyStore()
         self.strategy_store = DummyStore()
         self.data_store = DummyStore()
+        from ml.features.earnings.store import DummyEarningsStore
+
+        self.earnings_store = DummyEarningsStore()
 
         # Registries (set as attributes for unified access)
         self.feature_registry = DummyRegistry()
@@ -242,12 +250,28 @@ class StoreInitializationComponent:
         self.strategy_store = FileStrategyStore(base_path=file_root / "strategies")
 
         # Create earnings store for FileDataStore
-        earnings_store = FileEarningsStore(base_path=file_root / "earnings")
-        logger.info("FileEarningsStore initialized at %s", file_root / "earnings")
+        try:
+            self.earnings_store = FileEarningsStore(base_path=file_root / "earnings")
+            logger.info("FileEarningsStore initialized at %s", file_root / "earnings")
+        except Exception:
+            from ml.features.earnings.store import DummyEarningsStore
+
+            logger.warning(
+                "FileEarningsStore initialization failed; using DummyEarningsStore",
+                exc_info=True,
+            )
+            try:
+                _FALLBACK_COUNTER.labels(
+                    component="earnings_store",
+                    level="dummy",
+                ).inc()
+            except Exception:
+                logger.debug("EarningsStore fallback metric emit failed", exc_info=True)
+            self.earnings_store = DummyEarningsStore()
 
         self.data_store = FileDataStore(
             base_path=file_root / "datastore",
-            earnings_store=earnings_store,
+            earnings_store=self.earnings_store,
         )
 
         logger.debug(
@@ -263,6 +287,9 @@ class StoreInitializationComponent:
         self.model_store = DummyStore()
         self.strategy_store = DummyStore()
         self.data_store = DummyStore()
+        from ml.features.earnings.store import DummyEarningsStore
+
+        self.earnings_store = DummyEarningsStore()
 
         logger.debug("Initialized dummy stores for JSON fallback mode")
 
@@ -301,6 +328,27 @@ class StoreInitializationComponent:
             persistence_config=persistence_config,
             batch_size=1000,
         )
+
+        try:
+            from ml.features.earnings.store import EarningsStore
+
+            self.earnings_store = EarningsStore(connection_string=self.db_connection)
+            logger.info("Initialized EarningsStore (PostgreSQL)")
+        except Exception:
+            logger.warning(
+                "EarningsStore initialization failed; using DummyEarningsStore",
+                exc_info=True,
+            )
+            try:
+                _FALLBACK_COUNTER.labels(
+                    component="earnings_store",
+                    level="dummy",
+                ).inc()
+            except Exception:
+                logger.debug("EarningsStore fallback metric emit failed", exc_info=True)
+            from ml.features.earnings.store import DummyEarningsStore
+
+            self.earnings_store = DummyEarningsStore()
 
         # DataStore is initialized after registries are available
         # Will be set via set_data_store() from registries init
@@ -355,6 +403,7 @@ class StoreInitializationComponent:
             ("model_store", self.model_store),
             ("strategy_store", self.strategy_store),
             ("data_store", self.data_store),
+            ("earnings_store", self.earnings_store),
         ]
 
         for name, store in stores:
@@ -390,6 +439,7 @@ class StoreInitializationComponent:
             ("model_store", self.model_store),
             ("strategy_store", self.strategy_store),
             ("data_store", self.data_store),
+            ("earnings_store", self.earnings_store),
         ]
 
         for name, store in stores:

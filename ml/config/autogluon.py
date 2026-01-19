@@ -27,6 +27,7 @@ __all__ = [
     "ChronosBaselineStrategy",
     "ChronosDistillationConfig",
     "ChronosEvaluationConfig",
+    "ChronosFineTuneConfig",
     "ChronosOnnxDistillationConfig",
     "ChronosTrainingConfig",
     "ChronosTuningConfig",
@@ -237,6 +238,36 @@ class AutoGluonDataConfig(NautilusConfig, kw_only=True, frozen=True):
     static_features: tuple[str, ...] = ()
 
 
+class ChronosFineTuneConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for Chronos fine-tuning search spaces.
+
+    Parameters
+    ----------
+    learning_rate_bounds : tuple[PositiveFloat, PositiveFloat], default (1e-5, 1e-3)
+        Lower/upper bounds for learning rate tuning.
+    weight_decay_bounds : tuple[NonNegativeFloat, NonNegativeFloat], default (0.0, 1e-2)
+        Lower/upper bounds for weight decay tuning.
+    """
+
+    learning_rate_bounds: tuple[PositiveFloat, PositiveFloat] = (1e-5, 1e-3)
+    weight_decay_bounds: tuple[NonNegativeFloat, NonNegativeFloat] = (0.0, 1e-2)
+
+    def __post_init__(self) -> None:
+        """Validate fine-tune search space bounds."""
+        lr_low, lr_high = self.learning_rate_bounds
+        if float(lr_low) <= 0.0 or float(lr_high) <= 0.0:
+            raise ValueError("learning_rate_bounds must be > 0")
+        if float(lr_low) >= float(lr_high):
+            raise ValueError("learning_rate_bounds lower must be < upper")
+
+        wd_low, wd_high = self.weight_decay_bounds
+        if float(wd_low) < 0.0 or float(wd_high) < 0.0:
+            raise ValueError("weight_decay_bounds must be >= 0")
+        if float(wd_low) >= float(wd_high):
+            raise ValueError("weight_decay_bounds lower must be < upper")
+
+
 class ChronosTuningConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     Configuration for AutoGluon hyperparameter tuning.
@@ -310,6 +341,10 @@ class ChronosTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
         keep target_column aligned with this config (ts_event required).
     tuning_config : ChronosTuningConfig, optional
         Hyperparameter tuning configuration for AutoGluon model selection.
+    fine_tune : bool, default False
+        Whether to enable Chronos fine-tuning (required for tuning search spaces).
+    fine_tune_config : ChronosFineTuneConfig, optional
+        Search space configuration for fine-tuning.
     enable_gpu : bool, default True
         Whether to use GPU acceleration if available.
     num_gpus : NonNegativeInt, default 1
@@ -351,6 +386,8 @@ class ChronosTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
     # Data configuration
     data_config: AutoGluonDataConfig | None = None
     tuning_config: ChronosTuningConfig | None = None
+    fine_tune: bool = False
+    fine_tune_config: ChronosFineTuneConfig | None = None
 
     # Hardware settings
     enable_gpu: bool = True
@@ -407,6 +444,21 @@ class ChronosTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
         if self.data_config is not None:
             return self.data_config
         return AutoGluonDataConfig(target_column=self.target_column)
+
+    def get_fine_tune_config(self) -> ChronosFineTuneConfig | None:
+        """
+        Return fine-tune config if fine-tuning is enabled.
+
+        Returns
+        -------
+        ChronosFineTuneConfig | None
+            Fine-tune configuration or None when fine-tuning is disabled.
+        """
+        if not self.fine_tune and self.tuning_config is None:
+            return None
+        if self.fine_tune_config is not None:
+            return self.fine_tune_config
+        return ChronosFineTuneConfig()
 
 
 class ChronosDistillationConfig(NautilusConfig, kw_only=True, frozen=True):

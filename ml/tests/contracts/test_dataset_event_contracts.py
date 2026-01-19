@@ -54,6 +54,7 @@ class TestDatasetEventContracts:
     def data_store(
         self,
         mock_registry: MagicMock,
+        mock_stores_bundle: dict[str, MagicMock],
         datastore_module: ModuleType,
     ) -> DataStore:
         """
@@ -63,6 +64,10 @@ class TestDatasetEventContracts:
         return data_store_cls(
             connection_string="sqlite:///:memory:",
             registry=mock_registry,
+            feature_store=mock_stores_bundle["feature_store"],
+            model_store=mock_stores_bundle["model_store"],
+            strategy_store=mock_stores_bundle["strategy_store"],
+            earnings_store=mock_stores_bundle["earnings_store"],
             publisher=None,  # Disable message bus for these tests
         )
 

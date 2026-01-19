@@ -42,7 +42,6 @@ from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.data_registry import DataRegistry
-from ml.registry.data_registry import Watermark
 from ml.registry.data_registry_facade import DataRegistryFacade
 from ml.registry.data_registry_facade import create_data_registry
 
@@ -108,6 +107,7 @@ from ml.registry.utils import assert_features_compatible
 # =============================================================================
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
+from ml.registry.watermark import Watermark
 
 
 # =============================================================================

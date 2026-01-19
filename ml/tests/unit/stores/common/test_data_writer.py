@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from ml.config import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.events import EventStatus
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, QualityFlag, ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
@@ -460,7 +461,7 @@ def test_write_earnings_actual_with_empty_dataframe(
     # Configure validator to fail with strict mode
     mock_validator.validate_batch = Mock(
         return_value=QualityReport(
-            dataset_id="earnings_actuals",
+            dataset_id=EARNINGS_ACTUALS_DATASET_ID,
             total_records=1,
             passed_records=0,
             failed_records=1,
@@ -483,7 +484,7 @@ def test_write_earnings_actual_with_empty_dataframe(
     # Configure registry to return strict contract
     strict_contract = DataContract(
         contract_id="earnings_contract",
-        dataset_id="earnings_actuals",
+        dataset_id=EARNINGS_ACTUALS_DATASET_ID,
         version="1.0.0",
         validation_rules=[
             ValidationRule(

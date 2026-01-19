@@ -529,6 +529,7 @@ class TestEndToEndGuardrails:
                 enable_profiling=False,
             ),
             prediction_threshold=0.6,
+            publish_signals=False,
         )
 
         # Create actor
@@ -581,6 +582,7 @@ class TestEndToEndGuardrails:
                 level=OptimizationLevel.OPTIMIZED,
             ),
             prediction_threshold=0.6,
+            publish_signals=False,
         )
 
         # Create actor

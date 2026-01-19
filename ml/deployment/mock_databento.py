@@ -9,6 +9,7 @@ feature computation, model inference, and signal generation.
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC
 from datetime import datetime
 from typing import Any
 
@@ -95,7 +96,7 @@ class MockDatabentoGenerator:
 
         # Track last bar time for proper sequencing
         self.last_ts_event = nautilus_pyo3.millis_to_nanos(
-            int(datetime.utcnow().timestamp() * 1000)
+            int(datetime.now(UTC).timestamp() * 1000)
         )
 
     def generate_bar(self) -> Bar:

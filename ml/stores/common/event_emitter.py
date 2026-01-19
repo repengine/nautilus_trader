@@ -316,11 +316,10 @@ class EventEmitterComponent:
 
             except Exception as exc:
                 # Non-blocking: log and continue
-                logger.warning(
+                logger.exception(
                     "Message bus publish failed for %s: %s",
                     dataset_id,
                     exc,
-                    exc_info=True,
                 )
                 if HAS_PROMETHEUS:
                     event_emission_errors.labels(

@@ -22,6 +22,7 @@ from calendar import monthrange
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import fields
 from dataclasses import replace
 from datetime import date
 from functools import lru_cache
@@ -544,6 +545,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=0,
         help="Chunk build by N days (0=disabled)",
+    )
+    parser.add_argument(
+        "--dataset_write_csv",
+        action="store_true",
+        help="Always write dataset.csv (overrides size-based defaults)",
+    )
+    parser.add_argument(
+        "--dataset_skip_csv",
+        action="store_true",
+        help="Skip writing dataset.csv (optional dataset_sample.csv still possible)",
+    )
+    parser.add_argument(
+        "--dataset_csv_max_rows",
+        type=int,
+        default=None,
+        help="Row threshold for auto CSV writing",
+    )
+    parser.add_argument(
+        "--dataset_csv_sample_rows",
+        type=int,
+        default=0,
+        help="Write dataset_sample.csv with N rows when full CSV is skipped",
     )
     parser.add_argument(
         "--auto_fill_universe",
@@ -1107,6 +1130,28 @@ def _execute_with_namespace(
     if start_iso is None and end_iso:
         start_iso = _compute_window_start_iso(end_iso=end_iso)
 
+    if args.dataset_write_csv and args.dataset_skip_csv:
+        raise SystemExit("--dataset_write_csv and --dataset_skip_csv are mutually exclusive")
+    if args.dataset_write_csv:
+        write_csv: bool | None = True
+    elif args.dataset_skip_csv:
+        write_csv = False
+    else:
+        write_csv = None
+    default_csv_max_rows = None
+    for field in fields(DatasetBuildConfig):
+        if field.name == "csv_max_rows":
+            if isinstance(field.default, int):
+                default_csv_max_rows = field.default
+            break
+    if default_csv_max_rows is None:
+        default_csv_max_rows = 1_000_000
+    csv_max_rows = (
+        int(args.dataset_csv_max_rows)
+        if args.dataset_csv_max_rows is not None
+        else int(default_csv_max_rows)
+    )
+
     ds_cfg = DatasetBuildConfig(
         data_dir=str(data_dir_effective),
         symbols=str(args.symbols),
@@ -1135,6 +1180,9 @@ def _execute_with_namespace(
         start_iso=start_iso,
         end_iso=end_iso,
         chunk_days=int(args.chunk_days),
+        write_csv=write_csv,
+        csv_max_rows=csv_max_rows,
+        csv_sample_rows=int(args.dataset_csv_sample_rows),
         register_features=bool(args.dataset_register_features),
         feature_registry_dir=args.feature_registry_dir,
         feature_role="teacher",

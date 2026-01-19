@@ -6,6 +6,7 @@ from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -22,6 +23,11 @@ from ml.training.teacher.streaming_loader import TFTStreamingSummary
 from ml.training.teacher.streaming_telemetry import StreamingRunTelemetry
 
 
+def _utcnow() -> datetime:
+    """Return a timezone-aware UTC timestamp for default factories."""
+    return datetime.now(UTC)
+
+
 @dataclass(slots=True, frozen=True)
 class DatasetPlanEvent:
     """Event emitted when a dataset plan is created."""
@@ -35,7 +41,7 @@ class DatasetPlanEvent:
     streaming_config: TFTStreamingConfig
     caps: dict[str, float | int | None]
     phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
     status: EventStatus = EventStatus.SUCCESS
 
 
@@ -50,7 +56,7 @@ class TrainingResultEvent:
     artifact_paths: dict[str, str]
     metrics: dict[str, float]
     status: EventStatus
-    completed_at: datetime = field(default_factory=datetime.utcnow)
+    completed_at: datetime = field(default_factory=_utcnow)
 
 
 @dataclass(slots=True, frozen=True)
@@ -63,7 +69,7 @@ class TrainingHeartbeatEvent:
     progress_pct: float
     rss_mb: float
     shards_processed: int
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=_utcnow)
 
 
 @dataclass(slots=True, frozen=True)

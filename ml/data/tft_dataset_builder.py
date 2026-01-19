@@ -34,7 +34,7 @@ from ml.data.providers.utils import cyclic_encode
 from ml.data.vintage import VintagePolicy
 from ml.ml_types import DataFrameLike
 from ml.ml_types import PolarsDF
-from ml.stores.feature_store import FeatureStore
+from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -1509,19 +1509,6 @@ class TFTDatasetBuilder:
                         end=end,
                     )
                     if processed is not None:
-                        # Optional date filtering
-                        if (
-                            start is not None or end is not None
-                        ) and "timestamp" in processed.columns:
-                            ts = pl.col("timestamp").cast(pl.Int64)
-                            cond = pl.lit(True)
-                            if start is not None:
-                                start_ns = int(start.timestamp() * 1_000_000_000)
-                                cond = cond & (ts >= start_ns)
-                            if end is not None:
-                                end_ns = int(end.timestamp() * 1_000_000_000)
-                                cond = cond & (ts < end_ns)
-                            processed = processed.filter(cond)
                         # processed is a Polars DataFrame here
                         all_data_pl.append(processed)
             else:
@@ -1622,6 +1609,11 @@ class TFTDatasetBuilder:
                 else:
                     joined = joined.with_columns(pl.lit(0).alias("is_macro_available"))
                 final_df = joined
+            if isinstance(final_df, pl.DataFrame):
+                if "instrument_id" in final_df.columns and "time_index" in final_df.columns:
+                    final_df = final_df.sort(["instrument_id", "time_index"])
+                elif "timestamp" in final_df.columns:
+                    final_df = final_df.sort("timestamp")
         else:
             # all_data_pd contains Pandas DataFrames
             final_df = pd.concat(all_data_pd, ignore_index=True)
@@ -1659,6 +1651,13 @@ class TFTDatasetBuilder:
                         final_df_pd[macro_cols].notna().any(axis=1).astype("int32")
                     )
                 final_df = final_df_pd
+            if isinstance(final_df, pd.DataFrame):
+                if "instrument_id" in final_df.columns and "time_index" in final_df.columns:
+                    final_df = final_df.sort_values(["instrument_id", "time_index"]).reset_index(
+                        drop=True,
+                    )
+                elif "timestamp" in final_df.columns:
+                    final_df = final_df.sort_values("timestamp").reset_index(drop=True)
 
         logger.info(f"Built dataset with shape: {final_df.shape}")
 
@@ -1685,6 +1684,18 @@ class TFTDatasetBuilder:
 
         # Sort by time and create sequential index
         df = df.sort("timestamp" if "timestamp" in df.columns else df.columns[0])
+        if (start is not None or end is not None) and "timestamp" in df.columns:
+            ts = pl.col("timestamp").cast(pl.Int64)
+            cond = pl.lit(True)
+            if start is not None:
+                start_ns = int(start.timestamp() * 1_000_000_000)
+                cond = cond & (ts >= start_ns)
+            if end is not None:
+                end_ns = int(end.timestamp() * 1_000_000_000)
+                cond = cond & (ts < end_ns)
+            df = df.filter(cond)
+            if df.is_empty():
+                return None
         df = df.with_columns(
             [
                 pl.arange(0, len(df)).alias("time_index"),

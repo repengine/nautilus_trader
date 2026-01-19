@@ -11,6 +11,9 @@ import structlog
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_COLUMNS
+from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_SUFFIXES
+from ml.data.feature_columns import split_feature_columns
 from ml.data.vintage import VintagePolicy
 
 
@@ -119,6 +122,16 @@ class DatasetValidationConfig:
     require_macro_series: tuple[str, ...] | None = None
     expected_vintage_policy: VintagePolicy | None = None
     macro_min_vintage_observations: int | None = None
+    require_monotonic_timestamps: bool = True
+    timestamp_columns: tuple[str, ...] = ("ts_event", "timestamp")
+    instrument_id_column: str = "instrument_id"
+    forward_return_column: str = "forward_return"
+    forward_return_horizon: int | None = None
+    forward_return_price_column: str = "close"
+    forward_return_tolerance: float = 1e-6
+    require_numeric_features: bool = True
+    feature_exclude_columns: tuple[str, ...] = DEFAULT_FEATURE_EXCLUDE_COLUMNS
+    feature_exclude_suffixes: tuple[str, ...] = DEFAULT_FEATURE_EXCLUDE_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -142,13 +155,139 @@ def _as_polars(df: Any) -> tuple[Any, bool]:
     return df, False
 
 
-def _infer_feature_columns(df: Any) -> list[str]:
-    exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
-    if pl is not None and isinstance(df, pl.DataFrame):
-        return [name for name in df.columns if name not in exclude]
-    if pd is not None and isinstance(df, pd.DataFrame):
-        return [name for name in df.columns if name not in exclude]
-    return []
+def _resolve_timestamp_column(
+    columns: Sequence[str],
+    candidates: Sequence[str],
+) -> str | None:
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def _infer_feature_columns(
+    df_any: Any,
+    *,
+    exclude: Sequence[str],
+    exclude_suffixes: Sequence[str],
+    require_numeric: bool,
+) -> list[str]:
+    numeric, non_numeric = split_feature_columns(
+        df_any,
+        exclude=exclude,
+        exclude_suffixes=exclude_suffixes,
+    )
+    if require_numeric and non_numeric:
+        msg = f"Non-numeric feature columns detected: {sorted(non_numeric)}"
+        raise DatasetValidationError(msg)
+    return numeric
+
+
+def _validate_monotonic_timestamps(
+    df_any: Any,
+    *,
+    timestamp_col: str,
+    instrument_col: str,
+) -> None:
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        if timestamp_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing timestamp column: {timestamp_col}")
+        if instrument_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing instrument column: {instrument_col}")
+        diffs = (
+            pl.col(timestamp_col)
+            .cast(pl.Int64)
+            .diff()
+            .over(instrument_col)
+        )
+        violations = (
+            df_any.with_columns(diffs.alias("_diff"))
+            .filter(pl.col("_diff") < 0)
+            .select(pl.col(instrument_col))
+            .unique()
+        )
+        if violations.height > 0:
+            offenders = [str(item) for item in violations.to_series().to_list()]
+            raise DatasetValidationError(
+                f"Timestamp reversals detected for instruments: {offenders[:5]}",
+            )
+        return
+    if pd is not None and isinstance(df_any, pd.DataFrame):
+        if timestamp_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing timestamp column: {timestamp_col}")
+        if instrument_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing instrument column: {instrument_col}")
+        diffs = df_any.groupby(instrument_col)[timestamp_col].diff()
+        if pd.api.types.is_timedelta64_dtype(diffs):
+            reversals = diffs < pd.Timedelta(0)
+        else:
+            reversals = diffs < 0
+        if reversals.any():
+            offenders = df_any.loc[reversals, instrument_col].astype(str).unique().tolist()
+            raise DatasetValidationError(
+                f"Timestamp reversals detected for instruments: {offenders[:5]}",
+            )
+        return
+
+
+def _validate_forward_return_alignment(
+    df_any: Any,
+    *,
+    forward_return_column: str,
+    price_column: str,
+    horizon: int,
+    instrument_col: str,
+    tolerance: float,
+) -> None:
+    if horizon <= 0:
+        raise DatasetValidationError(f"forward_return_horizon must be positive, got {horizon}")
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        if forward_return_column not in df_any.columns:
+            raise DatasetValidationError(f"Missing forward return column: {forward_return_column}")
+        if price_column not in df_any.columns:
+            raise DatasetValidationError(f"Missing price column: {price_column}")
+        if instrument_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing instrument column: {instrument_col}")
+        expected = (
+            pl.col(price_column).shift(-horizon).over(instrument_col)
+            - pl.col(price_column)
+        ) / pl.col(price_column)
+        expected = expected.fill_null(0.0)
+        expected = (
+            pl.when(expected.is_infinite() | expected.is_nan())
+            .then(0.0)
+            .otherwise(expected)
+        )
+        diff = (pl.col(forward_return_column).cast(pl.Float64) - expected.cast(pl.Float64)).abs()
+        max_diff = df_any.select(diff.max()).item()
+        max_diff_value = float(max_diff) if max_diff is not None else 0.0
+        if max_diff_value > tolerance:
+            msg = (
+                "forward_return misaligned with future prices; "
+                f"max_diff={max_diff_value:.6f} > tolerance={tolerance:.6f}"
+            )
+            raise DatasetValidationError(msg)
+        return
+    if pd is not None and isinstance(df_any, pd.DataFrame):
+        if forward_return_column not in df_any.columns:
+            raise DatasetValidationError(f"Missing forward return column: {forward_return_column}")
+        if price_column not in df_any.columns:
+            raise DatasetValidationError(f"Missing price column: {price_column}")
+        if instrument_col not in df_any.columns:
+            raise DatasetValidationError(f"Missing instrument column: {instrument_col}")
+        grouped = df_any.groupby(instrument_col)[price_column]
+        future_prices = grouped.shift(-horizon)
+        expected = (future_prices - df_any[price_column]) / df_any[price_column]
+        expected = expected.fillna(0.0).replace([np.inf, -np.inf], 0.0)
+        diff = (df_any[forward_return_column].astype(float) - expected.astype(float)).abs()
+        max_diff_value = float(diff.max()) if len(diff) else 0.0
+        if max_diff_value > tolerance:
+            msg = (
+                "forward_return misaligned with future prices; "
+                f"max_diff={max_diff_value:.6f} > tolerance={tolerance:.6f}"
+            )
+            raise DatasetValidationError(msg)
+        return
 
 
 def _macro_columns(df: Any) -> list[str]:
@@ -175,6 +314,43 @@ def validate_dataset(
         if row_count < config.min_rows:
             msg = f"Dataset has {row_count} rows; minimum required is {config.min_rows}"
             raise DatasetValidationError(msg)
+        if row_count == 0 and config.min_rows == 0:
+            status = "ok"
+            return DatasetValidationResult(
+                row_count=0,
+                positive_rate=None,
+                feature_coverage={},
+                macro_columns_present=(),
+                macro_observation_counts={},
+            )
+
+        df_for_checks = df if is_polars else df_any
+        if is_polars:
+            columns = [str(name) for name in df.columns]
+        else:
+            columns = [str(name) for name in df_any.columns] if hasattr(df_any, "columns") else []
+
+        if config.require_monotonic_timestamps:
+            timestamp_col = _resolve_timestamp_column(columns, config.timestamp_columns)
+            if timestamp_col is None:
+                raise DatasetValidationError(
+                    f"None of the timestamp columns found: {config.timestamp_columns}",
+                )
+            _validate_monotonic_timestamps(
+                df_for_checks,
+                timestamp_col=timestamp_col,
+                instrument_col=config.instrument_id_column,
+            )
+
+        if config.forward_return_horizon is not None:
+            _validate_forward_return_alignment(
+                df_for_checks,
+                forward_return_column=config.forward_return_column,
+                price_column=config.forward_return_price_column,
+                horizon=config.forward_return_horizon,
+                instrument_col=config.instrument_id_column,
+                tolerance=config.forward_return_tolerance,
+            )
 
         positives: float | None = None
         positive_rate: float | None = None
@@ -198,7 +374,12 @@ def validate_dataset(
                     )
                     raise DatasetValidationError(msg)
 
-        feature_cols = _infer_feature_columns(df)
+        feature_cols = _infer_feature_columns(
+            df_for_checks,
+            exclude=config.feature_exclude_columns,
+            exclude_suffixes=config.feature_exclude_suffixes,
+            require_numeric=config.require_numeric_features,
+        )
         coverage: dict[str, float] = {}
         if feature_cols and config.min_feature_coverage is not None:
             if is_polars:

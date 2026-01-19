@@ -52,7 +52,7 @@ def track_allocations() -> Iterator[None]:
     cast(Any, track_allocations).total_bytes = total_allocated
 
 
-def test_ring_buffer_allocations() -> dict[str, Any]:
+def _run_ring_buffer_allocations() -> dict[str, Any]:
     """
     Test ring buffer allocation behavior.
     """
@@ -108,7 +108,16 @@ def test_ring_buffer_allocations() -> dict[str, Any]:
     }
 
 
-def test_feature_cache_allocations() -> dict[str, Any]:
+def test_ring_buffer_allocations() -> None:
+    """
+    Smoke-check ring buffer allocation results without returning a value.
+    """
+    results = _run_ring_buffer_allocations()
+    assert "append_zero_alloc" in results
+    assert "shares_memory" in results
+
+
+def _run_feature_cache_allocations() -> dict[str, Any]:
     """
     Test feature cache allocation behavior.
     """
@@ -156,7 +165,16 @@ def test_feature_cache_allocations() -> dict[str, Any]:
     }
 
 
-def test_real_world_usage_pattern() -> dict[str, Any]:
+def test_feature_cache_allocations() -> None:
+    """
+    Smoke-check feature cache allocation results without returning a value.
+    """
+    results = _run_feature_cache_allocations()
+    assert "buffer_access_zero_alloc" in results
+    assert "history_zero_alloc" in results
+
+
+def _run_real_world_usage_pattern() -> dict[str, Any]:
     """
     Test realistic usage pattern.
     """
@@ -211,6 +229,15 @@ def test_real_world_usage_pattern() -> dict[str, Any]:
     }
 
 
+def test_real_world_usage_pattern() -> None:
+    """
+    Smoke-check real-world allocation results without returning a value.
+    """
+    results = _run_real_world_usage_pattern()
+    assert "real_world_zero_alloc" in results
+    assert "real_world_low_alloc" in results
+
+
 def main() -> int:
     """
     Run cache allocation tests.
@@ -222,9 +249,9 @@ def main() -> int:
 
     try:
         # Run tests
-        ring_results = test_ring_buffer_allocations()
-        cache_results = test_feature_cache_allocations()
-        real_world_results = test_real_world_usage_pattern()
+        ring_results = _run_ring_buffer_allocations()
+        cache_results = _run_feature_cache_allocations()
+        real_world_results = _run_real_world_usage_pattern()
 
         # Summary
         print("\n" + "=" * 60)

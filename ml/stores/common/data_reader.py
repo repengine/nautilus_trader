@@ -320,7 +320,16 @@ class DataReaderComponent:
 
         try:
             raw_result: object
-            if self._raw_reader is not None and dataset_type is not None:
+            if (
+                self._raw_reader is not None
+                and dataset_type is not None
+                and dataset_type
+                in (
+                    DatasetType.BARS,
+                    DatasetType.QUOTES,
+                    DatasetType.TRADES,
+                )
+            ):
                 raw_result = self._raw_reader.read_range(
                     dataset_type=dataset_type,
                     instrument_id=instrument_id,

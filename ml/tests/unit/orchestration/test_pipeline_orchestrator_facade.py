@@ -169,7 +169,7 @@ def sample_orchestrator_config(sample_dataset_config: DatasetBuildConfig) -> Orc
     return OrchestratorConfig(
         dataset=sample_dataset_config,
         hpo=HPOConfig(enabled=False),
-        teacher=TeacherTrainConfig(enabled=True),
+        teacher=TeacherTrainConfig(enabled=False),
     )
 
 
@@ -193,20 +193,44 @@ def mock_orchestrator_full(
     """
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
-    return MLPipelineOrchestrator(
-        coverage=mock_coverage_provider,
-        writer=mock_writer,
-        build_main=mock_build_main,
-        teacher_main=mock_teacher_main,
-        data_registry=mock_data_registry,
-        feature_registry=mock_feature_registry,
-        model_registry=mock_model_registry,
-        strategy_registry=mock_strategy_registry,
-        data_store=mock_data_store,
-        feature_store=mock_feature_store,
-        model_store=mock_model_store,
-        strategy_store=mock_strategy_store,
-    )
+    with (
+        patch("ml.orchestration.pipeline_orchestrator_facade.IngestionCoordinator") as mock_ingestion_cls,
+        patch("ml.orchestration.pipeline_orchestrator_facade.DatasetBuilder") as mock_dataset_cls,
+        patch("ml.orchestration.pipeline_orchestrator_facade.RegistrySynchronizer") as mock_registry_cls,
+        patch("ml.orchestration.pipeline_orchestrator_facade.RuntimeAttacher") as mock_runtime_cls,
+        patch("ml.orchestration.pipeline_orchestrator_facade.ConfigResolver") as mock_config_cls,
+        patch("ml.orchestration.pipeline_orchestrator_facade.DiscoveryClient") as mock_discovery_cls,
+    ):
+        mock_ingestion = Mock()
+        mock_ingestion.run_pre_ingestion.return_value = None
+        mock_ingestion.backfill.return_value = []
+        mock_ingestion.backfill_binding.return_value = {}
+        mock_ingestion.backfill_coverage.return_value = []
+        mock_ingestion_cls.return_value = mock_ingestion
+
+        mock_dataset_builder = Mock()
+        mock_dataset_builder.build_dataset.return_value = 0
+        mock_dataset_cls.return_value = mock_dataset_builder
+
+        mock_registry_cls.return_value = Mock()
+        mock_runtime_cls.return_value = Mock()
+        mock_config_cls.return_value = Mock()
+        mock_discovery_cls.return_value = Mock()
+
+        yield MLPipelineOrchestrator(
+            coverage=mock_coverage_provider,
+            writer=mock_writer,
+            build_main=mock_build_main,
+            teacher_main=mock_teacher_main,
+            data_registry=mock_data_registry,
+            feature_registry=mock_feature_registry,
+            model_registry=mock_model_registry,
+            strategy_registry=mock_strategy_registry,
+            data_store=mock_data_store,
+            feature_store=mock_feature_store,
+            model_store=mock_model_store,
+            strategy_store=mock_strategy_store,
+        )
 
 
 @pytest.fixture

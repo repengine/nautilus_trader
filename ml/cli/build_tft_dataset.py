@@ -11,6 +11,7 @@ import logging
 import os
 import uuid as _uuid
 from collections.abc import Sequence
+from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -148,6 +149,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", help="End date (YYYY-MM-DD)")
     parser.add_argument("--chunk_days", type=int, default=0)
+    parser.add_argument(
+        "--write_csv",
+        action="store_true",
+        help="Always write dataset.csv (overrides size-based defaults)",
+    )
+    parser.add_argument(
+        "--skip_csv",
+        action="store_true",
+        help="Skip writing dataset.csv (optional dataset_sample.csv still possible)",
+    )
+    parser.add_argument(
+        "--csv_max_rows",
+        type=int,
+        default=None,
+        help="Row threshold for auto CSV writing (ignored when --write_csv/--skip_csv set)",
+    )
+    parser.add_argument(
+        "--csv_sample_rows",
+        type=int,
+        default=0,
+        help="Write dataset_sample.csv with N rows when full CSV is skipped",
+    )
     parser.add_argument("--macro_lag_days", type=int, default=1)
     parser.add_argument("--include_micro", action="store_true")
     parser.add_argument("--include_l2", action="store_true")
@@ -236,6 +259,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         vintage_policy = VintagePolicy(args.vintage_policy)
     except ValueError as exc:  # pragma: no cover - guarded by argparse choices but defensive
         raise SystemExit(f"Invalid vintage_policy: {args.vintage_policy}") from exc
+    if args.write_csv and args.skip_csv:
+        raise SystemExit("--write_csv and --skip_csv are mutually exclusive")
+    if args.write_csv:
+        write_csv: bool | None = True
+    elif args.skip_csv:
+        write_csv = False
+    else:
+        write_csv = None
+    default_csv_max_rows = None
+    for field in fields(TFTDatasetTaskConfig):
+        if field.name == "csv_max_rows":
+            if isinstance(field.default, int):
+                default_csv_max_rows = field.default
+            break
+    if default_csv_max_rows is None or not isinstance(default_csv_max_rows, int):
+        default_csv_max_rows = 1_000_000
+    csv_max_rows = (
+        int(args.csv_max_rows)
+        if args.csv_max_rows is not None
+        else int(default_csv_max_rows)
+    )
 
     cfg = TFTDatasetTaskConfig(
         data_dir=Path(args.data_dir),
@@ -273,6 +317,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         vintage_policy=vintage_policy,
         vintage_as_of=_parse_optional_date(args.vintage_as_of),
         convert_vintage_to_age=args.convert_vintage_age,
+        write_csv=write_csv,
+        csv_max_rows=csv_max_rows,
+        csv_sample_rows=args.csv_sample_rows,
     )
 
     LOGGER.info("Building TFT dataset %s", cfg)

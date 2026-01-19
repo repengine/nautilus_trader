@@ -237,9 +237,25 @@ class TrainingCoordinator:
             return 0
 
         artifacts = self._build_artifacts
+        dataset_parquet_candidates = (
+            dataset_csv.with_name("dataset_with_vintage_age.parquet"),
+            dataset_csv.with_name("dataset.parquet"),
+        )
+        dataset_parquet = next(
+            (candidate for candidate in dataset_parquet_candidates if candidate.exists()),
+            None,
+        )
+        if dataset_parquet is not None:
+            dataset_args = ["--dataset_parquet", str(dataset_parquet)]
+        elif dataset_csv.exists():
+            dataset_args = ["--dataset_csv", str(dataset_csv)]
+        else:
+            raise FileNotFoundError(
+                f"Dataset artifacts missing in {dataset_csv.parent}",
+            )
+
         args = [
-            "--dataset_csv",
-            str(dataset_csv),
+            *dataset_args,
             "--out_dir",
             str(out_dir),
             "--epochs",
@@ -348,7 +364,10 @@ class TrainingCoordinator:
             (candidate for candidate in dataset_parquet_candidates if candidate.exists()),
             None,
         )
-        use_parquet = bool(cfg.prefer_parquet and dataset_parquet is not None)
+        csv_exists = dataset_csv.exists()
+        if dataset_parquet is None and not csv_exists:
+            raise FileNotFoundError(f"Dataset artifacts missing in {dataset_csv.parent}")
+        use_parquet = bool(dataset_parquet is not None and (cfg.prefer_parquet or not csv_exists))
         data_flag = "--train_data_parquet" if use_parquet else "--train_data_csv"
         data_path = dataset_parquet if use_parquet else dataset_csv
 

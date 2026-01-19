@@ -7,8 +7,11 @@ import numpy as np
 import pytest
 
 from ml.data.vintage import VintagePolicy
+from ml.orchestration import promotions as promotions_module
 from ml.orchestration.promotions import Stage2Config
 from ml.orchestration.promotions import run_promotion_stage2
+from ml.orchestration.stage2_engine import Stage2Result
+from ml.registry.dataclasses import QualityGate
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -132,3 +135,54 @@ def test_stage2_metadata_mismatch_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         run_promotion_stage2(cfg)
+
+def test_stage2_gate_rejects_non_finite_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Ensure promotion gates fail when metrics are NaN/inf.
+    """
+    out_dir = tmp_path / "stage2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out_dir / "teacher_preds.npz",
+        q_val=np.ones(4, dtype=np.float32),
+        y_val_true=np.ones(4, dtype=np.float32),
+    )
+    csv_path = out_dir / "dataset.csv"
+    _write_csv(csv_path, n=4, symbol="SPY")
+    _write_metadata_file(out_dir, dataset_id="stage2_ds")
+
+    class _NaNMetricsEngine:
+        def run(self, cfg: Stage2Config) -> Stage2Result:
+            del cfg
+            return Stage2Result(
+                status="passed",
+                metrics={
+                    "sharpe_ratio": float("nan"),
+                    "max_drawdown": float("inf"),
+                },
+            )
+
+    monkeypatch.setattr(promotions_module, "build_engine", lambda _: _NaNMetricsEngine())
+
+    cfg = Stage2Config(
+        out_dir=str(out_dir),
+        dataset_csv=str(csv_path),
+        data_dir=str(tmp_path),
+        horizon_minutes=1,
+        gates=(
+            QualityGate(metric_name="sharpe_ratio", threshold=0.1, comparison="gte", required=True),
+            QualityGate(metric_name="max_drawdown", threshold=0.5, comparison="lte", required=True),
+        ),
+        expected_dataset_id="stage2_ds",
+        expected_vintage_policy=VintagePolicy.REAL_TIME,
+    )
+
+    result = run_promotion_stage2(cfg)
+    assert result["status"] == "failed"
+    failures = result["failures"]
+    assert isinstance(failures, list)
+    assert any("sharpe_ratio" in failure for failure in failures)
+    assert any("max_drawdown" in failure for failure in failures)

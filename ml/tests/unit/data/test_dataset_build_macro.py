@@ -169,6 +169,7 @@ def test_build_tft_dataset_marks_capabilities_for_earnings(
             return pl.DataFrame(
                 {
                     "time_index": [0, 1],
+                    "instrument_id": ["SPY", "SPY"],
                     "ts_event": [
                         datetime.fromtimestamp(1_000_000_000 / 1_000_000_000, tz=UTC),
                         datetime.fromtimestamp(2_000_000_000 / 1_000_000_000, tz=UTC),

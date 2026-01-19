@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import sys
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 # Detect Prometheus backend without importing ml.common (avoid cycles)
@@ -29,12 +29,15 @@ pl: ModuleType | None = None
 pd: ModuleType | None = None
 ort: ModuleType | None = None
 redis: ModuleType | None = None
+ag_space: ModuleType | None = None
 HAS_PANDAS = False
 HAS_REDIS = False
+HAS_AUTOGLUON_SPACE = False
 
 
 PROMETHEUS_IMPORT_ERROR: Exception | None = None
 REDIS_IMPORT_ERROR: Exception | None = None
+AUTOGLUON_SPACE_IMPORT_ERROR: Exception | None = None
 
 
 # Type checking imports (always available, no runtime cost)
@@ -226,6 +229,25 @@ except ImportError as e:
     TimeSeriesDataFrame = None  # type: ignore[assignment,unused-ignore]
     TimeSeriesPredictor = None  # type: ignore[assignment,unused-ignore]
 
+# AutoGluon search spaces (used for tuning config)
+try:
+    from autogluon.common import space as _ag_space
+except ImportError:
+    try:  # pragma: no cover - fallback for older AutoGluon versions
+        from autogluon.core import space as _ag_space
+    except ImportError as exc:
+        HAS_AUTOGLUON_SPACE = False
+        AUTOGLUON_SPACE_IMPORT_ERROR = exc
+        ag_space = None  # type: ignore[assignment,unused-ignore]
+    else:
+        ag_space = _ag_space
+        HAS_AUTOGLUON_SPACE = True
+        AUTOGLUON_SPACE_IMPORT_ERROR = None
+else:
+    ag_space = _ag_space
+    HAS_AUTOGLUON_SPACE = True
+    AUTOGLUON_SPACE_IMPORT_ERROR = None
+
 # Pandera (dataframe validation, optional)
 try:  # pragma: no cover - optional dependency
     import pandera as _pandera_runtime
@@ -320,15 +342,43 @@ except ImportError as e:
 
 
 # edgartools (SEC EDGAR API client for earnings data)
+_EDGARTOOLS_SPEC_ERROR: Exception | None = None
+EDGARTOOLS_IMPORT_ERROR: Exception | None
 try:
-    import edgartools as edgartools
+    import importlib.util as _importlib_util
 
+    _EDGARTOOLS_SPEC = _importlib_util.find_spec("edgartools")
+except Exception as e:  # pragma: no cover - environment dependent
+    _EDGARTOOLS_SPEC = None
+    _EDGARTOOLS_SPEC_ERROR = e
+
+if _EDGARTOOLS_SPEC is None:
+    HAS_EDGARTOOLS = False
+    EDGARTOOLS_IMPORT_ERROR = _EDGARTOOLS_SPEC_ERROR or ImportError("edgartools not installed")
+else:
     HAS_EDGARTOOLS = True
     EDGARTOOLS_IMPORT_ERROR = None
-except ImportError as e:
-    HAS_EDGARTOOLS = False
-    EDGARTOOLS_IMPORT_ERROR = e
-    edgartools = None  # type: ignore[assignment,unused-ignore]
+
+edgartools: ModuleType | None = None
+
+
+def load_edgartools() -> ModuleType:
+    """
+    Load edgartools on demand to avoid import-time side effects.
+    """
+    global edgartools, HAS_EDGARTOOLS, EDGARTOOLS_IMPORT_ERROR
+    if edgartools is not None:
+        return edgartools
+    try:
+        import edgartools as _edgartools
+    except ImportError as e:
+        HAS_EDGARTOOLS = False
+        EDGARTOOLS_IMPORT_ERROR = e
+        raise
+    edgartools = cast(ModuleType, _edgartools)
+    HAS_EDGARTOOLS = True
+    EDGARTOOLS_IMPORT_ERROR = None
+    return edgartools
 
 
 # yfinance (Yahoo Finance API client for consensus estimates)
@@ -549,10 +599,12 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 __all__ = [
     "AUTOGLUON_IMPORT_ERROR",
+    "AUTOGLUON_SPACE_IMPORT_ERROR",
     "DATABENTO_IMPORT_ERROR",
     "EDGARTOOLS_IMPORT_ERROR",
     "FREDAPI_IMPORT_ERROR",
     "HAS_AUTOGLUON",
+    "HAS_AUTOGLUON_SPACE",
     "HAS_DATABENTO",
     "HAS_EDGARTOOLS",
     "HAS_FREDAPI",
@@ -599,6 +651,7 @@ __all__ = [
     "Histogram",
     "TimeSeriesDataFrame",
     "TimeSeriesPredictor",
+    "ag_space",
     "check_ml_dependencies",
     "db",
     "edgartools",
@@ -606,6 +659,7 @@ __all__ = [
     "generate_latest",
     "joblib",
     "lgb",
+    "load_edgartools",
     "mcal",
     "mlflow",
     "onnx",

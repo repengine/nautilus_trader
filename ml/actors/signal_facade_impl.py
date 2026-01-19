@@ -93,6 +93,12 @@ _feature_time_by_feature_set_metric = get_histogram(
     buckets=FEATURE_TIME_BUCKETS,
 )
 
+_inference_fallback_counter = get_counter(
+    "ml_fallback_activations_total",
+    "Total fallback activations by component and stage",
+    ["component", "level"],
+)
+
 
 def _resolve_feature_time_metric() -> Any | None:
     module = sys.modules.get("ml.actors.signal")
@@ -294,6 +300,8 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         # Pre-allocate feature buffer (hot path optimization)
         self._feature_buffer = np.zeros(n_features, dtype=np.float32)
         self._predict_input_buf = np.zeros((1, n_features), dtype=np.float32)
+        self._input_dim_mismatch_logged = False
+        self._output_shape_mismatch_logged = False
 
         # Store optimization config for later use
         self._opt_config = opt_config
@@ -599,12 +607,13 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 market_regime = getattr(self, "_market_regime", "unknown")
 
             # Build complete context for strategy
+            log_predictions = bool(getattr(self._config, "log_predictions", False))
             context: dict[str, Any] = {
                 "prediction_history": prediction_history,
                 "confidence_history": confidence_history,
                 "adaptive_threshold": adaptive_threshold,
                 "market_regime": market_regime,
-                "log_predictions": self._config.log_predictions,
+                "log_predictions": log_predictions,
                 "timestamp_ns": timestamp_ns,
                 "model_id": self._model_id if hasattr(self, "_model_id") else "unknown",
                 # Ring buffer metadata for zero-copy strategy access
@@ -633,8 +642,13 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             # 6. Update last signal bar
             self._last_signal_bar = self._bars_processed
 
-            # 7. Publish signal (base class)
-            self._publish_signal(signal)
+            # 7. Publish signal only when publishing enabled (allow test harnesses without trader_id)
+            publish_signals = bool(getattr(self._config, "publish_signals", True))
+            config_has_publish = hasattr(self._config, "publish_signals")
+            trader_id = getattr(self, "trader_id", None)
+            allow_unregistered = bool(getattr(self._config, "use_dummy_stores", False))
+            if publish_signals and (trader_id is not None or allow_unregistered or not config_has_publish):
+                self._publish_signal(signal)
 
             # 8. Persist to strategy store (base class store)
             if hasattr(self, "_strategy_store") and self._strategy_store is not None:
@@ -1267,8 +1281,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         registry_calculator = self._registry_feature_calculator
         use_registry_features = registry_calculator is not None
-        # Delegate to feature store if available (skip when registry features enforced)
-        if not use_registry_features:
+        use_feature_store = bool(getattr(self._config, "use_feature_store", False))
+        # Delegate to feature store only when explicitly enabled
+        if not use_registry_features and use_feature_store:
             start_time = time.perf_counter()
             try:
                 if (
@@ -1278,15 +1293,16 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 ):
                     compute = cast(Any, getattr(self._feature_store, "compute_realtime"))
                     features = cast(
-                        npt.NDArray[np.float32],
+                        npt.NDArray[np.float32] | None,
                         compute(bar=bar, store=getattr(self, "_persist_features", False)),
                     )
                     if isinstance(features, np.ndarray) and features.size == 0:
-                        return None
-                    feature_time_ms = (time.perf_counter() - start_time) * 1000.0
-                    self._last_feature_time_ns = int(feature_time_ms * 1_000_000)
-                    _record_feature_time_metric(self, feature_time_ms)
-                    return features
+                        features = None
+                    if features is not None:
+                        feature_time_ms = (time.perf_counter() - start_time) * 1000.0
+                        self._last_feature_time_ns = int(feature_time_ms * 1_000_000)
+                        _record_feature_time_metric(self, feature_time_ms)
+                        return features
             except Exception as exc:
                 self.log.exception(
                     f"FeatureStore compute_realtime failed; falling back: {exc}",
@@ -1314,7 +1330,8 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             )
         else:
             if not self._indicator_manager.all_initialized():
-                return None
+                if self._bars_processed < self._config.warm_up_period:
+                    return None
 
             current_bar = {
                 "close": float(bar.close),
@@ -1399,10 +1416,13 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     outputs = self._model.run(None, {mock_input_name: self._predict_input_buf})
                     if len(outputs) >= 2:
                         return self._sanitize_prediction_output(
-                            float(outputs[0][0]),
-                            float(outputs[1][0]),
+                            self._extract_output_scalar(outputs[0], label="prediction"),
+                            self._extract_output_scalar(outputs[1], label="confidence"),
                         )
-                    return self._sanitize_prediction_output(float(outputs[0][0]), 0.5)
+                    return self._sanitize_prediction_output(
+                        self._extract_output_scalar(outputs[0], label="prediction"),
+                        0.5,
+                    )
                 elif hasattr(self._model, "predict"):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
@@ -1424,15 +1444,18 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                         input_name = None
 
                 if input_name:
-                    features_2d = features.reshape(1, -1).astype(np.float32)
+                    features_2d = self._prepare_onnx_input(features)
                     outputs = self._model.run(None, {input_name: features_2d})
 
                     if len(outputs) >= 2:
                         return self._sanitize_prediction_output(
-                            float(outputs[0][0]),
-                            float(outputs[1][0]),
+                            self._extract_output_scalar(outputs[0], label="prediction"),
+                            self._extract_output_scalar(outputs[1], label="confidence"),
                         )
-                    return self._sanitize_prediction_output(float(outputs[0][0]), 0.5)
+                    return self._sanitize_prediction_output(
+                        self._extract_output_scalar(outputs[0], label="prediction"),
+                        0.5,
+                    )
 
             # Scikit-learn with predict_proba
             if hasattr(self._model, "predict_proba"):
@@ -1454,6 +1477,110 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         except Exception as e:
             self.log.exception(f"Prediction failed: {e}", e)
             raise
+
+    def _prepare_onnx_input(
+        self,
+        features: npt.NDArray[np.float32],
+    ) -> npt.NDArray[np.float32]:
+        """
+        Align features to ONNX model input shape with a guarded fallback.
+
+        Returns a 2D float32 array sized to the model input dimension. If the input
+        dimension cannot be resolved, falls back to reshaping the provided features.
+        """
+        features_array = np.asarray(features, dtype=np.float32).reshape(-1)
+        expected_dim = self._resolve_model_input_dim()
+        if expected_dim <= 0:
+            return features_array.reshape(1, -1)
+
+        if self._predict_input_buf.shape[1] != expected_dim:
+            self._predict_input_buf = np.zeros((1, expected_dim), dtype=np.float32)
+
+        if features_array.size != expected_dim:
+            if not self._input_dim_mismatch_logged:
+                self.log.warning(
+                    "MLSignalActor inference input dim mismatch; aligning features "
+                    f"actor={self.id} expected={expected_dim} got={features_array.size}",
+                )
+                self._input_dim_mismatch_logged = True
+            _inference_fallback_counter.labels(
+                component="signal_actor_inference",
+                level="input_shape_mismatch",
+            ).inc()
+            self._predict_input_buf.fill(0.0)
+            slice_len = min(features_array.size, expected_dim)
+            if slice_len > 0:
+                self._predict_input_buf[0, :slice_len] = features_array[:slice_len]
+        else:
+            self._predict_input_buf[0, :expected_dim] = features_array
+
+        return self._predict_input_buf
+
+    def _extract_output_scalar(self, output: Any, *, label: str) -> float:
+        """
+        Extract a scalar from model output with guarded fallbacks.
+        """
+        array = np.asarray(output)
+        if array.size == 0:
+            if not self._output_shape_mismatch_logged:
+                self.log.warning(
+                    "MLSignalActor inference output empty; using 0.0 "
+                    f"actor={self.id} label={label}",
+                )
+                self._output_shape_mismatch_logged = True
+            _inference_fallback_counter.labels(
+                component="signal_actor_inference",
+                level="output_empty",
+            ).inc()
+            return 0.0
+
+        if array.size != 1:
+            if not self._output_shape_mismatch_logged:
+                self.log.warning(
+                    "MLSignalActor inference output shape mismatch; taking first element "
+                    f"actor={self.id} label={label} size={array.size}",
+                )
+                self._output_shape_mismatch_logged = True
+            _inference_fallback_counter.labels(
+                component="signal_actor_inference",
+                level="output_shape_mismatch",
+            ).inc()
+
+        return float(array.reshape(-1)[0])
+
+    def _resolve_model_input_dim(self) -> int:
+        """
+        Resolve the ONNX model input dimension from cached metadata or session.
+        """
+        input_shape = self._model_metadata.get("input_shape")
+        if isinstance(input_shape, (list, tuple)) and len(input_shape) >= 2:
+            dim = input_shape[1]
+            try:
+                dim_int = int(dim) if dim is not None else 0
+            except (TypeError, ValueError):
+                dim_int = 0
+            if dim_int > 0:
+                return dim_int
+
+        if hasattr(self._model, "get_inputs"):
+            try:
+                shape = self._model.get_inputs()[0].shape
+            except Exception:
+                self.log.debug(
+                    "MLSignalActor failed to resolve model input shape from session",
+                    exc_info=True,
+                )
+                return 0
+            if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                dim = shape[1]
+                try:
+                    dim_int = int(dim) if dim is not None else 0
+                except (TypeError, ValueError):
+                    dim_int = 0
+                if dim_int > 0:
+                    return dim_int
+
+        return 0
 
 
 # =============================================================================

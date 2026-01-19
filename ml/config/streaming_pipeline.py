@@ -585,6 +585,7 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
     max_total_sequences: PositiveInt | None = 300_000
     max_shards: PositiveInt | None = 4
     max_epochs: PositiveInt = 1
+    bootstrap_sample_rows: PositiveInt = 10_000
     max_concurrent_jobs: PositiveInt = 1
     max_runtime_seconds: PositiveInt = 1_800
     heartbeat_interval_seconds: PositiveInt = 30
@@ -650,6 +651,8 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("gpu_memory_monitor_interval_seconds must be > 0 when set")
         if int(self.max_epochs) < 1:
             raise ValidationError("max_epochs must be >= 1")
+        if int(self.bootstrap_sample_rows) < 1:
+            raise ValidationError("bootstrap_sample_rows must be >= 1")
         if not (0.0 <= float(self.dropout) < 1.0):
             raise ValidationError("dropout must be in the range [0.0, 1.0)")
         optimizer_normalized = self.optimizer.strip().lower()
@@ -706,6 +709,7 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             ML_STREAMING_MAX_TOTAL_SEQUENCES: integer or <=0 for unlimited
             ML_STREAMING_MAX_SHARDS: integer or <=0 for unlimited
             ML_STREAMING_MAX_EPOCHS: integer epochs
+            ML_STREAMING_BOOTSTRAP_SAMPLE_ROWS: integer rows for bootstrap sample
             ML_STREAMING_MAX_RUNTIME_SECONDS: integer runtime budget
             ML_STREAMING_HEARTBEAT_INTERVAL_SECONDS: integer heartbeat cadence
             ML_STREAMING_MAX_RETRY_ATTEMPTS: integer retry limit
@@ -884,6 +888,9 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             max_total_sequences=_int("ML_STREAMING_MAX_TOTAL_SEQUENCES", None),
             max_shards=_int("ML_STREAMING_MAX_SHARDS", None),
             max_epochs=int(_int("ML_STREAMING_MAX_EPOCHS", 1) or 1),
+            bootstrap_sample_rows=int(
+                _int("ML_STREAMING_BOOTSTRAP_SAMPLE_ROWS", 10_000) or 10_000,
+            ),
             max_runtime_seconds=int(_int("ML_STREAMING_MAX_RUNTIME_SECONDS", 1_800) or 1_800),
             heartbeat_interval_seconds=int(_int("ML_STREAMING_HEARTBEAT_INTERVAL_SECONDS", 30) or 30),
             max_retry_attempts=int(_int("ML_STREAMING_MAX_RETRY_ATTEMPTS", 3) or 3),

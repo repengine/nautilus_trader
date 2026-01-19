@@ -403,7 +403,7 @@ class TradingPerformanceMonitor:
             total_trades=len(trades),
             avg_win=avg_win,
             avg_loss=avg_loss,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
 
     async def _handle_performance_alerts(self, alerts: list, metrics: TradingMetrics):
@@ -457,7 +457,7 @@ class AutomatedBackupManager:
 
     async def _execute_backup_cycle(self):
         """Execute complete backup cycle."""
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         # 1. Database backup
         db_backup_path = f"{self.local_backup_path}/db_backup_{timestamp}.sql"
@@ -637,12 +637,12 @@ class LongTermPerformanceAnalyzer:
             benchmark_comparison=benchmark_comparison,
             risk_metrics_evolution=risk_metrics_evolution,
             performance_forecast=performance_forecast,
-            generated_at=datetime.utcnow()
+            generated_at=datetime.now(UTC)
         )
 
     async def _analyze_period(self, period_days: int) -> PeriodAnalysis:
         """Analyze performance over specific time period."""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=period_days)
 
         trades = await self._get_trades_in_period(start_date, end_date)

@@ -9,6 +9,7 @@ This example shows how to:
 
 """
 
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from typing import Any, cast
@@ -155,8 +156,8 @@ def example_training_with_feature_store() -> BaseMLTrainer:
     # This ensures identical feature computation as inference
     X, y, feature_names = trainer.prepare_data_with_feature_store(
         instrument_id="EURUSD",
-        start=datetime.utcnow() - timedelta(days=90),
-        end=datetime.utcnow(),
+        start=datetime.now(UTC) - timedelta(days=90),
+        end=datetime.now(UTC),
         compute_if_missing=True,  # Compute features if not in DB
     )
 

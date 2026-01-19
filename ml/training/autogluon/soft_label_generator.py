@@ -397,11 +397,11 @@ def generate_rolling_soft_labels(
 
             if known_covariates:
                 future_covariates = _build_future_covariates(
-                future_index_df,
-                series_df=series_df,
-                history_df=history_df,
-                known_covariates=known_covariates,
-            )
+                    future_index_df,
+                    series_df=series_df,
+                    history_df=history_df,
+                    known_covariates=known_covariates,
+                )
                 predictions = predictor.predict(
                     history_tsdf,
                     known_covariates=future_covariates,

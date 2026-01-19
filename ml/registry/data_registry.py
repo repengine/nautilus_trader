@@ -17,7 +17,6 @@ import logging
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, overload
 
@@ -37,46 +36,10 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
+from ml.registry.watermark import Watermark
 
 
 logger = logging.getLogger(__name__)
-
-
-# Watermark dataclass for tracking data processing progress
-@dataclass(frozen=True)
-class Watermark:
-    """
-    Watermark tracking data processing progress for a dataset.
-
-    Attributes
-    ----------
-    dataset_id : str
-        Dataset identifier
-    instrument_id : str
-        Instrument identifier
-    source : str
-        Data source ('live', 'historical', 'backfill')
-    last_success_ns : int
-        Last successful processing timestamp in nanoseconds
-    last_attempt_ns : int
-        Last attempted processing timestamp in nanoseconds
-    last_count : int
-        Count from last successful processing
-    completeness_pct : float
-        Percentage of expected data received (0-100)
-    updated_at : float
-        Unix timestamp of last update
-
-    """
-
-    dataset_id: str
-    instrument_id: str
-    source: str
-    last_success_ns: int
-    last_attempt_ns: int
-    last_count: int
-    completeness_pct: float
-    updated_at: float
 
 
 class DataRegistry(MLComponentMixin):
@@ -537,7 +500,7 @@ class DataRegistry(MLComponentMixin):
                 self._manifests[manifest.dataset_id] = manifest
                 self._save_registry()
                 if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
-                    contract = self._create_contract_from_manifest(manifest)
+                    contract = self._resolve_bootstrap_contract(manifest)
                     self._contracts[manifest.dataset_id] = contract
                     self._save_registry()
             elif self.backend == BackendType.POSTGRES:
@@ -611,7 +574,7 @@ class DataRegistry(MLComponentMixin):
                     return existing_manifest.dataset_id
 
                 if manifest.dataset_id in {"ml.earnings_actuals", "ml.earnings_estimates"}:
-                    contract = self._create_contract_from_manifest(manifest)
+                    contract = self._resolve_bootstrap_contract(manifest)
                     self._contracts[manifest.dataset_id] = contract
 
             # Log audit event
@@ -1068,6 +1031,25 @@ class DataRegistry(MLComponentMixin):
             created_at=manifest.created_at,
             last_modified=manifest.last_modified,
         )
+
+    def _resolve_bootstrap_contract(self, manifest: DatasetManifest) -> DataContract:
+        """
+        Resolve a bootstrap contract when available, falling back to defaults.
+        """
+        try:
+            from ml.registry import bootstrap_datasets
+
+            contracts = bootstrap_datasets.create_standard_contracts()
+            bootstrap_contract = contracts.get(manifest.dataset_id)
+            if bootstrap_contract is not None:
+                return bootstrap_contract
+        except Exception:
+            logger.debug(
+                "Bootstrap contract lookup failed for %s",
+                manifest.dataset_id,
+                exc_info=True,
+            )
+        return self._create_contract_from_manifest(manifest)
 
     def get_contract(self, dataset_id: str) -> DataContract:
         """

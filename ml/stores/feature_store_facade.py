@@ -28,6 +28,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ml.common.db_utils import get_or_create_engine
+from ml.common.protocols import MLComponentMixin
 from ml.config.base import MLFeatureConfig
 from ml.core.db_engine import EngineManager
 from ml.features import FeatureConfig
@@ -68,7 +69,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class FeatureStoreFacade(DataRegistryMixin):
+class FeatureStoreFacade(MLComponentMixin, DataRegistryMixin):
     """
     Thin facade that wires all 6 FeatureStore components together.
 

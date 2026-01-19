@@ -29,12 +29,12 @@ from ml.registry.common.event_emission import EventEmissionComponent
 from ml.registry.common.lineage_tracker import LineageTrackerComponent
 from ml.registry.common.manifest_manager import ManifestManagerComponent
 from ml.registry.common.watermark_manager import WatermarkManagerComponent
-from ml.registry.data_registry import Watermark
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.registry.watermark import Watermark
 
 
 if TYPE_CHECKING:

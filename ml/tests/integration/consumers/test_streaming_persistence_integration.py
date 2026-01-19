@@ -54,7 +54,7 @@ def test_streaming_persistence_worker_persists_redis_batch(
     dummy_module.Redis = _DummyRedis
     dummy_module._batches = []
     monkeypatch.setitem(sys.modules, "redis", dummy_module)
-    monkeypatch.setattr("ml._imports.redis", None, raising=False)
+    monkeypatch.setattr("ml._imports.redis", dummy_module, raising=False)
     monkeypatch.setattr("ml._imports.HAS_REDIS", True, raising=False)
     monkeypatch.setattr(
         "ml.consumers.redis_streams_consumer.IdempotentConsumer.process",

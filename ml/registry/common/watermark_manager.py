@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any, overload
 from sqlalchemy import text
 
 from ml.config.events import Source
-from ml.registry.data_registry import Watermark
 from ml.registry.persistence import BackendType
+from ml.registry.watermark import Watermark
 
 
 if TYPE_CHECKING:

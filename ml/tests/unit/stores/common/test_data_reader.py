@@ -18,6 +18,7 @@ from unittest.mock import Mock
 import polars as pl
 import pytest
 
+from ml.registry.dataclasses import DatasetType
 from ml.stores.common.data_reader import DataReaderComponent
 from ml.stores.common.data_reader import PredictionRecord
 from ml.stores.common.data_reader import SignalRecord
@@ -127,6 +128,20 @@ def mock_registry() -> Mock:
 
 
 @pytest.fixture
+def mock_raw_reader() -> Mock:
+    """Create mock RawReader."""
+    reader = Mock()
+    reader.read_range.return_value = pl.DataFrame(
+        {
+            "instrument_id": ["EURUSD.SIM"] * 5,
+            "ts_event": list(range(1000, 1005)),
+            "close": [1.08 + i * 0.001 for i in range(5)],
+        },
+    )
+    return reader
+
+
+@pytest.fixture
 def data_reader_component(
     mock_feature_store: Mock,
     mock_model_store: Mock,
@@ -141,6 +156,26 @@ def data_reader_component(
         strategy_store=mock_strategy_store,
         earnings_store=mock_earnings_store,
         registry=mock_registry,
+    )
+
+
+@pytest.fixture
+def data_reader_with_raw(
+    mock_feature_store: Mock,
+    mock_model_store: Mock,
+    mock_strategy_store: Mock,
+    mock_earnings_store: Mock,
+    mock_registry: Mock,
+    mock_raw_reader: Mock,
+) -> DataReaderComponent:
+    """Create DataReaderComponent with raw reader attached."""
+    return DataReaderComponent(
+        feature_store=mock_feature_store,
+        model_store=mock_model_store,
+        strategy_store=mock_strategy_store,
+        earnings_store=mock_earnings_store,
+        registry=mock_registry,
+        raw_reader=mock_raw_reader,
     )
 
 
@@ -306,6 +341,46 @@ def test_read_ingestion_data_invalid_time_range(
             start_ts=1010,
             end_ts=1000,  # Invalid: end before start
         )
+
+
+def test_read_ingestion_data_uses_raw_reader_for_market_types(
+    data_reader_with_raw: DataReaderComponent,
+    mock_raw_reader: Mock,
+    mock_feature_store: Mock,
+) -> None:
+    """
+    Test read_ingestion_data uses raw_reader for market dataset types.
+    """
+    result = data_reader_with_raw.read_ingestion_data(
+        instrument_id="EURUSD.SIM",
+        start_ts=1000,
+        end_ts=1005,
+        dataset_type=DatasetType.BARS,
+    )
+
+    assert isinstance(result, pl.DataFrame)
+    mock_raw_reader.read_range.assert_called_once()
+    mock_feature_store.get_training_data.assert_not_called()
+
+
+def test_read_ingestion_data_uses_feature_store_for_non_market_types(
+    data_reader_with_raw: DataReaderComponent,
+    mock_raw_reader: Mock,
+    mock_feature_store: Mock,
+) -> None:
+    """
+    Test read_ingestion_data falls back to FeatureStore for non-market datasets.
+    """
+    result = data_reader_with_raw.read_ingestion_data(
+        instrument_id="EURUSD.SIM",
+        start_ts=1000,
+        end_ts=1010,
+        dataset_type=DatasetType.EARNINGS_ACTUALS,
+    )
+
+    assert isinstance(result, pl.DataFrame)
+    mock_raw_reader.read_range.assert_not_called()
+    mock_feature_store.get_training_data.assert_called_once()
 
 
 # =========================================================================

@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 import pytest
 
+from ml.core.db_engine import EngineManager
 from ml.dashboard.services.trading_service import (
     EmergencyStopActions,
     TradingHealthSnapshot,
@@ -150,9 +151,7 @@ async def test_toggle_trading_without_controller_uses_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_includes_portfolio_metrics(cloned_test_database: str) -> None:
-    from ml.tests.conftest import TestDatabase
-
-    test_database = TestDatabase(connection_string=cloned_test_database)
+    engine = EngineManager.get_engine(cloned_test_database)
     controller = DummyTradingController()
     manager = DummyIntegrationManager(
         trading_controller=controller,
@@ -160,7 +159,7 @@ async def test_health_check_includes_portfolio_metrics(cloned_test_database: str
     )
     service = TradingIntegrationService(manager)
 
-    with test_database.engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(text("DELETE FROM ml_positions"))
         conn.execute(
             text(

@@ -17,11 +17,12 @@ import time
 from dataclasses import dataclass
 from datetime import date
 from datetime import datetime
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_EDGARTOOLS
 from ml._imports import check_ml_dependencies
-from ml._imports import edgartools
+from ml._imports import load_edgartools
 from ml.common.metrics_manager import MetricsManager
 from ml.features.earnings.ingestion.xbrl_parser import XBRLParser
 
@@ -29,9 +30,7 @@ from ml.features.earnings.ingestion.xbrl_parser import XBRLParser
 if TYPE_CHECKING:
     pass
 
-if not HAS_EDGARTOOLS:
-    # Defer hard failure until use
-    edgartools = None
+edgartools: ModuleType | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +67,17 @@ def _init_module_metrics() -> None:
 
 
 _init_module_metrics()
+
+
+def _resolve_edgartools() -> ModuleType | None:
+    """Return the edgartools module, loading it on demand."""
+    global edgartools
+    if edgartools is not None:
+        return edgartools
+    if not HAS_EDGARTOOLS:
+        return None
+    edgartools = load_edgartools()
+    return edgartools
 
 
 @dataclass(frozen=True)
@@ -150,7 +160,7 @@ class EdgarFetcher:
         max_retries: int = 3,
     ) -> None:
         """Initialize EdgarFetcher."""
-        if edgartools is None:
+        if not HAS_EDGARTOOLS:
             check_ml_dependencies(["edgartools"])
 
         self.rate_limit_delay = rate_limit_delay
@@ -243,12 +253,13 @@ class EdgarFetcher:
         """Fetch company object from EDGAR."""
         try:
             # Use edgartools to get company
-            if edgartools is None:
+            tools = _resolve_edgartools()
+            if tools is None:
                 return None
-            company = edgartools.Company(ticker)
+            company = tools.Company(ticker)
             return company
         except Exception as e:
-            logger.debug("Failed to fetch company %s: %s", ticker, e)
+            logger.debug("Failed to fetch company %s: %s", ticker, e, exc_info=True)
             return None
 
     def _fetch_filings(

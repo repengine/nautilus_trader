@@ -22,6 +22,8 @@ Architecture Patterns (CLAUDE.md):
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import tracemalloc
 from typing import Any
 from unittest.mock import MagicMock
@@ -36,6 +38,20 @@ from hypothesis import strategies as st
 # =============================================================================
 # Fixtures
 # =============================================================================
+
+
+def _under_coverage() -> bool:
+    if os.getenv("COV_CORE_SOURCE") or os.getenv("COVERAGE_PROCESS_START"):
+        return True
+    addopts = os.getenv("PYTEST_ADDOPTS", "")
+    if "--cov" in addopts:
+        return True
+    gettrace = getattr(sys, "gettrace", None)
+    return bool(callable(gettrace) and gettrace())
+
+
+def _allocation_threshold() -> int:
+    return 2000 if _under_coverage() else 1000
 
 
 @pytest.fixture
@@ -397,7 +413,7 @@ class TestRingBufferManagement:
 
         # Assert: Allow small threshold for any interpreter overhead
         # Ring buffer updates should not allocate new arrays
-        assert total_new_bytes < 1000, (
+        assert total_new_bytes < _allocation_threshold(), (
             f"Hot path update() should not allocate significant memory, "
             f"but allocated {total_new_bytes} bytes"
         )

@@ -372,8 +372,8 @@ class TestBusPublishingStandardization:
 
         # Map store names to their actual module paths for patching
         module_paths = {
-            "DataStore": ["ml.stores.data_store"],
-            "FeatureStore": ["ml.stores.feature_store"],
+            "DataStore": ["ml.stores.common.event_emitter"],
+            "FeatureStore": ["ml.stores.common.feature_writer"],
         }
 
         for store_name, store in test_stores:

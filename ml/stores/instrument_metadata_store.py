@@ -36,6 +36,7 @@ from sqlalchemy import Text
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.schema import CreateSchema
 
 from ml.common.db_utils import get_or_create_engine
 from ml.stores.mixins import HealthMixin
@@ -102,6 +103,9 @@ class InstrumentMetadataStore(HealthMixin):
         # Initialize database engine via EngineManager (Pattern 1)
         self.engine: Engine = get_or_create_engine(connection_string)
 
+        # Ensure schema exists before defining tables
+        self._ensure_schema()
+
         # Define table schema
         self.metadata_obj = MetaData(schema=schema)
         self.table = self._define_table()
@@ -110,6 +114,16 @@ class InstrumentMetadataStore(HealthMixin):
             "Initialized InstrumentMetadataStore",
             extra={"schema": schema, "table": table_name},
         )
+
+    def _ensure_schema(self) -> None:
+        """
+        Ensure the configured schema exists before table creation.
+        """
+        dialect = getattr(getattr(self.engine, "dialect", None), "name", None)
+        if dialect == "sqlite":
+            return
+        with self.engine.begin() as conn:
+            conn.execute(CreateSchema(self.schema, if_not_exists=True))
 
     def _define_table(self) -> Table:
         """Define the instrument_metadata table schema."""

@@ -34,6 +34,8 @@ from numpy.typing import DTypeLike
 
 from ml import _imports as _ml_imports
 from ml._imports import check_ml_dependencies
+from ml._imports import pd as pd_runtime
+from ml._imports import pl as pl_runtime
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
@@ -125,6 +127,7 @@ __all__ = [
     "filter_metadata_by_instruments",
     "instrument_row_counts",
     "is_within_shard_budget",
+    "materialize_streaming_frame",
     "split_metadata_by_row_fraction",
     "split_metadata_by_time",
     "summarize_metadata",
@@ -412,6 +415,7 @@ class TFTStreamingMetadata:
     numeric_stats: dict[str, RunningStats]
     categorical_vocab: dict[str, tuple[str, ...]]
     instrument_row_counts: dict[str, int]
+    instrument_target_stats: dict[str, RunningStats] = field(default_factory=dict)
     phase_one_signals: PhaseOneFeatureSignals = field(default_factory=PhaseOneFeatureSignals)
 
 
@@ -474,6 +478,7 @@ class TFTStreamingPreprocessor:
         feature_names: Iterable[str],
         categorical_columns: Iterable[str],
         numeric_columns: Iterable[str],
+        target_col: str,
         group_id_col: str,
         time_index_col: str,
         shard_row_budget: int = _DEFAULT_SHARD_ROW_BUDGET,
@@ -485,6 +490,7 @@ class TFTStreamingPreprocessor:
         self._feature_names = tuple(feature_names)
         self._categorical_columns = tuple(categorical_columns)
         self._numeric_columns = tuple(numeric_columns)
+        self._target_col = target_col
         self._group_id_col = group_id_col
         self._time_index_col = time_index_col
         self._shard_row_budget = max(1, int(shard_row_budget))
@@ -506,6 +512,7 @@ class TFTStreamingPreprocessor:
         categorical_vocab: dict[str, set[str]] = {
             name: set() for name in self._categorical_columns
         }
+        instrument_target_stats: dict[str, RunningStats] = {}
 
         shard_indices: list[TFTShardIndex] = []
         instrument_row_counts: dict[str, int] = {}
@@ -550,11 +557,42 @@ class TFTStreamingPreprocessor:
                 num_column = _get_column(batch, column)
                 if num_column is None:
                     continue
-                values = np.asarray(_arrow_to_numpy(num_column, dtype=np.float64), dtype=np.float64)
+                numeric_values = np.asarray(
+                    _arrow_to_numpy(num_column, dtype=np.float64),
+                    dtype=np.float64,
+                )
                 numeric_stats[column] = _update_running_stats(
                     numeric_stats[column],
-                    values,
+                    numeric_values,
                 )
+
+            target_column = _get_column(batch, self._target_col)
+            if target_column is not None:
+                target_values = np.asarray(
+                    _arrow_to_numpy(target_column, dtype=np.float64),
+                    dtype=np.float64,
+                )
+                if target_values.shape[0] == len(group_values):
+                    per_instrument: dict[str, list[float]] = defaultdict(list)
+                    for instrument, value in zip(
+                        group_values,
+                        target_values.tolist(),
+                        strict=False,
+                    ):
+                        if not instrument:
+                            continue
+                        if not np.isfinite(value):
+                            continue
+                        per_instrument[instrument].append(float(value))
+                    for instrument, instrument_values in per_instrument.items():
+                        stats = instrument_target_stats.get(
+                            instrument,
+                            RunningStats(count=0, mean=0.0, m2=0.0),
+                        )
+                        instrument_target_stats[instrument] = _update_running_stats(
+                            stats,
+                            np.asarray(instrument_values, dtype=np.float64),
+                        )
 
             for instrument, time_value in zip(group_values, time_values.tolist()):
                 if not instrument:
@@ -592,6 +630,7 @@ class TFTStreamingPreprocessor:
             numeric_stats=numeric_stats,
             categorical_vocab=vocab_final,
             instrument_row_counts=instrument_row_counts,
+            instrument_target_stats=instrument_target_stats,
             phase_one_signals=PhaseOneFeatureSignals(),
         )
         summary = summarize_metadata(metadata)
@@ -618,6 +657,7 @@ def collect_streaming_metadata(
     feature_names: Iterable[str],
     categorical_columns: Iterable[str],
     numeric_columns: Iterable[str],
+    target_col: str,
     group_id_col: str,
     time_index_col: str,
     shard_row_budget: int = _DEFAULT_SHARD_ROW_BUDGET,
@@ -629,6 +669,7 @@ def collect_streaming_metadata(
         feature_names=feature_names,
         categorical_columns=categorical_columns,
         numeric_columns=numeric_columns,
+        target_col=target_col,
         group_id_col=group_id_col,
         time_index_col=time_index_col,
         shard_row_budget=shard_row_budget,
@@ -906,6 +947,11 @@ def _limit_metadata_for_streaming(
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=selected_rows_filtered,
+        instrument_target_stats={
+            instrument: metadata.instrument_target_stats[instrument]
+            for instrument in selected_rows_filtered
+            if instrument in metadata.instrument_target_stats
+        },
         phase_one_signals=metadata.phase_one_signals,
     )
     summary = StreamingLimitSummary(
@@ -964,6 +1010,7 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         if target_stats is None:
             raise ValueError(f"Missing numeric statistics for target column '{config.target_col}'")
         self._target_stats = target_stats
+        self._instrument_target_stats = metadata.instrument_target_stats
 
         self._encoder_cont_columns: tuple[str, ...] = (
             config.static_reals
@@ -1231,8 +1278,9 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         encoder_len = self._config.max_encoder_length
         decoder_len = self._config.max_prediction_length
 
-        target_mean = self._target_stats.mean
-        target_std = (self._target_stats.variance**0.5) if self._target_stats.variance > 0 else 1.0
+        stats = self._target_stats
+        target_mean = stats.mean
+        target_std = (stats.variance**0.5) if stats.variance > 0 else 1.0
         if target_std == 0.0:
             target_std = 1.0
 
@@ -1391,6 +1439,134 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         return batch_inputs, outputs
 
 
+def _bootstrap_shard_order(metadata: TFTStreamingMetadata) -> list[TFTShardIndex]:
+    grouped: dict[str, list[TFTShardIndex]] = defaultdict(list)
+    for shard in metadata.shard_indices:
+        grouped[shard.instrument_id].append(shard)
+    for instrument, shards in grouped.items():
+        grouped[instrument] = sorted(shards, key=lambda item: item.time_start)
+
+    ordered: list[TFTShardIndex] = []
+    for instrument in sorted(grouped.keys()):
+        shards = grouped[instrument]
+        if shards:
+            ordered.append(shards[0])
+
+    remainder: list[TFTShardIndex] = []
+    for shards in grouped.values():
+        if len(shards) > 1:
+            remainder.extend(shards[1:])
+    remainder.sort(key=lambda item: (item.time_start, item.instrument_id))
+    ordered.extend(remainder)
+    return ordered
+
+
+def materialize_streaming_frame(
+    parquet_path: Path,
+    *,
+    metadata: TFTStreamingMetadata,
+    config: TFTStreamingConfig,
+    max_rows: int,
+) -> Any:
+    """
+    Materialize a small sample frame for bootstrapping TFT streaming training.
+
+    Uses ``TimeSeriesFormatter`` to align formatting with offline TFT datasets.
+    """
+    if max_rows <= 0:
+        raise ValueError("max_rows must be > 0")
+    if not HAS_PYARROW or pa_dataset is None:
+        check_ml_dependencies(["pyarrow"])
+        raise ImportError("PyArrow dataset module unavailable")
+
+    dataset_obj = cast(ArrowDataset, pa_dataset.dataset(str(parquet_path), format="parquet"))
+    schema = getattr(dataset_obj, "schema", None)
+    schema_names = schema.names if schema is not None else None
+    available_columns = set(schema_names or [])
+    if config.group_id_col not in available_columns:
+        raise RuntimeError(f"Missing group_id column '{config.group_id_col}' in parquet dataset")
+    if config.time_idx_col not in available_columns:
+        raise RuntimeError(f"Missing time index column '{config.time_idx_col}' in parquet dataset")
+    if config.target_col not in available_columns:
+        raise RuntimeError(f"Missing target column '{config.target_col}' in parquet dataset")
+
+    desired_columns = {
+        config.time_idx_col,
+        config.group_id_col,
+        config.target_col,
+        *config.static_categoricals,
+        *config.static_reals,
+        *config.time_varying_known_reals,
+        *config.time_varying_unknown_reals,
+        "timestamp",
+        "ts_event",
+    }
+    columns = sorted(column for column in desired_columns if column in available_columns)
+    if not columns:
+        raise RuntimeError("No matching columns available for streaming bootstrap materialization")
+
+    use_polars = pl_runtime is not None
+    if use_polars and pl_runtime is None:
+        check_ml_dependencies(["polars"])
+    if not use_polars and pd_runtime is None:
+        check_ml_dependencies(["pandas"])
+
+    frames: list[Any] = []
+    rows_remaining = int(max_rows)
+    for shard in _bootstrap_shard_order(metadata):
+        if rows_remaining <= 0:
+            break
+        scanner = dataset_obj.scanner(
+            columns=columns,
+            filter=(
+                (pa_dataset.field(config.group_id_col) == pa.scalar(shard.instrument_id))
+                & (pa_dataset.field(config.time_idx_col) >= pa.scalar(shard.time_start))
+                & (pa_dataset.field(config.time_idx_col) <= pa.scalar(shard.time_end))
+            ),
+        )
+        table = scanner.to_table()
+        if table.num_rows == 0:
+            continue
+        if table.num_rows > rows_remaining:
+            table = table.slice(0, rows_remaining)
+        if use_polars:
+            assert pl_runtime is not None
+            frame = pl_runtime.from_arrow(table)
+            rows_remaining -= frame.height
+        else:
+            frame = table.to_pandas()
+            rows_remaining -= len(frame)
+        frames.append(frame)
+
+    if not frames:
+        raise RuntimeError("No rows available for streaming bootstrap sample")
+
+    if use_polars:
+        assert pl_runtime is not None
+        combined = pl_runtime.concat(frames, how="vertical")
+    else:
+        assert pd_runtime is not None
+        combined = pd_runtime.concat(frames, ignore_index=True)
+
+    timestamp_col = None
+    if "timestamp" in combined.columns:
+        timestamp_col = "timestamp"
+    elif "ts_event" in combined.columns:
+        timestamp_col = "ts_event"
+
+    from ml.training.datasets.time_series_formatter import TimeSeriesFormatter
+
+    formatter = TimeSeriesFormatter()
+    return formatter.format_for_tft(
+        combined,
+        lookback_periods=config.max_encoder_length,
+        use_polars=use_polars,
+        timestamp_col=timestamp_col,
+        time_index_col=config.time_idx_col,
+        group_id_col=config.group_id_col,
+    )
+
+
 def build_streaming_dataloader(
     parquet_path: Path,
     metadata: TFTStreamingMetadata,
@@ -1464,12 +1640,14 @@ def split_metadata_by_time(
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=metadata.instrument_row_counts,
+        instrument_target_stats=metadata.instrument_target_stats,
     )
     val_metadata = TFTStreamingMetadata(
         shard_indices=tuple(val_shards),
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=metadata.instrument_row_counts,
+        instrument_target_stats=metadata.instrument_target_stats,
     )
     return train_metadata, val_metadata
 
@@ -1493,6 +1671,11 @@ def filter_metadata_by_instruments(
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=filtered_counts,
+        instrument_target_stats={
+            instrument: metadata.instrument_target_stats[instrument]
+            for instrument in allowed
+            if instrument in metadata.instrument_target_stats
+        },
     )
 
 
@@ -1515,6 +1698,7 @@ def split_metadata_by_row_fraction(
             numeric_stats=metadata.numeric_stats,
             categorical_vocab=metadata.categorical_vocab,
             instrument_row_counts=metadata.instrument_row_counts,
+            instrument_target_stats=metadata.instrument_target_stats,
         )
         return empty, empty
 
@@ -1567,12 +1751,14 @@ def split_metadata_by_row_fraction(
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=metadata.instrument_row_counts,
+        instrument_target_stats=metadata.instrument_target_stats,
     )
     val_metadata = TFTStreamingMetadata(
         shard_indices=tuple(val_shards),
         numeric_stats=metadata.numeric_stats,
         categorical_vocab=metadata.categorical_vocab,
         instrument_row_counts=metadata.instrument_row_counts,
+        instrument_target_stats=metadata.instrument_target_stats,
     )
     return train_metadata, val_metadata
 
@@ -1590,6 +1776,10 @@ class TFTStreamingDataModule:
         test_metadata: TFTStreamingMetadata | None = None,
         shuffle_train: bool = False,
         drop_last_train: bool = False,
+        metadata_is_limited: bool = False,
+        train_limit_summary: StreamingLimitSummary | None = None,
+        val_limit_summary: StreamingLimitSummary | None = None,
+        test_limit_summary: StreamingLimitSummary | None = None,
     ) -> None:
         self._parquet_path = Path(parquet_path)
         self._base_config = config
@@ -1598,6 +1788,10 @@ class TFTStreamingDataModule:
         self._test_metadata = test_metadata
         self._shuffle_train = shuffle_train
         self._drop_last_train = drop_last_train
+        self._metadata_is_limited = metadata_is_limited
+        self._train_limit_summary = train_limit_summary
+        self._val_limit_summary = val_limit_summary
+        self._test_limit_summary = test_limit_summary
 
         self._train_loader: StreamDataLoader | None = None
         self._val_loader: StreamDataLoader | None = None
@@ -1627,6 +1821,8 @@ class TFTStreamingDataModule:
                     self._parquet_path,
                     self._train_metadata,
                     train_config,
+                    metadata_is_limited=self._metadata_is_limited,
+                    limit_summary=self._train_limit_summary,
                 )
             if self._val_metadata is not None and self._val_metadata.shard_indices:
                 val_config = replace(
@@ -1638,6 +1834,8 @@ class TFTStreamingDataModule:
                     self._parquet_path,
                     self._val_metadata,
                     val_config,
+                    metadata_is_limited=self._metadata_is_limited,
+                    limit_summary=self._val_limit_summary,
                 )
 
         if stage in (None, "test") and self._test_metadata is not None:
@@ -1651,6 +1849,8 @@ class TFTStreamingDataModule:
                     self._parquet_path,
                     self._test_metadata,
                     test_config,
+                    metadata_is_limited=self._metadata_is_limited,
+                    limit_summary=self._test_limit_summary,
                 )
 
     def train_dataloader(self) -> StreamDataLoader:

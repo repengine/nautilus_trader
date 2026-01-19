@@ -283,12 +283,14 @@ def run_forever(
             # Skip if outputs already exist unless forced
             if not force:
                 try:
-                    if out_dir is not None and (Path(out_dir) / "dataset.csv").exists():
-                        # Skip this run quietly
-                        status = EventStatus.SUCCESS
-                        # Record a near-zero duration for the skipped phase
-                        m.phase_latency.labels(phase="pipeline").observe(0.0)
-                        continue
+                    if out_dir is not None:
+                        out_path = Path(out_dir)
+                        if (out_path / "dataset.csv").exists() or (out_path / "dataset.parquet").exists():
+                            # Skip this run quietly
+                            status = EventStatus.SUCCESS
+                            # Record a near-zero duration for the skipped phase
+                            m.phase_latency.labels(phase="pipeline").observe(0.0)
+                            continue
                 except Exception as exc:
                     import logging as _logging
 

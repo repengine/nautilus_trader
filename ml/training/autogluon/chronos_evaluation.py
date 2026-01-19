@@ -612,6 +612,7 @@ def run_chronos_time_split_evaluation(
 
     baseline_val = evaluate_baseline(split.train, split.val, eval_config)
     baseline_test = evaluate_baseline(split.train, split.test, eval_config)
+    # TODO(chronos-eval): add baseline-improvement gating once thresholds are config-driven.
 
     chronos_payload: dict[str, Any] | None = None
     if training_config is not None:

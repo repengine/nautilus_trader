@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, cast
 from ml._imports import HAS_PROMETHEUS
 from ml.common.events_util import stage_for_dataset_type
 from ml.common.metrics_bootstrap import get_counter
+from ml.config import EARNINGS_ACTUALS_DATASET_ID
+from ml.config import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -46,14 +48,6 @@ __all__ = [
     "DataEvent",
     "DataWriterComponent",
 ]
-
-
-# =========================================================================
-# Constants
-# =========================================================================
-
-EARNINGS_ACTUALS_DATASET_ID = "earnings_actuals"
-EARNINGS_ESTIMATES_DATASET_ID = "earnings_estimates"
 
 
 # =========================================================================
@@ -1362,6 +1356,7 @@ class DataWriterComponent:
         """
         try:
             self._registry.get_manifest(dataset_id)
+            return
         except Exception:
             # Dataset not registered, log warning
             logger.debug(
@@ -1369,6 +1364,39 @@ class DataWriterComponent:
                 dataset_id,
                 dataset_type,
                 instrument_id,
+                exc_info=True,
+            )
+        try:
+            from ml.registry import bootstrap_datasets
+        except Exception:
+            logger.debug(
+                "Bootstrap datasets unavailable for %s registration",
+                dataset_id,
+                exc_info=True,
+            )
+            return
+
+        try:
+            manifests = bootstrap_datasets.create_standard_manifests()
+        except Exception:
+            logger.debug(
+                "Failed to load bootstrap manifests for %s",
+                dataset_id,
+                exc_info=True,
+            )
+            return
+
+        manifest = next((item for item in manifests if item.dataset_id == dataset_id), None)
+        if manifest is None:
+            return
+        if not hasattr(self._registry, "register_dataset"):
+            return
+        try:
+            self._registry.register_dataset(manifest)
+        except Exception:
+            logger.debug(
+                "Dataset registration failed for %s",
+                dataset_id,
                 exc_info=True,
             )
 

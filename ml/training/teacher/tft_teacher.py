@@ -182,6 +182,103 @@ class TFTTeacher(BaseTeacher):
         self._tft: Any | None = None
         self._trainer: Any | None = None
 
+    def _fill_missing_values(self, df: Any) -> None:
+        """Fill missing numeric/static categorical values for TFT dataset compatibility."""
+        if not HAS_PANDAS or pd is None:
+            check_ml_dependencies(["pandas"])
+            raise ImportError("pandas is required for TFT preprocessing")
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("df must be a pandas DataFrame")
+
+        if self.static_categoricals:
+            for col in self.static_categoricals:
+                if col in df.columns:
+                    df[col] = df[col].fillna("UNKNOWN").astype("category")
+
+        try:
+            num_cols = df.select_dtypes(include=["number"]).columns
+        except Exception:
+            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        if len(num_cols) > 0:
+            df.loc[:, num_cols] = df.loc[:, num_cols].fillna(0)
+
+    def _force_cpu_for_prediction(self) -> None:
+        """Ensure prediction respects cpu accelerator settings."""
+        if self._accelerator.lower() != "cpu":
+            return
+        try:
+            import torch as _torch
+
+            if self._tft is not None and hasattr(self._tft, "to"):
+                self._tft.to(_torch.device("cpu"))
+        except Exception as exc:
+            logger.debug("TFT CPU enforcement skipped: %s", exc)
+
+    def _apply_optimizer_and_scheduler(self) -> None:
+        """Apply optimizer/scheduler mapping for Lightning training runs."""
+        if self._tft is None:
+            return
+        if self._optimizer_name is None and self._lr_scheduler_name is None:
+            return
+        try:
+            import torch as _torch
+        except Exception as exc:
+            logger.debug("Optimizer mapping skipped: %s", exc)
+            return
+
+        optimizer_name = (self._optimizer_name or "adam").lower()
+        scheduler_name = (
+            self._lr_scheduler_name.lower()
+            if self._lr_scheduler_name is not None
+            else "none"
+        )
+
+        def _configure_optimizers(model: Any) -> Any:
+            params = model.parameters()
+            optimizer: _torch.optim.Optimizer
+            if optimizer_name == "adam":
+                optimizer = _torch.optim.Adam(params, lr=self.learning_rate)
+            elif optimizer_name == "adamw":
+                optimizer = _torch.optim.AdamW(params, lr=self.learning_rate)
+            elif optimizer_name == "sgd":
+                optimizer = _torch.optim.SGD(params, lr=self.learning_rate)
+            elif optimizer_name == "rmsprop":
+                optimizer = _torch.optim.RMSprop(params, lr=self.learning_rate)
+            else:
+                optimizer = _torch.optim.Adam(params, lr=self.learning_rate)
+
+            if scheduler_name in {"none", ""}:
+                return optimizer
+
+            if scheduler_name == "reduce_on_plateau":
+                plateau_scheduler = _torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+                return {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {"scheduler": plateau_scheduler, "monitor": "val_loss"},
+                }
+
+            trainer = getattr(model, "trainer", None)
+            total_steps = int(getattr(trainer, "estimated_stepping_batches", 0) or 0)
+            total_steps = max(1, total_steps)
+
+            if scheduler_name == "onecycle":
+                onecycle_scheduler = _torch.optim.lr_scheduler.OneCycleLR(
+                    optimizer,
+                    max_lr=self.learning_rate,
+                    total_steps=total_steps,
+                )
+                return {"optimizer": optimizer, "lr_scheduler": onecycle_scheduler}
+            if scheduler_name == "cosine":
+                cosine_scheduler = _torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=total_steps,
+                )
+                return {"optimizer": optimizer, "lr_scheduler": cosine_scheduler}
+
+            return optimizer
+
+        self._tft.configure_optimizers = types.MethodType(_configure_optimizers, self._tft)
+
     # --- public API ---
     def fit(self, df: Any) -> TFTTeacher:
         if not HAS_PANDAS:
@@ -222,21 +319,14 @@ class TFTTeacher(BaseTeacher):
         if self.target_col not in df.columns:
             raise ValueError(f"Missing required target column: {self.target_col}")
 
+        self._fill_missing_values(df)
+
         # Split by time: last 20% as validation cutoff
         df_sorted = df.sort_values(self.time_idx_col)
         n = len(df_sorted)
         cutoff_idx = int(n * 0.8)
         df_train = df_sorted.iloc[:cutoff_idx]
         _df_val = df_sorted.iloc[cutoff_idx:]
-
-        # Fill missing numeric values to satisfy TimeSeriesDataSet requirements
-        try:
-            num_cols = df_train.select_dtypes(include=["number"]).columns
-        except Exception:
-            num_cols = [c for c in df_train.columns if pd.api.types.is_numeric_dtype(df_train[c])]
-        if len(num_cols) > 0:
-            df_train.loc[:, num_cols] = df_train.loc[:, num_cols].fillna(0)
-            df_sorted.loc[:, num_cols] = df_sorted.loc[:, num_cols].fillna(0)
 
         # Default unknown reals: use all features not in control columns
         if not self.time_varying_unknown_reals:
@@ -344,6 +434,8 @@ class TFTTeacher(BaseTeacher):
             except Exception as exc:
                 logger.debug("Optional TFT warm-start failed: %s", exc)
 
+        self._apply_optimizer_and_scheduler()
+
         callbacks = None
         # Force CPU for stability across environments; avoids CUDA kernel asserts in PF paths
         # Normalize precision for Lightning 2.x ("16" → "16-mixed", "bf16" → "bf16-mixed")
@@ -404,6 +496,8 @@ class TFTTeacher(BaseTeacher):
         if pd is None:
             raise RuntimeError("pandas is required for prediction")
         df = pd.DataFrame(df).copy()
+        self._fill_missing_values(df)
+        self._force_cpu_for_prediction()
 
         training = self._training_dataset
         if training is None:
@@ -478,6 +572,8 @@ class TFTTeacher(BaseTeacher):
         if pd is None:
             raise RuntimeError("pandas is required for prediction")
         df = pd.DataFrame(df).copy()
+        self._fill_missing_values(df)
+        self._force_cpu_for_prediction()
 
         training = self._training_dataset
         if training is None:
@@ -634,6 +730,8 @@ class TFTTeacher(BaseTeacher):
                 preds_any: Any
                 if isinstance(out, dict) and "prediction" in out:
                     preds_any = out["prediction"]
+                elif isinstance(out, (tuple, list)) and out:
+                    preds_any = out[0]
                 else:
                     preds_any = out
 
@@ -719,14 +817,14 @@ class TFTTeacher(BaseTeacher):
         streaming_config: TFTStreamingConfig,
         callbacks: Sequence[Any] | None = None,
         checkpoint_path: Any | None = None,
+        bootstrap_sample_rows: int | None = None,
     ) -> StreamingFitResult:
         """
         Fit the teacher on capped streaming shards and return logits for distillation.
 
-        This implementation is intentionally lightweight for unit-test stability and
-        cold-path execution. It prefers using an existing TFT model when available,
-        otherwise falls back to a deterministic baseline that emits logits derived
-        from the observed decoder targets.
+        This implementation bootstraps a small PF dataset to cover categorical
+        vocabularies, trains with streaming dataloaders, and falls back to a
+        deterministic baseline only when dependencies are unavailable.
 
         Args:
             parquet_path: Source parquet file path (unused in baseline mode).
@@ -738,12 +836,14 @@ class TFTTeacher(BaseTeacher):
             streaming_config: Streaming configuration used for the loaders.
             callbacks: Optional Lightning callbacks (unused in baseline mode).
             checkpoint_path: Optional checkpoint path (unused in baseline mode).
+            bootstrap_sample_rows: Optional row cap for bootstrap materialization.
 
         Returns:
             Streaming fit result containing training/validation logits and aligned metadata.
         """
-        _ = (parquet_path, train_metadata, val_metadata, callbacks, checkpoint_path)
+        _ = (train_metadata, val_metadata)
 
+        from ml._imports import HAS_PANDAS
         from ml._imports import HAS_TORCH
         from ml._imports import torch as torch_module
 
@@ -756,7 +856,7 @@ class TFTTeacher(BaseTeacher):
         group_inverse_map.setdefault(len(group_vocab), "__UNK__")
 
         if self._tft is None:
-            try:
+            def _make_baseline_teacher_model() -> Any:
                 nn = torch_module.nn
 
                 class _BaselineTeacherModel(nn.Module):
@@ -766,12 +866,157 @@ class TFTTeacher(BaseTeacher):
                             raise RuntimeError("decoder_target missing from streaming batch")
                         return {"prediction": decoder_target}
 
-                self._tft = _BaselineTeacherModel()
+                return _BaselineTeacherModel()
+
+            pl_module: types.ModuleType | None
+            TemporalFusionTransformer: Any | None
+            TimeSeriesDataSet: Any | None
+            PoissonLoss: Any | None
+            try:
+                try:
+                    import lightning.pytorch as _lpl
+
+                    pl_module = _lpl
+                except Exception:  # pragma: no cover
+                    import pytorch_lightning as _pl
+
+                    pl_module = _pl
+                import pytorch_forecasting as _pf
+                import pytorch_forecasting.metrics as _pf_metrics
+
+                TemporalFusionTransformer = _pf.TemporalFusionTransformer
+                TimeSeriesDataSet = _pf.TimeSeriesDataSet
+                PoissonLoss = _pf_metrics.PoissonLoss
+
+                from ml.training.teacher.losses import BCEWithLogitsLossPF
+                from ml.training.teacher.streaming_loader import materialize_streaming_frame
+            except ImportError:
+                pl_module = None
+                TemporalFusionTransformer = None
+                TimeSeriesDataSet = None
+                PoissonLoss = None
+
+            if pl_module is None or TemporalFusionTransformer is None or TimeSeriesDataSet is None:
+                self._tft = _make_baseline_teacher_model()
                 _FALLBACK_COUNTER.labels(component="tft_teacher", level="dummy").inc()
                 self._logger.info("tft_teacher_streaming_fallback_enabled", extra={"level": "dummy"})
-            except Exception:
-                self._logger.error("Failed to construct streaming fallback teacher model", exc_info=True)
-                raise
+            else:
+                try:
+                    sample_rows = int(
+                        bootstrap_sample_rows
+                        if bootstrap_sample_rows is not None
+                        else max(1, int(streaming_config.max_encoder_length))
+                    )
+                    bootstrap_frame = materialize_streaming_frame(
+                        parquet_path,
+                        metadata=full_metadata,
+                        config=streaming_config,
+                        max_rows=sample_rows,
+                    )
+                    if not HAS_PANDAS:
+                        check_ml_dependencies(["pandas"])
+                        raise RuntimeError(
+                            "pandas is required for streaming bootstrap materialization",
+                        )
+                    if hasattr(bootstrap_frame, "to_pandas"):
+                        bootstrap_frame = bootstrap_frame.to_pandas()
+
+                    training = TimeSeriesDataSet(
+                        bootstrap_frame,
+                        time_idx=streaming_config.time_idx_col,
+                        target=streaming_config.target_col,
+                        group_ids=[streaming_config.group_id_col],
+                        max_encoder_length=streaming_config.max_encoder_length,
+                        max_prediction_length=streaming_config.max_prediction_length,
+                        min_encoder_length=1,
+                        min_prediction_length=1,
+                        static_categoricals=list(streaming_config.static_categoricals),
+                        static_reals=list(streaming_config.static_reals),
+                        time_varying_known_reals=list(streaming_config.time_varying_known_reals),
+                        time_varying_unknown_reals=list(streaming_config.time_varying_unknown_reals),
+                        allow_missing_timesteps=True,
+                        add_encoder_length=False,
+                    )
+                except ImportError:
+                    self._tft = _make_baseline_teacher_model()
+                    _FALLBACK_COUNTER.labels(component="tft_teacher", level="dummy").inc()
+                    self._logger.info(
+                        "tft_teacher_streaming_fallback_enabled",
+                        extra={"level": "dummy"},
+                    )
+                    training = None
+                if training is not None:
+                    from typing import cast as _cast
+
+                    cfg = _cast(TFTTeacherConfig, self.config)
+                    loss_obj: Any
+                    if cfg.loss_name.lower() == "bce":
+                        loss_obj = BCEWithLogitsLossPF(pos_weight=cfg.pos_weight)
+                    else:
+                        assert PoissonLoss is not None
+                        loss_obj = PoissonLoss()
+
+                    self._tft = TemporalFusionTransformer.from_dataset(
+                        training,
+                        learning_rate=self.learning_rate,
+                        hidden_size=self.hidden_size,
+                        lstm_layers=self.lstm_layers,
+                        dropout=self.dropout,
+                        output_size=1,
+                        loss=loss_obj,
+                        attention_head_size=self.attention_head_size,
+                        log_interval=100,
+                    )
+
+                    if self.pretrained_state_path:
+                        try:
+                            from ml.training.safe_torch import safe_torch_load
+
+                            expected = None
+                            state = safe_torch_load(
+                                self.pretrained_state_path,
+                                expected_sha256=expected,
+                            )
+                            _missing, _unexpected = self._tft.load_state_dict(state, strict=False)
+                        except Exception as exc:
+                            logger.debug("Optional TFT warm-start failed: %s", exc)
+
+                    self._apply_optimizer_and_scheduler()
+
+                    precision_arg: Any = self._precision
+                    try:  # pragma: no cover - environment/version specific
+                        import lightning.pytorch as _lpl  # type: ignore[unused-ignore]
+
+                        if isinstance(precision_arg, str):
+                            if precision_arg == "16":
+                                precision_arg = "16-mixed"
+                            elif precision_arg.lower() == "bf16":
+                                precision_arg = "bf16-mixed"
+                    except Exception as exc:
+                        logger.debug("Lightning precision normalization skipped: %s", exc)
+
+                    self._trainer = pl_module.Trainer(
+                        max_epochs=self.max_epochs,
+                        gradient_clip_val=1.0,
+                        enable_progress_bar=False,
+                        logger=False,
+                        callbacks=list(callbacks or []),
+                        accelerator=self._accelerator,
+                        devices=self._devices,
+                        enable_checkpointing=False,
+                        precision=precision_arg,
+                    )
+
+                    try:
+                        self._trainer.fit(
+                            self._tft,
+                            train_dataloaders=train_loader,
+                            val_dataloaders=val_loader,
+                            ckpt_path=str(checkpoint_path) if checkpoint_path else None,
+                        )
+                    except Exception:
+                        self._logger.error("Streaming TFT training failed", exc_info=True)
+                        raise
 
         z_train, _y_train, train_rows = self._collect_streaming_logits(
             train_loader,

@@ -211,7 +211,7 @@ class StageController:
         Raises
         ------
         FileNotFoundError
-            If dataset CSV is not found
+            If dataset artifacts are not found
 
         Examples
         --------
@@ -227,9 +227,13 @@ class StageController:
 
         dataset_dir = Path(dataset_cfg.out_dir)
         dataset_csv = dataset_dir / "dataset.csv"
-        if not dataset_csv.exists():
+        dataset_parquet_candidates = (
+            dataset_dir / "dataset_with_vintage_age.parquet",
+            dataset_dir / "dataset.parquet",
+        )
+        if not dataset_csv.exists() and not any(path.exists() for path in dataset_parquet_candidates):
             raise FileNotFoundError(
-                f"Dataset CSV not found at {dataset_csv}; run dataset stage first",
+                f"Dataset CSV not found in {dataset_dir}; run dataset stage first",
             )
 
         metadata_path = dataset_dir / "dataset_metadata.json"

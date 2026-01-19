@@ -69,6 +69,7 @@ def test_collect_streaming_metadata_counts_and_vocab(tmp_path: Path) -> None:
         numeric_columns=("feature_a", "feature_b"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="feature_a",
         shard_row_budget=3,
     )
 
@@ -87,6 +88,14 @@ def test_collect_streaming_metadata_counts_and_vocab(tmp_path: Path) -> None:
     assert stats.count == 6
     assert pytest.approx(stats.mean, rel=1e-6) == float(frame["feature_a"].mean())
     assert pytest.approx(stats.variance, rel=1e-6) == float(frame["feature_a"].var(ddof=1))
+    assert metadata.instrument_target_stats["AAPL"].count == 3
+    assert metadata.instrument_target_stats["MSFT"].count == 3
+    assert pytest.approx(metadata.instrument_target_stats["AAPL"].mean, rel=1e-6) == float(
+        frame.loc[frame["instrument_id"] == "AAPL", "feature_a"].mean(),
+    )
+    assert pytest.approx(metadata.instrument_target_stats["MSFT"].mean, rel=1e-6) == float(
+        frame.loc[frame["instrument_id"] == "MSFT", "feature_a"].mean(),
+    )
 
     train_meta, val_meta = split_metadata_by_time(metadata, cutoff_time=2)
     assert len(train_meta.shard_indices) >= 1
@@ -130,6 +139,7 @@ def test_streaming_dataloader_emits_expected_batch(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=32,
     )
 
@@ -233,6 +243,7 @@ def test_streaming_dataset_preserves_large_time_indices(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=64,
     )
     config = TFTStreamingConfig(
@@ -288,6 +299,7 @@ def test_streaming_dataset_shard_partitioning(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=2,
     )
 
@@ -400,6 +412,7 @@ def test_build_streaming_dataloader_respects_limits(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=6,
     )
 
@@ -460,6 +473,7 @@ def test_apply_streaming_limits_and_count_sequences(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=3,
     )
     total_rows = sum(metadata.instrument_row_counts.values())
@@ -543,6 +557,7 @@ def test_streaming_limits_round_robin_instrument_mix(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=3,
     )
 
@@ -610,6 +625,7 @@ def test_streaming_matches_pytorch_forecasting_batch(tmp_path: Path) -> None:
         numeric_columns=("feature", "y"),
         group_id_col="instrument_id",
         time_index_col="time_index",
+        target_col="y",
         shard_row_budget=32,
     )
 

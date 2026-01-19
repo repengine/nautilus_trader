@@ -10,6 +10,7 @@ import os
 from collections.abc import Mapping
 from collections.abc import MutableMapping
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
 from typing import Any
 
@@ -264,7 +265,7 @@ class DashboardControlPanel:
             "success": ok,
             "model_id": model_id,
             "target": target,
-            "deployed_at": datetime.utcnow().isoformat(),
+            "deployed_at": datetime.now(UTC).isoformat(),
         }
 
     async def rollback_model(
@@ -289,7 +290,7 @@ class DashboardControlPanel:
             "success": ok,
             "target": target,
             "rolled_back_to": previous,
-            "rollback_time": datetime.utcnow().isoformat(),
+            "rollback_time": datetime.now(UTC).isoformat(),
         }
 
     async def configure_strategy(
@@ -321,7 +322,7 @@ class DashboardControlPanel:
             "success": updated,
             "strategy_id": strategy_id,
             "updated_params": dict(parameters),
-            "update_time": datetime.utcnow().isoformat(),
+            "update_time": datetime.now(UTC).isoformat(),
         }
 
     async def emergency_stop_all(self) -> dict[str, Any]:

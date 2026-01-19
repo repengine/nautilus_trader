@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -47,6 +48,7 @@ from ml.training.event_driven.services import TrainingWorker
 from ml.training.teacher import streaming_loader as stream
 from ml.training.teacher.streaming_loader import StreamingLimitSummary
 from ml.training.teacher.streaming_loader import TFTStreamingConfig
+from ml.training.teacher.streaming_loader import TFTStreamingDataModule
 from ml.training.teacher.streaming_loader import TFTStreamingMetadata
 from ml.training.teacher.streaming_loader import TFTStreamingSummary
 from ml.training.teacher.streaming_loader import summarize_metadata
@@ -346,7 +348,7 @@ class StreamingCheckpointManager:
             return None
         epoch_value = int(getattr(trainer, "current_epoch", 0))
         save_time = float(timestamp if timestamp is not None else time.monotonic())
-        utc_now = datetime.utcnow().replace(microsecond=0)
+        utc_now = datetime.now(UTC).replace(microsecond=0)
         timestamp_label = utc_now.strftime("%Y%m%dT%H%M%SZ")
         unique_name = f"{self._active_plan_id}_{timestamp_label}_step{step_value}.ckpt"
         temp_path = self._directory / unique_name
@@ -1023,20 +1025,25 @@ class LightningStreamingWorker(TrainingWorker):
         checkpoint_path: Path | None = None,
     ) -> StreamingFitResult:
         self._apply_worker_seed()
-        train_loader = stream.build_streaming_dataloader(
+        data_module = TFTStreamingDataModule(
             plan.parquet_path,
-            context.train_metadata,
-            context.worker_streaming_cfg,
+            config=context.worker_streaming_cfg,
+            train_metadata=context.train_metadata,
+            val_metadata=context.val_metadata,
+            shuffle_train=context.worker_streaming_cfg.shuffle_shards,
+            drop_last_train=context.worker_streaming_cfg.drop_last,
             metadata_is_limited=True,
-            limit_summary=context.train_limits,
+            train_limit_summary=context.train_limits,
+            val_limit_summary=context.val_limits,
         )
-        val_loader = stream.build_streaming_dataloader(
-            plan.parquet_path,
-            context.val_metadata,
-            context.worker_streaming_cfg,
-            metadata_is_limited=True,
-            limit_summary=context.val_limits,
-        )
+        data_module.setup("fit")
+        train_loader = data_module.train_dataloader()
+        val_loader = data_module.val_dataloader()
+        if val_loader is None:
+            raise ValidationDatasetEmptyError(
+                "Validation metadata produced no shards",
+                details={"val_shards": len(context.val_metadata.shard_indices)},
+            )
         teacher = self._build_teacher(
             plan,
             context.worker_streaming_cfg,
@@ -1052,6 +1059,7 @@ class LightningStreamingWorker(TrainingWorker):
             streaming_config=context.worker_streaming_cfg,
             callbacks=callbacks,
             checkpoint_path=checkpoint_path,
+            bootstrap_sample_rows=self.config.bootstrap_sample_rows,
         )
 
     @property

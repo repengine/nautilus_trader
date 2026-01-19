@@ -31,6 +31,7 @@ Integration Notes:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
 from numbers import Real
 from pathlib import Path
@@ -731,7 +732,7 @@ def generate_sensitivity_report(
     with open(output_path, "w", encoding="utf-8") as f:
         # Header
         f.write(f"# Parameter Sensitivity Analysis: {strategy_name}\n\n")
-        f.write(f"**Generated:** {datetime.utcnow().isoformat()}Z\n\n")
+        f.write(f"**Generated:** {datetime.now(UTC).isoformat().replace('+00:00', 'Z')}\n\n")
 
         # Executive Summary
         f.write("## Executive Summary\n\n")

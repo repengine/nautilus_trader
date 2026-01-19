@@ -23,9 +23,11 @@ from ml._imports import HAS_AUTOGLUON
 from ml._imports import HAS_PANDAS
 from ml._imports import TimeSeriesDataFrame
 from ml._imports import TimeSeriesPredictor
+from ml._imports import ag_space
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml.config.autogluon import AutoGluonDataConfig
+from ml.config.autogluon import ChronosFineTuneConfig
 from ml.config.autogluon import ChronosTrainingConfig
 from ml.data.autogluon_adapter import convert_to_timeseries_dataframe
 from ml.data.autogluon_adapter import convert_to_timeseries_pandas
@@ -53,10 +55,38 @@ def _fit_supports_arg(predictor: TimeSeriesPredictor, name: str) -> bool:
         return False
 
 
+def _chronos_model_key(preset: str) -> str:
+    return "Chronos2" if preset == "chronos2" else "Chronos"
+
+
+def _base_hyperparameters(preset: str, *, device: str | None = None) -> dict[str, dict[str, Any]]:
+    model_key = _chronos_model_key(preset)
+    model_path = "autogluon/chronos-2" if preset == "chronos2" else preset
+    payload: dict[str, Any] = {"model_path": model_path}
+    if device is not None:
+        payload["device"] = device
+    return {model_key: payload}
+
+
 def _cpu_hyperparameters(preset: str) -> dict[str, dict[str, Any]]:
-    if preset == "chronos2":
-        return {"Chronos2": {"model_path": "autogluon/chronos-2", "device": "cpu"}}
-    return {"Chronos": {"model_path": preset, "device": "cpu"}}
+    return _base_hyperparameters(preset, device="cpu")
+
+
+def _fine_tune_search_space(config: ChronosFineTuneConfig) -> dict[str, Any]:
+    if ag_space is None:
+        raise RuntimeError("AutoGluon search space module unavailable")
+    return {
+        "learning_rate": ag_space.Real(
+            float(config.learning_rate_bounds[0]),
+            float(config.learning_rate_bounds[1]),
+            log=True,
+        ),
+        "weight_decay": ag_space.Real(
+            float(config.weight_decay_bounds[0]),
+            float(config.weight_decay_bounds[1]),
+            log=True,
+        ),
+    }
 
 
 class ChronosTrainer:
@@ -191,6 +221,11 @@ class ChronosTrainer:
                 self._config.tuning_config.scheduler,
                 self._config.tuning_config.searcher,
             )
+        fine_tune_enabled = self._config.fine_tune or self._config.tuning_config is not None
+        if self._config.tuning_config is not None and not self._config.fine_tune:
+            logger.info("Auto-enabling fine_tune to supply tuning search spaces")
+        if fine_tune_enabled:
+            logger.info("Chronos fine_tune enabled (tuning=%s)", self._config.tuning_config is not None)
 
         # Prepare known covariates
         data_config = self._config.get_data_config()
@@ -234,8 +269,21 @@ class ChronosTrainer:
                 fit_kwargs["num_gpus"] = self._config.num_gpus
             else:
                 logger.info("AutoGluon fit() has no num_gpus argument; skipping GPU config")
-        else:
-            fit_kwargs.setdefault("hyperparameters", _cpu_hyperparameters(self._config.preset))
+        hyperparameters: dict[str, dict[str, Any]] | None = None
+        if fine_tune_enabled:
+            fine_tune_config = self._config.get_fine_tune_config() or ChronosFineTuneConfig()
+            hyperparameters = _base_hyperparameters(
+                self._config.preset,
+                device=None if use_gpu else "cpu",
+            )
+            model_key = next(iter(hyperparameters))
+            hyperparameters[model_key]["fine_tune"] = True
+            if self._config.tuning_config is not None:
+                hyperparameters[model_key].update(_fine_tune_search_space(fine_tune_config))
+        elif not use_gpu:
+            hyperparameters = _cpu_hyperparameters(self._config.preset)
+        if hyperparameters is not None:
+            fit_kwargs["hyperparameters"] = hyperparameters
 
         # Add any additional kwargs
         fit_kwargs.update(kwargs)

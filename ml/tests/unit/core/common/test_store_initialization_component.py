@@ -88,27 +88,31 @@ class TestHappyPath:
         """Verify PostgreSQL-backed store creation.
 
         Input: Valid connection, no fallback flags.
-        Expected Behavior: FeatureStore, ModelStore, StrategyStore initialized with connection.
+        Expected Behavior: FeatureStore, ModelStore, StrategyStore, EarningsStore initialized.
         """
         from ml.stores.feature_store import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
+        from ml.features.earnings.store import EarningsStore
 
         # Mock the store constructors to avoid real DB connections
         mock_feature_store = MagicMock(spec=FeatureStore)
         mock_model_store = MagicMock(spec=ModelStore)
         mock_strategy_store = MagicMock(spec=StrategyStore)
+        mock_earnings_store = MagicMock(spec=EarningsStore)
 
         # Patch at the module level where they are imported
         with patch("ml.stores.feature_store.FeatureStore", return_value=mock_feature_store), \
              patch("ml.stores.model_store.ModelStore", return_value=mock_model_store), \
-             patch("ml.stores.strategy_store.StrategyStore", return_value=mock_strategy_store):
+             patch("ml.stores.strategy_store.StrategyStore", return_value=mock_strategy_store), \
+             patch("ml.features.earnings.store.EarningsStore", return_value=mock_earnings_store):
 
             default_component.init_stores()
 
         assert default_component.feature_store is mock_feature_store
         assert default_component.model_store is mock_model_store
         assert default_component.strategy_store is mock_strategy_store
+        assert default_component.earnings_store is mock_earnings_store
         # DataStore is None in PostgreSQL mode (set in registries init)
         assert default_component.data_store is None
 
@@ -123,6 +127,7 @@ class TestHappyPath:
         Expected Behavior: FileFeatureStore, FileModelStore, FileStrategyStore, FileDataStore initialized.
         """
         from ml.stores.file_backed import FileDataStore
+        from ml.stores.file_backed import FileEarningsStore
         from ml.stores.file_backed import FileFeatureStore
         from ml.stores.file_backed import FileModelStore
         from ml.stores.file_backed import FileStrategyStore
@@ -133,6 +138,7 @@ class TestHappyPath:
         assert isinstance(file_fallback_component.model_store, FileModelStore)
         assert isinstance(file_fallback_component.strategy_store, FileStrategyStore)
         assert isinstance(file_fallback_component.data_store, FileDataStore)
+        assert isinstance(file_fallback_component.earnings_store, FileEarningsStore)
 
     def test_init_stores_creates_dummy_stores_when_json_fallback(
         self,
@@ -141,9 +147,10 @@ class TestHappyPath:
         """Verify dummy store creation.
 
         Input: json_fallback=True.
-        Expected Behavior: DummyStore instances for all stores.
+        Expected Behavior: DummyStore instances for all stores and DummyEarningsStore.
         """
         from ml.stores.base import DummyStore
+        from ml.features.earnings.store import DummyEarningsStore
 
         dummy_mode_component.init_stores()
 
@@ -151,6 +158,7 @@ class TestHappyPath:
         assert isinstance(dummy_mode_component.model_store, DummyStore)
         assert isinstance(dummy_mode_component.strategy_store, DummyStore)
         assert isinstance(dummy_mode_component.data_store, DummyStore)
+        assert isinstance(dummy_mode_component.earnings_store, DummyEarningsStore)
 
     def test_enable_file_fallback_creates_directory_and_returns_true(
         self,
@@ -179,10 +187,11 @@ class TestHappyPath:
         """Verify dummy mode creates all components.
 
         Input: Dummy mode requested.
-        Expected Behavior: 4 DummyStore + 4 DummyRegistry created.
+        Expected Behavior: 4 DummyStore + DummyEarningsStore + 4 DummyRegistry created.
         """
         from ml.registry.base import DummyRegistry
         from ml.stores.base import DummyStore
+        from ml.features.earnings.store import DummyEarningsStore
 
         component = StoreInitializationComponent(
             db_connection=None,
@@ -196,6 +205,7 @@ class TestHappyPath:
         assert isinstance(component.model_store, DummyStore)
         assert isinstance(component.strategy_store, DummyStore)
         assert isinstance(component.data_store, DummyStore)
+        assert isinstance(component.earnings_store, DummyEarningsStore)
 
         # Verify 4 registries are DummyRegistry
         assert isinstance(component.feature_registry, DummyRegistry)

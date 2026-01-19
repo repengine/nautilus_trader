@@ -22,7 +22,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ml.registry.data_registry import Watermark
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
@@ -34,6 +33,7 @@ from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
+from ml.registry.watermark import Watermark
 
 
 logger = logging.getLogger(__name__)

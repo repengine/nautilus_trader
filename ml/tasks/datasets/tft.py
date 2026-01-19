@@ -57,6 +57,9 @@ class TFTDatasetTaskConfig:
     chunk_days: int = 0
     start: datetime | None = None
     end: datetime | None = None
+    write_csv: bool | None = None
+    csv_max_rows: int = 1_000_000
+    csv_sample_rows: int = 0
     register_features: bool = False
     feature_registry_dir: Path | None = None
     feature_role: FeatureRoleName = "teacher"
@@ -112,6 +115,9 @@ def build_tft_dataset(
         start=cfg.start,
         end=cfg.end,
         chunk_days=cfg.chunk_days,
+        write_csv=cfg.write_csv,
+        csv_max_rows=cfg.csv_max_rows,
+        csv_sample_rows=cfg.csv_sample_rows,
         register_features=cfg.register_features,
         feature_registry_dir=cfg.feature_registry_dir,
         feature_role=cfg.feature_role,

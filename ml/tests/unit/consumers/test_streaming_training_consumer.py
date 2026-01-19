@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 
@@ -116,7 +117,7 @@ def _heartbeat_event(plan: DatasetPlanEvent) -> TrainingHeartbeatEvent:
         progress_pct=42.0,
         rss_mb=256.0,
         shards_processed=3,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
 
 

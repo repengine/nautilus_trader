@@ -7,10 +7,12 @@ import logging
 import warnings
 from datetime import date
 from datetime import datetime
+from types import ModuleType
 from typing import cast
 
+from ml._imports import HAS_EDGARTOOLS
 from ml._imports import check_ml_dependencies
-from ml._imports import edgartools
+from ml._imports import load_edgartools
 from ml.features.earnings.ingestion.edgar_fetcher import EarningsActual
 from ml.features.earnings.ingestion.edgar_fetcher import EdgarFetcher as _BaseEdgarFetcher
 
@@ -23,6 +25,18 @@ warnings.warn(
 )
 
 logger = logging.getLogger(__name__)
+edgartools: ModuleType | None = None
+
+
+def _resolve_edgartools() -> ModuleType | None:
+    """Return the edgartools module, loading it on demand."""
+    global edgartools
+    if edgartools is not None:
+        return edgartools
+    if not HAS_EDGARTOOLS:
+        return None
+    edgartools = load_edgartools()
+    return edgartools
 
 
 def _coerce_date(value: object | None) -> date | None:
@@ -60,7 +74,7 @@ class EdgarFetcher(_BaseEdgarFetcher):
         rate_limit_delay: float = 1.0,
         max_retries: int = 3,
     ) -> None:
-        if edgartools is None:
+        if not HAS_EDGARTOOLS:
             check_ml_dependencies(["edgartools"])
         self.rate_limit_delay = rate_limit_delay
         self.max_retries = max_retries
@@ -68,9 +82,10 @@ class EdgarFetcher(_BaseEdgarFetcher):
 
     def _fetch_company(self, ticker: str) -> object | None:
         try:
-            if edgartools is None:
+            tools = _resolve_edgartools()
+            if tools is None:
                 return None
-            return cast(object, edgartools.Company(ticker))
+            return cast(object, tools.Company(ticker))
         except Exception as exc:
             logger.debug("Failed to fetch company %s: %s", ticker, exc, exc_info=True)
             return None
