@@ -51,7 +51,7 @@ def main() -> int:
     print()
 
     # Check what already exists
-    vintage_dir = Path("data/fred/vintages")
+    vintage_dir = Path("data/features/macro/fred/vintages")
     existing = set()
     if vintage_dir.exists():
         existing = {d.name for d in vintage_dir.iterdir() if d.is_dir()}
@@ -115,7 +115,7 @@ def main() -> int:
         print()
         print("Next steps:")
         print("  1. Update config: vintage_policy = 'real_time'")
-        print("  2. Update config: fred_vintage_dir = 'data/fred/vintages'")
+        print("  2. Update config: fred_vintage_dir = 'data/features/macro/fred/vintages'")
         print("  3. Run: python -m ml.cli.pipeline_orchestrator --config <config> --stage dataset")
         print()
 

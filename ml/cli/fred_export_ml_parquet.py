@@ -20,8 +20,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--out",
         dest="out",
-        default="data/fred/fred_indicators_ml_format.parquet",
-        help="Output parquet path (default: data/fred/fred_indicators_ml_format.parquet)",
+        default="data/features/macro/fred_indicators_ml_format.parquet",
+        help="Output parquet path (default: data/features/macro/fred_indicators_ml_format.parquet)",
     )
     ap.add_argument(
         "--no-cache",

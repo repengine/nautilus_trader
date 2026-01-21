@@ -30,7 +30,7 @@ def convert_simple_to_ml_format() -> bool:
     print("=" * 40)
 
     # Check if updated data exists
-    updated_file = "data/fred/fred_indicators_updated.parquet"
+    updated_file = "data/features/macro/fred_indicators_updated.parquet"
     if not os.path.exists(updated_file):
         print(f"❌ Updated FRED data not found: {updated_file}")
         print("Run: python simple_fred_updater.py first")
@@ -73,12 +73,12 @@ def convert_simple_to_ml_format() -> bool:
     pl_df = pl.from_pandas(ml_df)
 
     # Save in ML-compatible format
-    ml_output_file = "data/fred/fred_indicators_ml_format.parquet"
+    ml_output_file = "data/features/macro/fred_indicators_ml_format.parquet"
     pl_df.write_parquet(ml_output_file)
     print(f"💾 Saved ML-compatible format: {ml_output_file}")
 
     # Update the original fred_indicators.parquet with recent data
-    original_file = "data/fred/fred_indicators.parquet"
+    original_file = "data/features/macro/fred_indicators.parquet"
     if os.path.exists(original_file):
         try:
             # Load original data
@@ -199,7 +199,7 @@ def test_ml_integration() -> bool:
         print("✅ ML imports successful")
 
         # Test loading our converted data
-        ml_file = "data/fred/fred_indicators_ml_format.parquet"
+        ml_file = "data/features/macro/fred_indicators_ml_format.parquet"
         if os.path.exists(ml_file):
             df = pl.read_parquet(ml_file)
             print(
@@ -285,7 +285,7 @@ def main() -> None:
     print("\nNext steps:")
     print("1. Use ML-format data in feature engineering:")
     print(
-        "   python -c \"import polars as pl; df=pl.read_parquet('data/fred/fred_indicators_ml_format.parquet'); print(df.head())\"",
+        "   python -c \"import polars as pl; df=pl.read_parquet('data/features/macro/fred_indicators_ml_format.parquet'); print(df.head())\"",
     )
     print("2. Integrate with TFT training pipeline")
     print("3. Set up automatic daily updates with cron")

@@ -1370,6 +1370,7 @@ class IngestionCoordinator:
                 ),
                 max_age=timedelta(hours=self._macro_config.max_staleness_hours),
                 series_ids=effective_series,
+                watermark_config=self._macro_config.watermark_config,
             )
 
             # Log result
@@ -1462,6 +1463,7 @@ class IngestionCoordinator:
                 edgar_rate_limit=self._earnings_config.edgar_rate_limit,
                 yahoo_rate_limit=self._earnings_config.yahoo_rate_limit,
                 sec_identity=self._earnings_config.sec_identity,
+                watermark_config=self._earnings_config.watermark_config,
             )
 
             # DataStore implements the writer protocol expected by EarningsIngestionService

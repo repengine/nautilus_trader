@@ -159,6 +159,7 @@ def data_writer(
     """DataWriterComponent with mocked dependencies."""
     return DataWriterComponent(
         feature_store=mock_feature_store,
+        feature_dataset_store=None,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
         earnings_store=mock_earnings_store,

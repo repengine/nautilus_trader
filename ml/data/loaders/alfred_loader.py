@@ -88,7 +88,7 @@ class ALFREDConfig:
     """
 
     series_ids: tuple[str, ...] = field(default_factory=tuple)
-    out_dir: Path = Path("data/fred/vintages")
+    out_dir: Path = Path("data/features/macro/fred/vintages")
     start_date: str | None = None
     end_date: str | None = None
     api_key: str | None = None

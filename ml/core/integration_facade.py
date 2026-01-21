@@ -66,6 +66,7 @@ from ml.registry.persistence import PersistenceConfig
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.utils import get_default_registry_path
 from ml.stores.base import DummyStore
+from ml.stores.feature_dataset_store import FeatureDatasetStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileFeatureStore
@@ -599,6 +600,7 @@ class MLIntegrationManagerFacade:
         if not is_fallback:
             data_store = self._registry_init.create_data_store(
                 feature_store=cast(FeatureStoreProtocol | None, self._store_init.feature_store),
+                feature_dataset_store=self._store_init.feature_dataset_store,
                 model_store=cast(ModelStoreProtocol | None, self._store_init.model_store),
                 strategy_store=cast(StrategyStoreProtocol | None, self._store_init.strategy_store),
                 earnings_store=cast(EarningsStoreProtocol | None, self._store_init.earnings_store),
@@ -755,11 +757,11 @@ class MLIntegrationManagerFacade:
         >>> cfg = EventIngestionConfig(
         ...     start=datetime(2024, 1, 1, tzinfo=UTC),
         ...     end=datetime(2024, 1, 31, tzinfo=UTC),
-        ...     out_dir=Path("./data/events"),
+        ...     out_dir=Path("./data/features/events"),
         ... )
         >>> integration = MLIntegrationManagerFacade(ensure_healthy=False)
         >>> integration.ingest_events(cfg)
-        PosixPath('data/events/events.parquet')
+        PosixPath('data/features/events/events.parquet')
 
         """
         data_store = getattr(self, "data_store", None)
@@ -1762,6 +1764,7 @@ def create_data_store(
     registry: DataRegistry,
     connection_string: str,
     feature_store: FeatureStoreProtocol | None = None,
+    feature_dataset_store: FeatureDatasetStore | None = None,
     model_store: ModelStoreProtocol | None = None,
     strategy_store: StrategyStoreProtocol | None = None,
     earnings_store: EarningsStoreProtocol | None = None,
@@ -1783,6 +1786,7 @@ def create_data_store(
             connection_string=connection_string,
             registry=registry,
             feature_store=cast(FeatureStore | None, feature_store),
+            feature_dataset_store=feature_dataset_store,
             model_store=cast(ModelStore | None, model_store),
             strategy_store=cast(StrategyStore | None, strategy_store),
             earnings_store=cast(EarningsStore | None, earnings_store),

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from datetime import datetime
@@ -21,9 +22,12 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_EDGARTOOLS
+from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import load_edgartools
+from ml._imports import pd as pd_runtime
 from ml.common.metrics_manager import MetricsManager
+from ml.common.retry_utils import retry_with_backoff
 from ml.features.earnings.ingestion.xbrl_parser import XBRLParser
 
 
@@ -39,6 +43,28 @@ _metrics_init = False
 _fetches_total = None
 _fetch_latency_seconds = None
 _parse_errors_total = None
+
+
+def _coerce_date(value: object) -> date | None:
+    """Coerce a date-like value into a ``date``."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return datetime.strptime(text, "%Y-%m-%d").date()
+        except ValueError:
+            try:
+                return datetime.fromisoformat(text).date()
+            except ValueError:
+                return None
+    return None
 
 
 def _init_module_metrics() -> None:
@@ -194,9 +220,6 @@ class EdgarFetcher:
         start = time.perf_counter()
 
         try:
-            # Rate limiting
-            self._apply_rate_limit()
-
             # Fetch company and filings
             company = self._fetch_company(ticker)
             if company is None:
@@ -251,15 +274,36 @@ class EdgarFetcher:
 
     def _fetch_company(self, ticker: str) -> Any | None:
         """Fetch company object from EDGAR."""
-        try:
-            # Use edgartools to get company
+        def _fetch_once() -> Any | None:
+            self._apply_rate_limit()
             tools = _resolve_edgartools()
             if tools is None:
                 return None
-            company = tools.Company(ticker)
-            return company
-        except Exception as e:
-            logger.debug("Failed to fetch company %s: %s", ticker, e, exc_info=True)
+            return tools.Company(ticker)
+
+        def _on_exc(attempt: int, exc: BaseException) -> None:
+            logger.warning(
+                "EDGAR company fetch retry %d/%d for %s: %s",
+                attempt + 1,
+                self.max_retries,
+                ticker,
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            return retry_with_backoff(
+                _fetch_once,
+                max_attempts=int(self.max_retries),
+                initial_delay=float(self.rate_limit_delay),
+                multiplier=2.0,
+                max_delay=60.0,
+                jitter=0.0,
+                sleep_fn=time.sleep,
+                on_exception=_on_exc,
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch company %s: %s", ticker, exc, exc_info=True)
             return None
 
     def _fetch_filings(
@@ -269,12 +313,37 @@ class EdgarFetcher:
         quarters: int,
     ) -> list[Any]:
         """Fetch filings from company object."""
-        try:
-            # Get recent filings
+        def _fetch_once() -> list[Any]:
+            self._apply_rate_limit()
             filings = company.get_filings(form=form).latest(quarters)
-            return list(filings) if filings else []
-        except Exception as e:
-            logger.debug("Failed to fetch filings: %s", e)
+            if not filings:
+                return []
+            if isinstance(filings, Iterable) and not isinstance(filings, (str, bytes)):
+                return list(filings)
+            return [filings]
+
+        def _on_exc(attempt: int, exc: BaseException) -> None:
+            logger.warning(
+                "EDGAR filings fetch retry %d/%d: %s",
+                attempt + 1,
+                self.max_retries,
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            return retry_with_backoff(
+                _fetch_once,
+                max_attempts=int(self.max_retries),
+                initial_delay=float(self.rate_limit_delay),
+                multiplier=2.0,
+                max_delay=60.0,
+                jitter=0.0,
+                sleep_fn=time.sleep,
+                on_exception=_on_exc,
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch filings: %s", exc, exc_info=True)
             return []
 
     def _parse_filing(
@@ -288,7 +357,10 @@ class EdgarFetcher:
             # Extract XBRL facts
             facts = self._extract_xbrl_facts(filing)
             if not facts:
-                logger.debug("No XBRL facts found in filing")
+                logger.debug(
+                    "No XBRL facts found in filing",
+                    extra={"ticker": ticker, "form": form},
+                )
                 return None
 
             # Parse using XBRLParser
@@ -304,7 +376,24 @@ class EdgarFetcher:
             fiscal_year, fiscal_quarter = self._extract_fiscal_period(filing)
 
             if period_end is None or filing_date is None:
-                logger.debug("Missing required dates in filing")
+                logger.debug(
+                    "Missing required dates in filing",
+                    extra={
+                        "ticker": ticker,
+                        "form": form,
+                        "period_end": period_end,
+                        "filing_date": filing_date,
+                    },
+                )
+                return None
+            if all(
+                metric is None
+                for metric in (eps_diluted, eps_basic, revenue, net_income, shares)
+            ):
+                logger.debug(
+                    "No usable metrics in filing",
+                    extra={"ticker": ticker, "form": form},
+                )
                 return None
 
             return EarningsActual(
@@ -336,26 +425,83 @@ class EdgarFetcher:
 
             # Convert to dict
             facts = xbrl.facts if hasattr(xbrl, "facts") else {}
-            return facts if isinstance(facts, dict) else {}
+            if isinstance(facts, dict):
+                return facts
+            if hasattr(facts, "get_facts_by_concept"):
+                return self._extract_facts_view(facts)
+            return {}
 
         except Exception as e:
             logger.debug("Failed to extract XBRL: %s", e)
             return {}
+
+    def _extract_facts_view(self, facts_view: Any) -> dict[str, Any]:
+        """Extract a tag -> value mapping from a FactsView-like object."""
+        if not HAS_PANDAS or pd_runtime is None:
+            check_ml_dependencies(["pandas"])
+        assert pd_runtime is not None
+        pd_local = pd_runtime
+        tags = [
+            "us-gaap:EarningsPerShareDiluted",
+            "us-gaap:EarningsPerShareBasic",
+            "us-gaap:Revenues",
+            "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "us-gaap:SalesRevenueNet",
+            "us-gaap:SalesRevenueGoodsNet",
+            "us-gaap:NetIncomeLoss",
+            "us-gaap:ProfitLoss",
+            "us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic",
+            "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding",
+            "us-gaap:WeightedAverageNumberOfSharesOutstandingBasic",
+        ]
+        values: dict[str, Any] = {}
+        for tag in tags:
+            try:
+                frame = facts_view.get_facts_by_concept(tag)
+            except Exception:
+                continue
+            if frame is None or getattr(frame, "empty", True):
+                continue
+            series = None
+            if "numeric_value" in frame.columns:
+                series = frame["numeric_value"]
+            elif "value" in frame.columns:
+                series = frame["value"]
+            if series is None:
+                continue
+            if "period_end" in frame.columns:
+                frame = frame.copy()
+                frame["period_end"] = pd_local.to_datetime(
+                    frame["period_end"],
+                    errors="coerce",
+                )
+                frame = frame.sort_values("period_end")
+                series = frame["numeric_value"] if "numeric_value" in frame.columns else frame["value"]
+            series = series.dropna()
+            if series.empty:
+                continue
+            values[tag] = series.iloc[-1]
+        return values
 
     def _extract_period_end(self, filing: Any) -> date | None:
         """Extract period end date from filing."""
         try:
             # Try to get period of report
             if hasattr(filing, "period_of_report"):
-                period_str = filing.period_of_report
-                if period_str:
-                    return datetime.strptime(period_str, "%Y-%m-%d").date()
+                parsed = _coerce_date(filing.period_of_report)
+                if parsed is not None:
+                    return parsed
+
+            if hasattr(filing, "report_date"):
+                parsed = _coerce_date(filing.report_date)
+                if parsed is not None:
+                    return parsed
 
             # Fallback: try filing date
             if hasattr(filing, "filing_date"):
-                filing_date_str = filing.filing_date
-                if filing_date_str:
-                    return datetime.strptime(filing_date_str, "%Y-%m-%d").date()
+                parsed = _coerce_date(filing.filing_date)
+                if parsed is not None:
+                    return parsed
 
             return None
 
@@ -367,9 +513,13 @@ class EdgarFetcher:
         """Extract filing date from filing."""
         try:
             if hasattr(filing, "filing_date"):
-                filing_date_str = filing.filing_date
-                if filing_date_str:
-                    return datetime.strptime(filing_date_str, "%Y-%m-%d").date()
+                parsed = _coerce_date(filing.filing_date)
+                if parsed is not None:
+                    return parsed
+            if hasattr(filing, "acceptance_datetime"):
+                parsed = _coerce_date(filing.acceptance_datetime)
+                if parsed is not None:
+                    return parsed
             return None
 
         except Exception as e:
@@ -384,7 +534,14 @@ class EdgarFetcher:
             fiscal_quarter = 0
 
             if hasattr(filing, "fiscal_year_end"):
-                fiscal_year = int(filing.fiscal_year_end) if filing.fiscal_year_end else 0
+                fiscal_year_raw = filing.fiscal_year_end
+                if fiscal_year_raw:
+                    try:
+                        candidate = int(fiscal_year_raw)
+                        if 1900 <= candidate <= 2100:
+                            fiscal_year = candidate
+                    except (TypeError, ValueError):
+                        fiscal_year = 0
 
             if hasattr(filing, "fiscal_period"):
                 period = filing.fiscal_period
@@ -393,7 +550,15 @@ class EdgarFetcher:
                 elif period == "FY":
                     fiscal_quarter = 4  # Full year = Q4
 
-            return fiscal_year, fiscal_quarter
+            if fiscal_year > 0 and fiscal_quarter > 0:
+                return fiscal_year, fiscal_quarter
+
+            fallback_date = self._extract_period_end(filing) or self._extract_filing_date(filing)
+            if fallback_date is None:
+                return 0, 0
+            inferred_year = fallback_date.year
+            inferred_quarter = ((fallback_date.month - 1) // 3) + 1
+            return inferred_year, inferred_quarter
 
         except Exception as e:
             logger.debug("Failed to extract fiscal period: %s", e)

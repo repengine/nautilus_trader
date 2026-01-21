@@ -22,6 +22,7 @@ from ml._imports import HAS_YFINANCE
 from ml._imports import check_ml_dependencies
 from ml._imports import yfinance
 from ml.common.metrics_manager import MetricsManager
+from ml.common.retry_utils import retry_with_backoff
 
 
 if TYPE_CHECKING:
@@ -153,9 +154,6 @@ class YahooFetcher:
         start = time.perf_counter()
 
         try:
-            # Rate limiting
-            self._apply_rate_limit()
-
             # Fetch ticker data
             stock = self._fetch_ticker(ticker)
             if stock is None:
@@ -204,6 +202,48 @@ class YahooFetcher:
                 ).inc()
             return None
 
+    def fetch_estimates(self, ticker: str) -> list[EarningsConsensus]:
+        """
+        Fetch available earnings estimates for a ticker.
+
+        Returns historical and upcoming estimates when available.
+        """
+        start = time.perf_counter()
+
+        try:
+            stock = self._fetch_ticker(ticker)
+            if stock is None:
+                logger.warning("Ticker not found: %s", ticker)
+                return []
+
+            estimates = self._extract_estimates(stock, ticker)
+
+            if _fetch_latency_seconds:
+                latency = time.perf_counter() - start
+                _fetch_latency_seconds.labels(ticker=ticker).observe(latency)
+
+            if _fetches_total:
+                _fetches_total.labels(
+                    ticker=ticker,
+                    data_type="estimates",
+                ).inc()
+
+            return estimates
+
+        except Exception as e:
+            logger.error(
+                "Failed to fetch estimates for %s: %s",
+                ticker,
+                e,
+                exc_info=True,
+            )
+            if _fetch_errors_total:
+                _fetch_errors_total.labels(
+                    ticker=ticker,
+                    error_type=type(e).__name__,
+                ).inc()
+            return []
+
     def _apply_rate_limit(self) -> None:
         """Apply rate limiting between requests."""
         elapsed = time.perf_counter() - self.last_request_time
@@ -213,14 +253,36 @@ class YahooFetcher:
 
     def _fetch_ticker(self, ticker: str) -> Any | None:
         """Fetch ticker object from yfinance."""
-        try:
+        def _fetch_once() -> Any | None:
+            self._apply_rate_limit()
             yf = _get_yfinance()
             if yf is None:
                 return None
-            stock = yf.Ticker(ticker)
-            return stock
-        except Exception as e:
-            logger.debug("Failed to fetch ticker %s: %s", ticker, e)
+            return yf.Ticker(ticker)
+
+        def _on_exc(attempt: int, exc: BaseException) -> None:
+            logger.warning(
+                "Yahoo ticker fetch retry %d/%d for %s: %s",
+                attempt + 1,
+                self.max_retries,
+                ticker,
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            return retry_with_backoff(
+                _fetch_once,
+                max_attempts=int(self.max_retries),
+                initial_delay=float(self.rate_limit_delay),
+                multiplier=2.0,
+                max_delay=30.0,
+                jitter=0.0,
+                sleep_fn=time.sleep,
+                on_exception=_on_exc,
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch ticker %s: %s", ticker, exc, exc_info=True)
             return None
 
     def _extract_earnings_date(self, stock: Any) -> datetime | None:
@@ -280,6 +342,45 @@ class YahooFetcher:
         except Exception as e:
             logger.debug("Failed to extract EPS estimate: %s", e)
             return None
+
+    def _extract_estimates(self, stock: Any, ticker: str) -> list[EarningsConsensus]:
+        """Extract multiple EPS estimates from earnings_dates."""
+        try:
+            if not hasattr(stock, "earnings_dates"):
+                return []
+            earnings_dates = stock.earnings_dates
+            if earnings_dates is None or len(earnings_dates) == 0:
+                return []
+
+            num_analysts = self._extract_num_analysts(stock)
+            results: list[EarningsConsensus] = []
+            for earnings_date, row in earnings_dates.iterrows():
+                eps_estimate = row.get("EPS Estimate") if hasattr(row, "get") else None
+                if eps_estimate is None or str(eps_estimate) == "nan":
+                    continue
+                if isinstance(earnings_date, datetime):
+                    estimate_date = earnings_date
+                else:
+                    try:
+                        estimate_date = datetime.fromisoformat(str(earnings_date))
+                    except ValueError:
+                        continue
+                results.append(
+                    EarningsConsensus(
+                        ticker=ticker,
+                        next_earnings_date=estimate_date,
+                        eps_estimate=float(eps_estimate),
+                        revenue_estimate=None,
+                        num_analysts=num_analysts,
+                        estimate_date=estimate_date,
+                    ),
+                )
+
+            return results
+
+        except Exception as e:
+            logger.debug("Failed to extract estimates: %s", e)
+            return []
 
     def _extract_revenue_estimate(self, stock: Any) -> float | None:
         """Extract revenue consensus estimate from ticker."""

@@ -31,8 +31,8 @@ include_micro = false
 macro_lag_days = 1
 auto_refresh_macro = true
 macro_staleness_hours = 24
-macro_fred_path = "data/fred/fred_indicators_ml_format.parquet"
-fred_vintage_dir = "data/fred/vintages"
+macro_fred_path = "data/features/macro/fred_indicators_ml_format.parquet"
+fred_vintage_dir = "data/features/macro/fred/vintages"
 
 # ============================================================================
 # REVISION FEATURES (NEW!)

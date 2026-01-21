@@ -68,6 +68,7 @@ from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
 from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
+from ml.config.edgar_smoke import EdgarSmokeTestConfig
 
 # Event and message constants
 from ml.config.events import EventStatus
@@ -78,6 +79,7 @@ from ml.config.events import Stage as EventStage
 # SPECIALIZED CONFIGURATIONS
 # =============================================================================
 # Registry and storage
+from ml.config.feature_store_mirror import FeatureStoreMirrorBackfillConfig
 from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
 
 # Framework-specific training
@@ -101,6 +103,9 @@ from ml.config.playground import ThreeDRiskBacktestDefaults
 from ml.config.registry import ModelRegistryConfig
 from ml.config.registry import RegistryPolicyConfig
 from ml.config.replay import LiveReplayConfig
+from ml.config.replay_harness import ActorReplayConfig
+from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
+from ml.config.replay_harness import StrategyReplayConfig
 
 # Runtime and inference
 from ml.config.runtime import OnnxRuntimeConfig
@@ -109,6 +114,7 @@ from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.config.scheduler_config import UniverseConfig
+from ml.config.sec_identity import SecIdentityConfig
 
 # =============================================================================
 # TRAINING CONFIGURATIONS
@@ -216,16 +222,19 @@ __all__ = [
     "MACRO_OBSERVATIONS_DATASET_ID",
     "MACRO_RELEASES_DATASET_ID",
     "MICRO_MINUTE_DATASET_ID",
+    "ActorReplayConfig",
     "AdvancedTrainingConfig",
     "BaseGPUConfig",
     "CanaryDeploymentConfig",
     "CircuitBreakerConfig",
     "DatabentoConfig",
     "DatasetServiceConfig",
+    "EdgarSmokeTestConfig",
     "EventSource",
     "EventStage",
     "EventStatus",
     "FeatureColumns",
+    "FeatureStoreMirrorBackfillConfig",
     "FeatureStoreMirrorConfig",
     "IndicatorNames",
     "LightGBMGPUConfig",
@@ -250,9 +259,12 @@ __all__ = [
     "OnnxRuntimeConfig",
     "OptimizationConfig",
     "OptunaConfig",
+    "ParquetLiveReplayHarnessConfig",
     "RegistryPolicyConfig",
     "SchedulerConfig",
+    "SecIdentityConfig",
     "StrategyConfig",
+    "StrategyReplayConfig",
     "StreamingGlobalRunConfig",
     "StreamingPersistenceConfig",
     "StreamingWorkerConfig",

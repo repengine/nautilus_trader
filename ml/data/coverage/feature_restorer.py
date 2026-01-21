@@ -824,6 +824,7 @@ class FeatureCoverageRestorer:
         try:
             data_store = registry_init.create_data_store(
                 feature_store=cast(FeatureStoreProtocol, store_init.feature_store),
+                feature_dataset_store=store_init.feature_dataset_store,
                 model_store=cast(ModelStoreProtocol, store_init.model_store),
                 strategy_store=cast(StrategyStoreProtocol, store_init.strategy_store),
                 earnings_store=cast(EarningsStoreProtocol, store_init.earnings_store),

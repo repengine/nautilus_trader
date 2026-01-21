@@ -133,12 +133,19 @@ class LifecycleComponent:
         Minimum confidence threshold for logging.
     execute_trades : bool, default True
         Whether trades are being executed (vs dry run mode).
+    subscribe_quote_ticks : bool, default False
+        Whether to subscribe to quote ticks for execution market state.
+    quote_schema : str | None, optional
+        Optional quote schema parameter passed to data client subscriptions.
     subscribe_data_callback : Callable | None, optional
         Callback function to subscribe to data. Expected signature:
         `subscribe_data(data_type, client_id=None)`.
     subscribe_instrument_callback : Callable | None, optional
         Callback function to subscribe to instrument. Expected signature:
         `subscribe_instrument(instrument_id)`.
+    subscribe_quote_ticks_callback : Callable | None, optional
+        Callback function to subscribe to quote ticks. Expected signature:
+        `subscribe_quote_ticks(instrument_id, params=None)`.
     log : LoggerProtocol | None, optional
         Logger instance for output.
 
@@ -167,8 +174,11 @@ class LifecycleComponent:
         position_size_pct: float = 0.02,
         min_confidence: float = 0.0,
         execute_trades: bool = True,
+        subscribe_quote_ticks: bool = False,
+        quote_schema: str | None = None,
         subscribe_data_callback: Callable[..., None] | None = None,
         subscribe_instrument_callback: Callable[..., None] | None = None,
+        subscribe_quote_ticks_callback: Callable[..., None] | None = None,
         log: Any = None,
     ) -> None:
         """
@@ -183,8 +193,11 @@ class LifecycleComponent:
         self._position_size_pct = position_size_pct
         self._min_confidence = min_confidence
         self._execute_trades = execute_trades
+        self._subscribe_quote_ticks = subscribe_quote_ticks
+        self._quote_schema = quote_schema
         self._subscribe_data_callback = subscribe_data_callback
         self._subscribe_instrument_callback = subscribe_instrument_callback
+        self._subscribe_quote_ticks_callback = subscribe_quote_ticks_callback
         self._log = log if log is not None else _NoOpLogger()
 
     # -------------------------------------------------------------------------
@@ -268,6 +281,9 @@ class LifecycleComponent:
 
         # Subscribe to instrument for market data
         self._subscribe_to_instrument()
+
+        # Subscribe to quote ticks for execution
+        self._subscribe_to_quote_ticks()
 
         # Log configuration
         self._log_configuration()
@@ -440,6 +456,31 @@ class LifecycleComponent:
         except Exception as exc:
             self._log.error(
                 "ml_strategy.subscribe_instrument_failed "
+                f"strategy_id={self._strategy_id} "
+                f"instrument_id={self._instrument_id} error={exc!r}",
+                exc_info=True,
+            )
+
+    def _subscribe_to_quote_ticks(self) -> None:
+        """
+        Subscribe to quote ticks using the configured callback.
+        """
+        if not self._subscribe_quote_ticks:
+            return
+
+        if self._subscribe_quote_ticks_callback is None:
+            self._log.warning(
+                "ml_strategy.subscribe_quote_ticks_callback_not_configured "
+                f"strategy_id={self._strategy_id}",
+            )
+            return
+
+        params = {"schema": self._quote_schema} if self._quote_schema else None
+        try:
+            self._subscribe_quote_ticks_callback(self._instrument_id, params=params)
+        except Exception as exc:
+            self._log.error(
+                "ml_strategy.subscribe_quote_ticks_failed "
                 f"strategy_id={self._strategy_id} "
                 f"instrument_id={self._instrument_id} error={exc!r}",
                 exc_info=True,

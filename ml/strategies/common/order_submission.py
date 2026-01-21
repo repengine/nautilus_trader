@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import VenueOrderId
 
+from ml.common.metrics_bootstrap import get_counter
 from ml.config.events import Source
 from ml.strategies.common.decision_persistence import _NoOpLogger
 from ml.strategies.common.decision_persistence import _SafeLogger
@@ -42,6 +43,13 @@ if TYPE_CHECKING:
 
 
 _UNSET: object = object()
+
+
+quote_tick_stale_total = get_counter(
+    "ml_strategy_quote_tick_stale_total",
+    "Total stale quote ticks encountered during order submission",
+    labels=["strategy_id"],
+)
 
 
 def resolve_order_intent_path(order_intent_path: str | None) -> Path | None:
@@ -327,6 +335,8 @@ class OrderSubmissionComponent:
         Trader ID for order creation.
     clock : Any, optional
         Clock for timestamp generation.
+    max_quote_age_ms : int | None, optional
+        Maximum quote age in milliseconds allowed for execution market state.
     orders_submitted_metric : Any, optional
         Prometheus metric for orders submitted counter.
 
@@ -359,6 +369,7 @@ class OrderSubmissionComponent:
         instrument_id: Any = None,
         trader_id: Any = None,
         clock: Any = None,
+        max_quote_age_ms: int | None = None,
         orders_submitted_metric: Any = None,
     ) -> None:
         """
@@ -374,6 +385,17 @@ class OrderSubmissionComponent:
         self._instrument_id = instrument_id
         self._trader_id = trader_id
         self._clock = clock
+        if max_quote_age_ms is None:
+            self._max_quote_age_ns = None
+        elif max_quote_age_ms < 0:
+            self._log.debug(
+                "ml_strategy.max_quote_age_invalid",
+                strategy_id=self._strategy_id,
+                error=str(max_quote_age_ms),
+            )
+            self._max_quote_age_ns = None
+        else:
+            self._max_quote_age_ns = int(max_quote_age_ms) * 1_000_000
         self._orders_submitted_metric = orders_submitted_metric
 
         # Internal state
@@ -724,7 +746,17 @@ class OrderSubmissionComponent:
         if self._order_executor is not None and self._cache is not None:
             try:
                 # Build market state snapshot (lightweight)
-                market_state = self._build_market_state(signal.instrument_id)
+                market_state, is_stale = self._build_market_state(
+                    signal.instrument_id,
+                    reference_ts=signal.ts_event,
+                )
+                if is_stale:
+                    return self.place_market_order(
+                        instrument_id=signal.instrument_id,
+                        side=side,
+                        quantity=quantity,
+                        reduce_only=reduce_only,
+                    )
 
                 trader_id, strategy_id = self._resolve_ids()
                 if trader_id is None or strategy_id is None:
@@ -969,7 +1001,9 @@ class OrderSubmissionComponent:
     def _build_market_state(
         self,
         instrument_id: InstrumentId,
-    ) -> dict[str, float]:
+        *,
+        reference_ts: int | None = None,
+    ) -> tuple[dict[str, float], bool]:
         """
         Build market state snapshot for smart order execution.
 
@@ -977,20 +1011,52 @@ class OrderSubmissionComponent:
         ----------
         instrument_id : InstrumentId
             The instrument to get market state for.
+        reference_ts : int | None, optional
+            Reference timestamp to evaluate quote staleness.
 
         Returns
         -------
-        dict[str, float]
-            Market state with bid, ask, and spread_bps.
+        tuple[dict[str, float], bool]
+            Market state with bid, ask, spread_bps, and a staleness flag.
 
         """
         bid = ask = 0.0
         spread_bps = 0.0
+        is_stale = False
 
         if self._cache is not None:
             try:
                 qt = self._cache.quote_tick(instrument_id)
                 if qt is not None:
+                    if self._max_quote_age_ns is not None and reference_ts is not None:
+                        quote_age_ns = reference_ts - int(qt.ts_event)
+                        if quote_age_ns > self._max_quote_age_ns:
+                            self._log.debug(
+                                "ml_strategy.quote_tick_stale",
+                                strategy_id=self._strategy_id,
+                                instrument_id=str(instrument_id),
+                                quote_ts_event=int(qt.ts_event),
+                                reference_ts=reference_ts,
+                                max_quote_age_ns=self._max_quote_age_ns,
+                            )
+                            try:
+                                quote_tick_stale_total.labels(
+                                    strategy_id=str(self._strategy_id),
+                                ).inc()
+                            except Exception as exc:
+                                self._log.debug(
+                                    "ml_strategy.quote_tick_stale_metric_failed",
+                                    strategy_id=self._strategy_id,
+                                    exc_info=True,
+                                    error=str(exc),
+                                )
+                            is_stale = True
+                            return {
+                                "bid": 0.0,
+                                "ask": 0.0,
+                                "spread_bps": 0.0,
+                            }, is_stale
+
                     bid = float(qt.bid_price.as_double())
                     ask = float(qt.ask_price.as_double())
                     mid = (bid + ask) / 2.0 if (bid > 0 and ask > 0) else 0.0
@@ -1009,7 +1075,7 @@ class OrderSubmissionComponent:
             "bid": bid,
             "ask": ask,
             "spread_bps": spread_bps,
-        }
+        }, is_stale
 
     def _publish_degraded_event(
         self,

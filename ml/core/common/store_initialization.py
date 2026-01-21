@@ -33,9 +33,13 @@ import os
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ml.common.metrics_bootstrap import get_counter
+
+
+if TYPE_CHECKING:
+    from ml.stores.feature_dataset_store import FeatureDatasetStore
 
 
 logger = logging.getLogger(__name__)
@@ -98,6 +102,8 @@ class StoreInitializationComponent:
         Initialized DataStore (set in registries init, or via set_data_store).
     earnings_store : object | None
         Initialized EarningsStore (PostgreSQL, File, or Dummy).
+    feature_dataset_store : FeatureDatasetStore | None
+        Initialized FeatureDatasetStore (PostgreSQL only).
 
     Example
     -------
@@ -125,6 +131,7 @@ class StoreInitializationComponent:
 
     # Stores (initialized during init_stores)
     feature_store: object = field(default=None, init=False)
+    feature_dataset_store: FeatureDatasetStore | None = field(default=None, init=False)
     model_store: object = field(default=None, init=False)
     strategy_store: object = field(default=None, init=False)
     data_store: object | None = field(default=None, init=False)
@@ -192,6 +199,7 @@ class StoreInitializationComponent:
 
         # Stores
         self.feature_store = DummyStore()
+        self.feature_dataset_store = None
         self.model_store = DummyStore()
         self.strategy_store = DummyStore()
         self.data_store = DummyStore()
@@ -246,6 +254,7 @@ class StoreInitializationComponent:
 
         file_root = self.file_store_path
         self.feature_store = FileFeatureStore(base_path=file_root / "features")
+        self.feature_dataset_store = None
         self.model_store = FileModelStore(base_path=file_root / "models")
         self.strategy_store = FileStrategyStore(base_path=file_root / "strategies")
 
@@ -297,6 +306,7 @@ class StoreInitializationComponent:
         """Initialize PostgreSQL-backed stores."""
         from ml.registry.persistence import BackendType
         from ml.registry.persistence import PersistenceConfig
+        from ml.stores.feature_dataset_store import FeatureDatasetStore
         from ml.stores.feature_store import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
@@ -318,6 +328,16 @@ class StoreInitializationComponent:
             batch_size=1000,
             enable_batching=True,
         )
+        try:
+            self.feature_dataset_store = FeatureDatasetStore(
+                connection_string=self.db_connection,
+            )
+        except Exception:
+            logger.warning(
+                "FeatureDatasetStore initialization failed; continuing without SQL feature datasets",
+                exc_info=True,
+            )
+            self.feature_dataset_store = None
 
         self.model_store = ModelStore(
             persistence_config=persistence_config,
@@ -400,6 +420,7 @@ class StoreInitializationComponent:
         """
         stores = [
             ("feature_store", self.feature_store),
+            ("feature_dataset_store", self.feature_dataset_store),
             ("model_store", self.model_store),
             ("strategy_store", self.strategy_store),
             ("data_store", self.data_store),
@@ -436,6 +457,7 @@ class StoreInitializationComponent:
 
         stores = [
             ("feature_store", self.feature_store),
+            ("feature_dataset_store", self.feature_dataset_store),
             ("model_store", self.model_store),
             ("strategy_store", self.strategy_store),
             ("data_store", self.data_store),

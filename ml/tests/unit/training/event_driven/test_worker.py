@@ -198,6 +198,25 @@ def _teacher_factory(_plan: DatasetPlanEvent, cfg: TFTStreamingConfig) -> _Deter
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_worker_rss_guard_reduces_num_workers(tmp_path: Path, monkeypatch: Any) -> None:
+    worker_config = StreamingWorkerConfig(
+        rss_guard_threshold_mb=1.0,
+        rss_guard_max_workers=0,
+    )
+    worker = LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    streaming_cfg = replace(_build_streaming_config(), num_workers=4)
+    monkeypatch.setattr("ml.training.event_driven.worker.current_rss_mb", lambda: 10.0)
+
+    capped = worker._apply_worker_caps(streaming_cfg)
+
+    assert capped.num_workers == 0
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
 def test_lightning_worker_retries_and_succeeds(tmp_path: Path, monkeypatch: Any, caplog: pytest.LogCaptureFixture) -> None:
     planner, request = _planner_and_request(tmp_path)
     plan = planner.plan(request)
@@ -470,6 +489,68 @@ def test_worker_loads_validation_returns_from_parquet(tmp_path: Path) -> None:
     np.testing.assert_allclose(
         enriched.val_returns,
         np.array([0.01, -0.02], dtype=np.float64),
+    )
+    diag = getattr(worker, "_validation_returns_telemetry")
+    assert diag is not None
+    assert diag.fallback_join is False
+    assert diag.mismatch_count == 0
+    assert diag.missing_count == 0
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars dependency required for forward returns")
+def test_worker_loads_validation_returns_from_parquet_in_chunks(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset_forward_chunked.parquet"
+    pl.DataFrame(
+        {
+            "instrument_id": ["IWM", "IWM", "QQQ", "QQQ"],
+            "time_index": [0, 1, 0, 1],
+            "forward_return": [0.01, -0.02, 0.05, 0.03],
+            "y": [1.0, 0.0, 1.0, 0.0],
+        },
+    ).write_parquet(dataset_path)
+
+    val_rows = StreamingRowMetadata(
+        row_ids=np.array(["IWM::0", "IWM::1", "QQQ::0", "QQQ::1"], dtype=np.str_),
+        instrument_ids=np.array(["IWM", "IWM", "QQQ", "QQQ"], dtype=np.str_),
+        time_indices=np.array([0, 1, 0, 1], dtype=np.int64),
+    )
+    fit_result = StreamingFitResult(
+        z_train=np.array([0.0], dtype=np.float64),
+        z_val=np.array([0.5, -0.5, 0.4, -0.4], dtype=np.float64),
+        y_val=np.array([1.0, 0.0, 1.0, 0.0], dtype=np.float64),
+        train_rows=None,
+        val_rows=val_rows,
+        val_returns=None,
+    )
+
+    worker_config = StreamingWorkerConfig(
+        validation_return_column="forward_return",
+        validation_join_chunk_rows=2,
+    )
+    worker = LightningStreamingWorker(worker_config, output_dir=tmp_path / "returns_chunked")
+
+    metadata = stream.TFTStreamingMetadata(
+        shard_indices=(),
+        numeric_stats={},
+        categorical_vocab={},
+        instrument_row_counts={},
+    )
+    plan = DatasetPlanEvent(
+        plan_id="plan_returns_chunked",
+        dataset_id="dataset_forward_chunked",
+        parquet_path=dataset_path,
+        metadata=metadata,
+        metadata_summary=stream.TFTStreamingSummary(total_shards=0, total_rows=0, max_shard_rows=0),
+        limits=stream.StreamingLimitSummary(),
+        streaming_config=_build_streaming_config(),
+        caps={},
+    )
+
+    enriched = worker._maybe_attach_validation_returns(plan, fit_result)
+    assert enriched.val_returns is not None
+    np.testing.assert_allclose(
+        enriched.val_returns,
+        np.array([0.01, -0.02, 0.05, 0.03], dtype=np.float64),
     )
     diag = getattr(worker, "_validation_returns_telemetry")
     assert diag is not None
@@ -832,6 +913,47 @@ def test_ensemble_blending_merges_logits(tmp_path: Path) -> None:
     assert len(ensemble_telemetry.members) == 2
     assert ensemble_telemetry.members[0].artifact_path == "__primary__"
     assert ensemble_telemetry.members[1].used is True
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")
+def test_ensemble_blending_when_weighted_normalization_enabled_returns_weighted_average(
+    tmp_path: Path,
+) -> None:
+    planner, request = _planner_and_request(tmp_path)
+    plan = planner.plan(request)
+    base_worker = LightningStreamingWorker(
+        StreamingWorkerConfig(max_total_rows=20, max_total_sequences=20, max_shards=4),
+        output_dir=tmp_path / "artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    context = base_worker._prepare_context(plan)
+    fit_result = base_worker._execute_training_attempt(plan, context)
+    peer_one = tmp_path / "peer_weighted_one.npz"
+    peer_two = tmp_path / "peer_weighted_two.npz"
+    _save_peer_logits(peer_one, fit_result, delta=1.0)
+    _save_peer_logits(peer_two, fit_result, delta=4.0)
+    ensemble_cfg = StreamingEnsembleConfig(
+        enabled=True,
+        blend_mode="weighted",
+        normalize_weights=True,
+        members=(
+            EnsembleMemberConfig(artifact_path=str(peer_one), weight=3.0, required=True),
+            EnsembleMemberConfig(artifact_path=str(peer_two), weight=1.0, required=True),
+        ),
+    )
+    ensemble_worker = LightningStreamingWorker(
+        StreamingWorkerConfig(
+            max_total_rows=20,
+            max_total_sequences=20,
+            max_shards=4,
+            ensemble=ensemble_cfg,
+        ),
+        output_dir=tmp_path / "artifacts_weighted",
+        teacher_factory=_teacher_factory,
+    )
+    blended, _, _ = ensemble_worker._apply_ensemble(plan, fit_result)
+    expected_delta = 7.0 / 5.0
+    assert np.allclose(blended.z_train[:2], fit_result.z_train[:2] + expected_delta)
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")

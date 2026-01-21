@@ -20,6 +20,7 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.registry_initialization import RegistryInitializationComponent
+from ml.registry.dataclasses import DatasetType
 from ml.tests.utils.db import build_postgres_url
 
 
@@ -480,6 +481,32 @@ class TestEdgeCases:
         assert stats["feature_registry"]["status"] == "initialized"
         assert stats["feature_registry"]["count"] == 3
         assert stats["model_registry"]["count"] == 0
+
+    def test_build_raw_writer_includes_feature_mirror(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verify default raw writer mirrors feature datasets."""
+        events_path = tmp_path / "events.parquet"
+        monkeypatch.setenv("FEATURE_EVENTS_PARQUET_PATH", str(events_path))
+        monkeypatch.setenv("FEATURE_MICRO_CACHE_DIR", str(tmp_path / "micro"))
+        monkeypatch.setenv("FEATURE_L2_CACHE_DIR", str(tmp_path / "l2"))
+
+        component = RegistryInitializationComponent(db_connection=None)
+        raw_writer = component._build_raw_writer()
+
+        assert raw_writer is not None
+        rows = [
+            {
+                "event_timestamp": 1_700_000_000_000_000_000,
+                "event_type": "earnings",
+                "name": "stub",
+                "instrument_id": "AAPL",
+            },
+        ]
+        raw_writer.write(dataset_type=DatasetType.EVENTS_CALENDAR, data=rows)
+        assert events_path.exists()
 
     def test_inject_data_registry_before_init_registries(
         self,

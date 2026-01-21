@@ -41,6 +41,7 @@ from ml.stores.io_raw import RawReaderProtocol
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ml.stores.feature_dataset_store import FeatureDatasetStore
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import EarningsStoreProtocol
     from ml.stores.protocols import FeatureStoreProtocol
@@ -225,6 +226,7 @@ class RegistryInitializationComponent:
     def create_data_store(
         self,
         feature_store: FeatureStoreProtocol | None = None,
+        feature_dataset_store: FeatureDatasetStore | None = None,
         model_store: ModelStoreProtocol | None = None,
         strategy_store: StrategyStoreProtocol | None = None,
         earnings_store: EarningsStoreProtocol | None = None,
@@ -242,6 +244,8 @@ class RegistryInitializationComponent:
         ----------
         feature_store : FeatureStoreProtocol | None
             FeatureStore to attach to the DataStore.
+        feature_dataset_store : object | None
+            FeatureDatasetStore to attach to the DataStore.
         model_store : ModelStoreProtocol | None
             ModelStore to attach to the DataStore.
         strategy_store : StrategyStoreProtocol | None
@@ -296,18 +300,9 @@ class RegistryInitializationComponent:
                 table_name=table_name,
             )
 
-        # Optionally create Parquet writer if catalog path set
+        # Optionally create Parquet writer if not provided
         if raw_writer is None:
-            try:
-                from ml.stores.io_raw import ParquetCatalogRawWriter
-                from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-
-                catalog_path = os.getenv("CATALOG_PATH", "").strip()
-                if catalog_path:
-                    catalog = ParquetDataCatalog(catalog_path)
-                    raw_writer = ParquetCatalogRawWriter(catalog)
-            except Exception:
-                logger.debug("Parquet catalog adapters not attached", exc_info=True)
+            raw_writer = self._build_raw_writer()
 
         # Use the module-level factory to avoid mypy issues
         from ml.core.integration import create_data_store as _create_data_store
@@ -317,6 +312,7 @@ class RegistryInitializationComponent:
             registry=cast(DataRegistry, self.data_registry),
             connection_string=connection_string,
             feature_store=feature_store,
+            feature_dataset_store=feature_dataset_store,
             model_store=model_store,
             strategy_store=strategy_store,
             earnings_store=earnings_store,
@@ -325,6 +321,59 @@ class RegistryInitializationComponent:
         )
 
         return data_store
+
+    def _build_raw_writer(self) -> RawIngestionWriterProtocol | None:
+        """
+        Build a composite raw writer for market + feature dataset mirrors.
+
+        Returns None when no parquet destinations are configured.
+        """
+        from ml.registry.dataclasses import DatasetType
+        from ml.stores.feature_raw_writer import CompositeRawIngestionWriter
+        from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+        from ml.stores.io_raw import FilteredRawWriter
+        from ml.stores.io_raw import ParquetCatalogRawWriter
+
+        writers: list[RawIngestionWriterProtocol] = []
+
+        try:
+            feature_writer = FilteredRawWriter(
+                FeatureDatasetParquetRawWriter(),
+                enabled={
+                    DatasetType.EVENTS_CALENDAR: True,
+                    DatasetType.MICRO_MINUTE_FEATURES: True,
+                    DatasetType.L2_MINUTE_FEATURES: True,
+                },
+            )
+            writers.append(feature_writer)
+        except Exception:
+            logger.debug("Feature raw writer not attached", exc_info=True)
+
+        try:
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+            catalog_path = os.getenv("CATALOG_PATH", "").strip()
+            if catalog_path:
+                catalog = ParquetDataCatalog(catalog_path)
+                market_writer = FilteredRawWriter(
+                    ParquetCatalogRawWriter(catalog),
+                    enabled={
+                        DatasetType.BARS: True,
+                        DatasetType.TRADES: True,
+                        DatasetType.TBBO: True,
+                        DatasetType.MBP1: True,
+                        DatasetType.QUOTES: True,
+                    },
+                )
+                writers.append(market_writer)
+        except Exception:
+            logger.debug("Parquet catalog adapters not attached", exc_info=True)
+
+        if not writers:
+            return None
+        if len(writers) == 1:
+            return writers[0]
+        return CompositeRawIngestionWriter(writers)
 
     def inject_data_registry_into_stores(
         self,

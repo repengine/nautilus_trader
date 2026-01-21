@@ -13,6 +13,7 @@ import pandas as pd
 from ml.registry.dataclasses import DatasetType
 from ml.stores.feature_raw_writer import CompositeRawIngestionWriter
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+from ml.stores.feature_raw_writer import FeatureValuesParquetMirrorWriter
 from ml.stores.raw_protocols import RawIngestionWriterProtocol
 
 
@@ -73,6 +74,30 @@ def test_feature_raw_writer_partitions_micro_rows(tmp_path: Path) -> None:
     stored = pd.read_parquet(expected)
     assert len(stored) == 1
     assert stored["instrument_id"].iloc[0] == "SPY.XNAS"
+
+
+def test_feature_values_mirror_writer_partitions(tmp_path: Path) -> None:
+    writer = FeatureValuesParquetMirrorWriter(base_dir=tmp_path)
+    ts_event = int(datetime(2025, 1, 5, tzinfo=UTC).timestamp() * 1_000_000_000)
+    rows = [
+        {
+            "feature_set_id": "snapshot",
+            "instrument_id": "AAPL",
+            "ts_event": ts_event,
+            "values": {"alpha": 1.5, "beta": 2.0},
+        },
+    ]
+
+    written = writer.write_rows(rows)
+
+    assert written == 1
+    expected = tmp_path / "AAPL" / "year=2025" / "month=01" / "day=05.parquet"
+    assert expected.exists()
+    stored = pd.read_parquet(expected)
+    assert len(stored) == 1
+    payload = stored.iloc[0]
+    assert payload["feature_set_id"] == "snapshot"
+    assert payload["instrument_id"] == "AAPL"
 
 
 class _FailingWriter(RawIngestionWriterProtocol):

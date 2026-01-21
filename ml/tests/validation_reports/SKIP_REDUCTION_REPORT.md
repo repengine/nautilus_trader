@@ -161,7 +161,7 @@ if not vintage_dir.exists():
 5. `test_cache_refresh`
 
 **Data Required:**
-- Directory: `data/fred/vintages/`
+- Directory: `data/features/macro/fred/vintages/`
 - Content: ALFRED vintage data for FRED series (CPIAUCSL, PCEPI, etc.)
 - Purpose: Test real-time macro feature parity with batch computation
 
@@ -171,7 +171,7 @@ if not vintage_dir.exists():
 ```bash
 # Requires FRED API key
 export FRED_API_KEY=your_key_here
-python ml/data/ingest/fetch_fred_vintages.py --series CPIAUCSL PCEPI --output data/fred/vintages
+python ml/data/ingest/fetch_fred_vintages.py --series CPIAUCSL PCEPI --output data/features/macro/fred/vintages
 ```
 
 **Option B: Create Mock Fixtures**

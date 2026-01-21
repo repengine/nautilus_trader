@@ -25,7 +25,7 @@ class TestMacroTransformParity:
     @pytest.fixture
     def vintage_dir(self) -> Path:
         """Path to ALFRED vintages."""
-        return Path("data/fred/vintages")
+        return Path("data/features/macro/fred/vintages")
 
     @pytest.fixture
     def test_series(self) -> list[str]:

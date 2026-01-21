@@ -76,7 +76,7 @@ class FeatureDatasetStore:
         return self._bulk_upsert(
             table=self._macro_release_table,
             records=processed,
-            conflict_cols=("series_id", "observation_ts", "release_ts"),
+            conflict_cols=("series_id", "observation_ts", "release_ts", "ts_event"),
         )
 
     def write_macro_observations(self, frame: DataFrameLike) -> int:
@@ -104,7 +104,7 @@ class FeatureDatasetStore:
         return self._bulk_upsert(
             table=self._macro_observation_table,
             records=processed,
-            conflict_cols=("series_id", "observation_ts"),
+            conflict_cols=("series_id", "observation_ts", "ts_event"),
         )
 
     def write_events_calendar(self, frame: DataFrameLike) -> int:
@@ -137,7 +137,7 @@ class FeatureDatasetStore:
         return self._bulk_upsert(
             table=self._events_table,
             records=processed,
-            conflict_cols=("event_type", "event_timestamp", "instrument_id", "name"),
+            conflict_cols=("event_type", "event_timestamp", "instrument_id", "name", "ts_event"),
         )
 
     def write_micro_features(self, frame: DataFrameLike) -> int:
@@ -147,7 +147,7 @@ class FeatureDatasetStore:
         return self._write_time_series_features(
             table=self._micro_table,
             frame=frame,
-            conflict_cols=("instrument_id", "timestamp"),
+            conflict_cols=("instrument_id", "timestamp", "ts_event"),
         )
 
     def write_l2_features(self, frame: DataFrameLike) -> int:
@@ -157,7 +157,7 @@ class FeatureDatasetStore:
         return self._write_time_series_features(
             table=self._l2_table,
             frame=frame,
-            conflict_cols=("instrument_id", "timestamp"),
+            conflict_cols=("instrument_id", "timestamp", "ts_event"),
         )
 
     # ------------------------------------------------------------------#

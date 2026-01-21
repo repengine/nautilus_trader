@@ -475,7 +475,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--macro_fred_path",
         default=None,
-        help="Explicit target path for FRED ML parquet (defaults to data/fred/fred_indicators_ml_format.parquet)",
+        help="Explicit target path for FRED ML parquet (defaults to data/features/macro/fred_indicators_ml_format.parquet)",
     )
     parser.add_argument(
         "--vintage_policy",

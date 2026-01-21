@@ -47,10 +47,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Emit the coverage summary as JSON (default: human-readable text).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Classify coverage buckets without restoring or re-ingesting data.",
+    )
     args = parser.parse_args(argv)
 
     runner = PipelineRunner()
-    summary = runner.run_coverage_restoration_once()
+    summary = runner.run_coverage_restoration_once(dry_run=args.dry_run)
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:

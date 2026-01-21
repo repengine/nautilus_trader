@@ -16,6 +16,14 @@ from typing import cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.common.watermark_window import WatermarkRegistryProtocol
+from ml.common.watermark_window import resolve_watermark_start_date
+from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
+from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
+from ml.config.events import Source
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config.ingestion_windows import l2_window_defaults
+from ml.config.ingestion_windows import micro_window_defaults
 from ml.config.universes import TIER1_SYMBOL_SETS
 from ml.stores.data_store import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
@@ -82,6 +90,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Force L2 cache rebuild even if partitions exist",
     )
     parser.add_argument(
+        "--use-watermark",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Use DataRegistry watermarks to scope incremental ranges.",
+    )
+    parser.add_argument(
+        "--watermark-lookback-days",
+        type=int,
+        default=None,
+        help="Lookback days applied when using watermarks.",
+    )
+    parser.add_argument(
+        "--watermark-max-window-days",
+        type=int,
+        default=None,
+        help="Max days per incremental window.",
+    )
+    parser.add_argument(
+        "--watermark-fallback-days",
+        type=int,
+        default=None,
+        help="Fallback days used when no watermark exists.",
+    )
+    parser.add_argument(
         "--dsn",
         help="PostgreSQL DSN for SQL ingestion (default: DB_CONNECTION / NAUTILUS_DB)",
     )
@@ -109,10 +141,20 @@ def main(argv: list[str] | None = None) -> int:
         l2_base_dir=Path(args.l2_cache_dir),
     )
     data_store = DataStore(connection_string=dsn, raw_writer=feature_raw_writer)
+    registry = getattr(data_store, "registry", None)
     if args.micro:
+        micro_start = _resolve_watermark_start(
+            registry=registry,
+            dataset_id=MICRO_MINUTE_DATASET_ID,
+            symbols=symbols,
+            start=start,
+            end=end,
+            base_config=micro_window_defaults(),
+            args=args,
+        )
         micro_cfg = MicroCacheHydrationConfig(
             symbols=symbols,
-            start_date=start,
+            start_date=micro_start,
             end_date=end,
             raw_base_dir=Path(args.raw_dir),
             cache_dir=Path(args.micro_cache_dir),
@@ -121,9 +163,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         results.append(hydrate_micro_caches(micro_cfg))
     if args.l2:
+        l2_start = _resolve_watermark_start(
+            registry=registry,
+            dataset_id=L2_MINUTE_DATASET_ID,
+            symbols=symbols,
+            start=start,
+            end=end,
+            base_config=l2_window_defaults(),
+            args=args,
+        )
         l2_cfg = L2CacheHydrationConfig(
             symbols=symbols,
-            start_date=start,
+            start_date=l2_start,
             end_date=end,
             raw_base_dir=Path(args.raw_dir),
             cache_dir=Path(args.l2_cache_dir),
@@ -141,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         ingest_micro_cache_partitions(
             data_store=cast(DataStoreFacadeProtocol, data_store),
             symbols=symbols,
-            start_date=start,
+            start_date=micro_start,
             end_date=end,
             cache_dir=Path(args.micro_cache_dir),
             run_id=f"{ingest_run_id}_micro",
@@ -150,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         ingest_l2_cache_partitions(
             data_store=cast(DataStoreFacadeProtocol, data_store),
             symbols=symbols,
-            start_date=start,
+            start_date=l2_start,
             end_date=end,
             cache_dir=Path(args.l2_cache_dir),
             run_id=f"{ingest_run_id}_l2",
@@ -203,6 +254,54 @@ def _parse_date(payload: str, *, flag: str) -> date:
         return date.fromisoformat(payload)
     except ValueError as exc:  # pragma: no cover - argparse guard
         raise SystemExit(f"{flag} must be YYYY-MM-DD ({exc})") from exc
+
+
+def _resolve_watermark_start(
+    *,
+    registry: object | None,
+    dataset_id: str,
+    symbols: tuple[str, ...],
+    start: date,
+    end: date,
+    base_config: WatermarkWindowConfig,
+    args: argparse.Namespace,
+) -> date:
+    if not isinstance(registry, WatermarkRegistryProtocol):
+        return start
+    window_config = WatermarkWindowConfig(
+        use_watermark=(
+            base_config.use_watermark if args.use_watermark is None else bool(args.use_watermark)
+        ),
+        lookback_days=(
+            base_config.lookback_days
+            if args.watermark_lookback_days is None
+            else int(args.watermark_lookback_days)
+        ),
+        max_window_days=(
+            base_config.max_window_days
+            if args.watermark_max_window_days is None
+            else int(args.watermark_max_window_days)
+        ),
+        fallback_start_days=(
+            base_config.fallback_start_days
+            if args.watermark_fallback_days is None
+            else int(args.watermark_fallback_days)
+        ),
+    )
+    if not window_config.use_watermark:
+        return start
+    result = resolve_watermark_start_date(
+        registry=registry,
+        dataset_id=dataset_id,
+        instrument_ids=symbols,
+        source=Source.HISTORICAL,
+        end=end,
+        config=window_config,
+        start=start,
+    )
+    if result.start is None:
+        return start
+    return result.start.date()
 
 
 def _print_summary(result: CacheHydrationResult) -> None:

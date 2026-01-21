@@ -13,7 +13,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -80,6 +80,40 @@ class TestEdgarFetcher:
             assert actual.net_income == 22.9e9
             assert actual.shares_outstanding == 15000000000
             assert actual.filing_type == "10-Q"
+
+    def test_fetch_earnings_accepts_date_objects(self) -> None:
+        """Test date and datetime inputs for filing dates."""
+        with patch("ml.data.earnings.edgar_fetcher.edgartools") as mock_edgartools:
+            mock_company = MagicMock()
+            mock_edgartools.Company.return_value = mock_company
+
+            mock_filing = MagicMock()
+            mock_filing.period_of_report = date(2024, 9, 30)
+            mock_filing.filing_date = datetime(2024, 10, 31, tzinfo=UTC)
+            mock_filing.fiscal_year_end = None
+            mock_filing.fiscal_period = None
+
+            mock_xbrl = MagicMock()
+            mock_xbrl.facts = {
+                "us-gaap:EarningsPerShareDiluted": 2.52,
+                "us-gaap:NetIncomeLoss": 22.9e9,
+                "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding": 15000000000,
+            }
+            mock_filing.xbrl.return_value = mock_xbrl
+
+            mock_filings = MagicMock()
+            mock_filings.latest.return_value = [mock_filing]
+            mock_company.get_filings.return_value = mock_filings
+
+            fetcher = EdgarFetcher(rate_limit_delay=0.0)
+            actuals = fetcher.fetch_earnings("AAPL", quarters=1)
+
+            assert len(actuals) == 1
+            actual = actuals[0]
+            assert actual.period_end == date(2024, 9, 30)
+            assert actual.filing_date == date(2024, 10, 31)
+            assert actual.fiscal_quarter == 3
+            assert actual.fiscal_year == 2024
 
     def test_fetch_earnings_invalid_ticker(self) -> None:
         """Test graceful handling of invalid ticker."""

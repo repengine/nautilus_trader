@@ -32,7 +32,7 @@ def test_load_dataset_coverage_entries_parses_aliases(tmp_path: Path) -> None:
         entity_field = "ticker"
 
         [datasets.parquet]
-        path = "data/earnings_raw/earnings_actuals"
+        path = "../../data/features/earnings_raw/earnings_actuals"
         partition_field = "ticker"
         timestamp_field = "ts_event"
         """,
@@ -73,7 +73,7 @@ def test_load_dataset_coverage_entries_preserves_blank_partition_template(tmp_pa
         entities = "AAPL"
 
         [datasets.parquet]
-        path = "data/events/events.parquet"
+        path = "../../data/features/events/events.parquet"
         partition_template = ""
         """,
     )

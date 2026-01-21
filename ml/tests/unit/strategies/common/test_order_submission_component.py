@@ -73,6 +73,7 @@ class MockQuoteTick:
 
     bid_price: MockPrice = field(default_factory=lambda: MockPrice(99.0))
     ask_price: MockPrice = field(default_factory=lambda: MockPrice(101.0))
+    ts_event: int = 0
 
 
 @dataclass(slots=True)
@@ -1192,12 +1193,13 @@ class TestMarketStateBuilding:
             log=mock_logger,
         )
 
-        market_state = component._build_market_state(instrument_id)
+        market_state, is_stale = component._build_market_state(instrument_id)
 
         assert market_state["bid"] == 99.0
         assert market_state["ask"] == 101.0
         # spread_bps = ((101 - 99) / 100) * 10000 = 200
         assert abs(market_state["spread_bps"] - 200.0) < 0.1
+        assert is_stale is False
 
     def test_build_market_state_no_quote(
         self,
@@ -1215,11 +1217,12 @@ class TestMarketStateBuilding:
             log=mock_logger,
         )
 
-        market_state = component._build_market_state(instrument_id)
+        market_state, is_stale = component._build_market_state(instrument_id)
 
         assert market_state["bid"] == 0.0
         assert market_state["ask"] == 0.0
         assert market_state["spread_bps"] == 0.0
+        assert is_stale is False
 
     def test_build_market_state_no_cache(
         self,
@@ -1235,8 +1238,42 @@ class TestMarketStateBuilding:
             log=mock_logger,
         )
 
-        market_state = component._build_market_state(instrument_id)
+        market_state, is_stale = component._build_market_state(instrument_id)
 
         assert market_state["bid"] == 0.0
         assert market_state["ask"] == 0.0
         assert market_state["spread_bps"] == 0.0
+        assert is_stale is False
+
+    def test_build_market_state_when_quote_stale_returns_stale_flag(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify stale quotes are detected and flagged."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        cache = MockCache(
+            quote_tick=MockQuoteTick(
+                bid_price=MockPrice(99.0),
+                ask_price=MockPrice(101.0),
+                ts_event=1_000_000_000,
+            ),
+        )
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            cache=cache,
+            log=mock_logger,
+            max_quote_age_ms=1,
+        )
+
+        market_state, is_stale = component._build_market_state(
+            instrument_id,
+            reference_ts=2_500_000_000,
+        )
+
+        assert market_state["bid"] == 0.0
+        assert market_state["ask"] == 0.0
+        assert market_state["spread_bps"] == 0.0
+        assert is_stale is True

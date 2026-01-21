@@ -56,7 +56,7 @@ from ml.features import MacroFeatureTransform
 
 transform = MacroFeatureTransform(
     macro_series_ids=["PAYEMS", "UNRATE", "CPIAUCSL"],
-    vintage_base_dir="data/fred/vintages",
+    vintage_base_dir="data/features/macro/fred/vintages",
     include_revisions=True,
     revision_mode="core",  # "minimal", "core", or "full"
     min_coverage=0.85,      # Require at least 85% coverage when assembling data
@@ -196,7 +196,7 @@ features = feature_engineer.compute_realtime(bar)  # All features
 [dataset]
 include_macro = true
 macro_series_ids = ["PAYEMS", "UNRATE", "CPIAUCSL"]
-fred_vintage_dir = "data/fred/vintages"
+fred_vintage_dir = "data/features/macro/fred/vintages"
 macro_min_coverage = 0.85
 
 # Revision features
@@ -249,7 +249,7 @@ coverage = transform.get_cache_coverage()
 # {'PAYEMS': False, ...}
 
 # Check if vintages exist
-ls data/fred/vintages/PAYEMS/release_calendar.parquet
+ls data/features/macro/fred/vintages/PAYEMS/release_calendar.parquet
 
 # Download if missing
 python scripts/download_alfred_vintages.py

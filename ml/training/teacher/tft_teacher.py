@@ -35,6 +35,38 @@ _FALLBACK_COUNTER = get_counter(
 )
 
 
+def _build_categorical_encoders(
+    *,
+    metadata: TFTStreamingMetadata,
+    config: TFTStreamingConfig,
+) -> dict[str, Any]:
+    """Build categorical encoders aligned with streaming vocabularies."""
+    try:
+        from pytorch_forecasting.data.encoders import NaNLabelEncoder
+    except Exception:  # pragma: no cover - optional dependency
+        return {}
+
+    encoders: dict[str, Any] = {}
+
+    def _fit(column: str, *, key: str | None = None) -> None:
+        vocab = metadata.categorical_vocab.get(column)
+        if not vocab:
+            return
+        values = list(vocab)
+        if "__UNK__" not in values:
+            values.append("__UNK__")
+        encoder = NaNLabelEncoder(add_nan=False)
+        encoder.fit(values)
+        encoders[key or column] = encoder
+
+    group_col = config.group_id_col
+    _fit(group_col, key=f"__group_id__{group_col}")
+    for column in config.static_categoricals:
+        _fit(column)
+
+    return encoders
+
+
 
 @dataclass(frozen=True)
 class TFTTeacherConfig(TeacherConfig):
@@ -921,6 +953,10 @@ class TFTTeacher(BaseTeacher):
                     if hasattr(bootstrap_frame, "to_pandas"):
                         bootstrap_frame = bootstrap_frame.to_pandas()
 
+                    categorical_encoders = _build_categorical_encoders(
+                        metadata=full_metadata,
+                        config=streaming_config,
+                    )
                     training = TimeSeriesDataSet(
                         bootstrap_frame,
                         time_idx=streaming_config.time_idx_col,
@@ -936,6 +972,7 @@ class TFTTeacher(BaseTeacher):
                         time_varying_unknown_reals=list(streaming_config.time_varying_unknown_reals),
                         allow_missing_timesteps=True,
                         add_encoder_length=False,
+                        categorical_encoders=categorical_encoders if categorical_encoders else None,
                     )
                 except ImportError:
                     self._tft = _make_baseline_teacher_model()

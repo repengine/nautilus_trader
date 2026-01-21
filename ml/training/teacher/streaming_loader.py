@@ -39,6 +39,7 @@ from ml._imports import pl as pl_runtime
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.resource_monitor import current_rss_mb
 
 
 FloatArray = npt.NDArray[np.float64]
@@ -61,12 +62,6 @@ if not HAS_PYARROW:
     except ImportError:
         pa = None
         HAS_PYARROW = False
-
-
-try:  # pragma: no cover - platform dependent
-    import resource as _resource
-except ImportError:  # pragma: no cover - windows fallback
-    _resource = cast(Any, None)
 
 
 if TYPE_CHECKING:
@@ -455,19 +450,7 @@ def is_within_shard_budget(
 
 
 def _current_rss_mb() -> float | None:
-    if _resource is None:
-        return None
-    try:
-        usage = _resource.getrusage(_resource.RUSAGE_SELF)
-    except Exception:  # pragma: no cover - platform dependent
-        return None
-    rss_value = float(getattr(usage, "ru_maxrss", 0.0))
-    if rss_value <= 0.0:
-        return None
-    # Linux reports kilobytes; macOS reports bytes. Heuristic threshold.
-    if rss_value > 1e8:
-        return rss_value / (1024.0 * 1024.0)
-    return rss_value / 1024.0
+    return current_rss_mb()
 
 
 class TFTStreamingPreprocessor:
@@ -504,6 +487,9 @@ class TFTStreamingPreprocessor:
 
         dataset = pa_dataset.dataset(str(self._parquet_path), format="parquet")
         selected_columns = set(self._feature_names)
+        selected_columns.update(self._categorical_columns)
+        selected_columns.update(self._numeric_columns)
+        selected_columns.add(self._target_col)
         selected_columns.add(self._group_id_col)
         selected_columns.add(self._time_index_col)
         scanner = dataset.scanner(columns=sorted(selected_columns))
@@ -1160,114 +1146,15 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                 & (dataset_module.field(self._config.time_idx_col) <= pa_module.scalar(shard.time_end))
             ),
         )
-        table = scanner.to_table()
-        if table.num_rows == 0:
-            return
-
-        if pa_compute is not None:
-            try:
-                sort_indices = pa_compute.sort_indices(
-                    table,
-                    sort_keys=[(self._config.time_idx_col, "ascending")],
-                )
-                table = table.take(sort_indices)
-            except Exception as sort_exc:
-                logger.debug(
-                    "Failed to sort shard rows for instrument %s",
-                    shard.instrument_id,
-                    exc_info=True,
-                    extra={"error": repr(sort_exc)},
-                )
-
-        target_column = _get_table_column(table, self._config.target_col)
-        time_column = _get_table_column(table, self._config.time_idx_col)
-        group_column = _get_table_column(table, self._config.group_id_col)
-        if target_column is None or time_column is None or group_column is None:
-            return
-
-        target_array = _arrow_to_numpy(target_column, dtype=np.float32, fill_value=0.0)
-        time_array = _arrow_to_numpy(time_column, dtype=np.int64, fill_value=0)
-        total_rows = int(target_array.shape[0])
-
+        batch_size = max(1, self._config.batch_size)
         encoder_len = self._config.max_encoder_length
         decoder_len = self._config.max_prediction_length
-        if total_rows < encoder_len + decoder_len:
-            return
-        _ITERATION_SHARDS_COUNTER.inc()
-        _ITERATION_ROWS_HIST.observe(float(total_rows))
-        rss_mb = _current_rss_mb()
-        if rss_mb is not None:
-            _RSS_GAUGE.labels(stage="iteration").set(rss_mb)
-        logger.debug(
-            "tft streaming shard materialised",
-            extra={
-                "instrument_id": shard.instrument_id,
-                "rows": total_rows,
-                "time_start": shard.time_start,
-                "time_end": shard.time_end,
-            },
-        )
 
-        numeric_arrays: dict[str, FloatArray32] = {}
-        for column in self._encoder_cont_columns:
-            column_data = _get_table_column(table, column)
-            if column_data is None:
-                numeric_arrays[column] = np.zeros(total_rows, dtype=np.float32)
-                continue
-            array = np.asarray(_arrow_to_numpy(column_data, dtype=np.float32, fill_value=0.0), dtype=np.float32)
-            stats = self._numeric_stats.get(column)
-            if stats is not None and stats.count > 0:
-                std = (stats.variance**0.5) if stats.variance > 0 else 0.0
-                mean = stats.mean
-                if std > 0:
-                    array = cast(FloatArray32, (array - mean) / std)
-                else:
-                    array = cast(FloatArray32, array - mean)
-            array = np.nan_to_num(array, nan=0.0)
-            numeric_arrays[column] = np.asarray(array, dtype=np.float32)
-
-        static_reals_values: dict[str, float] = {}
-        for column in self._config.static_reals:
-            column_data = _get_table_column(table, column)
-            if column_data is not None and len(column_data) > 0:
-                try:
-                    raw_value = column_data[0].as_py()
-                except Exception:
-                    raw_value = None
-                stats = self._numeric_stats.get(column)
-                value = float(raw_value) if raw_value is not None else 0.0
-                if stats is not None and stats.count > 0:
-                    std = (stats.variance**0.5) if stats.variance > 0 else 0.0
-                    mean = stats.mean
-                    if std > 0:
-                        value = (value - mean) / std
-                    else:
-                        value = value - mean
-                static_reals_values[column] = float(value)
-            else:
-                static_reals_values[column] = 0.0
-
-        static_cat_codes: dict[str, int] = {}
-        for column in self._static_cat_columns:
-            mapping = self._categorical_maps.get(column)
-            if mapping is None:
-                continue
-            column_data = _get_table_column(table, column)
-            raw_value = "__UNK__"
-            if column_data is not None and len(column_data) > 0:
-                try:
-                    value = column_data[0].as_py()
-                    raw_value = "__UNK__" if value is None else str(value)
-                except Exception:
-                    raw_value = "__UNK__"
-            static_cat_codes[column] = mapping.get(raw_value, mapping.get("__UNK__", 0))
-
-        cat_vector: IntArray | None = None
-        if self._static_cat_columns:
-            cat_vector = np.asarray(
-                [static_cat_codes.get(column, 0) for column in self._static_cat_columns],
-                dtype=np.int64,
-            )
+        target_stats = self._target_stats
+        target_mean = target_stats.mean
+        target_std = (target_stats.variance**0.5) if target_stats.variance > 0 else 1.0
+        if target_std == 0.0:
+            target_std = 1.0
 
         group_mapping = self._categorical_maps.get(self._config.group_id_col, {})
         group_code = group_mapping.get(shard.instrument_id, group_mapping.get("__UNK__", 0))
@@ -1279,6 +1166,24 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
                     "fallback_code": int(group_code),
                 },
             )
+
+        time_varying_columns = (
+            self._config.time_varying_known_reals
+            + self._config.time_varying_unknown_reals
+        )
+        target_buffer = np.empty(0, dtype=np.float32)
+        time_buffer = np.empty(0, dtype=np.int64)
+        numeric_buffers: dict[str, FloatArray32] = {
+            column: np.empty(0, dtype=np.float32) for column in time_varying_columns
+        }
+        buffer_start = 0
+        next_current = encoder_len
+        row_count = 0
+        metrics_recorded = False
+
+        static_reals_values: dict[str, float] | None = None
+        static_cat_codes: dict[str, int] | None = None
+        cat_vector: IntArray | None = None
 
         batch_encoder_cont: list[FloatArray32] = []
         batch_decoder_cont: list[FloatArray32] = []
@@ -1293,102 +1198,272 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         batch_decoder_time: list[IntArray] = []
         batch_decoder_group_ids: list[IntArray] = []
 
-        batch_size = max(1, self._config.batch_size)
-        encoder_len = self._config.max_encoder_length
-        decoder_len = self._config.max_prediction_length
+        def _append_buffer(buffer: GenericArray, values: GenericArray) -> GenericArray:
+            if buffer.size == 0:
+                return values
+            return cast(GenericArray, np.concatenate([buffer, values], axis=0))
 
-        stats = self._target_stats
-        target_mean = stats.mean
-        target_std = (stats.variance**0.5) if stats.variance > 0 else 1.0
-        if target_std == 0.0:
-            target_std = 1.0
-
-        for current in range(encoder_len, total_rows - decoder_len + 1):
-            enc_start = current - encoder_len
-            enc_end = current
-            dec_start = current
-            dec_end = current + decoder_len
-
-            encoder_target = target_array[enc_start:enc_end]
-            decoder_target = target_array[dec_start:dec_end]
-            if encoder_target.shape[0] != encoder_len or decoder_target.shape[0] != decoder_len:
+        for batch in scanner.to_batches():
+            if batch.num_rows == 0:
                 continue
+            target_column = _get_column(batch, self._config.target_col)
+            time_column = _get_column(batch, self._config.time_idx_col)
+            group_column = _get_column(batch, self._config.group_id_col)
+            if target_column is None or time_column is None or group_column is None:
+                return
 
-            encoder_cont = np.empty(
-                (encoder_len, len(self._encoder_cont_columns)),
+            target_values = np.asarray(
+                _arrow_to_numpy(target_column, dtype=np.float32, fill_value=0.0),
                 dtype=np.float32,
             )
-            decoder_cont = np.empty(
-                (decoder_len, len(self._decoder_cont_columns)),
-                dtype=np.float32,
+            time_values = np.asarray(
+                _arrow_to_numpy(time_column, dtype=np.int64, fill_value=0),
+                dtype=np.int64,
             )
-
-            idx = 0
-            for column in self._config.static_reals:
-                value = static_reals_values.get(column, 0.0)
-                encoder_cont[:, idx] = value
-                decoder_cont[:, idx] = value
-                idx += 1
-            for column in self._config.time_varying_known_reals:
-                values = numeric_arrays[column]
-                encoder_cont[:, idx] = values[enc_start:enc_end]
-                decoder_cont[:, idx] = values[dec_start:dec_end]
-                idx += 1
-            for column in self._config.time_varying_unknown_reals:
-                values = numeric_arrays[column]
-                encoder_cont[:, idx] = values[enc_start:enc_end]
-                decoder_cont[:, idx] = values[dec_start:dec_end]
-                idx += 1
-
-            if cat_vector is not None:
-                encoder_cat = np.tile(cat_vector, (encoder_len, 1))
-                decoder_cat = np.tile(cat_vector, (decoder_len, 1))
-            else:
-                encoder_cat = np.empty((encoder_len, 0), dtype=np.int64)
-                decoder_cat = np.empty((decoder_len, 0), dtype=np.int64)
-
-            batch_encoder_cont.append(encoder_cont)
-            batch_decoder_cont.append(decoder_cont)
-            batch_encoder_cat.append(encoder_cat)
-            batch_decoder_cat.append(decoder_cat)
-            batch_encoder_target.append(encoder_target.astype(np.float32, copy=False))
-            batch_decoder_target.append(decoder_target.astype(np.float32, copy=False))
-            batch_encoder_lengths.append(encoder_len)
-            batch_decoder_lengths.append(decoder_len)
-            batch_groups.append(np.array([[group_code]], dtype=np.int64))
-            batch_target_scale.append(np.array([target_mean, target_std], dtype=np.float32))
-            batch_decoder_time.append(time_array[dec_start:dec_end].astype(np.int64, copy=False))
-            batch_decoder_group_ids.append(
-                np.full((decoder_len,), group_code, dtype=np.int64)
-            )
-
-            if len(batch_encoder_cont) == batch_size:
-                yield self._build_batch(
-                    batch_encoder_cont,
-                    batch_decoder_cont,
-                    batch_encoder_cat,
-                    batch_decoder_cat,
-                    batch_encoder_target,
-                    batch_decoder_target,
-                    batch_encoder_lengths,
-                    batch_decoder_lengths,
-                    batch_groups,
-                    batch_target_scale,
-                    batch_decoder_time,
-                    batch_decoder_group_ids,
+            batch_rows = int(time_values.shape[0])
+            if batch_rows == 0:
+                continue
+            if target_values.shape[0] != batch_rows:
+                logger.warning(
+                    "streaming dataset batch shape mismatch for instrument %s",
+                    shard.instrument_id,
+                    extra={
+                        "instrument_id": shard.instrument_id,
+                        "target_rows": int(target_values.shape[0]),
+                        "time_rows": batch_rows,
+                    },
                 )
-                batch_encoder_cont.clear()
-                batch_decoder_cont.clear()
-                batch_encoder_cat.clear()
-                batch_decoder_cat.clear()
-                batch_encoder_target.clear()
-                batch_decoder_target.clear()
-                batch_encoder_lengths.clear()
-                batch_decoder_lengths.clear()
-                batch_groups.clear()
-                batch_target_scale.clear()
-                batch_decoder_time.clear()
-                batch_decoder_group_ids.clear()
+                return
+
+            scan_rss_mb = _current_rss_mb()
+            if scan_rss_mb is not None:
+                _RSS_GAUGE.labels(stage="scan").set(scan_rss_mb)
+
+            sort_indices: npt.NDArray[np.int64] | None = None
+            if pa_compute is not None and batch_rows > 1:
+                try:
+                    if np.any(np.diff(time_values) < 0):
+                        sort_indices = np.argsort(time_values)
+                        time_values = time_values[sort_indices]
+                        target_values = target_values[sort_indices]
+                except Exception as sort_exc:
+                    logger.debug(
+                        "Failed to sort streaming batch for instrument %s",
+                        shard.instrument_id,
+                        exc_info=True,
+                        extra={"error": repr(sort_exc)},
+                    )
+
+            if static_reals_values is None:
+                static_reals_values = {}
+                for column in self._config.static_reals:
+                    column_data = _get_column(batch, column)
+                    raw_value = None
+                    if column_data is not None and len(column_data) > 0:
+                        try:
+                            raw_value = column_data[0].as_py()
+                        except Exception:
+                            raw_value = None
+                    column_stats = self._numeric_stats.get(column)
+                    value = float(raw_value) if raw_value is not None else 0.0
+                    if column_stats is not None and column_stats.count > 0:
+                        std = (column_stats.variance**0.5) if column_stats.variance > 0 else 0.0
+                        mean = column_stats.mean
+                        if std > 0:
+                            value = (value - mean) / std
+                        else:
+                            value = value - mean
+                    static_reals_values[column] = float(value)
+
+                static_cat_codes = {}
+                for column in self._static_cat_columns:
+                    mapping = self._categorical_maps.get(column)
+                    if mapping is None:
+                        continue
+                    column_data = _get_column(batch, column)
+                    raw_value = "__UNK__"
+                    if column_data is not None and len(column_data) > 0:
+                        try:
+                            value = column_data[0].as_py()
+                            raw_value = "__UNK__" if value is None else str(value)
+                        except Exception:
+                            raw_value = "__UNK__"
+                    static_cat_codes[column] = mapping.get(raw_value, mapping.get("__UNK__", 0))
+
+                if self._static_cat_columns:
+                    cat_vector = np.asarray(
+                        [static_cat_codes.get(column, 0) for column in self._static_cat_columns],
+                        dtype=np.int64,
+                    )
+
+            numeric_batches: dict[str, FloatArray32] = {}
+            for column in time_varying_columns:
+                column_data = _get_column(batch, column)
+                if column_data is None:
+                    numeric_batches[column] = np.zeros(batch_rows, dtype=np.float32)
+                    continue
+                values = np.asarray(
+                    _arrow_to_numpy(column_data, dtype=np.float32, fill_value=0.0),
+                    dtype=np.float32,
+                )
+                if values.shape[0] != batch_rows:
+                    logger.debug(
+                        "streaming dataset numeric batch mismatch for %s",
+                        column,
+                        extra={
+                            "instrument_id": shard.instrument_id,
+                            "column": column,
+                            "expected_rows": batch_rows,
+                            "actual_rows": int(values.shape[0]),
+                        },
+                    )
+                    values = np.zeros(batch_rows, dtype=np.float32)
+                column_stats = self._numeric_stats.get(column)
+                if column_stats is not None and column_stats.count > 0:
+                    std = (column_stats.variance**0.5) if column_stats.variance > 0 else 0.0
+                    mean = column_stats.mean
+                    if std > 0:
+                        values = cast(FloatArray32, (values - mean) / std)
+                    else:
+                        values = cast(FloatArray32, values - mean)
+                values = np.nan_to_num(values, nan=0.0)
+                if sort_indices is not None:
+                    values = values[sort_indices]
+                numeric_batches[column] = np.asarray(values, dtype=np.float32)
+
+            target_buffer = cast(FloatArray32, _append_buffer(target_buffer, target_values))
+            time_buffer = cast(IntArray, _append_buffer(time_buffer, time_values))
+            for column, values in numeric_batches.items():
+                numeric_buffers[column] = cast(
+                    FloatArray32,
+                    _append_buffer(numeric_buffers[column], values),
+                )
+
+            row_count += batch_rows
+            if not metrics_recorded and row_count >= encoder_len + decoder_len:
+                metrics_recorded = True
+                _ITERATION_SHARDS_COUNTER.inc()
+
+            buffer_end = buffer_start + int(target_buffer.shape[0])
+            while next_current + decoder_len <= buffer_end:
+                enc_start = next_current - encoder_len
+                dec_start = next_current
+                if enc_start < buffer_start:
+                    break
+                enc_offset = enc_start - buffer_start
+                dec_offset = dec_start - buffer_start
+                enc_end = enc_offset + encoder_len
+                dec_end = dec_offset + decoder_len
+
+                encoder_target = target_buffer[enc_offset:enc_end]
+                decoder_target = target_buffer[dec_offset:dec_end]
+                if encoder_target.shape[0] != encoder_len or decoder_target.shape[0] != decoder_len:
+                    break
+
+                encoder_cont = np.empty(
+                    (encoder_len, len(self._encoder_cont_columns)),
+                    dtype=np.float32,
+                )
+                decoder_cont = np.empty(
+                    (decoder_len, len(self._decoder_cont_columns)),
+                    dtype=np.float32,
+                )
+
+                idx = 0
+                if static_reals_values is None:
+                    static_reals_values = {}
+                for column in self._config.static_reals:
+                    value = static_reals_values.get(column, 0.0)
+                    encoder_cont[:, idx] = value
+                    decoder_cont[:, idx] = value
+                    idx += 1
+                for column in self._config.time_varying_known_reals:
+                    values = numeric_buffers[column]
+                    encoder_cont[:, idx] = values[enc_offset:enc_end]
+                    decoder_cont[:, idx] = values[dec_offset:dec_end]
+                    idx += 1
+                for column in self._config.time_varying_unknown_reals:
+                    values = numeric_buffers[column]
+                    encoder_cont[:, idx] = values[enc_offset:enc_end]
+                    decoder_cont[:, idx] = values[dec_offset:dec_end]
+                    idx += 1
+
+                if cat_vector is not None:
+                    encoder_cat = np.tile(cat_vector, (encoder_len, 1))
+                    decoder_cat = np.tile(cat_vector, (decoder_len, 1))
+                else:
+                    encoder_cat = np.empty((encoder_len, 0), dtype=np.int64)
+                    decoder_cat = np.empty((decoder_len, 0), dtype=np.int64)
+
+                batch_encoder_cont.append(encoder_cont)
+                batch_decoder_cont.append(decoder_cont)
+                batch_encoder_cat.append(encoder_cat)
+                batch_decoder_cat.append(decoder_cat)
+                batch_encoder_target.append(encoder_target.astype(np.float32, copy=False))
+                batch_decoder_target.append(decoder_target.astype(np.float32, copy=False))
+                batch_encoder_lengths.append(encoder_len)
+                batch_decoder_lengths.append(decoder_len)
+                batch_groups.append(np.array([[group_code]], dtype=np.int64))
+                batch_target_scale.append(np.array([target_mean, target_std], dtype=np.float32))
+                batch_decoder_time.append(time_buffer[dec_offset:dec_end].astype(np.int64, copy=False))
+                batch_decoder_group_ids.append(
+                    np.full((decoder_len,), group_code, dtype=np.int64),
+                )
+
+                if len(batch_encoder_cont) == batch_size:
+                    yield self._build_batch(
+                        batch_encoder_cont,
+                        batch_decoder_cont,
+                        batch_encoder_cat,
+                        batch_decoder_cat,
+                        batch_encoder_target,
+                        batch_decoder_target,
+                        batch_encoder_lengths,
+                        batch_decoder_lengths,
+                        batch_groups,
+                        batch_target_scale,
+                        batch_decoder_time,
+                        batch_decoder_group_ids,
+                    )
+                    batch_encoder_cont.clear()
+                    batch_decoder_cont.clear()
+                    batch_encoder_cat.clear()
+                    batch_decoder_cat.clear()
+                    batch_encoder_target.clear()
+                    batch_decoder_target.clear()
+                    batch_encoder_lengths.clear()
+                    batch_decoder_lengths.clear()
+                    batch_groups.clear()
+                    batch_target_scale.clear()
+                    batch_decoder_time.clear()
+                    batch_decoder_group_ids.clear()
+
+                next_current += 1
+
+            trim_before = next_current - encoder_len
+            if trim_before > buffer_start:
+                drop = trim_before - buffer_start
+                target_buffer = target_buffer[drop:]
+                time_buffer = time_buffer[drop:]
+                for column in numeric_buffers:
+                    numeric_buffers[column] = numeric_buffers[column][drop:]
+                buffer_start = trim_before
+
+        if not metrics_recorded:
+            return
+        _ITERATION_ROWS_HIST.observe(float(row_count))
+        rss_mb = _current_rss_mb()
+        if rss_mb is not None:
+            _RSS_GAUGE.labels(stage="iteration").set(rss_mb)
+        logger.debug(
+            "tft streaming shard streamed",
+            extra={
+                "instrument_id": shard.instrument_id,
+                "rows": row_count,
+                "time_start": shard.time_start,
+                "time_end": shard.time_end,
+            },
+        )
 
         if not self._config.drop_last and batch_encoder_cont:
             yield self._build_batch(
@@ -1422,6 +1497,9 @@ class TFTStreamingDataset(StreamIterableDatasetBase):
         decoder_group_ids: list[IntArray],
     ) -> BatchItem:
         batch_inputs: dict[str, TorchTensor] = {}
+        rss_mb = _current_rss_mb()
+        if rss_mb is not None:
+            _RSS_GAUGE.labels(stage="batch_assembly").set(rss_mb)
         batch_inputs["encoder_cont"] = torch.from_numpy(np.stack(encoder_cont, axis=0))
         batch_inputs["decoder_cont"] = torch.from_numpy(np.stack(decoder_cont, axis=0))
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -92,9 +93,18 @@ class FeatureDatasetParquetRawWriter(RawIngestionWriterProtocol):
         micro_base_dir: Path | None = None,
         l2_base_dir: Path | None = None,
     ) -> None:
-        self.events_path = (events_path or Path("data/events/events.parquet")).resolve()
-        self.micro_base_dir = (micro_base_dir or Path("data/features/micro_minute")).resolve()
-        self.l2_base_dir = (l2_base_dir or Path("data/features/l2_minute")).resolve()
+        events_default = Path(
+            os.getenv("FEATURE_EVENTS_PARQUET_PATH", "data/features/events/events.parquet"),
+        )
+        micro_default = Path(
+            os.getenv("FEATURE_MICRO_CACHE_DIR", "data/features/micro_minute"),
+        )
+        l2_default = Path(
+            os.getenv("FEATURE_L2_CACHE_DIR", "data/features/l2_minute"),
+        )
+        self.events_path = (events_path or events_default).resolve()
+        self.micro_base_dir = (micro_base_dir or micro_default).resolve()
+        self.l2_base_dir = (l2_base_dir or l2_default).resolve()
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
         self.micro_base_dir.mkdir(parents=True, exist_ok=True)
         self.l2_base_dir.mkdir(parents=True, exist_ok=True)

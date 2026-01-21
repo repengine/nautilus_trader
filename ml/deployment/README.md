@@ -80,6 +80,10 @@ Paste the Markdown summary into `ml/docs/ops/streaming_scaling_experiments.md` t
 | -------- | ------- | ----------- | ---------- |
 | `DATABENTO_API_KEY` | *(none)* | Databento API key for live data ingestion. | `.env`, `ml/deployment/.env.example`, pipeline/actor env blocks |
 | `DATABENTO_DATASET` | `EQUS.MINI` | Databento dataset identifier. | `.env.example`, services |
+| `SEC_IDENTITY` | *(none)* | Full SEC EDGAR User-Agent identity string (alternative to `SEC_USER_AGENT_*`). | `.env`, earnings ingestion |
+| `SEC_USER_AGENT_NAME` | *(none)* | SEC EDGAR User-Agent contact name. | `.env`, earnings ingestion |
+| `SEC_USER_AGENT_EMAIL` | *(none)* | SEC EDGAR User-Agent contact email. | `.env`, earnings ingestion |
+| `SEC_USER_AGENT_PHONE` | *(none)* | SEC EDGAR User-Agent contact phone. | `.env`, earnings ingestion |
 | `PIPELINE_MODE` | `daily` | Pipeline schedule (`daily`, `backfill`, `realtime`). | `.env.example`, `ml_pipeline` env |
 | `PIPELINE_SCHEDULE` | `0 17 * * *` | Cron expression used when `PIPELINE_MODE=daily`. | `.env.example`, `ml_pipeline` env |
 | `UNIVERSE_SYMBOLS` | `SPY.XNAS` | Comma-separated symbol universe. | `.env.example`, `ml_pipeline` env |

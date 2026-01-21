@@ -1,4 +1,4 @@
-# Option 2 Plan: Small-Scope End-to-End Pipeline Validation
+# Parquet Live Replay Harness Plan: Small-Scope End-to-End Pipeline Validation
 
 ## Goal
 
@@ -16,6 +16,22 @@ This is a plumbing validation, not a fidelity or profitability evaluation.
 - Message bus: Noop/Redis only today; rely on JSONL store outputs unless we add a file-backed publisher.
 - Replay pacing: use TestClock (fast) for validation first; live-paced replay is deferred until the fast path is proven.
 - Registries are metadata catalogs, not compute/runtime systems. Feature and model parity checks must pass.
+
+## Replay Harness: Purpose and Design
+
+Purpose
+- Prove the system can make trading decisions from historical market data replayed as if it were live.
+- Validate end-to-end plumbing: data -> features -> model -> signals -> strategy decisions -> order intents.
+- Focus on correctness and protocol compliance, not profitability or fidelity metrics.
+
+Design
+- Input: a small symbol set from `data/catalog` (Parquet bars) with known coverage.
+- Execution: backtest-style run with TestClock for fast validation; actor and strategy run on normal production code paths.
+- Outputs: predictions, strategy signals, and order intents persisted to JSONL (or Postgres if available) plus logs/health checks.
+- Order submission: stubbed JSONL writer so decisions are captured without broker integration.
+- Message bus: optional Redis publishing when enabled; otherwise rely on JSONL outputs.
+- Live-paced replay (deferred): use a catalog-backed data client that emits bars in timestamp order and sleeps by `ts_event`
+  deltas inside a TradingNode, with an optional speed factor.
 
 ## Registration Semantics (What "Register" Means)
 
@@ -70,7 +86,7 @@ All runtime components reference registry IDs to validate compatibility and depl
 - Exclude symbols that require suffix parsing (e.g., `BRK.B`) until symbol parsing is fixed.
 - Export:
   - `ML_TFT_ALLOW_PARQUET_FALLBACK=1`
-  - `ML_FILE_STORE_PATH=ml_out/pipeline_validation_option2`
+  - `ML_FILE_STORE_PATH=ml_out/parquet_live_replay_harness`
 - Decide persistence target:
   - JSONL outputs require PostgreSQL to be unavailable (file fallback), otherwise data
     is written to Postgres.
@@ -99,6 +115,7 @@ All runtime components reference registry IDs to validate compatibility and depl
 
 ### Phase 3: Actor + Strategy Harness (Signals + Decisions)
 
+- Entry point: `ml/cli/parquet_live_replay_harness.py` (fast/TestClock mode).
 - Configure `MLSignalActor` (or `MLSignalActorFacade`) to load the ONNX model.
 - Configure `MLStrategyConfig` with:
   - `execute_trades=False`
@@ -111,14 +128,30 @@ All runtime components reference registry IDs to validate compatibility and depl
 ### Phase 4: Order-Intent Serialization (Manual Review)
 
 - Use file-backed stores (`ML_FILE_STORE_PATH`) to capture (file fallback only):
-  - Predictions: `ml_out/pipeline_validation_option2/models/predictions.jsonl`
-  - Strategy decisions: `ml_out/pipeline_validation_option2/strategies/signals.jsonl`
+  - Predictions: `ml_out/parquet_live_replay_harness/models/predictions.jsonl`
+  - Strategy decisions: `ml_out/parquet_live_replay_harness/strategies/signals.jsonl`
 - Provide a minimal order submission stub (submit-order callback) that serializes
-  order intents to `ml_out/pipeline_validation_option2/orders/order_intents.jsonl`.
+  order intents to `ml_out/parquet_live_replay_harness/orders/order_intents.jsonl`.
 - Re-run with `execute_trades=True` so the strategy actually calls the submit path,
   but keep the stubbed callback in place to avoid broker integration.
 - Optional: add a file-backed `MessagePublisherProtocol` if we want bus-style events;
   otherwise rely on JSONL store outputs.
+
+### Phase 4b: E2E Replay Trial (Fast Path + PnL Approximation)
+
+- Select 3-5 instruments that have both bar and quote-tick coverage in `data/catalog`.
+- Choose a narrow time window (1-2 hours) to keep the run fast; verify the window exists in the catalog.
+- Run the harness with execution enabled and quote-tick subscriptions (PNL requires live order submission):
+  - Ensure `--execute-trades` is set.
+  - Do not set `--serialize-order-intents` for the PnL run (order intents are not submitted when serialization is enabled).
+  - Set `--subscribe-quote-ticks` and optionally `--max-quote-age-ms` to guard stale quotes.
+- Capture and review outputs:
+  - Predictions: `ml_out/parquet_live_replay_harness/<run_id>/models/predictions.jsonl`
+  - Strategy decisions: `ml_out/parquet_live_replay_harness/<run_id>/strategies/signals.jsonl`
+  - Backtest results: `ml_out/parquet_live_replay_harness/<run_id>/backtest_result.json`
+- If order-intent serialization is required for audit, run a second pass with `--serialize-order-intents`
+  and note that PnL is not produced in that mode.
+- Treat PnL as a backtest approximation; this run does not connect to a live broker or the full ingestion pipeline.
 
 ### Phase 5: Observability + Health
 
@@ -139,7 +172,10 @@ All runtime components reference registry IDs to validate compatibility and depl
 - Rehydrate PostgreSQL from the parquet catalog backup when needed.
 - Re-run Phase 3-6 with Postgres persistence to validate DB interactions.
 
-## Recent Runs (Option 2 Validation)
+## Recent Runs (Legacy Option 2 Validation)
+
+Note: These runs predate the parquet_live_replay_harness naming update; outputs remain
+under `ml_out/pipeline_validation_option2`.
 
 - 2026-01-14: `run_2025-11-28_5sym_2h_v5` (SPY,AAPL,MSFT,AMZN,NVDA), window
   2025-11-28 14:30-16:30 UTC, TestClock fast path, strict feature parity enabled.
@@ -172,7 +208,7 @@ All runtime components reference registry IDs to validate compatibility and depl
 - Health checks show all stores and registries in healthy or expected fallback states.
 - Model registration validates feature parity (strict mode if enabled).
 
-## Follow-Ups After Option 2
+## Follow-Ups After Parquet Live Replay Harness
 
 - Scale to 50-60 symbols after Chronos2 GPU constraints are addressed.
 - Replace broker stub with real broker integration.

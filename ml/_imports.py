@@ -27,10 +27,13 @@ except Exception:
 # Early placeholders to avoid attribute errors during partial initialization
 pl: ModuleType | None = None
 pd: ModuleType | None = None
+pa: ModuleType | None = None
+pq: ModuleType | None = None
 ort: ModuleType | None = None
 redis: ModuleType | None = None
 ag_space: ModuleType | None = None
 HAS_PANDAS = False
+HAS_PYARROW = False
 HAS_REDIS = False
 HAS_AUTOGLUON_SPACE = False
 
@@ -38,6 +41,7 @@ HAS_AUTOGLUON_SPACE = False
 PROMETHEUS_IMPORT_ERROR: Exception | None = None
 REDIS_IMPORT_ERROR: Exception | None = None
 AUTOGLUON_SPACE_IMPORT_ERROR: Exception | None = None
+PYARROW_IMPORT_ERROR: Exception | None = None
 
 
 # Type checking imports (always available, no runtime cost)
@@ -216,6 +220,22 @@ except ImportError as e:
     pd = None  # type: ignore[assignment,unused-ignore]
 
 
+# PyArrow (parquet metadata/IO)
+try:
+    import pyarrow as _pa_runtime
+    import pyarrow.parquet as _pq_runtime
+
+    pa = _pa_runtime
+    pq = _pq_runtime
+    HAS_PYARROW = True
+    PYARROW_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_PYARROW = False
+    PYARROW_IMPORT_ERROR = e
+    pa = None  # type: ignore[assignment,unused-ignore]
+    pq = None  # type: ignore[assignment,unused-ignore]
+
+
 # AutoGluon TimeSeries
 try:
     from autogluon.timeseries import TimeSeriesDataFrame as TimeSeriesDataFrame
@@ -347,7 +367,9 @@ EDGARTOOLS_IMPORT_ERROR: Exception | None
 try:
     import importlib.util as _importlib_util
 
-    _EDGARTOOLS_SPEC = _importlib_util.find_spec("edgartools")
+    _EDGARTOOLS_SPEC = _importlib_util.find_spec("edgar")
+    if _EDGARTOOLS_SPEC is None:
+        _EDGARTOOLS_SPEC = _importlib_util.find_spec("edgartools")
 except Exception as e:  # pragma: no cover - environment dependent
     _EDGARTOOLS_SPEC = None
     _EDGARTOOLS_SPEC_ERROR = e
@@ -370,11 +392,14 @@ def load_edgartools() -> ModuleType:
     if edgartools is not None:
         return edgartools
     try:
-        import edgartools as _edgartools
-    except ImportError as e:
-        HAS_EDGARTOOLS = False
-        EDGARTOOLS_IMPORT_ERROR = e
-        raise
+        import edgar as _edgartools
+    except ImportError:
+        try:
+            import edgartools as _edgartools
+        except ImportError as e:
+            HAS_EDGARTOOLS = False
+            EDGARTOOLS_IMPORT_ERROR = e
+            raise
     edgartools = cast(ModuleType, _edgartools)
     HAS_EDGARTOOLS = True
     EDGARTOOLS_IMPORT_ERROR = None
@@ -519,7 +544,7 @@ def check_ml_dependencies(required: list[str]) -> None:
     ----------
     required : list[str]
         Supported keys: onnx, polars, xgboost, lightgbm, sklearn,
-        optuna, mlflow, prometheus, onnx_export, pandas, databento,
+        optuna, mlflow, prometheus, onnx_export, pandas, pyarrow, databento,
         pandas_market_calendars, autogluon
 
     Raises
@@ -548,6 +573,7 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"ONNX export tools (onnxmltools, skl2onnx) required. Original error: {ONNX_EXPORT_IMPORT_ERROR}",
         ),
         "pandas": (HAS_PANDAS, f"Pandas required. Original error: {PANDAS_IMPORT_ERROR}"),
+        "pyarrow": (HAS_PYARROW, f"PyArrow required. Original error: {PYARROW_IMPORT_ERROR}"),
         "autogluon": (
             HAS_AUTOGLUON,
             f"AutoGluon required. Original error: {AUTOGLUON_IMPORT_ERROR}",
@@ -622,6 +648,7 @@ __all__ = [
     "HAS_PANDERA",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
+    "HAS_PYARROW",
     "HAS_REDIS",
     "HAS_SKLEARN",
     "HAS_TORCH",
@@ -640,6 +667,7 @@ __all__ = [
     "PANDERA_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
+    "PYARROW_IMPORT_ERROR",
     "REDIS_IMPORT_ERROR",
     "REGISTRY",
     "SKLEARN_IMPORT_ERROR",
@@ -669,8 +697,10 @@ __all__ = [
     "otel_context",
     "otel_propagate",
     "otel_trace",
+    "pa",
     "pd",
     "pl",
+    "pq",
     "redis",
     "skl2onnx",
     "sklearn",

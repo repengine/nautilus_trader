@@ -38,6 +38,12 @@ data/catalog
 data/catalog/
 data/features
 data/features/
+data/features/macro
+data/features/macro/
+data/features/events
+data/features/events/
+data/features/earnings_raw
+data/features/earnings_raw/
 data/earnings_raw
 data/earnings_raw/
 data/events

@@ -52,18 +52,24 @@ class DeterministicOnnxSession:
     raise_on_run: bool = False
 
     _inputs: tuple[SimpleNamespace, ...] = (
-        SimpleNamespace(name="features"),
+        SimpleNamespace(name="features", shape=(None, 10), type="float"),
     )
     _outputs: tuple[SimpleNamespace, ...] = (
-        SimpleNamespace(name="prediction"),
-        SimpleNamespace(name="confidence"),
+        SimpleNamespace(name="prediction", shape=(None,), type="float"),
+        SimpleNamespace(name="confidence", shape=(None,), type="float"),
     )
 
     def get_inputs(self) -> list[SimpleNamespace]:
-        return [SimpleNamespace(name=item.name) for item in self._inputs]
+        return [
+            SimpleNamespace(name=item.name, shape=item.shape, type=item.type)
+            for item in self._inputs
+        ]
 
     def get_outputs(self) -> list[SimpleNamespace]:
-        return [SimpleNamespace(name=item.name) for item in self._outputs]
+        return [
+            SimpleNamespace(name=item.name, shape=item.shape, type=item.type)
+            for item in self._outputs
+        ]
 
     def run(
         self,

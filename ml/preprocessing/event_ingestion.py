@@ -9,6 +9,7 @@ import logging
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -20,6 +21,8 @@ from ml._imports import pl
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.events import Source
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config.ingestion_windows import events_window_defaults
 from ml.ml_types import PolarsDF
 from ml.stores.protocols import DataStoreFacadeProtocol
 
@@ -91,17 +94,44 @@ def _quarterly_months() -> tuple[int, ...]:
 class EventIngestionConfig:
     """
     Configuration for :class:`EventIngestionUtility`.
+
+    Attributes
+    ----------
+    start : datetime
+        Inclusive start datetime for event ingestion.
+    end : datetime
+        Inclusive end datetime for event ingestion.
+    out_dir : Path
+        Output directory for event artifacts.
+    write_parquet : bool
+        Whether to persist events to parquet on disk.
+    alfred_vintage_dir : Path | None
+        Optional ALFRED vintages directory to load macro release events.
+    economic_series : tuple[str, ...]
+        Macro series identifiers for economic stub events.
+    economic_stub_path : Path | None
+        Optional custom stub data for economic events.
+    corporate_source_path : Path | None
+        Optional corporate events file path.
+    calendar_code : str
+        Exchange calendar code for holiday schedules.
+    include_options_expiry : bool
+        Whether to include options expiry events.
+    watermark_config : WatermarkWindowConfig
+        Window configuration used to derive incremental ranges from watermarks.
     """
 
     start: datetime
     end: datetime
-    out_dir: Path = Path("data/events")
+    out_dir: Path = Path("data/features/events")
+    write_parquet: bool = True
     alfred_vintage_dir: Path | None = None
     economic_series: tuple[str, ...] = ("CPI",)
     economic_stub_path: Path | None = None
     corporate_source_path: Path | None = None
     calendar_code: str = "XNYS"
     include_options_expiry: bool = True
+    watermark_config: WatermarkWindowConfig = field(default_factory=events_window_defaults)
 
     def __post_init__(self) -> None:
         if self.end <= self.start:
@@ -139,7 +169,8 @@ class EventIngestionUtility:
         out_dir = self._cfg.out_dir.expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         target = out_dir / "events.parquet"
-        events_df.write_parquet(target)
+        if self._cfg.write_parquet:
+            events_df.write_parquet(target)
         if self._data_store is not None:
             self._ingest_sql(events_df)
         return target
@@ -194,7 +225,10 @@ class EventIngestionUtility:
         prepared = (
             frame.with_columns(
                 [
-                    _pl.col("event_timestamp").cast(_pl.Datetime("ns")).alias("event_timestamp"),
+                    _pl.col("event_timestamp")
+                    .cast(_pl.Datetime("ns"))
+                    .cast(_pl.Int64)
+                    .alias("event_timestamp"),
                     _pl.col("event_timestamp")
                     .cast(_pl.Datetime("ns"))
                     .cast(_pl.Int64)

@@ -114,6 +114,97 @@ def test_fit_streaming_returns_logits(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
+    not (HAS_PANDAS and HAS_TORCH and HAS_PYTORCH_FORECASTING),
+    reason="Streaming training requires pandas, torch, and pytorch-forecasting",
+)
+def test_fit_streaming_multiple_instruments_bootstrap_encoders(tmp_path: Path) -> None:
+    """Ensure categorical encoders cover full vocab even with small bootstrap sample."""
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas import guard triggered")
+
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(20, dtype=np.int64),
+            "instrument_id": ["AAPL"] * 10 + ["MSFT"] * 10,
+            "y": np.linspace(0.0, 1.0, num=20, dtype=np.float32),
+            "feature": np.linspace(10.0, 30.0, num=20, dtype=np.float32),
+        },
+    )
+    parquet_path = tmp_path / "stream_multi.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    metadata = stream.collect_streaming_metadata(
+        parquet_path,
+        feature_names=("feature", "y"),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature", "y"),
+        group_id_col="instrument_id",
+        time_index_col="time_index",
+        target_col="y",
+        shard_row_budget=10,
+    )
+    train_meta, val_meta = split_metadata_by_row_fraction(metadata, train_fraction=0.8)
+
+    config = TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=4,
+        max_prediction_length=1,
+        batch_size=4,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=7,
+        num_workers=0,
+        max_shards=2,
+        max_total_rows=10,
+        max_total_sequences=100,
+    )
+
+    train_loader = stream.build_streaming_dataloader(parquet_path, train_meta, config)
+    val_loader = stream.build_streaming_dataloader(parquet_path, val_meta, config)
+
+    teacher = TFTTeacher(
+        TFTTeacherConfig(architecture="TFT"),
+        max_encoder_length=4,
+        max_prediction_length=1,
+        static_categoricals=("instrument_id",),
+        static_reals=(),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        max_epochs=1,
+        batch_size=4,
+        dataloader_workers=0,
+    )
+    result = teacher.fit_streaming(
+        parquet_path=parquet_path,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        train_metadata=train_meta,
+        val_metadata=val_meta,
+        full_metadata=metadata,
+        streaming_config=config,
+        bootstrap_sample_rows=4,
+    )
+
+    assert result.z_train.size > 0
+    assert result.z_val.size > 0
+    assert result.y_val.size == result.z_val.size
+    assert result.val_rows is not None
+    observed = set(result.val_rows.instrument_ids.tolist())
+    assert observed
+    assert observed.issubset({"AAPL", "MSFT"})
+
+
+@pytest.mark.skipif(
     not (HAS_TORCH and _torch is not None),
     reason="Torch required to verify device alignment",
 )

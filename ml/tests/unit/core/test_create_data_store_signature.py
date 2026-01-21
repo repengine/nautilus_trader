@@ -87,6 +87,7 @@ class TestCreateDataStoreSignature:
             "registry",
             "connection_string",
             "feature_store",
+            "feature_dataset_store",
             "model_store",
             "strategy_store",
             "earnings_store",
@@ -281,6 +282,7 @@ class TestCreateDataStoreSignature:
         hints = get_type_hints(create_data_store)
         store_params = {
             "feature_store": "FeatureStore",
+            "feature_dataset_store": "FeatureDatasetStore",
             "model_store": "ModelStore",
             "strategy_store": "StrategyStore",
             "earnings_store": "EarningsStore",
@@ -379,6 +381,7 @@ class TestCreateDataStoreRuntime:
                 connection_string=str(kwargs.get("connection_string", "")),
                 registry=kwargs.get("registry"),
                 feature_store=kwargs.get("feature_store"),
+                feature_dataset_store=kwargs.get("feature_dataset_store"),
                 model_store=kwargs.get("model_store"),
                 strategy_store=kwargs.get("strategy_store"),
                 earnings_store=kwargs.get("earnings_store"),
@@ -394,6 +397,7 @@ class TestCreateDataStoreRuntime:
                 registry=mock_registry,
                 connection_string=TEST_DB_CONNECTION,
                 feature_store=mock_feature_store,
+                feature_dataset_store=Mock(),
                 model_store=mock_model_store,
                 strategy_store=mock_strategy_store,
                 earnings_store=mock_earnings_store,
@@ -442,6 +446,7 @@ class TestCreateDataStoreRuntime:
                 connection_string=str(kwargs.get("connection_string", "")),
                 registry=kwargs.get("registry"),
                 feature_store=kwargs.get("feature_store"),
+                feature_dataset_store=kwargs.get("feature_dataset_store"),
                 model_store=kwargs.get("model_store"),
                 strategy_store=kwargs.get("strategy_store"),
                 earnings_store=kwargs.get("earnings_store"),
@@ -463,6 +468,7 @@ class TestCreateDataStoreRuntime:
 
             # Verify optional parameters defaulted to None
             assert result._config.feature_store is None, "feature_store should default to None"
+            assert result._config.feature_dataset_store is None, "feature_dataset_store should default to None"
             assert result._config.model_store is None, "model_store should default to None"
             assert result._config.strategy_store is None, "strategy_store should default to None"
             assert result._config.earnings_store is None, "earnings_store should default to None"

@@ -598,6 +598,8 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
     logits_artifact_key: str = "logits"
     validation_metric: str = "roc_auc"
     gpu_memory_monitor_interval_seconds: NonNegativeFloat | None = 30.0
+    rss_guard_threshold_mb: PositiveFloat | None = None
+    rss_guard_max_workers: NonNegativeInt | None = None
     hidden_size: PositiveInt = 16
     lstm_layers: PositiveInt = 1
     attention_head_size: PositiveInt = 2
@@ -624,6 +626,7 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
     curriculum: CurriculumScheduleConfig = msgspec_field(default_factory=CurriculumScheduleConfig)
     ensemble: StreamingEnsembleConfig = msgspec_field(default_factory=StreamingEnsembleConfig)
     validation_return_column: str | None = "forward_return"
+    validation_join_chunk_rows: PositiveInt = 50_000
     dataset_seed: NonNegativeInt | None = None
     worker_seed: NonNegativeInt | None = None
 
@@ -649,6 +652,8 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             self.gpu_memory_monitor_interval_seconds,
         ) <= 0.0:
             raise ValidationError("gpu_memory_monitor_interval_seconds must be > 0 when set")
+        if self.rss_guard_threshold_mb is not None and self.rss_guard_max_workers is None:
+            raise ValidationError("rss_guard_max_workers must be set when rss_guard_threshold_mb is set")
         if int(self.max_epochs) < 1:
             raise ValidationError("max_epochs must be >= 1")
         if int(self.bootstrap_sample_rows) < 1:
@@ -720,6 +725,8 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             ML_STREAMING_LOGITS_KEY: artifact key for logits
             ML_STREAMING_VALIDATION_METRIC: validation metric name
             ML_STREAMING_GPU_MONITOR_INTERVAL_SECONDS: GPU monitor interval (<=0 disables)
+            ML_STREAMING_RSS_GUARD_THRESHOLD_MB: RSS threshold in MB for worker guard
+            ML_STREAMING_RSS_GUARD_MAX_WORKERS: max dataloader workers when guard triggers
             ML_STREAMING_TFT_HIDDEN_SIZE: integer TFT hidden dimension
             ML_STREAMING_TFT_LSTM_LAYERS: integer LSTM layer count
             ML_STREAMING_TFT_ATTENTION_HEAD_SIZE: integer attention head size
@@ -730,6 +737,7 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             ML_STREAMING_TFT_LOSS: teacher loss function (bce, poisson)
             ML_STREAMING_TFT_LOSS_POS_WEIGHT: positive class weight for BCE (>0)
             ML_STREAMING_VALIDATION_RETURN_COLUMN: forward-return column name (blank disables)
+            ML_STREAMING_VALIDATION_JOIN_CHUNK_ROWS: integer row count for validation join chunks
             ML_STREAMING_CHECKPOINT_DIR: directory used to persist checkpoints
             ML_STREAMING_CHECKPOINT_INTERVAL_SECONDS: positive float cadence for checkpoint saves
             ML_STREAMING_CHECKPOINT_INTERVAL_STEPS: positive integer step cadence for checkpoint saves
@@ -746,6 +754,16 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             except ValueError:
                 return default
             return None if value <= 0 else value
+
+        def _nonneg_int(name: str, default: int | None) -> int | None:
+            raw = source.get(name)
+            if raw is None:
+                return default
+            try:
+                value = int(str(raw).strip())
+            except ValueError:
+                return default
+            return value if value >= 0 else default
 
         def _float(name: str, default: float) -> float:
             raw = source.get(name)
@@ -901,6 +919,8 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             logits_artifact_key=str(source.get("ML_STREAMING_LOGITS_KEY", "logits")),
             validation_metric=_metric("ML_STREAMING_VALIDATION_METRIC", "roc_auc"),
             gpu_memory_monitor_interval_seconds=_optional_float("ML_STREAMING_GPU_MONITOR_INTERVAL_SECONDS", 30.0),
+            rss_guard_threshold_mb=_optional_float("ML_STREAMING_RSS_GUARD_THRESHOLD_MB", None),
+            rss_guard_max_workers=_nonneg_int("ML_STREAMING_RSS_GUARD_MAX_WORKERS", None),
             hidden_size=int(_int("ML_STREAMING_TFT_HIDDEN_SIZE", 16) or 16),
             lstm_layers=int(_int("ML_STREAMING_TFT_LSTM_LAYERS", 1) or 1),
             attention_head_size=int(_int("ML_STREAMING_TFT_ATTENTION_HEAD_SIZE", 2) or 2),
@@ -960,6 +980,9 @@ class StreamingWorkerConfig(NautilusConfig, kw_only=True, frozen=True):
             validation_return_column=_optional_str(
                 "ML_STREAMING_VALIDATION_RETURN_COLUMN",
                 "forward_return",
+            ),
+            validation_join_chunk_rows=int(
+                _int("ML_STREAMING_VALIDATION_JOIN_CHUNK_ROWS", 50_000) or 50_000,
             ),
             dataset_seed=_env_seed(source, "ML_STREAMING_DATASET_SEED", None),
             worker_seed=_env_seed(source, "ML_STREAMING_WORKER_SEED", None),

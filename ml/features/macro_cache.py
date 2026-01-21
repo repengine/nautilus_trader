@@ -99,7 +99,7 @@ class MacroDataCache:
     Parameters
     ----------
     vintage_base_dir : Path
-        Directory containing ALFRED vintage data (data/fred/vintages/).
+        Directory containing ALFRED vintage data (data/features/macro/fred/vintages/).
     series_ids : list[str]
         List of FRED series to cache.
     enable_revisions : bool, default True

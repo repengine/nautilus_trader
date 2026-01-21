@@ -13,7 +13,7 @@ This module tests the event ingestion component extracted from MLIntegrationMana
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +25,10 @@ from unittest.mock import patch
 import pytest
 
 from ml.core.common.event_ingestion import EventIngestionComponent
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.events import Source
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.registry.watermark import Watermark
 from ml.tests.utils.db import build_postgres_url
 
 
@@ -73,7 +77,9 @@ class MockEventIngestionConfig:
 
     start: datetime = datetime(2024, 1, 1, tzinfo=UTC)
     end: datetime = datetime(2024, 1, 31, tzinfo=UTC)
-    out_dir: Path = Path("./data/events")
+    out_dir: Path = Path("./data/features/events")
+    write_parquet: bool = True
+    watermark_config: WatermarkWindowConfig = field(default_factory=WatermarkWindowConfig)
 
 
 # =============================================================================
@@ -94,7 +100,7 @@ class TestHappyPath:
         Expected Behavior: Returns Path to events.parquet.
         """
         config = MockEventIngestionConfig()
-        expected_path = Path("./data/events/events.parquet")
+        expected_path = Path("./data/features/events/events.parquet")
 
         # Mock the EventIngestionUtility at the source module
         mock_utility_class = MagicMock()
@@ -114,6 +120,123 @@ class TestHappyPath:
         assert isinstance(result, Path)
         assert result == expected_path
 
+    def test_ingest_events_passes_data_store_when_available(
+        self,
+        event_ingestion_component: EventIngestionComponent,
+    ) -> None:
+        """Verify DataStore is injected when available.
+
+        Input: Config with DataStore available.
+        Expected Behavior: Utility receives data_store and parquet writing disabled.
+        """
+        config = MockEventIngestionConfig()
+        expected_path = Path("./data/features/events/events.parquet")
+        stub_store = MagicMock()
+        stub_store.registry = None
+        captured: dict[str, Any] = {}
+
+        class _StubUtility:
+            def __init__(
+                self,
+                cfg: MockEventIngestionConfig,
+                *,
+                data_store: object | None = None,
+                ingest_run_id: str | None = None,
+            ) -> None:
+                captured["cfg"] = cfg
+                captured["data_store"] = data_store
+                captured["ingest_run_id"] = ingest_run_id
+
+            def ingest(self) -> Path:
+                return expected_path
+
+        mock_module = MagicMock()
+        mock_module.EventIngestionUtility = _StubUtility
+
+        with patch.dict(sys.modules, {"ml.preprocessing.event_ingestion": mock_module}):
+            with patch.object(
+                event_ingestion_component,
+                "_build_data_store",
+                return_value=stub_store,
+            ):
+                result = event_ingestion_component.ingest_events(config)
+
+        assert result == expected_path
+        assert captured["data_store"] is stub_store
+        assert captured["cfg"].write_parquet is False
+
+    def test_ingest_events_applies_watermark_window(
+        self,
+        event_ingestion_component: EventIngestionComponent,
+    ) -> None:
+        """Verify watermark window adjusts the start date when registry has watermarks."""
+        watermark_ts = datetime(2024, 1, 20, tzinfo=UTC)
+        watermark_ns = int(watermark_ts.timestamp() * 1_000_000_000)
+        config = MockEventIngestionConfig(
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 31, tzinfo=UTC),
+            watermark_config=WatermarkWindowConfig(
+                use_watermark=True,
+                lookback_days=1,
+                max_window_days=None,
+                fallback_start_days=None,
+            ),
+        )
+        expected_start = datetime(2024, 1, 19, tzinfo=UTC)
+        expected_path = Path("./data/features/events/events.parquet")
+
+        class _Registry:
+            def get_watermark(
+                self,
+                dataset_id: str,
+                instrument_id: str,
+                source: Source | str,
+            ) -> Watermark | None:
+                return Watermark(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    source=str(source),
+                    last_success_ns=watermark_ns,
+                    last_attempt_ns=watermark_ns,
+                    last_count=1,
+                    completeness_pct=100.0,
+                    updated_at=0.0,
+                )
+
+        stub_registry = _Registry()
+        stub_store = MagicMock()
+        stub_store.registry = stub_registry
+        captured: dict[str, Any] = {}
+
+        class _StubUtility:
+            def __init__(
+                self,
+                cfg: MockEventIngestionConfig,
+                *,
+                data_store: object | None = None,
+                ingest_run_id: str | None = None,
+            ) -> None:
+                captured["cfg"] = cfg
+                captured["data_store"] = data_store
+                captured["ingest_run_id"] = ingest_run_id
+
+            def ingest(self) -> Path:
+                return expected_path
+
+        mock_module = MagicMock()
+        mock_module.EventIngestionUtility = _StubUtility
+
+        with patch.dict(sys.modules, {"ml.preprocessing.event_ingestion": mock_module}):
+            with patch.object(
+                event_ingestion_component,
+                "_build_data_store",
+                return_value=stub_store,
+            ):
+                result = event_ingestion_component.ingest_events(config)
+
+        assert result == expected_path
+        assert captured["cfg"].start == expected_start
+
     def test_ingest_events_success_metric_emitted(
         self,
         event_ingestion_component: EventIngestionComponent,
@@ -124,7 +247,7 @@ class TestHappyPath:
         Expected Behavior: Success metric incremented.
         """
         config = MockEventIngestionConfig()
-        expected_path = Path("./data/events/events.parquet")
+        expected_path = Path("./data/features/events/events.parquet")
 
         # Mock the utility
         mock_utility_class = MagicMock()
@@ -199,7 +322,7 @@ class TestHappyPath:
         import logging
 
         config = MockEventIngestionConfig()
-        expected_path = Path("./data/events/events.parquet")
+        expected_path = Path("./data/features/events/events.parquet")
 
         mock_utility_class = MagicMock()
         mock_utility_instance = MagicMock()
@@ -679,7 +802,7 @@ class TestParityWithLegacy:
         import logging
 
         config = MockEventIngestionConfig()
-        expected_path = Path("./data/events/events.parquet")
+        expected_path = Path("./data/features/events/events.parquet")
 
         mock_utility_class = MagicMock()
         mock_utility_instance = MagicMock()

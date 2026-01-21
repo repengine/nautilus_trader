@@ -576,7 +576,7 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
-    """
+    r"""
     Configuration for ML-based trading strategies.
 
     Parameters
@@ -610,6 +610,12 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     order_intent_path : str | None, optional
         Explicit JSONL output path for order intents. If None, uses ML_FILE_STORE_PATH
         when serialization is enabled.
+    subscribe_quote_ticks : bool, default False
+        Whether to subscribe to quote ticks for execution market state.
+    quote_schema : str | None, optional
+        Optional quote schema parameter passed to the data client (e.g., \"mbp-1\").
+    max_quote_age_ms : NonNegativeInt | None, optional
+        Maximum age in milliseconds allowed for quote ticks used in execution.
 
     """
 
@@ -626,6 +632,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     execute_trades: bool = False
     serialize_order_intents: bool = False
     order_intent_path: str | None = None
+    subscribe_quote_ticks: bool = False
+    quote_schema: str | None = None
+    max_quote_age_ms: NonNegativeInt | None = None
     # Optional sub-configs for strategy components (protocol-first)
     sizing_config: _SizingConfig | None = None
     risk_config: _RiskConfig | None = None
@@ -649,6 +658,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             raise ValidationError("stop_loss_pct must be non-negative")
         if self.take_profit_pct < 0.0:
             raise ValidationError("take_profit_pct must be non-negative")
+        if self.quote_schema is not None and not self.quote_schema.strip():
+            raise ValidationError("quote_schema must be non-empty when provided")
 
     @classmethod
     def from_env(
@@ -683,6 +694,12 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Toggle JSONL order intent serialization.
         ML_ORDER_INTENT_PATH
             Explicit JSONL path for order intent outputs.
+        ML_SUBSCRIBE_QUOTE_TICKS
+            Toggle quote tick subscriptions for execution market state.
+        ML_QUOTE_SCHEMA
+            Optional schema value for quote tick subscriptions.
+        ML_MAX_QUOTE_AGE_MS
+            Maximum quote tick age in milliseconds allowed for execution.
 
         """
         source = _ensure_env(env)
@@ -724,6 +741,21 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         execute_trades = _env_truthy(source, "ML_EXECUTE_TRADES", False)
         serialize_order_intents = _env_truthy(source, "ML_SERIALIZE_ORDER_INTENTS", False)
         order_intent_path = source.get("ML_ORDER_INTENT_PATH")
+        subscribe_quote_ticks = _env_truthy(source, "ML_SUBSCRIBE_QUOTE_TICKS", False)
+        quote_schema = source.get("ML_QUOTE_SCHEMA")
+        max_quote_age_ms: int | None = None
+        raw_quote_age = source.get("ML_MAX_QUOTE_AGE_MS")
+        if raw_quote_age is not None:
+            try:
+                max_quote_age_ms = int(raw_quote_age)
+                if max_quote_age_ms < 0:
+                    raise ValueError("max_quote_age_ms must be non-negative")
+            except ValueError:
+                LOGGER.debug(
+                    "invalid_int_env_override",
+                    extra={"key": "ML_MAX_QUOTE_AGE_MS", "value": raw_quote_age},
+                )
+                max_quote_age_ms = None
 
         return cls(
             instrument_id=instrument_id,
@@ -739,6 +771,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             execute_trades=execute_trades,
             serialize_order_intents=serialize_order_intents,
             order_intent_path=order_intent_path,
+            subscribe_quote_ticks=subscribe_quote_ticks,
+            quote_schema=quote_schema,
+            max_quote_age_ms=max_quote_age_ms,
             sizing_config=None,
             risk_config=None,
             execution_config=None,

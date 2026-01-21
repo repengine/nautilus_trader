@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.common.protocols import StoreOperationsProtocol
     from ml.stores.earnings_store import EarningsStore
+    from ml.stores.feature_dataset_store import FeatureDatasetStore
     from ml.stores.feature_store import FeatureStore
     from ml.stores.io_raw import RawReaderProtocol
     from ml.stores.model_store import ModelStore
@@ -76,6 +77,8 @@ class DataStoreConfig:
         Data registry for manifests and contracts
     feature_store : FeatureStore | None
         Feature store instance
+    feature_dataset_store : FeatureDatasetStore | None
+        Feature dataset store for macro/events/micro/L2 data
     model_store : ModelStore | None
         Model store instance
     strategy_store : StrategyStore | None
@@ -108,6 +111,7 @@ class DataStoreConfig:
     connection_string: str
     registry: RegistryProtocol | None = None
     feature_store: FeatureStore | None = None
+    feature_dataset_store: FeatureDatasetStore | None = None
     model_store: ModelStore | None = None
     strategy_store: StrategyStore | None = None
     earnings_store: EarningsStore | None = None
@@ -192,6 +196,7 @@ class DataStoreFacade(DataRegistryMixin):
         connection_string: str | None = None,
         registry: RegistryProtocol | None = None,
         feature_store: FeatureStore | None = None,
+        feature_dataset_store: FeatureDatasetStore | None = None,
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
         earnings_store: EarningsStore | None = None,
@@ -222,6 +227,7 @@ class DataStoreFacade(DataRegistryMixin):
             connection_string: PostgreSQL connection string (legacy)
             registry: Data registry (legacy)
             feature_store: Feature store instance (legacy)
+            feature_dataset_store: Feature dataset store instance (legacy)
             model_store: Model store instance (legacy)
             strategy_store: Strategy store instance (legacy)
             earnings_store: Earnings store instance (legacy)
@@ -252,6 +258,7 @@ class DataStoreFacade(DataRegistryMixin):
                 connection_string=connection_string,
                 registry=registry,
                 feature_store=feature_store,
+                feature_dataset_store=feature_dataset_store,
                 model_store=model_store,
                 strategy_store=strategy_store,
                 earnings_store=earnings_store,
@@ -471,6 +478,7 @@ class DataStoreFacade(DataRegistryMixin):
 
         return DataWriterComponent(
             feature_store=self._config.feature_store,
+            feature_dataset_store=self._config.feature_dataset_store,
             model_store=self._config.model_store,
             strategy_store=self._config.strategy_store,
             earnings_store=self._config.earnings_store,

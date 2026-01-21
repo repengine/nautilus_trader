@@ -72,6 +72,12 @@ def mock_subscribe_instrument() -> MagicMock:
 
 
 @pytest.fixture
+def mock_subscribe_quote_ticks() -> MagicMock:
+    """Create a mock subscribe_quote_ticks callback."""
+    return MagicMock()
+
+
+@pytest.fixture
 def lifecycle_component(
     mock_logger: MagicMock,
     mock_subscribe_data: MagicMock,
@@ -215,6 +221,70 @@ class TestOnStartInstrumentSubscription:
         call_args = mock_subscribe_instrument.call_args
         instrument_id = call_args[0][0]  # First positional argument
         assert str(instrument_id) == "EURUSD.SIM"
+
+
+# ---------------------------------------------------------------------------
+# Test Class: on_start - Quote Tick Subscriptions
+# ---------------------------------------------------------------------------
+
+
+class TestOnStartQuoteTickSubscription:
+    """Test on_start quote tick subscription behavior."""
+
+    def test_on_start_subscribes_to_quote_ticks_with_schema(
+        self,
+        mock_logger: MagicMock,
+        mock_subscribe_data: MagicMock,
+        mock_subscribe_instrument: MagicMock,
+        mock_subscribe_quote_ticks: MagicMock,
+    ) -> None:
+        """Verify quote tick subscription is called with schema params."""
+        instrument_id = create_instrument_id("EURUSD.SIM")
+        component = LifecycleComponent(
+            strategy_id="test_strategy",
+            instrument_id=instrument_id,
+            signal_client_id=None,
+            execute_trades=True,
+            subscribe_quote_ticks=True,
+            quote_schema="mbp-1",
+            subscribe_data_callback=mock_subscribe_data,
+            subscribe_instrument_callback=mock_subscribe_instrument,
+            subscribe_quote_ticks_callback=mock_subscribe_quote_ticks,
+            log=mock_logger,
+        )
+
+        component.on_start()
+
+        mock_subscribe_quote_ticks.assert_called_once_with(
+            instrument_id,
+            params={"schema": "mbp-1"},
+        )
+
+    def test_on_start_logs_warning_when_quote_callback_missing(
+        self,
+        mock_logger: MagicMock,
+        mock_subscribe_data: MagicMock,
+        mock_subscribe_instrument: MagicMock,
+    ) -> None:
+        """Verify warning is logged when quote subscription callback is missing."""
+        component = LifecycleComponent(
+            strategy_id="test_strategy",
+            instrument_id=create_instrument_id("EURUSD.SIM"),
+            signal_client_id=None,
+            execute_trades=True,
+            subscribe_quote_ticks=True,
+            quote_schema="mbp-1",
+            subscribe_data_callback=mock_subscribe_data,
+            subscribe_instrument_callback=mock_subscribe_instrument,
+            log=mock_logger,
+        )
+
+        component.on_start()
+
+        mock_logger.warning.assert_any_call(
+            "ml_strategy.subscribe_quote_ticks_callback_not_configured "
+            "strategy_id=test_strategy",
+        )
 
 
 # ---------------------------------------------------------------------------

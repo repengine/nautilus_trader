@@ -12,8 +12,8 @@ Example
 >>> from pathlib import Path
 >>> from ml.data.ingest.macro_refresh import ensure_macro_ready
 >>> ensure_macro_ready(
-...     fred_path=Path("data/fred/fred_indicators_ml_format.parquet"),
-...     vintage_dir=Path("data/fred/vintages"),
+...     fred_path=Path("data/features/macro/fred_indicators_ml_format.parquet"),
+...     vintage_dir=Path("data/features/macro/fred/vintages"),
 ...     max_age=timedelta(hours=24),
 ... )  # doctest: +SKIP
 MacroRefreshResult(fred_refreshed=False, alfred_refreshed=False, ...)
@@ -29,15 +29,30 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import structlog
 
+from ml._imports import HAS_POLARS
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.timestamps import sanitize_timestamp_ns
+from ml.common.watermark_window import WatermarkRegistryProtocol
+from ml.common.watermark_window import resolve_watermark_start_datetime
+from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
+from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
+from ml.config.events import Source
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config.ingestion_windows import macro_window_defaults
 
 
 logger = structlog.get_logger(__name__)
+
+
+if TYPE_CHECKING:
+    from ml.stores.protocols import DataStoreFacadeProtocol
 
 _REFRESH_COUNTER = get_counter(
     "ml_macro_refresh_total",
@@ -64,6 +79,184 @@ class MacroRefreshResult:
     alfred_base_dir: Path | None
     fred_error: Exception | None = None
     alfred_error: Exception | None = None
+
+
+def _require_polars() -> Any:
+    if not HAS_POLARS or pl is None:
+        check_ml_dependencies(["polars"])
+    assert pl is not None
+    return cast(Any, pl)
+
+
+def _ingest_macro_observations(
+    *,
+    data_store: DataStoreFacadeProtocol,
+    fred_path: Path,
+    run_id: str,
+    series_ids: Sequence[str] | None,
+    watermark_registry: WatermarkRegistryProtocol | None = None,
+    watermark_config: WatermarkWindowConfig | None = None,
+) -> int:
+    if not fred_path.exists():
+        return 0
+    _pl = _require_polars()
+    frame = _pl.read_parquet(str(fred_path))
+    if frame.is_empty():
+        return 0
+    if series_ids:
+        frame = frame.filter(_pl.col("series_id").is_in(list(series_ids)))
+    if frame.is_empty():
+        return 0
+    ts_init = sanitize_timestamp_ns(time.time_ns(), context="macro_refresh_sql")
+    prepared = (
+        frame.with_columns(
+            [
+                _pl.col("timestamp").cast(_pl.Datetime("ns")).cast(_pl.Int64).alias("observation_ts"),
+                _pl.col("timestamp").cast(_pl.Datetime("ns")).cast(_pl.Int64).alias("ts_event"),
+                _pl.lit(ts_init).alias("ts_init"),
+                _pl.lit("fred").alias("source"),
+                _pl.lit(run_id).alias("run_id"),
+            ],
+        )
+        .select(
+            [
+                "series_id",
+                "observation_ts",
+                "value",
+                "ts_event",
+                "ts_init",
+                "source",
+                "run_id",
+            ],
+        )
+        .drop_nulls(["series_id", "observation_ts", "ts_event"])
+    )
+    if prepared.is_empty():
+        return 0
+    written = 0
+    for group in prepared.partition_by("series_id", maintain_order=True):
+        if group.is_empty():
+            continue
+        series_id = group.get_column("series_id").item(0)
+        if not isinstance(series_id, str) or not series_id:
+            continue
+        if (
+            watermark_registry is not None
+            and watermark_config is not None
+            and watermark_config.use_watermark
+        ):
+            max_ts = group.get_column("ts_event").max()
+            if isinstance(max_ts, int):
+                window_result = resolve_watermark_start_datetime(
+                    registry=watermark_registry,
+                    dataset_id=MACRO_OBSERVATIONS_DATASET_ID,
+                    instrument_ids=[series_id],
+                    source=Source.BACKFILL,
+                    end=datetime.fromtimestamp(max_ts / 1_000_000_000, tz=UTC),
+                    config=watermark_config,
+                )
+                if window_result.start is not None:
+                    min_ts_ns = int(window_result.start.timestamp() * 1_000_000_000)
+                    group = group.filter(_pl.col("ts_event") >= min_ts_ns)
+                    if group.is_empty():
+                        continue
+        data_store.write_ingestion(
+            dataset_id=MACRO_OBSERVATIONS_DATASET_ID,
+            records=group,
+            source=Source.BACKFILL.value,
+            run_id=run_id,
+            instrument_id=series_id,
+        )
+        written += group.height
+    return written
+
+
+def _ingest_macro_release_calendar(
+    *,
+    data_store: DataStoreFacadeProtocol,
+    vintage_dir: Path,
+    run_id: str,
+    series_ids: Sequence[str] | None,
+    watermark_registry: WatermarkRegistryProtocol | None = None,
+    watermark_config: WatermarkWindowConfig | None = None,
+) -> int:
+    if not vintage_dir.exists():
+        return 0
+    _pl = _require_polars()
+    if series_ids:
+        candidates = [vintage_dir / series_id for series_id in series_ids]
+    else:
+        candidates = [path for path in vintage_dir.iterdir() if path.is_dir()]
+    written = 0
+    ts_init = sanitize_timestamp_ns(time.time_ns(), context="macro_release_sql")
+    for series_dir in candidates:
+        release_path = series_dir / "release_calendar.parquet"
+        if not release_path.exists():
+            continue
+        frame = _pl.read_parquet(str(release_path))
+        if frame.is_empty():
+            continue
+        prepared = (
+            frame.with_columns(
+                [
+                    _pl.col("observation_ts").cast(_pl.Datetime("ns")).cast(_pl.Int64),
+                    _pl.col("release_ts").cast(_pl.Datetime("ns")).cast(_pl.Int64),
+                    _pl.col("release_end_ts").cast(_pl.Datetime("ns")).cast(_pl.Int64),
+                    _pl.col("release_ts").cast(_pl.Datetime("ns")).cast(_pl.Int64).alias("ts_event"),
+                    _pl.lit(ts_init).alias("ts_init"),
+                    _pl.lit("alfred").alias("source"),
+                    _pl.lit(run_id).alias("run_id"),
+                ],
+            )
+            .select(
+                [
+                    "series_id",
+                    "observation_ts",
+                    "release_ts",
+                    "release_end_ts",
+                    "value",
+                    "ts_event",
+                    "ts_init",
+                    "source",
+                    "run_id",
+                ],
+            )
+            .drop_nulls(["series_id", "observation_ts", "release_ts", "ts_event"])
+        )
+        if prepared.is_empty():
+            continue
+        series_id = prepared.get_column("series_id").item(0)
+        if not isinstance(series_id, str) or not series_id:
+            continue
+        if (
+            watermark_registry is not None
+            and watermark_config is not None
+            and watermark_config.use_watermark
+        ):
+            max_ts = prepared.get_column("ts_event").max()
+            if isinstance(max_ts, int):
+                window_result = resolve_watermark_start_datetime(
+                    registry=watermark_registry,
+                    dataset_id=MACRO_RELEASES_DATASET_ID,
+                    instrument_ids=[series_id],
+                    source=Source.BACKFILL,
+                    end=datetime.fromtimestamp(max_ts / 1_000_000_000, tz=UTC),
+                    config=watermark_config,
+                )
+                if window_result.start is not None:
+                    min_ts_ns = int(window_result.start.timestamp() * 1_000_000_000)
+                    prepared = prepared.filter(_pl.col("ts_event") >= min_ts_ns)
+                    if prepared.is_empty():
+                        continue
+        data_store.write_ingestion(
+            dataset_id=MACRO_RELEASES_DATASET_ID,
+            records=prepared,
+            source=Source.BACKFILL.value,
+            run_id=run_id,
+            instrument_id=series_id,
+        )
+        written += prepared.height
+    return written
 
 
 class _FREDLoaderProtocol(Protocol):
@@ -254,16 +447,51 @@ def ensure_macro_ready(
     fred_path: Path,
     vintage_dir: Path | None,
     max_age: timedelta,
-    data_store: object | None = None,
+    data_store: DataStoreFacadeProtocol | None = None,
     series_ids: Sequence[str] | None = None,
+    watermark_config: WatermarkWindowConfig | None = None,
     fred_loader_factory: Callable[[Sequence[str] | None], _FREDLoaderProtocol] | None = None,
     alfred_loader_factory: Callable[[Sequence[str]], _ALFREDLoaderProtocol] | None = None,
     alfred_realtime_start: str | None = None,
     alfred_realtime_end: str | None = None,
     alfred_window_days: int = 365,
 ) -> MacroRefreshResult:
-    """Ensure macro artifacts exist within *max_age* and refresh when necessary."""
-    del data_store
+    """
+    Ensure macro artifacts exist within *max_age* and refresh when necessary.
+
+    When ``data_store`` is provided, macro parquet artifacts are also ingested
+    into SQL datasets for dual-write parity.
+
+    Parameters
+    ----------
+    fred_path : Path
+        Path to the FRED parquet artifact.
+    vintage_dir : Path | None
+        Optional base directory for ALFRED vintages.
+    max_age : timedelta
+        Maximum allowed artifact age before refresh.
+    data_store : DataStoreFacadeProtocol | None
+        Optional DataStore for SQL ingestion.
+    series_ids : Sequence[str] | None
+        Optional series IDs to constrain refresh/ingestion.
+    watermark_config : WatermarkWindowConfig | None
+        Optional watermark window configuration for SQL ingestion filters.
+    fred_loader_factory : Callable[[Sequence[str] | None], _FREDLoaderProtocol] | None
+        Optional loader factory for FRED refresh.
+    alfred_loader_factory : Callable[[Sequence[str]], _ALFREDLoaderProtocol] | None
+        Optional loader factory for ALFRED refresh.
+    alfred_realtime_start : str | None
+        Optional ALFRED realtime start date override.
+    alfred_realtime_end : str | None
+        Optional ALFRED realtime end date override.
+    alfred_window_days : int
+        Window size for ALFRED time-sliced fetches.
+
+    Returns
+    -------
+    MacroRefreshResult
+        Refresh outcome with errors (if any).
+    """
     fred_refreshed, fred_error = refresh_fred_if_stale(
         parquet_path=fred_path,
         max_age=max_age,
@@ -291,6 +519,37 @@ def ensure_macro_ready(
             series_ids=tuple(series_ids or ()),
             loader_factory=loader_factory,
         )
+
+    if data_store is not None:
+        watermark_registry: WatermarkRegistryProtocol | None = None
+        registry = getattr(data_store, "registry", None)
+        if isinstance(registry, WatermarkRegistryProtocol):
+            watermark_registry = registry
+        effective_watermark_config = watermark_config or macro_window_defaults()
+        try:
+            run_id = f"macro_refresh_{int(time.time())}"
+            _ingest_macro_observations(
+                data_store=data_store,
+                fred_path=fred_path,
+                run_id=run_id,
+                series_ids=series_ids,
+                watermark_registry=watermark_registry,
+                watermark_config=effective_watermark_config,
+            )
+            if vintage_dir is not None:
+                _ingest_macro_release_calendar(
+                    data_store=data_store,
+                    vintage_dir=vintage_dir,
+                    run_id=run_id,
+                    series_ids=series_ids,
+                    watermark_registry=watermark_registry,
+                    watermark_config=effective_watermark_config,
+                )
+        except Exception:  # pragma: no cover - best-effort SQL sync
+            logger.warning(
+                "Macro SQL ingestion failed; parquet artifacts remain available",
+                exc_info=True,
+            )
 
     return MacroRefreshResult(
         fred_refreshed=fred_refreshed,

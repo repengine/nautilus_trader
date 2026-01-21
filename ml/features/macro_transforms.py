@@ -51,7 +51,7 @@ class MacroFeatureTransform:
     macro_series_ids : list[str]
         FRED series identifiers to include (e.g., ["PAYEMS", "UNRATE", "CPIAUCSL"]).
     vintage_base_dir : Path | str
-        Directory containing ALFRED vintage data (data/fred/vintages/).
+        Directory containing ALFRED vintage data (data/features/macro/fred/vintages/).
     fred_path : Path | str | None
         Path to FRED indicators parquet file (for series without vintages).
     include_revisions : bool, default False

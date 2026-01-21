@@ -93,6 +93,39 @@ class TestYahooFetcher:
                 assert consensus.eps_estimate == 2.10
                 assert consensus.num_analysts == 42
 
+    def test_fetch_estimates_returns_rows(self) -> None:
+        """
+        Test fetching multiple estimates from earnings_dates.
+        """
+        with patch("ml.data.earnings.yahoo_fetcher.yfinance") as mock_yfinance:
+            mock_ticker = MagicMock()
+
+            import pandas as pd
+
+            earnings_dates_df = pd.DataFrame(
+                {
+                    "EPS Estimate": [2.10, None],
+                },
+                index=[
+                    datetime(2025, 1, 30, 16, 0),
+                    datetime(2025, 4, 30, 16, 0),
+                ],
+            )
+            mock_ticker.earnings_dates = earnings_dates_df
+            mock_ticker.analyst_price_target = {"numberOfAnalystOpinions": 7}
+            mock_yfinance.Ticker.return_value = mock_ticker
+
+            with _yfinance_override(mock_yfinance):
+                fetcher = YahooFetcher(rate_limit_delay=0.0)
+                estimates = fetcher.fetch_estimates("AAPL")
+
+                assert len(estimates) == 1
+                estimate = estimates[0]
+                assert estimate.ticker == "AAPL"
+                assert estimate.next_earnings_date == datetime(2025, 1, 30, 16, 0)
+                assert estimate.eps_estimate == 2.10
+                assert estimate.num_analysts == 7
+
     def test_fetch_consensus_invalid_ticker(self) -> None:
         """
         Test graceful handling of invalid ticker.

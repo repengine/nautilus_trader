@@ -141,6 +141,7 @@ def test_streaming_worker_config_from_env_parses_overrides() -> None:
         "ML_STREAMING_TFT_LOSS": "bce",
         "ML_STREAMING_TFT_LOSS_POS_WEIGHT": "3.0",
         "ML_STREAMING_VALIDATION_RETURN_COLUMN": "custom_forward",
+        "ML_STREAMING_VALIDATION_JOIN_CHUNK_ROWS": "1234",
         "ML_STREAMING_TFT_ENABLE_TEMPERATURE_CALIBRATION": "true",
         "ML_STREAMING_TFT_TEMPERATURE_MIN": "0.5",
         "ML_STREAMING_TFT_TEMPERATURE_MAX": "4.0",
@@ -207,6 +208,7 @@ def test_streaming_worker_config_from_env_parses_overrides() -> None:
     assert cfg.ensemble.normalize_weights is False
     assert len(cfg.ensemble.members) == 2
     assert cfg.validation_return_column == "custom_forward"
+    assert cfg.validation_join_chunk_rows == 1234
 
 
 def test_streaming_worker_config_from_env_defaults() -> None:
@@ -242,6 +244,7 @@ def test_streaming_worker_config_from_env_defaults() -> None:
     assert cfg.enable_isotonic_calibration is False
     assert cfg.amp_guard_threshold_mb is None
     assert cfg.validation_return_column == "forward_return"
+    assert cfg.validation_join_chunk_rows == 50_000
 
 
 def test_curriculum_parsing_and_resolution() -> None:

@@ -147,6 +147,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -162,6 +163,9 @@ import pyarrow.parquet as pq
 import structlog
 from numpy.typing import NDArray
 
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
+from ml.common.resource_monitor import current_rss_mb
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
 
@@ -311,7 +315,19 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_FRED_PARQUET_PATH = Path("data/fred/fred_indicators_ml_format.parquet")
+_DATASET_BUILD_RSS_GAUGE = get_gauge(
+    "ml_dataset_build_rss_mb",
+    "Observed RSS (MB) during dataset build chunk stages.",
+    labelnames=("stage",),
+)
+_DATASET_BUILD_CHUNK_SECONDS = get_histogram(
+    "ml_dataset_build_chunk_seconds",
+    "Elapsed seconds for dataset build chunk stages.",
+    labelnames=("stage",),
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300),
+)
+
+DEFAULT_FRED_PARQUET_PATH = Path("data/features/macro/fred_indicators_ml_format.parquet")
 
 
 
@@ -1149,6 +1165,14 @@ def _build_dataset_chunked(
         polars_module = polars_module_import
     assert polars_module is not None
 
+    def _update_rss_peak(current_peak: float | None) -> float | None:
+        rss_mb = current_rss_mb()
+        if rss_mb is None:
+            return current_peak
+        if current_peak is None or rss_mb > current_peak:
+            return rss_mb
+        return current_peak
+
     chunk_dir = cfg.out_dir / ".chunks"
     if chunk_dir.exists():
         shutil.rmtree(chunk_dir)
@@ -1164,6 +1188,9 @@ def _build_dataset_chunked(
     chunk_delta = timedelta(days=cfg.chunk_days)
 
     while cursor < end:
+        chunk_started = time.perf_counter()
+        chunk_peak_rss: float | None = None
+        chunk_peak_rss = _update_rss_peak(chunk_peak_rss)
         chunk_end = min(cursor + chunk_delta, end)
         df_any = builder.build_training_dataset(
             horizon_minutes=cfg.horizon_minutes,
@@ -1183,9 +1210,16 @@ def _build_dataset_chunked(
                 check_ml_dependencies(["pandas"])  # pragma: no cover
             assert pd is not None
             df_chunk = polars_module.from_pandas(df_any)
+        chunk_peak_rss = _update_rss_peak(chunk_peak_rss)
 
         if not df_chunk.is_empty():
             chunk_path = chunk_dir / f"chunk_{chunk_index:04d}.parquet"
+            if "timestamp" in df_chunk.columns:
+                df_chunk = df_chunk.sort(
+                    ["timestamp", "instrument_id"] if "instrument_id" in df_chunk.columns else ["timestamp"],
+                )
+            elif "time_index" in df_chunk.columns:
+                df_chunk = df_chunk.sort("time_index")
             df_chunk.write_parquet(str(chunk_path))
 
             positives = 0.0
@@ -1203,8 +1237,12 @@ def _build_dataset_chunked(
             ts_end = None
             if "timestamp" in df_chunk.columns and df_chunk.height > 0:
                 ts_series = df_chunk["timestamp"]
-                ts_start = cast(datetime | None, ts_series.min())
-                ts_end = cast(datetime | None, ts_series.max())
+                ts_start = _ensure_datetime(
+                    cast(datetime | float | None, ts_series.min()),
+                )
+                ts_end = _ensure_datetime(
+                    cast(datetime | float | None, ts_series.max()),
+                )
 
             chunk_metas.append(
                 _ChunkMeta(
@@ -1219,6 +1257,12 @@ def _build_dataset_chunked(
 
         cursor = chunk_end
         chunk_index += 1
+        chunk_peak_rss = _update_rss_peak(chunk_peak_rss)
+        _DATASET_BUILD_CHUNK_SECONDS.labels(stage="build").observe(
+            time.perf_counter() - chunk_started,
+        )
+        if chunk_peak_rss is not None:
+            _DATASET_BUILD_RSS_GAUGE.labels(stage="build").set(chunk_peak_rss)
 
     binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
 
@@ -1331,72 +1375,99 @@ def _build_dataset_chunked(
     train_window_end: datetime | None = None
     validation_window_start: datetime | None = None
 
+    def _column_to_float32(column: Any) -> FloatArray:
+        values = column.to_numpy(zero_copy_only=False)
+        if isinstance(values, np.ma.MaskedArray):
+            filled = np.where(values.mask, np.nan, values.data)
+            return cast(FloatArray, np.asarray(filled, dtype=np.float32))
+        return cast(FloatArray, np.asarray(values, dtype=np.float32))
+
     for meta in chunk_metas:
-        df_chunk = polars_module.read_parquet(str(meta.path))
-        if df_chunk.is_empty():
-            continue
-        if "timestamp" in df_chunk.columns:
-            df_chunk = df_chunk.sort(["timestamp", "instrument_id"] if "instrument_id" in df_chunk.columns else ["timestamp"])
-        elif "time_index" in df_chunk.columns:
-            df_chunk = df_chunk.sort("time_index")
-
-        df_chunk = df_chunk.with_columns(
-            polars_module.arange(offset, offset + df_chunk.height, eager=True).alias("time_index"),
-        )
-        df_chunk = builder._add_known_future_features_polars(df_chunk)
-
-        if feature_names is None:
-            feature_names = _infer_feature_columns(df_chunk)
-            feature_writer = _StreamingFeatureWriter(
-                out_path=features_npz,
-                feature_names=feature_names,
-                total_rows=total_rows,
-                cutoff=train_rows,
+        merge_started = time.perf_counter()
+        merge_peak_rss: float | None = None
+        merge_peak_rss = _update_rss_peak(merge_peak_rss)
+        parquet_file = pq.ParquetFile(str(meta.path))
+        for batch in parquet_file.iter_batches():
+            batch_rows = batch.num_rows
+            if batch_rows == 0:
+                continue
+            df_batch = polars_module.from_arrow(batch)
+            if df_batch.is_empty():
+                continue
+            df_batch = df_batch.with_columns(
+                polars_module.arange(offset, offset + df_batch.height, eager=True).alias("time_index"),
             )
-            non_null_counts = dict.fromkeys(feature_names, 0)
+            df_batch = builder._add_known_future_features_polars(df_batch)
+            merge_peak_rss = _update_rss_peak(merge_peak_rss)
 
-        if feature_names:
-            assert non_null_counts is not None
-            for name in feature_names:
-                if name in df_chunk.columns:
-                    non_null_counts[name] += int(df_chunk[name].is_not_null().sum())
-            if feature_writer is not None:
-                values_raw = df_chunk.select(feature_names).to_numpy()
-                values = cast(FloatArray, np.asarray(values_raw, dtype=np.float32))
-                feature_writer.append(
-                    values,
-                    global_offset=offset,
+            if feature_names is None:
+                feature_names = _infer_feature_columns(df_batch)
+                feature_writer = _StreamingFeatureWriter(
+                    out_path=features_npz,
+                    feature_names=feature_names,
+                    total_rows=total_rows,
+                    cutoff=train_rows,
                 )
+                non_null_counts = dict.fromkeys(feature_names, 0)
 
-        if train_rows > 0 and train_window_end is None and offset <= train_rows - 1 < offset + df_chunk.height:
-            idx = train_rows - 1 - offset
-            if 0 <= idx < df_chunk.height and "timestamp" in df_chunk.columns:
-                train_window_end = cast(datetime, df_chunk[idx, "timestamp"])
-        if validation_window_start is None and offset <= train_rows < offset + df_chunk.height:
-            idx_val = train_rows - offset
-            if 0 <= idx_val < df_chunk.height and "timestamp" in df_chunk.columns:
-                validation_window_start = cast(datetime, df_chunk[idx_val, "timestamp"])
+            if train_rows > 0 and train_window_end is None and offset <= train_rows - 1 < offset + df_batch.height:
+                idx = train_rows - 1 - offset
+                if 0 <= idx < df_batch.height and "timestamp" in df_batch.columns:
+                    train_window_end = cast(datetime, df_batch[idx, "timestamp"])
+            if validation_window_start is None and offset <= train_rows < offset + df_batch.height:
+                idx_val = train_rows - offset
+                if 0 <= idx_val < df_batch.height and "timestamp" in df_batch.columns:
+                    validation_window_start = cast(datetime, df_batch[idx_val, "timestamp"])
 
-        table = df_chunk.to_arrow()
-        if pq_writer is None:
-            pq_writer = pq.ParquetWriter(str(dataset_parquet), table.schema, compression="zstd")
-        pq_writer.write_table(table)
+            table = df_batch.to_arrow()
+            if pq_writer is None:
+                pq_writer = pq.ParquetWriter(str(dataset_parquet), table.schema, compression="zstd")
 
-        if write_csv:
-            mode = "w" if not csv_header_written else "a"
-            with open(dataset_csv, mode, newline="") as csv_handle:
-                df_chunk.write_csv(csv_handle, include_header=not csv_header_written)
-            csv_header_written = True
-        elif sample_remaining > 0:
-            sample_df = df_chunk.head(sample_remaining)
-            mode = "w" if not sample_header_written else "a"
-            with open(sample_path, mode, newline="") as csv_handle:
-                sample_df.write_csv(csv_handle, include_header=not sample_header_written)
-            sample_remaining -= sample_df.height
-            sample_header_written = True
+            if feature_names:
+                assert non_null_counts is not None
+                batch_values: list[FloatArray] = []
+                for name in feature_names:
+                    try:
+                        column = table.column(name)
+                    except Exception:
+                        column = None
+                    if column is None:
+                        batch_values.append(cast(FloatArray, np.zeros(batch_rows, dtype=np.float32)))
+                        continue
+                    non_null_counts[name] += int(batch_rows - column.null_count)
+                    batch_values.append(_column_to_float32(column))
+                if feature_writer is not None:
+                    values = cast(FloatArray, np.column_stack(batch_values))
+                    feature_writer.append(
+                        values,
+                        global_offset=offset,
+                    )
 
-        offset += df_chunk.height
+            pq_writer.write_table(table)
+
+            if write_csv:
+                mode = "w" if not csv_header_written else "a"
+                with open(dataset_csv, mode, newline="") as csv_handle:
+                    df_batch.write_csv(csv_handle, include_header=not csv_header_written)
+                csv_header_written = True
+            elif sample_remaining > 0:
+                sample_df = df_batch.head(sample_remaining)
+                if not sample_df.is_empty():
+                    mode = "w" if not sample_header_written else "a"
+                    with open(sample_path, mode, newline="") as csv_handle:
+                        sample_df.write_csv(csv_handle, include_header=not sample_header_written)
+                    sample_remaining -= sample_df.height
+                    sample_header_written = True
+
+            offset += df_batch.height
+            merge_peak_rss = _update_rss_peak(merge_peak_rss)
+
         meta.path.unlink(missing_ok=True)
+        _DATASET_BUILD_CHUNK_SECONDS.labels(stage="merge").observe(
+            time.perf_counter() - merge_started,
+        )
+        if merge_peak_rss is not None:
+            _DATASET_BUILD_RSS_GAUGE.labels(stage="merge").set(merge_peak_rss)
 
     if pq_writer is not None:
         pq_writer.close()

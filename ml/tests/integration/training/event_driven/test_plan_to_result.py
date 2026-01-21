@@ -12,6 +12,8 @@ from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND
 from ml.config.events import EventStatus, Source
 from ml.config.streaming_pipeline import (
     DatasetServiceConfig,
+    EnsembleMemberConfig,
+    StreamingEnsembleConfig,
     StreamingWorkerConfig,
     TrainingOrchestratorConfig,
 )
@@ -348,3 +350,155 @@ def test_streaming_pipeline_records_gpu_telemetry(
             labels={"dataset_id": plan_event.dataset_id},
         )
         assert metric_value == pytest.approx(peak_gpu_mb)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (HAS_TORCH and HAS_PANDAS),
+    reason="streaming pipeline requires torch and pandas",
+)
+def test_streaming_pipeline_applies_ensemble_blending(tmp_path: Path) -> None:
+    if pd is None:
+        check_ml_dependencies(["pandas"])
+        pytest.skip("pandas dependency unavailable at runtime")
+
+    streaming_loader_mod = _streaming_loader_module()
+    worker_mod = import_module("ml.training.event_driven.worker")
+
+    dataset_dir = tmp_path / "ensemble_dataset"
+    dataset_dir.mkdir()
+    rows = 12
+    instruments = np.tile(["AAPL", "MSFT"], rows // 2)
+    frame = pd.DataFrame(
+        {
+            "time_index": np.arange(rows, dtype=np.int64),
+            "instrument_id": instruments,
+            "feature": np.linspace(0.0, 1.0, num=rows, dtype=np.float32),
+            "y": np.tile(np.array([0.0, 1.0], dtype=np.float32), rows // 2),
+        },
+    )
+    dataset_path = dataset_dir / "dataset.parquet"
+    frame.to_parquet(dataset_path, index=False)
+
+    service_config = DatasetServiceConfig(
+        parquet_root=str(dataset_dir),
+        shard_row_budget=8,
+        max_total_rows=100,
+        max_total_sequences=100,
+        max_shards=4,
+    )
+    streaming_config = streaming_loader_mod.TFTStreamingConfig(
+        time_idx_col="time_index",
+        group_id_col="instrument_id",
+        target_col="y",
+        static_categoricals=("instrument_id",),
+        static_reals=("feature",),
+        time_varying_known_reals=(),
+        time_varying_unknown_reals=("feature",),
+        max_encoder_length=2,
+        max_prediction_length=1,
+        batch_size=6,
+        drop_last=False,
+        shuffle_shards=False,
+        seed=11,
+        num_workers=0,
+        max_total_rows=100,
+        max_total_sequences=100,
+        max_shards=4,
+    )
+    planner = StreamingDatasetPlanner(service_config)
+    plan_request = DatasetPlanRequest(
+        dataset_id="ensemble_dataset",
+        streaming_config=streaming_config,
+        feature_names=("feature",),
+        categorical_columns=("instrument_id",),
+        numeric_columns=("feature",),
+        parquet_path=dataset_path,
+    )
+    plan_event = planner.plan(plan_request)
+    assert plan_event.status.value == EventStatus.SUCCESS.value
+
+    class _DeterministicTeacher:
+        def __init__(self, cfg: Any) -> None:
+            self._cfg = cfg
+
+        def fit_streaming(
+            self,
+            parquet_path: Path,
+            train_loader: Any,
+            val_loader: Any,
+            *,
+            train_metadata: Any,
+            val_metadata: Any,
+            full_metadata: Any,
+            streaming_config: Any,
+            callbacks: Any | None = None,
+            **_: Any,
+        ) -> StreamingFitResult:
+            del parquet_path, train_loader, val_loader, full_metadata, streaming_config, callbacks, _
+            train_sequences = max(1, streaming_loader_mod.count_sequences(train_metadata, self._cfg))
+            val_sequences = max(1, streaming_loader_mod.count_sequences(val_metadata, self._cfg))
+            z_train = np.linspace(-0.5, 0.5, num=train_sequences, dtype=np.float64)
+            z_val = np.linspace(-1.0, 1.0, num=val_sequences, dtype=np.float64)
+            labels = np.tile(np.array([0.0, 1.0], dtype=np.float64), val_sequences // 2 + 1)[:val_sequences]
+            return StreamingFitResult(z_train=z_train, z_val=z_val, y_val=labels)
+
+    def _teacher_factory(_plan: DatasetPlanEvent, cfg: Any) -> _DeterministicTeacher:
+        return _DeterministicTeacher(cfg)
+
+    worker_config = StreamingWorkerConfig(
+        max_total_rows=100,
+        max_total_sequences=100,
+        max_shards=4,
+        model_id="tft-streaming-ensemble",
+    )
+    base_worker = worker_mod.LightningStreamingWorker(
+        worker_config,
+        output_dir=tmp_path / "base_artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    base_event = base_worker.run(plan_event)
+    base_logits_path = Path(base_event.artifact_paths[worker_config.logits_artifact_key])
+    with np.load(base_logits_path) as payload:
+        base_z_val = np.asarray(payload["z_val"], dtype=np.float64)
+        peer_payload: dict[str, np.ndarray] = {
+            "z_train": np.asarray(payload["z_train"], dtype=np.float64) + 2.0,
+            "z_val": base_z_val + 2.0,
+            "y_val": np.asarray(payload["y_val"], dtype=np.float64),
+        }
+        for key in ("train_row_ids", "train_instrument_ids", "train_time_indices"):
+            if key in payload:
+                peer_payload[key] = np.asarray(payload[key])
+        for key in ("val_row_ids", "val_instrument_ids", "val_time_indices"):
+            if key in payload:
+                peer_payload[key] = np.asarray(payload[key])
+
+    peer_path = tmp_path / "peer_logits.npz"
+    np.savez_compressed(peer_path, **peer_payload)
+
+    ensemble_cfg = StreamingEnsembleConfig(
+        enabled=True,
+        blend_mode="weighted",
+        normalize_weights=True,
+        members=(EnsembleMemberConfig(artifact_path=str(peer_path), weight=2.0, required=True),),
+    )
+    ensemble_worker = worker_mod.LightningStreamingWorker(
+        StreamingWorkerConfig(
+            max_total_rows=100,
+            max_total_sequences=100,
+            max_shards=4,
+            model_id="tft-streaming-ensemble",
+            ensemble=ensemble_cfg,
+        ),
+        output_dir=tmp_path / "ensemble_artifacts",
+        teacher_factory=_teacher_factory,
+    )
+    blended_event = ensemble_worker.run(plan_event)
+    blended_logits_path = Path(
+        blended_event.artifact_paths[ensemble_worker.config.logits_artifact_key],
+    )
+    with np.load(blended_logits_path) as payload:
+        blended_z_val = np.asarray(payload["z_val"], dtype=np.float64)
+
+    expected = base_z_val + (4.0 / 3.0)
+    assert np.allclose(blended_z_val[:2], expected[:2])

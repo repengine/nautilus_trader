@@ -34,14 +34,20 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ml.common.metrics_bootstrap import get_counter
+from ml.common.watermark_window import WatermarkRegistryProtocol
+from ml.common.watermark_window import resolve_watermark_start_datetime
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.events import Source
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ml.preprocessing.event_ingestion import EventIngestionConfig
+    from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -84,7 +90,7 @@ class EventIngestionComponent:
     >>> config = EventIngestionConfig(
     ...     start=datetime(2024, 1, 1, tzinfo=UTC),
     ...     end=datetime(2024, 1, 31, tzinfo=UTC),
-    ...     out_dir=Path("./data/events"),
+    ...     out_dir=Path("./data/features/events"),
     ... )
     >>> path = component.ingest_events(config)
 
@@ -132,11 +138,11 @@ class EventIngestionComponent:
         >>> cfg = EventIngestionConfig(
         ...     start=datetime(2024, 1, 1, tzinfo=UTC),
         ...     end=datetime(2024, 1, 31, tzinfo=UTC),
-        ...     out_dir=Path("./data/events"),
+        ...     out_dir=Path("./data/features/events"),
         ... )
         >>> component = EventIngestionComponent()
         >>> path = component.ingest_events(cfg)
-        PosixPath('data/events/events.parquet')
+        PosixPath('data/features/events/events.parquet')
 
         """
         logger.info(
@@ -156,7 +162,20 @@ class EventIngestionComponent:
             )
             raise
 
-        utility = EventIngestionUtility(config)
+        data_store = self._build_data_store(config)
+        effective_config = config
+        if data_store is not None:
+            effective_config = replace(config, write_parquet=False)
+            effective_config = self._apply_watermark_window(
+                effective_config,
+                data_store=data_store,
+            )
+
+        utility = EventIngestionUtility(
+            effective_config,
+            data_store=data_store,
+            ingest_run_id="event_ingestion",
+        )
         try:
             target = utility.ingest()
         except Exception as exc:  # pragma: no cover - runtime failure path
@@ -167,6 +186,88 @@ class EventIngestionComponent:
         _EVENT_INGEST_COUNTER.labels(status="success").inc()
         logger.info("Completed event ingestion: %s", target)
         return target
+
+    def _apply_watermark_window(
+        self,
+        config: EventIngestionConfig,
+        *,
+        data_store: DataStoreFacadeProtocol,
+    ) -> EventIngestionConfig:
+        registry = getattr(data_store, "registry", None)
+        if not isinstance(registry, WatermarkRegistryProtocol):
+            return config
+        if not config.watermark_config.use_watermark:
+            return config
+        result = resolve_watermark_start_datetime(
+            registry=registry,
+            dataset_id=EVENTS_CALENDAR_DATASET_ID,
+            instrument_ids=[""],
+            source=Source.HISTORICAL,
+            end=config.end,
+            config=config.watermark_config,
+            start=config.start,
+        )
+        if result.start is None or result.start == config.start:
+            return config
+        logger.info(
+            "Event ingestion watermark window applied",
+            extra={
+                "original_start": config.start,
+                "adjusted_start": result.start,
+                "reason": result.reason,
+            },
+        )
+        return replace(config, start=result.start)
+
+    def _build_data_store(
+        self,
+        config: EventIngestionConfig,
+    ) -> DataStoreFacadeProtocol | None:
+        if not self.db_connection:
+            return None
+        try:
+            from ml.core.common.registry_initialization import RegistryInitializationComponent
+            from ml.core.common.store_initialization import StoreInitializationComponent
+            from ml.registry.base import DummyRegistry
+            from ml.registry.dataclasses import DatasetType
+            from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+            from ml.stores.io_raw import FilteredRawWriter
+            from ml.stores.protocols import EarningsStoreProtocol
+            from ml.stores.protocols import FeatureStoreProtocol
+            from ml.stores.protocols import ModelStoreProtocol
+            from ml.stores.protocols import StrategyStoreProtocol
+        except Exception:
+            logger.debug("Event ingestion store dependencies missing", exc_info=True)
+            return None
+
+        try:
+            store_init = StoreInitializationComponent(db_connection=self.db_connection)
+            store_init.init_stores()
+            registry_init = RegistryInitializationComponent(db_connection=self.db_connection)
+            registry_init.init_registries()
+            if isinstance(registry_init.data_registry, DummyRegistry):
+                logger.warning("Event ingestion data registry unavailable; skipping SQL ingest")
+                return None
+            registry_init.inject_data_registry_into_stores(
+                store_init.feature_store,
+                store_init.model_store,
+            )
+            events_path = Path(config.out_dir) / "events.parquet"
+            raw_writer = FilteredRawWriter(
+                FeatureDatasetParquetRawWriter(events_path=events_path),
+                enabled={DatasetType.EVENTS_CALENDAR: True},
+            )
+            return registry_init.create_data_store(
+                feature_store=cast(FeatureStoreProtocol, store_init.feature_store),
+                feature_dataset_store=store_init.feature_dataset_store,
+                model_store=cast(ModelStoreProtocol, store_init.model_store),
+                strategy_store=cast(StrategyStoreProtocol, store_init.strategy_store),
+                earnings_store=cast(EarningsStoreProtocol, store_init.earnings_store),
+                raw_writer=raw_writer,
+            )
+        except Exception:
+            logger.warning("Event ingestion SQL store init failed; using parquet-only mode", exc_info=True)
+            return None
 
     def maybe_run_backfill_on_start(self) -> None:
         """

@@ -9,6 +9,7 @@ import random
 import shutil
 import time
 from collections.abc import Callable
+from collections.abc import Iterator
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from ml.common.gpu_monitor import GPUMemoryMonitor
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.resource_monitor import current_rss_mb
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import CurriculumGuardContext
 from ml.config.streaming_pipeline import CurriculumResolution
@@ -1160,6 +1162,7 @@ class LightningStreamingWorker(TrainingWorker):
         return path
 
     def _apply_worker_caps(self, config: TFTStreamingConfig) -> TFTStreamingConfig:
+        guarded_workers = self._apply_rss_guard(config.num_workers)
         return replace(
             config,
             max_total_rows=self.config.max_total_rows
@@ -1171,9 +1174,36 @@ class LightningStreamingWorker(TrainingWorker):
             max_shards=self.config.max_shards
             if self.config.max_shards is not None
             else config.max_shards,
-            num_workers=config.num_workers,
+            num_workers=guarded_workers,
             seed=self.config.dataset_seed if self.config.dataset_seed is not None else config.seed,
         )
+
+    def _apply_rss_guard(self, num_workers: int) -> int:
+        threshold = self.config.rss_guard_threshold_mb
+        max_workers = self.config.rss_guard_max_workers
+        if threshold is None or max_workers is None:
+            return num_workers
+        rss_mb = current_rss_mb()
+        if rss_mb is None or rss_mb < float(threshold):
+            return num_workers
+        adjusted = min(int(num_workers), int(max_workers))
+        if adjusted != num_workers:
+            logger.info(
+                "streaming worker reduced dataloader workers due to RSS guard",
+                extra={
+                    "rss_mb": rss_mb,
+                    "threshold_mb": float(threshold),
+                    "original_workers": int(num_workers),
+                    "guarded_workers": adjusted,
+                },
+            )
+        return adjusted
+
+    def _iter_validation_slices(self, total_rows: int) -> Iterator[tuple[int, int]]:
+        chunk_size = int(self.config.validation_join_chunk_rows)
+        for start in range(0, total_rows, chunk_size):
+            end = min(start + chunk_size, total_rows)
+            yield start, end
 
     def _maybe_attach_validation_returns(
         self,
@@ -1279,13 +1309,6 @@ class LightningStreamingWorker(TrainingWorker):
             return None
         if time_indices.size == 0:
             return None
-        identifiers = pl.DataFrame(
-            {
-                "instrument_id": pl.Series(instruments, dtype=pl.String),
-                "__order": pl.Series(np.arange(time_indices.size, dtype=np.int64), dtype=pl.Int64),
-                "time_index": pl.Series(time_indices, dtype=pl.Int64),
-            },
-        )
         dataset_scan = pl.scan_parquet(str(parquet_path)).select(
             [
                 pl.col("time_index"),
@@ -1295,56 +1318,67 @@ class LightningStreamingWorker(TrainingWorker):
         dataset_with_duplicate = dataset_scan.with_columns(
             pl.col("instrument_id").alias("__dataset_instrument"),
         )
-        precise_join: PolarsDataFrame
-        try:
-            precise_join = cast(
-                PolarsDataFrame,
-                (
-                    identifiers.lazy()
-                    .join(dataset_with_duplicate, on=["instrument_id", "time_index"], how="left")
-                    .select(["__order", "__dataset_instrument"])
-                    .collect()
-                    .sort("__order")
-                ),
-            )
-        except Exception:
-            logger.debug(
-                "validation_metadata_realign_join_failed",
-                extra={"plan_id": plan.plan_id},
-                exc_info=True,
-            )
-            return None
-        precise_series = precise_join.get_column("__dataset_instrument")
-        if "__dataset_instrument" not in precise_join.columns:
-            logger.debug(
-                "validation_metadata_realign_missing_column",
-                extra={"plan_id": plan.plan_id},
-            )
-            return None
-        if precise_series.len() != time_indices.size:
-            logger.debug(
-                "validation_metadata_realign_precise_size_mismatch",
-                extra={
-                    "plan_id": plan.plan_id,
-                    "expected": int(time_indices.size),
-                    "observed": int(precise_series.len()),
+        dataset_instruments = instruments.copy()
+        mismatch_count = 0
+        corrections = 0
+        for start, end in self._iter_validation_slices(int(time_indices.size)):
+            chunk_instruments = instruments[start:end]
+            chunk_times = time_indices[start:end]
+            identifiers = pl.DataFrame(
+                {
+                    "instrument_id": pl.Series(chunk_instruments, dtype=pl.String),
+                    "__order": pl.Series(np.arange(end - start, dtype=np.int64), dtype=pl.Int64),
+                    "time_index": pl.Series(chunk_times, dtype=pl.Int64),
                 },
             )
-            return None
-        precise_values = precise_series.to_list()
-        if precise_values is None:
-            return None
-        dataset_instruments = instruments.copy()
-        mismatch_mask = np.array([value is None for value in precise_values], dtype=bool)
-        mismatch_count = int(np.count_nonzero(mismatch_mask))
-        corrections = 0
-        for index, precise_value in enumerate(precise_values):
-            if precise_value is None:
-                continue
-            precise_str = str(precise_value)
-            if precise_str != dataset_instruments[index]:
-                corrections += 1
-            dataset_instruments[index] = precise_str
+            precise_join: PolarsDataFrame
+            try:
+                precise_join = cast(
+                    PolarsDataFrame,
+                    (
+                        identifiers.lazy()
+                        .join(dataset_with_duplicate, on=["instrument_id", "time_index"], how="left")
+                        .select(["__order", "__dataset_instrument"])
+                        .collect()
+                        .sort("__order")
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "validation_metadata_realign_join_failed",
+                    extra={"plan_id": plan.plan_id},
+                    exc_info=True,
+                )
+                return None
+            if "__dataset_instrument" not in precise_join.columns:
+                logger.debug(
+                    "validation_metadata_realign_missing_column",
+                    extra={"plan_id": plan.plan_id},
+                )
+                return None
+            precise_series = precise_join.get_column("__dataset_instrument")
+            if precise_series.len() != (end - start):
+                logger.debug(
+                    "validation_metadata_realign_precise_size_mismatch",
+                    extra={
+                        "plan_id": plan.plan_id,
+                        "expected": int(end - start),
+                        "observed": int(precise_series.len()),
+                    },
+                )
+                return None
+            precise_values = precise_series.to_list()
+            if precise_values is None:
+                return None
+            for index, precise_value in enumerate(precise_values):
+                if precise_value is None:
+                    mismatch_count += 1
+                    continue
+                precise_str = str(precise_value)
+                absolute_index = start + index
+                if precise_str != dataset_instruments[absolute_index]:
+                    corrections += 1
+                dataset_instruments[absolute_index] = precise_str
         if mismatch_count == 0 and corrections == 0:
             return None
         dataset_instruments_array = np.asarray(dataset_instruments, dtype=np.str_)
@@ -1391,7 +1425,6 @@ class LightningStreamingWorker(TrainingWorker):
         try:
             instruments = np.asarray(val_rows.instrument_ids, dtype=np.str_).astype(str)
             time_indices = np.asarray(val_rows.time_indices, dtype=np.int64)
-            order = np.arange(val_rows.size, dtype=np.int64)
         except Exception:
             logger.debug(
                 "validation_returns_metadata_conversion_failed",
@@ -1399,13 +1432,6 @@ class LightningStreamingWorker(TrainingWorker):
                 exc_info=True,
             )
             return None
-        identifiers = pl.DataFrame(
-            {
-                "instrument_id": pl.Series(instruments, dtype=pl.String),
-                "time_index": pl.Series(time_indices, dtype=pl.Int64),
-                "__order": pl.Series(order, dtype=pl.Int64),
-            },
-        )
         dataset_scan = pl.scan_parquet(str(parquet_path)).select(
             [
                 pl.col("instrument_id"),
@@ -1413,34 +1439,61 @@ class LightningStreamingWorker(TrainingWorker):
                 pl.col(column).alias("__value"),
             ],
         )
-        try:
-            collected = cast(
-                PolarsDataFrame,
-                (
-                    identifiers.lazy()
-                    .join(dataset_scan, on=["instrument_id", "time_index"], how="left")
-                    .select(["__order", "__value"])
-                    .collect()
-                    .sort("__order")
-                ),
+        returns = np.zeros(val_rows.size, dtype=np.float64)
+        missing_count = 0
+        for start, end in self._iter_validation_slices(int(val_rows.size)):
+            chunk_instruments = instruments[start:end]
+            chunk_times = time_indices[start:end]
+            identifiers = pl.DataFrame(
+                {
+                    "instrument_id": pl.Series(chunk_instruments, dtype=pl.String),
+                    "time_index": pl.Series(chunk_times, dtype=pl.Int64),
+                    "__order": pl.Series(np.arange(end - start, dtype=np.int64), dtype=pl.Int64),
+                },
             )
-        except Exception:
-            logger.debug(
-                "validation_returns_join_failed",
-                extra={"plan_id": plan.plan_id, "column": column},
-                exc_info=True,
-            )
-            return None
-        if collected is None:
-            return None
-        if "__value" not in collected.columns:
-            logger.debug(
-                "validation_returns_column_missing_post_join",
-                extra={"plan_id": plan.plan_id, "column": column},
-            )
-            return None
-        values = collected.get_column("__value")
-        missing_count = int(values.null_count())
+            try:
+                collected = cast(
+                    PolarsDataFrame,
+                    (
+                        identifiers.lazy()
+                        .join(dataset_scan, on=["instrument_id", "time_index"], how="left")
+                        .select(["__order", "__value"])
+                        .collect()
+                        .sort("__order")
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "validation_returns_join_failed",
+                    extra={"plan_id": plan.plan_id, "column": column},
+                    exc_info=True,
+                )
+                return None
+            if collected is None:
+                return None
+            if "__value" not in collected.columns:
+                logger.debug(
+                    "validation_returns_column_missing_post_join",
+                    extra={"plan_id": plan.plan_id, "column": column},
+                )
+                return None
+            values = collected.get_column("__value")
+            chunk_missing = int(values.null_count())
+            if chunk_missing:
+                missing_count += chunk_missing
+                values = values.fill_null(0.0)
+            chunk_returns = np.asarray(values.to_numpy(), dtype=np.float64).reshape(-1)
+            if chunk_returns.size != (end - start):
+                logger.warning(
+                    "validation_returns_size_mismatch",
+                    extra={
+                        "plan_id": plan.plan_id,
+                        "expected": int(end - start),
+                        "observed": int(chunk_returns.size),
+                    },
+                )
+                return None
+            returns[start:end] = chunk_returns
         if missing_count:
             logger.warning(
                 "validation_returns_missing_rows",
@@ -1450,19 +1503,6 @@ class LightningStreamingWorker(TrainingWorker):
                     "expected": int(val_rows.size),
                 },
             )
-            values = values.fill_null(0.0)
-        returns_array = np.asarray(values.to_numpy(), dtype=np.float64).reshape(-1)
-        returns = returns_array
-        if returns.size != val_rows.size:
-            logger.warning(
-                "validation_returns_size_mismatch",
-                extra={
-                    "plan_id": plan.plan_id,
-                    "expected": int(val_rows.size),
-                    "observed": int(returns.size),
-                },
-            )
-            return None
         diagnostics = _ValidationReturnsDiagnostics(
             fallback_join=False,
             mismatch_count=mismatch_count,
@@ -1631,9 +1671,10 @@ class LightningStreamingWorker(TrainingWorker):
 
         base_train = np.asarray(fit_result.z_train, dtype=np.float64).reshape(-1)
         base_val = np.asarray(fit_result.z_val, dtype=np.float64).reshape(-1)
-        train_arrays: list[npt.NDArray[np.float64]] = [base_train]
-        val_arrays: list[npt.NDArray[np.float64]] = [base_val]
-        weights: list[float] = [1.0]
+        blended_train = base_train.copy()
+        blended_val = base_val.copy()
+        total_weight = 1.0
+        mean_count = 1
         skipped_optional = 0
         misaligned_members = 0
         inventory: list[StreamingEnsembleMemberTelemetry] = [
@@ -1651,6 +1692,7 @@ class LightningStreamingWorker(TrainingWorker):
         base_val_rows = fit_result.val_rows
         used_members = 0
 
+        blend_mode = ensemble_cfg.normalized_blend_mode
         for member in ensemble_cfg.members:
             def _record_inventory(
                 *,
@@ -1720,13 +1762,19 @@ class LightningStreamingWorker(TrainingWorker):
                     raise ValueError(f"ensemble member {member.artifact_path} misaligned: {alignment_issue}")
                 skipped_optional += 1
                 continue
-            train_arrays.append(member_payload.z_train)
-            val_arrays.append(member_payload.z_val)
-            weights.append(float(member.weight))
+            if blend_mode == "mean":
+                blended_train += member_payload.z_train
+                blended_val += member_payload.z_val
+                mean_count += 1
+            else:
+                weight_value = float(member.weight)
+                blended_train += member_payload.z_train * weight_value
+                blended_val += member_payload.z_val * weight_value
+                total_weight += weight_value
             used_members += 1
             _record_inventory(used=True, reason=None, payload=member_payload)
 
-        if len(train_arrays) == 1:
+        if used_members == 0:
             metrics_info: dict[str, float] = {"ensemble_members_used": 0.0}
             if skipped_optional:
                 metrics_info["ensemble_optional_members_skipped"] = float(skipped_optional)
@@ -1742,20 +1790,12 @@ class LightningStreamingWorker(TrainingWorker):
             )
             return fit_result, metrics_info, telemetry
 
-        blend_mode = ensemble_cfg.normalized_blend_mode
-        normalized_weights: list[float]
         if blend_mode == "mean":
-            normalized_value = 1.0 / float(len(train_arrays))
-            normalized_weights = [normalized_value] * len(train_arrays)
-        else:
-            total_weight = sum(weights)
-            if ensemble_cfg.normalize_weights and total_weight > 0.0:
-                normalized_weights = [weight / total_weight for weight in weights]
-            else:
-                normalized_weights = weights
-
-        blended_train = self._blend_logits(train_arrays, normalized_weights)
-        blended_val = self._blend_logits(val_arrays, normalized_weights)
+            blended_train = blended_train / float(mean_count)
+            blended_val = blended_val / float(mean_count)
+        elif ensemble_cfg.normalize_weights and total_weight > 0.0:
+            blended_train = blended_train / float(total_weight)
+            blended_val = blended_val / float(total_weight)
         metrics_extra: dict[str, float] = {
             "ensemble_members_used": float(used_members),
         }

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-import sqlite3
 
 import pytest
 
@@ -16,15 +16,18 @@ from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
 from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
+from ml.config.dataset_coverage import CoverageDatasetEntry
 from ml.config.market_data import MarketDatasetInput
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.coverage.feature_restorer import SUPPORTED_FEATURE_DATASET_IDS
 from ml.data.coverage.manager import BucketClassification
 from ml.data.coverage.manager import BucketSpec
+from ml.data.coverage.manager import DatasetCoverageConfig
 from ml.data.rehydration import CatalogRehydrationConfig
 from ml.deployment import entrypoint_pipeline
 from ml.stores.migrations_runner import SchemaHealthCheckError
+from ml.stores.providers import ParquetCoverageSpec
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -231,7 +234,7 @@ schema = "macro_release_calendar"
 entities = "CPIAUCSL"
 entity_field = "series_id"
 [datasets.parquet]
-path = "data/fred/vintages"
+path = "data/features/macro/fred/vintages"
 partition_field = "series_id"
 partition_template = "{value}/release_calendar.parquet"
 timestamp_field = "release_ts"
@@ -573,6 +576,126 @@ def test_run_coverage_restoration_routes_classifications(
     assert coverage["last_success"] is not None
 
 
+def test_run_coverage_restoration_dry_run_skips_restores(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    scheduler_config = SchedulerConfig(
+        symbols=["SPY.XNAS"],
+        databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"),
+        feature_store_connection="postgresql://feature",
+    )
+    runner.scheduler = _DummyScheduler(
+        catalog=None,
+        config=scheduler_config,
+        use_orchestrator=False,
+        dual_write=False,
+    )
+    runner._catalog_path = tmp_path
+    monkeypatch.setenv("COVERAGE_RESTORE_ENABLED", "1")
+
+    feature_spec = BucketSpec(
+        dataset_id=FEATURE_VALUES_DATASET_ID,
+        schema="feature_values",
+        instrument_id="SPY.XNAS",
+        bucket_start_ns=1_700_000_000_000_000_000,
+    )
+    market_spec = BucketSpec(
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instrument_id="SPY.XNAS",
+        bucket_start_ns=1_700_086_400_000_000_000_000,
+    )
+
+    class _DryRunCoverageManager:
+        def __init__(
+            self,
+            *,
+            config: Any,
+            sql_provider: Any,
+            catalog_provider: Any,
+            schema_auditor: Any,
+        ) -> None:
+            return
+
+        def restore_all(self) -> tuple[BucketClassification, ...]:
+            return (
+                BucketClassification(spec=feature_spec, has_sql=False, has_catalog=True),
+                BucketClassification(spec=market_spec, has_sql=False, has_catalog=False),
+            )
+
+    feature_entry = CoverageDatasetEntry(
+        dataset=DatasetCoverageConfig(
+            dataset_id=FEATURE_VALUES_DATASET_ID,
+            schema="feature_values",
+            instruments=("SPY.XNAS",),
+        ),
+        parquet_spec=ParquetCoverageSpec(
+            dataset_id=FEATURE_VALUES_DATASET_ID,
+            base_path=str(tmp_path / "feature_values"),
+            partition_field="instrument_id",
+            timestamp_field="ts_event",
+            partition_template="{value}",
+        ),
+    )
+    market_entry = CoverageDatasetEntry(
+        dataset=DatasetCoverageConfig(
+            dataset_id="EQUS.MINI",
+            schema="ohlcv-1m",
+            instruments=("SPY.XNAS",),
+        ),
+        parquet_spec=None,
+    )
+
+    monkeypatch.setattr(entrypoint_pipeline, "CoverageManager", _DryRunCoverageManager)
+    monkeypatch.setattr("ml.stores.providers.SqlCoverageProvider", lambda **_: object())
+    monkeypatch.setattr("ml.stores.providers.CatalogCoverageProvider", lambda **_: object())
+    monkeypatch.setattr(entrypoint_pipeline, "SchemaAuditor", lambda **_: object())
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_compose_coverage_entries",
+        lambda self, _: (feature_entry, market_entry),
+    )
+
+    restored_features: list[list[BucketSpec]] = []
+    restored_catalog: list[list[BucketSpec]] = []
+
+    def _record_feature_restore(
+        self: entrypoint_pipeline.PipelineRunner,
+        *,
+        specs: list[BucketSpec],
+        scheduler_config: SchedulerConfig,
+        parquet_specs: Any,
+    ) -> None:
+        restored_features.append(list(specs))
+
+    def _record_catalog_restore(
+        self: entrypoint_pipeline.PipelineRunner,
+        specs: list[BucketSpec],
+        scheduler_config: SchedulerConfig,
+    ) -> None:
+        restored_catalog.append(list(specs))
+
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_restore_feature_buckets",
+        _record_feature_restore,
+    )
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_restore_catalog_buckets",
+        _record_catalog_restore,
+    )
+
+    runner._run_coverage_restoration(scheduler_config, dry_run=True)
+
+    assert restored_features == []
+    assert restored_catalog == []
+    assert runner.scheduler is not None
+    assert runner.scheduler.targeted_calls == []
+
+
 def test_run_coverage_restoration_applies_bucket_cap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -700,8 +823,14 @@ def test_run_coverage_restoration_once_initializes_scheduler(
         "last_error": None,
     }
 
-    def _fake_run(self: entrypoint_pipeline.PipelineRunner, scheduler_cfg: SchedulerConfig) -> None:
+    def _fake_run(
+        self: entrypoint_pipeline.PipelineRunner,
+        scheduler_cfg: SchedulerConfig,
+        *,
+        dry_run: bool = False,
+    ) -> None:
         assert scheduler_cfg is config
+        assert dry_run is False
         entrypoint_pipeline.pipeline_status["coverage"].update(coverage_template)
 
     monkeypatch.setattr(entrypoint_pipeline.PipelineRunner, "_run_coverage_restoration", _fake_run)

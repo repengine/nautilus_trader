@@ -408,7 +408,7 @@ class TestFeatureParityFix:
         non_zero_count = np.count_nonzero(microstructure_features)
         assert non_zero_count > 0, "All microstructure features are zero"
 
-    @pytest.mark.xfail(reason="Legacy feature engineer does not support online trade flow features (WIP)")
+    @pytest.mark.xfail(reason="Trade-flow online not implemented (WIP)")
     def test_trade_flow_features_computed_online(
         self,
         mock_bars_data: list[dict[str, float]],

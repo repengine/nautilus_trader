@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from collections.abc import Callable
 from collections.abc import Iterable
 from datetime import UTC
@@ -289,7 +290,7 @@ class TFTDatasetBuilder:
         self.l2_base_dir = l2_base_dir
         self.vintage_base_dir = _Path(vintage_base_dir).expanduser() if vintage_base_dir else None
         self.events_base_dir = (
-            _Path(events_base_dir).expanduser() if events_base_dir else _Path("data/events")
+            _Path(events_base_dir).expanduser() if events_base_dir else _Path("data/features/events")
         )
         self._event_provider: Any | None = None
         self.student_mode = student_mode
@@ -1333,8 +1334,9 @@ class TFTDatasetBuilder:
             TFT-compatible training dataset
 
         """
+        from typing import cast as _cast
+
         # Collect results separately to keep typing precise
-        all_data_pl: list[_pl.DataFrame] = []
         all_data_pd: list[_pd.DataFrame] = []
 
         # Candidate venues to try per symbol (ETFs frequently ARCA/ARCX)
@@ -1347,10 +1349,9 @@ class TFTDatasetBuilder:
             "XNYS",
         ]
 
-        for symbol in self.symbols:
+        def _load_symbol_frame(symbol: str) -> _pl.DataFrame | None:
             logger.info(f"Processing {symbol}...")
 
-            # Load data using catalog
             try:
                 from typing import cast as _cast
 
@@ -1368,7 +1369,6 @@ class TFTDatasetBuilder:
                         last_err = e_inner
                         continue
                 if df.is_empty() and self._allow_parquet_fallback:
-                    # Fallback: read OHLCV minute parquet directly under base dir
                     try:
                         base = _Path(self.micro_base_dir or "data/tier1")
                         paths = [
@@ -1380,11 +1380,7 @@ class TFTDatasetBuilder:
                             if p.exists():
                                 part = pl.read_parquet(str(p))
                                 if not part.is_empty():
-                                    # Standardize columns to OHLCV schema
-                                    if (
-                                        "timestamp" not in part.columns
-                                        and "ts_event" in part.columns
-                                    ):
+                                    if "timestamp" not in part.columns and "ts_event" in part.columns:
                                         part = part.rename({"ts_event": "timestamp"})
                                     keep = [
                                         c
@@ -1400,7 +1396,6 @@ class TFTDatasetBuilder:
                                     ]
                                     if keep:
                                         part = part.select(keep)
-                                        # Unify timestamp timezone to UTC for concat compatibility
                                         if "timestamp" in part.columns:
                                             try:
                                                 part = part.with_columns(
@@ -1409,9 +1404,7 @@ class TFTDatasetBuilder:
                                             except Exception:
                                                 try:
                                                     part = part.with_columns(
-                                                        pl.col("timestamp").dt.convert_time_zone(
-                                                            "UTC",
-                                                        ),
+                                                        pl.col("timestamp").dt.convert_time_zone("UTC"),
                                                     )
                                                 except Exception:
                                                     try:
@@ -1423,12 +1416,10 @@ class TFTDatasetBuilder:
                                                     except Exception:
                                                         pass
                                     frames.append(part)
-                        # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
                         l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
                         if l0_file.exists():
                             part = pl.read_parquet(str(l0_file))
                             if not part.is_empty():
-                                # Standardize columns
                                 if "timestamp" not in part.columns and "ts_event" in part.columns:
                                     part = part.rename({"ts_event": "timestamp"})
                                 keep = [
@@ -1437,7 +1428,6 @@ class TFTDatasetBuilder:
                                     if c in part.columns
                                 ]
                                 part = part.select(keep)
-                                # Unify timestamp timezone to UTC for concat compatibility
                                 if "timestamp" in part.columns:
                                     try:
                                         part = part.with_columns(
@@ -1459,9 +1449,7 @@ class TFTDatasetBuilder:
                                                 pass
                                 frames.append(part)
                         if frames:
-                            # Concatenate standardized frames
                             df = pl.concat(frames, how="vertical")
-                            # Normalize timestamp column name and type
                             if "timestamp" not in df.columns and "ts_event" in df.columns:
                                 df = df.rename({"ts_event": "timestamp"})
                             if "timestamp" in df.columns and df["timestamp"].dtype != pl.Datetime:
@@ -1472,7 +1460,6 @@ class TFTDatasetBuilder:
                                 "timestamp" if "timestamp" in df.columns else df.columns[0],
                             )
                         else:
-                            # No files found; log and skip
                             if last_err is not None:
                                 logger.warning(
                                     f"Failed to load data for {symbol} (last error: {last_err}); no parquet fallback",
@@ -1481,38 +1468,203 @@ class TFTDatasetBuilder:
                                 logger.warning(
                                     f"No data found for {symbol} across venues {candidate_venues}; parquet fallback missing",
                                 )
-                            continue
+                            return None
                     except Exception as e_fallback:  # pragma: no cover - environment dependent
                         logger.warning(f"Fallback parquet load failed for {symbol}: {e_fallback}")
-                        continue
+                        return None
             except Exception as e:
                 logger.warning(f"Failed to load data for {symbol}: {e}")
-                continue
+                return None
 
             if df.is_empty():
                 logger.warning(f"No data found for {symbol}, skipping")
-                continue
+                return None
 
-            # Process with Polars or Pandas
-            processed: _pl.DataFrame | _pd.DataFrame | None = None
-            if use_polars:
-                if not isinstance(df, pl.DataFrame):
-                    logger.warning(f"Expected Polars DataFrame for {symbol}, skipping")
-                else:
-                    processed = self._process_symbol_polars(
-                        df,
-                        symbol,
-                        horizon_minutes,
-                        min_return_threshold,
-                        lookback_periods,
-                        start=start,
-                        end=end,
-                    )
-                    if processed is not None:
-                        # processed is a Polars DataFrame here
-                        all_data_pl.append(processed)
-            else:
-                # Convert to pandas if needed
+            if not isinstance(df, pl.DataFrame):
+                logger.warning(f"Expected Polars DataFrame for {symbol}, skipping")
+                return None
+            return self._process_symbol_polars(
+                df,
+                symbol,
+                horizon_minutes,
+                min_return_threshold,
+                lookback_periods,
+                start=start,
+                end=end,
+            )
+
+        final_df: _pl.DataFrame | _pd.DataFrame
+
+        if use_polars:
+            with tempfile.TemporaryDirectory(prefix="tft_builder_") as temp_dir:
+                part_paths: list[_Path] = []
+                for symbol in self.symbols:
+                    processed_pl = _load_symbol_frame(symbol)
+                    if processed_pl is None:
+                        continue
+                    part_path = _Path(temp_dir) / f"{symbol.lower()}_{len(part_paths):04d}.parquet"
+                    processed_pl.write_parquet(str(part_path))
+                    part_paths.append(part_path)
+
+                if not part_paths:
+                    logger.error("No data processed for any symbol")
+                    from typing import cast as _cast
+
+                    return _cast("_pl.DataFrame", pl.DataFrame())
+
+                lazy_frames = [pl.scan_parquet(str(path)) for path in part_paths]
+                final_df = _cast(
+                    "_pl.DataFrame",
+                    pl.concat(lazy_frames).collect(streaming=True),
+                )
+        else:
+            for symbol in self.symbols:
+                logger.info(f"Processing {symbol}...")
+
+                # Load data using catalog
+                try:
+                    from typing import cast as _cast
+
+                    df = _cast("_pl.DataFrame", pl.DataFrame())
+                    last_err: Exception | None = None
+                    instrument_candidates = self._symbol_instrument_map.get(symbol)
+                    if not instrument_candidates:
+                        instrument_candidates = [f"{symbol}.{venue}" for venue in candidate_venues]
+                    for instrument_id in instrument_candidates:
+                        try:
+                            df = self._load_bars_dataframe(instrument_id, start, end)
+                            if not df.is_empty():
+                                break
+                        except Exception as e_inner:  # pragma: no cover - catalog differences
+                            last_err = e_inner
+                            continue
+                    if df.is_empty() and self._allow_parquet_fallback:
+                        # Fallback: read OHLCV minute parquet directly under base dir
+                        try:
+                            base = _Path(self.micro_base_dir or "data/tier1")
+                            paths = [
+                                base / symbol / "ohlcv-1m_historical.parquet",
+                                base / symbol / "ohlcv-1m_recent.parquet",
+                            ]
+                            frames = []
+                            for p in paths:
+                                if p.exists():
+                                    part = pl.read_parquet(str(p))
+                                    if not part.is_empty():
+                                        # Standardize columns to OHLCV schema
+                                        if (
+                                            "timestamp" not in part.columns
+                                            and "ts_event" in part.columns
+                                        ):
+                                            part = part.rename({"ts_event": "timestamp"})
+                                        keep = [
+                                            c
+                                            for c in [
+                                                "timestamp",
+                                                "open",
+                                                "high",
+                                                "low",
+                                                "close",
+                                                "volume",
+                                            ]
+                                            if c in part.columns
+                                        ]
+                                        if keep:
+                                            part = part.select(keep)
+                                            # Unify timestamp timezone to UTC for concat compatibility
+                                            if "timestamp" in part.columns:
+                                                try:
+                                                    part = part.with_columns(
+                                                        pl.col("timestamp").dt.replace_time_zone("UTC"),
+                                                    )
+                                                except Exception:
+                                                    try:
+                                                        part = part.with_columns(
+                                                            pl.col("timestamp").dt.convert_time_zone(
+                                                                "UTC",
+                                                            ),
+                                                        )
+                                                    except Exception:
+                                                        try:
+                                                            part = part.with_columns(
+                                                                pl.col("timestamp").cast(
+                                                                    pl.Datetime("ns", "UTC"),
+                                                                ),
+                                                            )
+                                                        except Exception:
+                                                            pass
+                                        frames.append(part)
+                            # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
+                            l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
+                            if l0_file.exists():
+                                part = pl.read_parquet(str(l0_file))
+                                if not part.is_empty():
+                                    # Standardize columns
+                                    if "timestamp" not in part.columns and "ts_event" in part.columns:
+                                        part = part.rename({"ts_event": "timestamp"})
+                                    keep = [
+                                        c
+                                        for c in ["timestamp", "open", "high", "low", "close", "volume"]
+                                        if c in part.columns
+                                    ]
+                                    part = part.select(keep)
+                                    # Unify timestamp timezone to UTC for concat compatibility
+                                    if "timestamp" in part.columns:
+                                        try:
+                                            part = part.with_columns(
+                                                pl.col("timestamp").dt.replace_time_zone("UTC"),
+                                            )
+                                        except Exception:
+                                            try:
+                                                part = part.with_columns(
+                                                    pl.col("timestamp").dt.convert_time_zone("UTC"),
+                                                )
+                                            except Exception:
+                                                try:
+                                                    part = part.with_columns(
+                                                        pl.col("timestamp").cast(
+                                                            pl.Datetime("ns", "UTC"),
+                                                        ),
+                                                    )
+                                                except Exception:
+                                                    pass
+                                    frames.append(part)
+                            if frames:
+                                # Concatenate standardized frames
+                                df = pl.concat(frames, how="vertical")
+                                # Normalize timestamp column name and type
+                                if "timestamp" not in df.columns and "ts_event" in df.columns:
+                                    df = df.rename({"ts_event": "timestamp"})
+                                if "timestamp" in df.columns and df["timestamp"].dtype != pl.Datetime:
+                                    df = df.with_columns(
+                                        pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                                    )
+                                df = df.sort(
+                                    "timestamp" if "timestamp" in df.columns else df.columns[0],
+                                )
+                            else:
+                                # No files found; log and skip
+                                if last_err is not None:
+                                    logger.warning(
+                                        f"Failed to load data for {symbol} (last error: {last_err}); no parquet fallback",
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"No data found for {symbol} across venues {candidate_venues}; parquet fallback missing",
+                                    )
+                                continue
+                        except Exception as e_fallback:  # pragma: no cover - environment dependent
+                            logger.warning(f"Fallback parquet load failed for {symbol}: {e_fallback}")
+                            continue
+                except Exception as e:
+                    logger.warning(f"Failed to load data for {symbol}: {e}")
+                    continue
+
+                if df.is_empty():
+                    logger.warning(f"No data found for {symbol}, skipping")
+                    continue
+
+                # Process with Pandas
                 if isinstance(df, pl.DataFrame):
                     df_pandas = df.to_pandas()
                 else:
@@ -1520,45 +1672,31 @@ class TFTDatasetBuilder:
                     from typing import cast
 
                     df_pandas = cast("_pd.DataFrame", df)
-                processed = self._process_symbol_pandas(
+                processed_pd = self._process_symbol_pandas(
                     df_pandas,
                     symbol,
                     horizon_minutes,
                     min_return_threshold,
                     lookback_periods,
                 )
-                if processed is not None:
+                if processed_pd is not None:
                     # Optional date filtering
-                    if (start is not None or end is not None) and "timestamp" in processed.columns:
+                    if (start is not None or end is not None) and "timestamp" in processed_pd.columns:
                         try:
                             import pandas as _pd
 
                             s_ts = _pd.Timestamp(start, tz="UTC") if start is not None else None
                             e_ts = _pd.Timestamp(end, tz="UTC") if end is not None else None
                             if s_ts is not None:
-                                processed = processed[processed["timestamp"] >= s_ts]
+                                processed_pd = processed_pd[processed_pd["timestamp"] >= s_ts]
                             if e_ts is not None:
-                                processed = processed[processed["timestamp"] < e_ts]
+                                processed_pd = processed_pd[processed_pd["timestamp"] < e_ts]
                         except Exception:
                             pass
-                    if processed is not None:
-                        all_data_pd.append(processed)
+                    if processed_pd is not None:
+                        all_data_pd.append(processed_pd)
 
-        if (use_polars and not all_data_pl) or (not use_polars and not all_data_pd):
-            logger.error("No data processed for any symbol")
-            from typing import cast as _cast
-
-            if not use_polars:
-                return _cast("_pd.DataFrame", pd.DataFrame())
-            return _cast("_pl.DataFrame", pl.DataFrame())
-
-        # Combine all symbols with proper typing
-        final_df: _pl.DataFrame | _pd.DataFrame
         if use_polars:
-            lazy_frames = [df.lazy() for df in all_data_pl]
-            final_df = pl.concat(lazy_frames).collect(streaming=True)
-            all_data_pl.clear()
-
             if self.include_macro:
                 from ml.data.fred_join import join_fred_asof
 
@@ -1615,6 +1753,11 @@ class TFTDatasetBuilder:
                 elif "timestamp" in final_df.columns:
                     final_df = final_df.sort("timestamp")
         else:
+            if not all_data_pd:
+                logger.error("No data processed for any symbol")
+                from typing import cast as _cast
+
+                return _cast("_pd.DataFrame", pd.DataFrame())
             # all_data_pd contains Pandas DataFrames
             final_df = pd.concat(all_data_pd, ignore_index=True)
             if self.include_macro:

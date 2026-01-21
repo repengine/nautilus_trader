@@ -255,7 +255,7 @@ Flags such as `--force-micro` / `--force-l2` refresh existing partitions, while 
 
 A Postgres DSN is now required; the CLI falls back to `DB_CONNECTION`, `NAUTILUS_DB`, or `DATABASE_URL` when `--dsn` is omitted. Every SQL write runs through the feature raw-writer so hydrated partitions immediately land in both the parquet cache (`data/features/{micro_minute,l2_minute}`) and the SQL mirrors (`ml.microstructure_minute`, `ml.l2_minute`). This keeps coverage automation green without waiting for a secondary ingest step.
 
-`ensure_macro_ready` and `MLIntegrationManager.ingest_events` share the same dual-write plumbing. Their DataStore instances include the feature raw-writer, so `ml.events_calendar`, `ml.macro_release_calendar`, and `ml.macro_observations` receive SQL updates at the same time their parquet artifacts (`data/events/events.parquet`, `data/fred/**`) refresh.
+`ensure_macro_ready` and `MLIntegrationManager.ingest_events` share the same dual-write plumbing. Their DataStore instances include the feature raw-writer, so `ml.events_calendar`, `ml.macro_release_calendar`, and `ml.macro_observations` receive SQL updates at the same time their parquet artifacts (`data/features/events/events.parquet`, `data/features/macro/**`) refresh.
 
 ## Production Hardening
 
@@ -330,7 +330,7 @@ services:
 
 ### ALFRED Vintage Refresh
 
-Keep `data/fred/vintages/**` synchronized with ALFRED by running:
+Keep `data/features/macro/fred/vintages/**` synchronized with ALFRED by running:
 
 ```bash
 source .env
@@ -343,24 +343,24 @@ outside Poetry. The 2025‑11‑16 refresh brought in the new commodity/metals s
 entries from the macro universe. Those feeds have first-class ALFRED support, so
 rerunning the command now writes full release calendars plus SQL dual writes via
 `ensure_macro_ready`. After the refresh completes, re-run the dataset/audit jobs with
-`VintagePolicy.REAL_TIME` and `fred_vintage_dir=data/fred/vintages` to verify
+`VintagePolicy.REAL_TIME` and `fred_vintage_dir=data/features/macro/fred/vintages` to verify
 macro feature hydration.
 
 ### Event / Calendar Refresh
 
-Regenerate `data/events/events.parquet` whenever macro/event sources change:
+Regenerate `data/features/events/events.parquet` whenever macro/event sources change:
 
 ```bash
 PYTHONPATH=. python - <<'PY'
 from datetime import UTC, datetime
 from pathlib import Path
 from ml.preprocessing.event_ingestion import EventIngestionConfig, EventIngestionUtility
-series = tuple(sorted(p.name for p in Path('data/fred/vintages').iterdir() if p.is_dir()))
+series = tuple(sorted(p.name for p in Path('data/features/macro/fred/vintages').iterdir() if p.is_dir()))
 cfg = EventIngestionConfig(
     start=datetime(2023, 1, 1, tzinfo=UTC),
     end=datetime(2025, 12, 31, tzinfo=UTC),
-    out_dir=Path('data/events'),
-    alfred_vintage_dir=Path('data/fred/vintages'),
+    out_dir=Path('data/features/events'),
+    alfred_vintage_dir=Path('data/features/macro/fred/vintages'),
     economic_series=series,
     calendar_code='XNYS',
     include_options_expiry=True,
@@ -382,19 +382,23 @@ mirrors via:
 
 ```bash
 ML_FILE_STORE_PATH=data/earnings_file_store \
-SEC_IDENTITY='nautilus-ml dev <dev@nautilus.ai>' \
+SEC_USER_AGENT_NAME='your name' \
+SEC_USER_AGENT_EMAIL='you@example.com' \
+SEC_USER_AGENT_PHONE='555-555-5555' \
 poetry run python -m ml.cli.ingest_earnings \
   --dsn postgresql://postgres:postgres@localhost:5432/nautilus \
-  --parquet-root data/earnings_raw \
+  --parquet-root data/features/earnings_raw \
   --universe-mode tier1_full \
   --quarters 4
 ```
 
-This dual-writes into Postgres plus `data/earnings_raw/earnings_{actuals,estimates}/`
+This dual-writes into Postgres plus `data/features/earnings_raw/earnings_{actuals,estimates}/`
 using `EarningsParquetRawWriter`. Ensure the `update_watermark(...)` SQL function
 exists (simple `INSERT ... ON CONFLICT` upsert into `ml_data_watermarks`) so the
 DataStore can emit events without noisy errors, and keep `NAUTILUS_DB` in `.env`
 pointing at the live DSN before running the audit harness.
+
+You can also set `SEC_IDENTITY` directly if you prefer a single User-Agent string.
     volumes:
       - pgdata:/var/lib/postgresql/data
 volumes:

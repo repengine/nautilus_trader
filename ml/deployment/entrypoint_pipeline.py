@@ -1144,7 +1144,12 @@ class PipelineRunner:
         skipped_source = max(0, len(source_specs) - len(capped_source))
         return capped_catalog, capped_source, skipped_catalog, skipped_source
 
-    def _run_coverage_restoration(self, scheduler_config: SchedulerConfig) -> None:
+    def _run_coverage_restoration(
+        self,
+        scheduler_config: SchedulerConfig,
+        *,
+        dry_run: bool = False,
+    ) -> None:
         if not self._coverage_restore_enabled():
             return
         if self.scheduler is None:
@@ -1250,11 +1255,12 @@ class PipelineRunner:
                     "buckets": len(feature_catalog_specs),
                 },
             )
-            self._restore_feature_buckets(
-                specs=feature_catalog_specs,
-                scheduler_config=scheduler_config,
-                parquet_specs=parquet_specs,
-            )
+            if not dry_run:
+                self._restore_feature_buckets(
+                    specs=feature_catalog_specs,
+                    scheduler_config=scheduler_config,
+                    parquet_specs=parquet_specs,
+                )
         feature_source_specs = [
             spec for spec in full_source_specs if spec.dataset_id in feature_dataset_ids
         ]
@@ -1266,6 +1272,19 @@ class PipelineRunner:
                     "buckets": len(feature_source_specs),
                 },
             )
+        if dry_run:
+            logger.info(
+                "coverage_manager.dry_run",
+                extra={
+                    "feature_restore_buckets": len(feature_catalog_specs),
+                    "feature_reingest_buckets": len(feature_source_specs),
+                    "catalog_restore_buckets": len(catalog_specs),
+                    "source_reingest_buckets": len(source_specs),
+                },
+            )
+            for classification in classifications:
+                _coverage_buckets_total.labels(status=classification.status.name.lower()).inc()
+            return
         if skipped_catalog or skipped_source:
             logger.warning(
                 "coverage_manager.bucket_cap_applied",
@@ -1403,7 +1422,7 @@ class PipelineRunner:
     def _should_rescan_catalog(self) -> bool:
         return bool(self._rehydrator_config and self._rehydrator_config.rescan_on_schedule)
 
-    def run_coverage_restoration_once(self) -> CoverageStatus:
+    def run_coverage_restoration_once(self, *, dry_run: bool = False) -> CoverageStatus:
         """
         Execute a standalone coverage restoration cycle.
         """
@@ -1426,7 +1445,7 @@ class PipelineRunner:
                 dataset_type_identifier_templates=rehydrator_config.dataset_type_identifier_templates,
             )
             self._build_catalog_rehydrator(catalog=catalog, scheduler_config=config)
-            self._run_coverage_restoration(config)
+            self._run_coverage_restoration(config, dry_run=dry_run)
         finally:
             if self.scheduler is not None:
                 try:

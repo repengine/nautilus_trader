@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Sized
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_POLARS
@@ -508,9 +509,17 @@ class SchemaValidatorComponent:
             if hasattr(data_frame_any, "columns") and col_name in data_frame_any.columns:
                 # Get actual type
                 actual_type = str(data_frame_any[col_name].dtype)
+                nullable_fields: set[str] = set()
+                constraints = manifest.constraints or {}
+                raw_nullable = constraints.get("nullable_fields")
+                if isinstance(raw_nullable, (list, tuple, set)):
+                    nullable_fields = {str(item) for item in raw_nullable if item is not None}
 
                 # Simple type checking (would be more sophisticated in production)
                 if not self._types_compatible(actual_type, expected_type):
+                    col = data_frame_any[col_name]
+                    if col_name in nullable_fields and self._column_all_null(col):
+                        continue
                     violations += 1
                     sample_values.append(f"{col_name}: {actual_type} != {expected_type}")
 
@@ -525,6 +534,32 @@ class SchemaValidatorComponent:
             )
 
         return None
+
+    @staticmethod
+    def _column_all_null(column: object) -> bool:
+        """
+        Return True when a column contains only null values.
+        """
+        try:
+            if hasattr(column, "null_count"):
+                nulls = int(column.null_count())
+                total = len(cast(Sized, column))
+                return total > 0 and nulls >= total
+        except Exception:
+            return False
+        try:
+            if hasattr(column, "is_null"):
+                nulls = column.is_null().sum()
+                total = len(cast(Sized, column))
+                return total > 0 and int(nulls) >= total
+        except Exception:
+            return False
+        try:
+            if hasattr(column, "isna"):
+                return bool(column.isna().all())
+        except Exception:
+            return False
+        return False
 
     def _validate_regex(
         self,
@@ -1117,6 +1152,15 @@ class SchemaValidatorComponent:
         """
         Check if actual type is compatible with expected type.
         """
+        actual_lower = actual.lower()
+        expected_lower = expected.lower()
+
+        if expected_lower in {"date", "datetime"}:
+            return any(
+                token in actual_lower
+                for token in ("date", "datetime", "timestamp", "string", "utf8", "object")
+            )
+
         # Simple type compatibility check
         type_map = {
             "int64": ["int", "int64", "i8", "Int64"],
@@ -1127,7 +1171,7 @@ class SchemaValidatorComponent:
 
         for expected_base, compatible_types in type_map.items():
             if expected in compatible_types:
-                return any(t in actual.lower() for t in compatible_types)
+                return any(t in actual_lower for t in compatible_types)
 
         # Default to string comparison
-        return actual.lower() == expected.lower()
+        return actual_lower == expected_lower

@@ -2,9 +2,9 @@
 services:
   ml_pipeline:
     environment:
-      DB_CONNECTION: postgresql://postgres:postgres@ml-postgres-1:5432/nautilus
-      FEATURE_STORE_CONNECTION: postgresql://postgres:postgres@ml-postgres-1:5432/nautilus
-      MODEL_STORE_CONNECTION: postgresql://postgres:postgres@ml-postgres-1:5432/nautilus
+      DB_CONNECTION: postgresql://postgres:postgres@nautilus-database:5432/nautilus
+      FEATURE_STORE_CONNECTION: postgresql://postgres:postgres@nautilus-database:5432/nautilus
+      MODEL_STORE_CONNECTION: postgresql://postgres:postgres@nautilus-database:5432/nautilus
       CATALOG_PATH: /app/data/catalog
       UNIVERSE_SYMBOLS: AAPL.XNAS,ABBV.XNAS,ABT.XNAS,ACN.XNAS,ADBE.XNAS,AMAT.XNAS,AMD.XNAS,AMZN.XNAS,AVGO.XNAS,BA.XNAS,BAC.XNAS,C.XNAS,CAT.XNAS,COIN.XNAS,COP.XNAS,COST.XNAS,CRM.XNAS,CRWD.XNAS,CVX.XNAS,DIA.XNAS,DIS.XNAS,EEM.XNAS,EFA.XNAS,FXE.XNAS,GE.XNAS,GLD.XNAS,GOOG.XNAS,GOOGL.XNAS,GS.XNAS,HD.XNAS,HOOD.XNAS,INTC.XNAS,IWM.XNAS,JNJ.XNAS,JPM.XNAS,KO.XNAS,LCID.XNAS,LLY.XNAS,LUV.XNAS,MA.XNAS,MCD.XNAS,META.XNAS,MMM.XNAS,MRK.XNAS,MRVL.XNAS,MS.XNAS,MSFT.XNAS,MSTR.XNAS,MU.XNAS,NFLX.XNAS,NKE.XNAS,NVDA.XNAS,ORCL.XNAS,OXY.XNAS,PEP.XNAS,PFE.XNAS,PG.XNAS,PLTR.XNAS,PYPL.XNAS,QQQ.EQUS,RIVN.XNAS,SLB.XNAS,SLV.XNAS,SOFI.XNAS,SPY.EQUS,T.XNAS,TLT.XNAS,TMO.XNAS,TMUS.XNAS,TSLA.XNAS,TSM.XNAS,TXN.XNAS,UBER.XNAS,UNG.XNAS,UNH.XNAS,USO.XNAS,UUP.XNAS,V.XNAS,VEA.XNAS,VIXY.XNAS,VNQ.XNAS,VNQI.XNAS,VTI.XNAS,VWO.XNAS,VXX.NASDAQ,VZ.XNAS,WBD.XNAS,WFC.XNAS,WMT.XNAS,XLB.NASDAQ,XLE.XNAS,XLF.XNAS,XLI.XNAS,XLK.XNAS,XLP.NASDAQ,XLRE.NASDAQ,XLU.NASDAQ,XLV.XNAS,XLY.NASDAQ,XOM.XNAS
       CATALOG_REHYDRATE_ENABLED: "1"
@@ -21,10 +21,11 @@ services:
       MARKET_DATASET_INPUTS: '[{"descriptor_id":"EQUS.MINI_TBBO","start":"2023-03-28"},{"descriptor_id":"EQUS.MINI_MBP1","start":"2023-03-28"},{"descriptor_id":"XNAS.ITCH_MBP10","start":"2023-03-28"}]'
       MARKET_BACKFILL_LOOKBACK_DAYS: "7"
     volumes:
-      # Mount host raw data roots so /app/data/tier1 and /app/data/batch symlinks resolve
-      - /home/nate/nautilus_data/ml_data:/home/nate/nautilus_data/ml_data:rw
-      # Mount canonical ParquetDataCatalog path
-      - /home/nate/nautilus_data/ml_data/catalog:/app/data/catalog:rw
+      - ../models:/app/models:rw
+      - ../../data:/app/data:rw
+      - ../logs:/app/logs:rw
+      - ./configs:/app/configs:ro
+      - ../stores/migrations:/app/migrations:ro
     networks:
       - docker_nautilus-network
       - nautilus-ml

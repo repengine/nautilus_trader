@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
+from datetime import date
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Final, cast
@@ -25,8 +26,10 @@ from sqlalchemy.sql import select as sa_select
 from sqlalchemy.sql import table as sa_table
 
 from ml._imports import HAS_PANDAS
+from ml._imports import HAS_PYARROW
 from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
+from ml._imports import pq as pq_runtime
 from ml.common.db_utils import get_or_create_engine
 from ml.registry.dataclasses import DatasetType
 from ml.schema import default_identifier_template_for_dataset_type
@@ -83,6 +86,178 @@ def _bucket_from_path(path: Path) -> int | None:
     except ValueError:
         return None
     return int(dt.timestamp() * 1_000_000_000) // DAY_NS
+
+
+def _is_instrument_scoped_parquet(spec: ParquetCoverageSpec) -> bool:
+    base_path = Path(spec.base_path)
+    if base_path.is_file():
+        return False
+    template = spec.partition_template
+    if template is not None and template.strip() == "":
+        return False
+    return True
+
+
+def _coerce_parquet_stat_to_ns(value: object) -> int | None:
+    if value is None:
+        return None
+    if hasattr(value, "as_py"):
+        try:
+            value = value.as_py()
+        except Exception:
+            return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return int(value.timestamp() * 1_000_000_000)
+    if isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day, tzinfo=UTC)
+        return int(dt.timestamp() * 1_000_000_000)
+    if pd_runtime is not None:
+        try:
+            ts = pd_runtime.to_datetime(value, utc=True, errors="coerce")
+        except Exception:
+            return None
+        if pd_runtime.isna(ts):
+            return None
+        if hasattr(ts, "value"):
+            return int(ts.value)
+        try:
+            return int(ts.to_datetime64().astype("datetime64[ns]").astype("int64"))
+        except Exception:
+            return None
+    return None
+
+
+def _buckets_from_parquet_stats(
+    path: Path,
+    *,
+    timestamp_field: str,
+    window_start: int,
+    window_end: int,
+) -> set[int] | None:
+    if not HAS_PYARROW or pq_runtime is None:
+        return None
+    try:
+        parquet_file = pq_runtime.ParquetFile(path)
+    except Exception:
+        logger.debug(
+            "parquet_coverage.stats_open_failed",
+            exc_info=True,
+            extra={"path": str(path)},
+        )
+        return None
+    schema = parquet_file.schema_arrow
+    if schema is None:
+        return None
+    col_idx = schema.get_field_index(timestamp_field)
+    if col_idx < 0:
+        return None
+    metadata = parquet_file.metadata
+    if metadata is None:
+        return None
+    start_bucket = window_start // DAY_NS
+    end_bucket = (window_end - 1) // DAY_NS
+    buckets: set[int] = set()
+    for row_group_idx in range(metadata.num_row_groups):
+        column = metadata.row_group(row_group_idx).column(col_idx)
+        stats = column.statistics
+        if stats is None:
+            return None
+        min_value = _coerce_parquet_stat_to_ns(stats.min)
+        max_value = _coerce_parquet_stat_to_ns(stats.max)
+        if min_value is None or max_value is None:
+            return None
+        min_bucket = min_value // DAY_NS
+        max_bucket = max_value // DAY_NS
+        if min_bucket != max_bucket:
+            return None
+        if start_bucket <= min_bucket <= end_bucket:
+            buckets.add(int(min_bucket))
+    return buckets
+
+
+def _buckets_from_parquet_dataset(
+    path: Path,
+    *,
+    partition_field: str | None,
+    instrument_id: str,
+    timestamp_field: str,
+    window_start: int,
+    window_end: int,
+) -> set[int] | None:
+    if not HAS_PYARROW or pq_runtime is None:
+        return None
+    if not partition_field:
+        return None
+    instrument = instrument_id.strip()
+    if not instrument:
+        return None
+    try:
+        import pyarrow as _pa
+        import pyarrow.compute as _pc
+        import pyarrow.dataset as _ds
+    except Exception:
+        return None
+    try:
+        dataset = _ds.dataset(path, format="parquet")
+    except Exception:
+        logger.debug(
+            "parquet_coverage.dataset_open_failed",
+            exc_info=True,
+            extra={"path": str(path)},
+        )
+        return None
+    try:
+        filter_expr = _ds.field(partition_field) == instrument
+    except Exception:
+        return None
+    try:
+        scanner = dataset.scanner(columns=[timestamp_field], filter=filter_expr)
+    except Exception:
+        return None
+
+    start_bucket = window_start // DAY_NS
+    end_bucket = (window_end - 1) // DAY_NS
+    buckets: set[int] = set()
+    for batch in scanner.to_batches():
+        if batch.num_rows == 0:
+            continue
+        column = batch.column(0)
+        try:
+            if _pa.types.is_timestamp(column.type):
+                if column.type.unit != "ns":
+                    column = _pc.cast(column, _pa.timestamp("ns"))
+                values = _pc.cast(column, _pa.int64())
+            elif _pa.types.is_date(column.type):
+                values = _pc.cast(column, _pa.timestamp("ns"))
+                values = _pc.cast(values, _pa.int64())
+            else:
+                values = _pc.cast(column, _pa.int64(), safe=False)
+        except Exception:
+            return None
+        try:
+            raw_values = values.to_numpy(zero_copy_only=False)
+        except Exception:
+            return None
+        for raw in raw_values:
+            if raw is None:
+                continue
+            try:
+                ts_value = int(raw)
+            except Exception:
+                continue
+            if window_start <= ts_value < window_end:
+                bucket = ts_value // DAY_NS
+                if start_bucket <= bucket <= end_bucket:
+                    buckets.add(int(bucket))
+    return buckets
 
 
 def _schema_to_dataclass(schema: str) -> type[Any]:
@@ -671,10 +846,6 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
         spec = self.specs.get(dataset_id)
         if spec is None:
             return set()
-        if not HAS_PANDAS or pd_runtime is None:
-            check_ml_dependencies(["pandas"])
-        assert pd_runtime is not None
-        pd_local = pd_runtime
         files = spec.files_for_instrument(instrument_id)
         if not files:
             return set()
@@ -690,6 +861,31 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
                 if start_bucket <= bucket_idx <= end_bucket:
                     buckets.add(bucket_idx)
                 continue
+            if _is_instrument_scoped_parquet(spec):
+                stats_buckets = _buckets_from_parquet_stats(
+                    path,
+                    timestamp_field=spec.timestamp_field,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                if stats_buckets is not None:
+                    buckets.update(stats_buckets)
+                    continue
+            scan_buckets = _buckets_from_parquet_dataset(
+                path,
+                partition_field=spec.partition_field,
+                instrument_id=instrument_id,
+                timestamp_field=spec.timestamp_field,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            if scan_buckets is not None:
+                buckets.update(scan_buckets)
+                continue
+            if not HAS_PANDAS or pd_runtime is None:
+                check_ml_dependencies(["pandas"])
+            assert pd_runtime is not None
+            pd_local = pd_runtime
             try:
                 columns = [spec.timestamp_field]
                 if spec.partition_field:

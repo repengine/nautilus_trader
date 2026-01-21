@@ -100,7 +100,7 @@ class ProviderFactory:
         if event_source is not None:
             self._event_source = event_source
         else:
-            candidate = Path("data/events/events.parquet")
+            candidate = Path("data/features/events/events.parquet")
             if candidate.exists():
                 try:
                     self._event_source = FileEventSource(candidate)

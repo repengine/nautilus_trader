@@ -40,8 +40,8 @@ def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:
         check_ml_dependencies(["polars"])  # pragma: no cover
     _pl = pl
     assert _pl is not None
-    path_ml = Path(fred_path) if fred_path else Path("data/fred/fred_indicators_ml_format.parquet")
-    path_wide = Path("data/fred/fred_indicators_updated.parquet")
+    path_ml = Path(fred_path) if fred_path else Path("data/features/macro/fred_indicators_ml_format.parquet")
+    path_wide = Path("data/features/macro/fred_indicators_updated.parquet")
 
     if path_ml.exists():
         return cast(PolarsDF, _pl.read_parquet(str(path_ml)))
@@ -211,7 +211,7 @@ def join_fred_asof(
     lag_days : int, default 1
         Publication lag, added to FRED timestamps before the as-of join.
     fred_path : str | Path, optional
-        Explicit path to ML-format FRED parquet. Defaults to data/fred/...
+        Explicit path to ML-format FRED parquet. Defaults to data/features/macro/...
     vintage_base_dir : str | Path | None, optional
         Base directory containing ALFRED vintage release calendars. When provided,
         actual release timestamps are used for point-in-time joins, falling back to
@@ -488,9 +488,9 @@ def join_fred_asof(
     if pd is not None and isinstance(df, pd.DataFrame):
         df_pd = cast(PandasDataFrame, df)
         fred_path_ml = (
-            Path(fred_path) if fred_path else Path("data/fred/fred_indicators_ml_format.parquet")
+            Path(fred_path) if fred_path else Path("data/features/macro/fred_indicators_ml_format.parquet")
         )
-        fred_path_wide = Path("data/fred/fred_indicators_updated.parquet")
+        fred_path_wide = Path("data/features/macro/fred_indicators_updated.parquet")
 
         if fred_path_ml.exists():
             fred_ml = pd.read_parquet(str(fred_path_ml))

@@ -33,9 +33,9 @@ def load_fred_data():
     print("=" * 40)
 
     # Try ML format first, then fall back to updated format
-    ml_file = "data/fred/fred_indicators_ml_format.parquet"
-    updated_file = "data/fred/fred_indicators_updated.parquet"
-    original_file = "data/fred/fred_indicators.parquet"
+    ml_file = "data/features/macro/fred_indicators_ml_format.parquet"
+    updated_file = "data/features/macro/fred_indicators_updated.parquet"
+    original_file = "data/features/macro/fred_indicators.parquet"
 
     for file_path in [ml_file, updated_file, original_file]:
         try:

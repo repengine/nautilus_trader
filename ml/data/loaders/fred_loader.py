@@ -1064,7 +1064,7 @@ class FREDDataLoader:
         data : dict[str, PolarsDF] | None
             Pre-fetched indicator frames keyed by series id.
         out_path : Path | None
-            Destination path. Defaults to data/fred/fred_indicators_ml_format.parquet
+            Destination path. Defaults to data/features/macro/fred_indicators_ml_format.parquet
 
         Returns
         -------
@@ -1075,7 +1075,7 @@ class FREDDataLoader:
         _pl = pl
         assert _pl is not None
 
-        target = out_path or Path("data/fred/fred_indicators_ml_format.parquet")
+        target = out_path or Path("data/features/macro/fred_indicators_ml_format.parquet")
         target.parent.mkdir(parents=True, exist_ok=True)
 
         if data is None:

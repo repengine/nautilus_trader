@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING, Final
 
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config.ingestion_windows import earnings_window_defaults
+from ml.config.ingestion_windows import macro_window_defaults
 from ml.config.market_data import MarketDatasetInput
 from ml.data import DatasetValidationConfig
 from ml.data.vintage import VintagePolicy
@@ -119,21 +122,24 @@ class MacroIngestionConfig:
         Maximum age in hours before data is considered stale and refreshed.
     series_ids : tuple[str, ...] | None
         Optional subset of series IDs to refresh. None refreshes all configured.
+    watermark_config : WatermarkWindowConfig
+        Watermark window configuration for SQL ingestion filters.
 
     Example
     -------
     >>> config = MacroIngestionConfig(
-    ...     fred_path="data/fred/fred_indicators.parquet",
-    ...     vintage_dir="data/fred/vintages",
+    ...     fred_path="data/features/macro/fred_indicators.parquet",
+    ...     vintage_dir="data/features/macro/fred/vintages",
     ...     max_staleness_hours=24,
     ... )
 
     """
 
-    fred_path: str = "data/fred/fred_indicators_ml_format.parquet"
-    vintage_dir: str | None = "data/fred/vintages"
+    fred_path: str = "data/features/macro/fred_indicators_ml_format.parquet"
+    vintage_dir: str | None = "data/features/macro/fred/vintages"
     max_staleness_hours: int = 24
     series_ids: tuple[str, ...] | None = None
+    watermark_config: WatermarkWindowConfig = field(default_factory=macro_window_defaults)
 
     @classmethod
     def from_dataset_config(cls, cfg: DatasetBuildConfig) -> MacroIngestionConfig:
@@ -152,7 +158,7 @@ class MacroIngestionConfig:
 
         """
         return cls(
-            fred_path=cfg.macro_fred_path or "data/fred/fred_indicators_ml_format.parquet",
+            fred_path=cfg.macro_fred_path or "data/features/macro/fred_indicators_ml_format.parquet",
             vintage_dir=cfg.fred_vintage_dir,
             max_staleness_hours=cfg.macro_staleness_hours,
             series_ids=cfg.macro_series_ids,
@@ -182,6 +188,8 @@ class EarningsCoordinatorConfig:
         Optional SEC identity string for EDGAR API.
     skip_tickers : tuple[str, ...] | None
         Tickers to skip (e.g., ETFs without earnings).
+    watermark_config : WatermarkWindowConfig
+        Watermark window configuration for incremental ingestion.
 
     Example
     -------
@@ -198,6 +206,7 @@ class EarningsCoordinatorConfig:
     yahoo_rate_limit: float = 0.5
     sec_identity: str | None = None
     skip_tickers: tuple[str, ...] | None = None
+    watermark_config: WatermarkWindowConfig = field(default_factory=earnings_window_defaults)
 
 
 @dataclass(slots=True, frozen=True)

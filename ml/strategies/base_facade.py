@@ -480,6 +480,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             instrument_id=self._config.instrument_id,
             trader_id=self.trader_id if hasattr(self, "trader_id") else None,
             clock=self.clock if hasattr(self, "clock") else None,
+            max_quote_age_ms=self._config.max_quote_age_ms,
             orders_submitted_metric=self.orders_submitted_metric,
         )
 
@@ -494,11 +495,16 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             position_size_pct=self._config.position_size_pct,
             min_confidence=self._config.min_confidence,
             execute_trades=self._config.execute_trades,
+            subscribe_quote_ticks=self._config.subscribe_quote_ticks,
+            quote_schema=self._config.quote_schema,
             subscribe_data_callback=(
                 self.subscribe_data if hasattr(self, "subscribe_data") else None
             ),
             subscribe_instrument_callback=(
                 self.subscribe_instrument if hasattr(self, "subscribe_instrument") else None
+            ),
+            subscribe_quote_ticks_callback=(
+                self.subscribe_quote_ticks if hasattr(self, "subscribe_quote_ticks") else None
             ),
             log=self.log,
         )

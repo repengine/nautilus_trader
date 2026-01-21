@@ -12,7 +12,9 @@ Coverage target: 95%
 
 from __future__ import annotations
 
+import logging
 import time
+from collections.abc import Mapping, Sequence
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -91,6 +93,21 @@ class MockFeatureData:
     @property
     def ts_init(self) -> int:
         return self._ts_init
+
+
+class MockMirrorWriter:
+    """Mock mirror writer for testing."""
+
+    def __init__(self, *, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.calls: list[list[dict[str, Any]]] = []
+
+    def write_rows(self, rows: Sequence[Mapping[str, object]]) -> int:
+        if self.should_fail:
+            raise RuntimeError("mirror failure")
+        payload = [dict(row) for row in rows]
+        self.calls.append(payload)
+        return len(payload)
 
 
 # =========================================================================
@@ -280,6 +297,32 @@ class TestWriteFeaturesExplicitArgs:
             assert row["is_live"] is False
             assert row["source"] == "computed"
 
+    def test_write_features_when_mirror_writer_configured_mirrors_rows(
+        self,
+        mock_engine: MagicMock,
+        mock_table: MagicMock,
+    ) -> None:
+        """Verify mirror writer receives rows for explicit writes."""
+        mirror = MockMirrorWriter()
+        writer = FeatureWriterComponent(
+            engine=mock_engine,
+            table=mock_table,
+            get_feature_set_id=lambda: "default_fs",
+            mirror_writer=mirror,
+        )
+        writer._execute_write = lambda row: None  # type: ignore[method-assign]
+
+        writer.write_features(
+            feature_set_id="fs_001",
+            instrument_id="SPY.DATABENTO",
+            features={"close_return": 0.01},
+            ts_event=1700000000000000000,
+        )
+
+        assert len(mirror.calls) == 1
+        assert mirror.calls[0][0]["feature_set_id"] == "fs_001"
+        assert mirror.calls[0][0]["instrument_id"] == "SPY.DATABENTO"
+
     def test_write_features_uses_ts_event_for_ts_init_when_not_provided(
         self,
         feature_writer: FeatureWriterComponent,
@@ -339,6 +382,32 @@ class TestWriteFeaturesBatchMode:
         assert len(execute_write_calls) == 2
         assert execute_write_calls[0]["feature_set_id"] == "fs_001"
         assert execute_write_calls[1]["feature_set_id"] == "fs_002"
+
+    def test_write_features_batch_when_mirror_writer_raises_does_not_raise(
+        self,
+        mock_engine: MagicMock,
+        mock_table: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify mirror failures are logged and do not raise."""
+        mirror = MockMirrorWriter(should_fail=True)
+        writer = FeatureWriterComponent(
+            engine=mock_engine,
+            table=mock_table,
+            get_feature_set_id=lambda: "default_fs",
+            mirror_writer=mirror,
+        )
+        writer._execute_write = lambda row: None  # type: ignore[method-assign]
+
+        batch = [
+            MockFeatureData(feature_set_id="fs_001"),
+            MockFeatureData(feature_set_id="fs_002"),
+        ]
+        caplog.set_level(logging.DEBUG)
+
+        writer.write_features(batch)  # type: ignore[arg-type]
+
+        assert any("FeatureStore mirror write failed" in record.message for record in caplog.records)
 
     def test_write_features_backward_compat_feature_data_list(
         self,

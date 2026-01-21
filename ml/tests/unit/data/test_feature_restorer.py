@@ -15,6 +15,7 @@ pytest.importorskip("pandas")
 
 import pandas as pd
 
+from ml.config.dataset_ids import FEATURE_VALUES_DATASET_ID
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.data.coverage.feature_restorer import FeatureCoverageRestorer
@@ -26,6 +27,7 @@ class _StubWriter:
     def __init__(self) -> None:
         self.actual_calls: list[dict[str, Any]] = []
         self.estimate_calls: list[dict[str, Any]] = []
+        self.feature_calls: list[dict[str, Any]] = []
         self.ingestion_calls: list[dict[str, Any]] = []
 
     def write_earnings_actual(self, **kwargs: Any) -> object:
@@ -34,6 +36,10 @@ class _StubWriter:
 
     def write_earnings_estimate(self, **kwargs: Any) -> object:
         self.estimate_calls.append(kwargs)
+        return object()
+
+    def write_features(self, **kwargs: Any) -> object:
+        self.feature_calls.append(kwargs)
         return object()
 
     def write_ingestion(self, **kwargs: Any) -> object:
@@ -179,6 +185,63 @@ def test_restorer_filters_to_requested_buckets(tmp_path: Path) -> None:
     assert not result.failures
     assert len(writer.estimate_calls) == 1
     assert writer.estimate_calls[0]["estimate_date"] == "2025-11-08"
+
+
+def test_restorer_replays_feature_values(tmp_path: Path) -> None:
+    dataset_id = FEATURE_VALUES_DATASET_ID
+    ts_event = 1_736_352_000_000_000_000
+    base_path = tmp_path / "feature_values"
+    partition = base_path / "AAPL" / "year=2024" / "month=12"
+    partition.mkdir(parents=True)
+    frame = pd.DataFrame(
+        [
+            {
+                "instrument_id": "AAPL",
+                "feature_set_id": "price_snapshot",
+                "ts_event": ts_event,
+                "ts_init": ts_event + 10,
+                "values": '{"alpha": 1.5, "beta": 2.0}',
+            },
+        ],
+    )
+    frame.to_parquet(partition / "day=31.parquet")
+
+    spec = _parquet_spec(
+        dataset_id,
+        base_path,
+        partition_field="instrument_id",
+        timestamp_field="ts_event",
+        partition_template="{value}",
+    )
+    bucket_spec = _bucket_spec(
+        dataset_id,
+        instrument="AAPL",
+        ts_event=ts_event,
+        entity_field="instrument_id",
+    )
+    writer = _StubWriter()
+    restorer = FeatureCoverageRestorer(
+        db_connection="postgresql://stub",
+        parquet_specs={dataset_id: spec},
+        writer_factory=lambda _: writer,
+    )
+
+    result = restorer.restore((bucket_spec,))
+
+    assert result.rows_written == 1
+    assert result.buckets_restored == 1
+    assert result.failures == {}
+    assert len(writer.feature_calls) == 1
+    call = writer.feature_calls[0]
+    assert call["instrument_id"] == "AAPL"
+    assert call["source"] == "backfill"
+    features = call["features"]
+    assert len(features) == 1
+    payload = features[0]
+    assert payload.feature_set_id == "price_snapshot"
+    assert payload.instrument_id == "AAPL"
+    assert payload.ts_event == ts_event
+    assert payload.feature_values["alpha"] == 1.5
 
 
 def test_restorer_replays_macro_release_dataset(tmp_path: Path) -> None:

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from ml.stores.common.protocols import EventEmitterProtocol
     from ml.stores.common.protocols import SchemaValidatorProtocol
     from ml.stores.earnings_store import EarningsStore
+    from ml.stores.feature_dataset_store import FeatureDatasetStore
     from ml.stores.feature_store import FeatureStore
     from ml.stores.io_raw import RawIngestionWriterProtocol
     from ml.stores.model_store import ModelStore
@@ -60,6 +61,16 @@ write_rejection_counter = get_counter(
     "ml_write_rejections_total",
     "Total number of write rejections",
     labelnames=["dataset_id", "reason"],
+)
+
+_FEATURE_DATASET_TYPES: frozenset[DatasetType] = frozenset(
+    {
+        DatasetType.MACRO_RELEASES,
+        DatasetType.MACRO_OBSERVATIONS,
+        DatasetType.EVENTS_CALENDAR,
+        DatasetType.MICRO_MINUTE_FEATURES,
+        DatasetType.L2_MINUTE_FEATURES,
+    },
 )
 
 
@@ -105,6 +116,7 @@ class DataWriterComponent:
     def __init__(
         self,
         feature_store: FeatureStore,
+        feature_dataset_store: FeatureDatasetStore | None,
         model_store: ModelStore,
         strategy_store: StrategyStore,
         earnings_store: EarningsStore,
@@ -120,6 +132,7 @@ class DataWriterComponent:
 
         Args:
             feature_store: FeatureStore for feature data
+            feature_dataset_store: FeatureDatasetStore for macro/events/micro/L2 data
             model_store: ModelStore for prediction data
             strategy_store: StrategyStore for signal data
             earnings_store: EarningsStore for earnings data
@@ -131,6 +144,7 @@ class DataWriterComponent:
 
         """
         self._feature_store = feature_store
+        self._feature_dataset_store = feature_dataset_store
         self._model_store = model_store
         self._strategy_store = strategy_store
         self._earnings_store = earnings_store
@@ -195,8 +209,16 @@ class DataWriterComponent:
         """
         start_time = time.perf_counter()
 
-        # Get manifest and contract
-        manifest = self._registry.get_manifest(dataset_id)
+        # Get manifest and contract (auto-register from bootstrap if missing)
+        try:
+            manifest = self._registry.get_manifest(dataset_id)
+        except Exception:
+            self._ensure_dataset_registered(
+                dataset_id=dataset_id,
+                dataset_type=None,
+                instrument_id=instrument_id or "UNKNOWN",
+            )
+            manifest = self._registry.get_manifest(dataset_id)
         contract = self._registry.get_contract(dataset_id)
 
         # Perform preflight schema check
@@ -259,6 +281,39 @@ class DataWriterComponent:
         if dataset_type == DatasetType.FEATURES:
             try:
                 self._write_to_feature_store(data_frame, instrument_id)
+            except Exception as exc:
+                self._emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id or "UNKNOWN",
+                    stage=stage,
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min_s,
+                    ts_max=ts_max_s,
+                    count=0,
+                    status=EventStatus.FAILED,
+                    error=str(exc),
+                    metadata=base_metadata,
+                )
+                raise RuntimeError(f"Write operation failed for {dataset_id}: {exc}") from exc
+
+        elif dataset_type in _FEATURE_DATASET_TYPES:
+            try:
+                if self._feature_dataset_store is None:
+                    if self._raw_writer is None:
+                        raise RuntimeError("FeatureDatasetStore not configured")
+                    self._raw_writer.write(dataset_type=dataset_type, data=data_frame)
+                else:
+                    self._write_to_feature_dataset_store(dataset_type, data_frame)
+                    if self._raw_writer is not None:
+                        try:
+                            self._raw_writer.write(dataset_type=dataset_type, data=data_frame)
+                        except Exception:
+                            logger.debug(
+                                "Raw writer mirror failed for %s",
+                                dataset_id,
+                                exc_info=True,
+                            )
             except Exception as exc:
                 self._emit_event(
                     dataset_id=dataset_id,
@@ -1348,7 +1403,7 @@ class DataWriterComponent:
     def _ensure_dataset_registered(
         self,
         dataset_id: str,
-        dataset_type: DatasetType,
+        dataset_type: DatasetType | None,
         instrument_id: str,
     ) -> None:
         """
@@ -1362,7 +1417,7 @@ class DataWriterComponent:
             logger.debug(
                 "Dataset %s not registered (type=%s, instrument=%s)",
                 dataset_id,
-                dataset_type,
+                dataset_type.value if dataset_type is not None else "unknown",
                 instrument_id,
                 exc_info=True,
             )
@@ -1566,6 +1621,29 @@ class DataWriterComponent:
                     ts_event=feature.ts_event,
                     ts_init=feature.ts_init,
                 )
+
+    def _write_to_feature_dataset_store(
+        self,
+        dataset_type: DatasetType,
+        data_frame: DataFrameLike,
+    ) -> None:
+        """
+        Write macro/events/micro/L2 datasets to FeatureDatasetStore.
+        """
+        if self._feature_dataset_store is None:
+            raise RuntimeError("FeatureDatasetStore not configured")
+        if dataset_type == DatasetType.MACRO_RELEASES:
+            self._feature_dataset_store.write_macro_releases(data_frame)
+        elif dataset_type == DatasetType.MACRO_OBSERVATIONS:
+            self._feature_dataset_store.write_macro_observations(data_frame)
+        elif dataset_type == DatasetType.EVENTS_CALENDAR:
+            self._feature_dataset_store.write_events_calendar(data_frame)
+        elif dataset_type == DatasetType.MICRO_MINUTE_FEATURES:
+            self._feature_dataset_store.write_micro_features(data_frame)
+        elif dataset_type == DatasetType.L2_MINUTE_FEATURES:
+            self._feature_dataset_store.write_l2_features(data_frame)
+        else:
+            raise RuntimeError(f"Unsupported feature dataset type: {dataset_type}")
 
     def _write_to_model_store(self, data_frame: DataFrameLike, instrument_id: str) -> None:
         """

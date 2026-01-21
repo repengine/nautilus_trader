@@ -42,24 +42,31 @@ def _resolve_edgartools() -> ModuleType | None:
 def _coerce_date(value: object | None) -> date | None:
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
     token = str(value).strip()
     if not token:
         return None
     try:
         return datetime.strptime(token, "%Y-%m-%d").date()
     except ValueError:
-        parts = token.split("-")
-        if len(parts) != 3:
-            return None
         try:
-            year = int(parts[0])
-            month = max(1, min(12, int(parts[1])))
-            day = int(parts[2])
-            last_day = calendar.monthrange(year, month)[1]
-            day = max(1, min(last_day, day))
-            return date(year, month, day)
-        except Exception:
-            return None
+            return datetime.fromisoformat(token).date()
+        except ValueError:
+            parts = token.split("-")
+            if len(parts) != 3:
+                return None
+            try:
+                year = int(parts[0])
+                month = max(1, min(12, int(parts[1])))
+                day = int(parts[2])
+                last_day = calendar.monthrange(year, month)[1]
+                day = max(1, min(last_day, day))
+                return date(year, month, day)
+            except Exception:
+                return None
 
 
 class EdgarFetcher(_BaseEdgarFetcher):

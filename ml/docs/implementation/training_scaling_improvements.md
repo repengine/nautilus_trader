@@ -10,8 +10,8 @@
 
 - Chunked dataset build still materializes full DataFrames and converts to dense NumPy,
   which spikes memory on large datasets.
-- Streaming training still aggregates large in-memory blocks (features/logits), so
-  peak RSS remains high even when batches are streamed.
+- Streaming training still aggregates large in-memory blocks (validation joins),
+  though validation joins now run in bounded chunks and ensemble blending streams logits.
 - High dataloader worker counts can degrade stability and increase memory pressure.
 
 ## Code Hotspots (Current)
@@ -26,6 +26,7 @@
 - Streaming worker: `ml/training/event_driven/worker.py`
   - Validation returns join collects full column arrays; ensemble blending loads
     full logits arrays into memory (not hot-path, but large artifacts).
+  - Status: ensemble blending now accumulates logits incrementally; validation joins chunked.
 - Dataset planner: `ml/training/event_driven/dataset_service.py`
   - Applies caps and shard budgets (best place to tighten limits).
 
@@ -37,15 +38,19 @@
    - Write final dataset parquet via `pyarrow.parquet.ParquetWriter` as batches stream
      in, avoiding chunk re-loads.
    - Keep `feature_names` inference and `non_null_counts` by aggregating per batch.
+   - Status: completed (chunked writer now streams batches + feature extraction).
 2. Reduce chunk materialization
    - Avoid `.chunks` re-read when possible; if retained, store as Arrow IPC/Parquet
      with row-group size tuned to memory and read via `pyarrow.dataset` streaming.
+   - Status: completed for chunked output merge (batch streaming from parquet).
 3. Control row growth in streaming planner/worker
    - Enforce `max_total_rows`, `max_total_sequences`, `max_shards` at planning time.
    - Add a memory policy guard in worker to reduce `num_workers` when recent RSS is high.
+   - Status: worker RSS guard completed; planning caps already applied via service caps.
 4. Join late, store early
    - Ensure macro/events/micro/L2/earnings mirrors are persisted ahead of training;
      dataset build becomes "select + join + write" against durable stores.
+   - Status: pending.
 
 ## Mid-Term Changes (Architecture)
 
@@ -83,6 +88,7 @@
 
 - Add RSS gauges around dataset build chunk loop (per-chunk peak).
 - Extend streaming loader RSS gauge to include "scan" and "batch assembly" stages.
+  - Status: completed (dataset build RSS + streaming scan/assembly gauges).
 
 ### Phase 1: Minimal Refactor (Targeted)
 
@@ -92,13 +98,20 @@
      - Use `table.to_batches(max_chunksize=...)` for feature extraction.
      - Stream batches into `_StreamingFeatureWriter` (float32 blocks).
      - Write batches to `ParquetWriter` directly without re-reading `.chunks`.
+   - Status: completed.
 2. Streaming loader (bounded shard iteration)
    - File: `ml/training/teacher/streaming_loader.py`
    - Change `_iter_shard_batches` to iterate `scanner.to_batches()` and build
      sequences from rolling buffers; avoid `scanner.to_table()`.
+   - Status: completed.
 3. Worker caps
    - Files: `ml/training/event_driven/worker.py`, `ml/training/event_driven/dataset_service.py`
    - Wire memory policy caps into `TFTStreamingConfig` and surface in plan caps.
+   - Status: worker RSS guard completed; planner caps already surfaced.
+4. Streaming worker ensemble blending
+   - File: `ml/training/event_driven/worker.py`
+   - Accumulate weighted logits incrementally to avoid storing all member arrays.
+   - Status: completed.
 
 ### Phase 2: Mid-Term Architecture
 
