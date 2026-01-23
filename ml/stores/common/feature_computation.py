@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
+from sqlalchemy import inspect
 
 from ml.common.error_handlers import with_fallback
 from ml.common.event_emitter import emit_dataset_event_and_watermark
@@ -39,6 +40,7 @@ from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.config.market_data import MarketDataTableConfig
 
 
 if TYPE_CHECKING:
@@ -281,6 +283,7 @@ class FeatureComputationComponent:
     data_registry: RegistryProtocol | None = None
     config: FeatureComputationConfig = field(default_factory=FeatureComputationConfig)
     _indicator_managers: dict[str, Any] = field(default_factory=dict)
+    _bars_table_name: str | None = field(default=None, init=False, repr=False)
 
     def compute_realtime(
         self,
@@ -615,6 +618,41 @@ class FeatureComputationComponent:
 
         return len(rows)
 
+    def _resolve_bars_table_name(self) -> str:
+        """
+        Resolve the SQL table name that stores OHLCV bars.
+
+        Prefers the native Nautilus ``bar`` table and falls back to the ML
+        ``market_data`` table when the bar table is not present.
+        """
+        if self._bars_table_name is not None:
+            return self._bars_table_name
+
+        config = MarketDataTableConfig.from_env()
+        try:
+            inspector = inspect(self.engine)
+            table_names = set(inspector.get_table_names(schema="public"))
+            try:
+                table_names.update(inspector.get_view_names(schema="public"))
+            except Exception:
+                pass
+        except Exception:
+            logger.warning("feature_computation.bar_table_lookup_failed", exc_info=True)
+            self._bars_table_name = config.bar_table
+            return self._bars_table_name
+
+        candidates = []
+        for name in (config.bar_table, "bar", config.legacy_table):
+            if name and name not in candidates:
+                candidates.append(name)
+        for candidate in candidates:
+            if candidate in table_names:
+                self._bars_table_name = candidate
+                return self._bars_table_name
+        self._bars_table_name = candidates[0] if candidates else "bar"
+
+        return self._bars_table_name
+
     def _load_bars_from_nautilus(
         self,
         instrument_id: str,
@@ -623,6 +661,9 @@ class FeatureComputationComponent:
     ) -> PlDataFrame:
         """
         Load bars from Nautilus PostgreSQL tables.
+
+        Uses ``public.bar`` when available, otherwise falls back to the
+        ML ``public.market_data`` table populated by catalog rehydration.
 
         Args:
             instrument_id: Instrument identifier
@@ -652,13 +693,19 @@ class FeatureComputationComponent:
             context="feature_computation._load_bars.end",
         )
 
+        table_name = self._resolve_bars_table_name()
+        ohlcv_filter = ""
+        if table_name == MarketDataTableConfig.from_env().legacy_table:
+            ohlcv_filter = "AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL"
+
         sql = _text(
-            """
+            f"""
             SELECT ts_event, open, high, low, close, volume
-            FROM public.bar
+            FROM public.{table_name}
             WHERE instrument_id = :instrument_id
               AND ts_event >= :start_ns
               AND ts_event <= :end_ns
+              {ohlcv_filter}
             ORDER BY ts_event
             """,
         )
@@ -772,6 +819,8 @@ class FeatureComputationComponent:
                 },
             )
             conn.execute(stmt, rows)
+        # Best-effort mirror for historical writes (cold path).
+        self.feature_writer._mirror_rows(rows)
 
     @with_fallback(
         fallback_value=None,

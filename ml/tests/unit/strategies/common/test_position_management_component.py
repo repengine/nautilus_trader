@@ -18,6 +18,7 @@ Test Categories:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any
 from unittest.mock import MagicMock, PropertyMock
 
@@ -99,6 +100,16 @@ class MockInstrument:
     venue: Venue
     size_precision: int = 4
     min_quantity: MockQuantity = field(default_factory=lambda: MockQuantity(0.0001))
+
+    def make_qty(self, value: float, round_down: bool = False) -> Quantity:
+        """Return Quantity aligned with instrument precision."""
+        precision = int(self.size_precision)
+        scale = 10**precision
+        if round_down:
+            rounded_value = math.floor(float(value) * scale) / scale
+        else:
+            rounded_value = round(float(value), precision)
+        return Quantity(rounded_value, precision)
 
 
 class MockCache:
@@ -519,6 +530,40 @@ class TestCalculatePositionSizeBasic:
         if "." in qty_str:
             decimal_places = len(qty_str.split(".")[1])
             assert decimal_places <= 2
+
+    def test_calculate_position_size_precision_zero_uses_instrument_precision(
+        self,
+        instrument_id: InstrumentId,
+        mock_account: MockAccount,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify size_precision=0 yields precision-aligned quantity."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        instrument = MockInstrument(
+            id=instrument_id,
+            venue=instrument_id.venue,
+            size_precision=0,
+            min_quantity=MockQuantity(1.0),
+        )
+
+        cache = MockCache(
+            instrument=instrument,
+            account=mock_account,
+            trade_tick=MockTradeTick(price=MockPrice(100.0)),
+        )
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            cache=cache,
+            instrument_id=instrument_id,
+            log=mock_logger,
+        )
+
+        quantity = component.calculate_position_size()
+
+        assert quantity is not None
+        assert quantity.precision == instrument.size_precision
 
 
 # ---------------------------------------------------------------------------
@@ -966,6 +1011,31 @@ class TestValueToQuantityConversion:
         if "." in qty_str:
             decimal_places = len(qty_str.split(".")[1])
             assert decimal_places <= 2
+
+    def test_value_to_quantity_precision_zero_uses_instrument_precision(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify size_precision=0 yields precision-aligned quantity."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        instrument = MockInstrument(
+            id=instrument_id,
+            venue=instrument_id.venue,
+            size_precision=0,
+            min_quantity=MockQuantity(1.0),
+        )
+
+        component = PositionManagementComponent(log=mock_logger)
+
+        quantity = component.value_to_quantity(
+            value=500.0,
+            price=100.0,
+            instrument=instrument,
+        )
+
+        assert quantity.precision == instrument.size_precision
 
 
 # ---------------------------------------------------------------------------

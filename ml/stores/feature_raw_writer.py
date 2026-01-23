@@ -166,6 +166,15 @@ class FeatureDatasetParquetRawWriter(RawIngestionWriterProtocol):
         if self.events_path.exists():
             try:
                 existing = pd.read_parquet(self.events_path)
+                if "event_timestamp" in existing.columns:
+                    existing["event_timestamp"] = pd.to_datetime(
+                        existing["event_timestamp"],
+                        utc=True,
+                        errors="coerce",
+                    )
+                    existing = existing.dropna(subset=["event_timestamp"])
+                    if not existing.empty:
+                        existing["event_timestamp"] = existing["event_timestamp"].view("int64")
                 combined = pd.concat([existing, work], ignore_index=True)
             except Exception:
                 logger.warning(

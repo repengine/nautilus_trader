@@ -18,6 +18,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ml.strategies.common.positions import PositionsMetadata
+
 
 if TYPE_CHECKING:
     from nautilus_trader.model.objects import Quantity
@@ -27,6 +29,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_UNSET: object = object()
 
 
 @runtime_checkable
@@ -283,6 +287,7 @@ class DecisionPersistenceComponent:
         self._max_positions = max_positions
         self._is_backtesting = is_backtesting
         self._model_signals = model_signals or {}
+        self._positions_metadata: PositionsMetadata | None = None
 
         # Decision publisher (lazily initialized)
         self._decision_publisher: StrategyDecisionPublisher | None = None
@@ -382,6 +387,7 @@ class DecisionPersistenceComponent:
         pending_orders: int | None = None,
         is_backtesting: bool | None = None,
         model_signals: dict[str, Any] | None = None,
+        positions_metadata: PositionsMetadata | None | object = _UNSET,
     ) -> None:
         """
         Update component state.
@@ -399,6 +405,8 @@ class DecisionPersistenceComponent:
             Updated backtesting mode flag.
         model_signals : dict[str, Any] | None, optional
             Updated model signals buffer.
+        positions_metadata : dict[str, object] | None, optional
+            Updated positions metadata payload for decision persistence.
 
         """
         if active_positions is not None:
@@ -409,6 +417,10 @@ class DecisionPersistenceComponent:
             self._is_backtesting = is_backtesting
         if model_signals is not None:
             self._model_signals = model_signals
+        if positions_metadata is not _UNSET:
+            self._positions_metadata = (
+                positions_metadata if isinstance(positions_metadata, dict) else None
+            )
 
     def update_dependencies(
         self,
@@ -495,6 +507,7 @@ class DecisionPersistenceComponent:
 
         # If no store is configured, publish event directly (best-effort)
         if self._strategy_store is None:
+            execution_params = self._merge_positions_metadata(execution_params)
             return self._handle_no_store(
                 signal=signal,
                 decision_type=decision_type,
@@ -514,6 +527,9 @@ class DecisionPersistenceComponent:
         # Calculate default execution params if not provided
         if execution_params is None:
             execution_params = self._build_execution_params(signal, decision_type, position_size)
+        execution_params = self._merge_positions_metadata(execution_params)
+        if execution_params is None:
+            execution_params = {}
 
         # Check circuit breaker before store write
         if self._check_circuit_breaker_open():
@@ -1078,6 +1094,25 @@ class DecisionPersistenceComponent:
             "max_positions": self._max_positions,
             "current_positions": self._active_positions,
         }
+        return params
+
+    def _merge_positions_metadata(
+        self,
+        execution_params: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """
+        Merge positions metadata into execution params when available.
+        """
+        if self._positions_metadata is None:
+            return execution_params
+        params = dict(execution_params) if execution_params is not None else {}
+        positions_payload = params.get("positions")
+        if isinstance(positions_payload, dict):
+            for key, value in self._positions_metadata.items():
+                positions_payload.setdefault(key, value)
+            params["positions"] = positions_payload
+        else:
+            params["positions"] = dict(self._positions_metadata)
         return params
 
     def _build_model_predictions(

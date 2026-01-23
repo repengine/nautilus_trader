@@ -28,7 +28,7 @@ TEST_DB_CONNECTION = build_postgres_url()
 
 
 if TYPE_CHECKING:
-    pass
+    from ml.tests.fixtures.model_factory import TestDataFactory
 
 
 # =============================================================================
@@ -507,6 +507,30 @@ class TestEdgeCases:
         ]
         raw_writer.write(dataset_type=DatasetType.EVENTS_CALENDAR, data=rows)
         assert events_path.exists()
+
+    def test_build_raw_writer_includes_market_catalog(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        test_data_factory: TestDataFactory,
+    ) -> None:
+        """Verify catalog raw writer is attached when catalog path is set."""
+        catalog_path = tmp_path / "catalog"
+        monkeypatch.setenv("CATALOG_PATH", str(catalog_path))
+        monkeypatch.setenv("FEATURE_EVENTS_PARQUET_PATH", str(tmp_path / "events.parquet"))
+        monkeypatch.setenv("FEATURE_MICRO_CACHE_DIR", str(tmp_path / "micro"))
+        monkeypatch.setenv("FEATURE_L2_CACHE_DIR", str(tmp_path / "l2"))
+
+        component = RegistryInitializationComponent(db_connection=None)
+        raw_writer = component._build_raw_writer()
+
+        assert raw_writer is not None
+        bars = test_data_factory.bars(n=5, instrument_id="SPY.XNAS")
+        raw_writer.write(dataset_type=DatasetType.BARS, data=bars)
+
+        data_dir = catalog_path / "data"
+        parquet_files = list(data_dir.rglob("*.parquet"))
+        assert parquet_files
 
     def test_inject_data_registry_before_init_registries(
         self,

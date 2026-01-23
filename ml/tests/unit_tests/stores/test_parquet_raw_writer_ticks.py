@@ -94,6 +94,35 @@ def test_parquet_raw_writer_replaces_overlaps(tmp_path: Path) -> None:
     assert len(files) == 1
 
 
+def test_parquet_raw_writer_uses_dataset_type_identifier_template(tmp_path: Path) -> None:
+    catalog_root = tmp_path / "catalog"
+    catalog = ParquetDataCatalog(str(catalog_root))
+    writer = ParquetCatalogRawWriter(
+        catalog,
+        dataset_type_identifier_templates={DatasetType.MBP1: "{instrument_id}-MBP1"},
+    )
+
+    quote_rows = [
+        {
+            "instrument_id": "SPY.EQUS",
+            "ts_event": 1,
+            "ts_init": 1,
+            "bid": 1.0,
+            "ask": 1.1,
+            "bid_size": 10.0,
+            "ask_size": 20.0,
+        },
+    ]
+
+    count = writer.write(dataset_type=DatasetType.MBP1, data=quote_rows)
+    assert count == 1
+
+    intervals = catalog.get_intervals(_QuoteTick, "SPY.EQUS-MBP1")
+    assert intervals
+    default_dir = catalog_root / "data" / "quote_tick" / "SPY.EQUS"
+    assert not list(default_dir.glob("*.parquet"))
+
+
 def test_parquet_raw_writer_converts_trades_to_domain() -> None:
     catalog = _FakeCatalog()
     writer = ParquetCatalogRawWriter(catalog)

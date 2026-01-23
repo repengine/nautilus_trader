@@ -860,11 +860,11 @@ $$ LANGUAGE plpgsql;
         # walk jumped to the project root and looked for ``stores/migrations`` which
         # does not exist (the migrations live under ``ml/stores``).
         ml_root = Path(__file__).resolve().parents[2]
-        migrations_dir = ml_root / "stores" / "migrations"
+        migrations_dir = ml_root / "stores" / "migrations_bootstrap"
 
-        # Consolidated bootstrap schema (2025-10-01: merged 18 migrations)
+        # Consolidated bootstrap schema (2026-01-22)
         schema_files = [
-            migrations_dir / "001_bootstrap_schema.sql",
+            migrations_dir / "001_bootstrap.sql",
         ]
 
         # Filter to existing files

@@ -28,6 +28,7 @@ from ml.common.protocols import MLComponentMixin
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.registry.common.manifest_defaults import resolve_primary_keys
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
@@ -328,9 +329,22 @@ class DataRegistry(MLComponentMixin):
             "ts_field",
             manifest_data.get("ts_field", "ts_event"),
         )
-        manifest_data["primary_keys"] = metadata.get(
+        primary_keys = metadata.get("primary_keys")
+        if not primary_keys:
+            dataset_type_val = manifest_data.get("dataset_type")
+            dataset_type: DatasetType | None
+            if isinstance(dataset_type_val, DatasetType):
+                dataset_type = dataset_type_val
+            else:
+                try:
+                    dataset_type = DatasetType(str(dataset_type_val).lower())
+                except Exception:
+                    dataset_type = None
+            if dataset_type is not None:
+                primary_keys = resolve_primary_keys(dataset_type, manifest_data["schema"])
+        manifest_data["primary_keys"] = primary_keys or manifest_data.get(
             "primary_keys",
-            manifest_data.get("primary_keys", ["instrument_id", "ts_event"]),
+            ["instrument_id", "ts_event"],
         )
 
         return self._dict_to_manifest(manifest_data)
@@ -531,11 +545,16 @@ class DataRegistry(MLComponentMixin):
                         str(manifest.dataset_type).split(".")[-1],
                     ).upper()
 
+                    metadata_payload = dict(manifest.metadata or {})
+                    metadata_payload.setdefault("ts_field", manifest.ts_field)
+                    if manifest.seq_field is not None:
+                        metadata_payload.setdefault("seq_field", manifest.seq_field)
+                    metadata_payload.setdefault("primary_keys", list(manifest.primary_keys))
                     session.execute(
                         query,
                         {
                             "dataset_id": manifest.dataset_id,
-                            "name": manifest.metadata.get("name", manifest.dataset_id),
+                            "name": metadata_payload.get("name", manifest.dataset_id),
                             "version": manifest.version,
                             "dataset_type": dataset_type_db,
                             "storage_kind": manifest.storage_kind.value,
@@ -547,7 +566,7 @@ class DataRegistry(MLComponentMixin):
                             "constraints": json.dumps(manifest.constraints),
                             "parents": json.dumps(manifest.lineage),
                             "pipeline_signature": manifest.pipeline_signature,
-                            "metadata": json.dumps(manifest.metadata),
+                            "metadata": json.dumps(metadata_payload),
                         },
                     )
                     session.commit()

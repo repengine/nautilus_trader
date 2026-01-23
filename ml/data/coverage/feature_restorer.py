@@ -38,6 +38,7 @@ from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.events import Source
 from ml.data.coverage.manager import BucketSpec
 from ml.data.coverage.types import DAY_NS
+from ml.data.coverage.types import GLOBAL_ENTITY_ID
 from ml.ml_types import DataFrameLike
 from ml.stores.base import FeatureData
 from ml.stores.providers import ParquetCoverageSpec
@@ -117,6 +118,10 @@ _fallback_counter = get_counter(
     "Fallback activations",
     labelnames=("component", "level"),
 )
+
+
+def _is_global_entity(instrument_id: str) -> bool:
+    return instrument_id.strip().upper() == GLOBAL_ENTITY_ID
 
 _GENERAL_DATASETS: frozenset[str] = frozenset(
     {
@@ -309,6 +314,7 @@ class FeatureCoverageRestorer:
         restored_buckets: set[int] = set()
         rows_written = 0
         timestamp_field = parquet_spec.timestamp_field or "ts_event"
+        global_entity = _is_global_entity(instrument_id)
         partition_files = parquet_spec.files_for_instrument(instrument_id)
         if not partition_files:
             return _InstrumentRestoreResult(rows=0, buckets=0, missing=bucket_targets)
@@ -322,6 +328,7 @@ class FeatureCoverageRestorer:
                 frame=frame,
                 partition_field=parquet_spec.partition_field,
                 instrument_id=instrument_id,
+                global_entity=global_entity,
             )
             if filtered_frame.empty:
                 continue
@@ -354,7 +361,7 @@ class FeatureCoverageRestorer:
                 written_rows = self._write_general_dataset(
                     dataset_id=dataset_id,
                     writer=writer,
-                    instrument_id=instrument_id,
+                    instrument_id=None if global_entity else instrument_id,
                     frame=filtered,
                 )
                 if written_rows > 0:
@@ -553,22 +560,24 @@ class FeatureCoverageRestorer:
         *,
         dataset_id: str,
         writer: _FeatureDatasetWriter,
-        instrument_id: str,
+        instrument_id: str | None,
         frame: _PandasDataFrame,
     ) -> int:
         if frame.empty:
             return 0
+        if dataset_id != EVENTS_CALENDAR_DATASET_ID and not instrument_id:
+            return 0
         prepared: _PandasDataFrame | None
         if dataset_id == MACRO_RELEASES_DATASET_ID:
-            prepared = self._prepare_macro_release_frame(frame, instrument_id)
+            prepared = self._prepare_macro_release_frame(frame, instrument_id or "")
         elif dataset_id == MACRO_OBSERVATIONS_DATASET_ID:
-            prepared = self._prepare_macro_observation_frame(frame, instrument_id)
+            prepared = self._prepare_macro_observation_frame(frame, instrument_id or "")
         elif dataset_id == EVENTS_CALENDAR_DATASET_ID:
             prepared = self._prepare_events_frame(frame)
         elif dataset_id == MICRO_MINUTE_DATASET_ID:
-            prepared = self._prepare_micro_frame(frame, instrument_id)
+            prepared = self._prepare_micro_frame(frame, instrument_id or "")
         elif dataset_id == L2_MINUTE_DATASET_ID:
-            prepared = self._prepare_l2_frame(frame, instrument_id)
+            prepared = self._prepare_l2_frame(frame, instrument_id or "")
         else:  # pragma: no cover - guarded by _GENERAL_DATASETS
             return 0
         return self._write_prepared_frame(
@@ -583,7 +592,7 @@ class FeatureCoverageRestorer:
         *,
         dataset_id: str,
         writer: _FeatureDatasetWriter,
-        instrument_id: str,
+        instrument_id: str | None,
         frame: _PandasDataFrame | None,
     ) -> int:
         if frame is None:
@@ -725,8 +734,9 @@ class FeatureCoverageRestorer:
         *,
         partition_field: str,
         instrument_id: str,
+        global_entity: bool = False,
     ) -> _PandasDataFrame:
-        if not partition_field or partition_field not in frame.columns:
+        if global_entity or not partition_field or partition_field not in frame.columns:
             return frame
         column = frame[partition_field].astype(str).str.strip()
         mask = column == instrument_id.strip()
@@ -796,39 +806,10 @@ class FeatureCoverageRestorer:
         Ensures registries and stores are initialized so write validation and
         data registry updates occur as in the normal ingestion path.
         """
-        from ml.core.common.registry_initialization import RegistryInitializationComponent
-        from ml.core.common.store_initialization import StoreInitializationComponent
-        from ml.registry.base import DummyRegistry
-        from ml.stores.protocols import EarningsStoreProtocol
-        from ml.stores.protocols import FeatureStoreProtocol
-        from ml.stores.protocols import ModelStoreProtocol
-        from ml.stores.protocols import StrategyStoreProtocol
-
-        store_init = StoreInitializationComponent(db_connection=connection_string)
-        store_init.init_stores()
-        if store_init.file_fallback or store_init.json_fallback:
-            msg = "Feature restore requires PostgreSQL-backed stores"
-            raise RuntimeError(msg)
-
-        registry_init = RegistryInitializationComponent(db_connection=connection_string)
-        registry_init.init_registries()
-        if isinstance(registry_init.data_registry, DummyRegistry):
-            msg = "Feature restore requires an initialized DataRegistry"
-            raise RuntimeError(msg)
-
-        registry_init.inject_data_registry_into_stores(
-            store_init.feature_store,
-            store_init.model_store,
-        )
-
         try:
-            data_store = registry_init.create_data_store(
-                feature_store=cast(FeatureStoreProtocol, store_init.feature_store),
-                feature_dataset_store=store_init.feature_dataset_store,
-                model_store=cast(ModelStoreProtocol, store_init.model_store),
-                strategy_store=cast(StrategyStoreProtocol, store_init.strategy_store),
-                earnings_store=cast(EarningsStoreProtocol, store_init.earnings_store),
-            )
+            from ml.core.common.registry_initialization import build_data_store
+
+            data_store = build_data_store(db_connection=connection_string)
         except Exception:
             logger.warning(
                 "feature_restore.writer_init_failed",

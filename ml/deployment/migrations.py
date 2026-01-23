@@ -3,7 +3,8 @@ Utilities to validate and apply SQL migrations for the ML system.
 
 This module is intentionally small and dependency‑light so it can be used from
 Make targets and tests. It provides a typed API for listing and applying the
-canonical migration files located under ``ml/stores/migrations``.
+canonical bootstrap migrations (``ml/stores/migrations_bootstrap``) plus any
+incremental migrations (``ml/stores/migrations``).
 
 Usage (inside repo):
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
+import os
 import types
 from collections.abc import Iterable
 from pathlib import Path
@@ -31,11 +33,15 @@ from ml.common.subprocess_utils import SubprocessExecutionError
 from ml.common.subprocess_utils import run_command
 
 
-MIGRATIONS_DIR: Path = Path("ml/stores/migrations").resolve()
+MIGRATIONS_BOOTSTRAP_DIR: Path = Path("ml/stores/migrations_bootstrap").resolve()
+MIGRATIONS_INCREMENTAL_DIR: Path = Path("ml/stores/migrations").resolve()
+MIGRATIONS_LEGACY_DIR: Path = Path("ml/stores/migrations_legacy").resolve()
 
 __all__ = [
     "COMMAND_RUNNER",  # Exposed for tests that monkeypatch process execution
-    "MIGRATIONS_DIR",
+    "MIGRATIONS_BOOTSTRAP_DIR",
+    "MIGRATIONS_INCREMENTAL_DIR",
+    "MIGRATIONS_LEGACY_DIR",
     "apply_migrations_via_compose",
     "list_migration_files",
     "subprocess",  # Legacy compatibility for tests patching subprocess.run
@@ -63,6 +69,15 @@ class _LazySubprocess(types.ModuleType):
 subprocess = _LazySubprocess("subprocess_proxy")
 
 
+def _resolve_migration_dirs() -> tuple[Path, ...]:
+    profile = os.getenv("ML_MIGRATIONS_PROFILE", "auto").strip().lower()
+    if profile == "legacy":
+        return (MIGRATIONS_LEGACY_DIR,)
+    if profile == "incremental":
+        return (MIGRATIONS_INCREMENTAL_DIR,)
+    return (MIGRATIONS_BOOTSTRAP_DIR, MIGRATIONS_INCREMENTAL_DIR)
+
+
 def list_migration_files() -> list[Path]:
     """
     Return migration files sorted by filename (lexicographic).
@@ -72,10 +87,12 @@ def list_migration_files() -> list[Path]:
     isolation.
 
     """
-    if not MIGRATIONS_DIR.exists():
-        return []
-    files = sorted(p for p in MIGRATIONS_DIR.iterdir() if p.suffix == ".sql")
-    return list(files)
+    files: list[Path] = []
+    for directory in _resolve_migration_dirs():
+        if not directory.exists():
+            continue
+        files.extend(sorted(p for p in directory.iterdir() if p.suffix == ".sql"))
+    return files
 
 
 def _compose_cmd(compose_file: Path | None) -> list[str]:

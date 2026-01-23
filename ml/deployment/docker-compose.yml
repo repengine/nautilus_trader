@@ -18,7 +18,7 @@ services:
       - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../stores/migrations:/docker-entrypoint-initdb.d:ro  # Auto-apply canonical migrations on first init
+      - ../stores/migrations_bootstrap:/docker-entrypoint-initdb.d:ro  # Auto-apply bootstrap migrations on first init
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -38,7 +38,7 @@ services:
       - "${PLAYGROUND_POSTGRES_HOST_PORT:-5435}:5432"
     volumes:
       - postgres_playground_data:/var/lib/postgresql/data
-      - ../stores/migrations:/docker-entrypoint-initdb.d:ro
+      - ../stores/migrations_bootstrap:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -266,12 +266,18 @@ services:
       DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
       DATABENTO_DATASET: "${DATABENTO_DATASET:-EQUS.MINI}"
       ML_ENABLE_DATABENTO: "1"  # allow import for health even without API key
+      FRED_API_KEY: "${FRED_API_KEY:-}"
+      SEC_IDENTITY: "${SEC_IDENTITY:-}"
+      SEC_USER_AGENT_NAME: "${SEC_USER_AGENT_NAME:-}"
+      SEC_USER_AGENT_EMAIL: "${SEC_USER_AGENT_EMAIL:-}"
+      SEC_USER_AGENT_PHONE: "${SEC_USER_AGENT_PHONE:-}"
 
       # Pipeline configuration
       PIPELINE_MODE: "${PIPELINE_MODE:-daily}"  # daily, backfill, or realtime
       PIPELINE_SCHEDULE: "${PIPELINE_SCHEDULE:-0 17 * * *}"  # Default: 5 PM daily
       USE_ORCHESTRATOR: "${USE_ORCHESTRATOR:-1}"
       DUAL_WRITE: "${DUAL_WRITE:-1}"
+      ML_MARKET_DATA_PROFILE: "${ML_MARKET_DATA_PROFILE:-class_tables}"
 
       # Feature store configuration
       FEATURE_STORE_TYPE: postgres
@@ -291,9 +297,11 @@ services:
       CATALOG_REHYDRATE_RESCAN: "${CATALOG_REHYDRATE_RESCAN:-0}"
       CATALOG_REHYDRATE_EXHAUSTIVE: "${CATALOG_REHYDRATE_EXHAUSTIVE:-0}"
       COVERAGE_RESTORE_ENABLED: "${COVERAGE_RESTORE_ENABLED:-0}"
+      COVERAGE_RESTORE_REINGEST_ENABLED: "${COVERAGE_RESTORE_REINGEST_ENABLED:-1}"
       COVERAGE_RESTORE_ALLOW_FAILURE: "${COVERAGE_RESTORE_ALLOW_FAILURE:-0}"
       COVERAGE_RESTORE_LOOKBACK_DAYS: "${COVERAGE_RESTORE_LOOKBACK_DAYS:-5}"
       COVERAGE_MAX_BUCKETS_PER_RUN: "${COVERAGE_MAX_BUCKETS_PER_RUN:-500}"
+      COVERAGE_SCHEMA_AUDIT_TABLES: "${COVERAGE_SCHEMA_AUDIT_TABLES:-ml_feature_values,ml_model_predictions,ml_strategy_signals,market_data_bar,market_data_quote_tick,market_data_tbbo,market_data_mbp1,market_data_trade_tick}"
       ML_FEATURE_PARQUET_MIRROR_ENABLE: "${ML_FEATURE_PARQUET_MIRROR_ENABLE:-1}"
       ML_FEATURE_PARQUET_MIRROR_DIR: "${ML_FEATURE_PARQUET_MIRROR_DIR:-/app/data/features/store/feature_values}"
       FEATURE_EVENTS_PARQUET_PATH: "${FEATURE_EVENTS_PARQUET_PATH:-/app/data/features/events/events.parquet}"
@@ -321,7 +329,7 @@ services:
       - ../../data:/app/data:rw  # Data catalog persistence
       - ../logs:/app/logs:rw  # Log persistence
       - ./configs:/app/configs:ro  # Configuration files
-      - ../stores/migrations:/app/migrations:ro  # Canonical migrations (optional)
+      - ../stores/migrations_bootstrap:/app/migrations_bootstrap:ro  # Bootstrap migrations (optional)
     depends_on:
       postgres:
         condition: service_healthy

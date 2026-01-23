@@ -31,6 +31,7 @@ class ResolvedMarketBinding:
     start: str | None
     end: str | None
     source: str
+    provider_dataset_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -47,6 +48,7 @@ class MarketBindingStats:
     source: str
     license_start: str | None
     license_end: str | None
+    provider_dataset_id: str | None = None
     rows_from_store: int = 0
     rows_from_catalog: int = 0
     ts_event_start_ns: int | None = None
@@ -106,6 +108,12 @@ def resolve_market_dataset_bindings(
         if dataset_id is None:
             msg = "MarketDatasetInput requires dataset_id when descriptor lacks dataset mapping"
             raise ValueError(msg)
+        provider_dataset_id = (
+            raw.provider_dataset_id
+            or (descriptor.provider_dataset_id if descriptor else None)
+            or (descriptor.dataset_id if descriptor else None)
+            or dataset_id
+        )
         schema = raw.schema_override or (descriptor.schema if descriptor else None)
         storage_kind = raw.storage_kind_override or (descriptor.storage_kind if descriptor else None)
         for symbol in matched_symbols:
@@ -124,6 +132,7 @@ def resolve_market_dataset_bindings(
                 start=raw.start,
                 end=raw.end,
                 source="descriptor",
+                provider_dataset_id=provider_dataset_id,
             )
             assigned.setdefault(symbol, []).append(binding)
 
@@ -146,6 +155,7 @@ def resolve_market_dataset_bindings(
                 start=None,
                 end=None,
                 source="legacy",
+                provider_dataset_id=market_dataset_id,
             )
             assigned.setdefault(symbol, []).append(binding)
 
@@ -246,8 +256,53 @@ def _resolve_instruments(
     return tuple(sorted(instruments))
 
 
+def resolve_instrument_ids_for_symbols(
+    *,
+    symbols: Sequence[str],
+    descriptor: MarketFeedDescriptor | None,
+    instrument_ids: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """
+    Resolve instrument IDs for a symbol list using descriptor templates.
+
+    Args:
+        symbols: Input symbols (raw or instrument-style).
+        descriptor: Optional feed descriptor providing instrument templates.
+        instrument_ids: Optional known instrument IDs to seed lookups.
+
+    Returns:
+        Tuple of unique instrument IDs (uppercased) in resolution order.
+
+    Example:
+        >>> descriptor = MarketFeedDescriptor(
+        ...     descriptor_id="EQUS.MINI",
+        ...     dataset_id="EQUS.MINI",
+        ...     provider_dataset_id="EQUS.MINI",
+        ...     storage_kind="postgres",
+        ...     schema="ohlcv-1m",
+        ...     symbol_patterns=("*",),
+        ...     instrument_id_templates=("{symbol}.EQUS",),
+        ... )
+        >>> resolve_instrument_ids_for_symbols(
+        ...     symbols=("AAPL", "MSFT"),
+        ...     descriptor=descriptor,
+        ... )
+        ('AAPL.EQUS', 'MSFT.EQUS')
+    """
+    normalized = _normalize_symbols(symbols)
+    if descriptor is None:
+        lookup = _build_instrument_lookup(instrument_ids or normalized)
+    else:
+        lookup = _build_instrument_lookup(instrument_ids)
+    resolved: list[str] = []
+    for symbol in normalized:
+        resolved.extend(_resolve_instruments(symbol, lookup, descriptor))
+    return tuple(dict.fromkeys(resolved))
+
+
 __all__ = [
     "MarketBindingStats",
     "ResolvedMarketBinding",
+    "resolve_instrument_ids_for_symbols",
     "resolve_market_dataset_bindings",
 ]

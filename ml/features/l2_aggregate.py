@@ -18,6 +18,7 @@ from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.common.safe_math import safe_divide_expr
+from ml.common.symbol_utils import resolve_symbol_data_dir
 
 
 if TYPE_CHECKING:
@@ -147,10 +148,17 @@ def aggregate_l2_minute_pl(l2: PlDataFrame, *, timestamp_col: str = "ts_event") 
 class L2Aggregator:
     base_dir: Path
 
+    def _resolve_l2_dir(self, symbol: str) -> Path | None:
+        resolved = resolve_symbol_data_dir(self.base_dir, symbol)
+        if resolved is None:
+            return None
+        l2_dir = resolved / "l2"
+        return l2_dir if l2_dir.exists() else None
+
     def _load_l2(self, symbol: str) -> PlDataFrame | None:
         _ensure_polars()
-        l2_dir = self.base_dir / symbol / "l2"
-        if not l2_dir.exists():
+        l2_dir = self._resolve_l2_dir(symbol)
+        if l2_dir is None:
             return None
         paths = sorted(p for p in l2_dir.glob("*.parquet"))
         if not paths:
@@ -168,9 +176,9 @@ class L2Aggregator:
     ) -> PlDataFrame:
         _ensure_polars()
         logger = logging.getLogger(__name__)
-        l2_dir = self.base_dir / symbol / "l2"
-        if not l2_dir.exists():
-            logger.debug("L2 dir missing for %s: %s", symbol, l2_dir)
+        l2_dir = self._resolve_l2_dir(symbol)
+        if l2_dir is None:
+            logger.debug("L2 dir missing for %s: %s", symbol, self.base_dir)
             return _cast(PlDataFrame, PL.DataFrame({"timestamp": []}))
         paths = sorted(p for p in l2_dir.glob("*.parquet"))
         if not paths:

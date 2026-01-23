@@ -103,9 +103,14 @@ class RiskManagerProtocol(Protocol):
         """
         ...
 
-    def check_daily_limits(self) -> bool:
+    def check_daily_limits(self, ts_event: int | None = None) -> bool:
         """
         Check if daily risk limits have been exceeded.
+
+        Parameters
+        ----------
+        ts_event : int | None, optional
+            Event timestamp (nanoseconds) used for daily reset alignment.
 
         Returns
         -------
@@ -115,7 +120,7 @@ class RiskManagerProtocol(Protocol):
         """
         ...
 
-    def update_daily_pnl(self, pnl: float) -> None:
+    def update_daily_pnl(self, pnl: float, ts_event: int | None = None) -> None:
         """
         Update daily P&L for risk tracking.
 
@@ -123,6 +128,8 @@ class RiskManagerProtocol(Protocol):
         ----------
         pnl : float
             P&L to add to daily total.
+        ts_event : int | None, optional
+            Event timestamp (nanoseconds) used for daily reset alignment.
 
         """
         ...

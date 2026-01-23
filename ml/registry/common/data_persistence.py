@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ml.registry.common.manifest_defaults import resolve_primary_keys
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
@@ -415,9 +416,22 @@ class DataPersistenceComponent:
             "ts_field",
             manifest_data.get("ts_field", "ts_event"),
         )
-        manifest_data["primary_keys"] = metadata.get(
+        primary_keys = metadata.get("primary_keys")
+        if not primary_keys:
+            dataset_type_val = manifest_data.get("dataset_type")
+            dataset_type: DatasetType | None
+            if isinstance(dataset_type_val, DatasetType):
+                dataset_type = dataset_type_val
+            else:
+                try:
+                    dataset_type = DatasetType(str(dataset_type_val).lower())
+                except Exception:
+                    dataset_type = None
+            if dataset_type is not None:
+                primary_keys = resolve_primary_keys(dataset_type, manifest_data["schema"])
+        manifest_data["primary_keys"] = primary_keys or manifest_data.get(
             "primary_keys",
-            manifest_data.get("primary_keys", ["instrument_id", "ts_event"]),
+            ["instrument_id", "ts_event"],
         )
 
         return self._dict_to_manifest(manifest_data)

@@ -423,6 +423,201 @@ class TestFacadeClassStructure:
 
 
 # ---------------------------------------------------------------------------
+# Positions Readiness Tests
+# ---------------------------------------------------------------------------
+
+
+class TestPositionsReadiness:
+    """Tests for positions readiness guardrails."""
+
+    def test_positions_ready_requires_full_list_when_positions_required_for_live(self) -> None:
+        """Test live readiness requires full list when positions are required."""
+        from types import SimpleNamespace
+
+        from ml.config.base import PositionsConfig, PositionsSource
+        from ml.strategies.base_facade import SimpleMLStrategyFacade
+        from ml.strategies.common.positions import PositionsHealthStatus
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        class RecordingProvider:
+            def __init__(self) -> None:
+                self.calls: list[tuple[InstrumentId | None, bool, bool]] = []
+
+            def check_positions_ready(
+                self,
+                *,
+                instrument_id: InstrumentId | None = None,
+                require_full_list: bool = False,
+                require_positions: bool = False,
+            ) -> PositionsHealthStatus:
+                self.calls.append((instrument_id, require_full_list, require_positions))
+                return PositionsHealthStatus(
+                    ready=True,
+                    degraded=False,
+                    source=PositionsSource.CACHE_OPEN,
+                    reason=None,
+                    positions_count=0,
+                )
+
+        instrument_id = InstrumentId.from_str("AAA.SIM")
+        config = SimpleNamespace(
+            positions_config=PositionsConfig(
+                positions_required_for_live=True,
+                allow_degraded=True,
+                source_priority=[PositionsSource.CACHE_OPEN],
+            ),
+            execute_trades=True,
+            instrument_id=instrument_id,
+        )
+
+        provider = RecordingProvider()
+        strategy = SimpleMLStrategyFacade.__new__(SimpleMLStrategyFacade)
+        strategy._config = config
+        strategy._positions_provider = provider
+        strategy._positions_health = None
+
+        strategy._check_positions_ready()
+
+        assert provider.calls == [(instrument_id, True, True)]
+
+
+# ---------------------------------------------------------------------------
+# Signal Handling Guardrails
+# ---------------------------------------------------------------------------
+
+
+class TestSignalHandlingGuardrails:
+    """Tests for signal handling guardrails."""
+
+    def test_handle_ml_signal_allows_processing_when_max_positions_and_position_exists(
+        self,
+        mock_config: MockMLStrategyConfig,
+        mock_signal: MockMLSignal,
+    ) -> None:
+        """Ensure max_positions gating does not block exit-capable signals."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                self.processed_signals.append(signal)
+
+            def _get_current_position(self) -> object | None:
+                return self.current_position
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        strategy._signals_received = 0
+        strategy._last_signal_time = None
+        strategy.signals_received_metric = None
+        strategy._active_positions = mock_config.max_positions
+        strategy.processed_signals = []
+        strategy.current_position = object()
+        strategy.risk_manager = None
+
+        strategy._handle_ml_signal(mock_signal)
+
+        assert strategy.processed_signals == [mock_signal]
+
+    def test_handle_ml_signal_triggers_liquidation_on_risk_action(
+        self,
+        mock_config: MockMLStrategyConfig,
+        mock_signal: MockMLSignal,
+    ) -> None:
+        """Ensure liquidation runs when risk action requests it."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.risk import RiskAction, RiskActionDecision
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                self.processed = True
+
+            def _liquidate_positions(self, decision: RiskActionDecision, signal: MockMLSignal) -> None:
+                self.liquidated = True
+
+        class StubRiskManager:
+            def __init__(self, decision: RiskActionDecision) -> None:
+                self._decision = decision
+
+            def get_risk_action(
+                self,
+                *,
+                portfolio: object | None = None,
+                ts_event: int | None = None,
+            ) -> RiskActionDecision:
+                return self._decision
+
+        decision = RiskActionDecision(
+            action=RiskAction.LIQUIDATE,
+            reason="daily_loss_liquidate",
+            detail="Daily loss 15.0%",
+        )
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        strategy._signals_received = 0
+        strategy._last_signal_time = None
+        strategy.signals_received_metric = None
+        strategy._active_positions = 0
+        strategy.processed = False
+        strategy.liquidated = False
+        strategy.risk_manager = StubRiskManager(decision)
+
+        strategy._handle_ml_signal(mock_signal)
+
+        assert strategy.liquidated is True
+        assert strategy.processed is False
+
+
+# ---------------------------------------------------------------------------
+# Position Closed Updates
+# ---------------------------------------------------------------------------
+
+
+class TestPositionClosedUpdates:
+    """Tests for position closed PnL handling."""
+
+    def test_position_closed_updates_risk_and_sizer(self) -> None:
+        """Test realized PnL updates risk and sizing paths."""
+        from types import SimpleNamespace
+
+        from ml.strategies.base_facade import SimpleMLStrategyFacade
+        from nautilus_trader.model.objects import Currency, Money
+
+        class RecordingRiskManager:
+            def __init__(self) -> None:
+                self.calls: list[tuple[float, int | None]] = []
+
+            def update_daily_pnl(self, pnl: float, ts_event: int | None = None) -> None:
+                self.calls.append((pnl, ts_event))
+
+        class RecordingSizer:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def update_performance(self, pnl: float) -> None:
+                self.calls.append(pnl)
+
+        strategy = SimpleMLStrategyFacade.__new__(SimpleMLStrategyFacade)
+        strategy._total_pnl = Decimal("0")
+        strategy._winning_trades = 0
+        strategy.risk_manager = RecordingRiskManager()
+        strategy.position_sizer = RecordingSizer()
+
+        ts_closed = 1_700_000_000_000_000_000
+        event = SimpleNamespace(
+            realized_pnl=Money(12.5, Currency.from_str("USD")),
+            ts_closed=ts_closed,
+        )
+
+        strategy._handle_position_closed_event(event)
+
+        assert strategy.risk_manager.calls == [(12.5, ts_closed)]
+        assert strategy.position_sizer.calls == [12.5]
+        assert strategy._total_pnl == Decimal("12.5")
+        assert strategy._winning_trades == 1
+
+
+# ---------------------------------------------------------------------------
 # Helper Function Tests (testing static-like functions)
 # ---------------------------------------------------------------------------
 

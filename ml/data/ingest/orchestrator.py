@@ -210,11 +210,13 @@ class IngestionOrchestrator:
             )
             raise ValueError(msg)
 
+        provider_dataset_id = binding.provider_dataset_id or binding.dataset_id
         instruments = binding.instrument_ids or (binding.symbol,)
         results: dict[str, BackfillWindowList] = {}
         for instrument_id in instruments:
             gaps = self.backfill_gaps(
                 dataset_id=binding.dataset_id,
+                provider_dataset_id=provider_dataset_id,
                 schema=schema,
                 instrument_id=instrument_id,
                 lookback_days=lookback_days,
@@ -228,6 +230,7 @@ class IngestionOrchestrator:
         extras = {
             "binding_id": binding.binding_id,
             "dataset_id": binding.dataset_id,
+            "provider_dataset_id": binding.provider_dataset_id or binding.dataset_id,
             "descriptor_id": binding.descriptor_id,
             "storage_kind": binding.storage_kind.value if binding.storage_kind else None,
             "source": binding.source,
@@ -255,6 +258,7 @@ class IngestionOrchestrator:
         self,
         *,
         dataset_id: str,
+        provider_dataset_id: str | None = None,
         schema: str,
         instrument_id: str,
         lookback_days: int,
@@ -268,6 +272,7 @@ class IngestionOrchestrator:
         Returns list of requested window ranges.
 
         """
+        resolved_provider_dataset_id = provider_dataset_id or dataset_id
         now_ns = _utc_now_ns()
         start_ns = now_ns - int(lookback_days) * DAY_NS
         covered = self.coverage.read_bucket_coverage(
@@ -306,7 +311,7 @@ class IngestionOrchestrator:
         rows_written = 0
         for ws, we in window_slices:
             clamped = self._clamp_window_to_available_range(
-                dataset_id=dataset_id,
+                provider_dataset_id=resolved_provider_dataset_id,
                 schema=schema,
                 start_ns=ws,
                 end_ns=we,
@@ -389,7 +394,7 @@ class IngestionOrchestrator:
                 try:
                     self.service.ingest(
                         IngestionRequest(
-                            dataset=dataset_id,
+                            dataset=resolved_provider_dataset_id,
                             schema=schema,
                             symbols=(ingest_symbol,),
                             start=start_dt,
@@ -406,6 +411,7 @@ class IngestionOrchestrator:
                         exc_info=True,
                         extra={
                             "dataset_id": dataset_id,
+                            "provider_dataset_id": resolved_provider_dataset_id,
                             "schema": schema,
                             "instrument_id": instrument_id,
                             "symbol": ingest_symbol,
@@ -415,7 +421,7 @@ class IngestionOrchestrator:
             else:
                 try:
                     ingested_frame = self.ingestor.ingest_time_window(
-                        dataset=dataset_id,
+                        dataset=resolved_provider_dataset_id,
                         schema=schema,
                         instrument=ingest_symbol,
                         start_ns=start_ns,
@@ -429,6 +435,7 @@ class IngestionOrchestrator:
                         exc_info=True,
                         extra={
                             "dataset_id": dataset_id,
+                            "provider_dataset_id": resolved_provider_dataset_id,
                             "schema": schema,
                             "instrument_id": instrument_id,
                             "symbol": ingest_symbol,
@@ -444,6 +451,7 @@ class IngestionOrchestrator:
                     "Ingestion returned no frames",
                     extra={
                         "dataset_id": dataset_id,
+                        "provider_dataset_id": resolved_provider_dataset_id,
                         "schema": schema,
                         "instrument_id": instrument_id,
                         "symbol": ingest_symbol,
@@ -458,6 +466,7 @@ class IngestionOrchestrator:
                     "Ingestion returned empty frame",
                     extra={
                         "dataset_id": dataset_id,
+                        "provider_dataset_id": resolved_provider_dataset_id,
                         "schema": schema,
                         "instrument_id": instrument_id,
                         "symbol": ingest_symbol,
@@ -534,7 +543,7 @@ class IngestionOrchestrator:
     def _clamp_window_to_available_range(
         self,
         *,
-        dataset_id: str,
+        provider_dataset_id: str,
         schema: str,
         start_ns: int,
         end_ns: int,
@@ -548,7 +557,7 @@ class IngestionOrchestrator:
 
         try:
             meta_start, meta_end = service.get_available_range_ns(
-                dataset=dataset_id,
+                dataset=provider_dataset_id,
                 schema=schema,
             )
         except AttributeError:
@@ -566,7 +575,7 @@ class IngestionOrchestrator:
             LOGGER.debug(
                 "Skipping ingestion window outside metadata range",
                 extra={
-                    "dataset_id": dataset_id,
+                    "provider_dataset_id": provider_dataset_id,
                     "schema": schema,
                     "start_ns": start_ns,
                     "end_ns": end_ns,
@@ -580,7 +589,7 @@ class IngestionOrchestrator:
             LOGGER.debug(
                 "Trimmed ingestion window to metadata range",
                 extra={
-                    "dataset_id": dataset_id,
+                    "provider_dataset_id": provider_dataset_id,
                     "schema": schema,
                     "start_ns": start_ns,
                     "end_ns": end_ns,

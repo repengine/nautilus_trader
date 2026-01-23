@@ -38,7 +38,7 @@ _BASE_MIGRATIONS: Final[tuple[str, ...]] = (
     "ml/registry/migrations/001_initial_schema.sql",
     "ml/registry/migrations/002_add_cold_path_fields.sql",
     "ml/registry/migrations/003_add_artifact_digest.sql",
-    "ml/stores/migrations/001_bootstrap_schema.sql",
+    "ml/stores/migrations_bootstrap/001_bootstrap.sql",
 )
 
 # Optional extras (no longer needed - consolidated into bootstrap)

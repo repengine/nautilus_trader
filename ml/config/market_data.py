@@ -5,13 +5,17 @@ Market data feed descriptors and binding inputs.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import msgspec
 
+from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+from ml.schema import map_schema_to_dataset_type
 
 
 DEFAULT_FEED_DESCRIPTOR_PATH = Path(__file__).with_name("market_feed_descriptors.json")
@@ -24,6 +28,7 @@ class MarketFeedDescriptor(msgspec.Struct, kw_only=True, frozen=True):
 
     descriptor_id: str
     dataset_id: str
+    provider_dataset_id: str | None = None
     storage_kind: StorageKind
     schema: str
     symbol_patterns: tuple[str, ...]
@@ -39,6 +44,7 @@ class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=False):
 
     descriptor_id: str | None = None
     dataset_id: str | None = None
+    provider_dataset_id: str | None = None
     symbols: tuple[str, ...] | None = None
     schema: str | None = None
     schema_override: str | None = None
@@ -116,8 +122,173 @@ def coerce_storage_kind(value: StorageKind | str | None) -> StorageKind | None:
             raise ValueError(f"Unknown storage kind: {value!r}") from exc
 
 
+class MarketDataTableProfile(str, Enum):
+    """
+    Routing profile for SQL market data tables.
+    """
+
+    AUTO = "auto"
+    LEGACY = "legacy"
+    CLASS_TABLES = "class_tables"
+
+    @classmethod
+    def from_env(cls, value: str | None) -> MarketDataTableProfile:
+        """
+        Parse a routing profile from an environment value.
+
+        Args:
+            value: Environment value (e.g., "auto", "legacy", "class_tables").
+
+        Returns:
+            Resolved MarketDataTableProfile.
+
+        Raises:
+            ValueError: If the value is not recognized.
+        """
+        if value is None:
+            return cls.AUTO
+        token = value.strip().lower()
+        if token in {"auto"}:
+            return cls.AUTO
+        if token in {"legacy", "monolithic", "market_data"}:
+            return cls.LEGACY
+        if token in {"class_tables", "class", "per_class", "per-class"}:
+            return cls.CLASS_TABLES
+        raise ValueError(f"Unknown market data profile: {value!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataTableConfig:
+    """
+    Configuration for SQL market data table routing.
+
+    Attributes:
+        profile: Routing profile (auto, legacy, class_tables).
+        legacy_table: Legacy monolithic table name.
+        bar_table: Per-class table for bars.
+        quote_tick_table: Per-class table for quote ticks.
+        tbbo_table: Per-class table for TBBO data.
+        mbp1_table: Per-class table for MBP-1 data.
+        trade_tick_table: Per-class table for trade ticks.
+    """
+
+    profile: MarketDataTableProfile = MarketDataTableProfile.AUTO
+    legacy_table: str = "market_data"
+    bar_table: str = "market_data_bar"
+    quote_tick_table: str = "market_data_quote_tick"
+    tbbo_table: str = "market_data_tbbo"
+    mbp1_table: str = "market_data_mbp1"
+    trade_tick_table: str = "market_data_trade_tick"
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("legacy_table", self.legacy_table),
+            ("bar_table", self.bar_table),
+            ("quote_tick_table", self.quote_tick_table),
+            ("tbbo_table", self.tbbo_table),
+            ("mbp1_table", self.mbp1_table),
+            ("trade_tick_table", self.trade_tick_table),
+        ):
+            if not value or not value.strip():
+                raise ValueError(f"{label} must be non-empty")
+
+    def table_for_dataset_type(self, dataset_type: DatasetType) -> str:
+        """
+        Resolve the table name for a dataset type.
+
+        Args:
+            dataset_type: Dataset type enum.
+
+        Returns:
+            Table name for the dataset type.
+        """
+        if dataset_type is DatasetType.BARS:
+            return self.bar_table
+        if dataset_type is DatasetType.TRADES:
+            return self.trade_tick_table
+        if dataset_type is DatasetType.QUOTES:
+            return self.quote_tick_table
+        if dataset_type is DatasetType.TBBO:
+            return self.tbbo_table
+        if dataset_type is DatasetType.MBP1:
+            return self.mbp1_table
+        return self.legacy_table
+
+    def table_for_schema(self, schema: str) -> str:
+        """
+        Resolve the table name for a schema token.
+
+        Args:
+            schema: Schema identifier (e.g., "ohlcv-1m", "tbbo", "trades").
+
+        Returns:
+            Table name for the schema (falls back to legacy table when unknown).
+        """
+        normalized = schema.strip().lower()
+        if not normalized:
+            return self.legacy_table
+        if "tbbo" in normalized or "bbo" in normalized:
+            return self.tbbo_table
+        if "quote" in normalized:
+            return self.quote_tick_table
+        if "trade" in normalized:
+            return self.trade_tick_table
+        if "mbp" in normalized or "mbo" in normalized or normalized.startswith("l2"):
+            return self.mbp1_table
+        if "ohlcv" in normalized or "bar" in normalized:
+            return self.bar_table
+        try:
+            dataset_type = map_schema_to_dataset_type(schema)
+        except ValueError:
+            return self.legacy_table
+        return self.table_for_dataset_type(dataset_type)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env: Mapping[str, str] | None = None,
+        legacy_table: str | None = None,
+    ) -> MarketDataTableConfig:
+        """
+        Build configuration from environment variables.
+
+        Environment overrides:
+            ML_MARKET_DATA_PROFILE
+            ML_MARKET_DATA_TABLE_LEGACY
+            ML_MARKET_DATA_TABLE_BARS
+            ML_MARKET_DATA_TABLE_QUOTES
+            ML_MARKET_DATA_TABLE_TBBO
+            ML_MARKET_DATA_TABLE_MBP1
+            ML_MARKET_DATA_TABLE_TRADES
+
+        Args:
+            env: Optional environment mapping (defaults to os.environ).
+            legacy_table: Optional legacy table override when env var is unset.
+
+        Returns:
+            MarketDataTableConfig populated from environment values.
+        """
+        source = env or os.environ
+        profile = MarketDataTableProfile.from_env(source.get("ML_MARKET_DATA_PROFILE"))
+        defaults = cls()
+        return cls(
+            profile=profile,
+            legacy_table=source.get("ML_MARKET_DATA_TABLE_LEGACY")
+            or legacy_table
+            or defaults.legacy_table,
+            bar_table=source.get("ML_MARKET_DATA_TABLE_BARS") or defaults.bar_table,
+            quote_tick_table=source.get("ML_MARKET_DATA_TABLE_QUOTES") or defaults.quote_tick_table,
+            tbbo_table=source.get("ML_MARKET_DATA_TABLE_TBBO") or defaults.tbbo_table,
+            mbp1_table=source.get("ML_MARKET_DATA_TABLE_MBP1") or defaults.mbp1_table,
+            trade_tick_table=source.get("ML_MARKET_DATA_TABLE_TRADES") or defaults.trade_tick_table,
+        )
+
+
 __all__ = [
     "DEFAULT_FEED_DESCRIPTOR_PATH",
+    "MarketDataTableConfig",
+    "MarketDataTableProfile",
     "MarketDatasetInput",
     "MarketFeedDescriptor",
     "MarketFeedDescriptorSet",

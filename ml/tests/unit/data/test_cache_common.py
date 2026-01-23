@@ -6,7 +6,11 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from ml.data.cache_common import day_partition_path, filter_df_by_ns_range, iter_days
+from ml.data.cache_common import day_partition_path
+from ml.data.cache_common import filter_df_by_ns_range
+from ml.data.cache_common import iter_days
+from ml.data.cache_common import resolve_cache_partition_path
+from ml.data.cache_common import resolve_cache_read_symbol_dirs
 
 
 def test_iter_days_half_open_inclusive_start_exclusive_end() -> None:
@@ -63,3 +67,41 @@ def test_filter_df_by_ns_range_half_open(use_int_ts: bool) -> None:
     out_ts = out["timestamp"].to_list()
     assert out_ts[0] == start
     assert out_ts[-1] == ts[1]
+
+
+def test_resolve_cache_read_symbol_dirs_when_full_and_base_exist_returns_full_then_base(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "SPY").mkdir()
+    (tmp_path / "SPY.XNAS").mkdir()
+
+    resolved = resolve_cache_read_symbol_dirs(tmp_path, "spy.xnas")
+
+    assert resolved[:2] == ("SPY.XNAS", "SPY")
+
+
+def test_resolve_cache_partition_path_when_full_exists_prefers_full(tmp_path: Path) -> None:
+    day = date(2024, 1, 2)
+    base = day_partition_path(tmp_path, "SPY", day)
+    full = day_partition_path(tmp_path, "SPY.XNAS", day)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    base.touch()
+    full.touch()
+
+    resolved, is_write = resolve_cache_partition_path(tmp_path, "SPY.XNAS", day)
+
+    assert resolved == full
+    assert is_write is True
+
+
+def test_resolve_cache_partition_path_when_only_base_exists_returns_base(tmp_path: Path) -> None:
+    day = date(2024, 1, 3)
+    base = day_partition_path(tmp_path, "SPY", day)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    base.touch()
+
+    resolved, is_write = resolve_cache_partition_path(tmp_path, "SPY.XNAS", day)
+
+    assert resolved == base
+    assert is_write is False

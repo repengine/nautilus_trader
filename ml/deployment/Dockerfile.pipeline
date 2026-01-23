@@ -29,9 +29,13 @@ RUN pip install --no-cache-dir \
     polars \
     pyarrow \
     msgspec \
+    psutil \
     prometheus-client \
     redis \
     databento \
+    edgartools \
+    fredapi \
+    yfinance \
     scikit-learn \
     rich
 

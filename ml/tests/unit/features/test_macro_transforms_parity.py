@@ -5,6 +5,7 @@ Test macro feature transform parity (batch vs. real-time).
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import importlib
 import math
 from pathlib import Path
 
@@ -218,7 +219,8 @@ class TestMacroTransformParity:
         def _fake_join_fred_asof(*_args: object, **_kwargs: object) -> pl.DataFrame:
             return macro_df
 
-        monkeypatch.setattr("ml.data.fred_join.join_fred_asof", _fake_join_fred_asof)
+        fred_join = importlib.import_module("ml.data.fred_join")
+        monkeypatch.setattr(fred_join, "join_fred_asof", _fake_join_fred_asof)
 
         transform = MacroFeatureTransform(
             macro_series_ids=list(base_series),
@@ -533,7 +535,8 @@ class TestMacroTransformParity:
         def _join_stub(*_args: object, **_kwargs: object) -> pl.DataFrame:
             return payload
 
-        monkeypatch.setattr("ml.data.fred_join.join_fred_asof", _join_stub)
+        fred_join = importlib.import_module("ml.data.fred_join")
+        monkeypatch.setattr(fred_join, "join_fred_asof", _join_stub)
 
         transform = MacroFeatureTransform(
             macro_series_ids=["PAYEMS", "UNRATE"],
@@ -571,7 +574,8 @@ class TestMacroTransformParity:
         def _join_sparse(*_args: object, **_kwargs: object) -> pl.DataFrame:
             return payload
 
-        monkeypatch.setattr("ml.data.fred_join.join_fred_asof", _join_sparse)
+        fred_join = importlib.import_module("ml.data.fred_join")
+        monkeypatch.setattr(fred_join, "join_fred_asof", _join_sparse)
 
         transform = MacroFeatureTransform(
             macro_series_ids=["PAYEMS", "UNRATE"],

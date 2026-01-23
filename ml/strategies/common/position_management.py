@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from nautilus_trader.model.position import Position
 
     from ml.actors.base import MLSignal
+    from ml.strategies.common.positions import PositionsProviderProtocol
+    from ml.strategies.common.positions import PositionViewProtocol
 
 
 @runtime_checkable
@@ -62,7 +64,7 @@ class CacheProtocol(Protocol):
         self,
         venue: Any = None,
         instrument_id: Any = None,
-    ) -> list[Any]:
+    ) -> list[PositionViewProtocol]:
         """
         Get open positions.
         """
@@ -215,6 +217,8 @@ class PositionManagementComponent:
         Target instrument ID for position sizing.
     account_id : Any, optional
         Account ID for balance lookup.
+    positions_provider : PositionsProviderProtocol | None, optional
+        Provider for normalized positions snapshots.
     log : LoggerProtocol | None, optional
         Logger instance for debug output.
     strategy_id : str, default ""
@@ -246,6 +250,7 @@ class PositionManagementComponent:
         portfolio: Any = None,
         instrument_id: Any = None,
         account_id: Any = None,
+        positions_provider: PositionsProviderProtocol | None = None,
         log: Any = None,
         strategy_id: str = "",
         allow_min_quantity_fallback: bool = False,
@@ -261,6 +266,7 @@ class PositionManagementComponent:
         self._portfolio = portfolio
         self._instrument_id = instrument_id
         self._account_id = account_id
+        self._positions_provider = positions_provider
         self._log = _SafeLogger(log if log is not None else _NoOpLogger())
         self._strategy_id = strategy_id
         self._allow_min_quantity_fallback = allow_min_quantity_fallback
@@ -315,6 +321,7 @@ class PositionManagementComponent:
         instrument_id: Any = None,
         cache: CacheProtocol | None = None,
         portfolio: Any = None,
+        positions_provider: PositionsProviderProtocol | None = None,
         allow_min_quantity_fallback: bool | None = None,
     ) -> None:
         """
@@ -330,6 +337,8 @@ class PositionManagementComponent:
             Updated cache instance.
         portfolio : Any, optional
             Updated portfolio instance.
+        positions_provider : PositionsProviderProtocol | None, optional
+            Updated positions provider instance.
         allow_min_quantity_fallback : bool | None, optional
             Enable or disable the min-quantity fallback for order intents.
 
@@ -342,6 +351,8 @@ class PositionManagementComponent:
             self._cache = cache
         if portfolio is not None:
             self._portfolio = portfolio
+        if positions_provider is not None:
+            self._positions_provider = positions_provider
         if allow_min_quantity_fallback is not None:
             self._allow_min_quantity_fallback = allow_min_quantity_fallback
 
@@ -377,8 +388,6 @@ class PositionManagementComponent:
         or ``None`` if fallback is disabled or no minimum is available.
 
         """
-        from nautilus_trader.model.objects import Quantity
-
         if not self._allow_min_quantity_fallback:
             return None
 
@@ -392,21 +401,8 @@ class PositionManagementComponent:
             )
             return None
 
-        precision = getattr(instrument, "size_precision", None)
-        if precision is not None:
-            try:
-                min_qty = round(min_qty, int(precision))
-            except Exception as exc:
-                self._log.debug(
-                    "ml_strategy.position_sizing_fallback_round_failed",
-                    strategy_id=self._strategy_id,
-                    instrument=str(getattr(instrument, "id", self._instrument_id)),
-                    exc_info=True,
-                    error=str(exc),
-                )
-
         try:
-            quantity = Quantity.from_str(str(min_qty))
+            quantity = self._make_quantity(instrument, min_qty)
         except Exception as exc:
             self._log.debug(
                 "ml_strategy.position_sizing_fallback_quantity_failed",
@@ -569,6 +565,56 @@ class PositionManagementComponent:
 
         return 0.0
 
+    def _apply_min_quantity_floor(self, value: float, instrument: Any) -> float:
+        """
+        Apply minimum quantity constraints to a raw value.
+        """
+        min_quantity = self._resolve_min_quantity(instrument)
+        if min_quantity > 0.0:
+            return max(value, min_quantity)
+        return value
+
+    def _make_quantity(
+        self,
+        instrument: Any,
+        value: float,
+        *,
+        round_down: bool = False,
+    ) -> Quantity:
+        """
+        Build an instrument-aligned Quantity from a raw value.
+        """
+        from nautilus_trader.model.objects import Quantity
+
+        try:
+            make_qty = getattr(instrument, "make_qty", None)
+            if callable(make_qty):
+                return make_qty(value, round_down=round_down)
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.make_qty_failed",
+                strategy_id=self._strategy_id,
+                instrument=str(getattr(instrument, "id", self._instrument_id)),
+                exc_info=True,
+                error=str(exc),
+            )
+
+        precision = getattr(instrument, "size_precision", None)
+        if precision is not None:
+            try:
+                rounded_value = round(value, int(precision))
+                return Quantity(rounded_value, int(precision))
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.quantity_build_failed",
+                    strategy_id=self._strategy_id,
+                    instrument=str(getattr(instrument, "id", self._instrument_id)),
+                    exc_info=True,
+                    error=str(exc),
+                )
+
+        return Quantity.from_str(str(value))
+
     # -------------------------------------------------------------------------
     # Basic Position Sizing
     # -------------------------------------------------------------------------
@@ -595,8 +641,6 @@ class PositionManagementComponent:
         ...     print(f"Position size: {quantity}")
 
         """
-        from nautilus_trader.model.objects import Quantity
-
         if self._cache is None:
             self._log.error(
                 "Cannot calculate position size: Cache not available",
@@ -656,15 +700,17 @@ class PositionManagementComponent:
         # Calculate raw quantity
         raw_quantity = position_value / current_price
 
-        # Round to instrument precision
-        precision = instrument.size_precision
-        quantity_value = round(raw_quantity, precision)
+        quantity_value = self._apply_min_quantity_floor(raw_quantity, instrument)
 
-        # Ensure minimum size
-        min_quantity = self._resolve_min_quantity(instrument)
-        quantity_value = max(quantity_value, min_quantity)
-
-        return Quantity.from_str(str(quantity_value))
+        try:
+            return self._make_quantity(instrument, quantity_value)
+        except Exception as exc:
+            self._log.error(
+                "Cannot calculate position size: Failed to build quantity",
+                exc_info=True,
+                error=str(exc),
+            )
+            return None
 
     # -------------------------------------------------------------------------
     # Value to Quantity Conversion
@@ -703,21 +749,12 @@ class PositionManagementComponent:
         >>> # Returns Quantity of 5.0 (500 / 100)
 
         """
-        from nautilus_trader.model.objects import Quantity
-
         # Avoid division by zero
         safe_price = max(price, 1e-12)
         raw_qty = value / safe_price
 
-        # Apply precision rounding
-        precision = instrument.size_precision
-        qty_value = round(raw_qty, precision)
-
-        # Apply minimum quantity floor
-        min_quantity = self._resolve_min_quantity(instrument)
-        qty_value = max(qty_value, min_quantity)
-
-        return Quantity.from_str(str(qty_value))
+        qty_value = self._apply_min_quantity_floor(raw_qty, instrument)
+        return self._make_quantity(instrument, qty_value)
 
     # -------------------------------------------------------------------------
     # Portfolio Allocation
@@ -843,8 +880,6 @@ class PositionManagementComponent:
         ...     pass
 
         """
-        from nautilus_trader.model.objects import Quantity
-
         if self._cache is None:
             self._log.error("Cache not available for position sizing")
             return None
@@ -884,10 +919,29 @@ class PositionManagementComponent:
             return None
 
         # Gather current open positions
-        positions: list[Position] = self._cache.positions_open(
-            venue=None,
-            instrument_id=self._instrument_id,
-        )
+        positions: list[PositionViewProtocol]
+        if self._positions_provider is not None:
+            try:
+                snapshot = self._positions_provider.get_positions_snapshot(
+                    instrument_id=self._instrument_id,
+                )
+                positions = list(snapshot.positions)
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.positions_provider_failed",
+                    strategy_id=self._strategy_id,
+                    exc_info=True,
+                    error=str(exc),
+                )
+                positions = self._cache.positions_open(
+                    venue=None,
+                    instrument_id=self._instrument_id,
+                )
+        else:
+            positions = self._cache.positions_open(
+                venue=None,
+                instrument_id=self._instrument_id,
+            )
 
         # Step 1: Calculate position size using position sizer or fallback
         proposed_value_qty: Quantity | None = None
@@ -933,12 +987,19 @@ class PositionManagementComponent:
         # Scale quantity if allocation is less than proposed
         if proposed_value > 0.0 and allocated_value < proposed_value:
             scale = allocated_value / proposed_value
-            scaled_qty = max(
-                float(proposed_value_qty.as_double()) * scale,
-                self._resolve_min_quantity(instrument),
-            )
-            precision = instrument.size_precision
-            proposed_value_qty = Quantity.from_str(str(round(scaled_qty, precision)))
+            scaled_qty = float(proposed_value_qty.as_double()) * scale
+            scaled_qty = self._apply_min_quantity_floor(scaled_qty, instrument)
+            try:
+                proposed_value_qty = self._make_quantity(instrument, scaled_qty)
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.position_sizing_scale_failed",
+                    strategy_id=self._strategy_id,
+                    instrument=str(signal.instrument_id),
+                    exc_info=True,
+                    error=str(exc),
+                )
+                return None
 
         # Step 3: Risk manager validation
         approved_value_qty: Quantity | None = proposed_value_qty

@@ -507,8 +507,61 @@ class RegistryInitializationComponent:
         return result
 
 
+def build_data_store(
+    *,
+    db_connection: str,
+    raw_reader: RawReaderProtocol | None = None,
+    raw_writer: RawIngestionWriterProtocol | None = None,
+) -> DataStoreFacadeProtocol:
+    """
+    Build a fully initialized DataStore with registries and stores.
+
+    Args:
+        db_connection: PostgreSQL connection string.
+        raw_reader: Optional raw reader override (defaults to SQL reader).
+        raw_writer: Optional raw writer override (defaults to composite parquet writers).
+
+    Returns:
+        Initialized DataStore facade.
+    """
+    from ml.core.common.store_initialization import StoreInitializationComponent
+    from ml.registry.base import DummyRegistry
+    from ml.stores.protocols import EarningsStoreProtocol
+    from ml.stores.protocols import FeatureStoreProtocol
+    from ml.stores.protocols import ModelStoreProtocol
+    from ml.stores.protocols import StrategyStoreProtocol
+
+    store_init = StoreInitializationComponent(db_connection=db_connection)
+    store_init.init_stores()
+    if store_init.file_fallback or store_init.json_fallback:
+        msg = "DataStore requires PostgreSQL-backed stores"
+        raise RuntimeError(msg)
+
+    registry_init = RegistryInitializationComponent(db_connection=db_connection)
+    registry_init.init_registries()
+    if isinstance(registry_init.data_registry, DummyRegistry):
+        msg = "DataStore requires an initialized DataRegistry"
+        raise RuntimeError(msg)
+
+    registry_init.inject_data_registry_into_stores(
+        store_init.feature_store,
+        store_init.model_store,
+    )
+
+    return registry_init.create_data_store(
+        feature_store=cast(FeatureStoreProtocol, store_init.feature_store),
+        feature_dataset_store=store_init.feature_dataset_store,
+        model_store=cast(ModelStoreProtocol, store_init.model_store),
+        strategy_store=cast(StrategyStoreProtocol, store_init.strategy_store),
+        earnings_store=cast(EarningsStoreProtocol, store_init.earnings_store),
+        raw_reader=raw_reader,
+        raw_writer=raw_writer,
+    )
+
+
 __all__ = [
     "RegistryInitializationComponent",
     "RegistryProtocol",
     "StoreWithDataRegistryProtocol",
+    "build_data_store",
 ]

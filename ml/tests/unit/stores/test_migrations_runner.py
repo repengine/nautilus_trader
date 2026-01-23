@@ -11,6 +11,8 @@ from sqlalchemy.exc import NoSuchTableError
 from ml.stores.migrations_runner import MigrationRunner
 from ml.stores.migrations_runner import MigrationRunnerError
 from ml.stores.migrations_runner import SchemaHealthCheckError
+from ml.stores.migrations_runner import apply_profiled_migrations
+from ml.config.market_data import MarketDataTableProfile
 from ml.stores.migrations_runner import verify_market_data_schema
 from ml.stores.migrations_runner import verify_instrumentation_tables
 
@@ -72,7 +74,10 @@ def test_runner_detects_checksum_mismatch(monkeypatch: pytest.MonkeyPatch, tmp_p
     )
     runner.apply_pending_migrations()
 
-    migration_file.write_text("CREATE TABLE foo (id INTEGER PRIMARY KEY, note TEXT);", encoding="utf-8")
+    migration_file.write_text(
+        "CREATE TABLE foo (id INTEGER PRIMARY KEY, note TEXT);",
+        encoding="utf-8",
+    )
 
     with pytest.raises(MigrationRunnerError):
         runner.apply_pending_migrations()
@@ -93,10 +98,100 @@ def test_runner_allows_checksum_mismatch_when_env_set(monkeypatch: pytest.Monkey
     )
     runner.apply_pending_migrations()
 
-    migration_file.write_text("CREATE TABLE foo (id INTEGER PRIMARY KEY, note TEXT);", encoding="utf-8")
+    migration_file.write_text(
+        "CREATE TABLE foo (id INTEGER PRIMARY KEY, note TEXT);",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("ML_ALLOW_MIGRATION_DRIFT", "1")
 
     runner.apply_pending_migrations()
+
+
+def _write_migration(directory: Path, name: str, sql: str) -> Path:
+    path = directory / name
+    path.write_text(sql, encoding="utf-8")
+    return path
+
+
+def test_apply_profiled_migrations_auto_applies_bootstrap_and_incremental(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiled.sqlite"
+    db_url = f"sqlite:///{db_path}"
+    bootstrap_dir = tmp_path / "bootstrap"
+    incremental_dir = tmp_path / "incremental"
+    bootstrap_dir.mkdir()
+    incremental_dir.mkdir()
+
+    _write_migration(
+        bootstrap_dir,
+        "001_bootstrap.sql",
+        "CREATE TABLE bootstrap_table (id INTEGER PRIMARY KEY);",
+    )
+    _write_migration(
+        incremental_dir,
+        "002_incremental.sql",
+        "CREATE TABLE incremental_table (id INTEGER PRIMARY KEY);",
+    )
+
+    summary = apply_profiled_migrations(
+        db_url=db_url,
+        bootstrap_path=bootstrap_dir,
+        incremental_path=incremental_dir,
+    )
+
+    assert summary.applied_count == 2
+
+    engine = _sqlite_engine(db_path)
+    with engine.connect() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='bootstrap_table'",
+                ),
+            ).scalar_one()
+            == "bootstrap_table"
+        )
+        assert (
+            conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='incremental_table'",
+                ),
+            ).scalar_one()
+            == "incremental_table"
+        )
+
+
+def test_apply_profiled_migrations_bootstrap_rejects_non_empty_tracking(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiled.sqlite"
+    db_url = f"sqlite:///{db_path}"
+    bootstrap_dir = tmp_path / "bootstrap"
+    incremental_dir = tmp_path / "incremental"
+    bootstrap_dir.mkdir()
+    incremental_dir.mkdir()
+
+    _write_migration(
+        bootstrap_dir,
+        "001_bootstrap.sql",
+        "CREATE TABLE bootstrap_table (id INTEGER PRIMARY KEY);",
+    )
+    _write_migration(
+        incremental_dir,
+        "002_incremental.sql",
+        "CREATE TABLE incremental_table (id INTEGER PRIMARY KEY);",
+    )
+
+    apply_profiled_migrations(
+        db_url=db_url,
+        bootstrap_path=bootstrap_dir,
+        incremental_path=incremental_dir,
+    )
+
+    with pytest.raises(MigrationRunnerError):
+        apply_profiled_migrations(
+            db_url=db_url,
+            profile="bootstrap",
+            bootstrap_path=bootstrap_dir,
+            incremental_path=incremental_dir,
+        )
 
 
 class _InspectorStub:
@@ -151,6 +246,8 @@ def test_verify_market_data_schema_success(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("ml.stores.migrations_runner.inspect", lambda _: inspector)
     report = verify_market_data_schema(_DummyEngine())
     assert report.healthy
+    assert report.profile is MarketDataTableProfile.LEGACY
+    assert report.tables[0].table_name == "market_data"
 
 
 def test_verify_market_data_schema_missing_column(monkeypatch: pytest.MonkeyPatch) -> None:

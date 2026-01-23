@@ -466,7 +466,7 @@ class BindingResolver:
             (priority, dataset_id) tuple for sorting
 
         """
-        dataset_id = binding.dataset_id.upper()
+        dataset_id = (binding.provider_dataset_id or binding.dataset_id).upper()
         if dataset_id == "EQUS.MINI":
             return (0, dataset_id)
         if dataset_id == "XNAS.ITCH":
@@ -514,11 +514,12 @@ class BindingResolver:
         if not schema:
             return False
 
+        provider_dataset_id = binding.provider_dataset_id or binding.dataset_id
         # Check availability and cost with ingestion service
-        if service is not None and binding.dataset_id:
+        if service is not None and provider_dataset_id:
             try:
                 available_start_ns, available_end_ns = service.get_available_range_ns(
-                    dataset=binding.dataset_id,
+                    dataset=provider_dataset_id,
                     schema=schema,
                 )
             except IngestionError as exc:
@@ -526,6 +527,7 @@ class BindingResolver:
                     "Binding rejected by ingestion service",
                     extra={
                         "dataset_id": binding.dataset_id,
+                        "provider_dataset_id": provider_dataset_id,
                         "schema": schema,
                         "symbol": symbol,
                         "reason": str(exc),
@@ -538,6 +540,7 @@ class BindingResolver:
                     exc_info=True,
                     extra={
                         "dataset_id": binding.dataset_id,
+                        "provider_dataset_id": provider_dataset_id,
                         "schema": schema,
                         "symbol": symbol,
                     },
@@ -549,6 +552,7 @@ class BindingResolver:
                         "Binding outside provider coverage",
                         extra={
                             "dataset_id": binding.dataset_id,
+                            "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
                             "symbol": symbol,
                             "available_start_ns": available_start_ns,
@@ -562,6 +566,7 @@ class BindingResolver:
                         "Binding outside provider coverage",
                         extra={
                             "dataset_id": binding.dataset_id,
+                            "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
                             "symbol": symbol,
                             "available_end_ns": available_end_ns,
@@ -573,7 +578,7 @@ class BindingResolver:
                 # Check cost
                 try:
                     cost_usd = service.estimate_cost_usd(
-                        dataset=binding.dataset_id,
+                        dataset=provider_dataset_id,
                         schema=schema,
                         symbols=(symbol,),
                         start=DiscoveryClient.ns_to_datetime(start_ns),
@@ -584,6 +589,7 @@ class BindingResolver:
                         "Binding rejected by cost policy",
                         extra={
                             "dataset_id": binding.dataset_id,
+                            "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
                             "symbol": symbol,
                             "reason": str(exc),
@@ -596,6 +602,7 @@ class BindingResolver:
                         exc_info=True,
                         extra={
                             "dataset_id": binding.dataset_id,
+                            "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
                             "symbol": symbol,
                         },
@@ -606,6 +613,7 @@ class BindingResolver:
                             "Binding rejected due to non-zero cost",
                             extra={
                                 "dataset_id": binding.dataset_id,
+                                "provider_dataset_id": provider_dataset_id,
                                 "schema": schema,
                                 "symbol": symbol,
                                 "cost_usd": cost_usd,

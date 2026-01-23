@@ -78,7 +78,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--base",
         type=Path,
-        default=Path("ml/stores/migrations"),
+        default=Path("ml/stores/migrations_bootstrap"),
         help="Path to the migrations directory (default: %(default)s).",
     )
     parser.add_argument(

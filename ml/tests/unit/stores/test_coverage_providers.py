@@ -12,6 +12,7 @@ from ml._imports import pa
 from ml._imports import pd
 from ml._imports import pq
 from ml.data.cache_common import day_partition_path
+from ml.data.coverage.types import GLOBAL_ENTITY_ID
 from ml.registry.dataclasses import DatasetType
 from ml.stores.providers import DAY_NS
 from ml.stores.providers import CatalogCoverageProvider
@@ -85,6 +86,40 @@ def test_sql_coverage_provider_latest_timestamp(tmp_path: Path) -> None:
     assert latest == now_ns
 
 
+def test_sql_coverage_provider_global_entity(tmp_path: Path) -> None:
+    db_path = tmp_path / "global.db"
+    conn_str = _sqlite_conn_str(db_path)
+    provider = SqlCoverageProvider(connection_string=conn_str)
+    now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+    with provider._engine.begin() as conn:  # type: ignore[attr-defined]
+        conn.execute(
+            text(
+                """
+                CREATE TABLE market_data (
+                    instrument_id TEXT NOT NULL,
+                    ts_event BIGINT NOT NULL
+                )
+                """,
+            ),
+        )
+        conn.execute(
+            text("INSERT INTO market_data (instrument_id, ts_event) VALUES (:iid, :ts_event)"),
+            [
+                {"iid": "AAPL", "ts_event": now_ns},
+                {"iid": "MSFT", "ts_event": now_ns - DAY_NS},
+            ],
+        )
+
+    buckets = provider.read_bucket_coverage(
+        dataset_id="ml.events_calendar",
+        schema="events_calendar",
+        instrument_id=GLOBAL_ENTITY_ID,
+        start_ns=now_ns - DAY_NS,
+        end_ns=now_ns + DAY_NS,
+    )
+    assert buckets
+
+
 def test_partitioned_parquet_coverage_provider_detects_buckets(tmp_path: Path) -> None:
     provider = PartitionedParquetCoverageProvider(specs={})
 
@@ -136,6 +171,48 @@ def test_partitioned_parquet_provider_filters_file_backed_datasets(tmp_path: Pat
         end_ns=DAY_NS,
     )
     assert buckets == set()
+
+
+def test_partitioned_parquet_provider_global_entity_reads_file_backed(
+    tmp_path: Path,
+) -> None:
+    if not HAS_PANDAS or pd is None:
+        pytest.skip("pandas required for parquet write")
+
+    day_start = datetime(2024, 2, 1, tzinfo=UTC)
+    ts_event = int((day_start + timedelta(hours=1)).timestamp() * 1_000_000_000)
+    path = tmp_path / "events.parquet"
+    pd.DataFrame(
+        {
+            "event_timestamp": [ts_event],
+            "event_type": ["holiday"],
+            "name": ["XNYS"],
+            "instrument_id": [""],
+            "importance": ["HIGH"],
+            "source": ["ingestion"],
+            "metadata": ["{}"],
+        },
+    ).to_parquet(path, index=False)
+
+    spec = ParquetCoverageSpec(
+        dataset_id="ml.events_calendar",
+        base_path=str(path),
+        partition_field="instrument_id",
+        timestamp_field="event_timestamp",
+        partition_template="",
+    )
+    provider = PartitionedParquetCoverageProvider({"ml.events_calendar": spec})
+
+    start_ns = int(day_start.timestamp() * 1_000_000_000)
+    end_ns = start_ns + DAY_NS
+    buckets = provider.read_bucket_coverage(
+        dataset_id="ml.events_calendar",
+        schema="events_calendar",
+        instrument_id=GLOBAL_ENTITY_ID,
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    assert buckets == {start_ns // DAY_NS}
 
 
 def test_partitioned_parquet_provider_reads_day_partition_for_feature_values(

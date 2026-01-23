@@ -6,10 +6,15 @@ import pytest
 from msgspec import ValidationError
 
 from ml.config.base import CanaryDeploymentConfig
+from ml.config.base import CorrelationDataConfig
+from ml.config.base import ExposurePriceConfig
+from ml.config.base import ExposurePriceSource
 from ml.config.base import MLActorConfig
 from ml.config.base import ModelDeploymentConfig
 from ml.config.base import ModelRegistryConfig
 from ml.config.base import MultiModelStrategyConfig
+from ml.config.base import PositionsConfig
+from ml.config.base import PositionsSource
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -201,6 +206,49 @@ class TestCanaryDeploymentConfig:
         assert config.auto_promote is False
         assert config.auto_rollback is False
 
+
+@pytest.mark.parallel_safe
+@pytest.mark.unit
+class TestPositionsConfig:
+    """
+    Tests for PositionsConfig defaults and validation.
+    """
+
+    def test_default_values(self) -> None:
+        """
+        Test PositionsConfig default values.
+        """
+        config = PositionsConfig()
+
+        assert config.positions_required_for_live is True
+        assert config.allow_degraded is True
+        assert [source.value for source in config.source_priority] == [
+            "cache_positions_open",
+            "cache_positions",
+            "portfolio_net_position",
+            "portfolio_positions",
+            "portfolio_positions_open",
+        ]
+
+    def test_rejects_empty_priority(self) -> None:
+        """
+        Test that source_priority cannot be empty.
+        """
+        with pytest.raises(ValidationError, match="source_priority must contain at least one"):
+            PositionsConfig(source_priority=[])
+
+    def test_rejects_duplicate_sources(self) -> None:
+        """
+        Test that source_priority must be unique.
+        """
+        with pytest.raises(ValidationError, match="source_priority entries must be unique"):
+            PositionsConfig(
+                source_priority=[
+                    PositionsSource.CACHE_OPEN,
+                    PositionsSource.CACHE_OPEN,
+                ],
+            )
+
     def test_invalid_percentage_values(self) -> None:
         """
         Test validation of percentage values.
@@ -209,6 +257,69 @@ class TestCanaryDeploymentConfig:
             CanaryDeploymentConfig(
                 initial_traffic_percentage=150.0,  # Invalid > 100
             )
+
+
+@pytest.mark.parallel_safe
+@pytest.mark.unit
+class TestExposurePriceConfig:
+    """
+    Tests for ExposurePriceConfig defaults and validation.
+    """
+
+    def test_default_values(self) -> None:
+        """
+        Test ExposurePriceConfig default values.
+        """
+        config = ExposurePriceConfig()
+
+        assert [source.value for source in config.source_priority] == [
+            "quote_mid",
+            "position_avg",
+            "cache_last",
+        ]
+
+    def test_rejects_empty_priority(self) -> None:
+        """
+        Test that source_priority cannot be empty.
+        """
+        with pytest.raises(ValidationError, match="source_priority must contain at least one"):
+            ExposurePriceConfig(source_priority=[])
+
+    def test_rejects_duplicate_sources(self) -> None:
+        """
+        Test that source_priority must be unique.
+        """
+        with pytest.raises(ValidationError, match="source_priority entries must be unique"):
+            ExposurePriceConfig(
+                source_priority=[
+                    ExposurePriceSource.QUOTE_MID,
+                    ExposurePriceSource.QUOTE_MID,
+                ],
+            )
+
+
+@pytest.mark.parallel_safe
+@pytest.mark.unit
+class TestCorrelationDataConfig:
+    """
+    Tests for CorrelationDataConfig defaults and validation.
+    """
+
+    def test_default_values(self) -> None:
+        """
+        Test CorrelationDataConfig default values.
+        """
+        config = CorrelationDataConfig()
+
+        assert config.max_age_seconds == 300
+        assert config.fallback_value == 0.0
+
+    def test_rejects_out_of_range_fallback(self) -> None:
+        """
+        Test CorrelationDataConfig rejects invalid fallback values.
+        """
+        with pytest.raises(ValidationError, match="fallback_value must be between"):
+            CorrelationDataConfig(fallback_value=1.5)
 
 
 class TestConfigIntegration:

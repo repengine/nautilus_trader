@@ -22,7 +22,9 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC
+from datetime import date
 from datetime import datetime
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -46,6 +48,13 @@ from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
 from ml.config.dataset_coverage import CoverageDatasetEntry
 from ml.config.dataset_coverage import load_dataset_coverage_entries
+from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
+from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
+from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
+from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
+from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
+from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import MarketFeedDescriptor
 from ml.config.market_data import coerce_storage_kind
@@ -53,6 +62,7 @@ from ml.config.market_data import load_market_feed_descriptors
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.config.scheduler_config import UniverseConfig
+from ml.core.db_engine import EngineManager
 from ml.core.integration import MLIntegrationManager
 from ml.data.coverage.feature_restorer import SUPPORTED_FEATURE_DATASET_IDS
 from ml.data.coverage.feature_restorer import FeatureCoverageRestorer
@@ -62,6 +72,7 @@ from ml.data.coverage.manager import BucketStatus
 from ml.data.coverage.manager import CoverageManager
 from ml.data.coverage.manager import CoverageManagerConfig
 from ml.data.coverage.manager import DatasetCoverageConfig
+from ml.data.ingest.market_bindings import resolve_instrument_ids_for_symbols
 from ml.data.rehydration import CatalogRehydrationConfig
 from ml.data.rehydration import ParquetCatalogRehydrator
 from ml.data.scheduler import DataScheduler
@@ -69,6 +80,8 @@ from ml.deployment.scheduling_utils import DailyTime
 from ml.deployment.scheduling_utils import compute_next_utc_run
 from ml.deployment.scheduling_utils import parse_bool_env
 from ml.deployment.scheduling_utils import parse_daily_spec
+from ml.deployment.scheduling_utils import parse_dataset_template_map_env
+from ml.deployment.scheduling_utils import parse_template_map_env
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.registry.dataclasses import DatasetType
 from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
@@ -78,9 +91,9 @@ from ml.schema import validate_dataset_type_templates
 from ml.schema import validate_identifier_template
 from ml.schema import validate_schema_identifier_templates
 from ml.stores.feature_store import FeatureStore
-from ml.stores.migrations_runner import MigrationRunner
 from ml.stores.migrations_runner import MigrationRunnerError
 from ml.stores.migrations_runner import SchemaHealthCheckError
+from ml.stores.migrations_runner import apply_profiled_migrations
 from ml.stores.migrations_runner import is_postgres_url
 from ml.stores.migrations_runner import verify_instrumentation_tables
 from ml.stores.migrations_runner import verify_market_data_schema
@@ -97,6 +110,10 @@ _ParquetDataCatalogRT: type[_Any] | None = None
 ParquetDataCatalog: type[_Any] | None = None
 
 if TYPE_CHECKING:  # pragma: no cover - avoid heavy import at module import time
+    from ml.features import FeatureEngineer
+    from ml.registry.protocols import RegistryProtocol
+    from ml.stores.io_raw import RawIngestionWriterProtocol
+    from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.providers import ParquetCoverageSpec
     from ml.stores.providers import SqlCoverageOverride
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC_T
@@ -127,6 +144,11 @@ _coverage_latency_seconds = get_histogram(
     "nautilus_ml_coverage_latency_seconds",
     "End-to-end coverage restoration latency in seconds.",
     buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+_feature_reingest_total = get_counter(
+    "nautilus_ml_feature_reingest_total",
+    "Feature reingest attempts grouped by dataset/status.",
+    ["dataset_id", "status"],
 )
 
 
@@ -360,6 +382,23 @@ class PipelineRunner:
 
         return feature_store, model_store
 
+    def _build_feature_engineer(self) -> FeatureEngineer | None:
+        """
+        Build a FeatureEngineer instance for scheduled feature computation.
+        """
+        try:
+            from ml.features import FeatureConfig
+            from ml.features import FeatureEngineer
+        except Exception:
+            logger.warning("FeatureEngineer imports unavailable", exc_info=True)
+            return None
+        try:
+            config = FeatureConfig()
+            return FeatureEngineer(config)
+        except Exception:
+            logger.warning("FeatureEngineer initialization failed", exc_info=True)
+            return None
+
     def _initialize_catalog(self, config: SchedulerConfig) -> _PDC_T:
         """
         Initialize the data catalog.
@@ -400,62 +439,13 @@ class PipelineRunner:
         """
         Parse a schema→template mapping from environment payloads.
         """
-        if raw is None:
-            return {}
-        text = raw.strip()
-        if not text:
-            return {}
-        if text.startswith("{"):
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Failed to parse identifier template map (JSON decode)",
-                    extra={"payload": raw[:200]},
-                )
-                return {}
-            if not isinstance(parsed, Mapping):
-                return {}
-            return {
-                str(key).strip().lower(): str(value)
-                for key, value in parsed.items()
-                if str(key).strip() and str(value)
-            }
-        templates: dict[str, str] = {}
-        for token in text.split(","):
-            candidate = token.strip()
-            if not candidate:
-                continue
-            if "=" in candidate:
-                key, value = candidate.split("=", 1)
-            elif ":" in candidate:
-                key, value = candidate.split(":", 1)
-            else:
-                continue
-            key_normalized = key.strip().lower()
-            value_normalized = value.strip()
-            if not key_normalized or not value_normalized:
-                continue
-            templates[key_normalized] = value_normalized
-        return templates
+        return parse_template_map_env(raw)
 
     def _parse_dataset_template_map_env(self, raw: str | None) -> dict[DatasetType, str]:
         """
         Parse a dataset-type→template mapping from environment payloads.
         """
-        parsed = self._parse_template_map_env(raw)
-        resolved: dict[DatasetType, str] = {}
-        for key, value in parsed.items():
-            try:
-                dataset_type = DatasetType(key)
-            except ValueError:
-                logger.warning(
-                    "Ignoring unknown dataset type in identifier template map",
-                    extra={"dataset_type": key},
-                )
-                continue
-            resolved[dataset_type] = value
-        return resolved
+        return parse_dataset_template_map_env(raw)
 
     def _dual_write_dataset_types_from_env(self) -> dict[DatasetType, bool]:
         """
@@ -559,6 +549,12 @@ class PipelineRunner:
                 dataset_str = str(dataset_obj).strip()
                 dataset_id = dataset_str or None
 
+            provider_dataset_obj = payload.get("provider_dataset_id")
+            provider_dataset_id = None
+            if provider_dataset_obj is not None:
+                provider_dataset_str = str(provider_dataset_obj).strip()
+                provider_dataset_id = provider_dataset_str or None
+
             schema_obj = payload.get("schema_override")
             schema_override = None
             if schema_obj is not None:
@@ -581,6 +577,7 @@ class PipelineRunner:
                 return MarketDatasetInput(
                     descriptor_id=descriptor_id,
                     dataset_id=dataset_id,
+                    provider_dataset_id=provider_dataset_id,
                     symbols=symbols_tuple,
                     schema_override=schema_override,
                     storage_kind_override=storage_kind_override,
@@ -723,6 +720,57 @@ class PipelineRunner:
 
     def _coverage_restore_enabled(self) -> bool:
         return parse_bool_env(os.environ.get("COVERAGE_RESTORE_ENABLED"))
+
+    def _coverage_reingest_enabled(self) -> bool:
+        return parse_bool_env(os.environ.get("COVERAGE_RESTORE_REINGEST_ENABLED", "1"))
+
+    def _feature_reingest_enabled(self) -> bool:
+        return parse_bool_env(os.environ.get("FEATURE_REINGEST_ENABLED", "1"))
+
+    def _schema_audit_allowlist(self) -> tuple[str, ...] | None:
+        """
+        Return an optional allowlist of tables to include in the schema audit.
+
+        Returns:
+            Lowercased table names or fully qualified table identifiers.
+        """
+        raw = os.environ.get("COVERAGE_SCHEMA_AUDIT_TABLES")
+        if not raw:
+            return None
+        tables = tuple(
+            token.strip().lower() for token in raw.split(",") if token.strip()
+        )
+        return tables or None
+
+    def _build_schema_auditor(self, db_connection: str) -> SchemaAuditor:
+        """
+        Build a SchemaAuditor, optionally restricted to an allowlist of tables.
+
+        Args:
+            db_connection: PostgreSQL connection string.
+
+        Returns:
+            SchemaAuditor configured for the current environment.
+        """
+        allowlist = self._schema_audit_allowlist()
+        if not allowlist:
+            return SchemaAuditor(db_url=db_connection)
+        from ml.stores.schema_audit import default_table_expectations
+
+        normalized = set(allowlist)
+        expectations = tuple(
+            expectation
+            for expectation in default_table_expectations()
+            if expectation.table.lower() in normalized
+            or f"{expectation.schema}.{expectation.table}".lower() in normalized
+        )
+        if not expectations:
+            logger.warning(
+                "coverage.schema_audit_allowlist_empty",
+                extra={"tables": sorted(normalized)},
+            )
+            return SchemaAuditor(db_url=db_connection)
+        return SchemaAuditor(db_url=db_connection, expectations=expectations)
 
     def _build_dataset_coverage_configs(
         self,
@@ -925,25 +973,25 @@ class PipelineRunner:
             )
             return
 
-        runner = MigrationRunner(db_url=connection)
-        summary = runner.apply_pending_migrations()
+        summary = apply_profiled_migrations(db_url=connection)
         logger.info(
             "schema.migrations",
             extra={
                 "applied": summary.applied_count,
                 "already_applied": summary.already_applied_count,
+                "profile": summary.profile.value,
             },
         )
-        report = verify_market_data_schema(runner.engine)
+        engine = EngineManager.get_engine(connection)
+        report = verify_market_data_schema(engine)
         logger.info(
             "schema.market_data_verified",
             extra={
-                "table": report.table_name,
-                "schema": report.schema or "<default>",
-                "primary_key": report.primary_key,
+                "profile": report.profile.value,
+                "tables": [table.table_name for table in report.tables],
             },
         )
-        verify_instrumentation_tables(runner.engine)
+        verify_instrumentation_tables(engine)
         logger.info("schema.instrumentation_tables_verified")
 
     def _build_catalog_rehydrator(
@@ -970,7 +1018,13 @@ class PipelineRunner:
             catalog=catalog,
             db_connection=db_connection,
             config=self._rehydrator_config,
+            registry=self._resolve_rehydration_registry(),
         )
+
+    def _resolve_rehydration_registry(self) -> RegistryProtocol | None:
+        if self.scheduler is None:
+            return None
+        return self.scheduler.data_registry
 
     def _run_catalog_rehydration(
         self,
@@ -1035,14 +1089,29 @@ class PipelineRunner:
         )
 
     def _select_rehydration_instruments(self, scheduler_config: SchedulerConfig) -> list[str]:
-        instrument_ids = list(dict.fromkeys(scheduler_config.symbols))
+        symbols = list(dict.fromkeys(scheduler_config.symbols))
+        if not symbols:
+            return []
+        descriptor_map, _ = _market_descriptor_resources()
+        descriptor: MarketFeedDescriptor | None = None
+        for candidate in descriptor_map.values():
+            if (
+                candidate.dataset_id == scheduler_config.databento.dataset
+                and candidate.schema == scheduler_config.databento.schema
+            ):
+                descriptor = candidate
+                break
+        instrument_ids = resolve_instrument_ids_for_symbols(
+            symbols=symbols,
+            descriptor=descriptor,
+        )
         if not instrument_ids:
             return []
         if not parse_bool_env(os.environ.get("CATALOG_REHYDRATE_STALE_ONLY", "1")):
-            return instrument_ids
+            return list(instrument_ids)
         db_connection = self._resolve_db_connection(scheduler_config)
         if not db_connection or self._rehydrator_config is None:
-            return instrument_ids
+            return list(instrument_ids)
 
         from ml.stores.providers import SqlCoverageProvider
 
@@ -1057,7 +1126,7 @@ class PipelineRunner:
                 exc_info=True,
                 extra={"db_connection": db_connection},
             )
-            return instrument_ids
+            return list(instrument_ids)
         threshold_hours = max(1, self._get_int_env("CATALOG_REHYDRATE_STALENESS_HOURS", 6))
         now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
         stale: list[str] = []
@@ -1202,7 +1271,7 @@ class PipelineRunner:
                 dataset_overrides=dataset_overrides,
             ),
             catalog_provider=self._build_catalog_provider(parquet_specs),
-            schema_auditor=SchemaAuditor(db_url=db_connection),
+            schema_auditor=self._build_schema_auditor(db_connection),
         )
         try:
             start_time = time.perf_counter()
@@ -1272,6 +1341,11 @@ class PipelineRunner:
                     "buckets": len(feature_source_specs),
                 },
             )
+            if not dry_run:
+                self._reingest_feature_buckets(
+                    specs=feature_source_specs,
+                    scheduler_config=scheduler_config,
+                )
         if dry_run:
             logger.info(
                 "coverage_manager.dry_run",
@@ -1300,13 +1374,19 @@ class PipelineRunner:
             )
         self._restore_catalog_buckets(catalog_specs, scheduler_config)
         if source_specs:
-            try:
-                self.scheduler.run_targeted_update(source_specs)
-            except Exception:
-                logger.warning("scheduler.targeted_update_failed", exc_info=True)
-                self._record_coverage_error(reason="targeted_update_failed")
-                _coverage_restore_failures_total.labels(stage="targeted_update").inc()
-                self._maybe_raise_coverage_failure(reason="targeted_update_failed")
+            if self._coverage_reingest_enabled():
+                try:
+                    self.scheduler.run_targeted_update(source_specs)
+                except Exception:
+                    logger.warning("scheduler.targeted_update_failed", exc_info=True)
+                    self._record_coverage_error(reason="targeted_update_failed")
+                    _coverage_restore_failures_total.labels(stage="targeted_update").inc()
+                    self._maybe_raise_coverage_failure(reason="targeted_update_failed")
+            else:
+                logger.info(
+                    "coverage.source_reingest.disabled",
+                    extra={"buckets": len(source_specs)},
+                )
         for classification in classifications:
             _coverage_buckets_total.labels(status=classification.status.name.lower()).inc()
         last_error = self._coverage_status().get("last_error")
@@ -1350,6 +1430,7 @@ class PipelineRunner:
                 catalog=self._catalog_obj,
                 db_connection=db_connection,
                 config=base_config,
+                registry=self._resolve_rehydration_registry(),
             )
         grouped: dict[tuple[str, str], list[BucketSpec]] = defaultdict(list)
         for spec in specs:
@@ -1419,6 +1500,371 @@ class PipelineRunner:
             pipeline_status["errors"].append(f"feature_restore_partial:{len(result.failures)}")
             self._record_coverage_error(reason="feature_restore_partial")
 
+    @staticmethod
+    def _bucket_datetime_window(specs: Sequence[BucketSpec]) -> tuple[datetime, datetime]:
+        if not specs:
+            raise ValueError("specs cannot be empty")
+        start = min(spec.bucket_start for spec in specs)
+        end = max(spec.bucket_start for spec in specs) + timedelta(days=1)
+        if end <= start:
+            end = start + timedelta(days=1)
+        return start, end
+
+    @staticmethod
+    def _bucket_date_window(specs: Sequence[BucketSpec]) -> tuple[date, date]:
+        if not specs:
+            raise ValueError("specs cannot be empty")
+        days = [spec.bucket_start.date() for spec in specs]
+        return min(days), max(days)
+
+    @staticmethod
+    def _unique_instruments(specs: Sequence[BucketSpec]) -> tuple[str, ...]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for spec in specs:
+            token = spec.instrument_id.strip()
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            ordered.append(token)
+        return tuple(ordered)
+
+    @staticmethod
+    def _resolve_raw_tier1_dir() -> Path:
+        from ml.config.base import DataCollectorConfig
+
+        return Path(DataCollectorConfig().data_dir)
+
+    @staticmethod
+    def _resolve_feature_paths() -> tuple[Path, Path, Path]:
+        from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+
+        writer = FeatureDatasetParquetRawWriter()
+        return writer.events_path.parent, writer.micro_base_dir, writer.l2_base_dir
+
+    def _build_feature_raw_writer(
+        self,
+        *,
+        earnings_config: object | None,
+    ) -> RawIngestionWriterProtocol | None:
+        try:
+            from ml.stores.feature_raw_writer import CompositeRawIngestionWriter
+            from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+        except Exception:
+            logger.debug("feature_reingest.raw_writer_unavailable", exc_info=True)
+            return None
+
+        writers: list[RawIngestionWriterProtocol] = [FeatureDatasetParquetRawWriter()]
+        if earnings_config is not None:
+            try:
+                from ml.features.earnings.raw_writer import EarningsParquetRawWriter
+            except Exception:
+                logger.debug("feature_reingest.earnings_writer_unavailable", exc_info=True)
+            else:
+                base_path = getattr(earnings_config, "parquet_root", None)
+                partition_keys = getattr(earnings_config, "parquet_partition_keys", None)
+                if base_path is not None:
+                    writers.append(
+                        EarningsParquetRawWriter(
+                            base_path=base_path,
+                            partition_keys=partition_keys or ("ticker",),
+                        ),
+                    )
+        if not writers:
+            return None
+        if len(writers) == 1:
+            return writers[0]
+        return CompositeRawIngestionWriter(writers)
+
+    def _build_feature_data_store(
+        self,
+        *,
+        db_connection: str,
+        earnings_config: object | None,
+    ) -> DataStoreFacadeProtocol | None:
+        try:
+            from ml.core.common.registry_initialization import build_data_store
+
+            raw_writer = self._build_feature_raw_writer(earnings_config=earnings_config)
+            return build_data_store(
+                db_connection=db_connection,
+                raw_writer=raw_writer,
+            )
+        except Exception:
+            logger.warning("coverage.feature_reingest.store_init_failed", exc_info=True)
+            return None
+
+    def _reingest_feature_cache(
+        self,
+        *,
+        data_store: DataStoreFacadeProtocol,
+        specs: Sequence[BucketSpec],
+        cache_dir: Path,
+        label: str,
+    ) -> None:
+        symbols = self._unique_instruments(specs)
+        if not symbols:
+            return
+        start_date, end_date = self._bucket_date_window(specs)
+        raw_base_dir = self._resolve_raw_tier1_dir()
+        max_workers = max(1, self._get_int_env("MAX_WORKERS", 4))
+
+        if label == "micro":
+            from ml.tasks.caches import MicroCacheHydrationConfig
+            from ml.tasks.caches import hydrate_micro_caches
+            from ml.tasks.caches import ingest_micro_cache_partitions
+
+            cfg_micro = MicroCacheHydrationConfig(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                raw_base_dir=raw_base_dir,
+                cache_dir=cache_dir,
+                max_workers=max_workers,
+                force_rebuild=False,
+            )
+            result = hydrate_micro_caches(cfg_micro)
+            ingest_micro_cache_partitions(
+                data_store=data_store,
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=cache_dir,
+                run_id=f"coverage_micro_{int(time.time())}",
+            )
+        else:
+            from ml.tasks.caches import L2CacheHydrationConfig
+            from ml.tasks.caches import hydrate_l2_caches
+            from ml.tasks.caches import ingest_l2_cache_partitions
+
+            cfg_l2 = L2CacheHydrationConfig(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                raw_base_dir=raw_base_dir,
+                cache_dir=cache_dir,
+                max_workers=max_workers,
+                force_rebuild=False,
+            )
+            result = hydrate_l2_caches(cfg_l2)
+            ingest_l2_cache_partitions(
+                data_store=data_store,
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=cache_dir,
+                run_id=f"coverage_l2_{int(time.time())}",
+            )
+
+        if result.failed:
+            failed_symbols = ", ".join(item.symbol for item in result.failed)
+            raise RuntimeError(f"{label}_cache_failed:{failed_symbols}")
+
+    def _reingest_feature_buckets(
+        self,
+        *,
+        specs: Sequence[BucketSpec],
+        scheduler_config: SchedulerConfig,
+    ) -> None:
+        if not specs:
+            return
+        if not self._feature_reingest_enabled():
+            logger.info(
+                "coverage.feature_reingest.disabled",
+                extra={"buckets": len(specs)},
+            )
+            return
+        db_connection = self._resolve_db_connection(scheduler_config)
+        if not db_connection:
+            logger.warning("coverage.feature_reingest.db_missing")
+            self._record_coverage_error(reason="feature_reingest_db_missing")
+            self._maybe_raise_coverage_failure(reason="feature_reingest_db_missing")
+            return
+
+        grouped: dict[str, list[BucketSpec]] = defaultdict(list)
+        for spec in specs:
+            grouped[spec.dataset_id].append(spec)
+
+        supported = {
+            MACRO_RELEASES_DATASET_ID,
+            MACRO_OBSERVATIONS_DATASET_ID,
+            EVENTS_CALENDAR_DATASET_ID,
+            EARNINGS_ACTUALS_DATASET_ID,
+            EARNINGS_ESTIMATES_DATASET_ID,
+            MICRO_MINUTE_DATASET_ID,
+            L2_MINUTE_DATASET_ID,
+        }
+        unsupported = sorted(set(grouped) - supported)
+        if unsupported:
+            logger.warning(
+                "coverage.feature_reingest.unsupported",
+                extra={"datasets": unsupported},
+            )
+            pipeline_status["errors"].append(
+                f"feature_reingest_unsupported:{','.join(unsupported)}",
+            )
+
+        earnings_specs = grouped.get(EARNINGS_ACTUALS_DATASET_ID, []) + grouped.get(
+            EARNINGS_ESTIMATES_DATASET_ID,
+            [],
+        )
+        earnings_config: object | None = None
+        earnings_tickers = self._unique_instruments(earnings_specs)
+        if earnings_tickers:
+            from ml.config.earnings_ingestion import EarningsIngestionConfig
+
+            earnings_config = EarningsIngestionConfig(
+                postgres_dsn=db_connection,
+                override_symbols=earnings_tickers,
+            )
+
+        data_store = self._build_feature_data_store(
+            db_connection=db_connection,
+            earnings_config=earnings_config,
+        )
+        if data_store is None:
+            self._record_coverage_error(reason="feature_reingest_store_missing")
+            self._maybe_raise_coverage_failure(reason="feature_reingest_store_missing")
+            return
+
+        events_dir, micro_dir, l2_dir = self._resolve_feature_paths()
+        failures: dict[str, str] = {}
+
+        macro_specs = grouped.get(MACRO_RELEASES_DATASET_ID, []) + grouped.get(
+            MACRO_OBSERVATIONS_DATASET_ID,
+            [],
+        )
+        if macro_specs:
+            dataset_ids = sorted({spec.dataset_id for spec in macro_specs})
+            try:
+                from ml.data.ingest.macro_refresh import ensure_macro_ready
+                from ml.orchestration.config_types import MacroIngestionConfig
+
+                cfg = MacroIngestionConfig()
+                series_ids = self._unique_instruments(macro_specs) or cfg.series_ids
+                ensure_macro_ready(
+                    fred_path=Path(cfg.fred_path),
+                    vintage_dir=Path(cfg.vintage_dir) if cfg.vintage_dir else None,
+                    max_age=timedelta(hours=cfg.max_staleness_hours),
+                    data_store=data_store,
+                    series_ids=series_ids,
+                    watermark_config=cfg.watermark_config,
+                )
+                for dataset_id in dataset_ids:
+                    _feature_reingest_total.labels(dataset_id=dataset_id, status="success").inc()
+            except Exception as exc:
+                for dataset_id in dataset_ids:
+                    _feature_reingest_total.labels(dataset_id=dataset_id, status="error").inc()
+                failures["macro"] = str(exc)
+                logger.warning("coverage.feature_reingest.macro_failed", exc_info=True)
+
+        event_specs = grouped.get(EVENTS_CALENDAR_DATASET_ID, [])
+        if event_specs:
+            try:
+                from ml.preprocessing.event_ingestion import EventIngestionConfig
+                from ml.preprocessing.event_ingestion import EventIngestionUtility
+
+                start_dt, end_dt = self._bucket_datetime_window(event_specs)
+                config = EventIngestionConfig(
+                    start=start_dt,
+                    end=end_dt,
+                    out_dir=events_dir,
+                )
+                utility = EventIngestionUtility(
+                    config,
+                    data_store=data_store,
+                    ingest_run_id="coverage_events",
+                )
+                utility.ingest()
+                _feature_reingest_total.labels(
+                    dataset_id=EVENTS_CALENDAR_DATASET_ID,
+                    status="success",
+                ).inc()
+            except Exception as exc:
+                _feature_reingest_total.labels(
+                    dataset_id=EVENTS_CALENDAR_DATASET_ID,
+                    status="error",
+                ).inc()
+                failures["events"] = str(exc)
+                logger.warning("coverage.feature_reingest.events_failed", exc_info=True)
+
+        if earnings_config is not None:
+            try:
+                from ml.features.earnings.ingestion.service import EarningsIngestionService
+
+                result = EarningsIngestionService(
+                    config=_cast(Any, earnings_config),
+                    writer=data_store,
+                ).run()
+                logger.info(
+                    "coverage.feature_reingest.earnings_completed",
+                    extra={
+                        "tickers": result.tickers_attempted,
+                        "actuals_written": result.actuals_written,
+                        "estimates_written": result.estimates_written,
+                        "failures": result.failures,
+                    },
+                )
+                for dataset_id in (EARNINGS_ACTUALS_DATASET_ID, EARNINGS_ESTIMATES_DATASET_ID):
+                    _feature_reingest_total.labels(dataset_id=dataset_id, status="success").inc()
+            except Exception as exc:
+                for dataset_id in (EARNINGS_ACTUALS_DATASET_ID, EARNINGS_ESTIMATES_DATASET_ID):
+                    _feature_reingest_total.labels(dataset_id=dataset_id, status="error").inc()
+                failures["earnings"] = str(exc)
+                logger.warning("coverage.feature_reingest.earnings_failed", exc_info=True)
+
+        if MICRO_MINUTE_DATASET_ID in grouped:
+            try:
+                self._reingest_feature_cache(
+                    data_store=data_store,
+                    specs=grouped[MICRO_MINUTE_DATASET_ID],
+                    cache_dir=micro_dir,
+                    label="micro",
+                )
+                _feature_reingest_total.labels(
+                    dataset_id=MICRO_MINUTE_DATASET_ID,
+                    status="success",
+                ).inc()
+            except Exception as exc:
+                _feature_reingest_total.labels(
+                    dataset_id=MICRO_MINUTE_DATASET_ID,
+                    status="error",
+                ).inc()
+                failures["micro"] = str(exc)
+                logger.warning("coverage.feature_reingest.micro_failed", exc_info=True)
+
+        if L2_MINUTE_DATASET_ID in grouped:
+            try:
+                self._reingest_feature_cache(
+                    data_store=data_store,
+                    specs=grouped[L2_MINUTE_DATASET_ID],
+                    cache_dir=l2_dir,
+                    label="l2",
+                )
+                _feature_reingest_total.labels(
+                    dataset_id=L2_MINUTE_DATASET_ID,
+                    status="success",
+                ).inc()
+            except Exception as exc:
+                _feature_reingest_total.labels(
+                    dataset_id=L2_MINUTE_DATASET_ID,
+                    status="error",
+                ).inc()
+                failures["l2"] = str(exc)
+                logger.warning("coverage.feature_reingest.l2_failed", exc_info=True)
+
+        if failures:
+            _coverage_restore_failures_total.labels(stage="feature_reingest").inc()
+            pipeline_status["errors"].append(f"feature_reingest_failed:{len(failures)}")
+            self._record_coverage_error(reason="feature_reingest_failed")
+            self._maybe_raise_coverage_failure(reason="feature_reingest_failed")
+            return
+
+        logger.info(
+            "coverage.feature_reingest.completed",
+            extra={"datasets": sorted(set(grouped) & supported)},
+        )
+
     def _should_rescan_catalog(self) -> bool:
         return bool(self._rehydrator_config and self._rehydrator_config.rescan_on_schedule)
 
@@ -1436,9 +1882,11 @@ class PipelineRunner:
             use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
             dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
             rehydrator_config = self._resolve_rehydrator_config()
+            feature_engineer = self._build_feature_engineer()
             self.scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                feature_engineer=feature_engineer,
                 use_orchestrator=use_orchestrator,
                 dual_write=dual_write,
                 dual_write_dataset_types=self._dual_write_dataset_types_from_env(),
@@ -1489,9 +1937,11 @@ class PipelineRunner:
             use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
             dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
             rehydrator_config = self._resolve_rehydrator_config()
+            feature_engineer = self._build_feature_engineer()
             self.scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                feature_engineer=feature_engineer,
                 use_orchestrator=use_orchestrator,
                 dual_write=dual_write,
                 dual_write_dataset_types=self._dual_write_dataset_types_from_env(),
@@ -1546,7 +1996,13 @@ class PipelineRunner:
             and not self._coverage_restore_enabled()
         ):
             self._run_catalog_rehydration(self._scheduler_config, note="backfill")
-        scheduler.run_daily_update()
+        try:
+            scheduler.run_daily_update()
+        except Exception as exc:
+            logger.error("Backfill update failed: %s", exc, exc_info=True)
+            pipeline_status["errors"].append(str(exc))
+            logger.warning("Backfill completed with errors")
+            return
 
         logger.info("Backfill completed successfully")
 

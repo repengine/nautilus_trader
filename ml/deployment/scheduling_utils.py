@@ -8,14 +8,20 @@ kept import‑light for use in unit tests and entrypoints.
 
 from __future__ import annotations
 
+import json
+import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from typing import Final
 
+from ml.registry.dataclasses import DatasetType
+
 
 _TRUTHY: Final = {"1", "true", "yes", "on"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def parse_bool_env(value: str | None) -> bool:
@@ -28,6 +34,69 @@ def parse_bool_env(value: str | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in _TRUTHY
+
+
+def parse_template_map_env(raw: str | None) -> dict[str, str]:
+    """
+    Parse a template map from an environment value.
+
+    Supports JSON maps (``{"key": "value"}``) and comma-separated ``key=value`` pairs.
+    Keys are normalized to lowercase for case-insensitive lookups.
+    """
+    if raw is None:
+        return {}
+    text = raw.strip()
+    if not text:
+        return {}
+    if text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            _LOGGER.warning("Failed to parse template map (JSON decode)")
+            return {}
+        if not isinstance(parsed, Mapping):
+            return {}
+        return {
+            str(key).strip().lower(): str(value)
+            for key, value in parsed.items()
+            if str(key).strip() and str(value)
+        }
+    templates: dict[str, str] = {}
+    for token in text.split(","):
+        candidate = token.strip()
+        if not candidate:
+            continue
+        if "=" in candidate:
+            key, value = candidate.split("=", 1)
+        elif ":" in candidate:
+            key, value = candidate.split(":", 1)
+        else:
+            continue
+        key_normalized = key.strip().lower()
+        value_normalized = value.strip()
+        if not key_normalized or not value_normalized:
+            continue
+        templates[key_normalized] = value_normalized
+    return templates
+
+
+def parse_dataset_template_map_env(raw: str | None) -> dict[DatasetType, str]:
+    """
+    Parse a dataset-type→template mapping from environment payloads.
+    """
+    parsed = parse_template_map_env(raw)
+    resolved: dict[DatasetType, str] = {}
+    for key, value in parsed.items():
+        try:
+            dataset_type = DatasetType(key)
+        except ValueError:
+            _LOGGER.warning(
+                "Ignoring unknown dataset type in identifier template map",
+                extra={"dataset_type": key},
+            )
+            continue
+        resolved[dataset_type] = value
+    return resolved
 
 
 @dataclass(slots=True, frozen=True)
@@ -101,4 +170,6 @@ __all__ = [
     "compute_next_utc_run",
     "parse_bool_env",
     "parse_daily_spec",
+    "parse_dataset_template_map_env",
+    "parse_template_map_env",
 ]

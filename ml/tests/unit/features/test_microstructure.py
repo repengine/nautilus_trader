@@ -102,7 +102,7 @@ def test_micro_aggregator_resolves_symbol_with_venue(tmp_path: Path) -> None:
     _write_l1_file(symbol_dir / "SPY.XNAS_bbo.parquet", mid=100.0)
     _write_trade_file(symbol_dir / "SPY.XNAS_trades.parquet")
 
-    agg = MicrostructureAggregator(base_dir)
+    agg = MicrostructureAggregator(base_dir, prefer_catalog=False)
     df = agg.compute_for_symbol("SPY")
     assert not df.is_empty()
     assert "midprice" in df.columns
@@ -126,7 +126,7 @@ def test_micro_aggregator_prefers_latest_file(tmp_path: Path) -> None:
 
     _write_trade_file(l1_dir / "SPY_trades.parquet")
 
-    agg = MicrostructureAggregator(base_dir)
+    agg = MicrostructureAggregator(base_dir, prefer_catalog=False)
     df = agg.compute_for_symbol("SPY")
     assert float(df["midprice"].drop_nulls().mean()) > 20.0
 

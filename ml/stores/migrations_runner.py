@@ -1,9 +1,10 @@
 """
 Database migration runner for the Nautilus ML stores schema.
 
-This module discovers SQL files under :mod:`ml.stores.migrations`, executes any
+This module discovers SQL files under the store migrations directories
+(``migrations_bootstrap``, ``migrations``, and ``migrations_legacy``), executes
 pending migrations against a PostgreSQL database, and records progress in the
-``ml_schema_migrations`` table.  The runner is safe to invoke on every service
+``ml_schema_migrations`` table. The runner is safe to invoke on every service
 startup—already applied files are skipped and checksum mismatches raise a
 descriptive error so schema drift is caught early.
 
@@ -11,9 +12,9 @@ The module also exposes a thin CLI wrapper::
 
     poetry run python -m ml.stores.migrations_runner apply --db-url postgresql://...
 
-and a schema health check helper that ensures the critical ``market_data`` table
-matches the ingestion requirements (bid/ask columns, generated spread/mid_price,
-and the ``(instrument_id, ts_event)`` primary key).
+and a schema health check helper that ensures the critical market data tables
+match the ingestion requirements (legacy ``market_data`` or per-class tables with
+``(instrument_id, ts_event)`` primary keys).
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import Enum
+from itertools import chain
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,6 +40,8 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.exc import SQLAlchemyError
 
+from ml.config.market_data import MarketDataTableConfig
+from ml.config.market_data import MarketDataTableProfile
 from ml.core.db_engine import EngineManager
 from ml.tasks.db import split_sql_statements
 
@@ -101,10 +106,74 @@ class MigrationSummary:
         return len(self.pending)
 
 
+class MigrationProfile(str, Enum):
+    """
+    Supported migration profiles for selecting bootstrap or legacy histories.
+    """
+
+    AUTO = "auto"
+    BOOTSTRAP = "bootstrap"
+    LEGACY = "legacy"
+    INCREMENTAL = "incremental"
+
+    @classmethod
+    def from_env(cls, token: str | None) -> MigrationProfile:
+        if token is None:
+            return cls.AUTO
+        value = token.strip().lower()
+        if not value:
+            return cls.AUTO
+        for candidate in cls:
+            if candidate.value == value:
+                return candidate
+        msg = f"Unsupported migration profile: {token}"
+        raise MigrationRunnerError(msg)
+
+
+@dataclass(slots=True, frozen=True)
+class ProfiledMigrationSummary:
+    """
+    Aggregated migration summary across bootstrap/incremental/legacy runs.
+    """
+
+    profile: MigrationProfile
+    bootstrap: MigrationSummary | None
+    incremental: MigrationSummary | None
+    legacy: MigrationSummary | None
+
+    def _summaries(self) -> tuple[MigrationSummary, ...]:
+        summaries = [summary for summary in (self.bootstrap, self.incremental, self.legacy) if summary]
+        return tuple(summaries)
+
+    @property
+    def applied_count(self) -> int:
+        return sum(summary.applied_count for summary in self._summaries())
+
+    @property
+    def already_applied_count(self) -> int:
+        return sum(summary.already_applied_count for summary in self._summaries())
+
+    @property
+    def pending_count(self) -> int:
+        return sum(summary.pending_count for summary in self._summaries())
+
+    @property
+    def planned(self) -> tuple[Path, ...]:
+        return tuple(chain.from_iterable(summary.planned for summary in self._summaries()))
+
+    @property
+    def pending(self) -> tuple[Path, ...]:
+        return tuple(chain.from_iterable(summary.pending for summary in self._summaries()))
+
+    @property
+    def dry_run(self) -> bool:
+        return any(summary.dry_run for summary in self._summaries())
+
+
 @dataclass(slots=True, frozen=True)
 class SchemaHealthReport:
     """
-    Result of the market_data schema verification.
+    Result of a table schema verification.
     """
 
     table_name: str
@@ -142,6 +211,25 @@ class SchemaHealthReport:
         return " ".join(parts)
 
 
+@dataclass(slots=True, frozen=True)
+class MarketDataSchemaReport:
+    """
+    Aggregate health report for market data tables.
+    """
+
+    profile: MarketDataTableProfile
+    tables: tuple[SchemaHealthReport, ...]
+
+    @property
+    def healthy(self) -> bool:
+        return all(table.healthy for table in self.tables)
+
+    def describe(self) -> str:
+        parts = [f"profile={self.profile.value}"]
+        parts.extend(table.describe() for table in self.tables)
+        return " | ".join(parts)
+
+
 class MigrationRunner:
     """
     Apply SQL migrations from ``ml/stores/migrations`` with checksum tracking.
@@ -154,6 +242,7 @@ class MigrationRunner:
         migrations_path: str | Path | None = None,
         tracking_table: str = TRACKING_TABLE_NAME,
         engine_factory: EngineFactory | None = None,
+        allow_empty: bool = False,
     ) -> None:
         """
         Parameters
@@ -166,11 +255,14 @@ class MigrationRunner:
             Table used to persist applied migration checksums.
         engine_factory:
             Optional override used by tests to control engine instantiation.
+        allow_empty:
+            When True, allow missing SQL files and return an empty plan.
         """
         self._db_url = db_url
         self._engine_factory = engine_factory or EngineManager.get_engine
         self._engine: Engine | None = None
         self._tracking_table = self._validate_tracking_table(tracking_table)
+        self._allow_empty = allow_empty
         base_dir = Path(__file__).resolve().parent
         default_path = base_dir / "migrations"
         self._migrations_path = Path(migrations_path) if migrations_path else default_path
@@ -214,6 +306,8 @@ class MigrationRunner:
             if path.is_file()
         ]
         if not files:
+            if self._allow_empty:
+                return tuple()
             msg = f"No SQL migrations found under {self._migrations_path}"
             raise MigrationRunnerError(msg)
         return tuple(files)
@@ -321,6 +415,14 @@ class MigrationRunner:
             raise MigrationRunnerError(msg) from exc
         return hashlib.sha256(payload).hexdigest()
 
+    def load_applied_migrations(self) -> dict[str, str]:
+        """
+        Return the recorded migration checksums after ensuring the tracking table.
+        """
+        with self.engine.begin() as connection:
+            self._ensure_tracking_table(connection)
+            return self._load_applied_migrations(connection)
+
     def _ensure_tracking_table(self, connection: Any) -> None:
         ddl = text(
             f"CREATE TABLE IF NOT EXISTS {self._tracking_table} (\n"  # nosec B608: table name validated
@@ -367,6 +469,101 @@ class MigrationRunner:
             raise MigrationRunnerError(msg) from exc
 
 
+def _default_migration_paths() -> dict[str, Path]:
+    base_dir = Path(__file__).resolve().parent
+    return {
+        "bootstrap": base_dir / "migrations_bootstrap",
+        "legacy": base_dir / "migrations_legacy",
+        "incremental": base_dir / "migrations",
+    }
+
+
+def _resolve_profile(profile: MigrationProfile | str | None) -> MigrationProfile:
+    if isinstance(profile, MigrationProfile):
+        return profile
+    token = profile if profile is not None else os.getenv("ML_MIGRATIONS_PROFILE")
+    return MigrationProfile.from_env(token)
+
+
+def apply_profiled_migrations(
+    *,
+    db_url: str,
+    profile: MigrationProfile | str | None = None,
+    bootstrap_path: str | Path | None = None,
+    legacy_path: str | Path | None = None,
+    incremental_path: str | Path | None = None,
+    tracking_table: str = TRACKING_TABLE_NAME,
+    engine_factory: EngineFactory | None = None,
+    dry_run: bool = False,
+) -> ProfiledMigrationSummary:
+    """
+    Apply migrations using bootstrap or legacy profiles based on tracking state.
+
+    The default ``auto`` profile applies the bootstrap migrations only when the
+    tracking table is empty, then applies incremental migrations. The ``legacy``
+    profile applies only the legacy migration history. The ``incremental``
+    profile skips bootstrap and runs incremental migrations only.
+    """
+    resolved_profile = _resolve_profile(profile)
+    paths = _default_migration_paths()
+    bootstrap = Path(bootstrap_path) if bootstrap_path else paths["bootstrap"]
+    legacy = Path(legacy_path) if legacy_path else paths["legacy"]
+    incremental = Path(incremental_path) if incremental_path else paths["incremental"]
+
+    incremental_runner = MigrationRunner(
+        db_url=db_url,
+        migrations_path=incremental,
+        tracking_table=tracking_table,
+        engine_factory=engine_factory,
+        allow_empty=True,
+    )
+
+    if resolved_profile is MigrationProfile.LEGACY:
+        legacy_runner = MigrationRunner(
+            db_url=db_url,
+            migrations_path=legacy,
+            tracking_table=tracking_table,
+            engine_factory=engine_factory,
+            allow_empty=False,
+        )
+        legacy_summary = legacy_runner.apply_pending_migrations(dry_run=dry_run)
+        return ProfiledMigrationSummary(
+            profile=resolved_profile,
+            bootstrap=None,
+            incremental=None,
+            legacy=legacy_summary,
+        )
+
+    applied_map = incremental_runner.load_applied_migrations()
+    bootstrap_summary: MigrationSummary | None = None
+    incremental_summary: MigrationSummary | None = None
+
+    if resolved_profile in {MigrationProfile.AUTO, MigrationProfile.BOOTSTRAP}:
+        if applied_map:
+            if resolved_profile is MigrationProfile.BOOTSTRAP:
+                msg = "Bootstrap profile requires an empty migration tracking table"
+                raise MigrationRunnerError(msg)
+        else:
+            bootstrap_runner = MigrationRunner(
+                db_url=db_url,
+                migrations_path=bootstrap,
+                tracking_table=tracking_table,
+                engine_factory=engine_factory,
+                allow_empty=False,
+            )
+            bootstrap_summary = bootstrap_runner.apply_pending_migrations(dry_run=dry_run)
+
+    if resolved_profile in {MigrationProfile.AUTO, MigrationProfile.INCREMENTAL, MigrationProfile.BOOTSTRAP}:
+        incremental_summary = incremental_runner.apply_pending_migrations(dry_run=dry_run)
+
+    return ProfiledMigrationSummary(
+        profile=resolved_profile,
+        bootstrap=bootstrap_summary,
+        incremental=incremental_summary,
+        legacy=None,
+    )
+
+
 def is_postgres_url(url: str) -> bool:
     """
     Return ``True`` when ``url`` points to a PostgreSQL backend.
@@ -381,23 +578,61 @@ def is_postgres_url(url: str) -> bool:
     return backend.startswith("postgres")
 
 
-def verify_market_data_schema(
+def _relation_kind(inspector: Any, table_name: str) -> str | None:
+    get_views = getattr(inspector, "get_view_names", None)
+    schema_candidates: tuple[str | None, ...] = DEFAULT_SCHEMA_CANDIDATES
+    default_schema = getattr(inspector, "default_schema_name", None)
+    if default_schema and default_schema not in schema_candidates:
+        schema_candidates = (*schema_candidates, default_schema)
+    for schema in schema_candidates:
+        try:
+            if table_name in inspector.get_table_names(schema=schema):
+                return "table"
+        except Exception:
+            continue
+        if callable(get_views):
+            try:
+                if table_name in get_views(schema=schema):
+                    return "view"
+            except Exception:
+                continue
+    return None
+
+
+def _resolve_market_data_profile(
     engine: Engine,
     *,
-    table_name: str = "market_data",
+    config: MarketDataTableConfig,
+) -> MarketDataTableProfile:
+    if config.profile is not MarketDataTableProfile.AUTO:
+        return config.profile
+    if engine.dialect.name != "postgresql":
+        return MarketDataTableProfile.LEGACY
+    inspector = inspect(engine)
+    relation = _relation_kind(inspector, config.legacy_table)
+    if relation == "table":
+        return MarketDataTableProfile.LEGACY
+    if relation == "view":
+        return MarketDataTableProfile.CLASS_TABLES
+    return MarketDataTableProfile.CLASS_TABLES
+
+
+def _verify_table_schema(
+    engine: Engine,
+    *,
+    table_name: str,
+    required_columns: Sequence[str],
+    required_generated: Sequence[str] = (),
 ) -> SchemaHealthReport:
-    """
-    Ensure the ``market_data`` table contains required columns and primary key.
-    """
     inspector = inspect(engine)
     schema, columns = _resolve_table_columns(inspector, table_name)
     column_map = {column["name"]: column for column in columns}
 
-    missing_columns = tuple(col for col in REQUIRED_MEASURE_COLUMNS if col not in column_map)
+    missing_columns = tuple(col for col in required_columns if col not in column_map)
 
     generated_from_db: set[str] | None = None
     missing_generated: list[str] = []
-    for column in REQUIRED_GENERATED_COLUMNS:
+    for column in required_generated:
         metadata = column_map.get(column)
         if metadata is None:
             missing_generated.append(column)
@@ -418,7 +653,7 @@ def verify_market_data_schema(
     pk_info = inspector.get_pk_constraint(table_name, schema=schema)
     primary_key = tuple(pk_info.get("constrained_columns") or ())
 
-    report = SchemaHealthReport(
+    return SchemaHealthReport(
         table_name=table_name,
         schema=schema,
         missing_columns=missing_columns,
@@ -426,9 +661,68 @@ def verify_market_data_schema(
         primary_key=primary_key,
         dialect=engine.dialect.name,
     )
-    if not report.healthy:
-        raise SchemaHealthCheckError(f"market_data schema invalid: {report.describe()}")
-    return report
+
+
+def verify_market_data_schema(
+    engine: Engine,
+    *,
+    table_config: MarketDataTableConfig | None = None,
+) -> MarketDataSchemaReport:
+    """
+    Ensure market data tables satisfy the ingestion contract.
+    """
+    config = table_config or MarketDataTableConfig.from_env()
+    profile = _resolve_market_data_profile(engine, config=config)
+
+    reports: list[SchemaHealthReport] = []
+    if profile is MarketDataTableProfile.LEGACY:
+        report = _verify_table_schema(
+            engine,
+            table_name=config.legacy_table,
+            required_columns=REQUIRED_MEASURE_COLUMNS,
+            required_generated=REQUIRED_GENERATED_COLUMNS,
+        )
+        reports.append(report)
+    else:
+        expectations = (
+            (config.bar_table, ("instrument_id", "ts_event", "ts_init", "open", "high", "low", "close")),
+            (
+                config.quote_tick_table,
+                ("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
+            ),
+            (
+                config.tbbo_table,
+                ("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
+            ),
+            (
+                config.mbp1_table,
+                ("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
+            ),
+            (config.trade_tick_table, ("instrument_id", "ts_event", "ts_init", "last")),
+        )
+        for table_name, required_columns in expectations:
+            required_generated = (
+                REQUIRED_GENERATED_COLUMNS
+                if table_name
+                in {
+                    config.quote_tick_table,
+                    config.tbbo_table,
+                    config.mbp1_table,
+                }
+                else ()
+            )
+            report = _verify_table_schema(
+                engine,
+                table_name=table_name,
+                required_columns=required_columns,
+                required_generated=required_generated,
+            )
+            reports.append(report)
+
+    market_report = MarketDataSchemaReport(profile=profile, tables=tuple(reports))
+    if not market_report.healthy:
+        raise SchemaHealthCheckError(f"market_data schema invalid: {market_report.describe()}")
+    return market_report
 
 
 def verify_instrumentation_tables(
@@ -572,7 +866,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--path",
         dest="path",
         default=None,
-        help="Custom migrations directory (defaults to ml/stores/migrations)",
+        help="Custom incremental migrations directory (defaults to ml/stores/migrations)",
+    )
+    parser.add_argument(
+        "--bootstrap-path",
+        dest="bootstrap_path",
+        default=None,
+        help="Custom bootstrap migrations directory (defaults to ml/stores/migrations_bootstrap)",
+    )
+    parser.add_argument(
+        "--legacy-path",
+        dest="legacy_path",
+        default=None,
+        help="Custom legacy migrations directory (defaults to ml/stores/migrations_legacy)",
+    )
+    parser.add_argument(
+        "--profile",
+        dest="profile",
+        choices=tuple(profile.value for profile in MigrationProfile),
+        default=None,
+        help="Migration profile selector (auto, bootstrap, legacy, incremental)",
     )
     parser.add_argument(
         "--dry-run",
@@ -592,23 +905,41 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not db_url:
         parser.error("Set --db-url or export DB_CONNECTION/DATABASE_URL")
 
-    runner = MigrationRunner(db_url=db_url, migrations_path=args.path)
+    use_profile = args.profile or args.bootstrap_path or args.legacy_path
+    dry_run = bool(args.command == "plan" or args.dry_run)
 
-    if args.command == "plan" or args.dry_run:
-        summary = runner.apply_pending_migrations(dry_run=True)
+    if args.path and not use_profile:
+        runner = MigrationRunner(db_url=db_url, migrations_path=args.path)
+        summary = runner.apply_pending_migrations(dry_run=dry_run)
+        profiled = ProfiledMigrationSummary(
+            profile=MigrationProfile.INCREMENTAL,
+            bootstrap=None,
+            incremental=summary,
+            legacy=None,
+        )
+    else:
+        profiled = apply_profiled_migrations(
+            db_url=db_url,
+            profile=args.profile,
+            bootstrap_path=args.bootstrap_path,
+            legacy_path=args.legacy_path,
+            incremental_path=args.path,
+            dry_run=dry_run,
+        )
+
+    if profiled.dry_run:
         print("Pending migrations:")
-        for path in summary.pending:
+        for path in profiled.pending:
             print(f" - {path}")
         print(
-            f"{summary.pending_count} pending, "
-            f"{summary.already_applied_count} already applied",
+            f"{profiled.pending_count} pending, "
+            f"{profiled.already_applied_count} already applied",
         )
         return 0
 
-    summary = runner.apply_pending_migrations(dry_run=False)
     print(
-        f"Applied {summary.applied_count} migration(s); "
-        f"{summary.already_applied_count} already recorded.",
+        f"Applied {profiled.applied_count} migration(s); "
+        f"{profiled.already_applied_count} already recorded.",
     )
     return 0
 
@@ -618,11 +949,15 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry
 
 
 __all__ = [
+    "MarketDataSchemaReport",
+    "MigrationProfile",
     "MigrationRunner",
     "MigrationRunnerError",
     "MigrationSummary",
+    "ProfiledMigrationSummary",
     "SchemaHealthCheckError",
     "SchemaHealthReport",
+    "apply_profiled_migrations",
     "is_postgres_url",
     "main",
     "verify_instrumentation_tables",

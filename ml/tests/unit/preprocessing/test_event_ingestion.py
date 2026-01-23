@@ -9,6 +9,7 @@ import polars as pl
 from ml.preprocessing.event_ingestion import EventIngestionConfig
 from ml.preprocessing.event_ingestion import EventIngestionUtility
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
+from ml.data.coverage.types import GLOBAL_ENTITY_ID
 
 
 def _write_stub_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -86,6 +87,17 @@ def test_event_ingestion_creates_normalized_events(tmp_path: Path) -> None:
     assert "options_expiry" in event_types
     assert "holiday" in event_types
 
+    global_events = events_df.filter(
+        pl.col("event_type").is_in(["fed_meeting", "economic_release", "options_expiry", "holiday"]),
+    )
+    assert not global_events.is_empty()
+    assert (
+        global_events.get_column("instrument_id")
+        .unique()
+        .to_list()
+        == [GLOBAL_ENTITY_ID]
+    )
+
     # Ensure metadata for corporate event preserved
     earnings_rows = events_df.filter(pl.col("event_type") == "earnings")
     assert not earnings_rows.is_empty()
@@ -128,3 +140,7 @@ def test_event_ingestion_writes_sql_when_data_store_provided(tmp_path: Path) -> 
     dataset_id, records = stub.calls[0]
     assert dataset_id == EVENTS_CALENDAR_DATASET_ID
     assert "ts_event" in records.columns
+    assert (
+        records.get_column("instrument_id").unique().to_list()
+        == [GLOBAL_ENTITY_ID]
+    )

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
+from ml.data import DatasetMetadata
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
 from ml.data import MarketBindingMetadata
+from ml.data import VintagePolicy
 from ml.data import _binding_stats_to_metadata
+from ml.data import _metadata_to_dict
+from ml.data import load_dataset_metadata
 
 
 def test_resolve_market_bindings_prefers_descriptor_and_fallback() -> None:
@@ -121,3 +127,63 @@ def test_binding_stats_to_metadata_converts_timestamps() -> None:
             rows_from_catalog=0,
         ),
     )
+
+
+def test_resolve_market_bindings_sets_provider_dataset_id_from_descriptor() -> None:
+    descriptors = load_market_feed_descriptors().as_mapping()
+
+    bindings = resolve_market_dataset_bindings(
+        symbols=["AAPL"],
+        instrument_ids=("AAPL.XNAS",),
+        market_dataset_id=None,
+        market_inputs=(MarketDatasetInput(descriptor_id="EQUS.MINI_TBBO"),),
+        descriptors=descriptors,
+    )
+
+    assert len(bindings) == 1
+    binding = bindings[0]
+    assert binding.dataset_id == "EQUS.MINI_TBBO"
+    assert binding.provider_dataset_id == "EQUS.MINI"
+
+
+def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> None:
+    metadata = DatasetMetadata(
+        dataset_id="demo",
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_cutoff=None,
+        build_ts="2024-01-01T00:00:00+00:00",
+        ts_event_start=None,
+        ts_event_end=None,
+        overall_window=None,
+        train_window=None,
+        validation_window=None,
+        test_window=None,
+        macro_observation_counts={},
+        market_bindings=(
+            MarketBindingMetadata(
+                binding_id="binding-1",
+                dataset_id="EQUS.MINI_TBBO",
+                descriptor_id="EQUS.MINI_TBBO",
+                schema="tbbo",
+                storage_kind="postgres",
+                symbols=("AAPL",),
+                instrument_ids=("AAPL.XNAS",),
+                source="descriptor",
+                license_start="2023-01-01",
+                license_end=None,
+                ts_event_start=None,
+                ts_event_end=None,
+                rows_from_store=0,
+                rows_from_catalog=0,
+                provider_dataset_id="EQUS.MINI",
+            ),
+        ),
+    )
+
+    payload = _metadata_to_dict(metadata)
+    metadata_path = tmp_path / "dataset_metadata.json"
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reloaded = load_dataset_metadata(metadata_path)
+    assert reloaded.market_bindings is not None
+    assert reloaded.market_bindings[0].provider_dataset_id == "EQUS.MINI"

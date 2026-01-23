@@ -17,6 +17,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Callable
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -35,6 +36,7 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
+from ml.registry.dataclasses import DatasetType
 from ml.schema import map_schema_to_dataset_type
 from ml.stores.data_store import DataStore
 from ml.stores.io_raw import ParquetCatalogRawWriter
@@ -290,10 +292,12 @@ class ParquetCatalogRawMarketDataWriter(MarketDataWriterProtocol):
 
     catalog: Any
     replace_on_overlap: bool = False
+    dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None
 
     def __post_init__(self) -> None:
         self._raw_writer = ParquetCatalogRawWriter(
             self.catalog,
+            dataset_type_identifier_templates=self.dataset_type_identifier_templates,
             replace_on_overlap=self.replace_on_overlap,
         )
 

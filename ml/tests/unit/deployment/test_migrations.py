@@ -33,8 +33,9 @@ def test_list_migration_files_returns_sorted_list(
     ]:
         (dirp / name).write_text("-- test", encoding="utf-8")
 
-    # Point module constant to temp dir
-    monkeypatch.setattr(mig, "MIGRATIONS_DIR", dirp, raising=True)
+    # Point module constant to temp dir and scope to incremental profile
+    monkeypatch.setattr(mig, "MIGRATIONS_INCREMENTAL_DIR", dirp, raising=True)
+    monkeypatch.setenv("ML_MIGRATIONS_PROFILE", "incremental")
 
     files = mig.list_migration_files()
     assert [p.name for p in files] == ["001_a.sql", "002_b.sql", "003_c.sql"]

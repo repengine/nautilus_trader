@@ -16,6 +16,7 @@ htmlcov/
 .playwright-mcp/
 .import_linter_cache/
 .worktrees/
+.migrations_legacy/
 
 
 # Git

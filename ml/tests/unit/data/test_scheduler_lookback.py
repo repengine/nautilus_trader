@@ -19,7 +19,13 @@ class _StubCoverage:
     def __init__(self, mapping: dict[str, int | None]) -> None:
         self._mapping = mapping
 
-    def latest_timestamp_ns(self, *, dataset_id: str, instrument_id: str) -> int | None:  # noqa: ARG002
+    def latest_timestamp_ns(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        schema: str | None = None,
+    ) -> int | None:  # noqa: ARG002
         return self._mapping.get(instrument_id)
 
 def _make_binding(license_start: str | None, license_end: str | None) -> ResolvedMarketBinding:

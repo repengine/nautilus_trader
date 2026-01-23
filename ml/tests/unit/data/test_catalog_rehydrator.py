@@ -13,6 +13,11 @@ from sqlalchemy import create_engine
 
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
+from ml.config.market_data import MarketDataTableConfig
+from ml.config.market_data import MarketDataTableProfile
 from ml.data.coverage.manager import BucketSpec
 from ml.registry.dataclasses import DatasetType
 
@@ -43,6 +48,63 @@ class _StubCoverage:
     def read_bucket_coverage(self, *args: object, **kwargs: object) -> set[int]:
         _ = args, kwargs
         return set()
+
+
+class _StubRegistry:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+        self.watermarks: list[dict[str, object]] = []
+
+    def emit_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: object,
+        source: object,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: object,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        self.events.append(
+            {
+                "dataset_id": dataset_id,
+                "instrument_id": instrument_id,
+                "stage": stage,
+                "source": source,
+                "run_id": run_id,
+                "ts_min": ts_min,
+                "ts_max": ts_max,
+                "count": count,
+                "status": status,
+                "metadata": metadata,
+            },
+        )
+
+    def update_watermark(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        source: object,
+        last_success_ns: int,
+        count: int,
+        completeness_pct: float,
+    ) -> None:
+        self.watermarks.append(
+            {
+                "dataset_id": dataset_id,
+                "instrument_id": instrument_id,
+                "source": source,
+                "last_success_ns": last_success_ns,
+                "count": count,
+                "completeness_pct": completeness_pct,
+            },
+        )
+
 
 @contextmanager
 def _patched_sqlite_engine(connection: str, patch_engine_manager) -> Iterator[None]:
@@ -137,6 +199,25 @@ class TestParquetCatalogRehydrator:
 
         assert identifier == "SPY.XNAS"
 
+    def test_rehydrator_routes_tables_by_schema(self, patch_engine_manager) -> None:
+        config = CatalogRehydrationConfig(
+            enabled=True,
+            lookback_days=1,
+            batch_size=10,
+            table_config=MarketDataTableConfig(profile=MarketDataTableProfile.CLASS_TABLES),
+        )
+        connection = "sqlite://"
+        with _patched_sqlite_engine(connection, patch_engine_manager):
+            rehydrator = ParquetCatalogRehydrator(
+                catalog=ParquetDataCatalog(":memory:"),
+                db_connection=connection,
+                config=config,
+            )
+
+            assert rehydrator._writer._resolve_table_name("tbbo") == "market_data_tbbo"
+            assert rehydrator._writer._resolve_table_name("ohlcv-1m") == "market_data_bar"
+            assert rehydrator._coverage._resolve_table_name("tbbo") == "market_data_tbbo"
+
     def test_rehydrate_restores_missing_buckets(
         self,
         tmp_path: Path,
@@ -182,6 +263,62 @@ class TestParquetCatalogRehydrator:
             cursor.execute("SELECT COUNT(*) FROM market_data WHERE instrument_id = ?", (symbol,))
             row_count = cursor.fetchone()[0]
             assert row_count == 32
+
+    def test_rehydrate_emits_events_when_registry_present_returns_expected(
+        self,
+        tmp_path: Path,
+        patch_engine_manager,
+        test_data_factory: TestDataFactory,
+    ) -> None:
+        symbol = "AMD.XNAS"
+        start = datetime(2024, 3, 1, tzinfo=UTC)
+        catalog = _build_catalog_with_bars(
+            tmp_path / "catalog",
+            symbol=symbol,
+            start=start,
+            count=12,
+            data_factory=test_data_factory,
+        )
+
+        db_path = tmp_path / "rehydrate_events.db"
+        connection = f"sqlite:///{db_path}"
+        registry = _StubRegistry()
+
+        with _patched_sqlite_engine(connection, patch_engine_manager):
+            config = CatalogRehydrationConfig(enabled=True, lookback_days=7, batch_size=500)
+            rehydrator = ParquetCatalogRehydrator(
+                catalog=catalog,
+                db_connection=connection,
+                config=config,
+                registry=registry,
+            )
+
+            reference_time = start + timedelta(days=2)
+            result = rehydrator.rehydrate_missing_data(
+                dataset_id="EQUS.MINI",
+                schema="ohlcv-1m",
+                instrument_ids=[symbol],
+                reference_time=reference_time,
+            )
+
+        assert result.rows_written == 12
+        assert registry.events
+        assert registry.watermarks
+        event = registry.events[0]
+        watermark = registry.watermarks[0]
+        assert event["dataset_id"] == "EQUS.MINI"
+        assert event["instrument_id"] == symbol
+        assert getattr(event["stage"], "value", None) == Stage.DATA_INGESTED.value
+        assert getattr(event["source"], "value", None) == Source.BACKFILL.value
+        assert getattr(event["status"], "value", None) == EventStatus.SUCCESS.value
+        assert event["run_id"] == "catalog_rehydrate"
+        metadata = event.get("metadata") or {}
+        assert metadata.get("schema") == "ohlcv-1m"
+        assert "bucket" in metadata
+        assert watermark["dataset_id"] == "EQUS.MINI"
+        assert watermark["instrument_id"] == symbol
+        assert getattr(watermark["source"], "value", None) == Source.BACKFILL.value
+        assert watermark["completeness_pct"] == 100.0
 
     def test_rehydrate_skips_existing_coverage(
         self,

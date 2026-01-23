@@ -283,6 +283,93 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
             ),
         },
     ),
+    "EQUS.MINI_TBBO": DatasetManifestOverrides(
+        dataset_type=DatasetType.TBBO,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.TBBO].copy_with(
+            schema={
+                "instrument_id": "str",
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "bid": "float64",
+                "ask": "float64",
+                "bid_size": "float64",
+                "ask_size": "float64",
+            },
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "tbbo",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
+    "EQUS.MINI_QUOTES": DatasetManifestOverrides(
+        dataset_type=DatasetType.QUOTES,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.QUOTES].copy_with(
+            schema={
+                "instrument_id": "str",
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "bid": "float64",
+                "ask": "float64",
+                "bid_size": "float64",
+                "ask_size": "float64",
+            },
+            primary_keys=("instrument_id", "ts_event"),
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "quotes",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
+    "EQUS.MINI_MBP1": DatasetManifestOverrides(
+        dataset_type=DatasetType.MBP1,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.MBP1].copy_with(
+            schema={
+                "instrument_id": "str",
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "bid": "float64",
+                "ask": "float64",
+                "bid_size": "float64",
+                "ask_size": "float64",
+            },
+            primary_keys=("instrument_id", "ts_event"),
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "mbp1",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
+    "EQUS.MINI_TRADES": DatasetManifestOverrides(
+        dataset_type=DatasetType.TRADES,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.TRADES].copy_with(
+            schema={
+                "instrument_id": "str",
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "last": "float64",
+                "trade_count": "int64",
+                "vwap": "float64",
+                "volume": "float64",
+            },
+            primary_keys=("instrument_id", "ts_event"),
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "trades",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
     "XNAS.ITCH": DatasetManifestOverrides(
         dataset_type=DatasetType.TRADES,
         spec=_DATASET_TYPE_DEFAULTS[DatasetType.TRADES].copy_with(

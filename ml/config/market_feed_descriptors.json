@@ -3,6 +3,7 @@
     {
       "descriptor_id": "EQUS.MINI",
       "dataset_id": "EQUS.MINI",
+      "provider_dataset_id": "EQUS.MINI",
       "storage_kind": "postgres",
       "schema": "ohlcv-1m",
       "symbol_patterns": [
@@ -16,7 +17,8 @@
     },
     {
       "descriptor_id": "EQUS.MINI_TBBO",
-      "dataset_id": "EQUS.MINI",
+      "dataset_id": "EQUS.MINI_TBBO",
+      "provider_dataset_id": "EQUS.MINI",
       "storage_kind": "postgres",
       "schema": "tbbo",
       "symbol_patterns": [
@@ -30,7 +32,8 @@
     },
     {
       "descriptor_id": "EQUS.MINI_MBP1",
-      "dataset_id": "EQUS.MINI",
+      "dataset_id": "EQUS.MINI_MBP1",
+      "provider_dataset_id": "EQUS.MINI",
       "storage_kind": "postgres",
       "schema": "mbp-1",
       "symbol_patterns": [
@@ -43,8 +46,39 @@
       "license_end": null
     },
     {
+      "descriptor_id": "EQUS.MINI_QUOTES",
+      "dataset_id": "EQUS.MINI_QUOTES",
+      "provider_dataset_id": "EQUS.MINI",
+      "storage_kind": "postgres",
+      "schema": "quotes",
+      "symbol_patterns": [
+        "*"
+      ],
+      "instrument_id_templates": [
+        "{symbol}.EQUS"
+      ],
+      "license_start": "2023-01-01",
+      "license_end": null
+    },
+    {
+      "descriptor_id": "EQUS.MINI_TRADES",
+      "dataset_id": "EQUS.MINI_TRADES",
+      "provider_dataset_id": "EQUS.MINI",
+      "storage_kind": "postgres",
+      "schema": "trades",
+      "symbol_patterns": [
+        "*"
+      ],
+      "instrument_id_templates": [
+        "{symbol}.EQUS"
+      ],
+      "license_start": "2023-01-01",
+      "license_end": null
+    },
+    {
       "descriptor_id": "XNAS.ITCH",
       "dataset_id": "XNAS.ITCH",
+      "provider_dataset_id": "XNAS.ITCH",
       "storage_kind": "postgres",
       "schema": "mbp-10",
       "symbol_patterns": [
@@ -60,6 +94,7 @@
     {
       "descriptor_id": "XNAS.ITCH_MBP10",
       "dataset_id": "XNAS.ITCH",
+      "provider_dataset_id": "XNAS.ITCH",
       "storage_kind": "postgres",
       "schema": "mbp-10",
       "symbol_patterns": [

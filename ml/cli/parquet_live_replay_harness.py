@@ -7,11 +7,14 @@ import argparse
 import logging
 
 from ml.common.logging_config import configure_logging
+from ml.config.base import ModelExitConfig
 from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
 from ml.config.replay_harness import StrategyReplayConfig
 from ml.features.config import FeatureConfig
 from ml.orchestration.parquet_live_replay_harness import run_parquet_live_replay_harness
+from ml.strategies.risk import RiskConfig
+from ml.strategies.risk import RiskLiquidationConfig
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +99,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Prediction threshold for MLSignalActor.",
     )
     parser.add_argument(
+        "--signal-strategy",
+        choices=["threshold", "extremes", "momentum", "ensemble", "adaptive"],
+        default=None,
+        help="Signal strategy override (default: MLSignalActorConfig default).",
+    )
+    parser.add_argument(
+        "--min-signal-separation-bars",
+        type=int,
+        default=None,
+        help="Minimum bars between signals (default: actor config default).",
+    )
+    parser.add_argument(
+        "--log-predictions",
+        action="store_true",
+        help="Log individual model predictions for debugging.",
+    )
+    parser.add_argument(
+        "--disable-publish-signals",
+        action="store_true",
+        help="Disable publishing ML signals to the message bus.",
+    )
+    parser.add_argument(
+        "--use-dummy-stores",
+        action="store_true",
+        help="Use dummy stores instead of persistence backends.",
+    )
+    parser.add_argument(
         "--execute-trades",
         action="store_true",
         help="Execute trades (required to emit order intents).",
@@ -157,6 +187,73 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Take profit percentage (default: 0.04).",
     )
     parser.add_argument(
+        "--liquidation-enabled",
+        action="store_true",
+        help="Enable staged liquidation safeguards.",
+    )
+    parser.add_argument(
+        "--liquidation-daily-loss-limit-pct",
+        type=float,
+        default=None,
+        help="Liquidate when daily loss exceeds this percentage.",
+    )
+    parser.add_argument(
+        "--liquidation-drawdown-limit-pct",
+        type=float,
+        default=None,
+        help="Liquidate when drawdown exceeds this percentage.",
+    )
+    parser.add_argument(
+        "--liquidation-unrealized-loss-limit-pct",
+        type=float,
+        default=None,
+        help="Liquidate when unrealized loss exceeds this percentage.",
+    )
+    parser.add_argument(
+        "--liquidation-cooldown-ms",
+        type=int,
+        default=None,
+        help="Minimum milliseconds between liquidation attempts.",
+    )
+    parser.add_argument(
+        "--liquidation-require-full-positions",
+        action="store_true",
+        help="Require full positions list before liquidation.",
+    )
+    parser.add_argument(
+        "--disable-reduce-only-when-halted",
+        action="store_true",
+        help="Disallow reduce-only orders during risk halts.",
+    )
+    parser.add_argument(
+        "--model-exit-on-flip",
+        action="store_true",
+        help="Enable model-driven exits on prediction flips.",
+    )
+    parser.add_argument(
+        "--model-reverse-on-flip",
+        action="store_true",
+        help="Reverse on prediction flips when model exits are enabled.",
+    )
+    parser.add_argument(
+        "--model-exit-confidence-threshold",
+        type=float,
+        default=None,
+        help="Exit when model confidence drops below this threshold.",
+    )
+    parser.add_argument(
+        "--model-exit-prediction-band",
+        type=float,
+        default=None,
+        help="Neutral-zone band around 0.5 for model-driven exits.",
+    )
+    parser.add_argument(
+        "--model-exit-min-hold-ms",
+        type=int,
+        default=None,
+        help="Minimum holding time in milliseconds before model exits.",
+    )
+    parser.add_argument(
         "--persist-all-signals",
         action="store_true",
         help="Persist HOLD signals in addition to BUY/SELL.",
@@ -203,11 +300,65 @@ def main() -> None:
         component_id_prefix="MLSignalActor",
         prediction_threshold=args.prediction_threshold,
         warm_up_period=args.warm_up_period,
+        publish_signals=not args.disable_publish_signals,
+        log_predictions=args.log_predictions,
+        signal_strategy=args.signal_strategy,
+        min_signal_separation_bars=args.min_signal_separation_bars,
         feature_config=feature_config,
         feature_set_id=args.feature_set_id,
         registry_path=args.registry_path,
         use_registry_features=args.use_registry_features,
+        use_dummy_stores=args.use_dummy_stores,
     )
+    model_exit_config = None
+    if (
+        args.model_exit_on_flip
+        or args.model_reverse_on_flip
+        or args.model_exit_confidence_threshold is not None
+        or args.model_exit_prediction_band is not None
+        or args.model_exit_min_hold_ms is not None
+    ):
+        model_exit_config = ModelExitConfig(
+            exit_on_flip=args.model_exit_on_flip or args.model_reverse_on_flip,
+            reverse_on_flip=args.model_reverse_on_flip,
+            exit_confidence_threshold=args.model_exit_confidence_threshold,
+            exit_prediction_band=(
+                args.model_exit_prediction_band
+                if args.model_exit_prediction_band is not None
+                else 0.0
+            ),
+            min_hold_ms=args.model_exit_min_hold_ms,
+        )
+
+    liquidation_config = None
+    liquidation_thresholds = (
+        args.liquidation_daily_loss_limit_pct is not None
+        or args.liquidation_drawdown_limit_pct is not None
+        or args.liquidation_unrealized_loss_limit_pct is not None
+    )
+    if (
+        args.liquidation_enabled
+        or liquidation_thresholds
+        or args.liquidation_cooldown_ms is not None
+        or args.liquidation_require_full_positions
+    ):
+        liquidation_config = RiskLiquidationConfig(
+            enabled=args.liquidation_enabled or liquidation_thresholds,
+            daily_loss_limit_pct=args.liquidation_daily_loss_limit_pct,
+            drawdown_limit_pct=args.liquidation_drawdown_limit_pct,
+            unrealized_loss_limit_pct=args.liquidation_unrealized_loss_limit_pct,
+            cooldown_ms=args.liquidation_cooldown_ms,
+            require_full_positions=args.liquidation_require_full_positions,
+        )
+
+    risk_config = None
+    allow_reduce_only_when_halted = not args.disable_reduce_only_when_halted
+    if liquidation_config is not None or args.disable_reduce_only_when_halted:
+        risk_config = RiskConfig(
+            allow_reduce_only_when_halted=allow_reduce_only_when_halted,
+            liquidation_config=liquidation_config,
+        )
+
     strategy_config = StrategyReplayConfig(
         id_prefix="MLStrategy",
         position_size_pct=args.position_size_pct,
@@ -215,6 +366,8 @@ def main() -> None:
         max_positions=args.max_positions,
         stop_loss_pct=args.stop_loss_pct,
         take_profit_pct=args.take_profit_pct,
+        model_exit_config=model_exit_config,
+        risk_config=risk_config,
         persist_all_signals=args.persist_all_signals,
         execute_trades=args.execute_trades,
         serialize_order_intents=args.serialize_order_intents,

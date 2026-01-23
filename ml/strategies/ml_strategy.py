@@ -11,12 +11,17 @@ This module provides a production-ready ML strategy that can:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from ml.actors.base import MLSignal
+from ml.common.metrics_bootstrap import get_counter
 from ml.strategies.base import BaseMLStrategy
+from ml.strategies.common.model_exit_policy import PositionSideProtocol
+from ml.strategies.common.model_exit_policy import evaluate_model_exit
+from ml.strategies.common.model_exit_policy import resolve_time_in_trade_ns
 from nautilus_trader.model.enums import OrderSide
 
 
@@ -25,6 +30,13 @@ if TYPE_CHECKING:  # typing-only imports to avoid runtime coupling
     from nautilus_trader.model.position import Position
 
     from nautilus_trader.model.events import OrderFilled
+
+
+model_exit_total = get_counter(
+    "ml_model_exit_total",
+    "Total model-driven exits",
+    labels=["action", "reason"],
+)
 
 
 class MLTradingStrategy(BaseMLStrategy):
@@ -47,6 +59,156 @@ class MLTradingStrategy(BaseMLStrategy):
     - track_performance: Whether to track per-model performance
 
     """
+
+    def _resolve_exit_policy_config(
+        self,
+    ) -> tuple[float, float, int | None]:
+        """
+        Resolve exit policy thresholds from config.
+
+        Returns
+        -------
+        tuple[float, float, int | None]
+            Stop loss pct, take profit pct, max holding ms.
+
+        """
+        exit_policy = getattr(self._config, "exit_policy_config", None)
+        if exit_policy is not None:
+            return (
+                float(exit_policy.stop_loss_pct),
+                float(exit_policy.take_profit_pct),
+                exit_policy.max_holding_ms,
+            )
+        return (
+            float(getattr(self._config, "stop_loss_pct", 0.0)),
+            float(getattr(self._config, "take_profit_pct", 0.0)),
+            None,
+        )
+
+    def _timestamp_ns(self) -> int:
+        """
+        Return a nanosecond timestamp with clock fallback.
+        """
+        try:
+            if hasattr(self, "clock"):
+                return int(self.clock.timestamp_ns())
+        except Exception as exc:
+            self.log.debug(
+                "ml_strategy.clock_timestamp_failed",
+                exc_info=True,
+                error=str(exc),
+            )
+        return time.time_ns()
+
+    def _position_entry_price(self, position: object) -> float | None:
+        """
+        Resolve a position entry price for exit calculations.
+        """
+        for attr in ("avg_px_open", "avg_px", "avg_price", "entry_price"):
+            value = getattr(position, attr, None)
+            if value is None:
+                continue
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0.0:
+                return price
+        return None
+
+    def _time_in_trade_ns(self, position: object, now_ns: int) -> int | None:
+        """
+        Compute time-in-trade for the position if available.
+        """
+        return resolve_time_in_trade_ns(cast(PositionSideProtocol, position), now_ns)
+
+    def _build_exit_metadata(
+        self,
+        *,
+        reason: str,
+        trigger_price: float | None,
+        time_in_trade_ns: int | None,
+    ) -> dict[str, object]:
+        """
+        Build exit metadata payload for persistence and intents.
+        """
+        return {
+            "reason": reason,
+            "trigger_price": trigger_price,
+            "time_in_trade_ns": time_in_trade_ns,
+        }
+
+    def _exit_side_for_position(self, position: object) -> OrderSide | None:
+        """
+        Determine exit side from a position.
+        """
+        side_name = getattr(getattr(position, "side", object()), "name", "")
+        if side_name == "LONG":
+            return OrderSide.SELL
+        if side_name == "SHORT":
+            return OrderSide.BUY
+        return None
+
+    def _evaluate_exit_policy(
+        self,
+        position: object,
+        *,
+        instrument_id: object,
+    ) -> dict[str, object] | None:
+        """
+        Evaluate exit policy for the current position.
+        """
+        stop_loss_pct, take_profit_pct, max_holding_ms = self._resolve_exit_policy_config()
+        if stop_loss_pct <= 0.0 and take_profit_pct <= 0.0 and not max_holding_ms:
+            return None
+
+        try:
+            current_price = self._resolve_market_price(instrument_id)
+        except AttributeError:
+            current_price = None
+        entry_price = self._position_entry_price(position)
+        now_ns = self._timestamp_ns()
+        time_in_trade_ns = self._time_in_trade_ns(position, now_ns)
+        side_name = getattr(getattr(position, "side", object()), "name", "")
+
+        if entry_price is not None and current_price is not None:
+            if side_name == "LONG":
+                if stop_loss_pct > 0.0 and current_price <= entry_price * (1.0 - stop_loss_pct):
+                    return self._build_exit_metadata(
+                        reason="stop_loss",
+                        trigger_price=current_price,
+                        time_in_trade_ns=time_in_trade_ns,
+                    )
+                if take_profit_pct > 0.0 and current_price >= entry_price * (1.0 + take_profit_pct):
+                    return self._build_exit_metadata(
+                        reason="take_profit",
+                        trigger_price=current_price,
+                        time_in_trade_ns=time_in_trade_ns,
+                    )
+            elif side_name == "SHORT":
+                if stop_loss_pct > 0.0 and current_price >= entry_price * (1.0 + stop_loss_pct):
+                    return self._build_exit_metadata(
+                        reason="stop_loss",
+                        trigger_price=current_price,
+                        time_in_trade_ns=time_in_trade_ns,
+                    )
+                if take_profit_pct > 0.0 and current_price <= entry_price * (1.0 - take_profit_pct):
+                    return self._build_exit_metadata(
+                        reason="take_profit",
+                        trigger_price=current_price,
+                        time_in_trade_ns=time_in_trade_ns,
+                    )
+
+        if max_holding_ms and time_in_trade_ns is not None:
+            max_holding_ns = int(max_holding_ms) * 1_000_000
+            if time_in_trade_ns >= max_holding_ns:
+                return self._build_exit_metadata(
+                    reason="timeout",
+                    trigger_price=current_price,
+                    time_in_trade_ns=time_in_trade_ns,
+                )
+
+        return None
 
     def _process_ml_signal(self, signal: MLSignal) -> None:
         """
@@ -131,11 +293,134 @@ class MLTradingStrategy(BaseMLStrategy):
                     f"[DRY RUN] Would enter {target_side.name} position "
                     f"(execute_trades=False) - Total dry run trades: {self._dry_run_trades}",
                 )
+            return
 
-        elif self._should_reverse_position(current_position, target_side):
+        exit_payload = self._evaluate_exit_policy(
+            current_position,
+            instrument_id=signal.instrument_id,
+        )
+        if exit_payload is not None:
+            exit_side = self._exit_side_for_position(current_position)
+            execution_params["action"] = "exit"
+            execution_params["exit"] = exit_payload
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type=exit_side.name if exit_side is not None else decision_type,
+                position_size=current_position.quantity,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+            )
+            if self._config.execute_trades:
+                if exit_side is None:
+                    self.log.warning("Exit requested but position side is unknown")
+                    return
+                self._set_exit_intent_metadata(exit_payload)
+                self._place_market_order(
+                    exit_side,
+                    current_position.quantity,
+                    reduce_only=True,
+                )
+            else:
+                self._dry_run_trades += 1
+                self.log.info(
+                    "[DRY RUN] Would exit %s position due to %s (execute_trades=False)",
+                    current_position.side.name,
+                    exit_payload.get("reason"),
+                )
+            return
+
+        model_exit_config = getattr(self._config, "model_exit_config", None)
+        if model_exit_config is not None:
+            try:
+                current_price = self._resolve_market_price(signal.instrument_id)
+            except AttributeError:
+                current_price = None
+            model_exit = evaluate_model_exit(
+                position=current_position,
+                signal=signal,
+                config=model_exit_config,
+                now_ns=self._timestamp_ns(),
+                trigger_price=current_price,
+            )
+            if model_exit is not None:
+                model_exit_total.labels(action=model_exit.action, reason=model_exit.reason).inc()
+                exit_payload = model_exit.to_metadata()
+                exit_payload["exit_on_flip"] = model_exit_config.exit_on_flip
+                exit_payload["reverse_on_flip"] = model_exit_config.reverse_on_flip
+                if model_exit_config.exit_confidence_threshold is not None:
+                    exit_payload["exit_confidence_threshold"] = float(
+                        model_exit_config.exit_confidence_threshold,
+                    )
+                if model_exit_config.exit_prediction_band > 0.0:
+                    exit_payload["exit_prediction_band"] = float(
+                        model_exit_config.exit_prediction_band,
+                    )
+                if model_exit_config.min_hold_ms is not None:
+                    exit_payload["min_hold_ms"] = int(model_exit_config.min_hold_ms)
+                execution_params["action"] = model_exit.action
+                execution_params["exit"] = exit_payload
+                if model_exit.action == "reverse":
+                    execution_params["current_side"] = current_position.side.name
+                    self._persist_strategy_decision(
+                        signal=signal,
+                        decision_type=decision_type,
+                        position_size=position_size,
+                        risk_metrics=risk_metrics,
+                        execution_params=execution_params,
+                    )
+                    if self._config.execute_trades:
+                        self._set_exit_intent_metadata(exit_payload)
+                        self._reverse_position(current_position, target_side, signal)
+                    else:
+                        self._dry_run_trades += 1
+                        self.log.info(
+                            "[DRY RUN] Would reverse %s position due to %s (execute_trades=False)",
+                            current_position.side.name,
+                            model_exit.reason,
+                        )
+                    return
+
+                exit_side = self._exit_side_for_position(current_position)
+                self._persist_strategy_decision(
+                    signal=signal,
+                    decision_type=exit_side.name if exit_side is not None else decision_type,
+                    position_size=current_position.quantity,
+                    risk_metrics=risk_metrics,
+                    execution_params=execution_params,
+                )
+                if self._config.execute_trades:
+                    if exit_side is None:
+                        self.log.warning("Exit requested but position side is unknown")
+                        return
+                    self._set_exit_intent_metadata(exit_payload)
+                    self._place_market_order(
+                        exit_side,
+                        current_position.quantity,
+                        reduce_only=True,
+                    )
+                else:
+                    self._dry_run_trades += 1
+                    self.log.info(
+                        "[DRY RUN] Would exit %s position due to %s (execute_trades=False)",
+                        current_position.side.name,
+                        model_exit.reason,
+                    )
+                return
+
+        if self._should_reverse_position(current_position, target_side):
             # Position exists but signal suggests opposite direction
             execution_params["action"] = "reverse"
             execution_params["current_side"] = current_position.side.name
+            try:
+                current_price = self._resolve_market_price(signal.instrument_id)
+            except AttributeError:
+                current_price = None
+            time_in_trade_ns = self._time_in_trade_ns(current_position, self._timestamp_ns())
+            execution_params["exit"] = self._build_exit_metadata(
+                reason="reverse",
+                trigger_price=current_price,
+                time_in_trade_ns=time_in_trade_ns,
+            )
             self._persist_strategy_decision(
                 signal=signal,
                 decision_type=decision_type,
@@ -144,6 +429,7 @@ class MLTradingStrategy(BaseMLStrategy):
                 execution_params=execution_params,
             )
             if self._config.execute_trades:
+                self._set_exit_intent_metadata(execution_params["exit"])
                 self._reverse_position(current_position, target_side, signal)
             else:
                 self._dry_run_trades += 1

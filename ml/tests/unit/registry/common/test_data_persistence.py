@@ -564,6 +564,50 @@ class TestRowConversions:
         assert isinstance(result, DatasetManifest)
         assert result.dataset_id == "test_dataset"
 
+    def test_manifest_from_row_postgres_macro_defaults_primary_keys(
+        self,
+        tmp_path: Path,
+        json_persistence_config: PersistenceConfig,
+    ) -> None:
+        """Verify macro manifests default primary keys when metadata omits them."""
+        from ml.registry.common.data_persistence import DataPersistenceComponent
+
+        component = DataPersistenceComponent(
+            registry_path=tmp_path / "registry",
+            persistence_config=json_persistence_config,
+        )
+
+        mock_row = MagicMock()
+        mock_row._mapping = {
+            "dataset_id": "ml.macro_release_calendar",
+            "dataset_type": "MACRO_RELEASES",
+            "storage_kind": "postgres",
+            "location": "ml.macro_release_calendar",
+            "partitioning": '{"by": ["series_id"]}',
+            "retention_days": 3650,
+            "schema": (
+                '{"series_id": "str", "observation_ts": "int64", "release_ts": "int64", '
+                '"ts_event": "int64", "ts_init": "int64"}'
+            ),
+            "schema_hash": "hash123",
+            "constraints": "{}",
+            "lineage": "[]",
+            "pipeline_signature": "sig_v1",
+            "version": "1.0.0",
+            "created_at": 1000000000000000000.0,
+            "last_modified": 1000000000000000000.0,
+            "metadata": "{}",
+        }
+
+        result = component._manifest_from_row(mock_row)
+
+        assert result.primary_keys == [
+            "series_id",
+            "observation_ts",
+            "release_ts",
+            "ts_event",
+        ]
+
     def test_watermark_from_row_postgres(
         self, tmp_path: Path, json_persistence_config: PersistenceConfig
     ) -> None:

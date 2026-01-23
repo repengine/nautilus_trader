@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+import importlib
 from typing import Any, Callable, ContextManager
 from unittest.mock import MagicMock
 
 import pytest
 
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.stores.feature_store import FeatureStore
 
 
 PatchEngineManager = Callable[..., ContextManager[MagicMock]]
@@ -42,17 +42,20 @@ def test_feature_store_honors_env_topic_scheme_and_prefix(
     monkeypatch: pytest.MonkeyPatch,
     patch_engine_manager: PatchEngineManager,
 ) -> None:
+    feature_store_mod = importlib.import_module("ml.stores.feature_store")
+    feature_store_cls = feature_store_mod.FeatureStore
     # Avoid real DB interactions
-    monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
+    monkeypatch.setattr(feature_store_cls, "_setup_tables", lambda self: None)
     monkeypatch.setattr(
-        "ml.stores.feature_store.FeatureStore._execute_write",
+        feature_store_cls,
+        "_execute_write",
         lambda self, row: None,
     )
 
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_TOPIC_PREFIX": "custom.prefix"}):
         with patch_engine_manager():
-            store = FeatureStore(
+            store = feature_store_cls(
                 connection_string="postgresql://ignored",  # ignored due to monkeypatch
                 enable_publishing=True,
                 publisher=pub,

@@ -21,6 +21,8 @@ import structlog
 
 from ml.data.ingest.dbn_archive import DBNArchiveIngestionConfig
 from ml.data.ingest.dbn_archive import DBNArchiveIngestor
+from ml.deployment.scheduling_utils import parse_dataset_template_map_env
+from ml.schema import validate_dataset_type_templates
 from ml.stores.data_store import DataStore
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import SqlMarketDataWriter
@@ -138,9 +140,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.error("Unable to import ParquetDataCatalog", exc_info=True)
             raise RuntimeError("ParquetDataCatalog import failed") from exc
         catalog = ParquetDataCatalog(str(catalog_path))
+        dataset_templates = validate_dataset_type_templates(
+            parse_dataset_template_map_env(
+                os.environ.get("CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES"),
+            ),
+        )
         catalog_writer = ParquetCatalogRawMarketDataWriter(
             catalog=catalog,
             replace_on_overlap=bool(args.catalog_overwrite),
+            dataset_type_identifier_templates=dataset_templates or None,
         )
 
     writer: MarketDataWriterProtocol

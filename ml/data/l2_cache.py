@@ -34,6 +34,7 @@ persists the result before returning the merged range.
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import date
@@ -47,6 +48,8 @@ from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
+from ml.data.cache_common import resolve_cache_partition_path
+from ml.data.cache_common import resolve_cache_write_symbol_dir
 from ml.features.l2_aggregate import L2_MINUTE_COLUMNS
 from ml.features.l2_aggregate import L2Aggregator
 
@@ -100,7 +103,8 @@ class L2MinuteCache:
             Absolute path to the cache parquet file for that day.
 
         """
-        return day_partition_path(self.cache_dir, symbol, day)
+        cache_symbol = resolve_cache_write_symbol_dir(symbol)
+        return day_partition_path(self.cache_dir, cache_symbol, day)
 
     def ensure_day(
         self,
@@ -124,28 +128,29 @@ class L2MinuteCache:
 
         """
         ensure_polars()
+        existing, is_write = resolve_cache_partition_path(self.cache_dir, symbol, day)
+        if existing is not None and self._is_valid_partition(existing, symbol, day):
+            if is_write:
+                return existing
+            promoted = self._promote_partition(existing, self.path_for(symbol, day))
+            return promoted
         out = self.path_for(symbol, day)
-        if out.exists():
-            try:
-                existing = cast("_pl.DataFrame", PL.read_parquet(str(out)))
-            except Exception:
-                logger.debug(
-                    "l2_cache.read_existing_failed",
-                    exc_info=True,
-                    extra={"symbol": symbol, "day": day.isoformat(), "path": str(out)},
-                )
-            else:
-                expected = set(L2_MINUTE_COLUMNS)
-                if expected.issubset(set(existing.columns)):
-                    return out
-        out.parent.mkdir(parents=True, exist_ok=True)
+        invalid_existing = None
+        if existing is not None and not self._is_valid_partition(existing, symbol, day):
+            invalid_existing = existing
+        if invalid_existing is not None:
+            invalid_existing.unlink(missing_ok=True)
         # Compute from raw for the day
         start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
         end_dt = start_dt + timedelta(days=1)
         agg = L2Aggregator(raw_base_dir)
         df = agg.compute_for_symbol(symbol, start=start_dt, end=end_dt)
         if df.is_empty():
-            df = PL.DataFrame({name: [] for name in L2_MINUTE_COLUMNS})
+            logger.debug(
+                "l2_cache.partition_empty",
+                extra={"symbol": symbol, "day": day.isoformat()},
+            )
+            return out
         else:
             missing = [name for name in L2_MINUTE_COLUMNS if name not in df.columns]
             if missing:
@@ -159,8 +164,43 @@ class L2MinuteCache:
                         ],
                     )
             df = df.select(list(L2_MINUTE_COLUMNS))
+        if df.is_empty():
+            logger.debug(
+                "l2_cache.partition_empty",
+                extra={"symbol": symbol, "day": day.isoformat()},
+            )
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
         df.write_parquet(str(out))
         return out
+
+    def _is_valid_partition(self, path: Path, symbol: str, day: date) -> bool:
+        try:
+            existing = cast("_pl.DataFrame", PL.read_parquet(str(path)))
+        except Exception:
+            logger.debug(
+                "l2_cache.read_existing_failed",
+                exc_info=True,
+                extra={"symbol": symbol, "day": day.isoformat(), "path": str(path)},
+            )
+            return False
+        expected = set(L2_MINUTE_COLUMNS)
+        return expected.issubset(set(existing.columns))
+
+    def _promote_partition(self, source: Path, dest: Path) -> Path:
+        if dest.exists() or source == dest:
+            return dest
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(source, dest)
+        except Exception:
+            logger.debug(
+                "l2_cache.promote_failed",
+                exc_info=True,
+                extra={"source": str(source), "dest": str(dest)},
+            )
+            return source
+        return dest
 
     def get_range(
         self,

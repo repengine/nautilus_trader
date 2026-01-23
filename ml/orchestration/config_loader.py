@@ -490,6 +490,7 @@ def _coerce_market_inputs(payload: Any) -> tuple[MarketDatasetInput, ...]:
             MarketDatasetInput(
                 descriptor_id=item.get("descriptor_id"),
                 dataset_id=item.get("dataset_id"),
+                provider_dataset_id=item.get("provider_dataset_id"),
                 symbols=input_symbols,
                 schema_override=item.get("schema_override") or item.get("schema"),
                 storage_kind_override=storage_kind_parsed,

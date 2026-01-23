@@ -27,6 +27,8 @@ Example:
 
 from __future__ import annotations
 
+import logging
+import shutil
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import date
@@ -39,8 +41,14 @@ from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
+from ml.data.cache_common import resolve_cache_partition_path
+from ml.data.cache_common import resolve_cache_write_symbol_dir
+from ml.features.micro_aggregate import MICRO_COLUMNS
 from ml.features.micro_aggregate import MicrostructureAggregator
 from ml.ml_types import PolarsDF
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -56,36 +64,101 @@ class MicroMinuteCache:
     cache_dir: Path
 
     def path_for(self, symbol: str, day: date) -> Path:
-        return day_partition_path(self.cache_dir, symbol, day)
+        cache_symbol = resolve_cache_write_symbol_dir(symbol)
+        return day_partition_path(self.cache_dir, cache_symbol, day)
+
+    def is_valid_partition(self, path: Path) -> bool:
+        """
+        Return True when the cache partition contains real microstructure data.
+
+        Args:
+            path: Path to a cached parquet partition.
+
+        Returns:
+            True when the partition contains at least one row and expected columns.
+        """
+        ensure_polars()
+        _pl = pl
+        assert _pl is not None
+        try:
+            df = _pl.read_parquet(str(path), n_rows=1)
+        except Exception:
+            logger.debug(
+                "micro_cache.read_existing_failed",
+                exc_info=True,
+                extra={"path": str(path)},
+            )
+            return False
+        if df.is_empty():
+            return False
+        required = {"timestamp", *MICRO_COLUMNS}
+        return required.issubset(set(df.columns))
 
     def ensure_day(self, symbol: str, day: date, raw_base_dir: Path) -> Path:
         ensure_polars()
         _pl = pl
         assert _pl is not None
+        existing, is_write = resolve_cache_partition_path(self.cache_dir, symbol, day)
+        invalid_existing = None
+        if existing is not None:
+            if not self.is_valid_partition(existing):
+                invalid_existing = existing
+            else:
+                if is_write:
+                    return existing
+                promoted = self._promote_partition(existing, self.path_for(symbol, day))
+                return promoted
         out = self.path_for(symbol, day)
-        if out.exists():
-            return out
-        out.parent.mkdir(parents=True, exist_ok=True)
         # Compute full micro features and slice to the day for now.
         # NOTE: MicrostructureAggregator may compute a broad range; this cache
         # still avoids repeated runs for subsequent builds.
         agg = MicrostructureAggregator(raw_base_dir)
-        df = agg.compute_for_symbol(symbol)
-        if df.is_empty():
-            df = _pl.DataFrame({"timestamp": []})
-        elif df["timestamp"].dtype != _pl.Datetime:
-            df = df.with_columns(_pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")))
-        # Filter to exact day window
         start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
         end_dt = start_dt + timedelta(days=1)
+        df = agg.compute_for_symbol(symbol, start=start_dt, end=end_dt)
+        if df.is_empty():
+            if invalid_existing is not None:
+                invalid_existing.unlink(missing_ok=True)
+            logger.debug(
+                "micro_cache.partition_empty",
+                extra={"symbol": symbol, "day": day.isoformat()},
+            )
+            return out
+        elif df["timestamp"].dtype != _pl.Datetime("ns", "UTC"):
+            df = df.with_columns(_pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")))
+        # Filter to exact day window
         start_ns = int(start_dt.timestamp() * 1_000_000_000)
         end_ns = int(end_dt.timestamp() * 1_000_000_000)
         df = df.filter(
             (_pl.col("timestamp").cast(_pl.Int64) >= start_ns)
             & (_pl.col("timestamp").cast(_pl.Int64) < end_ns),
         ).sort("timestamp")
+        if df.is_empty():
+            if invalid_existing is not None:
+                invalid_existing.unlink(missing_ok=True)
+            logger.debug(
+                "micro_cache.partition_empty",
+                extra={"symbol": symbol, "day": day.isoformat()},
+            )
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
         df.write_parquet(str(out))
         return out
+
+    def _promote_partition(self, source: Path, dest: Path) -> Path:
+        if dest.exists() or source == dest:
+            return dest
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(source, dest)
+        except Exception:
+            logger.debug(
+                "micro_cache.promote_failed",
+                exc_info=True,
+                extra={"source": str(source), "dest": str(dest)},
+            )
+            return source
+        return dest
 
     def get_range(
         self,

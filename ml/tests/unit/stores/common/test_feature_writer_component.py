@@ -403,7 +403,7 @@ class TestWriteFeaturesBatchMode:
             MockFeatureData(feature_set_id="fs_001"),
             MockFeatureData(feature_set_id="fs_002"),
         ]
-        caplog.set_level(logging.DEBUG)
+        caplog.set_level(logging.DEBUG, logger="ml.stores.common.feature_writer")
 
         writer.write_features(batch)  # type: ignore[arg-type]
 

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+import msgspec
 from msgspec import ValidationError
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import ComponentId
@@ -575,6 +577,224 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     strategy_config: MLStrategyConfig | None = None
 
 
+class PositionsSource(str, Enum):
+    """
+    Available positions sources for strategy snapshots.
+    """
+
+    CACHE_OPEN = "cache_positions_open"
+    CACHE_ALL = "cache_positions"
+    PORTFOLIO_NET = "portfolio_net_position"
+    PORTFOLIO_POSITIONS = "portfolio_positions"
+    PORTFOLIO_POSITIONS_OPEN = "portfolio_positions_open"
+
+
+class PositionsConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for positions provider behavior.
+
+    Parameters
+    ----------
+    source_priority : list[PositionsSource]
+        Ordered list of positions sources to attempt.
+    positions_required_for_live : bool, default True
+        Whether live trading requires a positions source to be available.
+    allow_degraded : bool, default True
+        Whether to allow degraded operation when only partial positions are available.
+
+    """
+
+    source_priority: list[PositionsSource] = msgspec.field(
+        default_factory=lambda: [
+            PositionsSource.CACHE_OPEN,
+            PositionsSource.CACHE_ALL,
+            PositionsSource.PORTFOLIO_NET,
+            PositionsSource.PORTFOLIO_POSITIONS,
+            PositionsSource.PORTFOLIO_POSITIONS_OPEN,
+        ],
+    )
+    positions_required_for_live: bool = True
+    allow_degraded: bool = True
+
+    def __post_init__(self) -> None:
+        """
+        Validate positions configuration.
+        """
+        if not self.source_priority:
+            raise ValidationError("source_priority must contain at least one positions source")
+        if len(set(self.source_priority)) != len(self.source_priority):
+            raise ValidationError("source_priority entries must be unique")
+
+
+class ExposurePriceSource(str, Enum):
+    """
+    Available price sources for notional exposure calculations.
+    """
+
+    QUOTE_MID = "quote_mid"
+    POSITION_AVG = "position_avg"
+    CACHE_LAST = "cache_last"
+
+
+class ExposurePriceConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for notional exposure price resolution.
+
+    Parameters
+    ----------
+    source_priority : list[ExposurePriceSource]
+        Ordered list of price sources to attempt.
+
+    """
+
+    source_priority: list[ExposurePriceSource] = msgspec.field(
+        default_factory=lambda: [
+            ExposurePriceSource.QUOTE_MID,
+            ExposurePriceSource.POSITION_AVG,
+            ExposurePriceSource.CACHE_LAST,
+        ],
+    )
+
+    def __post_init__(self) -> None:
+        if not self.source_priority:
+            raise ValidationError("source_priority must contain at least one price source")
+        if len(set(self.source_priority)) != len(self.source_priority):
+            raise ValidationError("source_priority entries must be unique")
+
+
+class CorrelationDataConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for correlation data freshness and fallback behavior.
+
+    Parameters
+    ----------
+    max_age_seconds : NonNegativeInt, default 300
+        Maximum allowed age of correlation data in seconds.
+        Set to 0 to disable freshness checks.
+    fallback_value : float, default 0.0
+        Correlation value to use when data is missing or stale.
+
+    """
+
+    max_age_seconds: NonNegativeInt = 300
+    fallback_value: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not -1.0 <= self.fallback_value <= 1.0:
+            raise ValidationError("fallback_value must be between -1.0 and 1.0")
+
+
+class LimitPriceSource(str, Enum):
+    """
+    Available price sources for limit order pricing.
+    """
+
+    QUOTE_BBO = "quote_bbo"
+    QUOTE_MID = "quote_mid"
+    LAST_TRADE = "last_trade"
+    CACHE_LAST = "cache_last"
+
+
+class LimitPriceConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for limit order pricing fallbacks.
+
+    Parameters
+    ----------
+    source_priority : list[LimitPriceSource]
+        Ordered list of price sources to attempt.
+
+    """
+
+    source_priority: list[LimitPriceSource] = msgspec.field(
+        default_factory=lambda: [
+            LimitPriceSource.QUOTE_BBO,
+            LimitPriceSource.QUOTE_MID,
+            LimitPriceSource.LAST_TRADE,
+            LimitPriceSource.CACHE_LAST,
+        ],
+    )
+
+    def __post_init__(self) -> None:
+        if not self.source_priority:
+            raise ValidationError("source_priority must contain at least one limit price source")
+        if len(set(self.source_priority)) != len(self.source_priority):
+            raise ValidationError("source_priority entries must be unique")
+
+
+class ExitPolicyConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for trade exit thresholds and timeouts.
+
+    Parameters
+    ----------
+    stop_loss_pct : NonNegativeFloat, default 0.02
+        Stop loss threshold as a percentage of entry price (0.0 to disable).
+    take_profit_pct : NonNegativeFloat, default 0.04
+        Take profit threshold as a percentage of entry price (0.0 to disable).
+    max_holding_ms : NonNegativeInt | None, optional
+        Maximum holding time in milliseconds before forcing an exit.
+        Set to None to disable time-based exits.
+
+    """
+
+    stop_loss_pct: NonNegativeFloat = 0.02
+    take_profit_pct: NonNegativeFloat = 0.04
+    max_holding_ms: NonNegativeInt | None = None
+
+    def __post_init__(self) -> None:
+        """
+        Validate exit policy thresholds.
+        """
+        if self.stop_loss_pct < 0.0:
+            raise ValidationError("stop_loss_pct must be non-negative")
+        if self.take_profit_pct < 0.0:
+            raise ValidationError("take_profit_pct must be non-negative")
+        if self.max_holding_ms is not None and self.max_holding_ms < 0:
+            raise ValidationError("max_holding_ms must be non-negative")
+
+
+class ModelExitConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for model-driven exit behavior.
+
+    Parameters
+    ----------
+    exit_on_flip : bool, default True
+        Whether to exit or reverse when the prediction flips sides.
+    reverse_on_flip : bool, default False
+        When ``exit_on_flip`` is enabled, reverse instead of exiting to flat.
+    exit_confidence_threshold : NonNegativeFloat | None, optional
+        Exit when signal confidence drops below this threshold.
+        Set to None to disable confidence exits.
+    exit_prediction_band : NonNegativeFloat, default 0.0
+        Neutral-zone band around 0.5; exit when prediction falls within the band.
+    min_hold_ms : NonNegativeInt | None, optional
+        Minimum holding time in milliseconds before model exits are allowed.
+
+    """
+
+    exit_on_flip: bool = True
+    reverse_on_flip: bool = False
+    exit_confidence_threshold: NonNegativeFloat | None = None
+    exit_prediction_band: NonNegativeFloat = 0.0
+    min_hold_ms: NonNegativeInt | None = None
+
+    def __post_init__(self) -> None:
+        """
+        Validate model-driven exit thresholds.
+        """
+        if self.exit_prediction_band < 0.0 or self.exit_prediction_band > 0.5:
+            raise ValidationError("exit_prediction_band must be within [0, 0.5]")
+        if self.exit_confidence_threshold is not None:
+            if not (0.0 <= float(self.exit_confidence_threshold) <= 1.0):
+                raise ValidationError("exit_confidence_threshold must be within [0, 1]")
+        if self.min_hold_ms is not None and self.min_hold_ms < 0:
+            raise ValidationError("min_hold_ms must be non-negative")
+        if self.reverse_on_flip and not self.exit_on_flip:
+            raise ValidationError("reverse_on_flip requires exit_on_flip=True")
+
+
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     r"""
     Configuration for ML-based trading strategies.
@@ -595,6 +815,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Stop loss as percentage of entry price (0.0 to disable).
     take_profit_pct : NonNegativeFloat, default 0.04
         Take profit as percentage of entry price (0.0 to disable).
+    exit_policy_config : ExitPolicyConfig | None, optional
+        Optional exit policy configuration for stop-loss, take-profit, and timeouts.
+    model_exit_config : ModelExitConfig | None, optional
+        Optional configuration for model-driven exits and reversals.
     use_strategy_store : bool, default True
         Whether to persist strategy decisions to StrategyStore.
     strategy_store_config : dict[str, Any] | None, default None
@@ -616,6 +840,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Optional quote schema parameter passed to the data client (e.g., \"mbp-1\").
     max_quote_age_ms : NonNegativeInt | None, optional
         Maximum age in milliseconds allowed for quote ticks used in execution.
+    positions_config : PositionsConfig | None, optional
+        Optional positions provider configuration for strategy runtime checks.
 
     """
 
@@ -636,6 +862,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     quote_schema: str | None = None
     max_quote_age_ms: NonNegativeInt | None = None
     # Optional sub-configs for strategy components (protocol-first)
+    positions_config: PositionsConfig | None = None
+    exit_policy_config: ExitPolicyConfig | None = None
+    model_exit_config: ModelExitConfig | None = None
     sizing_config: _SizingConfig | None = None
     risk_config: _RiskConfig | None = None
     execution_config: _ExecutionConfig | None = None
@@ -660,6 +889,15 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             raise ValidationError("take_profit_pct must be non-negative")
         if self.quote_schema is not None and not self.quote_schema.strip():
             raise ValidationError("quote_schema must be non-empty when provided")
+        if self.exit_policy_config is not None:
+            if self.stop_loss_pct != self.exit_policy_config.stop_loss_pct:
+                raise ValidationError(
+                    "exit_policy_config.stop_loss_pct must match stop_loss_pct",
+                )
+            if self.take_profit_pct != self.exit_policy_config.take_profit_pct:
+                raise ValidationError(
+                    "exit_policy_config.take_profit_pct must match take_profit_pct",
+                )
 
     @classmethod
     def from_env(
@@ -684,6 +922,18 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Maximum concurrent positions (> 0).
         ML_STOP_LOSS_PCT / ML_TAKE_PROFIT_PCT
             Stop loss / take profit percentages (>= 0).
+        ML_MAX_HOLDING_MS
+            Maximum holding time in milliseconds before forcing an exit.
+        ML_MODEL_EXIT_ON_FLIP
+            Toggle model-driven exits on prediction flips.
+        ML_MODEL_REVERSE_ON_FLIP
+            Toggle model-driven reversals on prediction flips.
+        ML_MODEL_EXIT_CONFIDENCE_THRESHOLD
+            Exit when signal confidence drops below this threshold.
+        ML_MODEL_EXIT_PREDICTION_BAND
+            Neutral-zone prediction band around 0.5 for model exits.
+        ML_MODEL_EXIT_MIN_HOLD_MS
+            Minimum holding time in milliseconds before model exits are allowed.
         ML_USE_STRATEGY_STORE
             Toggle strategy store persistence.
         ML_PERSIST_ALL_SIGNALS
@@ -756,6 +1006,71 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
                     extra={"key": "ML_MAX_QUOTE_AGE_MS", "value": raw_quote_age},
                 )
                 max_quote_age_ms = None
+        max_holding_ms: int | None = None
+        raw_max_holding = source.get("ML_MAX_HOLDING_MS")
+        if raw_max_holding is not None:
+            try:
+                max_holding_ms = int(raw_max_holding)
+                if max_holding_ms < 0:
+                    raise ValueError("max_holding_ms must be non-negative")
+            except ValueError:
+                LOGGER.debug(
+                    "invalid_int_env_override",
+                    extra={"key": "ML_MAX_HOLDING_MS", "value": raw_max_holding},
+                )
+                max_holding_ms = None
+        exit_policy_config = ExitPolicyConfig(
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            max_holding_ms=max_holding_ms,
+        )
+        model_exit_config: ModelExitConfig | None = None
+        exit_on_flip = _env_truthy(source, "ML_MODEL_EXIT_ON_FLIP", False)
+        reverse_on_flip = _env_truthy(source, "ML_MODEL_REVERSE_ON_FLIP", False)
+        exit_confidence_threshold: float | None = None
+        raw_exit_confidence = source.get("ML_MODEL_EXIT_CONFIDENCE_THRESHOLD")
+        if raw_exit_confidence is not None:
+            try:
+                exit_confidence_threshold = float(raw_exit_confidence)
+            except ValueError:
+                LOGGER.debug(
+                    "invalid_float_env_override",
+                    extra={
+                        "key": "ML_MODEL_EXIT_CONFIDENCE_THRESHOLD",
+                        "value": raw_exit_confidence,
+                    },
+                )
+                exit_confidence_threshold = None
+        exit_prediction_band = _env_positive_float(source, "ML_MODEL_EXIT_PREDICTION_BAND", 0.0)
+        min_hold_ms: int | None = None
+        raw_min_hold = source.get("ML_MODEL_EXIT_MIN_HOLD_MS")
+        if raw_min_hold is not None:
+            try:
+                min_hold_ms = int(raw_min_hold)
+                if min_hold_ms < 0:
+                    raise ValueError("min_hold_ms must be non-negative")
+            except ValueError:
+                LOGGER.debug(
+                    "invalid_int_env_override",
+                    extra={"key": "ML_MODEL_EXIT_MIN_HOLD_MS", "value": raw_min_hold},
+                )
+                min_hold_ms = None
+        if reverse_on_flip:
+            exit_on_flip = True
+        if (
+            exit_on_flip
+            or reverse_on_flip
+            or exit_confidence_threshold is not None
+            or exit_prediction_band > 0.0
+            or min_hold_ms is not None
+        ):
+            model_exit_config = ModelExitConfig(
+                exit_on_flip=exit_on_flip,
+                reverse_on_flip=reverse_on_flip,
+                exit_confidence_threshold=exit_confidence_threshold,
+                exit_prediction_band=exit_prediction_band,
+                min_hold_ms=min_hold_ms,
+            )
 
         return cls(
             instrument_id=instrument_id,
@@ -774,6 +1089,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             subscribe_quote_ticks=subscribe_quote_ticks,
             quote_schema=quote_schema,
             max_quote_age_ms=max_quote_age_ms,
+            positions_config=None,
+            exit_policy_config=exit_policy_config,
+            model_exit_config=model_exit_config,
             sizing_config=None,
             risk_config=None,
             execution_config=None,

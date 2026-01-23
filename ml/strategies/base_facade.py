@@ -21,6 +21,7 @@ from abc import ABC
 from abc import abstractmethod
 from collections import deque
 from collections.abc import Callable
+from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -31,6 +32,7 @@ from ml.strategies.common import OrderSubmissionComponent
 from ml.strategies.common import PerformanceTrackingComponent
 from ml.strategies.common import PositionManagementComponent
 from ml.strategies.common import SignalRoutingComponent
+from ml.strategies.common.decision_persistence import _SafeLogger
 from ml.strategies.common.order_submission import OrderIntentWriter
 from ml.strategies.common.order_submission import resolve_order_intent_path
 
@@ -44,7 +46,12 @@ if TYPE_CHECKING:
     from ml.actors.base import MLSignal
     from ml.config.base import MLStrategyConfig
     from ml.stores.protocols import StrategyStoreProtocol
+    from ml.strategies.common.positions import PositionsHealthStatus
+    from ml.strategies.common.positions import PositionsProviderProtocol
+    from ml.strategies.common.positions import PositionViewProtocol
+    from ml.strategies.risk import RiskActionDecision
     from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.events import PositionClosed
 
 
 # Import the runtime base class for inheritance
@@ -161,8 +168,13 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._bus_publisher: Any = None
         self._decision_publisher: Any = None
         self._init_optional_components()
+        self._positions_provider: PositionsProviderProtocol | None = None
+        self._positions_health: PositionsHealthStatus | None = None
+        self._init_positions_provider()
         self._order_intent_writer: OrderIntentWriter | None = None
         self._order_intent_path: Path | None = None
+        self._pending_exit_metadata: dict[str, object] | None = None
+        self._pending_execution_metadata: dict[str, object] | None = None
         self._init_order_intent_writer()
 
         # Initialize the 6 decomposed components
@@ -219,12 +231,27 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             return cast(Callable[[Any], None], self.submit_order)
         return None
 
+    def _resolve_cancel_order_callback(self) -> Callable[[Any], None] | None:
+        """
+        Resolve the order cancellation callback based on configuration.
+
+        Returns None when order intent serialization is enabled.
+
+        """
+        if getattr(self._config, "serialize_order_intents", False):
+            return None
+        if hasattr(self, "cancel_order"):
+            return cast(Callable[[Any], None], self.cancel_order)
+        return None
+
     def _record_order_intent(self, order: Any) -> None:
         """
         Persist order intent to JSONL for manual inspection.
         """
         if self._order_intent_writer is None:
             return
+        from ml.strategies.common.positions import build_positions_metadata
+
         is_live = True
         try:
             if hasattr(self, "cache") and getattr(self.cache, "is_backtesting", False):
@@ -234,7 +261,39 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 f"ml_strategy.order_intent_live_check_failed " f"strategy_id={self.id} error={exc}",
                 exc_info=True,
             )
-        self._order_intent_writer.write(order, is_live=is_live)
+        quote_metadata = None
+        if self._order_submitter is not None:
+            quote_metadata = self._order_submitter.pop_last_quote_metadata()
+        execution_metadata = self._pending_execution_metadata
+        self._pending_execution_metadata = None
+        if self._order_submitter is not None:
+            submitter_metadata = self._order_submitter.pop_last_execution_metadata()
+            if submitter_metadata is not None:
+                execution_metadata = submitter_metadata
+        exit_metadata = self._pending_exit_metadata
+        self._pending_exit_metadata = None
+        self._order_intent_writer.write(
+            order,
+            is_live=is_live,
+            positions_metadata=build_positions_metadata(self._positions_health),
+            quote_metadata=quote_metadata,
+            exit_metadata=exit_metadata,
+            execution_metadata=execution_metadata,
+        )
+
+    def _set_exit_intent_metadata(self, metadata: Mapping[str, object] | None) -> None:
+        """
+        Set pending exit metadata for order intent serialization.
+
+        Parameters
+        ----------
+        metadata : Mapping[str, object] | None
+            Exit metadata payload to attach to the next order intent.
+
+        """
+        if not getattr(self._config, "serialize_order_intents", False):
+            return
+        self._pending_exit_metadata = dict(metadata) if metadata is not None else None
 
     def _init_strategy_store(self) -> None:
         """
@@ -371,6 +430,24 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self.performance = PerformanceTracker(
                 cast("AnalyticsConfig | None", analytics_cfg),
             )
+
+            if (
+                self.risk_manager is not None
+                and hasattr(self.risk_manager, "set_correlation_provider")
+                and self.portfolio_manager is not None
+            ):
+                try:
+                    from ml.strategies.common.correlation import CorrelationProviderProtocol
+
+                    if isinstance(self.portfolio_manager, CorrelationProviderProtocol):
+                        self.risk_manager.set_correlation_provider(self.portfolio_manager)
+                except Exception as exc:
+                    self.log.debug(
+                        "ml_strategy.correlation_provider_init_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(exc),
+                    )
         except Exception as exc:
             self.log.debug(
                 "ml_strategy.optional_components_unavailable",
@@ -414,6 +491,126 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 exc_info=True,
                 error=str(exc),
             )
+
+    def _init_positions_provider(self) -> None:
+        """
+        Initialize positions provider wiring for sizing and risk checks.
+        """
+        safe_log = _SafeLogger(self.log)
+        try:
+            from ml.strategies.common.positions_provider import NautilusPositionsProvider
+
+            positions_cfg = getattr(self._config, "positions_config", None)
+            self._positions_provider = NautilusPositionsProvider(
+                cache=self.cache if hasattr(self, "cache") else None,
+                portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                config=positions_cfg,
+                log=self.log,
+                strategy_id=str(self.id),
+            )
+            if self.risk_manager is not None and hasattr(self.risk_manager, "set_positions_provider"):
+                self.risk_manager.set_positions_provider(self._positions_provider)
+            if self.risk_manager is not None and hasattr(self.risk_manager, "set_market_price_provider"):
+                self.risk_manager.set_market_price_provider(
+                    self.cache if hasattr(self, "cache") else None,
+                )
+        except Exception as exc:
+            self._positions_provider = None
+            safe_log.debug(
+                "ml_strategy.positions_provider_init_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
+
+    def _check_positions_ready(self) -> None:
+        """
+        Evaluate positions readiness for live trading.
+        """
+        from ml.config.base import PositionsConfig
+        from ml.strategies.common.positions import PositionsHealthStatus
+
+        positions_cfg = getattr(self._config, "positions_config", None) or PositionsConfig()
+        safe_log = _SafeLogger(self.log)
+        is_backtesting = False
+        try:
+            if hasattr(self, "cache"):
+                is_backtesting = bool(getattr(self.cache, "is_backtesting", False))
+        except Exception as exc:
+            safe_log.debug(
+                "ml_strategy.positions_live_check_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
+
+        is_live = bool(getattr(self._config, "execute_trades", False)) and not is_backtesting
+        require_positions = positions_cfg.positions_required_for_live and is_live
+        require_full_list = require_positions or not positions_cfg.allow_degraded
+
+        if self._positions_provider is None:
+            self._positions_health = PositionsHealthStatus(
+                ready=not require_positions,
+                degraded=True,
+                source=positions_cfg.source_priority[0],
+                reason="positions_unavailable",
+                positions_count=0,
+            )
+            if require_positions:
+                safe_log.error(
+                    "ml_strategy.positions_provider_missing",
+                    strategy_id=str(self.id),
+                    reason=self._positions_health.reason,
+                    source=self._positions_health.source.value,
+                )
+            else:
+                safe_log.warning(
+                    "ml_strategy.positions_provider_missing",
+                    strategy_id=str(self.id),
+                    reason=self._positions_health.reason,
+                    source=self._positions_health.source.value,
+                )
+            return
+
+        try:
+            self._positions_health = self._positions_provider.check_positions_ready(
+                instrument_id=getattr(self._config, "instrument_id", None),
+                require_full_list=require_full_list,
+                require_positions=require_positions,
+            )
+        except Exception as exc:
+            self._positions_health = PositionsHealthStatus(
+                ready=not require_positions,
+                degraded=True,
+                source=positions_cfg.source_priority[0],
+                reason="positions_check_failed",
+                positions_count=0,
+            )
+            safe_log.debug(
+                "ml_strategy.positions_ready_check_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
+            return
+
+        if self._positions_health.degraded:
+            if require_positions and not self._positions_health.ready:
+                safe_log.error(
+                    "ml_strategy.positions_ready_degraded",
+                    strategy_id=str(self.id),
+                    reason=self._positions_health.reason,
+                    source=self._positions_health.source.value,
+                    positions_count=self._positions_health.positions_count,
+                )
+            else:
+                safe_log.warning(
+                    "ml_strategy.positions_ready_degraded",
+                    strategy_id=str(self.id),
+                    reason=self._positions_health.reason,
+                    source=self._positions_health.source.value,
+                    positions_count=self._positions_health.positions_count,
+                )
 
     def _init_components(self) -> None:
         """
@@ -463,6 +660,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             cache=self.cache if hasattr(self, "cache") else None,
             portfolio=self.portfolio if hasattr(self, "portfolio") else None,
             instrument_id=self._config.instrument_id,
+            positions_provider=self._positions_provider,
             log=self.log,
             strategy_id=strategy_id,
             allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
@@ -473,9 +671,11 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             strategy_id=strategy_id,
             order_executor=self.order_executor,
             circuit_breaker=self._order_breaker,
+            risk_halt_provider=self.risk_manager,
             performance_tracker=self.performance,
             cache=self.cache if hasattr(self, "cache") else None,
             submit_order_callback=self._resolve_submit_order_callback(),
+            cancel_order_callback=self._resolve_cancel_order_callback(),
             log=self.log,
             instrument_id=self._config.instrument_id,
             trader_id=self.trader_id if hasattr(self, "trader_id") else None,
@@ -636,6 +836,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         Delegates to LifecycleComponent.on_start().
 
         """
+        self._check_positions_ready()
         if self._lifecycle is not None:
             self._lifecycle.on_start()
 
@@ -655,6 +856,17 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 total_pnl=self._total_pnl,
                 dry_run_trades=self._dry_run_trades,
             )
+
+    # -------------------------------------------------------------------------
+    # Position Events
+    # -------------------------------------------------------------------------
+
+    def on_position_closed(self, event: PositionClosed) -> None:
+        """
+        Handle position closed events for realized PnL tracking.
+        """
+        super().on_position_closed(event)
+        self._handle_position_closed_event(event)
 
     # -------------------------------------------------------------------------
     # Data Handling (delegated to SignalRoutingComponent)
@@ -679,6 +891,17 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
 
         # Add to local history for backward compatibility
         self._signal_history.append(data)
+
+        if self._order_submitter is not None:
+            self._order_submitter.update_config(
+                cache=self.cache if hasattr(self, "cache") else None,
+                submit_order_callback=self._resolve_submit_order_callback(),
+                cancel_order_callback=self._resolve_cancel_order_callback(),
+                order_executor=self.order_executor if hasattr(self, "order_executor") else None,
+                trader_id=self.trader_id if hasattr(self, "trader_id") else None,
+                clock=self.clock if hasattr(self, "clock") else None,
+            )
+            self._order_submitter.process_pending_limit_orders()
 
         if self._signal_router is None:
             return
@@ -733,14 +956,218 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         if signal.instrument_id != self._config.instrument_id:
             return
 
+        if self._maybe_apply_risk_action(signal):
+            return
+
         # Check position limits
         if self._active_positions >= self._config.max_positions:
-            self.log.debug("Maximum positions reached, ignoring signal")
-            return
+            current_position = self._get_current_position()
+            if current_position is None:
+                self.log.debug("Maximum positions reached, ignoring signal")
+                return
 
         # Let concrete strategy decide on the signal
         self._process_signal(signal)
         self._process_ml_signal(signal)
+
+    def _maybe_apply_risk_action(self, signal: MLSignal) -> bool:
+        """
+        Apply staged risk actions before signal processing when needed.
+
+        Returns
+        -------
+        bool
+            True when a staged risk action was applied and signal processing should stop.
+
+        """
+        if self.risk_manager is None:
+            return False
+        action_getter = getattr(self.risk_manager, "get_risk_action", None)
+        if not callable(action_getter):
+            return False
+        try:
+            decision = action_getter(
+                portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                ts_event=signal.ts_event,
+            )
+        except Exception as exc:
+            self.log.debug(
+                "ml_strategy.risk_action_check_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
+            return False
+
+        try:
+            from ml.strategies.risk import RiskAction
+            from ml.strategies.risk import RiskActionDecision
+        except Exception:
+            return False
+
+        if (
+            isinstance(decision, RiskActionDecision)
+            and decision.action is RiskAction.LIQUIDATE
+        ):
+            self._liquidate_positions(decision, signal)
+            return True
+        return False
+
+    def _liquidate_positions(self, decision: RiskActionDecision, signal: MLSignal) -> None:
+        """
+        Submit reduce-only liquidation orders for open positions.
+        """
+        from nautilus_trader.model.enums import OrderSide
+
+        positions, source = self._resolve_liquidation_positions()
+        if not positions:
+            self.log.warning(
+                "ml_strategy.liquidation_no_positions",
+                strategy_id=str(self.id),
+                reason=decision.reason or "unknown",
+            )
+            return
+
+        source_label = source or "unknown"
+        risk_metrics = None
+        if self.risk_manager is not None and hasattr(
+            self.risk_manager,
+            "get_risk_metrics",
+        ):
+            try:
+                risk_metrics = self.risk_manager.get_risk_metrics()
+            except Exception as exc:
+                self.log.debug(
+                    "ml_strategy.risk_metrics_unavailable",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
+
+        reason = decision.reason or "risk_liquidation"
+        for position in positions:
+            try:
+                if not position.is_open:
+                    continue
+            except Exception:
+                continue
+            exit_side = self._resolve_liquidation_side(position)
+            quantity = self._resolve_liquidation_quantity(position)
+            if exit_side is None or quantity is None:
+                continue
+            exit_metadata = {
+                "reason": reason,
+                "detail": decision.detail,
+                "action": "liquidate",
+                "positions_source": source_label,
+            }
+            execution_params = {
+                "action": "liquidate",
+                "exit": exit_metadata,
+                "risk_action": reason,
+                "risk_action_detail": decision.detail,
+                "positions_source": source_label,
+                "current_side": (
+                    "LONG"
+                    if exit_side is OrderSide.SELL
+                    else "SHORT"
+                ),
+            }
+            self._set_exit_intent_metadata(exit_metadata)
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type=exit_side.name,
+                position_size=quantity,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+            )
+            if self._config.execute_trades:
+                self._place_market_order(exit_side, quantity, reduce_only=True)
+            else:
+                self._dry_run_trades += 1
+                self.log.info(
+                    "[DRY RUN] Would liquidate %s due to %s (execute_trades=False)",
+                    position.instrument_id,
+                    reason,
+                )
+
+    def _resolve_liquidation_positions(self) -> tuple[list[PositionViewProtocol], str | None]:
+        """
+        Resolve positions for liquidation using provider fallbacks.
+        """
+        from ml.config.base import PositionsSource
+
+        positions: list[PositionViewProtocol] = []
+        source: str | None = None
+        require_full_list = False
+
+        if self.risk_manager is not None:
+            liquidation_cfg = getattr(
+                getattr(self.risk_manager, "config", None),
+                "liquidation_config",
+                None,
+            )
+            if liquidation_cfg is not None:
+                require_full_list = bool(
+                    getattr(liquidation_cfg, "require_full_positions", False),
+                )
+
+        if self._positions_provider is not None:
+            try:
+                snapshot = self._positions_provider.get_positions_snapshot(
+                    instrument_id=None if require_full_list else self._config.instrument_id,
+                    require_full_list=require_full_list,
+                )
+                positions = list(snapshot.positions)
+                source = snapshot.source.value
+            except Exception as exc:
+                self.log.debug(
+                    "ml_strategy.liquidation_positions_failed",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
+
+        if not positions:
+            current_position = self._get_current_position()
+            if current_position is not None:
+                positions = [current_position]
+                source = PositionsSource.CACHE_OPEN.value
+
+        return positions, source
+
+    def _resolve_liquidation_side(self, position: PositionViewProtocol) -> OrderSide | None:
+        """
+        Resolve the exit side for a liquidation order.
+        """
+        from nautilus_trader.model.enums import OrderSide
+
+        try:
+            signed_qty = position.signed_decimal_qty()
+        except Exception:
+            return None
+        if signed_qty > 0:
+            return OrderSide.SELL
+        if signed_qty < 0:
+            return OrderSide.BUY
+        return None
+
+    def _resolve_liquidation_quantity(self, position: PositionViewProtocol) -> Quantity | None:
+        """
+        Resolve the quantity for a liquidation order.
+        """
+        from nautilus_trader.model.objects import Quantity
+
+        quantity = getattr(position, "quantity", None)
+        if quantity is not None:
+            return quantity
+        try:
+            signed_qty = position.signed_decimal_qty()
+        except Exception:
+            return None
+        if signed_qty == 0:
+            return None
+        return Quantity.from_str(str(abs(signed_qty)))
 
     # -------------------------------------------------------------------------
     # Decision Persistence (delegated to DecisionPersistenceComponent)
@@ -776,6 +1203,8 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         if self._decision_persister is None:
             return
 
+        from ml.strategies.common.positions import build_positions_metadata
+
         self._decision_persister.update_dependencies(
             strategy_store=self.strategy_store,
             bus_publisher=self._bus_publisher,
@@ -789,6 +1218,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 getattr(self.cache, "is_backtesting", False) if hasattr(self, "cache") else False
             ),
             model_signals=self._model_signals,
+            positions_metadata=build_positions_metadata(self._positions_health),
         )
 
         self._decision_persister.persist_decision(
@@ -835,6 +1265,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._position_manager.update_config(
                 cache=self.cache,
                 portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                positions_provider=self._positions_provider,
                 allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
             )
 
@@ -865,6 +1296,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._position_manager.update_config(
                 cache=self.cache,
                 portfolio=self.portfolio if hasattr(self, "portfolio") else None,
+                positions_provider=self._positions_provider,
                 allow_min_quantity_fallback=getattr(self._config, "serialize_order_intents", False),
             )
 
@@ -952,6 +1384,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             self._order_submitter.update_config(
                 cache=self.cache if hasattr(self, "cache") else None,
                 submit_order_callback=self._resolve_submit_order_callback(),
+                cancel_order_callback=self._resolve_cancel_order_callback(),
                 order_executor=self.order_executor if hasattr(self, "order_executor") else None,
                 trader_id=self.trader_id if hasattr(self, "trader_id") else None,
                 clock=self.clock if hasattr(self, "clock") else None,
@@ -992,6 +1425,11 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             return None
 
         if getattr(self, "order_executor", None) is None:
+            if getattr(self._config, "serialize_order_intents", False):
+                self._pending_execution_metadata = {
+                    "mode": "market",
+                    "fallback_reason": "executor_unavailable",
+                }
             return self._place_market_order(
                 side=side,
                 quantity=quantity,
@@ -1002,6 +1440,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._order_submitter.update_config(
             cache=self.cache if hasattr(self, "cache") else None,
             submit_order_callback=self._resolve_submit_order_callback(),
+            cancel_order_callback=self._resolve_cancel_order_callback(),
             order_executor=self.order_executor if hasattr(self, "order_executor") else None,
             trader_id=self.trader_id if hasattr(self, "trader_id") else None,
             clock=self.clock if hasattr(self, "clock") else None,
@@ -1128,6 +1567,101 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 trades_executed=self._trades_executed,
                 active_positions=self._active_positions,
             )
+
+    def _handle_position_closed_event(self, event: PositionClosed) -> None:
+        """
+        Update risk and sizing state based on realized PnL.
+
+        Parameters
+        ----------
+        event : PositionClosed
+            The position closed event with realized PnL details.
+        """
+        try:
+            realized = getattr(event, "realized_pnl", None)
+            if realized is None:
+                return
+            pnl = float(realized.as_double())
+        except Exception as pnl_exc:
+            self.log.debug(
+                "ml_strategy.position_pnl_calc_failed",
+                exc_info=True,
+                error=str(pnl_exc),
+            )
+            return
+
+        ts_event: int | None = None
+        try:
+            ts_candidate = getattr(event, "ts_closed", None) or getattr(event, "ts_event", None)
+            if ts_candidate is not None:
+                ts_event = int(ts_candidate)
+        except Exception as ts_exc:
+            self.log.debug(
+                "ml_strategy.position_ts_extract_failed",
+                exc_info=True,
+                error=str(ts_exc),
+            )
+            ts_event = None
+
+        self._record_trade_outcome(pnl, ts_event)
+
+    def _record_trade_outcome(self, pnl: float, ts_event: int | None = None) -> None:
+        """
+        Record realized PnL into risk and sizing trackers.
+
+        Parameters
+        ----------
+        pnl : float
+            Realized profit or loss for the closed position.
+        ts_event : int | None, optional
+            Event timestamp (nanoseconds) for daily reset alignment.
+        """
+        try:
+            self._total_pnl += Decimal(str(pnl))
+            if pnl > 0:
+                self._winning_trades += 1
+        except Exception as pnl_exc:
+            self.log.debug(
+                "ml_strategy.total_pnl_update_failed",
+                exc_info=True,
+                error=str(pnl_exc),
+            )
+
+        if self.risk_manager is not None:
+            try:
+                self.risk_manager.update_daily_pnl(pnl, ts_event=ts_event)
+            except TypeError as type_exc:
+                self.log.debug(
+                    "ml_strategy.risk_daily_update_signature_mismatch",
+                    exc_info=True,
+                    error=str(type_exc),
+                )
+                try:
+                    self.risk_manager.update_daily_pnl(pnl)
+                except Exception as risk_exc:
+                    self.log.debug(
+                        "ml_strategy.risk_daily_update_failed",
+                        exc_info=True,
+                        error=str(risk_exc),
+                    )
+            except Exception as risk_exc:
+                self.log.debug(
+                    "ml_strategy.risk_daily_update_failed",
+                    exc_info=True,
+                    error=str(risk_exc),
+                )
+
+        if self.position_sizer is not None:
+            try:
+                updater = getattr(self.position_sizer, "update_performance", None)
+                if callable(updater):
+                    updater(pnl)
+            except Exception as sizer_exc:
+                self.log.debug(
+                    "ml_strategy.sizer_performance_update_failed",
+                    exc_info=True,
+                    error=str(sizer_exc),
+                )
 
     # -------------------------------------------------------------------------
     # Helper Methods
@@ -1365,59 +1899,6 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
             f"Order filled: {event.order_side.name} {event.last_qty} @ {event.last_px}, "
             f"Active positions: {self._active_positions}",
         )
-
-        # Analytics and risk updates (cold path)
-        try:
-            pnl = 0.0
-            if hasattr(event, "avg_px") and hasattr(event, "last_px"):
-                try:
-                    avg_px = float(event.avg_px.as_double())
-                    last_px = float(event.last_px.as_double())
-                    if event.order_side.name == "SELL":
-                        pnl = last_px - avg_px
-                    else:
-                        pnl = avg_px - last_px
-                except Exception as pnl_exc:
-                    pnl = 0.0
-                    self.log.debug(
-                        "ml_strategy.fill_pnl_calc_failed",
-                        strategy_id=str(self.id),
-                        exc_info=True,
-                        error=str(pnl_exc),
-                    )
-
-            # Update risk daily PnL
-            if self.risk_manager is not None:
-                try:
-                    self.risk_manager.update_daily_pnl(pnl)
-                except Exception as risk_exc:
-                    self.log.debug(
-                        "ml_strategy.risk_daily_update_failed",
-                        strategy_id=str(self.id),
-                        exc_info=True,
-                        error=str(risk_exc),
-                    )
-
-            # Update sizer performance
-            if self.position_sizer is not None:
-                try:
-                    updater = getattr(self.position_sizer, "update_performance", None)
-                    if callable(updater):
-                        updater(pnl)
-                except Exception as sizer_exc:
-                    self.log.debug(
-                        "ml_strategy.sizer_performance_update_failed",
-                        strategy_id=str(self.id),
-                        exc_info=True,
-                        error=str(sizer_exc),
-                    )
-        except Exception as analytics_exc:
-            self.log.debug(
-                "ml_strategy.post_fill_analytics_failed",
-                strategy_id=str(self.id),
-                exc_info=True,
-                error=str(analytics_exc),
-            )
 
 
 __all__ = [

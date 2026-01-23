@@ -18,7 +18,7 @@ from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pandas as pd
 from nautilus_trader.model.data import Bar
@@ -26,8 +26,13 @@ from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
+from ml.config.market_data import MarketDataTableConfig
 from ml.data.coverage.manager import BucketSpec
 from ml.registry.dataclasses import DatasetType
 from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
@@ -41,6 +46,10 @@ from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.providers import resolve_catalog_identifier
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+
+if TYPE_CHECKING:
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -89,6 +98,8 @@ class CatalogRehydrationConfig:
         Whether to normalize resolved identifiers using ``urisafe_identifier``.
     table_name :
         SQL table to populate (defaults to ``market_data``).
+    table_config :
+        Optional table routing config to resolve per-class table names.
     rescan_on_schedule :
         If True, perform rehydration on every scheduler loop; otherwise only at startup.
     exhaustive :
@@ -107,6 +118,7 @@ class CatalogRehydrationConfig:
     )
     uri_safe_identifiers: bool = True
     table_name: str = "market_data"
+    table_config: MarketDataTableConfig | None = None
     rescan_on_schedule: bool = False
     exhaustive: bool = False
 
@@ -151,6 +163,7 @@ class ParquetCatalogRehydrator:
         config: CatalogRehydrationConfig,
         writer: SqlMarketDataWriter | None = None,
         coverage_provider: SqlCoverageProvider | None = None,
+        registry: RegistryProtocol | None = None,
     ) -> None:
         """
         Initialize the rehydrator.
@@ -167,6 +180,8 @@ class ParquetCatalogRehydrator:
             Optional writer override (primarily for testing).
         coverage_provider :
             Optional SQL coverage provider override (primarily for testing).
+        registry :
+            Optional DataRegistry for emitting events and updating watermarks.
 
         """
         self._catalog = catalog
@@ -174,10 +189,18 @@ class ParquetCatalogRehydrator:
         self._writer = writer or SqlMarketDataWriter(
             connection_string=db_connection,
             table_name=config.table_name,
+            table_config=(
+                config.table_config
+                or MarketDataTableConfig.from_env(legacy_table=config.table_name)
+            ),
         )
         self._coverage = coverage_provider or SqlCoverageProvider(
             connection_string=db_connection,
             table_name=config.table_name,
+            table_config=(
+                config.table_config
+                or MarketDataTableConfig.from_env(legacy_table=config.table_name)
+            ),
         )
         self._schema_templates = validate_schema_identifier_templates(
             config.schema_identifier_templates,
@@ -185,6 +208,7 @@ class ParquetCatalogRehydrator:
         self._dataset_templates = validate_dataset_type_templates(
             config.dataset_type_identifier_templates,
         )
+        self._registry = registry
 
     def rehydrate_missing_data(
         self,
@@ -403,8 +427,76 @@ class ParquetCatalogRehydrator:
                         "rows": write_count,
                     },
                 )
+                self._emit_registry_event(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    identifier=identifier,
+                    dataset_type=dataset_type,
+                    bucket=bucket,
+                    frame=frame,
+                )
 
         return buckets_restored, rows_written, len(catalog_buckets)
+
+    def _emit_registry_event(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        identifier: str,
+        dataset_type: DatasetType,
+        bucket: int,
+        frame: pd.DataFrame,
+    ) -> None:
+        if self._registry is None or frame.empty or "ts_event" not in frame.columns:
+            return
+        ts_series = frame["ts_event"]
+        if pd.api.types.is_datetime64_any_dtype(ts_series):
+            ts_min = ts_series.min()
+            ts_max = ts_series.max()
+            if ts_min is None or ts_max is None:
+                return
+            ts_min_ns = int(ts_min.value)
+            ts_max_ns = int(ts_max.value)
+        else:
+            numeric = pd.to_numeric(ts_series, errors="coerce").dropna()
+            if numeric.empty:
+                return
+            ts_min_ns = int(numeric.min())
+            ts_max_ns = int(numeric.max())
+        try:
+            emit_dataset_event_and_watermark(
+                self._registry,
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=Stage.DATA_INGESTED,
+                source=Source.BACKFILL,
+                run_id="catalog_rehydrate",
+                ts_min=ts_min_ns,
+                ts_max=ts_max_ns,
+                count=len(frame.index),
+                status=EventStatus.SUCCESS,
+                dataset_type=dataset_type.value,
+                component=self.__class__.__name__,
+                metadata={
+                    "schema": schema,
+                    "bucket": int(bucket),
+                    "identifier": identifier,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "catalog_rehydrate.event_emit_failed",
+                exc_info=True,
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "instrument_id": instrument_id,
+                    "bucket": bucket,
+                },
+            )
 
     def _load_bucket_frame(
         self,

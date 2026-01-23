@@ -460,6 +460,7 @@ class MarketBindingMetadata:
     rows_from_store: int
     rows_from_catalog: int
     source_datasets: tuple[str, ...] | None = None
+    provider_dataset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -552,6 +553,7 @@ def _binding_stats_to_metadata(
                 rows_from_store=stat.rows_from_store,
                 rows_from_catalog=stat.rows_from_catalog,
                 source_datasets=tuple(sorted(stat.source_datasets)) if stat.source_datasets else None,
+                provider_dataset_id=stat.provider_dataset_id,
             ),
         )
     return tuple(entries)
@@ -641,6 +643,11 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
                     ts_event_end=(str(entry.get("ts_event_end")) if entry.get("ts_event_end") is not None else None),
                     rows_from_store=int(entry.get("rows_from_store", 0) or 0),
                     rows_from_catalog=int(entry.get("rows_from_catalog", 0) or 0),
+                    provider_dataset_id=(
+                        str(entry.get("provider_dataset_id"))
+                        if entry.get("provider_dataset_id") is not None
+                        else None
+                    ),
                 ),
             )
         market_bindings = tuple(converted)
@@ -1686,6 +1693,7 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
                 "ts_event_end": binding.ts_event_end,
                 "rows_from_store": binding.rows_from_store,
                 "rows_from_catalog": binding.rows_from_catalog,
+                "provider_dataset_id": binding.provider_dataset_id,
             }
             for binding in metadata.market_bindings
         ]

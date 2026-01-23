@@ -139,10 +139,12 @@ def test_build_catalog_rehydrator_enabled_initializes_rehydrator(
             catalog: Any,
             db_connection: str,
             config: CatalogRehydrationConfig,
+            registry: Any | None = None,
         ) -> None:
             captured["catalog"] = catalog
             captured["db_connection"] = db_connection
             captured["config"] = config
+            captured["registry"] = registry
             captured["instance"] = self
 
     monkeypatch.setattr(entrypoint_pipeline, "ParquetCatalogRehydrator", _RecordingRehydrator)
@@ -179,8 +181,8 @@ def test_select_rehydration_instruments_filters_fresh(
         conn.executemany(
             "INSERT INTO market_data (instrument_id, ts_event, ts_init) VALUES (?, ?, ?)",
             [
-                ("FRESH.XNAS", now_ns, now_ns),
-                ("STALE.XNAS", now_ns - (48 * 3_600 * 1_000_000_000), now_ns),
+                ("FRESH.EQUS", now_ns, now_ns),
+                ("STALE.EQUS", now_ns - (48 * 3_600 * 1_000_000_000), now_ns),
             ],
         )
         conn.commit()
@@ -195,28 +197,28 @@ def test_select_rehydration_instruments_filters_fresh(
     )
     monkeypatch.setenv("CATALOG_REHYDRATE_STALENESS_HOURS", "6")
     config = SchedulerConfig(
-        symbols=["FRESH.XNAS", "STALE.XNAS"],
+        symbols=["FRESH", "STALE"],
         databento=DatabentoConfig(dataset="EQUS.MINI"),
     )
 
     selected = runner._select_rehydration_instruments(config)
 
-    assert "STALE.XNAS" in selected
-    assert "FRESH.XNAS" not in selected
+    assert "STALE.EQUS" in selected
+    assert "FRESH.EQUS" not in selected
 
 
 def test_select_rehydration_instruments_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = entrypoint_pipeline.PipelineRunner()
     runner._rehydrator_config = CatalogRehydrationConfig(enabled=True)
     config = SchedulerConfig(
-        symbols=["AAPL.XNAS"],
+        symbols=["AAPL"],
         databento=DatabentoConfig(dataset="EQUS.MINI"),
     )
     monkeypatch.setenv("CATALOG_REHYDRATE_STALE_ONLY", "0")
 
     selected = runner._select_rehydration_instruments(config)
 
-    assert selected == ["AAPL.XNAS"]
+    assert selected == ["AAPL.EQUS"]
 
 
 def test_load_feature_coverage_entries_uses_env_manifest(
@@ -445,7 +447,7 @@ def test_build_dataset_coverage_configs_resolves_descriptor_dataset() -> None:
 
     assert len(entries) == 1
     dataset = entries[0].dataset
-    assert dataset.dataset_id == "EQUS.MINI"
+    assert dataset.dataset_id == "EQUS.MINI_TBBO"
     assert dataset.schema == "tbbo"
     assert dataset.instruments == ("SPY.XNAS",)
 
@@ -576,6 +578,58 @@ def test_run_coverage_restoration_routes_classifications(
     assert coverage["last_success"] is not None
 
 
+def test_run_coverage_restoration_skips_source_reingest_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    scheduler_config = SchedulerConfig(
+        symbols=["AAPL.XNAS"],
+        databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"),
+        feature_store_connection="postgresql://feature",
+    )
+    runner.scheduler = _DummyScheduler(
+        catalog=None,
+        config=scheduler_config,
+        use_orchestrator=False,
+        dual_write=False,
+    )
+    runner._catalog_path = tmp_path
+    monkeypatch.setenv("COVERAGE_RESTORE_ENABLED", "1")
+    monkeypatch.setenv("COVERAGE_RESTORE_REINGEST_ENABLED", "0")
+
+    source_spec = BucketSpec(
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instrument_id="AAPL.XNAS",
+        bucket_start_ns=1_700_086_400_000_000_000,
+    )
+
+    class _CoverageManagerStub:
+        def __init__(
+            self,
+            *,
+            config: Any,
+            sql_provider: Any,
+            catalog_provider: Any,
+            schema_auditor: Any,
+        ) -> None:
+            return
+
+        def restore_all(self) -> tuple[BucketClassification, ...]:
+            return (BucketClassification(spec=source_spec, has_sql=False, has_catalog=False),)
+
+    monkeypatch.setattr(entrypoint_pipeline, "CoverageManager", _CoverageManagerStub)
+    monkeypatch.setattr("ml.stores.providers.SqlCoverageProvider", lambda **_: object())
+    monkeypatch.setattr("ml.stores.providers.CatalogCoverageProvider", lambda **_: object())
+    monkeypatch.setattr(entrypoint_pipeline, "SchemaAuditor", lambda **_: object())
+
+    runner._run_coverage_restoration(scheduler_config)
+
+    assert runner.scheduler is not None
+    assert runner.scheduler.targeted_calls == []
+
+
 def test_run_coverage_restoration_dry_run_skips_restores(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -694,6 +748,90 @@ def test_run_coverage_restoration_dry_run_skips_restores(
     assert restored_catalog == []
     assert runner.scheduler is not None
     assert runner.scheduler.targeted_calls == []
+
+
+def test_run_coverage_restoration_triggers_feature_reingest_when_bucket_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+    scheduler_config = SchedulerConfig(
+        symbols=["SPY.XNAS"],
+        databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"),
+        feature_store_connection="postgresql://feature",
+    )
+    runner.scheduler = _DummyScheduler(
+        catalog=None,
+        config=scheduler_config,
+        use_orchestrator=False,
+        dual_write=False,
+    )
+    runner._catalog_path = tmp_path
+    monkeypatch.setenv("COVERAGE_RESTORE_ENABLED", "1")
+
+    feature_spec = BucketSpec(
+        dataset_id=FEATURE_VALUES_DATASET_ID,
+        schema="feature_values",
+        instrument_id="SPY.XNAS",
+        bucket_start_ns=0,
+    )
+
+    class _CoverageManagerStub:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        def restore_all(self) -> tuple[BucketClassification, ...]:
+            return (BucketClassification(spec=feature_spec, has_sql=False, has_catalog=False),)
+
+    feature_entry = CoverageDatasetEntry(
+        dataset=DatasetCoverageConfig(
+            dataset_id=FEATURE_VALUES_DATASET_ID,
+            schema="feature_values",
+            instruments=("SPY.XNAS",),
+        ),
+        parquet_spec=ParquetCoverageSpec(
+            dataset_id=FEATURE_VALUES_DATASET_ID,
+            base_path=str(tmp_path / "feature_values"),
+            partition_field="instrument_id",
+            timestamp_field="ts_event",
+            partition_template="{value}",
+        ),
+    )
+
+    monkeypatch.setattr(entrypoint_pipeline, "CoverageManager", _CoverageManagerStub)
+    monkeypatch.setattr("ml.stores.providers.SqlCoverageProvider", lambda **_: object())
+    monkeypatch.setattr("ml.stores.providers.CatalogCoverageProvider", lambda **_: object())
+    monkeypatch.setattr(entrypoint_pipeline, "SchemaAuditor", lambda **_: object())
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_compose_coverage_entries",
+        lambda self, _: (feature_entry,),
+    )
+
+    reingest_calls: list[list[BucketSpec]] = []
+
+    def _record_feature_reingest(
+        self: entrypoint_pipeline.PipelineRunner,
+        *,
+        specs: list[BucketSpec],
+        scheduler_config: SchedulerConfig,
+    ) -> None:
+        reingest_calls.append(list(specs))
+
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_reingest_feature_buckets",
+        _record_feature_reingest,
+    )
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_restore_catalog_buckets",
+        lambda *args, **kwargs: None,
+    )
+
+    runner._run_coverage_restoration(scheduler_config)
+
+    assert reingest_calls == [[feature_spec]]
 
 
 def test_run_coverage_restoration_applies_bucket_cap(
@@ -836,6 +974,7 @@ def test_run_coverage_restoration_once_initializes_scheduler(
     monkeypatch.setattr(entrypoint_pipeline.PipelineRunner, "_run_coverage_restoration", _fake_run)
 
     scheduler_state: dict[str, object] = {}
+    feature_engineer_stub = object()
 
     class _SchedulerStub:
         def __init__(
@@ -843,6 +982,7 @@ def test_run_coverage_restoration_once_initializes_scheduler(
             *,
             catalog: object,
             config: SchedulerConfig,
+            feature_engineer: object | None,
             use_orchestrator: bool,
             dual_write: bool,
             dual_write_dataset_types: Any = None,
@@ -852,6 +992,7 @@ def test_run_coverage_restoration_once_initializes_scheduler(
             del dataset_type_identifier_templates
             assert catalog is catalog_obj
             assert config is config
+            assert feature_engineer is feature_engineer_stub
             scheduler_state["instance"] = self
             self.targeted_calls: list[list[object]] = []
             self.stop_calls = 0
@@ -863,6 +1004,11 @@ def test_run_coverage_restoration_once_initializes_scheduler(
             self.stop_calls += 1
 
     monkeypatch.setattr(entrypoint_pipeline, "DataScheduler", _SchedulerStub)
+    monkeypatch.setattr(
+        entrypoint_pipeline.PipelineRunner,
+        "_build_feature_engineer",
+        lambda self: feature_engineer_stub,
+    )
     monkeypatch.setenv("DB_CONNECTION", "postgresql://example")
 
     summary = runner.run_coverage_restoration_once()
@@ -877,23 +1023,40 @@ def test_run_coverage_restoration_once_initializes_scheduler(
     assert summary["buckets_restore_catalog"] == 1
 
 
+def test_run_backfill_logs_error_when_update_fails() -> None:
+    runner = entrypoint_pipeline.PipelineRunner()
+
+    class _FailingScheduler:
+        def run_daily_update(self) -> None:
+            raise RuntimeError("update failed")
+
+    runner.scheduler = _FailingScheduler()
+
+    runner._run_backfill()
+
+    errors = entrypoint_pipeline.pipeline_status["errors"]
+    assert errors
+    assert any("update failed" in entry for entry in errors)
+
+
 def test_bootstrap_database_verifies_instrumentation_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = entrypoint_pipeline.PipelineRunner()
     config = SchedulerConfig()
     engine = object()
-    summary = SimpleNamespace(applied_count=0, already_applied_count=0)
+    summary = SimpleNamespace(
+        applied_count=0,
+        already_applied_count=0,
+        profile=SimpleNamespace(value="auto"),
+    )
 
-    class _RunnerStub:
-        def __init__(self, *, db_url: str) -> None:
-            assert db_url == "postgresql://example"
-            self.engine = engine
+    def _apply_profiled_migrations(*, db_url: str) -> SimpleNamespace:
+        assert db_url == "postgresql://example"
+        return summary
 
-        def apply_pending_migrations(self) -> SimpleNamespace:
-            return summary
-
-    monkeypatch.setattr(entrypoint_pipeline, "MigrationRunner", _RunnerStub)
+    monkeypatch.setattr(entrypoint_pipeline, "apply_profiled_migrations", _apply_profiled_migrations)
+    monkeypatch.setattr(entrypoint_pipeline.EngineManager, "get_engine", lambda _: engine)
     monkeypatch.setattr(entrypoint_pipeline, "is_postgres_url", lambda _: True)
     monkeypatch.setattr(
         entrypoint_pipeline.PipelineRunner,
@@ -904,9 +1067,8 @@ def test_bootstrap_database_verifies_instrumentation_tables(
         entrypoint_pipeline,
         "verify_market_data_schema",
         lambda _: SimpleNamespace(
-            table_name="market_data",
-            schema="public",
-            primary_key=("instrument_id", "ts_event"),
+            profile=SimpleNamespace(value="legacy"),
+            tables=[SimpleNamespace(table_name="market_data")],
         ),
     )
     instrumentation_calls: dict[str, Any] = {"count": 0, "engine": None}
@@ -929,17 +1091,18 @@ def test_bootstrap_database_raises_when_instrumentation_missing(
     runner = entrypoint_pipeline.PipelineRunner()
     config = SchedulerConfig()
     engine = object()
-    summary = SimpleNamespace(applied_count=0, already_applied_count=0)
+    summary = SimpleNamespace(
+        applied_count=0,
+        already_applied_count=0,
+        profile=SimpleNamespace(value="auto"),
+    )
 
-    class _RunnerStub:
-        def __init__(self, *, db_url: str) -> None:
-            assert db_url == "postgresql://example"
-            self.engine = engine
+    def _apply_profiled_migrations(*, db_url: str) -> SimpleNamespace:
+        assert db_url == "postgresql://example"
+        return summary
 
-        def apply_pending_migrations(self) -> SimpleNamespace:
-            return summary
-
-    monkeypatch.setattr(entrypoint_pipeline, "MigrationRunner", _RunnerStub)
+    monkeypatch.setattr(entrypoint_pipeline, "apply_profiled_migrations", _apply_profiled_migrations)
+    monkeypatch.setattr(entrypoint_pipeline.EngineManager, "get_engine", lambda _: engine)
     monkeypatch.setattr(entrypoint_pipeline, "is_postgres_url", lambda _: True)
     monkeypatch.setattr(
         entrypoint_pipeline.PipelineRunner,
@@ -950,9 +1113,8 @@ def test_bootstrap_database_raises_when_instrumentation_missing(
         entrypoint_pipeline,
         "verify_market_data_schema",
         lambda _: SimpleNamespace(
-            table_name="market_data",
-            schema="public",
-            primary_key=("instrument_id", "ts_event"),
+            profile=SimpleNamespace(value="legacy"),
+            tables=[SimpleNamespace(table_name="market_data")],
         ),
     )
 

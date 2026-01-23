@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from ml.actors.base import MLSignal
+from ml.config.base import LimitPriceConfig, LimitPriceSource
 from ml.strategies.execution import ExecutionConfig, OrderExecutor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.objects import Price, Quantity
 
 
 class _Inst:
@@ -13,6 +14,10 @@ class _Inst:
         self.venue = iid.venue
         self.size_precision = 6
         self.price_precision = 5
+
+    def make_price(self, value: float) -> Price:
+        rounded = round(float(value), int(self.price_precision))
+        return Price(rounded, int(self.price_precision))
 
 
 def _mk_instrument(sym: str = "EUR/USD.SIM") -> _Inst:
@@ -89,3 +94,147 @@ def test_executor_prefers_passive_limit_and_records_ttl_plan() -> None:
     assert plan["order_type"] == "limit_passive"
     assert plan["attempts"] == 4
     assert plan["cadence_seconds"] == 3.0
+
+
+def test_executor_uses_passive_limit_when_spread_wide_and_confidence_medium() -> None:
+    cfg = ExecutionConfig(
+        market_order_threshold=0.9,
+        limit_order_threshold=0.7,
+        max_spread_bps=20,
+        prefer_maker_orders=True,
+        use_time_in_force_ioc=False,
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.8,
+        confidence=0.8,
+        ts_event=3,
+        ts_init=3,
+    )
+    order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state={"bid": 1.0, "ask": 1.01, "spread_bps": 100.0},
+        instrument=_mk_instrument(),
+    )
+    assert order is not None
+    assert getattr(order, "price", None) is not None
+    assert order.time_in_force == TimeInForce.GTC
+    assert getattr(order, "post_only", False) is True
+
+
+def test_executor_uses_last_trade_fallback_when_quotes_missing() -> None:
+    cfg = ExecutionConfig(
+        limit_order_threshold=0.7,
+        min_confidence=0.5,
+        market_order_threshold=0.95,
+        use_time_in_force_ioc=False,
+        limit_price_config=LimitPriceConfig(
+            source_priority=[
+                LimitPriceSource.LAST_TRADE,
+                LimitPriceSource.CACHE_LAST,
+            ],
+        ),
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.6,
+        confidence=0.8,
+        ts_event=4,
+        ts_init=4,
+    )
+    order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("2"),
+        signal=sig,
+        market_state={
+            "bid": 0.0,
+            "ask": 0.0,
+            "spread_bps": 0.0,
+            "last_trade": 100.0,
+            "cache_last": 0.0,
+        },
+        instrument=_mk_instrument(),
+    )
+    assert order is not None
+    expected = round(100.0 * (1 - (cfg.passive_offset_bps / 10_000)), 5)
+    assert float(order.price.as_double()) == expected
+    assert ex.get_last_limit_price_source() == "last_trade"
+
+
+def test_executor_uses_cached_price_when_trade_missing() -> None:
+    cfg = ExecutionConfig(
+        limit_order_threshold=0.7,
+        min_confidence=0.5,
+        market_order_threshold=0.95,
+        use_time_in_force_ioc=False,
+        limit_price_config=LimitPriceConfig(
+            source_priority=[
+                LimitPriceSource.LAST_TRADE,
+                LimitPriceSource.CACHE_LAST,
+            ],
+        ),
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.6,
+        confidence=0.8,
+        ts_event=5,
+        ts_init=5,
+    )
+    order = ex.create_order(
+        side=OrderSide.SELL,
+        quantity=Quantity.from_str("2"),
+        signal=sig,
+        market_state={
+            "bid": 0.0,
+            "ask": 0.0,
+            "spread_bps": 0.0,
+            "last_trade": 0.0,
+            "cache_last": 50.0,
+        },
+        instrument=_mk_instrument(),
+    )
+    assert order is not None
+    expected = round(50.0 * (1 + (cfg.passive_offset_bps / 10_000)), 5)
+    assert float(order.price.as_double()) == expected
+    assert ex.get_last_limit_price_source() == "cache_last"
+
+
+def test_executor_sets_limit_price_precision_when_trailing_zeros() -> None:
+    cfg = ExecutionConfig(
+        market_order_threshold=0.9,
+        limit_order_threshold=0.5,
+        min_confidence=0.1,
+        aggressive_offset_bps=0,
+        passive_offset_bps=0,
+        use_time_in_force_ioc=True,
+    )
+    ex = OrderExecutor(cfg)
+    inst = _mk_instrument()
+    inst.price_precision = 6
+    sig = MLSignal(
+        instrument_id=inst.id,
+        model_id="M",
+        prediction=0.6,
+        confidence=0.6,
+        ts_event=6,
+        ts_init=6,
+    )
+    order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("2"),
+        signal=sig,
+        market_state={"bid": 1.23450, "ask": 1.23456, "spread_bps": 1.0},
+        instrument=inst,
+    )
+    assert order is not None
+    assert order.price is not None
+    assert order.price.precision == inst.price_precision

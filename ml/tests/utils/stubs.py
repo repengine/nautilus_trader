@@ -401,11 +401,47 @@ def build_ml_trading_strategy_stub(
     class _StrategyShim:
         def __init__(self) -> None:
             self.log = LoggerStub()
-            self._config = SimpleNamespace(execute_trades=execute_trades)
+            self._config = SimpleNamespace(
+                execute_trades=execute_trades,
+                serialize_order_intents=False,
+                stop_loss_pct=0.02,
+                take_profit_pct=0.04,
+                exit_policy_config=None,
+            )
             self._active_positions = 0
             self._dry_run_trades = 0
             self.track_performance = False
             self._decision_recorder = decision_recorder or StrategyDecisionRecorder()
+            self._pending_exit_metadata = None
+            self._resolve_exit_policy_config = MLTradingStrategy._resolve_exit_policy_config.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._timestamp_ns = MLTradingStrategy._timestamp_ns.__get__(self, MLTradingStrategy)
+            self._position_entry_price = MLTradingStrategy._position_entry_price.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._time_in_trade_ns = MLTradingStrategy._time_in_trade_ns.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._build_exit_metadata = MLTradingStrategy._build_exit_metadata.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._exit_side_for_position = MLTradingStrategy._exit_side_for_position.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._set_exit_intent_metadata = MLTradingStrategy._set_exit_intent_metadata.__get__(
+                self,
+                MLTradingStrategy,
+            )
+            self._evaluate_exit_policy = MLTradingStrategy._evaluate_exit_policy.__get__(
+                self,
+                MLTradingStrategy,
+            )
 
         def _get_current_position(self) -> object:
             return None

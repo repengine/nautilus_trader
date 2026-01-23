@@ -19,7 +19,10 @@ from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import bindparam
+from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.sql import column as sa_column
 from sqlalchemy.sql import func as sa_func
 from sqlalchemy.sql import select as sa_select
@@ -31,6 +34,9 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
 from ml._imports import pq as pq_runtime
 from ml.common.db_utils import get_or_create_engine
+from ml.config.market_data import MarketDataTableConfig
+from ml.config.market_data import MarketDataTableProfile
+from ml.data.coverage.types import GLOBAL_ENTITY_ID
 from ml.registry.dataclasses import DatasetType
 from ml.schema import default_identifier_template_for_dataset_type
 from ml.schema import map_schema_to_dataset_type
@@ -57,6 +63,60 @@ def _validate_identifier(identifier: str, *, label: str) -> str:
     if not _IDENTIFIER_RE.match(identifier):
         raise ValueError(f"Invalid SQL identifier for {label}: {identifier!r}")
     return identifier
+
+
+def _relation_kind(inspector: Any, name: str) -> str | None:
+    schema_candidates: list[str | None] = [None]
+    default_schema = getattr(inspector, "default_schema_name", None)
+    if default_schema:
+        schema_candidates.append(default_schema)
+    schema_candidates.append("public")
+
+    get_views = getattr(inspector, "get_view_names", None)
+    for schema in schema_candidates:
+        try:
+            if name in inspector.get_table_names(schema=schema):
+                return "table"
+        except Exception:
+            continue
+        if callable(get_views):
+            try:
+                if name in get_views(schema=schema):
+                    return "view"
+            except Exception:
+                continue
+    return None
+
+
+def _is_missing_table_error(exc: Exception) -> bool:
+    if isinstance(exc, NoSuchTableError):
+        return True
+    if isinstance(exc, OperationalError):
+        message = str(exc).lower()
+        return "no such table" in message or "does not exist" in message or "undefined table" in message
+    return False
+
+
+def _resolve_market_data_profile(
+    engine: Engine,
+    *,
+    config: MarketDataTableConfig,
+) -> MarketDataTableProfile:
+    if config.profile is not MarketDataTableProfile.AUTO:
+        return config.profile
+    if engine.dialect.name != "postgresql":
+        return MarketDataTableProfile.LEGACY
+    inspector = inspect(engine)
+    relation = _relation_kind(inspector, config.legacy_table)
+    if relation == "table":
+        return MarketDataTableProfile.LEGACY
+    if relation == "view":
+        return MarketDataTableProfile.CLASS_TABLES
+    return MarketDataTableProfile.CLASS_TABLES
+
+
+def _is_global_entity(instrument_id: str) -> bool:
+    return instrument_id.strip().upper() == GLOBAL_ENTITY_ID
 
 
 def _bucket_from_path(path: Path) -> int | None:
@@ -344,12 +404,19 @@ class SqlCoverageProvider(CoverageProviderProtocol):
     table_name: str = "market_data"
     ts_field: str = "ts_event"
     dataset_overrides: dict[str, object] | None = None
+    table_config: MarketDataTableConfig | None = None
     _engine: Engine = field(init=False, repr=False)
+    _table_config: MarketDataTableConfig = field(init=False, repr=False)
+    _table_profile: MarketDataTableProfile = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="coverage.table")
         _validate_identifier(self.ts_field, label="coverage.ts_field")
         self._engine = get_or_create_engine(self.connection_string)
+        self._table_config = (
+            self.table_config or MarketDataTableConfig.from_env(legacy_table=self.table_name)
+        )
+        self._table_profile = _resolve_market_data_profile(self._engine, config=self._table_config)
 
     def read_bucket_coverage(
         self,
@@ -361,9 +428,9 @@ class SqlCoverageProvider(CoverageProviderProtocol):
         start_ns: int,
         end_ns: int,
     ) -> set[int]:
-        _ = schema
         table_name, schema_name, ts_field, entity = self._resolve_override(
             dataset_id=dataset_id,
+            schema=schema,
             entity_field=entity_field,
         )
         table = sa_table(
@@ -373,27 +440,51 @@ class SqlCoverageProvider(CoverageProviderProtocol):
             schema=schema_name,
         )
         bucket_expr = sa_func.floor(sa_column(ts_field) / bindparam("day_ns")).label("bucket")
-        stmt = sa_select(bucket_expr).select_from(table).where(
-            sa_column(entity) == bindparam("instrument_id"),
+        where_clauses = [
             sa_column(ts_field) >= bindparam("start_ns"),
             sa_column(ts_field) < bindparam("end_ns"),
-        ).group_by(bucket_expr)
+        ]
+        if not _is_global_entity(instrument_id):
+            where_clauses.append(sa_column(entity) == bindparam("instrument_id"))
+        stmt = sa_select(bucket_expr).select_from(table).where(*where_clauses).group_by(bucket_expr)
         params = {
             "day_ns": DAY_NS,
             "instrument_id": instrument_id,
             "start_ns": int(start_ns),
             "end_ns": int(end_ns),
         }
-        with self._engine.connect() as conn:
-            rows = conn.execute(stmt, params).fetchall()
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).fetchall()
+        except Exception as exc:
+            if _is_missing_table_error(exc):
+                logger.debug(
+                    "coverage.table_missing",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "table_name": table_name,
+                        "schema_name": schema_name,
+                    },
+                )
+                return set()
+            raise
         return {int(r[0]) for r in rows}
 
-    def latest_timestamp_ns(self, *, dataset_id: str, instrument_id: str) -> int | None:
+    def latest_timestamp_ns(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        schema: str | None = None,
+    ) -> int | None:
         """
         Return the latest timestamp seen for an instrument, or None when missing.
         """
         table_name, schema_name, ts_field, entity = self._resolve_override(
             dataset_id=dataset_id,
+            schema=schema or "",
             entity_field=None,
         )
         table = sa_table(
@@ -402,19 +493,35 @@ class SqlCoverageProvider(CoverageProviderProtocol):
             sa_column(ts_field),
             schema=schema_name,
         )
-        stmt: Any = (
-            sa_select(sa_func.max(sa_column(ts_field)))
-            .select_from(table)
-            .where(sa_column(entity) == bindparam("instrument_id"))
-        )
-        with self._engine.connect() as conn:
-            result = conn.execute(stmt, {"instrument_id": instrument_id}).scalar()
+        stmt: Any = sa_select(sa_func.max(sa_column(ts_field))).select_from(table)
+        params: dict[str, object] = {}
+        if not _is_global_entity(instrument_id):
+            stmt = stmt.where(sa_column(entity) == bindparam("instrument_id"))
+            params["instrument_id"] = instrument_id
+        try:
+            with self._engine.connect() as conn:
+                result = conn.execute(stmt, params).scalar()
+        except Exception as exc:
+            if _is_missing_table_error(exc):
+                logger.debug(
+                    "coverage.latest_timestamp_missing",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "table_name": table_name,
+                        "schema_name": schema_name,
+                    },
+                )
+                return None
+            raise
         return int(result) if result is not None else None
 
     def _resolve_override(
         self,
         *,
         dataset_id: str,
+        schema: str,
         entity_field: str | None,
     ) -> tuple[str, str | None, str, str]:
         override = None
@@ -422,7 +529,11 @@ class SqlCoverageProvider(CoverageProviderProtocol):
             candidate = self.dataset_overrides.get(dataset_id)
             if isinstance(candidate, SqlCoverageOverride):
                 override = candidate
-        table_name = override.table_name if override and override.table_name else self.table_name
+        table_name = (
+            override.table_name
+            if override and override.table_name
+            else self._resolve_table_name(schema)
+        )
         ts_field = override.ts_field if override and override.ts_field else self.ts_field
         entity = (
             override.entity_field
@@ -439,6 +550,15 @@ class SqlCoverageProvider(CoverageProviderProtocol):
             _validate_identifier(schema_name, label="coverage.schema")
         return table_name, schema_name, ts_field, entity
 
+    def _resolve_table_config(self) -> MarketDataTableConfig:
+        return self._table_config
+
+    def _resolve_table_name(self, schema: str) -> str:
+        config = self._resolve_table_config()
+        if self._table_profile is MarketDataTableProfile.LEGACY:
+            return config.legacy_table
+        return config.table_for_schema(schema)
+
 
 @dataclass(slots=True)
 class SqlMarketDataWriter(MarketDataWriterProtocol):
@@ -452,29 +572,28 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
     connection_string: str
     table_name: str = "market_data"
     default_source: str | None = "historical"
+    table_config: MarketDataTableConfig | None = None
     _engine: Engine = field(init=False, repr=False)
     _meta: MetaData = field(init=False, repr=False)
-    _table: Table = field(init=False, repr=False)
+    _tables: dict[str, Table] = field(init=False, repr=False)
+    _table_config: MarketDataTableConfig = field(init=False, repr=False)
+    _table_profile: MarketDataTableProfile = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="writer.table")
         self._engine = get_or_create_engine(self.connection_string)
         self._meta = MetaData()
-        try:
-            self._table = Table(self.table_name, self._meta, autoload_with=self._engine)
-        except Exception:
-            self._table = Table(
-                self.table_name,
-                self._meta,
-                Column("instrument_id", String(100), nullable=False),
-                Column("ts_event", BIGINT, nullable=False),
-                Column("ts_init", BIGINT, nullable=False),
-            )
-            self._meta.create_all(self._engine)
+        self._tables = {}
+        self._table_config = (
+            self.table_config or MarketDataTableConfig.from_env(legacy_table=self.table_name)
+        )
+        self._table_profile = _resolve_market_data_profile(self._engine, config=self._table_config)
 
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         if df.empty:
             return 0
+        table = self._resolve_table(schema)
+        table_columns = set(table.columns.keys())
         cols = set(map(str, df.columns))
 
         def _maybe(val: object) -> object | None:
@@ -503,43 +622,96 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                     return cast(object, scalar)
             return val
 
+        def _first_present_value(row: object, candidates: tuple[str, ...]) -> object | None:
+            for key in candidates:
+                if key not in cols:
+                    continue
+                value = _maybe(getattr(row, key, None))
+                if value is not None:
+                    return value
+            return None
+
+        bid_candidates = (
+            "bid",
+            "bid_px",
+            "bid_price",
+            "bid_px_0",
+            "bid_px_00",
+            "bid_px_1",
+            "bid_px_01",
+        )
+        ask_candidates = (
+            "ask",
+            "ask_px",
+            "ask_price",
+            "ask_px_0",
+            "ask_px_00",
+            "ask_px_1",
+            "ask_px_01",
+        )
+        bid_size_candidates = (
+            "bid_size",
+            "bid_sz",
+            "bid_sz_0",
+            "bid_sz_00",
+            "bid_sz_1",
+            "bid_sz_01",
+        )
+        ask_size_candidates = (
+            "ask_size",
+            "ask_sz",
+            "ask_sz_0",
+            "ask_sz_00",
+            "ask_sz_1",
+            "ask_sz_01",
+        )
+
         def _row(r: object) -> dict[str, object]:
             d: dict[str, object] = {
                 "instrument_id": instrument_id,
                 "ts_event": int(getattr(r, "ts_event")),
                 "ts_init": int(getattr(r, "ts_event")),
             }
-            if "open" in cols:
+            if "open" in cols and "open" in table_columns:
                 d["open"] = _maybe(getattr(r, "open", None))
-            if "high" in cols:
+            if "high" in cols and "high" in table_columns:
                 d["high"] = _maybe(getattr(r, "high", None))
-            if "low" in cols:
+            if "low" in cols and "low" in table_columns:
                 d["low"] = _maybe(getattr(r, "low", None))
-            if "close" in cols:
+            if "close" in cols and "close" in table_columns:
                 d["close"] = _maybe(getattr(r, "close", None))
-            if "volume" in cols:
+            if "volume" in cols and "volume" in table_columns:
                 d["volume"] = _maybe(getattr(r, "volume", None))
-            if "bid" in cols:
-                d["bid"] = _maybe(getattr(r, "bid", None))
-            if "ask" in cols:
-                d["ask"] = _maybe(getattr(r, "ask", None))
-            if "bid_size" in cols:
-                d["bid_size"] = _maybe(getattr(r, "bid_size", None))
-            if "ask_size" in cols:
-                d["ask_size"] = _maybe(getattr(r, "ask_size", None))
-            if "last" in cols:
+            if "bid" in table_columns:
+                bid_val = _first_present_value(r, bid_candidates)
+                if bid_val is not None:
+                    d["bid"] = bid_val
+            if "ask" in table_columns:
+                ask_val = _first_present_value(r, ask_candidates)
+                if ask_val is not None:
+                    d["ask"] = ask_val
+            if "bid_size" in table_columns:
+                bid_size_val = _first_present_value(r, bid_size_candidates)
+                if bid_size_val is not None:
+                    d["bid_size"] = bid_size_val
+            if "ask_size" in table_columns:
+                ask_size_val = _first_present_value(r, ask_size_candidates)
+                if ask_size_val is not None:
+                    d["ask_size"] = ask_size_val
+            if "last" in cols and "last" in table_columns:
                 d["last"] = _maybe(getattr(r, "last", None))
-            if "trade_count" in cols:
+            if "trade_count" in cols and "trade_count" in table_columns:
                 d["trade_count"] = _maybe(getattr(r, "trade_count", None))
-            if "vwap" in cols:
+            if "vwap" in cols and "vwap" in table_columns:
                 d["vwap"] = _maybe(getattr(r, "vwap", None))
-            if "quality_flags" in cols:
+            if "quality_flags" in cols and "quality_flags" in table_columns:
                 d["quality_flags"] = _maybe(getattr(r, "quality_flags", None))
-            if "source" in cols:
-                d["source"] = _maybe(getattr(r, "source", None))
-            elif self.default_source is not None:
-                d["source"] = self.default_source
-            if "source_dataset" in cols:
+            if "source" in table_columns:
+                if "source" in cols:
+                    d["source"] = _maybe(getattr(r, "source", None))
+                elif self.default_source is not None:
+                    d["source"] = self.default_source
+            if "source_dataset" in cols and "source_dataset" in table_columns:
                 d["source_dataset"] = _maybe(getattr(r, "source_dataset", None))
             return d
 
@@ -549,12 +721,37 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
             if dialect == "postgresql":
                 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-                stmt = pg_insert(self._table).values(records)
+                stmt = pg_insert(table).values(records)
                 stmt = stmt.on_conflict_do_nothing(index_elements=["instrument_id", "ts_event"])
                 conn.execute(stmt)
             else:
-                conn.execute(self._table.insert().prefix_with("OR IGNORE"), records)
+                conn.execute(table.insert().prefix_with("OR IGNORE"), records)
         return len(records)
+
+    def _resolve_table(self, schema: str) -> Table:
+        table_name = self._resolve_table_name(schema)
+        cached = self._tables.get(table_name)
+        if cached is not None:
+            return cached
+        _validate_identifier(table_name, label="writer.table")
+        try:
+            table = Table(table_name, self._meta, autoload_with=self._engine)
+        except Exception:
+            table = Table(
+                table_name,
+                self._meta,
+                Column("instrument_id", String(100), nullable=False),
+                Column("ts_event", BIGINT, nullable=False),
+                Column("ts_init", BIGINT, nullable=False),
+            )
+            self._meta.create_all(self._engine)
+        self._tables[table_name] = table
+        return table
+
+    def _resolve_table_name(self, schema: str) -> str:
+        if self._table_profile is MarketDataTableProfile.LEGACY:
+            return self._table_config.legacy_table
+        return self._table_config.table_for_schema(schema)
 
 
 @dataclass(slots=True)
@@ -564,20 +761,19 @@ class SqlMarketDataReader(RawReaderProtocol):
     connection_string: str
     table_name: str = "market_data"
     _engine: Engine = field(init=False, repr=False)
-    _available_columns: tuple[str, ...] = field(init=False, repr=False)
+    table_config: MarketDataTableConfig | None = None
+    _table_config: MarketDataTableConfig = field(init=False, repr=False)
+    _table_profile: MarketDataTableProfile = field(init=False, repr=False)
+    _columns_cache: dict[str, tuple[str, ...]] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.table_name, label="reader.table")
         self._engine = get_or_create_engine(self.connection_string)
-        try:
-            from sqlalchemy import inspect as _inspect
-
-            inspector = _inspect(self._engine)
-            columns = inspector.get_columns(self.table_name)
-            self._available_columns = tuple(column["name"] for column in columns)
-        except Exception:
-            # Fallback to an empty tuple; read_range will surface a descriptive error.
-            self._available_columns = ()
+        self._table_config = (
+            self.table_config or MarketDataTableConfig.from_env(legacy_table=self.table_name)
+        )
+        self._table_profile = _resolve_market_data_profile(self._engine, config=self._table_config)
+        self._columns_cache = {}
 
     def read_range(
         self,
@@ -592,12 +788,13 @@ class SqlMarketDataReader(RawReaderProtocol):
                 f"Invalid range for SQL market data read ({start_ns=} >= {end_ns=})",
             )
 
-        available = set(self._available_columns)
+        table_name = self._resolve_table_name(dataset_type)
+        available = set(self._available_columns_for(table_name))
         required_columns: tuple[str, ...] = ("instrument_id", "ts_event", "ts_init")
         missing_required = [column for column in required_columns if column not in available]
         if missing_required:
             raise RuntimeError(
-                f"SqlMarketDataReader missing required columns {missing_required} on table {self.table_name}",
+                f"SqlMarketDataReader missing required columns {missing_required} on table {table_name}",
             )
 
         optional_columns: tuple[str, ...] = (
@@ -617,10 +814,7 @@ class SqlMarketDataReader(RawReaderProtocol):
         )
 
         selected_columns = [*required_columns, *[col for col in optional_columns if col in available]]
-        table = sa_table(
-            self.table_name,
-            *(sa_column(col) for col in selected_columns),
-        )
+        table = sa_table(table_name, *(sa_column(col) for col in selected_columns))
         stmt = (
             sa_select(*(sa_column(col) for col in selected_columns))
             .select_from(table)
@@ -716,6 +910,25 @@ class SqlMarketDataReader(RawReaderProtocol):
         except Exception:
             return empty
 
+    def _resolve_table_name(self, dataset_type: DatasetType) -> str:
+        if self._table_profile is MarketDataTableProfile.LEGACY:
+            return self._table_config.legacy_table
+        return self._table_config.table_for_dataset_type(dataset_type)
+
+    def _available_columns_for(self, table_name: str) -> tuple[str, ...]:
+        cached = self._columns_cache.get(table_name)
+        if cached is not None:
+            return cached
+        try:
+            inspector = inspect(self._engine)
+            columns = inspector.get_columns(table_name)
+            resolved = tuple(column["name"] for column in columns)
+        except Exception:
+            # Fallback to an empty tuple; read_range will surface a descriptive error.
+            resolved = ()
+        self._columns_cache[table_name] = resolved
+        return resolved
+
 
 # =============================================================================
 # Null/Union/Partitioned Coverage Providers
@@ -791,6 +1004,9 @@ class ParquetCoverageSpec:
                 return sorted(str(path) for path in candidate.rglob("*.parquet") if path.is_file())
             return []
 
+        if _is_global_entity(instrument):
+            return _collect_parquet_files(base_path)
+
         template = self.partition_template
         if template is not None:
             if template.strip() == "":
@@ -846,6 +1062,7 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
         spec = self.specs.get(dataset_id)
         if spec is None:
             return set()
+        global_entity = _is_global_entity(instrument_id)
         files = spec.files_for_instrument(instrument_id)
         if not files:
             return set()
@@ -861,7 +1078,7 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
                 if start_bucket <= bucket_idx <= end_bucket:
                     buckets.add(bucket_idx)
                 continue
-            if _is_instrument_scoped_parquet(spec):
+            if global_entity or _is_instrument_scoped_parquet(spec):
                 stats_buckets = _buckets_from_parquet_stats(
                     path,
                     timestamp_field=spec.timestamp_field,
@@ -871,17 +1088,18 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
                 if stats_buckets is not None:
                     buckets.update(stats_buckets)
                     continue
-            scan_buckets = _buckets_from_parquet_dataset(
-                path,
-                partition_field=spec.partition_field,
-                instrument_id=instrument_id,
-                timestamp_field=spec.timestamp_field,
-                window_start=window_start,
-                window_end=window_end,
-            )
-            if scan_buckets is not None:
-                buckets.update(scan_buckets)
-                continue
+            if not global_entity:
+                scan_buckets = _buckets_from_parquet_dataset(
+                    path,
+                    partition_field=spec.partition_field,
+                    instrument_id=instrument_id,
+                    timestamp_field=spec.timestamp_field,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                if scan_buckets is not None:
+                    buckets.update(scan_buckets)
+                    continue
             if not HAS_PANDAS or pd_runtime is None:
                 check_ml_dependencies(["pandas"])
             assert pd_runtime is not None
@@ -903,7 +1121,7 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
                 continue
             if spec.timestamp_field not in frame.columns:
                 continue
-            if spec.partition_field in frame.columns:
+            if not global_entity and spec.partition_field in frame.columns:
                 mask = (
                     frame[spec.partition_field]
                     .astype(str)

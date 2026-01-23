@@ -141,6 +141,10 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
             default_identifier_template_for_dataset_type(dataset_type),
         )
 
+    def _resolve_identifier(self, *, dataset_type: DatasetType, instrument_id: str) -> str:
+        template = self._identifier_template_for(dataset_type)
+        return template.format(instrument_id=instrument_id, schema=dataset_type.value)
+
     def _catalog_directory(
         self,
         data_cls: type[object],
@@ -319,13 +323,23 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                     return 0
                 start_ns = min(bar.ts_init for bar in bars)
                 end_ns = max(bar.ts_init for bar in bars)
+                identifier = str(bars[0].bar_type)
                 self._prune_overlaps(
                     data_cls=_Bar,
-                    identifier=str(bars[0].bar_type),
+                    identifier=identifier,
                     start_ns=start_ns,
                     end_ns=end_ns,
                 )
-                self._catalog.write_data(bars)
+                if hasattr(self._catalog, "_write_chunk"):
+                    self._catalog._write_chunk(
+                        data=bars,
+                        data_cls=_Bar,
+                        identifier=identifier,
+                        start=start_ns,
+                        end=end_ns,
+                    )
+                else:
+                    self._catalog.write_data(bars)
                 return len(bars)
 
             def _first_present(row: dict[str, _Any], keys: tuple[str, ...]) -> _Any | None:
@@ -418,13 +432,26 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                     return 0
                 start_ns = min(quote.ts_init for quote in quotes)
                 end_ns = max(quote.ts_init for quote in quotes)
+                identifier = self._resolve_identifier(
+                    dataset_type=dataset_type,
+                    instrument_id=quotes[0].instrument_id.value,
+                )
                 self._prune_overlaps(
                     data_cls=_QuoteTick,
-                    identifier=quotes[0].instrument_id.value,
+                    identifier=identifier,
                     start_ns=start_ns,
                     end_ns=end_ns,
                 )
-                self._catalog.write_data(quotes)
+                if hasattr(self._catalog, "_write_chunk"):
+                    self._catalog._write_chunk(
+                        data=quotes,
+                        data_cls=_QuoteTick,
+                        identifier=identifier,
+                        start=start_ns,
+                        end=end_ns,
+                    )
+                else:
+                    self._catalog.write_data(quotes)
                 return len(quotes)
 
             if dataset_type == DatasetType.TRADES:
@@ -457,13 +484,26 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                     return 0
                 start_ns = min(trade.ts_init for trade in trades)
                 end_ns = max(trade.ts_init for trade in trades)
+                identifier = self._resolve_identifier(
+                    dataset_type=dataset_type,
+                    instrument_id=trades[0].instrument_id.value,
+                )
                 self._prune_overlaps(
                     data_cls=_TradeTick,
-                    identifier=trades[0].instrument_id.value,
+                    identifier=identifier,
                     start_ns=start_ns,
                     end_ns=end_ns,
                 )
-                self._catalog.write_data(trades)
+                if hasattr(self._catalog, "_write_chunk"):
+                    self._catalog._write_chunk(
+                        data=trades,
+                        data_cls=_TradeTick,
+                        identifier=identifier,
+                        start=start_ns,
+                        end=end_ns,
+                    )
+                else:
+                    self._catalog.write_data(trades)
                 return len(trades)
 
         # Unsupported conversion for other raw types

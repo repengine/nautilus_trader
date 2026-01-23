@@ -8,14 +8,20 @@ Separated from advanced L2 feature calculators to keep aggregation lightweight.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 from typing import cast as _cast
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common.symbol_utils import resolve_symbol_data_dir
 from ml.ml_types import PolarsDF
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.persistence.funcs import urisafe_identifier
 
 
 MICRO_COLUMNS = [
@@ -44,6 +50,7 @@ def aggregate_microstructure_minute_pl(
     ask_col: str = "ask_px_00",
     bid_sz_col: str = "bid_sz_00",
     ask_sz_col: str = "ask_sz_00",
+    trade_side_col: str = "side",
 ) -> PolarsDF:
     _ensure_polars()
     _pl = pl
@@ -86,7 +93,8 @@ def aggregate_microstructure_minute_pl(
         if t[timestamp_col].dtype != _pl.Datetime:
             t = t.with_columns(_pl.col(timestamp_col).cast(_pl.Datetime("ns", "UTC")))
         t = t.filter(_pl.col(timestamp_col).is_not_null()).sort(timestamp_col)
-        sign = _pl.when(_pl.col("side").str.contains("SELL")).then(-1).otherwise(1)
+        side_expr = _pl.col(trade_side_col).cast(_pl.Utf8)
+        sign = _pl.when(side_expr.str.contains("SELL")).then(-1).otherwise(1)
         t = t.with_columns((sign * _pl.col("size").cast(_pl.Float64)).alias("signed_size"))
         t = t.with_columns(_pl.col("price").cast(_pl.Float64))
         t = t.with_columns(
@@ -118,19 +126,199 @@ def aggregate_microstructure_minute_pl(
 @dataclass(slots=True)
 class MicrostructureAggregator:
     base_dir: Path
+    catalog_path: Path | None = None
+    prefer_catalog: bool = True
+    catalog_symbol_suffix: str | None = None
+
+    def _resolve_catalog_root(self) -> Path | None:
+        if not self.prefer_catalog:
+            return None
+        if self.catalog_path is not None:
+            return self.catalog_path.expanduser()
+        env_path = os.getenv("CATALOG_PATH")
+        if env_path:
+            return Path(env_path).expanduser()
+        default = Path("data/catalog")
+        return default if default.exists() else None
+
+    def _catalog_kind_dir(self, kind: str) -> Path | None:
+        root = self._resolve_catalog_root()
+        if root is None:
+            return None
+        base = root / "data" / kind
+        return base if base.exists() else None
+
+    def _catalog_symbol_candidates(self, symbol: str) -> tuple[str, ...]:
+        normalized = symbol.strip().upper()
+        if not normalized:
+            return ()
+        candidates = [normalized]
+        suffix = self.catalog_symbol_suffix or os.getenv("CATALOG_SYMBOL_SUFFIX", ".EQUS")
+        if suffix and not normalized.endswith(suffix):
+            if normalized.endswith(".XNAS"):
+                base = normalized[: -len(".XNAS")]
+                if base:
+                    candidates.append(f"{base}{suffix}")
+            else:
+                candidates.append(f"{normalized}{suffix}")
+        return tuple(dict.fromkeys(candidates))
+
+    def _resolve_catalog_dir(self, symbol: str, kind: str) -> Path | None:
+        base = self._catalog_kind_dir(kind)
+        if base is None:
+            return None
+        for candidate in self._catalog_symbol_candidates(symbol):
+            safe = urisafe_identifier(candidate)
+            path = base / safe
+            if path.exists():
+                return path
+        head = symbol.strip().upper()
+        if not head:
+            return None
+        head_token = head.rsplit(".", 1)[0] if "." in head else head
+        matches = [
+            entry
+            for entry in base.iterdir()
+            if entry.is_dir() and entry.name.upper().startswith(f"{head_token}.")
+        ]
+        if matches:
+            return sorted(matches)[0]
+        return None
+
+    def _load_catalog_quotes(
+        self,
+        symbol: str,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> PolarsDF | None:
+        root = self._resolve_catalog_root()
+        if root is None:
+            return None
+        base = self._catalog_kind_dir("quote_tick")
+        if base is None:
+            return None
+        catalog = ParquetDataCatalog(str(root))
+        for candidate in self._catalog_symbol_candidates(symbol):
+            safe = urisafe_identifier(candidate)
+            if not (base / safe).exists():
+                continue
+            try:
+                from ml.data.catalog_utils import quotes_to_dataframe
+
+                df = quotes_to_dataframe(catalog, [candidate], start=start, end=end)
+            except Exception:
+                logger.debug(
+                    "catalog.quotes_load_failed",
+                    exc_info=True,
+                    extra={"symbol": candidate},
+                )
+                continue
+            if df.is_empty():
+                continue
+            if "timestamp" in df.columns and "ts_event" not in df.columns:
+                df = df.rename({"timestamp": "ts_event"})
+            return self._normalize_quote_frame(df)
+        return None
+
+    def _load_catalog_trades(
+        self,
+        symbol: str,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> PolarsDF | None:
+        root = self._resolve_catalog_root()
+        if root is None:
+            return None
+        base = self._catalog_kind_dir("trade_tick")
+        if base is None:
+            return None
+        catalog = ParquetDataCatalog(str(root))
+        for candidate in self._catalog_symbol_candidates(symbol):
+            safe = urisafe_identifier(candidate)
+            if not (base / safe).exists():
+                continue
+            try:
+                from ml.data.catalog_utils import trades_to_dataframe
+
+                df = trades_to_dataframe(catalog, [candidate], start=start, end=end)
+            except Exception:
+                logger.debug(
+                    "catalog.trades_load_failed",
+                    exc_info=True,
+                    extra={"symbol": candidate},
+                )
+                continue
+            if df.is_empty():
+                continue
+            if "timestamp" in df.columns and "ts_event" not in df.columns:
+                df = df.rename({"timestamp": "ts_event"})
+            return self._normalize_trade_frame(df)
+        return None
+
+    def _apply_time_window(
+        self,
+        lf: Any,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+        column: str,
+    ) -> Any:
+        if start is None and end is None:
+            return lf
+        _ensure_polars()
+        _pl = pl
+        assert _pl is not None
+        cond = _pl.lit(True)
+        if start is not None:
+            start_ns = int(start.timestamp() * 1_000_000_000)
+            cond = cond & (_pl.col(column).cast(_pl.Int64) >= start_ns)
+        if end is not None:
+            end_ns = int(end.timestamp() * 1_000_000_000)
+            cond = cond & (_pl.col(column).cast(_pl.Int64) < end_ns)
+        return lf.filter(cond)
+
+    def _normalize_quote_frame(self, quotes: PolarsDF) -> PolarsDF:
+        _ensure_polars()
+        _pl = pl
+        assert _pl is not None
+        mapping: dict[str, str] = {}
+        if "bid_price" in quotes.columns:
+            mapping["bid_price"] = "bid_px_00"
+        elif "bid" in quotes.columns:
+            mapping["bid"] = "bid_px_00"
+        if "ask_price" in quotes.columns:
+            mapping["ask_price"] = "ask_px_00"
+        elif "ask" in quotes.columns:
+            mapping["ask"] = "ask_px_00"
+        if "bid_size" in quotes.columns:
+            mapping["bid_size"] = "bid_sz_00"
+        elif "bid_sz" in quotes.columns:
+            mapping["bid_sz"] = "bid_sz_00"
+        if "ask_size" in quotes.columns:
+            mapping["ask_size"] = "ask_sz_00"
+        elif "ask_sz" in quotes.columns:
+            mapping["ask_sz"] = "ask_sz_00"
+        if mapping:
+            quotes = quotes.rename(mapping)
+        return quotes
+
+    def _normalize_trade_frame(self, trades: PolarsDF) -> PolarsDF:
+        if "side" in trades.columns:
+            return trades
+        if "aggressor_side" in trades.columns:
+            return trades.rename({"aggressor_side": "side"})
+        return trades
 
     def _resolve_l1_dir(self, symbol: str) -> Path | None:
-        l1_dir = self.base_dir / symbol / "l1"
+        resolved = resolve_symbol_data_dir(self.base_dir, symbol)
+        if resolved is None:
+            return None
+        l1_dir = resolved / "l1"
         if l1_dir.exists():
             return l1_dir
-        candidates = sorted(
-            candidate
-            for candidate in self.base_dir.glob(f"{symbol}.*")
-            if (candidate / "l1").exists()
-        )
-        if not candidates:
-            return None
-        return candidates[0] / "l1"
+        return None
 
     def _load_l1_quotes(self, symbol: str) -> PolarsDF | None:
         _ensure_polars()
@@ -174,12 +362,30 @@ class MicrostructureAggregator:
             logger.debug("L1 trades load failed for %s (%s)", symbol, l1_dir, exc_info=True)
             return None
 
-    def compute_for_symbol(self, symbol: str) -> PolarsDF:
+    def compute_for_symbol(
+        self,
+        symbol: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> PolarsDF:
         _ensure_polars()
         _pl = pl
         assert _pl is not None
-        q = self._load_l1_quotes(symbol)
-        t = self._load_l1_trades(symbol)
+        q = self._load_catalog_quotes(symbol, start=start, end=end)
+        t = self._load_catalog_trades(symbol, start=start, end=end)
+        if q is None and t is None:
+            q = self._load_l1_quotes(symbol)
+            t = self._load_l1_trades(symbol)
+        if q is not None:
+            q = _cast(
+                PolarsDF,
+                self._apply_time_window(q, start=start, end=end, column="ts_event"),
+            )
+        if t is not None:
+            t = _cast(
+                PolarsDF,
+                self._apply_time_window(t, start=start, end=end, column="ts_event"),
+            )
         if q is None and t is None:
             return _cast(PolarsDF, _pl.DataFrame({"timestamp": []}))
         return aggregate_microstructure_minute_pl(q, t)

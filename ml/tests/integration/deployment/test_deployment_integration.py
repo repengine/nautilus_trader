@@ -156,6 +156,7 @@ class TestDeploymentIntegration:
         monkeypatch.setenv("STRATEGY_ID", "MLStrategy-001")
         monkeypatch.setenv("ML_SIGNAL_SOURCE", "MLSignalActor-001")
         monkeypatch.setenv("USE_DUMMY_STORES", "true")
+        monkeypatch.setenv("ML_LIVE_RECORD_ENABLE", "0")
         monkeypatch.setenv("EXECUTE_TRADES", "false")
         monkeypatch.setenv("PIPELINE_MODE", "daily")
         monkeypatch.setenv("HEALTH_CHECK_PORT", "8082")

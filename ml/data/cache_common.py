@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any, cast
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl as pl_runtime
+from ml.common.symbol_utils import resolve_symbol_data_dir_candidates
+from ml.common.symbol_utils import resolve_symbol_data_dir_exact
 
 
 if TYPE_CHECKING:  # Typed-only aliases
@@ -72,6 +74,99 @@ def day_partition_path(base: Path, symbol: str, day: date) -> Path:
     return base / symbol / y / m / f"{d}.parquet"
 
 
+def resolve_cache_symbol_dir(base_dir: Path, symbol: str) -> str:
+    """
+    Resolve the directory name used for cache partitions (write path).
+
+    Prefers full instrument identifiers (e.g., ``SPY.XNAS``) to align parquet
+    partitions with coverage entities.
+
+    Args:
+        base_dir: Cache root directory for symbol partitions.
+        symbol: Instrument identifier (with or without venue suffix).
+
+    Returns:
+        Normalized cache directory name for writes.
+    """
+    normalized = resolve_cache_write_symbol_dir(symbol)
+    if not normalized:
+        return ""
+    resolved = resolve_symbol_data_dir_exact(base_dir, normalized)
+    return resolved.name if resolved is not None else normalized
+
+
+def resolve_cache_write_symbol_dir(symbol: str) -> str:
+    """
+    Normalize a symbol to the cache write directory name.
+
+    Args:
+        symbol: Instrument identifier (with or without venue suffix).
+
+    Returns:
+        Normalized cache directory name.
+    """
+    normalized = symbol.strip().upper()
+    return normalized
+
+
+def resolve_cache_read_symbol_dirs(base_dir: Path, symbol: str) -> tuple[str, ...]:
+    """
+    Resolve cache directory names to read, preferring full then base symbols.
+
+    Args:
+        base_dir: Cache root directory for symbol partitions.
+        symbol: Instrument identifier (with or without venue suffix).
+
+    Returns:
+        Tuple of directory names to search, ordered by preference.
+    """
+    normalized = resolve_cache_write_symbol_dir(symbol)
+    if not normalized:
+        return ()
+    candidates = resolve_symbol_data_dir_candidates(base_dir, normalized)
+    if candidates:
+        return tuple(path.name for path in candidates)
+    head, _, _tail = normalized.partition(".")
+    base = head or normalized
+    if base != normalized:
+        return (normalized, base)
+    return (normalized,)
+
+
+def resolve_cache_partition_path(
+    base_dir: Path,
+    symbol: str,
+    day: date,
+) -> tuple[Path | None, bool]:
+    """
+    Resolve the existing cache partition path for ``symbol`` and ``day``.
+
+    Returns a tuple of (path, is_write_path) where ``is_write_path`` indicates
+    whether the resolved path matches the preferred write directory.
+
+    Args:
+        base_dir: Cache root directory for symbol partitions.
+        symbol: Instrument identifier (with or without venue suffix).
+        day: UTC day of the cache partition.
+
+    Returns:
+        Tuple of the resolved cache path (or ``None``) and whether it matches
+        the write directory.
+    """
+    write_symbol = resolve_cache_write_symbol_dir(symbol)
+    if write_symbol:
+        write_path = day_partition_path(base_dir, write_symbol, day)
+        if write_path.exists():
+            return write_path, True
+    for cache_symbol in resolve_cache_read_symbol_dirs(base_dir, symbol):
+        if cache_symbol == write_symbol:
+            continue
+        candidate = day_partition_path(base_dir, cache_symbol, day)
+        if candidate.exists():
+            return candidate, False
+    return None, False
+
+
 def filter_df_by_ns_range(
     df: _pl.DataFrame,
     start: datetime,
@@ -87,7 +182,7 @@ def filter_df_by_ns_range(
     ensure_polars()
     if df.is_empty():
         return df
-    if df["timestamp"].dtype != PL.Datetime:
+    if df["timestamp"].dtype != PL.Datetime("ns", "UTC"):
         df = df.with_columns(PL.col("timestamp").cast(PL.Datetime("ns", "UTC")))
     start_ns = int(start.timestamp() * 1_000_000_000)
     end_ns = int(end.timestamp() * 1_000_000_000)

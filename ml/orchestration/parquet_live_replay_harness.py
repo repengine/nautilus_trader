@@ -34,9 +34,13 @@ from nautilus_trader.model.objects import Quantity
 
 from ml.actors import MLSignalActor
 from ml.config.actors import MLSignalActorConfig
+from ml.config.base import ExitPolicyConfig
 from ml.config.base import MLStrategyConfig
+from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
+from ml.config.replay_harness import StrategyReplayConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
+from ml.strategies.risk import RiskConfig
 from nautilus_trader.backtest.results import BacktestResult
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.currencies import USD
@@ -522,6 +526,95 @@ def _load_quote_ticks(
     return quote_ticks
 
 
+def _build_strategy_config(
+    *,
+    strategy_config: StrategyReplayConfig,
+    instrument_id: InstrumentId,
+    actor_id: str,
+    strategy_id: str,
+) -> MLStrategyConfig:
+    """
+    Build MLStrategyConfig for the replay harness.
+    """
+    risk_config = _resolve_risk_config(strategy_config)
+    exit_policy_config = ExitPolicyConfig(
+        stop_loss_pct=strategy_config.stop_loss_pct,
+        take_profit_pct=strategy_config.take_profit_pct,
+        max_holding_ms=strategy_config.max_holding_ms,
+    )
+    return MLStrategyConfig(
+        strategy_id=strategy_id,
+        instrument_id=instrument_id,
+        ml_signal_source=actor_id,
+        position_size_pct=strategy_config.position_size_pct,
+        min_confidence=strategy_config.min_confidence,
+        max_positions=strategy_config.max_positions,
+        stop_loss_pct=strategy_config.stop_loss_pct,
+        take_profit_pct=strategy_config.take_profit_pct,
+        exit_policy_config=exit_policy_config,
+        model_exit_config=strategy_config.model_exit_config,
+        risk_config=risk_config,
+        use_strategy_store=strategy_config.use_strategy_store,
+        persist_all_signals=strategy_config.persist_all_signals,
+        execute_trades=strategy_config.execute_trades,
+        serialize_order_intents=strategy_config.serialize_order_intents,
+        order_intent_path=strategy_config.order_intent_path,
+        subscribe_quote_ticks=strategy_config.subscribe_quote_ticks,
+        quote_schema=strategy_config.quote_schema,
+        max_quote_age_ms=strategy_config.max_quote_age_ms,
+    )
+
+
+def _build_actor_config(
+    *,
+    actor_config: ActorReplayConfig,
+    model_id: str,
+    model_path: str,
+    bar_type: BarType,
+    instrument_id: InstrumentId,
+    actor_id: str,
+) -> MLSignalActorConfig:
+    """
+    Build MLSignalActorConfig for the replay harness.
+    """
+    signal_strategy = actor_config.signal_strategy or "threshold"
+    min_signal_separation_bars = actor_config.min_signal_separation_bars or 3
+    return MLSignalActorConfig(
+        model_id=model_id,
+        model_path=model_path,
+        bar_type=bar_type,
+        instrument_id=instrument_id,
+        component_id=actor_id,
+        actor_id=actor_id,
+        prediction_threshold=actor_config.prediction_threshold,
+        warm_up_period=actor_config.warm_up_period,
+        publish_signals=actor_config.publish_signals,
+        log_predictions=actor_config.log_predictions,
+        signal_strategy=signal_strategy,
+        min_signal_separation_bars=min_signal_separation_bars,
+        feature_config=actor_config.feature_config,
+        feature_set_id=actor_config.feature_set_id,
+        registry_path=actor_config.registry_path,
+        use_registry_features=actor_config.use_registry_features,
+        db_connection=actor_config.db_connection,
+        use_dummy_stores=actor_config.use_dummy_stores,
+    )
+
+
+def _resolve_risk_config(strategy_config: StrategyReplayConfig) -> RiskConfig | None:
+    """
+    Resolve the risk configuration for replay runs.
+    """
+    if strategy_config.risk_config is not None:
+        return strategy_config.risk_config
+    if strategy_config.liquidation_config is None:
+        return None
+    return RiskConfig(
+        allow_reduce_only_when_halted=strategy_config.allow_reduce_only_when_halted,
+        liquidation_config=strategy_config.liquidation_config,
+    )
+
+
 def _attach_components(
     engine: BacktestEngine,
     config: ParquetLiveReplayHarnessConfig,
@@ -536,61 +629,20 @@ def _attach_components(
         strategy_id = f"{config.strategy.id_prefix}-{inst}"
         bar_type = bar_types[inst]
 
-        if config.actor.db_connection is None:
-            actor_config = MLSignalActorConfig(
-                model_id=config.model_id,
-                model_path=config.model_path,
-                bar_type=bar_type,
-                instrument_id=inst,
-                component_id=actor_id,
-                actor_id=actor_id,
-                prediction_threshold=config.actor.prediction_threshold,
-                warm_up_period=config.actor.warm_up_period,
-                publish_signals=config.actor.publish_signals,
-                log_predictions=config.actor.log_predictions,
-                feature_config=config.actor.feature_config,
-                feature_set_id=config.actor.feature_set_id,
-                registry_path=config.actor.registry_path,
-                use_registry_features=config.actor.use_registry_features,
-                use_dummy_stores=config.actor.use_dummy_stores,
-            )
-        else:
-            actor_config = MLSignalActorConfig(
-                model_id=config.model_id,
-                model_path=config.model_path,
-                bar_type=bar_type,
-                instrument_id=inst,
-                component_id=actor_id,
-                actor_id=actor_id,
-                prediction_threshold=config.actor.prediction_threshold,
-                warm_up_period=config.actor.warm_up_period,
-                publish_signals=config.actor.publish_signals,
-                log_predictions=config.actor.log_predictions,
-                feature_config=config.actor.feature_config,
-                feature_set_id=config.actor.feature_set_id,
-                registry_path=config.actor.registry_path,
-                use_registry_features=config.actor.use_registry_features,
-                db_connection=config.actor.db_connection,
-                use_dummy_stores=config.actor.use_dummy_stores,
-            )
-
-        strategy_config = MLStrategyConfig(
-            strategy_id=strategy_id,
+        actor_config = _build_actor_config(
+            actor_config=config.actor,
+            model_id=config.model_id,
+            model_path=config.model_path,
+            bar_type=bar_type,
             instrument_id=inst,
-            ml_signal_source=actor_id,
-            position_size_pct=config.strategy.position_size_pct,
-            min_confidence=config.strategy.min_confidence,
-            max_positions=config.strategy.max_positions,
-            stop_loss_pct=config.strategy.stop_loss_pct,
-            take_profit_pct=config.strategy.take_profit_pct,
-            use_strategy_store=config.strategy.use_strategy_store,
-            persist_all_signals=config.strategy.persist_all_signals,
-            execute_trades=config.strategy.execute_trades,
-            serialize_order_intents=config.strategy.serialize_order_intents,
-            order_intent_path=config.strategy.order_intent_path,
-            subscribe_quote_ticks=config.strategy.subscribe_quote_ticks,
-            quote_schema=config.strategy.quote_schema,
-            max_quote_age_ms=config.strategy.max_quote_age_ms,
+            actor_id=actor_id,
+        )
+
+        strategy_config = _build_strategy_config(
+            strategy_config=config.strategy,
+            instrument_id=inst,
+            actor_id=actor_id,
+            strategy_id=strategy_id,
         )
 
         actor = MLSignalActor(config=actor_config)

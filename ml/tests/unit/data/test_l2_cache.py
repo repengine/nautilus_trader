@@ -60,3 +60,19 @@ def test_ensure_day_skips_when_partition_valid(tmp_path: Path, monkeypatch: pyte
     cache.ensure_day("SPY", target_day, tmp_path)
 
     assert calls["count"] == 0
+
+
+def test_ensure_day_skips_empty_partition(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cache = L2MinuteCache(tmp_path)
+    target_day = date(2024, 1, 4)
+    partition = cache.path_for("SPY", target_day)
+
+    def fake_compute(self, symbol: str, start: datetime | None = None, end: datetime | None = None) -> pl.DataFrame:  # type: ignore[override]
+        _ = (symbol, start, end)
+        return pl.DataFrame({"timestamp": []})
+
+    monkeypatch.setattr("ml.data.l2_cache.L2Aggregator.compute_for_symbol", fake_compute)
+
+    cache.ensure_day("SPY", target_day, tmp_path)
+
+    assert not partition.exists()

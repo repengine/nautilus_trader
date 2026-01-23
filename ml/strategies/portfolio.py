@@ -20,6 +20,7 @@ import numpy.typing as npt
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.strategies.common.correlation import CorrelationSnapshot
 
 
 if TYPE_CHECKING:
@@ -124,6 +125,7 @@ class PortfolioManager:
         # Returns buffer for correlation calculation
         self._returns_buffer: dict[InstrumentId, npt.NDArray[np.float32]] = {}
         self._buffer_size: Final[int] = self.config.correlation_lookback
+        self._correlation_last_update_ns: int | None = None
 
         # Performance attribution
         self._instrument_pnl: dict[InstrumentId, float] = {}
@@ -543,6 +545,8 @@ class PortfolioManager:
         inst2: InstrumentId,
         returns1: npt.NDArray[np.float32],
         returns2: npt.NDArray[np.float32],
+        *,
+        ts_event: int | None = None,
     ) -> None:
         """
         Update correlation between two instruments.
@@ -557,6 +561,8 @@ class PortfolioManager:
             Returns for first instrument.
         returns2 : np.ndarray
             Returns for second instrument.
+        ts_event : int | None, optional
+            Event timestamp (nanoseconds) for freshness tracking.
 
         """
         if len(returns1) != len(returns2) or len(returns1) < 2:
@@ -585,6 +591,34 @@ class PortfolioManager:
         # Update symmetric matrix
         self._correlation_matrix[idx1, idx2] = new_corr
         self._correlation_matrix[idx2, idx1] = new_corr
+        self._correlation_last_update_ns = ts_event or time.time_ns()
+
+    def get_correlation_snapshot(
+        self,
+        inst1: InstrumentId,
+        inst2: InstrumentId,
+    ) -> CorrelationSnapshot:
+        """
+        Return correlation snapshot with last update timestamp.
+
+        Parameters
+        ----------
+        inst1 : InstrumentId
+            First instrument.
+        inst2 : InstrumentId
+            Second instrument.
+
+        Returns
+        -------
+        CorrelationSnapshot
+            Snapshot including correlation value and timestamp.
+
+        """
+        return CorrelationSnapshot(
+            value=self.get_correlation(inst1, inst2),
+            ts_event=self._correlation_last_update_ns,
+            source="portfolio_manager",
+        )
 
     def _get_instrument_index(self, instrument: InstrumentId) -> int:
         """

@@ -73,7 +73,7 @@ timestamp_field = "timestamp"
 [[datasets]]
 dataset_id = "ml.events_calendar"
 schema = "events_calendar"
-entities = "@tier1_full"
+entities = ["__GLOBAL__"]
 entity_field = "instrument_id"
 strip_venue = true
 
@@ -94,7 +94,7 @@ dataset_id = "ml.microstructure_minute"
 schema = "microstructure_minute"
 entities = "@tier1_full"
 entity_field = "instrument_id"
-strip_venue = true
+strip_venue = false
 
 [datasets.sql]
 table = "microstructure_minute"
@@ -113,7 +113,7 @@ dataset_id = "ml.l2_minute"
 schema = "l2_minute"
 entities = "@tier1_full"
 entity_field = "instrument_id"
-strip_venue = true
+strip_venue = false
 
 [datasets.sql]
 table = "l2_minute"

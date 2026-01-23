@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +86,8 @@ def test_training_facade_initializes_feature_store_from_db_connection(
             self.feature_config = feature_config
             self.pipeline_spec = pipeline_spec
 
-    monkeypatch.setattr("ml.stores.feature_store.FeatureStore", _FakeFeatureStore)
+    feature_store_mod = importlib.import_module("ml.stores.feature_store")
+    monkeypatch.setattr(feature_store_mod, "FeatureStore", _FakeFeatureStore)
 
     feature_config = MLFeatureConfig()
     config = _training_config(db_connection="sqlite://", feature_config=feature_config)

@@ -326,6 +326,7 @@ class TFTDatasetBuilder:
                 source=binding.source,
                 license_start=binding.license_start,
                 license_end=binding.license_end,
+                provider_dataset_id=binding.provider_dataset_id,
             )
             for inst in binding.instrument_ids:
                 self._binding_index[inst.upper()] = binding

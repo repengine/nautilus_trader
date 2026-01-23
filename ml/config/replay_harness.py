@@ -5,10 +5,12 @@ Configuration for the parquet live replay harness.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
 from ml.config.base import MLFeatureConfig
+from ml.config.base import ModelExitConfig
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -17,6 +19,11 @@ from nautilus_trader.common.config import PositiveInt
 
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    from ml.strategies.risk import RiskConfig
+    from ml.strategies.risk import RiskLiquidationConfig
 
 
 class ActorReplayConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -35,6 +42,10 @@ class ActorReplayConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether to publish ML signals on the message bus.
     log_predictions : bool, default False
         Whether to log individual predictions.
+    signal_strategy : str | None, optional
+        Optional signal strategy override (e.g., "threshold", "momentum").
+    min_signal_separation_bars : int | None, optional
+        Optional minimum bars between signals override.
     feature_config : MLFeatureConfig | None, optional
         Feature configuration overrides.
     feature_set_id : str | None, optional
@@ -54,6 +65,10 @@ class ActorReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     warm_up_period: NonNegativeInt = 50
     publish_signals: bool = True
     log_predictions: bool = False
+    signal_strategy: (
+        Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | None
+    ) = None
+    min_signal_separation_bars: PositiveInt | None = None
     feature_config: MLFeatureConfig | None = None
     feature_set_id: str | None = None
     registry_path: str | None = None
@@ -86,6 +101,10 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
         Stop loss threshold.
     take_profit_pct : NonNegativeFloat, default 0.04
         Take profit threshold.
+    max_holding_ms : NonNegativeInt | None, optional
+        Maximum holding time in milliseconds before forcing an exit.
+    model_exit_config : ModelExitConfig | None, optional
+        Optional model-driven exit configuration.
     persist_all_signals : bool, default False
         Whether to persist HOLD signals as well.
     execute_trades : bool, default False
@@ -102,6 +121,12 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
         Maximum quote age in milliseconds allowed for execution market state.
     use_strategy_store : bool, default True
         Whether to persist strategy decisions to StrategyStore.
+    risk_config : RiskConfig | None, optional
+        Optional risk configuration override.
+    liquidation_config : RiskLiquidationConfig | None, optional
+        Optional liquidation config to merge into default risk settings.
+    allow_reduce_only_when_halted : bool, default True
+        Allow reduce-only orders to bypass risk halts when configured.
     """
 
     id_prefix: str = "MLStrategy"
@@ -110,6 +135,8 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     max_positions: PositiveInt = 1
     stop_loss_pct: NonNegativeFloat = 0.02
     take_profit_pct: NonNegativeFloat = 0.04
+    max_holding_ms: NonNegativeInt | None = None
+    model_exit_config: ModelExitConfig | None = None
     persist_all_signals: bool = False
     execute_trades: bool = False
     serialize_order_intents: bool = False
@@ -118,12 +145,17 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     quote_schema: str | None = None
     max_quote_age_ms: NonNegativeInt | None = None
     use_strategy_store: bool = True
+    risk_config: RiskConfig | None = None
+    liquidation_config: RiskLiquidationConfig | None = None
+    allow_reduce_only_when_halted: bool = True
 
     def __post_init__(self) -> None:
         if not self.id_prefix.strip():
             raise ValueError("id_prefix must be non-empty")
         if self.quote_schema is not None and not self.quote_schema.strip():
             raise ValueError("quote_schema must be non-empty when provided")
+        if self.risk_config is not None and self.liquidation_config is not None:
+            raise ValueError("risk_config and liquidation_config cannot both be set")
 
 
 class ParquetLiveReplayHarnessConfig(NautilusConfig, kw_only=True, frozen=True):

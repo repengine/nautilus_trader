@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
+import time
 from typing import Any
 
 from ml.actors.base import MLSignal
+from ml.config.base import PositionsSource
+from ml.strategies.common.correlation import CorrelationSnapshot
+from ml.strategies.common.positions import PositionsHealthStatus
+from ml.strategies.common.positions import PositionsSnapshot
 from ml.strategies.risk import RiskConfig, RiskManager
 from ml.strategies.sizing import CompositeSizer, SizingConfig
 from nautilus_trader.model.identifiers import InstrumentId
@@ -62,6 +68,61 @@ class _DummyPortfolio:
 
     def account(self, _venue: Any) -> Any:  # noqa: D401
         return _DummyAccount(self._account_balance)
+
+
+@dataclass(frozen=True)
+class _DummyPositionView:
+    instrument_id: InstrumentId
+    is_open: bool = True
+
+    def signed_decimal_qty(self) -> Decimal:
+        return Decimal("1.0")
+
+
+class _DummyPositionsProvider:
+    def __init__(self, positions: list[_DummyPositionView]) -> None:
+        self._snapshot = PositionsSnapshot(
+            positions=positions,
+            source=PositionsSource.CACHE_OPEN,
+        )
+
+    def get_positions_snapshot(
+        self,
+        *,
+        instrument_id: InstrumentId | None = None,
+        require_full_list: bool = False,
+    ) -> PositionsSnapshot:
+        del instrument_id, require_full_list
+        return self._snapshot
+
+    def check_positions_ready(
+        self,
+        *,
+        instrument_id: InstrumentId | None = None,
+        require_full_list: bool = False,
+        require_positions: bool = False,
+    ) -> PositionsHealthStatus:
+        del instrument_id, require_full_list, require_positions
+        return PositionsHealthStatus(
+            ready=True,
+            degraded=False,
+            source=self._snapshot.source,
+            reason=None,
+            positions_count=len(self._snapshot.positions),
+        )
+
+
+class _DummyCorrelationProvider:
+    def __init__(self, snapshot: CorrelationSnapshot | None) -> None:
+        self._snapshot = snapshot
+
+    def get_correlation_snapshot(
+        self,
+        inst1: InstrumentId,
+        inst2: InstrumentId,
+    ) -> CorrelationSnapshot | None:
+        del inst1, inst2
+        return self._snapshot
 
 
 # Monkeypatch Quantities to strategy code path for unit tests
@@ -162,9 +223,29 @@ def test_risk_manager_daily_circuit_breaker_and_correlation(monkeypatch: MonkeyP
     # Add another instrument correlated to inst
     inst2 = InstrumentId.from_str("TEST2.SIM")
     portfolio._positions.append(_DummyPosition(inst2, _DummyQuantity(500.0), is_open=True))
-    # Patch RiskManager internal correlation lookup to return high correlation
-    rm._position_correlations[(inst, inst2)] = 0.9
-    rm._position_correlations[(inst2, inst)] = 0.9
+    rm.set_correlation_provider(
+        _DummyCorrelationProvider(
+            CorrelationSnapshot(value=0.9, ts_event=time.time_ns(), source="test"),
+        ),
+    )
 
     # Proposed new trade on inst should be rejected due to correlation limit
+    assert rm._check_correlation_limits(inst, portfolio) is False
+
+
+def test_risk_manager_uses_positions_provider_snapshot() -> None:
+    inst = InstrumentId.from_str("AAA.SIM")
+    inst2 = InstrumentId.from_str("BBB.SIM")
+    provider = _DummyPositionsProvider([_DummyPositionView(inst2)])
+    rm = RiskManager(
+        RiskConfig(correlation_threshold=0.0, max_correlated_positions=1),
+        positions_provider=provider,
+    )
+    rm.set_correlation_provider(
+        _DummyCorrelationProvider(
+            CorrelationSnapshot(value=0.1, ts_event=time.time_ns(), source="test"),
+        ),
+    )
+    portfolio = _DummyPortfolio()
+
     assert rm._check_correlation_limits(inst, portfolio) is False

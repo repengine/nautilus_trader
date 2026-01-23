@@ -2,8 +2,8 @@
 Schema inspection utilities for validating Nautilus ML database layouts.
 
 The helpers verify that critical tables (feature/model/strategy stores and
-``market_data``) satisfy the partitioning and column requirements expected by
-the consolidated migrations.  Results can be consumed programmatically or via
+market data class tables) satisfy the partitioning and column requirements
+expected by the consolidated migrations.  Results can be consumed programmatically or via
 the CLI::
 
     poetry run python -m ml.stores.schema_audit inspect --db-url postgresql://...
@@ -331,10 +331,45 @@ def _default_table_expectations() -> tuple[TableExpectation, ...]:
             require_primary_key=("strategy_id", "instrument_id", "ts_event"),
         ),
         TableExpectation(
-            table="market_data",
-            required_columns=("instrument_id", "ts_event", "bid", "ask", "bid_size", "ask_size"),
+            table="market_data_bar",
+            required_columns=(
+                "instrument_id",
+                "ts_event",
+                "ts_init",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ),
+            partition_columns=("ts_event",),
+            require_primary_key=("instrument_id", "ts_event"),
+        ),
+        TableExpectation(
+            table="market_data_quote_tick",
+            required_columns=("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
             partition_columns=("ts_event",),
             require_generated_columns=("spread", "mid_price"),
+            require_primary_key=("instrument_id", "ts_event"),
+        ),
+        TableExpectation(
+            table="market_data_tbbo",
+            required_columns=("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
+            partition_columns=("ts_event",),
+            require_generated_columns=("spread", "mid_price"),
+            require_primary_key=("instrument_id", "ts_event"),
+        ),
+        TableExpectation(
+            table="market_data_mbp1",
+            required_columns=("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
+            partition_columns=("ts_event",),
+            require_generated_columns=("spread", "mid_price"),
+            require_primary_key=("instrument_id", "ts_event"),
+        ),
+        TableExpectation(
+            table="market_data_trade_tick",
+            required_columns=("instrument_id", "ts_event", "ts_init", "last"),
+            partition_columns=("ts_event",),
             require_primary_key=("instrument_id", "ts_event"),
         ),
     )
@@ -348,6 +383,26 @@ def _default_function_expectations() -> tuple[FunctionExpectation, ...]:
 
 _DEFAULT_TABLE_EXPECTATIONS = _default_table_expectations()
 _DEFAULT_FUNCTIONS = _default_function_expectations()
+
+
+def default_table_expectations() -> tuple[TableExpectation, ...]:
+    """
+    Return the default table expectations used by the schema audit.
+
+    Returns:
+        Tuple of TableExpectation instances.
+    """
+    return _DEFAULT_TABLE_EXPECTATIONS
+
+
+def default_function_expectations() -> tuple[FunctionExpectation, ...]:
+    """
+    Return the default function expectations used by the schema audit.
+
+    Returns:
+        Tuple of FunctionExpectation instances.
+    """
+    return _DEFAULT_FUNCTIONS
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -420,5 +475,7 @@ __all__ = [
     "SchemaAuditor",
     "TableExpectation",
     "TableInspection",
+    "default_function_expectations",
+    "default_table_expectations",
     "main",
 ]

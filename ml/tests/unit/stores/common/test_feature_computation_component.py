@@ -311,6 +311,89 @@ class TestFeatureComputationConfig:
 
 
 # =========================================================================
+# Bars Table Resolution Tests
+# =========================================================================
+
+
+class TestFeatureComputationBarResolution:
+    """
+    Test bar table resolution and fallback behavior.
+    """
+
+    def test_resolve_bars_table_name_prefers_bar_when_present(
+        self,
+        feature_computation: FeatureComputationComponent,
+    ) -> None:
+        """
+        Verify bar table is preferred when available.
+        """
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["bar", "market_data"]
+
+        with patch(
+            "ml.stores.common.feature_computation.inspect",
+            return_value=inspector,
+        ):
+            table_name = feature_computation._resolve_bars_table_name()
+
+        assert table_name == "bar"
+
+    def test_resolve_bars_table_name_falls_back_to_market_data_when_bar_missing(
+        self,
+        feature_computation: FeatureComputationComponent,
+    ) -> None:
+        """
+        Verify market_data fallback is used when bar table is missing.
+        """
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["market_data"]
+
+        with patch(
+            "ml.stores.common.feature_computation.inspect",
+            return_value=inspector,
+        ):
+            table_name = feature_computation._resolve_bars_table_name()
+
+        assert table_name == "market_data"
+
+    def test_load_bars_from_nautilus_uses_market_data_when_bar_missing(
+        self,
+        feature_computation: FeatureComputationComponent,
+    ) -> None:
+        """
+        Verify market_data is used to load bars when bar table is missing.
+        """
+        fake_pl = MagicMock()
+        expected_df = MockPolarsDataFrame(
+            data={
+                "ts_event": [1700000000000000000],
+                "open": [100.0],
+                "high": [101.0],
+                "low": [99.0],
+                "close": [100.5],
+                "volume": [1000.0],
+            },
+        )
+        fake_pl.from_pandas.return_value = expected_df
+
+        with (
+            patch.object(feature_computation, "_resolve_bars_table_name", return_value="market_data"),
+            patch("ml._imports.pl", fake_pl),
+            patch("pandas.read_sql_query") as mock_read,
+        ):
+            result = feature_computation._load_bars_from_nautilus(
+                instrument_id="AAPL.EQUS",
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert result is expected_df
+        sql_arg = mock_read.call_args.args[0]
+        assert "FROM public.market_data" in str(sql_arg)
+        assert "open IS NOT NULL" in str(sql_arg)
+
+
+# =========================================================================
 # Happy Path Tests - compute_realtime
 # =========================================================================
 
@@ -618,6 +701,34 @@ class TestComputeAndStoreHistorical:
         )
 
         assert row_count == 0
+
+    def test_execute_historical_bulk_upsert_mirrors_rows(
+        self,
+        feature_computation: FeatureComputationComponent,
+        mock_feature_writer: MagicMock,
+    ) -> None:
+        """
+        Verify historical upserts trigger parquet mirror writes.
+        """
+        rows = [
+            {
+                "feature_set_id": "fs_001",
+                "instrument_id": "SPY.EQUS",
+                "ts_event": 1700000000000000000,
+                "ts_init": 1700000000000000000,
+                "values": {"close_return": 0.01},
+                "is_live": False,
+                "source": "historical",
+            },
+        ]
+        mock_feature_writer._mirror_rows = MagicMock()
+
+        stmt = MagicMock()
+        stmt.on_conflict_do_update.return_value = stmt
+        with patch("sqlalchemy.dialects.postgresql.insert", return_value=stmt):
+            feature_computation._execute_historical_bulk_upsert(rows)
+
+        mock_feature_writer._mirror_rows.assert_called_once_with(rows)
 
 
 # =========================================================================

@@ -23,6 +23,7 @@ from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.events import Source
 from ml.config.ingestion_windows import WatermarkWindowConfig
 from ml.config.ingestion_windows import events_window_defaults
+from ml.data.coverage.types import GLOBAL_ENTITY_ID
 from ml.ml_types import PolarsDF
 from ml.stores.protocols import DataStoreFacadeProtocol
 
@@ -52,6 +53,16 @@ def _normalize_datetime(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt
     return dt.astimezone(UTC).replace(tzinfo=None)
+
+
+def _normalize_instrument_id_column(column: Any) -> Any:
+    _pl = POLARS
+    return (
+        _pl.when(column.is_null() | (column == ""))
+        .then(_pl.lit(GLOBAL_ENTITY_ID))
+        .otherwise(column)
+        .cast(_pl.Utf8)
+    )
 
 
 def _iter_months(start: datetime, end: datetime) -> Iterable[tuple[int, int]]:
@@ -209,7 +220,7 @@ class EventIngestionUtility:
         df = df.with_columns(
             [
                 _pl.col("event_timestamp").cast(_pl.Datetime("ns")),
-                _pl.col("instrument_id").fill_null(""),
+                _normalize_instrument_id_column(_pl.col("instrument_id")).alias("instrument_id"),
                 _pl.col("importance").fill_null("MEDIUM"),
                 _pl.col("source").fill_null("ingestion"),
             ],
@@ -238,7 +249,7 @@ class EventIngestionUtility:
             )
             .with_columns(
                 [
-                    _pl.col("instrument_id").fill_null("").cast(_pl.Utf8),
+                    _normalize_instrument_id_column(_pl.col("instrument_id")).alias("instrument_id"),
                     _pl.col("metadata").fill_null("").cast(_pl.Utf8),
                 ],
             )

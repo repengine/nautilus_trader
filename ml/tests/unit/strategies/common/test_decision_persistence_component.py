@@ -546,6 +546,35 @@ class TestExecutionParamsBuilding:
 
         assert params["position_size"] == "50"
 
+    def test_execution_params_include_positions_metadata(
+        self,
+        decision_persistence_component: DecisionPersistenceComponent,
+        mock_strategy_store: MagicMock,
+    ) -> None:
+        """Verify positions metadata is appended to execution params."""
+        signal = create_mock_signal()
+        positions_metadata = {
+            "source": "cache_positions_open",
+            "ready": True,
+            "degraded": False,
+            "reason": None,
+            "count": 2,
+        }
+
+        decision_persistence_component.update_state(
+            positions_metadata=positions_metadata,
+        )
+        decision_persistence_component.persist_decision(
+            signal=signal,
+            decision_type="BUY",
+            execution_params=None,
+        )
+
+        call_args = mock_strategy_store.write_signal.call_args
+        exec_params = call_args.kwargs["execution_params"]
+
+        assert exec_params["positions"] == positions_metadata
+
 
 # ---------------------------------------------------------------------------
 # Test Class: Decision Publisher

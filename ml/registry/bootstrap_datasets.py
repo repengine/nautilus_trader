@@ -19,6 +19,10 @@ from typing import Any
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_MBP1_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_QUOTES_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_TBBO_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_TRADES_DATASET_ID
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
@@ -255,7 +259,7 @@ def create_standard_manifests() -> list[DatasetManifest]:
         dataset_id=EQUS_MINI_DATASET_ID,
         dataset_type=DatasetType.BARS,
         storage_kind=StorageKind.POSTGRES,
-        location="market_data",
+        location="market_data_bar",
         partitioning={"by": "ts_event", "interval": "monthly"},
         retention_days=365,
         schema={
@@ -288,6 +292,150 @@ def create_standard_manifests() -> list[DatasetManifest]:
         version="1.0.0",
     )
     manifests.append(eq_us_mini_manifest)
+
+    eq_us_mini_tbbo_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_TBBO_DATASET_ID,
+        dataset_type=DatasetType.TBBO,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data_tbbo",
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "ts_init", "bid", "ask"],
+            "nullable_fields": ["bid_size", "ask_size", "spread", "mid_price"],
+            "ranges": {
+                "bid": {"min": 0.0},
+                "ask": {"min": 0.0},
+                "bid_size": {"min": 0.0},
+                "ask_size": {"min": 0.0},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_canonical_v1",
+        version="1.0.0",
+    )
+    manifests.append(eq_us_mini_tbbo_manifest)
+
+    eq_us_mini_mbp1_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_MBP1_DATASET_ID,
+        dataset_type=DatasetType.MBP1,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data_mbp1",
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "ts_init", "bid", "ask"],
+            "nullable_fields": ["bid_size", "ask_size", "spread", "mid_price"],
+            "ranges": {
+                "bid": {"min": 0.0},
+                "ask": {"min": 0.0},
+                "bid_size": {"min": 0.0},
+                "ask_size": {"min": 0.0},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_canonical_v1",
+        version="1.0.0",
+    )
+    manifests.append(eq_us_mini_mbp1_manifest)
+
+    eq_us_mini_quotes_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_QUOTES_DATASET_ID,
+        dataset_type=DatasetType.QUOTES,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data_quote_tick",
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "ts_init", "bid", "ask"],
+            "nullable_fields": ["bid_size", "ask_size"],
+            "ranges": {
+                "bid": {"min": 0.0},
+                "ask": {"min": 0.0},
+                "bid_size": {"min": 0.0},
+                "ask_size": {"min": 0.0},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_canonical_v1",
+        version="1.0.0",
+    )
+    manifests.append(eq_us_mini_quotes_manifest)
+
+    eq_us_mini_trades_manifest = DatasetManifest(
+        dataset_id=EQUS_MINI_TRADES_DATASET_ID,
+        dataset_type=DatasetType.TRADES,
+        storage_kind=StorageKind.POSTGRES,
+        location="market_data_trade_tick",
+        partitioning={"by": "ts_event", "interval": "monthly"},
+        retention_days=365,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "last": "float64",
+            "trade_count": "int64",
+            "vwap": "float64",
+            "volume": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["instrument_id", "ts_event", "ts_init", "last"],
+            "nullable_fields": ["trade_count", "vwap", "volume"],
+            "ranges": {
+                "last": {"min": 0.0},
+                "trade_count": {"min": 0},
+                "vwap": {"min": 0.0},
+                "volume": {"min": 0.0},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_canonical_v1",
+        version="1.0.0",
+    )
+    manifests.append(eq_us_mini_trades_manifest)
 
     # EARNINGS ACTUALS dataset
     earnings_actuals_manifest = DatasetManifest(
@@ -710,6 +858,102 @@ def create_standard_contracts() -> dict[str, DataContract]:
         ),
     )
     contracts[EQUS_MINI_DATASET_ID] = eq_us_mini_contract
+
+    eq_us_mini_tbbo_contract = DataContract(
+        contract_id="equs_mini_tbbo_contract_v1",
+        dataset_id=EQUS_MINI_TBBO_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "bid", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "ask", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini_tbbo.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini_tbbo.modified",
+        ),
+    )
+    contracts[EQUS_MINI_TBBO_DATASET_ID] = eq_us_mini_tbbo_contract
+
+    eq_us_mini_mbp1_contract = DataContract(
+        contract_id="equs_mini_mbp1_contract_v1",
+        dataset_id=EQUS_MINI_MBP1_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "bid", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "ask", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini_mbp1.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini_mbp1.modified",
+        ),
+    )
+    contracts[EQUS_MINI_MBP1_DATASET_ID] = eq_us_mini_mbp1_contract
+
+    eq_us_mini_quotes_contract = DataContract(
+        contract_id="equs_mini_quotes_contract_v1",
+        dataset_id=EQUS_MINI_QUOTES_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "bid", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "ask", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini_quotes.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini_quotes.modified",
+        ),
+    )
+    contracts[EQUS_MINI_QUOTES_DATASET_ID] = eq_us_mini_quotes_contract
+
+    eq_us_mini_trades_contract = DataContract(
+        contract_id="equs_mini_trades_contract_v1",
+        dataset_id=EQUS_MINI_TRADES_DATASET_ID,
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "last", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "volume", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:equs_mini_trades.created"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:equs_mini_trades.modified",
+        ),
+    )
+    contracts[EQUS_MINI_TRADES_DATASET_ID] = eq_us_mini_trades_contract
 
     # Quotes contract - lenient mode for market data
     quotes_contract = DataContract(

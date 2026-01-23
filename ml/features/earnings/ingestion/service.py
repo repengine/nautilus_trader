@@ -238,8 +238,8 @@ class EarningsIngestionService:
                 logger.debug("Skipping Yahoo consensus for %s due to missing period_end", ticker)
                 continue
 
-            ts_event = _datetime_to_ns(consensus.estimate_date)
             ts_init = time.time_ns()
+            ts_event = self._resolve_estimate_ts_event(consensus, ts_init)
             self._writer.write_earnings_estimate(
                 ticker=consensus.ticker,
                 estimate_date=consensus.estimate_date.date().isoformat(),
@@ -253,6 +253,30 @@ class EarningsIngestionService:
             )
             written += 1
         return written
+
+    def _resolve_estimate_ts_event(
+        self,
+        consensus: EarningsConsensus,
+        ts_init: int,
+    ) -> int:
+        """
+        Resolve a point-in-time timestamp for an earnings estimate.
+
+        If the upstream estimate timestamp lands in the future, clamp to the
+        ingestion time so point-in-time lookups never see forward-dated entries.
+        """
+        ts_event = _datetime_to_ns(consensus.estimate_date)
+        if ts_event > ts_init:
+            logger.debug(
+                "earnings_estimate.future_ts_event",
+                extra={
+                    "ticker": consensus.ticker,
+                    "estimate_ts_event": ts_event,
+                    "ts_init": ts_init,
+                },
+            )
+            return ts_init
+        return ts_event
 
     def _align_period_end(
         self,

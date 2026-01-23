@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
 from nautilus_trader.model.identifiers import ClientOrderId
@@ -21,6 +22,8 @@ from nautilus_trader.model.objects import Quantity
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.base import LimitPriceConfig
+from ml.config.base import LimitPriceSource
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
@@ -63,6 +66,12 @@ fee_savings_total = get_counter(
     labels=["method"],
 )
 
+limit_price_source_total = get_counter(
+    "ml_limit_price_source_total",
+    "Limit price source usage for smart execution",
+    labels=["source"],
+)
+
 
 @dataclass(slots=True)
 class _OrderIds:
@@ -100,6 +109,8 @@ class ExecutionConfig:
     limit_offset_bps: int = 5            # Basis points offset for limit orders
     aggressive_offset_bps: int = 2       # Aggressive limit (closer to market)
     passive_offset_bps: int = 10         # Passive limit (further from market)
+    # Limit price fallback settings
+    limit_price_config: LimitPriceConfig = field(default_factory=LimitPriceConfig)
 
     # Time management
     limit_order_ttl_seconds: int = 60      # Time to live for limit orders
@@ -141,6 +152,7 @@ class OrderExecutor:
         self._limit_orders: int = 0
         self._fee_savings: float = 0.0
         self._last_ttl_plan: dict[str, float | int | str] | None = None
+        self._last_limit_price_source: str | None = None
 
     def create_order(
         self,
@@ -190,13 +202,13 @@ class OrderExecutor:
                 return None
 
             # Get market prices
-            bid = market_state.get("bid", 0.0)
-            ask = market_state.get("ask", 0.0)
-            spread_bps = market_state.get("spread_bps", 0.0)
-
-            if bid <= 0 or ask <= 0:
-                logger.error("Invalid market prices, cannot create order")
-                return None
+            bid = float(market_state.get("bid", 0.0) or 0.0)
+            ask = float(market_state.get("ask", 0.0) or 0.0)
+            spread_bps = float(market_state.get("spread_bps", 0.0) or 0.0)
+            has_quote = bid > 0 and ask > 0
+            if not has_quote and spread_bps <= 0:
+                spread_bps = float(self.config.max_spread_bps + 1)
+            self._last_limit_price_source = None
 
             # Determine urgency level (with fee/spread calibration)
             urgency = self._determine_urgency(signal.confidence, spread_bps)
@@ -228,8 +240,7 @@ class OrderExecutor:
                 order = self._create_aggressive_limit(
                     side=side,
                     quantity=quantity,
-                    bid=bid,
-                    ask=ask,
+                    market_state=market_state,
                     instrument=instrument,
                     order_ids=order_ids,
                 )
@@ -240,8 +251,7 @@ class OrderExecutor:
                 order = self._create_passive_limit(
                     side=side,
                     quantity=quantity,
-                    bid=bid,
-                    ask=ask,
+                    market_state=market_state,
                     instrument=instrument,
                     order_ids=order_ids,
                 )
@@ -332,7 +342,7 @@ class OrderExecutor:
         instrument: Instrument,
         *,
         order_ids: _OrderIds,
-    ) -> Order:
+    ) -> Order | None:
         """
         Create a market order for immediate execution.
 
@@ -371,8 +381,7 @@ class OrderExecutor:
         self,
         side: OrderSide,
         quantity: Quantity,
-        bid: float,
-        ask: float,
+        market_state: dict[str, float],
         instrument: Instrument,
         *,
         order_ids: _OrderIds,
@@ -386,35 +395,30 @@ class OrderExecutor:
             Order side.
         quantity : Quantity
             Order quantity.
-        bid : float
-            Current bid price.
-        ask : float
-            Current ask price.
+        market_state : dict[str, float]
+            Market state snapshot (quotes, trades, cached prices).
         instrument : Instrument
             Instrument to trade.
 
         Returns
         -------
-        LimitOrder
-            Aggressive limit order.
+        LimitOrder | None
+            Aggressive limit order, or None when no price source is available.
 
         """
         from nautilus_trader.model.orders import LimitOrder
 
         self._limit_orders += 1
 
-        # Calculate aggressive price (closer to market)
-        offset_bps = self.config.aggressive_offset_bps / 10000
-
-        if side == OrderSide.BUY:
-            # Buy slightly below ask
-            limit_price = ask * (1 - offset_bps)
-        else:
-            # Sell slightly above bid
-            limit_price = bid * (1 + offset_bps)
-
-        # Round to instrument precision
-        limit_price = self._round_price(limit_price, instrument)
+        limit_price = self._resolve_limit_price(
+            side=side,
+            order_kind="aggressive",
+            market_state=market_state,
+            instrument=instrument,
+        )
+        if limit_price is None:
+            logger.error("No valid price source for aggressive limit order")
+            return None
 
         order = LimitOrder(
             trader_id=order_ids.trader_id,
@@ -423,7 +427,7 @@ class OrderExecutor:
             client_order_id=order_ids.client_order_id,
             order_side=side,
             quantity=quantity,
-            price=Price.from_str(str(limit_price)),
+            price=self._build_limit_price(limit_price, instrument),
             init_id=order_ids.init_id,
             ts_init=order_ids.ts_init,
             time_in_force=TimeInForce.IOC if self.config.use_time_in_force_ioc else TimeInForce.GTC,
@@ -439,12 +443,11 @@ class OrderExecutor:
         self,
         side: OrderSide,
         quantity: Quantity,
-        bid: float,
-        ask: float,
+        market_state: dict[str, float],
         instrument: Instrument,
         *,
         order_ids: _OrderIds,
-    ) -> Order:
+    ) -> Order | None:
         """
         Create a passive limit order (maker fee).
 
@@ -454,35 +457,30 @@ class OrderExecutor:
             Order side.
         quantity : Quantity
             Order quantity.
-        bid : float
-            Current bid price.
-        ask : float
-            Current ask price.
+        market_state : dict[str, float]
+            Market state snapshot (quotes, trades, cached prices).
         instrument : Instrument
             Instrument to trade.
 
         Returns
         -------
-        LimitOrder
-            Passive limit order.
+        LimitOrder | None
+            Passive limit order, or None when no price source is available.
 
         """
         from nautilus_trader.model.orders import LimitOrder
 
         self._limit_orders += 1
 
-        # Calculate passive price (join the queue)
-        offset_bps = self.config.passive_offset_bps / 10000
-
-        if side == OrderSide.BUY:
-            # Buy at or below bid (maker)
-            limit_price = bid * (1 - offset_bps)
-        else:
-            # Sell at or above ask (maker)
-            limit_price = ask * (1 + offset_bps)
-
-        # Round to instrument precision
-        limit_price = self._round_price(limit_price, instrument)
+        limit_price = self._resolve_limit_price(
+            side=side,
+            order_kind="passive",
+            market_state=market_state,
+            instrument=instrument,
+        )
+        if limit_price is None:
+            logger.error("No valid price source for passive limit order")
+            return None
 
         # Track potential fee savings
         if self.config.prefer_maker_orders:
@@ -500,7 +498,7 @@ class OrderExecutor:
             client_order_id=order_ids.client_order_id,
             order_side=side,
             quantity=quantity,
-            price=Price.from_str(str(limit_price)),
+            price=self._build_limit_price(limit_price, instrument),
             init_id=order_ids.init_id,
             ts_init=order_ids.ts_init,
             time_in_force=TimeInForce.GTC,  # Let it sit
@@ -508,6 +506,102 @@ class OrderExecutor:
         )
         self._record_ttl_plan(order_type="limit_passive", will_rest=True)
         return order
+
+    def _resolve_limit_price(
+        self,
+        *,
+        side: OrderSide,
+        order_kind: str,
+        market_state: dict[str, float],
+        instrument: Instrument,
+    ) -> float | None:
+        """
+        Resolve limit price from configured market data fallbacks.
+        """
+        base_price, source = self._resolve_limit_price_source(
+            side=side,
+            order_kind=order_kind,
+            market_state=market_state,
+        )
+        if base_price is None or source is None:
+            return None
+
+        offset_bps = (
+            self.config.aggressive_offset_bps if order_kind == "aggressive" else self.config.passive_offset_bps
+        ) / 10_000.0
+        if side == OrderSide.BUY:
+            limit_price = base_price * (1 - offset_bps)
+        else:
+            limit_price = base_price * (1 + offset_bps)
+        limit_price = self._round_price(limit_price, instrument)
+        self._record_limit_price_source(source)
+        return limit_price
+
+    def _resolve_limit_price_source(
+        self,
+        *,
+        side: OrderSide,
+        order_kind: str,
+        market_state: dict[str, float],
+    ) -> tuple[float | None, LimitPriceSource | None]:
+        """
+        Resolve a base price and source for limit order pricing.
+        """
+        bid = float(market_state.get("bid", 0.0) or 0.0)
+        ask = float(market_state.get("ask", 0.0) or 0.0)
+        mid = float(market_state.get("mid", 0.0) or 0.0)
+        if mid <= 0 and bid > 0 and ask > 0:
+            mid = (bid + ask) / 2.0
+        last_trade = float(market_state.get("last_trade", 0.0) or 0.0)
+        cache_last = float(market_state.get("cache_last", 0.0) or 0.0)
+
+        for source in self.config.limit_price_config.source_priority:
+            if source is LimitPriceSource.QUOTE_BBO:
+                price = self._resolve_quote_bbo_price(
+                    side=side,
+                    order_kind=order_kind,
+                    bid=bid,
+                    ask=ask,
+                )
+            elif source is LimitPriceSource.QUOTE_MID:
+                price = mid
+            elif source is LimitPriceSource.LAST_TRADE:
+                price = last_trade
+            elif source is LimitPriceSource.CACHE_LAST:
+                price = cache_last
+            else:
+                price = None
+            if price is not None and price > 0:
+                return price, source
+        return None, None
+
+    @staticmethod
+    def _resolve_quote_bbo_price(
+        *,
+        side: OrderSide,
+        order_kind: str,
+        bid: float,
+        ask: float,
+    ) -> float | None:
+        if bid <= 0 or ask <= 0:
+            return None
+        if order_kind == "aggressive":
+            return ask if side == OrderSide.BUY else bid
+        return bid if side == OrderSide.BUY else ask
+
+    def _record_limit_price_source(self, source: LimitPriceSource) -> None:
+        """
+        Emit metrics for the last limit price source used.
+        """
+        self._last_limit_price_source = source.value
+        try:
+            limit_price_source_total.labels(source=source.value).inc()
+        except Exception as exc:
+            logger.debug(
+                "execution.limit_price_source_metric_failed error=%s",
+                exc,
+                exc_info=True,
+            )
 
     def _round_price(self, price: float, instrument: Instrument) -> float:
         """
@@ -528,6 +622,31 @@ class OrderExecutor:
         """
         precision: int = int(getattr(instrument, "price_precision", 0))
         return round(price, precision)
+
+    def _build_limit_price(self, price: float, instrument: Instrument) -> Price:
+        """
+        Build a limit Price aligned with the instrument precision.
+        """
+        try:
+            make_price = getattr(instrument, "make_price", None)
+            if callable(make_price):
+                return make_price(price)
+        except Exception as exc:
+            logger.debug(
+                "execution.make_price_failed error=%s",
+                exc,
+                exc_info=True,
+            )
+
+        rounded = self._round_price(price, instrument)
+        precision: int = int(getattr(instrument, "price_precision", 0))
+        return Price(rounded, precision)
+
+    def get_last_limit_price_source(self) -> str | None:
+        """
+        Return the last limit price source used by the executor.
+        """
+        return self._last_limit_price_source
 
     def get_execution_stats(self) -> dict[str, float]:
         """

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
+from unittest.mock import patch
 
 from ml.config.earnings_ingestion import EarningsIngestionConfig
 from ml.config.events import Source
@@ -248,3 +249,50 @@ def test_ingestion_service_uses_watermark_for_actuals_window() -> None:
     assert all(call["quarters"] == 1 for call in stub_edgar.calls)
     assert recorder.actuals
     assert actual_after.filing_date >= watermark_date
+
+
+def test_ingestion_service_clamps_future_estimate_ts_event_to_init_time() -> None:
+    recorder = _Recorder(actuals=[], estimates=[])
+
+    actual = EarningsActual(
+        ticker="AAPL",
+        period_end=date(2024, 6, 28),
+        filing_date=date(2024, 8, 1),
+        eps_basic=1.50,
+        eps_diluted=1.48,
+        revenue=90000000000.0,
+        net_income=24000000000.0,
+        operating_income=None,
+        shares_outstanding=16000000000,
+        filing_type="10-Q",
+        fiscal_year=2024,
+        fiscal_quarter=3,
+    )
+    consensus = EarningsConsensus(
+        ticker="AAPL",
+        next_earnings_date=datetime(2024, 7, 31, 16, 0, tzinfo=UTC),
+        eps_estimate=1.52,
+        revenue_estimate=91000000000.0,
+        num_analysts=32,
+        estimate_date=datetime(2030, 1, 1, 12, 0, tzinfo=UTC),
+    )
+    fixed_now = int(datetime(2024, 9, 1, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000)
+
+    service = EarningsIngestionService(
+        config=EarningsIngestionConfig(
+            postgres_dsn="postgresql://unused",
+            override_symbols=("AAPL",),
+            enable_yahoo=True,
+        ),
+        writer=recorder,
+        edgar_fetcher=_StubEdgar([actual]),
+        yahoo_fetcher=_StubYahoo({"AAPL": consensus}),
+    )
+
+    with patch("ml.features.earnings.ingestion.service.time.time_ns", return_value=fixed_now):
+        result = service.run()
+
+    assert result.estimates_written == 1
+    assert recorder.estimates
+    assert recorder.estimates[0]["ts_event"] == fixed_now
+    assert recorder.estimates[0]["ts_init"] == fixed_now

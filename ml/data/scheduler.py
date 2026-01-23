@@ -100,7 +100,13 @@ class _HistogramLike(Protocol):
 class _StalenessCoverageProtocol(Protocol):
     """Coverage protocol supporting latest timestamp staleness checks."""
 
-    def latest_timestamp_ns(self, *, dataset_id: str, instrument_id: str) -> int | None: ...
+    def latest_timestamp_ns(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        schema: str | None = None,
+    ) -> int | None: ...
 
 
 class _NoOpMetric:
@@ -463,6 +469,13 @@ class DataScheduler:
                 exc_info=True,
             )
             self._data_registry = None
+
+    @property
+    def data_registry(self) -> RegistryProtocol | None:
+        """
+        Return the DataRegistry used for event tracking and watermarks.
+        """
+        return self._data_registry
 
     def _initialize_feature_store(self) -> None:
         """
@@ -1331,6 +1344,7 @@ class DataScheduler:
         instrument_ids: Sequence[str],
         min_days: int,
         max_days: int,
+        schema: str | None = None,
     ) -> dict[str, int]:
         """
         Compute per-instrument lookback windows using coverage staleness.
@@ -1355,6 +1369,7 @@ class DataScheduler:
             latest_ns = coverage.latest_timestamp_ns(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
+                schema=schema,
             )
             if latest_ns is None:
                 derived = max_days

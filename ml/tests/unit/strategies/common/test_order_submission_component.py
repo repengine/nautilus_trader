@@ -77,6 +77,13 @@ class MockQuoteTick:
 
 
 @dataclass(slots=True)
+class MockTradeTick:
+    """Mock trade tick with last price."""
+
+    price: MockPrice = field(default_factory=lambda: MockPrice(100.0))
+
+
+@dataclass(slots=True)
 class MockInstrument:
     """Mock instrument with venue."""
 
@@ -115,10 +122,14 @@ class MockCache:
         *,
         instrument: MockInstrument | None = None,
         quote_tick: MockQuoteTick | None = None,
+        trade_tick: MockTradeTick | None = None,
+        cached_price: MockPrice | None = None,
     ) -> None:
         """Initialize mock cache."""
         self._instrument = instrument
         self._quote_tick = quote_tick
+        self._trade_tick = trade_tick
+        self._cached_price = cached_price
         self._order_id_counter = 0
 
     def instrument(self, instrument_id: Any) -> MockInstrument | None:
@@ -128,6 +139,14 @@ class MockCache:
     def quote_tick(self, instrument_id: Any) -> MockQuoteTick | None:
         """Return mock quote tick."""
         return self._quote_tick
+
+    def trade_tick(self, instrument_id: Any) -> MockTradeTick | None:
+        """Return mock trade tick."""
+        return self._trade_tick
+
+    def price(self, instrument_id: Any, price_type: Any) -> MockPrice | None:
+        """Return mock cached price."""
+        return self._cached_price
 
     def client_order_id(self) -> ClientOrderId:
         """Generate a new client order ID."""
@@ -165,6 +184,34 @@ class MockCircuitBreaker:
     def record_failure(self) -> None:
         """Record a failed execution."""
         self.record_failure_calls += 1
+
+
+class MockRiskHaltProvider:
+    """Mock risk halt provider for testing."""
+
+    def __init__(
+        self,
+        *,
+        halted: bool,
+        reason: str | None = None,
+        allow_reduce_only: bool = False,
+    ) -> None:
+        """Initialize mock risk halt provider."""
+        self.halted = halted
+        self.reason = reason
+        self.allow_reduce_only = allow_reduce_only
+
+    def is_trading_halted(self) -> bool:
+        """Return current halt state."""
+        return self.halted
+
+    def get_halt_reason(self) -> str | None:
+        """Return current halt reason."""
+        return self.reason
+
+    def allow_reduce_only_when_halted(self) -> bool:
+        """Return whether reduce-only orders may bypass halts."""
+        return self.allow_reduce_only
 
 
 class MockOrderExecutor:
@@ -555,6 +602,66 @@ class TestPlaceMarketOrder:
         assert len(mock_metric.label_calls) == 1
         assert mock_metric.label_calls[0]["order_side"] == "BUY"
 
+    def test_execution_metrics_recorded_for_market_and_smart(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+        mock_trader_id: TraderId,
+        mock_instrument: MockInstrument,
+        mock_signal: MockMLSignal,
+        isolated_prometheus_registry: Any,
+    ) -> None:
+        """Verify execution metrics emit per mode and fallback reason."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        executor = MockOrderExecutor(return_value=MockOrder())
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: None,
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id=mock_trader_id,
+        )
+
+        component.place_market_order(
+            instrument_id=instrument_id,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("5.0"),
+        )
+
+        component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.SELL,
+            quantity=Quantity.from_str("3.0"),
+            instrument=mock_instrument,
+        )
+
+        registry = isolated_prometheus_registry.registry
+        market_value = registry.get_sample_value(
+            "ml_strategy_execution_total",
+            labels={
+                "strategy_id": "test-strategy-001",
+                "mode": "market",
+                "fallback_reason": "none",
+            },
+        )
+        smart_value = registry.get_sample_value(
+            "ml_strategy_execution_total",
+            labels={
+                "strategy_id": "test-strategy-001",
+                "mode": "smart",
+                "fallback_reason": "none",
+            },
+        )
+
+        assert market_value == 1.0
+        assert smart_value == 1.0
+
     def test_place_market_order_reduce_only(
         self,
         order_submission_component: OrderSubmissionComponent,
@@ -671,6 +778,181 @@ class TestSubmitSmartOrder:
         # Should have fallen back to market order
         assert result is not None
         assert len(submitted_orders) == 1
+        execution_metadata = component.pop_last_execution_metadata()
+        assert execution_metadata is not None
+        assert execution_metadata["mode"] == "market"
+        assert execution_metadata["fallback_reason"] == "executor_no_order"
+
+    def test_process_pending_limit_orders_when_ttl_expires_cancels_and_replaces(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+    ) -> None:
+        """Verify resting limit orders are canceled and replaced after TTL."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        executor = OrderExecutor(
+            ExecutionConfig(
+                market_order_threshold=0.95,
+                limit_order_threshold=0.7,
+                min_confidence=0.5,
+                use_time_in_force_ioc=False,
+                limit_order_ttl_seconds=1,
+                ttl_max_attempts=1,
+                ttl_replace_cadence_seconds=1,
+            ),
+        )
+        submitted_orders: list[Any] = []
+        canceled_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            cancel_order_callback=lambda o: canceled_orders.append(o),
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id="TESTER-001",
+        )
+
+        component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert len(submitted_orders) == 1
+
+        component.process_pending_limit_orders(
+            now_ns=mock_clock.timestamp_ns() + 2_000_000_000,
+        )
+
+        assert len(canceled_orders) == 1
+        assert len(submitted_orders) == 2
+
+    def test_process_pending_limit_orders_respects_cadence_over_ttl(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+    ) -> None:
+        """Verify cadence dominates when it exceeds TTL."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        executor = OrderExecutor(
+            ExecutionConfig(
+                market_order_threshold=0.95,
+                limit_order_threshold=0.7,
+                min_confidence=0.5,
+                use_time_in_force_ioc=False,
+                limit_order_ttl_seconds=1,
+                ttl_max_attempts=1,
+                ttl_replace_cadence_seconds=3,
+            ),
+        )
+        submitted_orders: list[Any] = []
+        canceled_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            cancel_order_callback=lambda o: canceled_orders.append(o),
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id="TESTER-001",
+        )
+
+        component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        component.process_pending_limit_orders(
+            now_ns=mock_clock.timestamp_ns() + 2_000_000_000,
+        )
+        assert len(canceled_orders) == 0
+        assert len(submitted_orders) == 1
+
+        component.process_pending_limit_orders(
+            now_ns=mock_clock.timestamp_ns() + 3_000_000_000,
+        )
+        assert len(canceled_orders) == 1
+        assert len(submitted_orders) == 2
+
+    def test_process_pending_limit_orders_stops_after_attempts_exhausted(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+    ) -> None:
+        """Verify no replacement after attempts are exhausted."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        executor = OrderExecutor(
+            ExecutionConfig(
+                market_order_threshold=0.95,
+                limit_order_threshold=0.7,
+                min_confidence=0.5,
+                use_time_in_force_ioc=False,
+                limit_order_ttl_seconds=1,
+                ttl_max_attempts=1,
+                ttl_replace_cadence_seconds=1,
+            ),
+        )
+        submitted_orders: list[Any] = []
+        canceled_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            cancel_order_callback=lambda o: canceled_orders.append(o),
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id="TESTER-001",
+        )
+
+        component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        component.process_pending_limit_orders(
+            now_ns=mock_clock.timestamp_ns() + 2_000_000_000,
+        )
+        assert len(canceled_orders) == 1
+        assert len(submitted_orders) == 2
+
+        component.process_pending_limit_orders(
+            now_ns=mock_clock.timestamp_ns() + 4_000_000_000,
+        )
+        assert len(canceled_orders) == 1
+        assert len(submitted_orders) == 2
 
     def test_submit_smart_order_circuit_breaker_degradation(
         self,
@@ -862,6 +1144,172 @@ class TestSubmitSmartOrder:
         assert len(mock_logger.error_calls) > 0
         assert result is not None
         assert len(submitted_orders) == 1
+        execution_metadata = component.pop_last_execution_metadata()
+        assert execution_metadata is not None
+        assert execution_metadata["mode"] == "market"
+        assert execution_metadata["fallback_reason"] == "executor_error"
+
+
+# ---------------------------------------------------------------------------
+# Test: Risk Halt Gating
+# ---------------------------------------------------------------------------
+
+
+class TestRiskHaltGating:
+    """Tests for risk halt gating in order submission."""
+
+    def test_submit_smart_order_blocked_when_risk_halted(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+        isolated_prometheus_registry: Any,
+    ) -> None:
+        """Verify risk halts suppress smart orders and emit metrics."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        executor = MockOrderExecutor(return_value=MockOrder())
+        risk_provider = MockRiskHaltProvider(halted=True, reason="daily_loss_limit")
+        submitted_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            risk_halt_provider=risk_provider,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            trader_id="TESTER-001",
+        )
+
+        result = component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert result is None
+        assert len(submitted_orders) == 0
+        assert component.dry_run_trades == 1
+
+        registry = isolated_prometheus_registry.registry
+        blocked_value = registry.get_sample_value(
+            "ml_strategy_risk_halt_total",
+            labels={
+                "strategy_id": "test-strategy-001",
+                "event": "blocked",
+                "reason": "daily_loss_limit",
+            },
+        )
+        assert blocked_value == 1.0
+
+    def test_submit_smart_order_allows_after_risk_resume(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+        isolated_prometheus_registry: Any,
+    ) -> None:
+        """Verify smart orders resume once risk halts clear."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        executor = MockOrderExecutor(return_value=MockOrder())
+        risk_provider = MockRiskHaltProvider(halted=True, reason="daily_loss_limit")
+        submitted_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            risk_halt_provider=risk_provider,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            trader_id="TESTER-001",
+        )
+
+        result = component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+        assert result is None
+
+        risk_provider.halted = False
+
+        result = component.submit_smart_order(
+            signal=mock_signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert result is not None
+        assert len(submitted_orders) == 1
+
+        registry = isolated_prometheus_registry.registry
+        resumed_value = registry.get_sample_value(
+            "ml_strategy_risk_halt_total",
+            labels={
+                "strategy_id": "test-strategy-001",
+                "event": "resumed",
+                "reason": "daily_loss_limit",
+            },
+        )
+        assert resumed_value == 1.0
+
+    def test_place_market_order_allows_reduce_only_when_risk_halted(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_logger: MockLogger,
+        isolated_prometheus_registry: Any,
+    ) -> None:
+        """Verify reduce-only orders can bypass risk halts when configured."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        risk_provider = MockRiskHaltProvider(
+            halted=True,
+            reason="daily_loss_limit",
+            allow_reduce_only=True,
+        )
+        submitted_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            risk_halt_provider=risk_provider,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            trader_id="TESTER-001",
+        )
+
+        result = component.place_market_order(
+            instrument_id=instrument_id,
+            side=OrderSide.SELL,
+            quantity=Quantity.from_str("5.0"),
+            reduce_only=True,
+        )
+
+        assert result is not None
+        assert len(submitted_orders) == 1
+        assert component.dry_run_trades == 0
+
+        registry = isolated_prometheus_registry.registry
+        bypassed_value = registry.get_sample_value(
+            "ml_strategy_risk_halt_total",
+            labels={
+                "strategy_id": "test-strategy-001",
+                "event": "bypassed",
+                "reason": "daily_loss_limit",
+            },
+        )
+        assert bypassed_value == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -1277,3 +1725,150 @@ class TestMarketStateBuilding:
         assert market_state["ask"] == 0.0
         assert market_state["spread_bps"] == 0.0
         assert is_stale is True
+
+    def test_submit_smart_order_when_quote_stale_preserves_quote_metadata(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+        mock_instrument: MockInstrument,
+    ) -> None:
+        """Verify stale quote metadata is available after fallback."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        cache = MockCache(
+            quote_tick=MockQuoteTick(
+                bid_price=MockPrice(99.0),
+                ask_price=MockPrice(101.0),
+                ts_event=1_000_000_000,
+            ),
+        )
+        executor = MockOrderExecutor(return_value=MockOrder())
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=cache,
+            submit_order_callback=lambda o: None,
+            log=mock_logger,
+            trader_id="TESTER-001",
+            max_quote_age_ms=1,
+        )
+        signal = MockMLSignal(
+            instrument_id=instrument_id,
+            ts_event=2_500_000_000,
+        )
+
+        component.submit_smart_order(
+            signal=signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        metadata = component.pop_last_quote_metadata()
+        execution_metadata = component.pop_last_execution_metadata()
+
+        assert metadata is not None
+        assert metadata["available"] is True
+        assert metadata["stale"] is True
+        assert metadata["ts_event"] == 1_000_000_000
+        assert metadata["age_ns"] == 1_500_000_000
+        assert metadata["max_age_ns"] == 1_000_000
+        assert execution_metadata is not None
+        assert execution_metadata["mode"] == "market"
+        assert execution_metadata["fallback_reason"] == "stale_quote"
+
+    def test_submit_smart_order_when_quote_missing_falls_back_to_market(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+        mock_instrument: MockInstrument,
+    ) -> None:
+        """Verify missing quotes force a market fallback with explicit metadata."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        cache = MockCache(quote_tick=None)
+        executor = MockOrderExecutor(return_value=MockOrder())
+        submitted_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            trader_id="TESTER-001",
+        )
+        signal = MockMLSignal(
+            instrument_id=instrument_id,
+            ts_event=2_500_000_000,
+        )
+
+        order_id = component.submit_smart_order(
+            signal=signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert order_id is not None
+        assert len(submitted_orders) == 1
+        quote_metadata = component.pop_last_quote_metadata()
+        execution_metadata = component.pop_last_execution_metadata()
+        assert quote_metadata is not None
+        assert quote_metadata["available"] is False
+        assert execution_metadata is not None
+        assert execution_metadata["mode"] == "market"
+        assert execution_metadata["fallback_reason"] == "quote_unavailable"
+
+    def test_submit_smart_order_uses_trade_fallback_when_quote_missing(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+        mock_instrument: MockInstrument,
+    ) -> None:
+        """Verify trade ticks enable smart execution when quotes are missing."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        cache = MockCache(
+            quote_tick=None,
+            trade_tick=MockTradeTick(price=MockPrice(100.0)),
+        )
+        executor = OrderExecutor(
+            ExecutionConfig(
+                use_time_in_force_ioc=False,
+                market_order_threshold=0.95,
+                limit_order_threshold=0.7,
+                min_confidence=0.5,
+            ),
+        )
+        submitted_orders: list[Any] = []
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            trader_id="TESTER-001",
+        )
+        signal = MockMLSignal(
+            instrument_id=instrument_id,
+            ts_event=2_500_000_000,
+        )
+
+        order_id = component.submit_smart_order(
+            signal=signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert order_id is not None
+        assert len(submitted_orders) == 1
+        execution_metadata = component.pop_last_execution_metadata()
+        assert execution_metadata is not None
+        assert execution_metadata["mode"] == "smart"
+        assert execution_metadata["fallback_reason"] == "quote_unavailable"
