@@ -101,6 +101,7 @@ class StrategyStoreProtocol(Protocol):
         ts_event: int,
         is_live: bool = False,
     ) -> None: ...
+    def write_order_event(self, event: object, *, is_live: bool = False) -> None: ...
     def write_batch(self, data: list[Any]) -> None: ...
     def read_signals(
         self,
@@ -195,6 +196,7 @@ class StrategyStoreStrictProtocol(Protocol):
         ts_event: int,
         is_live: bool = False,
     ) -> None: ...
+    def write_order_event(self, event: object, *, is_live: bool = False) -> None: ...
     def write_batch(self, data: Sequence[Any]) -> None: ...
     def flush(self) -> None: ...
 
@@ -508,6 +510,7 @@ class ModelClearDepsStrict(Protocol):
 
 class StrategyWriteDepsStrict(Protocol):
     strategy_signals_table: TableLike
+    strategy_order_events_table: TableLike
 
     def _execute_upsert_and_publish(
         self,

@@ -3,6 +3,7 @@
 """End-to-end tests for pipeline checkpoint and resumability."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -15,7 +16,9 @@ from ml.orchestration.config_types import HPOConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+from ml.orchestration.training_coordinator import TrainingCoordinator
 
 
 class SimulatedInterruptionError(Exception):
@@ -187,6 +190,29 @@ class TestOrchestratorCheckpoint:
             "distill_student": 0,
         }
 
+        def _write_dataset_artifacts(cfg: DatasetBuildConfig) -> None:
+            out_dir = Path(cfg.out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            dataset_csv = out_dir / "dataset.csv"
+            dataset_csv.write_text("ts_event,instrument_id\n0,AAPL\n", encoding="utf-8")
+            metadata = {
+                "dataset_id": cfg.dataset_id,
+                "vintage_policy": cfg.vintage_policy.value,
+                "vintage_cutoff": None,
+                "build_ts": datetime.now(UTC).isoformat(),
+                "ts_event_start": None,
+                "ts_event_end": None,
+                "overall_window": None,
+                "train_window": None,
+                "validation_window": None,
+                "test_window": None,
+                "macro_observation_counts": {},
+                "capability_flags": {},
+                "market_bindings": [],
+            }
+            metadata_path = out_dir / "dataset_metadata.json"
+            metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
         # Mock build_dataset to fail on first run (simulate interruption)
         interrupt_on_first_call = [True]  # Use list to avoid closure issues
 
@@ -198,26 +224,27 @@ class TestOrchestratorCheckpoint:
                 # (This happens inside run() method)
                 raise SimulatedInterruptionError("Simulated interruption during DATASET stage")
             # On second call, succeed
+            _write_dataset_artifacts(cfg)
             return 0
 
         # Track other stage calls
-        def track_hpo(self, hpo_cfg, **kwargs):
+        def track_hpo(self, hpo_cfg, dataset_csv, out_dir):
             call_counts["run_hpo"] += 1
             return 0
 
-        def track_train(self, teacher_cfg, **kwargs):
+        def track_train(self, teacher_cfg, dataset_csv, out_dir):
             call_counts["train_teacher"] += 1
             return 0
 
-        def track_distill(self, student_cfg, **kwargs):
+        def track_distill(self, student_cfg, dataset_dir, teacher_cfg):
             call_counts["distill_student"] += 1
             return 0
 
-        # Use patch to mock methods on the class
-        with patch.object(MLPipelineOrchestrator, "build_dataset", mock_build_dataset_with_interruption):
-            with patch.object(MLPipelineOrchestrator, "run_hpo", track_hpo):
-                with patch.object(MLPipelineOrchestrator, "train_teacher", track_train):
-                    with patch.object(MLPipelineOrchestrator, "distill_student", track_distill):
+        # Use patch to mock dataset-building and other methods
+        with patch.object(DatasetBuilder, "build_dataset", mock_build_dataset_with_interruption):
+            with patch.object(TrainingCoordinator, "run_hpo", track_hpo):
+                with patch.object(TrainingCoordinator, "train_teacher", track_train):
+                    with patch.object(TrainingCoordinator, "distill_student", track_distill):
                         # First run: should interrupt during DATASET stage
                         with pytest.raises(SimulatedInterruptionError):
                             mock_orchestrator.run(minimal_config, checkpoint_file=checkpoint_path)
@@ -248,10 +275,10 @@ class TestOrchestratorCheckpoint:
         call_counts["train_teacher"] = 0
 
         # Second run: should resume from checkpoint
-        with patch.object(MLPipelineOrchestrator, "build_dataset", mock_build_dataset_with_interruption):
-            with patch.object(MLPipelineOrchestrator, "run_hpo", track_hpo):
-                with patch.object(MLPipelineOrchestrator, "train_teacher", track_train):
-                    with patch.object(MLPipelineOrchestrator, "distill_student", track_distill):
+        with patch.object(DatasetBuilder, "build_dataset", mock_build_dataset_with_interruption):
+            with patch.object(TrainingCoordinator, "run_hpo", track_hpo):
+                with patch.object(TrainingCoordinator, "train_teacher", track_train):
+                    with patch.object(TrainingCoordinator, "distill_student", track_distill):
                         exit_code = mock_orchestrator.run(
                             minimal_config,
                             checkpoint_file=checkpoint_path,

@@ -180,7 +180,7 @@ class RegistryIntegrator:
         dataset_id : str
             The dataset identifier (e.g., "ohlcv_spy_xnas").
         dataset_type_label : str
-            High-level dataset type label ("bars", "trades", "tbbo", "mbp1").
+            High-level dataset type label ("bars", "trades", "tbbo", "mbp1", "order_events").
         location : str
             Storage location for the dataset (e.g., catalog path).
         retention_days : int
@@ -200,6 +200,7 @@ class RegistryIntegrator:
             "trades": DatasetType.TRADES,
             "tbbo": DatasetType.TBBO,
             "mbp1": DatasetType.MBP1,
+            "order_events": DatasetType.ORDER_EVENTS,
         }
         dataset_type = dt_map.get(dataset_type_label, DatasetType.BARS)
 

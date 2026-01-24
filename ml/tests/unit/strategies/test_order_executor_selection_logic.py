@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from ml.actors.base import MLSignal
+from ml.config.base import ExecutionValidationMode
 from ml.config.base import LimitPriceConfig, LimitPriceSource
 from ml.strategies.execution import ExecutionConfig, OrderExecutor
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.enums import OrderSide, OrderType, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
 
@@ -124,6 +125,109 @@ def test_executor_uses_passive_limit_when_spread_wide_and_confidence_medium() ->
     assert getattr(order, "price", None) is not None
     assert order.time_in_force == TimeInForce.GTC
     assert getattr(order, "post_only", False) is True
+
+
+def test_executor_validation_mode_market_forces_market_orders() -> None:
+    cfg = ExecutionConfig(
+        min_confidence=0.1,
+        validation_mode=ExecutionValidationMode.MARKET,
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.9,
+        confidence=0.9,
+        ts_event=10,
+        ts_init=10,
+    )
+    order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state={"bid": 1.0, "ask": 1.01, "spread_bps": 100.0},
+        instrument=_mk_instrument(),
+    )
+    assert order is not None
+    assert order.order_type == OrderType.MARKET
+
+
+def test_executor_validation_mode_cross_bbo_crosses_spread() -> None:
+    cfg = ExecutionConfig(
+        market_order_threshold=0.95,
+        limit_order_threshold=0.5,
+        min_confidence=0.1,
+        aggressive_offset_bps=2,
+        validation_mode=ExecutionValidationMode.CROSS_BBO,
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.6,
+        confidence=0.6,
+        ts_event=11,
+        ts_init=11,
+    )
+    market_state = {"bid": 100.0, "ask": 100.1, "spread_bps": 10.0}
+    buy_order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state=market_state,
+        instrument=_mk_instrument(),
+    )
+    assert buy_order is not None
+    assert float(buy_order.price.as_double()) >= market_state["ask"]
+
+    sell_order = ex.create_order(
+        side=OrderSide.SELL,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state=market_state,
+        instrument=_mk_instrument(),
+    )
+    assert sell_order is not None
+    assert float(sell_order.price.as_double()) <= market_state["bid"]
+
+
+def test_executor_validation_mode_disabled_does_not_cross_bbo() -> None:
+    cfg = ExecutionConfig(
+        market_order_threshold=0.95,
+        limit_order_threshold=0.5,
+        min_confidence=0.1,
+        aggressive_offset_bps=2,
+        validation_mode=ExecutionValidationMode.DISABLED,
+    )
+    ex = OrderExecutor(cfg)
+    sig = MLSignal(
+        instrument_id=_mk_instrument().id,
+        model_id="M",
+        prediction=0.6,
+        confidence=0.6,
+        ts_event=12,
+        ts_init=12,
+    )
+    market_state = {"bid": 100.0, "ask": 100.1, "spread_bps": 10.0}
+    buy_order = ex.create_order(
+        side=OrderSide.BUY,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state=market_state,
+        instrument=_mk_instrument(),
+    )
+    assert buy_order is not None
+    assert float(buy_order.price.as_double()) < market_state["ask"]
+
+    sell_order = ex.create_order(
+        side=OrderSide.SELL,
+        quantity=Quantity.from_str("1"),
+        signal=sig,
+        market_state=market_state,
+        instrument=_mk_instrument(),
+    )
+    assert sell_order is not None
+    assert float(sell_order.price.as_double()) > market_state["bid"]
 
 
 def test_executor_uses_last_trade_fallback_when_quotes_missing() -> None:

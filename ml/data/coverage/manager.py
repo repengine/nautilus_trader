@@ -44,6 +44,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class CoverageBucketMode(str, Enum):
+    """
+    Bucket generation strategy for coverage.
+
+    DAILY: fixed daily buckets across lookback window.
+    CATALOG: use catalog/SQL bucket union to avoid sparse-dataset false gaps.
+    """
+
+    DAILY = "daily"
+    CATALOG = "catalog"
+
+
 @dataclass(frozen=True, slots=True)
 class DatasetCoverageConfig:
     """
@@ -54,6 +66,7 @@ class DatasetCoverageConfig:
     schema: str
     instruments: tuple[str, ...]
     entity_field: str = "instrument_id"
+    bucket_mode: CoverageBucketMode = CoverageBucketMode.DAILY
 
     def __post_init__(self) -> None:
         if not self.dataset_id:
@@ -64,6 +77,9 @@ class DatasetCoverageConfig:
             raise ValueError(msg)
         if not self.entity_field:
             msg = "entity_field must be provided"
+            raise ValueError(msg)
+        if not isinstance(self.bucket_mode, CoverageBucketMode):
+            msg = "bucket_mode must be a CoverageBucketMode"
             raise ValueError(msg)
 
     def normalized_instruments(self) -> tuple[str, ...]:
@@ -158,28 +174,26 @@ class CoverageManager:
         """
         Produce bucket specs for all datasets/instruments within the lookback window.
         """
-        if reference_time is None:
-            reference_time = datetime.now(tz=UTC)
-        day_start = datetime(
-            reference_time.year,
-            reference_time.month,
-            reference_time.day,
-            tzinfo=UTC,
-        )
+        day_start, window_start, window_end = self._coverage_window(reference_time)
         specs: list[BucketSpec] = []
         for dataset in self.config.datasets:
             for instrument in dataset.normalized_instruments():
                 if not instrument:
                     continue
-                for offset in range(self.config.lookback_days):
-                    bucket_start = day_start - timedelta(days=offset)
-                    bucket_ns = int(bucket_start.timestamp() * 1_000_000_000)
+                bucket_indices, _, _ = self._resolve_bucket_indices(
+                    dataset=dataset,
+                    instrument_id=instrument,
+                    day_start=day_start,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                for bucket_idx in bucket_indices:
                     specs.append(
                         BucketSpec(
                             dataset_id=dataset.dataset_id,
                             schema=dataset.schema,
                             instrument_id=instrument,
-                            bucket_start_ns=bucket_ns,
+                            bucket_start_ns=bucket_idx * DAY_NS,
                             entity_field=dataset.entity_field,
                         ),
                     )
@@ -189,43 +203,88 @@ class CoverageManager:
         """
         Compute coverage classification for all configured buckets.
         """
-        specs = self.generate_bucket_specs(reference_time=reference_time)
-        instrument_batches = _group_by_instrument(specs)
+        day_start, window_start, window_end = self._coverage_window(reference_time)
         results: list[BucketClassification] = []
-        for key, batch in instrument_batches.items():
-            dataset_id, schema, instrument, entity_field = key
-            if not batch:
-                continue
-            start_ns = min(spec.bucket_start_ns for spec in batch)
-            end_ns = max(spec.bucket_start_ns for spec in batch) + DAY_NS
-            sql_buckets = self.sql_provider.read_bucket_coverage(
-                dataset_id=dataset_id,
-                schema=schema,
-                instrument_id=instrument,
-                start_ns=start_ns,
-                end_ns=end_ns,
-                entity_field=entity_field,
-            )
-            catalog_buckets = self.catalog_provider.read_bucket_coverage(
-                dataset_id=dataset_id,
-                schema=schema,
-                instrument_id=instrument,
-                start_ns=start_ns,
-                end_ns=end_ns,
-                entity_field=entity_field,
-            )
-            for spec in batch:
-                bucket_idx = spec.bucket_index
-                results.append(
-                    BucketClassification(
-                        spec=spec,
-                        has_sql=bucket_idx in sql_buckets,
-                        has_catalog=bucket_idx in catalog_buckets,
-                    ),
+        for dataset in self.config.datasets:
+            for instrument in dataset.normalized_instruments():
+                if not instrument:
+                    continue
+                bucket_indices, sql_buckets, catalog_buckets = self._resolve_bucket_indices(
+                    dataset=dataset,
+                    instrument_id=instrument,
+                    day_start=day_start,
+                    window_start=window_start,
+                    window_end=window_end,
                 )
+                for bucket_idx in bucket_indices:
+                    results.append(
+                        BucketClassification(
+                            spec=BucketSpec(
+                                dataset_id=dataset.dataset_id,
+                                schema=dataset.schema,
+                                instrument_id=instrument,
+                                bucket_start_ns=bucket_idx * DAY_NS,
+                                entity_field=dataset.entity_field,
+                            ),
+                            has_sql=bucket_idx in sql_buckets,
+                            has_catalog=bucket_idx in catalog_buckets,
+                        ),
+                    )
         classifications = tuple(results)
         self._last_classification = classifications
         return classifications
+
+    def _coverage_window(
+        self,
+        reference_time: datetime | None,
+    ) -> tuple[datetime, int, int]:
+        if reference_time is None:
+            reference_time = datetime.now(tz=UTC)
+        day_start = datetime(
+            reference_time.year,
+            reference_time.month,
+            reference_time.day,
+            tzinfo=UTC,
+        )
+        window_start = day_start - timedelta(days=self.config.lookback_days - 1)
+        start_ns = int(window_start.timestamp() * 1_000_000_000)
+        end_ns = int((day_start + timedelta(days=1)).timestamp() * 1_000_000_000)
+        return day_start, start_ns, end_ns
+
+    def _resolve_bucket_indices(
+        self,
+        *,
+        dataset: DatasetCoverageConfig,
+        instrument_id: str,
+        day_start: datetime,
+        window_start: int,
+        window_end: int,
+    ) -> tuple[list[int], set[int], set[int]]:
+        sql_buckets = self.sql_provider.read_bucket_coverage(
+            dataset_id=dataset.dataset_id,
+            schema=dataset.schema,
+            instrument_id=instrument_id,
+            start_ns=window_start,
+            end_ns=window_end,
+            entity_field=dataset.entity_field,
+        )
+        catalog_buckets = self.catalog_provider.read_bucket_coverage(
+            dataset_id=dataset.dataset_id,
+            schema=dataset.schema,
+            instrument_id=instrument_id,
+            start_ns=window_start,
+            end_ns=window_end,
+            entity_field=dataset.entity_field,
+        )
+        if dataset.bucket_mode is CoverageBucketMode.CATALOG:
+            combined = sorted(sql_buckets | catalog_buckets)
+            return combined, sql_buckets, catalog_buckets
+        bucket_indices: list[int] = []
+        for offset in range(self.config.lookback_days):
+            bucket_start = day_start - timedelta(days=offset)
+            bucket_ns = int(bucket_start.timestamp() * 1_000_000_000)
+            bucket_indices.append(bucket_ns // DAY_NS)
+        return bucket_indices, sql_buckets, catalog_buckets
 
     def restore_all(self) -> tuple[BucketClassification, ...]:
         """

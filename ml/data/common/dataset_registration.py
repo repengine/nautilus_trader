@@ -34,6 +34,7 @@ _DATASET_TYPE_MAP: dict[str, DatasetType] = {
     "trades": DatasetType.TRADES,
     "tbbo": DatasetType.TBBO,
     "mbp1": DatasetType.MBP1,
+    "order_events": DatasetType.ORDER_EVENTS,
 }
 
 
@@ -66,7 +67,7 @@ class DatasetRegistrationProtocol(Protocol):
             registry: DataRegistry instance or None if unavailable.
             dataset_id: The dataset identifier (e.g., "ohlcv_spy_xnas").
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1").
+                ("bars", "trades", "tbbo", "mbp1", "order_events").
             location: Storage location for the dataset (e.g., catalog path).
             retention_days: Number of days to retain data.
 
@@ -108,7 +109,7 @@ class DatasetRegistrationComponent:
 
         Args:
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1").
+                ("bars", "trades", "tbbo", "mbp1", "order_events").
 
         Returns:
             Corresponding DatasetType enum value. Defaults to BARS
@@ -150,7 +151,7 @@ class DatasetRegistrationComponent:
             registry: DataRegistry instance or None if unavailable.
             dataset_id: The dataset identifier (e.g., "ohlcv_spy_xnas").
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1").
+                ("bars", "trades", "tbbo", "mbp1", "order_events").
             location: Storage location for the dataset (e.g., catalog path).
             retention_days: Number of days to retain data.
 

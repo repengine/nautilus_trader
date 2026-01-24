@@ -68,6 +68,7 @@ def test_stage_to_domain_op_mapping_contract() -> None:
         Stage.FEATURE_COMPUTED: ("features", "updated"),
         Stage.PREDICTION_EMITTED: ("models", "created"),
         Stage.SIGNAL_EMITTED: ("strategies", "created"),
+        Stage.ORDER_EVENT_EMITTED: ("orders", "created"),
     }
 
     # Verify each mapping matches the implementation
@@ -97,6 +98,7 @@ def test_stage_first_vs_domain_op_equivalence() -> None:
         Stage.FEATURE_COMPUTED,
         Stage.PREDICTION_EMITTED,
         Stage.SIGNAL_EMITTED,
+        Stage.ORDER_EVENT_EMITTED,
     ]:
 
         # Generate topics using both schemes

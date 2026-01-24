@@ -783,6 +783,105 @@ class TestSubmitSmartOrder:
         assert execution_metadata["mode"] == "market"
         assert execution_metadata["fallback_reason"] == "executor_no_order"
 
+    def test_submit_smart_order_records_validation_marketability_metadata(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+    ) -> None:
+        """Verify validation metadata is attached for marketable orders."""
+        from ml.config.base import ExecutionValidationMode
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        executor = OrderExecutor(
+            ExecutionConfig(
+                min_confidence=0.1,
+                validation_mode=ExecutionValidationMode.MARKET,
+            ),
+        )
+        submitted_orders: list[Any] = []
+        signal = MockMLSignal(
+            instrument_id=instrument_id,
+            confidence=0.9,
+            ts_event=2_000_000_000,
+        )
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: submitted_orders.append(o),
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id="TESTER-001",
+        )
+
+        order_id = component.submit_smart_order(
+            signal=signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert order_id is not None
+        execution_metadata = component.pop_last_execution_metadata()
+        assert execution_metadata is not None
+        assert execution_metadata["validation_mode"] == ExecutionValidationMode.MARKET.value
+        assert execution_metadata["marketable"] is True
+
+    def test_submit_smart_order_records_rejection_reason_on_min_confidence(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_cache: MockCache,
+        mock_logger: MockLogger,
+        mock_clock: MockClock,
+    ) -> None:
+        """Verify executor rejection reason is surfaced in metadata."""
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+        from ml.strategies.execution import ExecutionConfig
+        from ml.strategies.execution import OrderExecutor
+
+        executor = OrderExecutor(
+            ExecutionConfig(
+                min_confidence=0.95,
+                limit_order_threshold=0.7,
+                market_order_threshold=0.98,
+            ),
+        )
+        signal = MockMLSignal(
+            instrument_id=instrument_id,
+            confidence=0.1,
+            ts_event=2_000_000_000,
+        )
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=executor,
+            cache=mock_cache,
+            submit_order_callback=lambda o: None,
+            log=mock_logger,
+            clock=mock_clock,
+            trader_id="TESTER-001",
+        )
+
+        order_id = component.submit_smart_order(
+            signal=signal,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("10.0"),
+            instrument=mock_instrument,
+        )
+
+        assert order_id is not None
+        execution_metadata = component.pop_last_execution_metadata()
+        assert execution_metadata is not None
+        assert execution_metadata["fallback_reason"] == "executor_no_order"
+        assert execution_metadata["rejection_reason"] == "min_confidence"
+
     def test_process_pending_limit_orders_when_ttl_expires_cancels_and_replaces(
         self,
         instrument_id: InstrumentId,

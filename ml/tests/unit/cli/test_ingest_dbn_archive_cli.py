@@ -23,9 +23,17 @@ def test_catalog_only_uses_parquet_writer(monkeypatch: pytest.MonkeyPatch, tmp_p
     catalog_root = tmp_path / "catalog"
 
     class DummyWriter:
-        def __init__(self, catalog: object, replace_on_overlap: bool = False) -> None:
+        def __init__(
+            self,
+            catalog: object,
+            replace_on_overlap: bool = False,
+            dataset_type_identifier_templates: object | None = None,
+        ) -> None:
             ingest_calls["catalog"] = catalog
             ingest_calls["replace_on_overlap"] = replace_on_overlap
+            ingest_calls[
+                "dataset_type_identifier_templates"
+            ] = dataset_type_identifier_templates
 
         def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: object) -> int:
             _ = (dataset_id, schema, instrument_id, df)

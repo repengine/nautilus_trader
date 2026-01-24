@@ -4,6 +4,7 @@ schema = "earnings_actuals"
 entities = "@tier1_full"
 entity_field = "ticker"
 strip_venue = true
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "earnings_actuals"
@@ -22,6 +23,7 @@ schema = "earnings_estimates"
 entities = "@tier1_full"
 entity_field = "ticker"
 strip_venue = true
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "earnings_estimates"
@@ -39,6 +41,7 @@ dataset_id = "ml.macro_release_calendar"
 schema = "macro_release_calendar"
 entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
 entity_field = "series_id"
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "macro_release_calendar"
@@ -57,6 +60,7 @@ dataset_id = "ml.macro_observations"
 schema = "macro_observations"
 entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
 entity_field = "series_id"
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "macro_observations"
@@ -76,6 +80,7 @@ schema = "events_calendar"
 entities = ["__GLOBAL__"]
 entity_field = "instrument_id"
 strip_venue = true
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "events_calendar"
@@ -130,8 +135,9 @@ timestamp_field = "timestamp"
 [[datasets]]
 dataset_id = "ml.feature_values"
 schema = "feature_values"
-entities = "@tier1_full"
+entities_file = "equs_mini_symbols.txt"
 entity_field = "instrument_id"
+bucket_mode = "catalog"
 
 [datasets.sql]
 table = "ml_feature_values"

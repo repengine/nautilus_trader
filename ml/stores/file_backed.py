@@ -39,6 +39,7 @@ from ml.config.events import Source
 from ml.config.events import Stage
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
+from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategySignal
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.protocols import EarningsStoreProtocol
@@ -470,12 +471,18 @@ class FileStrategyStore(StrategyStoreProtocol):
         self._paths = base_path
         self._paths.mkdir(parents=True, exist_ok=True)
         self._store = _JsonLineStore(self._paths / "signals.jsonl", history_limit)
+        self._order_store = _JsonLineStore(self._paths / "order_events.jsonl", history_limit)
         self._by_strategy: MutableMapping[str, list[dict[str, Any]]] = defaultdict(list)
         for record in self._store.records():
             self._index_record(record)
         self._write_counter = get_counter(
             "ml_file_strategy_signals_total",
             "Total strategy signals persisted via file store",
+            ["mode"],
+        )
+        self._order_write_counter = get_counter(
+            "ml_file_strategy_order_events_total",
+            "Total strategy order events persisted via file store",
             ["mode"],
         )
 
@@ -515,6 +522,34 @@ class FileStrategyStore(StrategyStoreProtocol):
         self._store.append(record)
         self._index_record(record)
         self._write_counter.labels(mode="write_signal").inc()
+
+    def write_order_event(self, event: StrategyOrderEvent | object, *, is_live: bool = False) -> None:
+        record = (
+            event
+            if isinstance(event, StrategyOrderEvent)
+            else StrategyOrderEvent.from_event(
+                event,
+                is_live=is_live,
+                logger=_LOGGER,
+                context="FileStrategyStore.write_order_event",
+            )
+        )
+        if record is None:
+            return
+        payload = {
+            "event_id": record.event_id,
+            "strategy_id": record.strategy_id,
+            "instrument_id": record.instrument_id,
+            "client_order_id": record.client_order_id,
+            "venue_order_id": record.venue_order_id,
+            "event_type": record.event_type,
+            "payload": record.payload if record.payload else {},
+            "ts_event": record.ts_event,
+            "ts_init": record.ts_init,
+            "is_live": bool(record.is_live),
+        }
+        self._order_store.append(payload)
+        self._order_write_counter.labels(mode="write_order_event").inc()
 
     def write_batch(self, data: Sequence[StrategySignal]) -> None:
         for item in data:
@@ -592,6 +627,7 @@ class FileStrategyStore(StrategyStoreProtocol):
 
     def flush(self) -> None:
         self._store.flush()
+        self._order_store.flush()
 
 
 class FileEarningsStore(EarningsStoreProtocol):

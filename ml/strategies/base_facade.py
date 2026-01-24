@@ -26,8 +26,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ml.config.base import AccountMode
+from ml.config.base import ShortEntryPolicy
 from ml.strategies.common import DecisionPersistenceComponent
 from ml.strategies.common import LifecycleComponent
+from ml.strategies.common import OrderIntentPositionTracker
 from ml.strategies.common import OrderSubmissionComponent
 from ml.strategies.common import PerformanceTrackingComponent
 from ml.strategies.common import PositionManagementComponent
@@ -173,8 +176,10 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._init_positions_provider()
         self._order_intent_writer: OrderIntentWriter | None = None
         self._order_intent_path: Path | None = None
+        self._intent_position_tracker: OrderIntentPositionTracker | None = None
         self._pending_exit_metadata: dict[str, object] | None = None
         self._pending_execution_metadata: dict[str, object] | None = None
+        self._init_intent_position_tracker()
         self._init_order_intent_writer()
 
         # Initialize the 6 decomposed components
@@ -214,6 +219,112 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 f"strategy_id={self.id} error={exc}",
                 exc_info=True,
             )
+
+    def _init_intent_position_tracker(self) -> None:
+        """
+        Initialize the in-memory tracker for order intent positions.
+        """
+        if not getattr(self._config, "serialize_order_intents", False):
+            return
+        self._intent_position_tracker = OrderIntentPositionTracker(log=self.log)
+
+    def _should_block_entry_orders(self) -> bool:
+        """
+        Return True when entry orders should be blocked in intent mode.
+        """
+        if not getattr(self._config, "serialize_order_intents", False):
+            return False
+        max_positions = getattr(self._config, "max_positions", 1)
+        try:
+            max_positions_int = int(max_positions)
+        except (TypeError, ValueError):
+            return False
+        if max_positions_int <= 0:
+            return True
+        tracker = self._intent_position_tracker
+        if tracker is None:
+            return self._active_positions >= max_positions_int
+        return tracker.active_positions >= max_positions_int
+
+    def _resolve_short_entry_policy(self) -> ShortEntryPolicy:
+        """
+        Resolve the short-entry policy from config defaults.
+        """
+        policy = getattr(self._config, "short_entry_policy", None)
+        if isinstance(policy, ShortEntryPolicy):
+            return policy
+        if isinstance(policy, str):
+            try:
+                return ShortEntryPolicy(policy)
+            except ValueError:
+                pass
+        account_mode = getattr(self._config, "account_mode", None)
+        if isinstance(account_mode, str):
+            try:
+                account_mode = AccountMode(account_mode)
+            except ValueError:
+                account_mode = AccountMode.CASH
+        if account_mode is AccountMode.MARGIN:
+            return ShortEntryPolicy.ALLOW
+        return ShortEntryPolicy.EXIT_ONLY
+
+    def _update_intent_positions(self, order: Any) -> None:
+        """
+        Update intent positions from a serialized order.
+        """
+        if self._intent_position_tracker is None:
+            return
+
+        side = getattr(order, "side", getattr(order, "order_side", None))
+        instrument_id = getattr(order, "instrument_id", None)
+        quantity = getattr(order, "quantity", None)
+        reduce_only = bool(getattr(order, "is_reduce_only", getattr(order, "reduce_only", False)))
+        ts_init = getattr(order, "ts_init", None)
+
+        if instrument_id is None or side is None or quantity is None:
+            return
+
+        try:
+            from nautilus_trader.model.enums import OrderSide
+        except Exception:
+            return
+
+        if not isinstance(side, OrderSide):
+            name = getattr(side, "name", None)
+            if isinstance(name, str):
+                try:
+                    side = OrderSide[name.upper()]
+                except Exception:
+                    return
+            elif isinstance(side, str):
+                try:
+                    side = OrderSide[side.upper()]
+                except Exception:
+                    return
+            else:
+                return
+
+        entry_price = None
+        for attr in ("price", "limit_price", "trigger_price"):
+            value = getattr(order, attr, None)
+            if value is None:
+                continue
+            try:
+                entry_price = float(value)
+            except (TypeError, ValueError):
+                entry_price = None
+            if entry_price is not None and entry_price > 0.0:
+                break
+
+        self._intent_position_tracker.record_order(
+            instrument_id=instrument_id,
+            side=side,
+            quantity=quantity,
+            reduce_only=reduce_only,
+            ts_init=ts_init,
+            entry_price=entry_price,
+        )
+        self._active_positions = self._intent_position_tracker.active_positions
 
     def _resolve_submit_order_callback(self) -> Callable[[Any], None] | None:
         """
@@ -272,6 +383,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 execution_metadata = submitter_metadata
         exit_metadata = self._pending_exit_metadata
         self._pending_exit_metadata = None
+        self._update_intent_positions(order)
         self._order_intent_writer.write(
             order,
             is_live=is_live,
@@ -927,6 +1039,47 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
 
         # Handle the signal
         self._handle_ml_signal(routed_signal)
+
+    def on_order_event(self, event: Any) -> None:
+        """
+        Handle order events and persist them for audit.
+        """
+        super().on_order_event(event)
+        self._persist_order_event(event)
+
+    def _persist_order_event(self, event: Any) -> None:
+        """
+        Persist order events to the strategy store when available.
+        """
+        safe_log = _SafeLogger(getattr(self, "log", None))
+        store = getattr(self, "strategy_store", None)
+        if store is None:
+            return
+        write_order_event = getattr(store, "write_order_event", None)
+        if not callable(write_order_event):
+            return
+
+        is_live = True
+        try:
+            if hasattr(self, "cache") and getattr(self.cache, "is_backtesting", False):
+                is_live = False
+        except Exception as exc:
+            safe_log.debug(
+                "ml_strategy.order_event_live_check_failed",
+                strategy_id=str(getattr(self, "id", "unknown")),
+                exc_info=True,
+                error=str(exc),
+            )
+
+        try:
+            write_order_event(event, is_live=is_live)
+        except Exception as exc:
+            safe_log.debug(
+                "ml_strategy.order_event_persist_failed",
+                strategy_id=str(getattr(self, "id", "unknown")),
+                exc_info=True,
+                error=str(exc),
+            )
 
     def _handle_ml_signal(self, signal: MLSignal) -> None:
         """
@@ -1677,7 +1830,9 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             The current position, or None if no position exists.
 
         """
-        if not hasattr(self, "cache"):
+        if not hasattr(self, "cache") or self.cache is None:
+            if self._intent_position_tracker is not None:
+                return self._intent_position_tracker.get_position(self._config.instrument_id)
             return None
 
         positions = self.cache.positions_open(
@@ -1687,6 +1842,8 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
 
         if positions:
             return positions[0]
+        if self._intent_position_tracker is not None:
+            return self._intent_position_tracker.get_position(self._config.instrument_id)
         return None
 
     # -------------------------------------------------------------------------
@@ -1834,6 +1991,11 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
 
         if current_position is None:
             # No position, enter new one
+            if self._should_block_entry_orders():
+                self.log.info(
+                    "Intent entry suppressed due to max_positions; reduce-only orders only",
+                )
+                return
             quantity = self._calculate_position_size()
             if quantity is None:
                 self.log.warning(
@@ -1860,6 +2022,11 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
             )
 
             # Then open new position
+            if self._should_block_entry_orders():
+                self.log.info(
+                    "Intent entry suppressed due to max_positions; reduce-only orders only",
+                )
+                return
             quantity = self._calculate_position_size()
             if quantity is None:
                 self.log.warning(
@@ -1899,7 +2066,6 @@ class SimpleMLStrategyFacade(BaseMLStrategyFacade):
             f"Order filled: {event.order_side.name} {event.last_qty} @ {event.last_px}, "
             f"Active positions: {self._active_positions}",
         )
-
 
 __all__ = [
     "BaseMLStrategyFacade",

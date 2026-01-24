@@ -61,6 +61,20 @@ def _patch_market_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("ml.data.resolve_market_dataset_bindings", _resolver)
 
+
+def _disable_micro_catalog_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the microstructure aggregator from reading the catalog during tests."""
+
+    monkeypatch.setattr(
+        "ml.features.micro_aggregate.MicrostructureAggregator._load_catalog_quotes",
+        lambda self, symbol, *, start=None, end=None: None,
+    )
+    monkeypatch.setattr(
+        "ml.features.micro_aggregate.MicrostructureAggregator._load_catalog_trades",
+        lambda self, symbol, *, start=None, end=None: None,
+    )
+
+
 def test_build_tft_dataset_invokes_macro_refresh(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -282,6 +296,7 @@ def test_build_tft_dataset_registers_capability_flags(
     patch_dataset_bars,
 ) -> None:
     patch_dataset_bars()
+    _disable_micro_catalog_queries(monkeypatch)
 
     def _fake_macro(**kwargs: Any) -> MacroRefreshResult:
         fred_path = cast(Path, kwargs["fred_path"])
@@ -344,6 +359,7 @@ def test_tft_dataset_task_config_overrides_base_dirs(
 ) -> None:
     builder_records: dict[str, object] = {}
     patch_dataset_bars()
+    _disable_micro_catalog_queries(monkeypatch)
     _install_recording_builder(monkeypatch, builder_records)
     _patch_market_bindings(monkeypatch)
 

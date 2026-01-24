@@ -683,21 +683,13 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
             if "volume" in cols and "volume" in table_columns:
                 d["volume"] = _maybe(getattr(r, "volume", None))
             if "bid" in table_columns:
-                bid_val = _first_present_value(r, bid_candidates)
-                if bid_val is not None:
-                    d["bid"] = bid_val
+                d["bid"] = _first_present_value(r, bid_candidates)
             if "ask" in table_columns:
-                ask_val = _first_present_value(r, ask_candidates)
-                if ask_val is not None:
-                    d["ask"] = ask_val
+                d["ask"] = _first_present_value(r, ask_candidates)
             if "bid_size" in table_columns:
-                bid_size_val = _first_present_value(r, bid_size_candidates)
-                if bid_size_val is not None:
-                    d["bid_size"] = bid_size_val
+                d["bid_size"] = _first_present_value(r, bid_size_candidates)
             if "ask_size" in table_columns:
-                ask_size_val = _first_present_value(r, ask_size_candidates)
-                if ask_size_val is not None:
-                    d["ask_size"] = ask_size_val
+                d["ask_size"] = _first_present_value(r, ask_size_candidates)
             if "last" in cols and "last" in table_columns:
                 d["last"] = _maybe(getattr(r, "last", None))
             if "trade_count" in cols and "trade_count" in table_columns:

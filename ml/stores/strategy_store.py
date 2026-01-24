@@ -1,8 +1,8 @@
 """
-Strategy signal store for ML pipeline integration.
+Strategy signal and order-event store for ML pipeline integration.
 
-This module provides storage for strategy signals and decisions with support for batch
-writes, risk tracking, and execution parameters.
+This module provides storage for strategy signals, decisions, and order events with
+support for batch writes, risk tracking, and execution parameters.
 
 """
 
@@ -26,6 +26,7 @@ from typing_extensions import override
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.stores.base import BaseStore
+from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategySignal
 from ml.stores.mixins import BufferedStoreMixin
 from ml.stores.mixins import DataRegistryMixin
@@ -34,6 +35,8 @@ from ml.stores.mixins import HealthMixin
 from ml.stores.mixins import ReadQueryMixin
 from ml.stores.mixins import SQLUpsertMixin
 from ml.stores.mixins import StoreInitMixin
+from ml.stores.services.strategy_services import StrategyOrderEventEventService
+from ml.stores.services.strategy_services import StrategyOrderEventWriteService
 from ml.stores.services.strategy_services import StrategySignalClearService
 from ml.stores.services.strategy_services import StrategySignalEventService
 from ml.stores.services.strategy_services import StrategySignalQueryService
@@ -55,6 +58,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "StrategyOrderEvent",
     "StrategySignal",
     "StrategyStore",
 ]
@@ -80,10 +84,10 @@ class StrategyStore(
     StoreInitMixin,
 ):
     """
-    Store for strategy signals and decisions with PostgreSQL backend.
+    Store for strategy signals and order events with PostgreSQL backend.
 
-    Tracks strategy signals with model attributions, risk metrics, and execution
-    parameters for both backtesting and live trading.
+    Tracks strategy signals with model attributions, risk metrics, execution
+    parameters, and order-event payloads for both backtesting and live trading.
 
     """
 
@@ -146,15 +150,19 @@ class StrategyStore(
         self._write_buffer: list[StrategySignal] = []
         # Back-compat: expose `_buffer` alias used by older tests
         self._buffer: list[StrategySignal] = self._write_buffer
+        # Separate buffer for order events (avoids mixing signal rows)
+        self._order_event_buffer: list[StrategyOrderEvent] = []
 
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
         # Engine + tables already initialized by _init_store_common
         # Extracted services (internal composition; public API unchanged)
         self._write_service = StrategySignalWriteService(self, logger)
+        self._order_event_write_service = StrategyOrderEventWriteService(self, logger)
         self._query_service = StrategySignalQueryService(self)
         self._stats_service = StrategySignalStatsService(self)
         self._event_service = StrategySignalEventService(self, logger)
+        self._order_event_event_service = StrategyOrderEventEventService(self, logger)
         self._clear_service = StrategySignalClearService(self)
 
         # Optional circuit breaker injected by actors/services
@@ -174,7 +182,7 @@ class StrategyStore(
 
     def _safe_table(self, base: str, allowed: set[str] | None = None) -> str:
         if allowed is None:
-            allowed = {"ml_strategy_signals", "ml_strategy_performance"}
+            allowed = {"ml_strategy_order_events", "ml_strategy_performance", "ml_strategy_signals"}
         return ReadQueryMixin._safe_table(self, base, allowed)
 
     def _setup_tables(self) -> None:
@@ -205,6 +213,33 @@ class StrategyStore(
             Index("idx_ml_strategy_signals_lookup", "strategy_id", "instrument_id", "ts_event"),
             Index("idx_ml_strategy_signals_type", "signal_type"),
             Index("idx_ml_strategy_signals_live", "is_live"),
+            schema=schema_name,
+        )
+
+        # Strategy order events table
+        self.strategy_order_events_table = Table(
+            "ml_strategy_order_events",
+            self.metadata,
+            Column("event_id", String(64), primary_key=True),
+            Column("strategy_id", String(255), nullable=False),
+            Column("instrument_id", String(100), nullable=False),
+            Column("client_order_id", String(128), nullable=False),
+            Column("venue_order_id", String(128)),
+            Column("event_type", String(64), nullable=False),
+            Column("payload", JSON),
+            Column("ts_event", BIGINT, nullable=False),
+            Column("ts_init", BIGINT),
+            Column("is_live", BOOLEAN, default=False),
+            Column("created_at", BIGINT),
+            Index(
+                "idx_ml_strategy_order_events_lookup",
+                "strategy_id",
+                "instrument_id",
+                "ts_event",
+            ),
+            Index("idx_ml_strategy_order_events_client", "client_order_id"),
+            Index("idx_ml_strategy_order_events_type", "event_type"),
+            Index("idx_ml_strategy_order_events_live", "is_live"),
             schema=schema_name,
         )
 
@@ -318,6 +353,38 @@ class StrategyStore(
         elif self.clock and self._should_flush_by_time():
             self.flush()
 
+    def write_order_event(self, event: StrategyOrderEvent | object, *, is_live: bool = False) -> None:
+        """
+        Write single strategy order event.
+
+        Parameters
+        ----------
+        event : StrategyOrderEvent | object
+            Order event instance or pre-built record.
+        is_live : bool, optional
+            Whether the event occurred in live trading.
+
+        """
+        record: StrategyOrderEvent | None
+        if isinstance(event, StrategyOrderEvent):
+            record = event
+        else:
+            record = StrategyOrderEvent.from_event(
+                event,
+                is_live=is_live,
+                logger=logger,
+                context="StrategyStore.write_order_event",
+            )
+        if record is None:
+            return
+
+        self._order_event_buffer.append(record)
+
+        if len(self._order_event_buffer) >= self.batch_size:
+            self._flush_order_events()
+        elif self.clock and self._should_flush_by_time():
+            self._flush_order_events()
+
     @override
     def write_batch(self, data: Sequence[StrategySignal], emit_events: bool = True, publish_bus: bool = True) -> None:
         """
@@ -355,6 +422,26 @@ class StrategyStore(
             row_count=len(data),
         )
 
+    def write_order_events(
+        self,
+        data: Sequence[StrategyOrderEvent],
+        publish_bus: bool = True,
+    ) -> None:
+        """
+        Write batch of strategy order events.
+
+        Parameters
+        ----------
+        data : Sequence[StrategyOrderEvent]
+            Order event records to persist.
+        publish_bus : bool, optional
+            Whether to publish order events to the message bus.
+
+        """
+        if not data:
+            return
+        self._order_event_write_service.write_batch(list(data), publish_bus=publish_bus)
+
     def _record_observability_stage_boundary(
         self,
         *,
@@ -385,6 +472,21 @@ class StrategyStore(
         Patch point preserved; delegates to write service.
         """
         self._write_service.execute_write(values)
+
+    def _flush_order_events(self) -> None:
+        if not self._order_event_buffer:
+            return
+        buffer_copy = list(self._order_event_buffer)
+        try:
+            self.write_order_events(buffer_copy, publish_bus=True)
+            self._emit_order_event_events(buffer_copy)
+        finally:
+            self._order_event_buffer.clear()
+            if self.clock:
+                try:
+                    self._last_flush_ns = int(self.clock.timestamp_ns())
+                except Exception:
+                    self._last_flush_ns = 0
 
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:
@@ -531,6 +633,7 @@ class StrategyStore(
         from ml.stores.mixins import BufferedStoreMixin as _BSM
 
         _BSM.flush(self)
+        self._flush_order_events()
 
     def _emit_signal_events(self, signals: list[StrategySignal]) -> None:
         """
@@ -540,6 +643,15 @@ class StrategyStore(
             self._event_service.emit_signal_events(signals)
         except Exception:
             logger.debug("Signal event emission failed", exc_info=True)
+
+    def _emit_order_event_events(self, events: list[StrategyOrderEvent]) -> None:
+        """
+        Delegate to order event service (non-blocking).
+        """
+        try:
+            self._order_event_event_service.emit_order_events(events)
+        except Exception:
+            logger.debug("Order event emission failed", exc_info=True)
 
     # Time-based flush decision provided by BufferedStoreMixin
 
@@ -781,6 +893,7 @@ class StrategyStore(
     _last_flush_ns: int
     # SQLAlchemy tables created in _setup_tables; typed loosely for protocol conformance
     strategy_signals_table: Any
+    strategy_order_events_table: Any
     strategy_performance_table: Any
 
 

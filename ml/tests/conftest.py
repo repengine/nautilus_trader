@@ -10,6 +10,7 @@ fixtures to the dedicated modules under ``ml.tests.fixtures``.
 
 from __future__ import annotations
 
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -24,6 +25,70 @@ from hypothesis import HealthCheck
 from hypothesis import settings
 
 from ml.core.db_engine import EngineManager as _EngineManager
+
+try:
+    import execnet.gateway_base as _execnet_gateway
+except ImportError:  # pragma: no cover - instrumentation optional
+    _execnet_gateway = None
+
+_EXECNET_LOGGER = logging.getLogger("ml.tests.execnet")
+if not _EXECNET_LOGGER.handlers:
+    log_path = Path(os.getenv("ML_EXECNET_LOG_PATH", "/tmp/ml-execnet.log"))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s]: %(message)s"),
+    )
+    _EXECNET_LOGGER.addHandler(handler)
+_EXECNET_LOGGER.setLevel(logging.DEBUG)
+_EXECNET_LOGGER.propagate = False
+
+_LOGGED_WORKERS: set[str] = set()
+
+
+@pytest.fixture(autouse=True)
+def _log_worker_pid(worker_id: str) -> None:
+    """
+    Emit the OS pid for each xdist worker so we can map node IDs to processes.
+    """
+
+    if worker_id in _LOGGED_WORKERS:
+        return
+
+    _LOGGED_WORKERS.add(worker_id)
+    log_path = Path("/tmp") / "xdist-worker-pids.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with log_path.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{worker_id}:{os.getpid()}\n")
+    except Exception:
+        pass
+
+def _install_execnet_message_logging() -> None:
+    """Wrap execnet Message.from_io so channel failures emit a log before propagating."""
+
+    if _execnet_gateway is None:
+        return
+    if getattr(_execnet_gateway, "_ml_message_from_io_wrapped", False):
+        return
+
+    original = _execnet_gateway.Message.from_io
+
+    def _logged_message_from_io(io: object) -> object:
+        try:
+            return original(io)
+        except Exception as exc:
+            try:
+                _EXECNET_LOGGER.exception("Execnet channel read failed", extra={"io": io})
+            except (ValueError, OSError):
+                pass
+            raise
+
+    _execnet_gateway.Message.from_io = _logged_message_from_io
+    setattr(_execnet_gateway, "_ml_message_from_io_wrapped", True)
+
+
+_install_execnet_message_logging()
 
 
 _DB_FIXTURES_MODULE: ModuleType | None = None

@@ -309,6 +309,7 @@ def test_backfill_binding_uses_binding_and_logs_sql_warning(monkeypatch, caplog)
         self,
         *,
         dataset_id: str,
+        provider_dataset_id: str | None = None,
         schema: str,
         instrument_id: str,
         lookback_days: int,

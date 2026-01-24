@@ -18,6 +18,7 @@ from sqlalchemy import text as _text
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategySignal
 from ml.stores.protocols import LoggerLike
 from ml.stores.protocols import StrategyClearDepsStrict
@@ -96,6 +97,65 @@ class StrategySignalWriteService:
             ts_field="ts_event",
             run_id_batch="strategy_store_write",
             run_id_row="strategy_store_row",
+            source="strategy",
+            logger=self.logger,
+            publish_bus=publish_bus,
+        )
+
+
+@dataclass(slots=True)
+class StrategyOrderEventWriteService:
+    """Pure persistence for strategy order events."""
+
+    deps: StrategyWriteDepsStrict
+    logger: LoggerLike
+
+    def write_batch(self, data: list[StrategyOrderEvent], publish_bus: bool = True) -> None:
+        if not data:
+            return
+
+        values: list[dict[str, Any]] = []
+        for item in data:
+            values.append(
+                {
+                    "event_id": item.event_id,
+                    "strategy_id": item.strategy_id,
+                    "instrument_id": item.instrument_id,
+                    "client_order_id": item.client_order_id,
+                    "venue_order_id": item.venue_order_id,
+                    "event_type": item.event_type,
+                    "payload": item.payload if item.payload else None,
+                    "ts_event": item.ts_event,
+                    "ts_init": item.ts_init,
+                    "is_live": getattr(item, "is_live", False),
+                }
+            )
+
+        self.deps._execute_upsert_and_publish(
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="StrategyStore._execute_order_event_write",
+            key_fields=("event_id", "strategy_id", "ts_event"),
+            table=self.deps.strategy_order_events_table,
+            conflict_cols=["event_id"],
+            update_cols=[
+                "strategy_id",
+                "instrument_id",
+                "client_order_id",
+                "venue_order_id",
+                "event_type",
+                "payload",
+                "ts_event",
+                "ts_init",
+                "is_live",
+            ],
+            dataset_id="order_events",
+            stage=Stage.ORDER_EVENT_EMITTED,
+            instrument_key="instrument_id",
+            ts_field="ts_event",
+            run_id_batch="strategy_order_event_write",
+            run_id_row="strategy_order_event_row",
             source="strategy",
             logger=self.logger,
             publish_bus=publish_bus,
@@ -768,6 +828,202 @@ class StrategySignalEventService:
         except Exception:
             # Non-blocking by design
             self.logger.warning("Failed to emit signal events", exc_info=True)
+
+
+@dataclass(slots=True)
+class StrategyOrderEventEventService:
+    """Event emission service for strategy order events (registry/metrics)."""
+
+    deps: StrategyEventDepsStrict
+    logger: LoggerLike
+
+    def emit_order_events(self, events: list[StrategyOrderEvent]) -> None:
+        if not events:
+            return
+
+        try:
+            registry = self.deps._get_data_registry()
+            if registry is None:
+                return
+
+            try:
+                registry.get_manifest("order_events")
+            except Exception:
+                self.logger.debug(
+                    "Manifest lookup for 'order_events' failed; attempting auto-registration",
+                    exc_info=True,
+                )
+                try:
+                    from ml.common.metrics_manager import MetricsManager as _MM
+                    from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
+                    from ml.registry.dataclasses import DatasetType
+                    from ml.registry.dataclasses import StorageKind
+
+                    manifest = build_auto_dataset_manifest(
+                        dataset_id="order_events",
+                        dataset_type=DatasetType.ORDER_EVENTS,
+                        location="ml_strategy_order_events",
+                        storage_kind=StorageKind.POSTGRES,
+                        pipeline_signature="strategy_services_auto",
+                        metadata={
+                            "ts_field": "ts_event",
+                            "primary_keys": ["event_id"],
+                            "auto_registered": True,
+                        },
+                    )
+                    registry.register_dataset(manifest)
+                except Exception as exc:
+                    try:
+                        self.logger.warning(
+                            "Auto-registration of 'order_events' dataset failed: %s",
+                            exc,
+                            extra={
+                                "component": "strategy_services",
+                                "operation": "register_dataset",
+                                "dataset_id": "order_events",
+                            },
+                            exc_info=True,
+                        )
+                        _mm = _MM.default()
+                        _mm.inc(
+                            "ml_pipeline_errors_total",
+                            "ML pipeline errors",
+                            labels={
+                                "component": "strategy_services",
+                                "op": "register_dataset",
+                                "error_type": "exception",
+                            },
+                            labelnames=("component", "op", "error_type"),
+                        )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Auto-registration metrics/logging failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed metrics/logging failure during auto-registration",
+                                exc_info=log_exc,
+                            )
+
+            from collections import defaultdict
+
+            grouped: dict[tuple[str, str], list[StrategyOrderEvent]] = defaultdict(list)
+            for event in events:
+                grouped[(event.strategy_id, event.instrument_id)].append(event)
+
+            for (strategy_id, instrument_id), group in grouped.items():
+                if not group:
+                    continue
+
+                import time as _time
+                import uuid as _uuid
+
+                run_id = (
+                    f"order_event_{strategy_id}_{_uuid.uuid4().hex[:8]}_{int(_time.time())}"
+                )
+                ts_vals = [e.ts_event for e in group]
+                ts_min, ts_max = min(ts_vals), max(ts_vals)
+                src_enum = Source.LIVE if getattr(group[0], "is_live", False) else Source.HISTORICAL
+
+                try:
+                    from ml.common import event_emitter as _ee
+
+                    _emit_wm = getattr(_ee, "emit_dataset_event_and_watermark", None)
+                    _emit = getattr(_ee, "emit_dataset_event", None)
+                except Exception:
+                    _emit_wm = None
+                    _emit = None
+
+                if callable(_emit_wm):
+                    try:
+                        _emit_wm(
+                            registry,
+                            dataset_id="order_events",
+                            instrument_id=instrument_id,
+                            stage=Stage.ORDER_EVENT_EMITTED,
+                            source=src_enum,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            dataset_type="order_events",
+                            component=strategy_id,
+                        )
+                    except Exception:
+                        try:
+                            registry.emit_event(
+                                dataset_id="order_events",
+                                instrument_id=instrument_id,
+                                stage=Stage.ORDER_EVENT_EMITTED,
+                                source=src_enum,
+                                run_id=run_id,
+                                ts_min=ts_min,
+                                ts_max=ts_max,
+                                count=len(group),
+                                status=EventStatus.SUCCESS,
+                                metadata={"component": strategy_id},
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry emit_event fallback failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during emit_event fallback",
+                                    exc_info=log_exc,
+                                )
+                else:
+                    try:
+                        registry.emit_event(
+                            dataset_id="order_events",
+                            instrument_id=instrument_id,
+                            stage=Stage.ORDER_EVENT_EMITTED,
+                            source=src_enum,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            metadata={"component": strategy_id},
+                        )
+                        try:
+                            registry.update_watermark(
+                                dataset_id="order_events",
+                                instrument_id=instrument_id,
+                                source=src_enum,
+                                last_success_ns=ts_max,
+                                count=len(group),
+                                completeness_pct=100.0,
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry watermark update failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during watermark update",
+                                    exc_info=log_exc,
+                                )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Registry emit_event failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during emit_event",
+                                exc_info=log_exc,
+                            )
+        except Exception:
+            self.logger.warning("Failed to emit order events", exc_info=True)
 
 
 @dataclass(slots=True)

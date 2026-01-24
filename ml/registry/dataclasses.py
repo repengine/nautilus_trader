@@ -45,6 +45,8 @@ class DatasetType(Enum):
         Model predictions
     SIGNALS : str
         Strategy signals
+    ORDER_EVENTS : str
+        Strategy order events
     EARNINGS_ACTUALS : str
         Reported corporate earnings fundamentals
     EARNINGS_ESTIMATES : str
@@ -60,6 +62,7 @@ class DatasetType(Enum):
     FEATURES = "features"
     PREDICTIONS = "predictions"
     SIGNALS = "signals"
+    ORDER_EVENTS = "order_events"
     EARNINGS_ACTUALS = "earnings_actuals"
     EARNINGS_ESTIMATES = "earnings_estimates"
     MACRO_RELEASES = "macro_releases"
@@ -442,6 +445,7 @@ class DatasetManifest:
             DatasetType.FEATURES,
             DatasetType.PREDICTIONS,
             DatasetType.SIGNALS,
+            DatasetType.ORDER_EVENTS,
         ):
             for field in nautilus_required:
                 if field not in self.schema:

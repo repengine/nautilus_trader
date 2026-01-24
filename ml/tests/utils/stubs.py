@@ -30,6 +30,7 @@ from ml.strategies.protocols import OrderExecutorProtocol
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.identifiers import StrategyId
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only imports
@@ -401,13 +402,17 @@ def build_ml_trading_strategy_stub(
     class _StrategyShim:
         def __init__(self) -> None:
             self.log = LoggerStub()
+            self.id = StrategyId("STRAT-TEST")
             self._config = SimpleNamespace(
                 execute_trades=execute_trades,
                 serialize_order_intents=False,
                 stop_loss_pct=0.02,
                 take_profit_pct=0.04,
                 exit_policy_config=None,
+                account_mode="cash",
+                short_entry_policy=None,
             )
+            self.id = "strategy_stub"
             self._active_positions = 0
             self._dry_run_trades = 0
             self.track_performance = False
@@ -442,6 +447,10 @@ def build_ml_trading_strategy_stub(
                 self,
                 MLTradingStrategy,
             )
+            self._resolve_short_entry_policy = MLTradingStrategy._resolve_short_entry_policy.__get__(
+                self,
+                MLTradingStrategy,
+            )
 
         def _get_current_position(self) -> object:
             return None
@@ -457,6 +466,9 @@ def build_ml_trading_strategy_stub(
 
         def _reverse_position(self, _current: object, _side: object, _signal: MLSignal) -> None:
             return None
+
+        def _should_block_entry_orders(self) -> bool:
+            return False
 
         def _persist_strategy_decision(
             self,

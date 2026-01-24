@@ -27,6 +27,7 @@ def assert_allowed_topic_chars(topic: str) -> None:
         (Stage.FEATURE_COMPUTED, ("features", "updated")),
         (Stage.PREDICTION_EMITTED, ("models", "created")),
         (Stage.SIGNAL_EMITTED, ("strategies", "created")),
+        (Stage.ORDER_EVENT_EMITTED, ("orders", "created")),
     ],
 )
 def test_map_stage_to_segments(stage: Stage, expected: tuple[str, str]) -> None:

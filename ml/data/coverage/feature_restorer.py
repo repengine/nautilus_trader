@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from ml._imports import HAS_PANDAS
+from ml._imports import HAS_PYARROW
+from ml._imports import pa
 from ml._imports import pd
+from ml._imports import pq
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
@@ -826,12 +829,35 @@ class FeatureCoverageRestorer:
         try:
             frame = PANDAS.read_parquet(path)
         except Exception:
-            logger.warning(
-                "feature_restore.parquet_read_failed",
-                exc_info=True,
-                extra={"path": str(path)},
-            )
-            return None
+            if not HAS_PYARROW or pa is None or pq is None:
+                logger.warning(
+                    "feature_restore.parquet_read_failed",
+                    exc_info=True,
+                    extra={"path": str(path)},
+                )
+                return None
+            try:
+                parquet_file = pq.ParquetFile(path)
+                tables = []
+                for idx in range(parquet_file.num_row_groups):
+                    try:
+                        tables.append(parquet_file.read_row_group(idx))
+                    except Exception:
+                        logger.debug(
+                            "feature_restore.row_group_read_failed",
+                            exc_info=True,
+                            extra={"path": str(path), "row_group": idx},
+                        )
+                if not tables:
+                    return None
+                frame = pa.concat_tables(tables, promote=True).to_pandas()
+            except Exception:
+                logger.warning(
+                    "feature_restore.parquet_read_failed",
+                    exc_info=True,
+                    extra={"path": str(path)},
+                )
+                return None
         if timestamp_field not in frame.columns:
             logger.debug(
                 "feature_restore.missing_timestamp_field",

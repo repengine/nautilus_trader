@@ -21,6 +21,8 @@ from ml.strategies.common.decision_persistence import CircuitBreakerProtocol
 from ml.strategies.common.decision_persistence import DecisionPersistenceComponent
 from ml.strategies.common.decision_persistence import LoggerProtocol
 from ml.strategies.common.decision_persistence import StrategyStoreProtocol
+from ml.strategies.common.intent_positions import IntentPosition
+from ml.strategies.common.intent_positions import OrderIntentPositionTracker
 from ml.strategies.common.lifecycle import LifecycleComponent
 from ml.strategies.common.model_exit_policy import ExitDecision
 from ml.strategies.common.model_exit_policy import ModelSignalProtocol
@@ -53,11 +55,13 @@ __all__ = [
     "CorrelationSnapshot",
     "DecisionPersistenceComponent",
     "ExitDecision",
+    "IntentPosition",
     "LifecycleComponent",
     "LoggerProtocol",
     "ModelSignalProtocol",
     "NautilusPositionsProvider",
     "OrderExecutorProtocol",
+    "OrderIntentPositionTracker",
     "OrderSubmissionComponent",
     "PerformanceTrackerProtocol",
     "PerformanceTrackingComponent",

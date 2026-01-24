@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for alternative runti
     import tomli as tomllib  # type: ignore[no-redef]
 
 from ml.config.universes import TIER1_SYMBOL_SETS
+from ml.data.coverage.manager import CoverageBucketMode
 from ml.data.coverage.manager import DatasetCoverageConfig
 from ml.stores.providers import ParquetCoverageSpec
 from ml.stores.providers import SqlCoverageOverride
@@ -88,19 +89,25 @@ def _parse_dataset_entry(payload: dict[str, Any], *, base_dir: Path) -> Coverage
     entity_field = payload.get("entity_field", "instrument_id")
     if not isinstance(entity_field, str) or not entity_field.strip():
         raise ValueError(f"dataset {dataset_id} requires a non-empty entity_field")
+    entities_file = _optional_str(payload.get("entities_file"))
     entities_value = payload.get("entities") or payload.get("symbols") or payload.get("instruments")
-    if entities_value is None:
-        raise ValueError(f"dataset {dataset_id} must define 'entities'")
-    instruments = _parse_entities(entities_value, strip_venue=strip_venue)
+    if entities_file:
+        instruments = _parse_entities_file(entities_file, base_dir=base_dir, strip_venue=strip_venue)
+    elif entities_value is not None:
+        instruments = _parse_entities(entities_value, strip_venue=strip_venue)
+    else:
+        raise ValueError(f"dataset {dataset_id} must define 'entities' or 'entities_file'")
     sql_override = _parse_sql_override(payload.get("sql"), dataset_id=dataset_id)
     parquet_spec = _parse_parquet_spec(
         payload.get("parquet"), dataset_id=dataset_id, base_dir=base_dir
     )
+    bucket_mode = _parse_bucket_mode(payload.get("bucket_mode"))
     dataset_cfg = DatasetCoverageConfig(
         dataset_id=dataset_id,
         schema=schema,
         instruments=instruments,
         entity_field=entity_field,
+        bucket_mode=bucket_mode,
     )
     return CoverageDatasetEntry(
         dataset=dataset_cfg,
@@ -162,6 +169,20 @@ def _parse_parquet_spec(
     )
 
 
+def _parse_bucket_mode(value: Any) -> CoverageBucketMode:
+    if value is None:
+        return CoverageBucketMode.DAILY
+    raw = _optional_str(value)
+    if raw is None:
+        return CoverageBucketMode.DAILY
+    normalized = raw.lower()
+    if normalized == CoverageBucketMode.DAILY.value:
+        return CoverageBucketMode.DAILY
+    if normalized == CoverageBucketMode.CATALOG.value:
+        return CoverageBucketMode.CATALOG
+    raise ValueError(f"Unsupported bucket_mode: {raw}")
+
+
 def _parse_entities(value: Any, *, strip_venue: bool) -> tuple[str, ...]:
     tokens: list[str] = []
     if isinstance(value, str):
@@ -189,6 +210,26 @@ def _expand_alias(alias: str) -> tuple[str, ...]:
     if resolved is None:
         raise ValueError(f"Unknown universe alias @{alias}")
     return resolved
+
+
+def _parse_entities_file(
+    path_value: str,
+    *,
+    base_dir: Path,
+    strip_venue: bool,
+) -> tuple[str, ...]:
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = base_dir / path
+    if not path.exists():
+        raise FileNotFoundError(f"entities_file not found: {path}")
+    tokens: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        tokens.append(stripped)
+    return _normalize_entities(tokens, strip_venue=strip_venue)
 
 
 def _normalize_entities(values: list[str], *, strip_venue: bool) -> tuple[str, ...]:

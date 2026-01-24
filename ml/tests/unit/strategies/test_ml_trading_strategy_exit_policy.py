@@ -10,6 +10,7 @@ from typing import Any, Callable, cast
 from ml.actors.base import MLSignal
 from ml.config.base import ExitPolicyConfig
 from ml.config.base import ModelExitConfig
+from ml.config.base import ShortEntryPolicy
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.tests.utils.stubs import LoggerStub
 from ml.tests.utils.stubs import StrategyDecisionRecorder
@@ -205,6 +206,7 @@ def test_exit_policy_reverse_when_signal_opposes_persists_exit_metadata() -> Non
         max_holding_ms=None,
     )
     strat._config.serialize_order_intents = False
+    strat._config.short_entry_policy = ShortEntryPolicy.ALLOW
 
     position = _PositionStub(
         "LONG",

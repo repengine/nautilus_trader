@@ -88,6 +88,79 @@ Definition of Done
 Definition of Done
 - [x] On-disk inputs are inventoried and mapped to the schemas they cover.
 
+## Coverage Targets and Expected Rows (Baseline)
+Universe reference: `UNIVERSE_SYMBOLS` in `ml/deployment/.env` (100 symbols). For
+coverage targets, the max available dataset is defined by Parquet catalog
+coverage. DB targets should match Parquet coverage windows and instrument
+counts.
+
+### Market Data Coverage Targets (Parquet Baseline)
+Parquet coverage windows are derived from file timestamps and represent the
+maximum available range on disk. Tick data row counts vary by instrument/day, so
+coverage targets are expressed in day buckets, not absolute rows.
+
+| Schema | Dataset ID | Parquet path | Instruments | Parquet window (UTC) | Coverage target |
+| --- | --- | --- | --- | --- | --- |
+| Bars (ohlcv-1m) | `EQUS.MINI` | `data/catalog/data/bar` | 95 | 2023-03-28 -> 2025-12-01 | Per-minute coverage by instrument |
+| Quotes | `EQUS.MINI_QUOTES` | `data/catalog/data/quote_tick` | 95 | 2024-09-30 -> 2026-01-09 | Day buckets by instrument |
+| TBBO | `EQUS.MINI_TBBO` | `data/catalog/data/quote_tick/*-TBBO` | 95 | 2024-09-30 -> 2024-10-02 | Day buckets by instrument |
+| MBP-1 | `EQUS.MINI_MBP1` | `data/catalog/data/quote_tick/*-MBP1` | 8 | 2024-09-30 -> 2025-10-27 | Day buckets by instrument |
+| Trades | `EQUS.MINI_TRADES` | `data/catalog/data/trade_tick` | 95 | 2024-09-30 -> 2025-11-26 | Day buckets by instrument |
+
+Notes
+- The MBP-1 archive `data/batch/EQUS-MBP-1-20251027-KKQ9D3X3EJ.zip` contains 94
+  symbols over 2025-10-27 -> 2025-11-24; Parquet should expand beyond the
+  current 8-instrument footprint after ingest completes.
+- Parquet coverage is the max available dataset; DB coverage should match it.
+
+### Feature Data Coverage Targets (Parquet Baseline)
+Feature caches use date-partitioned Parquet files. Coverage targets are defined
+by available partitions in `data/features`.
+
+| Feature schema | Parquet path | Instruments | Parquet window (UTC) | Coverage target |
+| --- | --- | --- | --- | --- |
+| Microstructure minute | `data/features/micro_minute` | 192 | 2018-09-04 -> 2026-01-23 | Per-minute coverage by instrument |
+| L2 minute | `data/features/l2_minute` | 193 | 2018-05-01 -> 2026-01-23 | Per-minute coverage by instrument |
+| Feature values | `data/features/store/feature_values` | 16 | 1970-01-01 -> 2026-01-23 | Feature-engineer output driven |
+| Macro release calendar | `data/features/macro` | N/A | 1955-05-06 -> 2026-01-22 | Calendar driven |
+| Events calendar | `data/features/events` | N/A | 2026-01-20 -> 2026-01-20 | Calendar driven |
+| Earnings actuals | `data/features/earnings_raw/earnings_actuals` | N/A | 2025-11-08 -> 2026-01-23 | Provider driven |
+| Earnings estimates | `data/features/earnings_raw/earnings_estimates` | N/A | 2025-11-08 -> 2026-01-23 | Provider driven |
+
+### Estimated Full Rows (Approximate)
+For minute-cadence tables, use trading day estimates (calendar_days * 5/7) and
+390 minutes per trading day. These are upper-bound targets used to surface
+gaps; actual counts will be lower for sparse instruments.
+
+| Table | Coverage window | Instruments | Estimated rows (approx) |
+| --- | --- | --- | --- |
+| `market_data_bar` | 2023-03-28 -> 2025-12-01 | 95 | ~25,935,000 |
+| `ml.microstructure_minute` | 2018-09-04 -> 2026-01-23 | 192 | ~144,293,760 |
+| `ml.l2_minute` | 2018-05-01 -> 2026-01-23 | 193 | ~151,819,590 |
+
+### Current DB Snapshot (As of this run)
+| Table | Rows | Instruments | ts_event window (UTC) |
+| --- | --- | --- | --- |
+| `market_data_bar` | 1,696,251 | 5 | 2023-03-28 -> 2025-12-01 |
+| `market_data_quote_tick` | 1,355 | 2 | 2024-11-19 -> 2025-05-13 |
+| `market_data_tbbo` | 2,003,420 | 95 | 2024-09-30 -> 2024-10-02 |
+| `market_data_mbp1` | 6,264,465 | 9 | 2024-09-30 -> 2025-10-27 |
+| `market_data_trade_tick` | 31,027 | 2 | 2024-11-19 -> 2025-05-13 |
+| `ml.microstructure_minute` | 518,746 | 77 | 2024-08-26 -> 2025-08-29 |
+| `ml.l2_minute` | 1,568,073 | 80 | 2025-07-24 -> 2025-09-19 |
+| `ml_feature_values` | 1,755 | 2 | 2025-11-03 -> 2025-11-04 |
+| `ml.macro_release_calendar` | 2,628 | - | 2022-10-13 -> 2026-01-22 |
+| `ml.macro_observations` | 200 | - | 2022-11-01 -> 2025-12-01 |
+| `ml.events_calendar` | 77 | 1 | 2022-10-20 -> 2026-01-20 |
+| `ml.earnings_actuals` | 560 | - | 2024-01-23 -> 2026-01-23 |
+| `ml.earnings_estimates` | 798 | - | 2022-10-27 -> 2026-01-23 |
+
+Definition of Done
+- [ ] Coverage targets are defined per schema with explicit windows and
+      instrument counts.
+- [ ] Expected row estimates are documented for minute-cadence tables.
+- [ ] Current DB snapshot is recorded to surface gaps quickly.
+
 ## Architecture Summary
 
 ### Ingestion to Postgres and Parquet
@@ -158,10 +231,46 @@ Definition of Done
       Parquet backfill is desired.
 - [x] Prefer catalog quote/trade data for micro features and avoid writing empty
       cache partitions.
+- [ ] Add parity checks to flag any schema with Parquet coverage but zero or
+      minimal DB rows (gap indicates rehydration or writer issues).
+- [ ] Verify rehydration selection includes non-L2 feature datasets
+      (`macro_release_calendar`, `macro_observations`, `events_calendar`,
+      `earnings_raw`, `feature_values`) and does not silently skip them due to
+      dataset type or storage kind.
+- [ ] Confirm registry dataset IDs for feature datasets are present before
+      rehydration so FK checks do not block writes.
 
 Definition of Done
 - [ ] Parquet writes exist for each schema and are consumable for rehydration.
-- [ ] Rehydration fills gaps and updates registry state.
+- [ ] Rehydration fills gaps, updates registry state, and parity checks pass.
+
+### 3b) Rehydration Gap Investigation (Non-L2 Features)
+Goal: identify why Parquet-backed feature datasets are not reflected in
+Postgres without assuming a backfill run will fix the issue.
+
+- [x] Align `ml.feature_values` coverage entities to explicit EQUS.MINI symbols
+      derived from Parquet (`ml/config/equs_mini_symbols.txt`).
+- [x] Mark sparse feature datasets to use catalog-derived buckets
+      (`bucket_mode = "catalog"`) to avoid daily false gaps.
+- [ ] Trace catalog rehydration eligibility filters and dataset-type routing in
+      `catalog_rehydrator.py` and the entrypoint pipeline for non-L2 feature
+      datasets.
+- [ ] Validate dataset-type templates (`CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES`)
+      and registry dataset IDs match Parquet identifiers for macro/events/
+      earnings/feature_values.
+- [ ] Confirm coverage restore flags (`CATALOG_REHYDRATE_ENABLED`,
+      `COVERAGE_RESTORE_ENABLED`) are honored for feature datasets.
+- [ ] Add a short-run “rehydration dry-run” with logging to prove which
+      datasets are included/excluded and why.
+- [ ] Validate `COVERAGE_RESTORE_LOOKBACK_DAYS` spans the desired historical
+      window (oldest EQUS market data) and plan staged runs if buckets are too
+      large to process in one cycle.
+
+Definition of Done
+- [ ] Each non-L2 feature dataset with Parquet coverage has a documented
+      rehydration eligibility result (included or explicitly excluded).
+- [ ] Any exclusion is tied to a concrete config or code guard and resolved or
+      documented.
 
 ### 4) Docker Stack Verification
 - [ ] Ensure docker-compose uses bootstrap migrations for fresh DBs and keeps
@@ -196,6 +305,11 @@ Definition of Done
       partitions.
 - [ ] If L3 archives exist on disk, ingest and register them; otherwise record
       the missing coverage explicitly.
+- [ ] Investigate feature store writes if `ml_feature_values` remains sparse
+      after rehydration: validate FeatureStore config, storage kind, and write
+      path wiring.
+- [ ] Investigate earnings parquet read failures or schema mismatches if
+      `ml.earnings_actuals` / `ml.earnings_estimates` stay sparse.
 
 Definition of Done
 - [ ] All available on-disk schemas have catalog coverage and SQL backfill.
@@ -209,6 +323,7 @@ Definition of Done
 - [ ] New ingestion fills remaining gaps and writes to DB and Parquet.
 - [ ] Feature values and feature datasets populate via feature engineering.
 - [ ] L2/L3 coverage aligned to the on-disk availability window.
+- [ ] Parquet-vs-DB parity checks pass for non-L2 feature schemas.
 
 Definition of Done
 - [ ] All checklist items are confirmed against the docker deployment stack.

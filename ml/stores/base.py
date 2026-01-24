@@ -8,6 +8,7 @@ data including features, predictions, and signals.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -252,6 +253,184 @@ class StrategySignal(NautilusData):
         return self._ts_init
 
 
+@dataclass
+class StrategyOrderEvent(NautilusData):
+    """
+    Store order events for strategy execution audit.
+
+    Attributes
+    ----------
+    event_id : str
+        Unique event identifier.
+    strategy_id : str
+        Strategy identifier.
+    instrument_id : str
+        Instrument identifier.
+    client_order_id : str
+        Client order identifier.
+    venue_order_id : str | None
+        Venue order identifier when available.
+    event_type : str
+        Order event type (e.g., OrderSubmitted).
+    payload : dict[str, Any]
+        Full order event payload for audit.
+    _ts_event : int
+        Event timestamp in nanoseconds.
+    _ts_init : int
+        Initialization timestamp in nanoseconds.
+    is_live : bool
+        Whether this event occurred in live trading.
+
+    """
+
+    event_id: str
+    strategy_id: str
+    instrument_id: str
+    client_order_id: str
+    venue_order_id: str | None
+    event_type: str
+    payload: dict[str, Any]
+    _ts_event: int
+    _ts_init: int
+    is_live: bool = False
+
+    @property
+    def ts_event(self) -> int:
+        """
+        Event timestamp in nanoseconds.
+        """
+        return self._ts_event
+
+    @property
+    def ts_init(self) -> int:
+        """
+        Initialization timestamp in nanoseconds.
+        """
+        return self._ts_init
+
+    @staticmethod
+    def _coerce_str(value: object | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        attr = getattr(value, "value", None)
+        if attr is not None:
+            return str(attr)
+        return str(value)
+
+    @classmethod
+    def from_event(
+        cls,
+        event: object,
+        *,
+        is_live: bool = False,
+        logger: logging.Logger | None = None,
+        context: str = "StrategyOrderEvent.from_event",
+    ) -> StrategyOrderEvent | None:
+        """
+        Build a StrategyOrderEvent from a Nautilus order event.
+
+        Parameters
+        ----------
+        event : object
+            Order event instance with ``to_dict`` and order metadata.
+        is_live : bool, optional
+            Whether the event is from live trading.
+        logger : logging.Logger | None, optional
+            Logger for debug output on extraction failure.
+        context : str, optional
+            Context label for timestamp sanitization.
+
+        Returns
+        -------
+        StrategyOrderEvent | None
+            Parsed order event, or ``None`` when required fields are missing.
+
+        """
+        from ml.common.timestamps import sanitize_timestamp_ns
+
+        raw: dict[str, Any] = {}
+        try:
+            to_dict = getattr(event, "to_dict", None)
+            if callable(to_dict):
+                raw = to_dict(event)
+        except Exception as exc:
+            if logger is not None:
+                logger.debug(
+                    "strategy_order_event_to_dict_failed",
+                    exc_info=True,
+                    extra={"context": context, "error": str(exc)},
+                )
+            return None
+
+        if not isinstance(raw, dict):
+            raw = {}
+
+        event_type = cls._coerce_str(raw.get("type")) or type(event).__name__
+        event_id = cls._coerce_str(raw.get("event_id") or getattr(event, "id", None))
+        strategy_id = cls._coerce_str(raw.get("strategy_id") or getattr(event, "strategy_id", None))
+        instrument_id = cls._coerce_str(raw.get("instrument_id") or getattr(event, "instrument_id", None))
+        client_order_id = cls._coerce_str(
+            raw.get("client_order_id") or getattr(event, "client_order_id", None),
+        )
+        venue_order_id = cls._coerce_str(
+            raw.get("venue_order_id") or getattr(event, "venue_order_id", None),
+        )
+        ts_event_raw = raw.get("ts_event", getattr(event, "ts_event", None))
+        ts_init_raw = raw.get("ts_init", getattr(event, "ts_init", None))
+
+        if None in (event_id, strategy_id, instrument_id, client_order_id):
+            if logger is not None:
+                logger.debug(
+                    "strategy_order_event_missing_fields",
+                    extra={
+                        "context": context,
+                        "event_id": event_id,
+                        "strategy_id": strategy_id,
+                        "instrument_id": instrument_id,
+                        "client_order_id": client_order_id,
+                        "ts_event": ts_event_raw,
+                    },
+                )
+            return None
+        if ts_event_raw is None:
+            if logger is not None:
+                logger.debug(
+                    "strategy_order_event_missing_ts_event",
+                    extra={"context": context, "event_id": event_id},
+                )
+            return None
+
+        ts_event = sanitize_timestamp_ns(
+            int(ts_event_raw),
+            logger=logger,
+            context=f"{context}:ts_event",
+        )
+        ts_init_base = ts_init_raw if ts_init_raw is not None else ts_event
+        ts_init = sanitize_timestamp_ns(
+            int(ts_init_base),
+            logger=logger,
+            context=f"{context}:ts_init",
+        )
+        if ts_init < ts_event:
+            ts_init = ts_event
+
+        payload = dict(raw) if raw else {}
+        return cls(
+            event_id=str(event_id),
+            strategy_id=str(strategy_id),
+            instrument_id=str(instrument_id),
+            client_order_id=str(client_order_id),
+            venue_order_id=venue_order_id,
+            event_type=str(event_type),
+            payload=payload,
+            _ts_event=ts_event,
+            _ts_init=ts_init,
+            is_live=is_live,
+        )
+
+
 class BaseStore(MLComponentMixin, ABC):
     """
     Abstract base class for all store implementations.
@@ -384,6 +563,11 @@ class DummyStore:
     def write_signal(self, *args: object, **kwargs: object) -> None:
         """
         Write signal (dummy).
+        """
+
+    def write_order_event(self, *args: object, **kwargs: object) -> None:
+        """
+        Write order event (dummy).
         """
 
     def write_batch(self, data: list[Any], emit_events: bool = True) -> None:

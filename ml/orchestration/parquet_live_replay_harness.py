@@ -34,11 +34,13 @@ from nautilus_trader.model.objects import Quantity
 
 from ml.actors import MLSignalActor
 from ml.config.actors import MLSignalActorConfig
+from ml.config.base import AccountMode
 from ml.config.base import ExitPolicyConfig
 from ml.config.base import MLStrategyConfig
 from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
 from ml.config.replay_harness import StrategyReplayConfig
+from ml.strategies.execution import ExecutionConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.risk import RiskConfig
 from nautilus_trader.backtest.results import BacktestResult
@@ -110,6 +112,14 @@ def run_parquet_live_replay_harness(
         logger.warning(
             "serialize_order_intents_enabled_but_execute_trades_false",
             extra={"run_id": run_id},
+        )
+    if config.strategy.serialize_order_intents:
+        logger.warning(
+            "serialize_order_intents_bypasses_fills",
+            extra={
+                "run_id": run_id,
+                "note": "disable to validate fills/exits; enable quote ticks for pricing",
+            },
         )
 
     instrument_ids = _normalize_instrument_ids(
@@ -428,12 +438,14 @@ def _build_engine(
     )
 
     venue_names = {str(inst.venue) for inst in instruments.keys()}
+    account_mode = getattr(config.strategy, "account_mode", AccountMode.CASH)
+    account_type = AccountType.MARGIN if account_mode is AccountMode.MARGIN else AccountType.CASH
     starting_balance = Money(float(config.starting_balance), USD)
     for venue_name in venue_names:
         engine.add_venue(
             venue=Venue(venue_name),
             oms_type=OmsType.NETTING,
-            account_type=AccountType.CASH,
+            account_type=account_type,
             base_currency=USD,
             starting_balances=[starting_balance],
         )
@@ -537,6 +549,11 @@ def _build_strategy_config(
     Build MLStrategyConfig for the replay harness.
     """
     risk_config = _resolve_risk_config(strategy_config)
+    execution_config: ExecutionConfig | None = None
+    if strategy_config.execution_validation_mode is not None:
+        execution_config = ExecutionConfig(
+            validation_mode=strategy_config.execution_validation_mode,
+        )
     exit_policy_config = ExitPolicyConfig(
         stop_loss_pct=strategy_config.stop_loss_pct,
         take_profit_pct=strategy_config.take_profit_pct,
@@ -549,11 +566,14 @@ def _build_strategy_config(
         position_size_pct=strategy_config.position_size_pct,
         min_confidence=strategy_config.min_confidence,
         max_positions=strategy_config.max_positions,
+        account_mode=strategy_config.account_mode,
+        short_entry_policy=strategy_config.short_entry_policy,
         stop_loss_pct=strategy_config.stop_loss_pct,
         take_profit_pct=strategy_config.take_profit_pct,
         exit_policy_config=exit_policy_config,
         model_exit_config=strategy_config.model_exit_config,
         risk_config=risk_config,
+        execution_config=execution_config,
         use_strategy_store=strategy_config.use_strategy_store,
         persist_all_signals=strategy_config.persist_all_signals,
         execute_trades=strategy_config.execute_trades,

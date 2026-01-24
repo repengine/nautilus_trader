@@ -74,6 +74,7 @@ from ml.stores.base import BaseStore
 from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
+from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
@@ -193,6 +194,7 @@ __all__ = [
     "SqlCoverageProvider",
     "SqlMarketDataWriter",
     "StoreInitMixin",
+    "StrategyOrderEvent",
     "StrategySignal",
     "StrategyStore",
     "StrategyStoreProtocol",

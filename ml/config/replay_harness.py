@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
+from ml.config.base import AccountMode
+from ml.config.base import ExecutionValidationMode
 from ml.config.base import MLFeatureConfig
 from ml.config.base import ModelExitConfig
+from ml.config.base import ShortEntryPolicy
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -97,6 +100,10 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
         Minimum model confidence for trade decisions.
     max_positions : PositiveInt, default 1
         Maximum number of concurrent positions.
+    account_mode : AccountMode, default AccountMode.CASH
+        Account mode for short-entry defaults in replay runs.
+    short_entry_policy : ShortEntryPolicy | None, optional
+        Optional short-entry policy override for replay runs.
     stop_loss_pct : NonNegativeFloat, default 0.02
         Stop loss threshold.
     take_profit_pct : NonNegativeFloat, default 0.04
@@ -110,15 +117,20 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     execute_trades : bool, default False
         Whether to execute trades (required to emit order intents).
     serialize_order_intents : bool, default False
-        Whether to serialize order intents to JSONL instead of executing.
+        Whether to serialize order intents to JSONL instead of executing. Intended
+        for live safety runs without broker access; in replay/backtest this disables
+        simulated fills and exits. Enable quote tick subscriptions for pricing context.
     order_intent_path : str | None, optional
         Explicit path for order intent JSONL outputs.
     subscribe_quote_ticks : bool, default False
-        Whether to subscribe to quote ticks for execution market state.
+        Whether to subscribe to quote ticks for execution market state. Recommended
+        for execution validation and for richer intent pricing metadata.
     quote_schema : str | None, optional
         Optional quote schema parameter passed to data clients (e.g., "mbp-1").
     max_quote_age_ms : NonNegativeInt | None, optional
         Maximum quote age in milliseconds allowed for execution market state.
+    execution_validation_mode : ExecutionValidationMode | None, optional
+        Replay-only execution mode to force marketable orders for fill validation.
     use_strategy_store : bool, default True
         Whether to persist strategy decisions to StrategyStore.
     risk_config : RiskConfig | None, optional
@@ -133,6 +145,8 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     position_size_pct: PositiveFloat = 0.1
     min_confidence: NonNegativeFloat = 0.7
     max_positions: PositiveInt = 1
+    account_mode: AccountMode = AccountMode.CASH
+    short_entry_policy: ShortEntryPolicy | None = None
     stop_loss_pct: NonNegativeFloat = 0.02
     take_profit_pct: NonNegativeFloat = 0.04
     max_holding_ms: NonNegativeInt | None = None
@@ -144,6 +158,7 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     subscribe_quote_ticks: bool = False
     quote_schema: str | None = None
     max_quote_age_ms: NonNegativeInt | None = None
+    execution_validation_mode: ExecutionValidationMode | None = None
     use_strategy_store: bool = True
     risk_config: RiskConfig | None = None
     liquidation_config: RiskLiquidationConfig | None = None

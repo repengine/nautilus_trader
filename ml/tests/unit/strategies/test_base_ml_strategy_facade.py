@@ -17,6 +17,7 @@ Tests covered:
 from __future__ import annotations
 
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
@@ -45,6 +46,7 @@ class MockMLStrategyConfig:
         max_positions: int = 1,
         use_strategy_store: bool = False,
         persist_all_signals: bool = False,
+        serialize_order_intents: bool = False,
         history_size: int = 100,
         target_model_ids: list[str] | None = None,
         aggregation_mode: str | None = None,
@@ -64,6 +66,7 @@ class MockMLStrategyConfig:
         self.max_positions = max_positions
         self.use_strategy_store = use_strategy_store
         self.persist_all_signals = persist_all_signals
+        self.serialize_order_intents = serialize_order_intents
         self.history_size = history_size
         self.target_model_ids = target_model_ids
         self.aggregation_mode = aggregation_mode
@@ -518,6 +521,52 @@ class TestSignalHandlingGuardrails:
 
         assert strategy.processed_signals == [mock_signal]
 
+    def test_handle_ml_signal_uses_intent_tracker_when_cache_empty(
+        self,
+        mock_config: MockMLStrategyConfig,
+    ) -> None:
+        """Ensure intent positions allow signal processing when cache lacks positions."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.common import OrderIntentPositionTracker
+        from nautilus_trader.model.enums import OrderSide
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.identifiers import Symbol
+        from nautilus_trader.model.identifiers import Venue
+        from nautilus_trader.model.objects import Quantity
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                self.processed_signals.append(signal)
+
+        instrument_id = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
+        mock_config.instrument_id = instrument_id
+        mock_config.serialize_order_intents = True
+
+        tracker = OrderIntentPositionTracker()
+        tracker.record_order(
+            instrument_id=instrument_id,
+            side=OrderSide.BUY,
+            quantity=Quantity.from_str("1.0"),
+            reduce_only=False,
+            ts_init=123,
+        )
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        strategy._signals_received = 0
+        strategy._last_signal_time = None
+        strategy.signals_received_metric = None
+        strategy._active_positions = mock_config.max_positions
+        strategy.processed_signals = []
+        strategy.risk_manager = None
+        strategy._intent_position_tracker = tracker
+        strategy._process_signal = lambda _signal: None
+
+        signal = MockMLSignal(instrument_id=instrument_id)
+        strategy._handle_ml_signal(signal)
+
+        assert strategy.processed_signals == [signal]
+
     def test_handle_ml_signal_triggers_liquidation_on_risk_action(
         self,
         mock_config: MockMLStrategyConfig,
@@ -578,8 +627,6 @@ class TestPositionClosedUpdates:
 
     def test_position_closed_updates_risk_and_sizer(self) -> None:
         """Test realized PnL updates risk and sizing paths."""
-        from types import SimpleNamespace
-
         from ml.strategies.base_facade import SimpleMLStrategyFacade
         from nautilus_trader.model.objects import Currency, Money
 
@@ -615,6 +662,33 @@ class TestPositionClosedUpdates:
         assert strategy.position_sizer.calls == [12.5]
         assert strategy._total_pnl == Decimal("12.5")
         assert strategy._winning_trades == 1
+
+
+# ---------------------------------------------------------------------------
+# Order Event Persistence
+# ---------------------------------------------------------------------------
+
+
+class TestOrderEventPersistence:
+    """Tests for order event persistence wiring."""
+
+    def test_persist_order_event_calls_store(self, mock_config: MockMLStrategyConfig) -> None:
+        """Ensure order events are forwarded to the strategy store."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        store = MagicMock()
+        strategy.strategy_store = store
+
+        BaseMLStrategyFacade._persist_order_event(strategy, object())
+
+        store.write_order_event.assert_called_once()
+        assert store.write_order_event.call_args.kwargs["is_live"] is True
 
 
 # ---------------------------------------------------------------------------

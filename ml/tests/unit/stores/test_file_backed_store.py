@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +16,8 @@ from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.test_kit.stubs.events import TestEventStubs
+from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 
 
 @pytest.fixture()
@@ -76,6 +79,26 @@ def test_file_strategy_store_signal_distribution(file_root: Path) -> None:
     reloaded = FileStrategyStore(base_path=file_root)
     distribution = reloaded.get_signal_distribution("strat")
     assert distribution["BUY"] == 1
+
+
+def test_file_strategy_store_writes_order_events(file_root: Path) -> None:
+    store = FileStrategyStore(base_path=file_root)
+    order = TestExecStubs.limit_order()
+    ts_event = 1_700_000_000_000_000_000
+    event = TestEventStubs.order_submitted(order, ts_event=ts_event)
+
+    store.write_order_event(event, is_live=True)
+    store.flush()
+
+    events_path = file_root / "order_events.jsonl"
+    assert events_path.exists()
+    lines = events_path.read_text(encoding="utf-8").strip().splitlines()
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["event_type"] == "OrderSubmitted"
+    assert payload["instrument_id"] == str(order.instrument_id)
+    assert payload["ts_event"] == ts_event
+    assert payload["is_live"] is True
 
 
 def test_file_data_store_writes_jsonl(file_root: Path) -> None:

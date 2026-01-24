@@ -114,6 +114,7 @@
 
 - Enforce quote freshness and spread constraints for smart execution.
 - Provide deterministic behavior for limit-order TTL (or explicitly disable it).
+- Ensure replay/backtest account mode matches strategy shorting policy.
 
 ### Guardrails
 
@@ -133,6 +134,25 @@
 - [x] Clarify TTL semantics (apply to resting limits only, cadence vs TTL, replacement uses fresh market state, stop after attempts).
 - [x] Emit low-cardinality metrics for execution mode and fallback reason.
 - [x] Add unit tests for TTL replacement edge cases.
+- [x] Add account-mode config (CASH vs MARGIN) plus short-entry policy (allow, deny, exit-only) in `ml/config`.
+- [x] Wire short-entry policy into strategy decisions: in CASH/exit-only mode, map SELL entries to HOLD unless reducing an existing long; preserve exit intent metadata and metrics.
+- [x] Thread account mode through the replay harness and CLI so execution uses a matching account type.
+- [x] Add unit tests for CASH short-entry suppression and MARGIN short-entry allowance.
+
+### Execution Validation Mode (Replay)
+
+#### Goals
+
+- Validate fills and exits without mutating production execution behavior.
+- Keep execution policy configurable and explicit for replay-only runs.
+
+#### Tasks
+
+- [x] Add a replay-only execution validation mode (config) that produces marketable orders
+  (e.g., cross the BBO for aggressive limits or allow market orders).
+- [x] Keep production defaults unchanged; guard the validation mode behind explicit config.
+- [x] Emit audit metadata for order marketability/rejection reasons in replay runs.
+- [x] Add tests verifying marketable mode produces fill-eligible prices while default mode remains passive.
 
 ### Order-Type Decision Matrix
 
@@ -209,6 +229,7 @@
 
 - Keep positions access authoritative via the provider with explicit readiness checks.
 - Require full positions list for live trading when configured.
+- Keep portfolio returns/volatility signals consistent across sizing and allocation.
 
 ### Guardrails
 
@@ -220,12 +241,17 @@
 - [x] Tighten live readiness: require full positions list when `positions_required_for_live` is set.
 - [x] Expand contract tests for all provider fallbacks (cache/portfolio/net).
 - [x] Ensure positions metadata is persisted in decisions and intents for audits.
+- [ ] Define a single returns/volatility update path (shared helper or provider) used by
+  both portfolio allocation and position sizing.
+- [ ] Wire the returns update into the strategy hot path (no I/O), using bar/price deltas
+  or signal-time prices; keep buffers pre-allocated and allocations minimal.
 
 ### Definition of Done
 
 - [x] Live mode fails fast if positions readiness is not met.
 - [x] Provider fallbacks are covered by tests and emit metrics.
 - [x] Audit metadata includes positions source and readiness state.
+- [ ] Portfolio + sizing use a consistent volatility source with documented update timing.
 
 ## References
 
@@ -235,3 +261,5 @@
 - `ml/strategies/execution.py`
 - `ml/strategies/risk.py`
 - `ml/strategies/common/positions_provider.py`
+- `ml/strategies/sizing.py`
+- `ml/strategies/portfolio.py`

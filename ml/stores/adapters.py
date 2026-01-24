@@ -140,6 +140,9 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
             is_live=is_live,
         )
 
+    def write_order_event(self, event: object, *, is_live: bool = False) -> None:
+        getattr(self._store, "write_order_event")(event, is_live=is_live)
+
     def write_batch(self, data: Sequence[Any]) -> None:
         getattr(self._store, "write_batch")(list(data))
 

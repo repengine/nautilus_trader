@@ -192,6 +192,23 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
         retention_days=365,
         metadata={"schema_kind": "signals"},
     ),
+    DatasetType.ORDER_EVENTS: DatasetManifestSpec(
+        schema={
+            "event_id": "str",
+            "strategy_id": "str",
+            "instrument_id": "str",
+            "client_order_id": "str",
+            "venue_order_id": "str",
+            "event_type": "str",
+            "payload": "json",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "is_live": "bool",
+        },
+        primary_keys=("event_id",),
+        retention_days=365,
+        metadata={"schema_kind": "order_events"},
+    ),
     DatasetType.EARNINGS_ACTUALS: DatasetManifestSpec(
         schema={
             "ticker": "str",

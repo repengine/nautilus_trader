@@ -695,6 +695,35 @@ class LimitPriceSource(str, Enum):
     CACHE_LAST = "cache_last"
 
 
+class AccountMode(str, Enum):
+    """
+    Strategy account mode for short entry behavior.
+    """
+
+    CASH = "cash"
+    MARGIN = "margin"
+
+
+class ShortEntryPolicy(str, Enum):
+    """
+    Policy for short entries when a SELL signal is received.
+    """
+
+    ALLOW = "allow"
+    EXIT_ONLY = "exit_only"
+    DENY = "deny"
+
+
+class ExecutionValidationMode(str, Enum):
+    """
+    Replay-only execution mode to make fills easier to validate.
+    """
+
+    DISABLED = "disabled"
+    CROSS_BBO = "cross_bbo"
+    MARKET = "market"
+
+
 class LimitPriceConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     Configuration for limit order pricing fallbacks.
@@ -811,6 +840,11 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Minimum ML signal confidence required to place trades.
     max_positions : PositiveInt, default 1
         Maximum number of concurrent positions allowed.
+    account_mode : AccountMode, default AccountMode.CASH
+        Account mode for short-entry policy defaults.
+    short_entry_policy : ShortEntryPolicy | None, optional
+        Optional short-entry policy override (allow/exit-only/deny). When unset,
+        the strategy derives the policy from ``account_mode``.
     stop_loss_pct : NonNegativeFloat, default 0.02
         Stop loss as percentage of entry price (0.0 to disable).
     take_profit_pct : NonNegativeFloat, default 0.04
@@ -831,11 +865,15 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         orders to the broker. Useful for testing in production without financial risk.
     serialize_order_intents : bool, default False
         Whether to serialize order intents to JSONL instead of submitting to a broker.
+        Use for live safety testing (no broker I/O). In replay/backtest runs this
+        bypasses simulated fills and position updates; disable it when validating
+        exits and P&L. Enable quote tick subscriptions to enrich intent pricing.
     order_intent_path : str | None, optional
         Explicit JSONL output path for order intents. If None, uses ML_FILE_STORE_PATH
         when serialization is enabled.
     subscribe_quote_ticks : bool, default False
-        Whether to subscribe to quote ticks for execution market state.
+        Whether to subscribe to quote ticks for execution market state. Recommended
+        for execution validation and for richer intent pricing metadata.
     quote_schema : str | None, optional
         Optional quote schema parameter passed to the data client (e.g., \"mbp-1\").
     max_quote_age_ms : NonNegativeInt | None, optional
@@ -850,6 +888,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     position_size_pct: PositiveFloat = 0.1
     min_confidence: NonNegativeFloat = 0.7
     max_positions: PositiveInt = 1
+    account_mode: AccountMode = AccountMode.CASH
+    short_entry_policy: ShortEntryPolicy | None = None
     stop_loss_pct: NonNegativeFloat = 0.02
     take_profit_pct: NonNegativeFloat = 0.04
     use_strategy_store: bool = True
@@ -920,6 +960,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Minimum confidence threshold within [0, 1].
         ML_MAX_POSITIONS
             Maximum concurrent positions (> 0).
+        ML_ACCOUNT_MODE
+            Account mode for short-entry defaults (cash or margin).
+        ML_SHORT_ENTRY_POLICY
+            Optional short-entry policy override (allow/exit_only/deny).
         ML_STOP_LOSS_PCT / ML_TAKE_PROFIT_PCT
             Stop loss / take profit percentages (>= 0).
         ML_MAX_HOLDING_MS
@@ -983,6 +1027,32 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             min_confidence = 1.0
 
         max_positions = _env_positive_int(source, "ML_MAX_POSITIONS", 1)
+        account_mode_raw = source.get("ML_ACCOUNT_MODE")
+        try:
+            account_mode = (
+                AccountMode(account_mode_raw.lower())
+                if account_mode_raw
+                else AccountMode.CASH
+            )
+        except ValueError:
+            LOGGER.debug(
+                "invalid_enum_env_override",
+                extra={"key": "ML_ACCOUNT_MODE", "value": account_mode_raw},
+            )
+            account_mode = AccountMode.CASH
+        short_entry_policy_raw = source.get("ML_SHORT_ENTRY_POLICY")
+        try:
+            short_entry_policy = (
+                ShortEntryPolicy(short_entry_policy_raw.lower())
+                if short_entry_policy_raw
+                else None
+            )
+        except ValueError:
+            LOGGER.debug(
+                "invalid_enum_env_override",
+                extra={"key": "ML_SHORT_ENTRY_POLICY", "value": short_entry_policy_raw},
+            )
+            short_entry_policy = None
         stop_loss_pct = _env_positive_float(source, "ML_STOP_LOSS_PCT", 0.02)
         take_profit_pct = _env_positive_float(source, "ML_TAKE_PROFIT_PCT", 0.04)
 
@@ -1078,6 +1148,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             position_size_pct=position_size_pct,
             min_confidence=min_confidence,
             max_positions=max_positions,
+            account_mode=account_mode,
+            short_entry_policy=short_entry_policy,
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
             use_strategy_store=use_strategy_store,

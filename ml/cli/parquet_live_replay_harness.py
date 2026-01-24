@@ -7,7 +7,10 @@ import argparse
 import logging
 
 from ml.common.logging_config import configure_logging
+from ml.config.base import AccountMode
+from ml.config.base import ExecutionValidationMode
 from ml.config.base import ModelExitConfig
+from ml.config.base import ShortEntryPolicy
 from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
 from ml.config.replay_harness import StrategyReplayConfig
@@ -133,7 +136,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--serialize-order-intents",
         action="store_true",
-        help="Serialize order intents to JSONL instead of broker submission.",
+        help=(
+            "Serialize order intents to JSONL instead of broker submission. "
+            "Use for live safety; bypasses simulated fills in replay."
+        ),
     )
     parser.add_argument(
         "--order-intent-path",
@@ -143,7 +149,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--subscribe-quote-ticks",
         action="store_true",
-        help="Subscribe to quote ticks for execution market state.",
+        help=(
+            "Subscribe to quote ticks for execution market state "
+            "(recommended for execution validation and intent pricing)."
+        ),
     )
     parser.add_argument(
         "--quote-schema",
@@ -155,6 +164,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Maximum quote age in milliseconds allowed for execution.",
+    )
+    parser.add_argument(
+        "--execution-validation-mode",
+        choices=[mode.value for mode in ExecutionValidationMode],
+        default=None,
+        help=(
+            "Replay-only execution validation mode: "
+            "disabled, cross_bbo, or market."
+        ),
     )
     parser.add_argument(
         "--position-size-pct",
@@ -173,6 +191,18 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Maximum concurrent positions (default: 1).",
+    )
+    parser.add_argument(
+        "--account-mode",
+        choices=[mode.value for mode in AccountMode],
+        default=AccountMode.CASH.value,
+        help="Account mode for short-entry defaults (default: cash).",
+    )
+    parser.add_argument(
+        "--short-entry-policy",
+        choices=[policy.value for policy in ShortEntryPolicy],
+        default=None,
+        help="Optional short-entry policy override (allow, exit_only, deny).",
     )
     parser.add_argument(
         "--stop-loss-pct",
@@ -359,11 +389,23 @@ def main() -> None:
             liquidation_config=liquidation_config,
         )
 
+    account_mode = AccountMode(args.account_mode)
+    short_entry_policy = (
+        ShortEntryPolicy(args.short_entry_policy) if args.short_entry_policy else None
+    )
+    execution_validation_mode = (
+        ExecutionValidationMode(args.execution_validation_mode)
+        if args.execution_validation_mode
+        else None
+    )
+
     strategy_config = StrategyReplayConfig(
         id_prefix="MLStrategy",
         position_size_pct=args.position_size_pct,
         min_confidence=args.min_confidence,
         max_positions=args.max_positions,
+        account_mode=account_mode,
+        short_entry_policy=short_entry_policy,
         stop_loss_pct=args.stop_loss_pct,
         take_profit_pct=args.take_profit_pct,
         model_exit_config=model_exit_config,
@@ -375,6 +417,7 @@ def main() -> None:
         subscribe_quote_ticks=args.subscribe_quote_ticks,
         quote_schema=args.quote_schema,
         max_quote_age_ms=args.max_quote_age_ms,
+        execution_validation_mode=execution_validation_mode,
     )
 
     config = ParquetLiveReplayHarnessConfig(

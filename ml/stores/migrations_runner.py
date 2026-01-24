@@ -36,6 +36,7 @@ from typing import Any, cast
 from sqlalchemy import inspect
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine import RootTransaction
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.exc import SQLAlchemyError
@@ -461,12 +462,41 @@ class MigrationRunner:
             return
 
         try:
-            with engine.begin() as connection:
-                for statement in statements:
-                    connection.execute(text(statement))
+            with engine.connect() as connection:
+                transaction: RootTransaction | None = connection.begin()
+                try:
+                    for statement in statements:
+                        if _requires_dedicated_transaction(statement):
+                            if transaction is None:
+                                transaction = connection.begin()
+                            transaction.commit()
+                            transaction = None
+                            _execute_autocommit_statement(engine, statement)
+                            transaction = connection.begin()
+                        else:
+                            connection.execute(text(statement))
+                except SQLAlchemyError:
+                    if transaction is not None and transaction.is_active:
+                        transaction.rollback()
+                    raise
+                else:
+                    if transaction is not None and transaction.is_active:
+                        transaction.commit()
         except SQLAlchemyError as exc:
             msg = f"Failed to apply migration {path.name}"
             raise MigrationRunnerError(msg) from exc
+
+
+def _requires_dedicated_transaction(statement: str) -> bool:
+    stripped = statement.strip().lower()
+    return stripped.startswith(
+        ("select create_monthly_partitions(", "select create_event_partitions("),
+    )
+
+
+def _execute_autocommit_statement(engine: Engine, statement: str) -> None:
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text(statement))
 
 
 def _default_migration_paths() -> dict[str, Path]:

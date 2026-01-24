@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from ml.config.base import AccountMode
+from ml.config.base import ExecutionValidationMode
+from ml.config.base import ShortEntryPolicy
 from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import StrategyReplayConfig
 from ml.orchestration.parquet_live_replay_harness import _build_actor_config
@@ -59,6 +62,27 @@ def test_build_strategy_config_includes_risk_config() -> None:
     assert cfg.risk_config.allow_reduce_only_when_halted is False
     assert cfg.risk_config.liquidation_config is not None
     assert cfg.risk_config.liquidation_config.daily_loss_limit_pct == 0.1
+
+
+def test_build_strategy_config_includes_account_and_validation_mode() -> None:
+    strategy = StrategyReplayConfig(
+        account_mode=AccountMode.MARGIN,
+        short_entry_policy=ShortEntryPolicy.ALLOW,
+        execution_validation_mode=ExecutionValidationMode.MARKET,
+    )
+    instrument_id = InstrumentId.from_str("EUR/USD.SIM")
+
+    cfg = _build_strategy_config(
+        strategy_config=strategy,
+        instrument_id=instrument_id,
+        actor_id="ACTOR-1",
+        strategy_id="STRAT-1",
+    )
+
+    assert cfg.account_mode is AccountMode.MARGIN
+    assert cfg.short_entry_policy is ShortEntryPolicy.ALLOW
+    assert cfg.execution_config is not None
+    assert cfg.execution_config.validation_mode is ExecutionValidationMode.MARKET
 
 
 def test_build_actor_config_includes_actor_overrides() -> None:

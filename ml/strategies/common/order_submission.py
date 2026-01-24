@@ -611,6 +611,10 @@ class OrderSubmissionComponent:
         mode: str,
         fallback_reason: str | None,
         ttl_plan: dict[str, object] | None = None,
+        validation_mode: str | None = None,
+        limit_price_source: str | None = None,
+        marketable: bool | None = None,
+        rejection_reason: str | None = None,
     ) -> ExecutionMetadata:
         """
         Build execution metadata payload for order intents.
@@ -621,6 +625,14 @@ class OrderSubmissionComponent:
         }
         if ttl_plan is not None:
             metadata["ttl_plan"] = dict(ttl_plan)
+        if validation_mode is not None:
+            metadata["validation_mode"] = validation_mode
+        if limit_price_source is not None:
+            metadata["limit_price_source"] = limit_price_source
+        if marketable is not None:
+            metadata["marketable"] = bool(marketable)
+        if rejection_reason is not None:
+            metadata["rejection_reason"] = rejection_reason
         return metadata
 
     def _read_ttl_plan(self) -> dict[str, object] | None:
@@ -638,6 +650,85 @@ class OrderSubmissionComponent:
                 error=str(exc),
             )
             return None
+
+    def _resolve_validation_mode(self) -> str | None:
+        """
+        Resolve execution validation mode from the executor config when available.
+        """
+        executor = self._order_executor
+        if executor is None:
+            return None
+        config = getattr(executor, "config", None)
+        if config is None:
+            return None
+        mode = getattr(config, "validation_mode", None)
+        if mode is None:
+            return None
+        value = getattr(mode, "value", None)
+        return str(value) if value is not None else str(mode)
+
+    def _read_limit_price_source(self) -> str | None:
+        """
+        Read the last limit price source from the executor when available.
+        """
+        executor = self._order_executor
+        if executor is None or not hasattr(executor, "get_last_limit_price_source"):
+            return None
+        try:
+            source = executor.get_last_limit_price_source()
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.limit_price_source_read_failed",
+                strategy_id=self._strategy_id,
+                exc_info=True,
+                error=str(exc),
+            )
+            return None
+        return str(source) if source else None
+
+    def _read_rejection_reason(self) -> str | None:
+        """
+        Read the last executor rejection reason when available.
+        """
+        executor = self._order_executor
+        if executor is None or not hasattr(executor, "get_last_rejection_reason"):
+            return None
+        try:
+            reason = executor.get_last_rejection_reason()
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.order_rejection_reason_read_failed",
+                strategy_id=self._strategy_id,
+                exc_info=True,
+                error=str(exc),
+            )
+            return None
+        return str(reason) if reason else None
+
+    def _resolve_marketability(
+        self,
+        order: Any,
+        market_state: dict[str, float],
+    ) -> bool | None:
+        """
+        Resolve whether an order is immediately marketable based on the BBO.
+        """
+        order_type = _enum_to_str(getattr(order, "order_type", None))
+        if order_type == "MARKET":
+            return True
+        price = _to_float(getattr(order, "price", None))
+        if price is None:
+            return None
+        bid = float(market_state.get("bid", 0.0) or 0.0)
+        ask = float(market_state.get("ask", 0.0) or 0.0)
+        if bid <= 0.0 or ask <= 0.0:
+            return None
+        side = _enum_to_str(getattr(order, "side", getattr(order, "order_side", None)))
+        if side == "BUY":
+            return price >= ask
+        if side == "SELL":
+            return price <= bid
+        return None
 
     def _resolve_limit_price_config(self) -> LimitPriceConfig | None:
         executor = self._order_executor
@@ -1070,6 +1161,8 @@ class OrderSubmissionComponent:
             self._last_execution_metadata = self._build_execution_metadata(
                 mode="market",
                 fallback_reason=None,
+                validation_mode=self._resolve_validation_mode(),
+                marketable=True,
             )
 
         # Get timestamp
@@ -1192,6 +1285,7 @@ class OrderSubmissionComponent:
 
         if instrument is None:
             return None
+        validation_mode = self._resolve_validation_mode()
 
         # Try smart executor if available
         if self._order_executor is not None and self._cache is not None:
@@ -1212,6 +1306,8 @@ class OrderSubmissionComponent:
                         self._last_execution_metadata = self._build_execution_metadata(
                             mode="market",
                             fallback_reason=fallback_reason,
+                            validation_mode=validation_mode,
+                            marketable=True,
                         )
                         order_id = self.place_market_order(
                             instrument_id=signal.instrument_id,
@@ -1252,10 +1348,15 @@ class OrderSubmissionComponent:
                     # Unwrap OrderResult if needed
                     core_order = order.unwrap() if hasattr(order, "unwrap") else order
                     ttl_plan = self._read_ttl_plan()
+                    marketable = self._resolve_marketability(core_order, market_state)
+                    limit_price_source = self._read_limit_price_source()
                     self._last_execution_metadata = self._build_execution_metadata(
                         mode="smart",
                         fallback_reason=fallback_reason,
                         ttl_plan=ttl_plan,
+                        validation_mode=validation_mode,
+                        limit_price_source=limit_price_source,
+                        marketable=marketable,
                     )
 
                     order_id = self._submit_core_order(
@@ -1277,12 +1378,17 @@ class OrderSubmissionComponent:
                 self._last_execution_metadata = self._build_execution_metadata(
                     mode="market",
                     fallback_reason="executor_no_order",
+                    validation_mode=validation_mode,
+                    rejection_reason=self._read_rejection_reason(),
+                    marketable=True,
                 )
 
             except Exception as exc:
                 self._last_execution_metadata = self._build_execution_metadata(
                     mode="market",
                     fallback_reason="executor_error",
+                    validation_mode=validation_mode,
+                    marketable=True,
                 )
                 # Log and continue to fallback
                 self._log.error(
@@ -1296,11 +1402,15 @@ class OrderSubmissionComponent:
                 self._last_execution_metadata = self._build_execution_metadata(
                     mode="market",
                     fallback_reason="executor_unavailable",
+                    validation_mode=validation_mode,
+                    marketable=True,
                 )
             elif self._cache is None:
                 self._last_execution_metadata = self._build_execution_metadata(
                     mode="market",
                     fallback_reason="cache_unavailable",
+                    validation_mode=validation_mode,
+                    marketable=True,
                 )
 
         # Fallback to market order (outside try to avoid masking errors)

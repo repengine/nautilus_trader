@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from ml.data.coverage.manager import BucketStatus
+from ml.data.coverage.manager import CoverageBucketMode
 from ml.data.coverage.manager import CoverageManager
 from ml.data.coverage.manager import CoverageManagerConfig
 from ml.data.coverage.manager import DatasetCoverageConfig
@@ -79,6 +80,29 @@ def test_classify_buckets_detects_catalog_and_source_gaps() -> None:
     statuses = {c.status for c in classifications}
     assert BucketStatus.HEALTHY in statuses
     assert BucketStatus.RESTORE_FROM_CATALOG in statuses
+
+
+def test_classify_buckets_catalog_mode_uses_catalog_union() -> None:
+    dataset = DatasetCoverageConfig(
+        dataset_id="ml.events_calendar",
+        schema="events_calendar",
+        instruments=("__GLOBAL__",),
+        bucket_mode=CoverageBucketMode.CATALOG,
+    )
+    config = CoverageManagerConfig(datasets=(dataset,), lookback_days=3)
+    bucket_ns = int(datetime(2024, 1, 11, tzinfo=UTC).timestamp() * 1_000_000_000)
+    bucket_idx = bucket_ns // DAY_NS
+    sql_provider = _FakeCoverageProvider(
+        {"ml.events_calendar:events_calendar:__GLOBAL__": {bucket_idx}},
+    )
+    manager = CoverageManager(
+        config=config,
+        sql_provider=sql_provider,
+        catalog_provider=_FakeCoverageProvider(),
+    )
+    classifications = manager.classify_buckets(reference_time=datetime(2024, 1, 11, tzinfo=UTC))
+    assert len(classifications) == 1
+    assert classifications[0].status is BucketStatus.HEALTHY
 
 def test_restore_all_raises_when_schema_audit_fails() -> None:
     dataset = DatasetCoverageConfig(

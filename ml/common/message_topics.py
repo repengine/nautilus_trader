@@ -122,6 +122,8 @@ def map_stage_to_topic_segments(stage: Stage | str) -> tuple[str, str]:
         return ("models", "created")
     if stage_enum is Stage.SIGNAL_EMITTED:
         return ("strategies", "created")
+    if stage_enum is Stage.ORDER_EVENT_EMITTED:
+        return ("orders", "created")
     if stage_enum is Stage.MODEL_TRAINING_STARTED:
         return ("models", "training_started")
     if stage_enum is Stage.MODEL_TRAINING_COMPLETED:

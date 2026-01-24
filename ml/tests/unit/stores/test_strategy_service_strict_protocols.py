@@ -12,6 +12,7 @@ from ml.registry.dataclasses import DataContract, DatasetManifest
 from ml.registry.protocols import RegistryProtocol
 from ml.stores.base import StrategySignal
 from ml.stores.services.strategy_services import (
+    StrategyOrderEventEventService,
     StrategySignalClearService,
     StrategySignalEventService,
     StrategySignalQueryService,
@@ -55,6 +56,7 @@ class _DummyEngine:
 class _WriteDeps(StrategyWriteDepsStrict):
     def __init__(self) -> None:
         self.strategy_signals_table = _DummyTable()
+        self.strategy_order_events_table = _DummyTable()
         self.last_values: list[dict[str, object]] | None = None
 
     def _execute_upsert_and_publish(
@@ -253,3 +255,6 @@ def test_strategy_clear_and_events_strict_protocol_smoke() -> None:
     eeps = _EventDeps()
     es = StrategySignalEventService(eeps, logging.getLogger(__name__))
     es.emit_signal_events([])  # no error on empty input
+
+    oes = StrategyOrderEventEventService(eeps, logging.getLogger(__name__))
+    oes.emit_order_events([])  # no error on empty input

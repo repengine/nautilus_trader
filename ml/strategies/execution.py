@@ -22,6 +22,7 @@ from nautilus_trader.model.objects import Quantity
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.base import ExecutionValidationMode
 from ml.config.base import LimitPriceConfig
 from ml.config.base import LimitPriceSource
 from nautilus_trader.core.uuid import UUID4
@@ -125,6 +126,9 @@ class ExecutionConfig:
     taker_fee_bps: float = 4.0            # Venue taker fee in bps
     prefer_maker_spread_bps: int = 5      # Spread threshold to prefer maker even at high confidence
 
+    # Replay-only execution validation
+    validation_mode: ExecutionValidationMode = ExecutionValidationMode.DISABLED
+
 
 # ===== Order Executor =====
 class OrderExecutor:
@@ -153,6 +157,7 @@ class OrderExecutor:
         self._fee_savings: float = 0.0
         self._last_ttl_plan: dict[str, float | int | str] | None = None
         self._last_limit_price_source: str | None = None
+        self._last_rejection_reason: str | None = None
 
     def create_order(
         self,
@@ -193,14 +198,17 @@ class OrderExecutor:
         start_time = time.perf_counter()
 
         try:
+            self._last_rejection_reason = None
             # Check minimum confidence
             if signal.confidence < self.config.min_confidence:
+                self._last_rejection_reason = "min_confidence"
                 logger.info(
                     f"Signal confidence {signal.confidence:.2f} below minimum "
                     f"{self.config.min_confidence:.2f}, not trading"
                 )
                 return None
 
+            validation_mode = self.config.validation_mode
             # Get market prices
             bid = float(market_state.get("bid", 0.0) or 0.0)
             ask = float(market_state.get("ask", 0.0) or 0.0)
@@ -210,8 +218,28 @@ class OrderExecutor:
                 spread_bps = float(self.config.max_spread_bps + 1)
             self._last_limit_price_source = None
 
+            if validation_mode is ExecutionValidationMode.MARKET:
+                order_ids = self._resolve_order_ids(
+                    trader_id=trader_id,
+                    strategy_id=strategy_id,
+                    client_order_id=client_order_id,
+                    init_id=init_id,
+                    ts_init=ts_init,
+                )
+                order = self._create_market_order(
+                    side=side,
+                    quantity=quantity,
+                    instrument=instrument,
+                    order_ids=order_ids,
+                )
+                self._total_orders += 1
+                orders_created_total.labels(order_type="market", urgency="validation").inc()
+                return _OrderResult(order, post_only=False)
+
             # Determine urgency level (with fee/spread calibration)
             urgency = self._determine_urgency(signal.confidence, spread_bps)
+            if validation_mode is ExecutionValidationMode.CROSS_BBO and urgency == "low":
+                urgency = "medium"
             if urgency == "high" and self._should_prefer_maker(spread_bps):
                 # Downgrade one level to try a limit first when spread is tight
                 urgency = "medium"
@@ -417,6 +445,7 @@ class OrderExecutor:
             instrument=instrument,
         )
         if limit_price is None:
+            self._last_rejection_reason = "limit_price_unavailable"
             logger.error("No valid price source for aggressive limit order")
             return None
 
@@ -479,6 +508,7 @@ class OrderExecutor:
             instrument=instrument,
         )
         if limit_price is None:
+            self._last_rejection_reason = "limit_price_unavailable"
             logger.error("No valid price source for passive limit order")
             return None
 
@@ -523,6 +553,12 @@ class OrderExecutor:
             order_kind=order_kind,
             market_state=market_state,
         )
+        if self.config.validation_mode is ExecutionValidationMode.CROSS_BBO:
+            bid = float(market_state.get("bid", 0.0) or 0.0)
+            ask = float(market_state.get("ask", 0.0) or 0.0)
+            if bid > 0 and ask > 0:
+                base_price = ask if side == OrderSide.BUY else bid
+                source = LimitPriceSource.QUOTE_BBO
         if base_price is None or source is None:
             return None
 
@@ -530,9 +566,17 @@ class OrderExecutor:
             self.config.aggressive_offset_bps if order_kind == "aggressive" else self.config.passive_offset_bps
         ) / 10_000.0
         if side == OrderSide.BUY:
-            limit_price = base_price * (1 - offset_bps)
+            limit_price = (
+                base_price * (1 + offset_bps)
+                if self.config.validation_mode is ExecutionValidationMode.CROSS_BBO
+                else base_price * (1 - offset_bps)
+            )
         else:
-            limit_price = base_price * (1 + offset_bps)
+            limit_price = (
+                base_price * (1 - offset_bps)
+                if self.config.validation_mode is ExecutionValidationMode.CROSS_BBO
+                else base_price * (1 + offset_bps)
+            )
         limit_price = self._round_price(limit_price, instrument)
         self._record_limit_price_source(source)
         return limit_price
@@ -647,6 +691,12 @@ class OrderExecutor:
         Return the last limit price source used by the executor.
         """
         return self._last_limit_price_source
+
+    def get_last_rejection_reason(self) -> str | None:
+        """
+        Return the last rejection reason when no order is created.
+        """
+        return self._last_rejection_reason
 
     def get_execution_stats(self) -> dict[str, float]:
         """

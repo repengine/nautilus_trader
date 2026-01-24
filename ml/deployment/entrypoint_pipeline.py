@@ -1024,7 +1024,7 @@ class PipelineRunner:
     def _resolve_rehydration_registry(self) -> RegistryProtocol | None:
         if self.scheduler is None:
             return None
-        return self.scheduler.data_registry
+        return getattr(self.scheduler, "data_registry", None)
 
     def _run_catalog_rehydration(
         self,

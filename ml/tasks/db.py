@@ -20,6 +20,8 @@ from typing import Final
 import structlog
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine import RootTransaction
+from sqlalchemy.exc import SQLAlchemyError
 
 from ml.core.db_engine import EngineManager
 
@@ -43,6 +45,23 @@ _BASE_MIGRATIONS: Final[tuple[str, ...]] = (
 
 # Optional extras (no longer needed - consolidated into bootstrap)
 _OPTIONAL_MIGRATIONS: Final[tuple[str, ...]] = ()
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_migration_path(path: str) -> Path:
+    """
+    Resolve migration paths relative to the repository root when needed.
+    """
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate
+    resolved = _REPO_ROOT / path
+    if resolved.exists():
+        return resolved
+    return candidate
 
 
 class MigrationSchema(str, Enum):
@@ -127,9 +146,17 @@ def build_migration_plan(
     base_paths = base or _BASE_MIGRATIONS
     optional_paths = optional or _OPTIONAL_MIGRATIONS
 
-    ordered: list[Path] = [Path(p) for p in base_paths if schema.allows(p)]
+    ordered: list[Path] = []
+    for candidate in base_paths:
+        if not schema.allows(candidate):
+            continue
+        ordered.append(_resolve_migration_path(candidate))
+
     if include_optional:
-        ordered.extend(Path(p) for p in optional_paths if schema.allows(p))
+        for candidate in optional_paths:
+            if not schema.allows(candidate):
+                continue
+            ordered.append(_resolve_migration_path(candidate))
 
     plan = MigrationPlan(files=tuple(ordered))
     LOGGER.debug("Built migration plan", schema=schema.value, count=len(plan.files))
@@ -284,30 +311,52 @@ def apply_migration_files(
             result.errors += 1
             continue
 
+        statements = tuple(split_sql_statements(sql_text))
+        if not statements:
+            LOGGER.debug("Skipping empty migration file %s", path)
+            continue
+
         try:
-            with engine.begin() as connection:
-                for statement in split_sql_statements(sql_text):
-                    try:
-                        connection.execute(text(statement))
-                    except Exception as exc:
-                        message = str(exc).lower()
-                        if any(phrase in message for phrase in IDEMPOTENT_ERROR_PHRASES):
-                            LOGGER.warning(
-                                "Idempotent migration warning",
-                                file=str(path),
-                                statement_preview=statement[:80],
-                                exc_info=exc,
-                            )
-                            result.warnings += 1
-                        else:
-                            LOGGER.error(
-                                "Migration statement failed",
-                                file=str(path),
-                                statement_preview=statement[:80],
-                                exc_info=exc,
-                            )
-                            result.errors += 1
-        except Exception as exc:
+            with engine.connect() as connection:
+                transaction: RootTransaction | None = connection.begin()
+                try:
+                    for statement in statements:
+                        try:
+                            if _requires_dedicated_transaction(statement):
+                                if transaction is None:
+                                    transaction = connection.begin()
+                                transaction.commit()
+                                transaction = None
+                                _execute_autocommit_statement(engine, statement)
+                                transaction = connection.begin()
+                            else:
+                                connection.execute(text(statement))
+                        except SQLAlchemyError as exc:
+                            message = str(exc).lower()
+                            if any(phrase in message for phrase in IDEMPOTENT_ERROR_PHRASES):
+                                LOGGER.warning(
+                                    "Idempotent migration warning",
+                                    file=str(path),
+                                    statement_preview=statement[:80],
+                                    exc_info=exc,
+                                )
+                                result.warnings += 1
+                            else:
+                                raise
+                except SQLAlchemyError as exc:
+                    if transaction is not None and transaction.is_active:
+                        transaction.rollback()
+                    LOGGER.error(
+                        "Migration statement failed",
+                        file=str(path),
+                        exc_info=exc,
+                    )
+                    result.errors += 1
+                    continue
+                else:
+                    if transaction is not None and transaction.is_active:
+                        transaction.commit()
+        except SQLAlchemyError as exc:
             LOGGER.error("Migration file execution failed", file=str(path), exc_info=exc)
             result.errors += 1
             continue
@@ -317,6 +366,19 @@ def apply_migration_files(
         LOGGER.info("Applied migration file", file=str(path))
 
     return result
+
+
+def _requires_dedicated_transaction(statement: str) -> bool:
+    stripped = statement.strip().lower()
+    return (
+        stripped.startswith("select create_monthly_partitions(")
+        or stripped.startswith("select create_event_partitions(")
+    )
+
+
+def _execute_autocommit_statement(engine: Engine, statement: str) -> None:
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text(statement))
 
 
 # ---------------------------------------------------------------------------

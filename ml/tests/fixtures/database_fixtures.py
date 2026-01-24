@@ -204,6 +204,17 @@ def template_database() -> Generator[str, None, None]:
         max_overflow=0,
     )
     with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(
+            text(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = :template
+                  AND pid <> pg_backend_pid()
+                """,
+            ),
+            {"template": _TEMPLATE_DB_NAME},
+        )
         conn.execute(text(f"DROP DATABASE IF EXISTS {_TEMPLATE_DB_NAME}"))
         conn.execute(text(f"CREATE DATABASE {_TEMPLATE_DB_NAME}"))
 
@@ -244,9 +255,10 @@ def cloned_test_database(template_database: str) -> Generator[str, None, None]:
     try:
         yield clone_url
     finally:
-        # Drop clone and clear engine caches
-        _drop_database(clone_name, template_engine)
+        # Ensure cached engines are disposed before dropping the clone so the DROP
+        # call does not hang while connections remain open.
         EngineManager.dispose_all()
+        _drop_database(clone_name, template_engine)
 
 
 def _connect_timeout_seconds() -> int:

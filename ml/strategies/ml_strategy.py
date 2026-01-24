@@ -18,6 +18,7 @@ import numpy as np
 
 from ml.actors.base import MLSignal
 from ml.common.metrics_bootstrap import get_counter
+from ml.config.base import ShortEntryPolicy
 from ml.strategies.base import BaseMLStrategy
 from ml.strategies.common.model_exit_policy import PositionSideProtocol
 from ml.strategies.common.model_exit_policy import evaluate_model_exit
@@ -36,6 +37,12 @@ model_exit_total = get_counter(
     "ml_model_exit_total",
     "Total model-driven exits",
     labels=["action", "reason"],
+)
+
+short_entry_blocked_total = get_counter(
+    "ml_strategy_short_entry_blocked_total",
+    "Total short-entry signals blocked by policy",
+    labels=["strategy_id", "policy"],
 )
 
 
@@ -246,6 +253,8 @@ class MLTradingStrategy(BaseMLStrategy):
         else:
             signal_direction = "SHORT"
             decision_type = "SELL"
+        short_entry_policy = self._resolve_short_entry_policy()
+        short_policy_value = getattr(short_entry_policy, "value", str(short_entry_policy))
 
         # Log signal details
         model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
@@ -276,6 +285,33 @@ class MLTradingStrategy(BaseMLStrategy):
 
         # Check if we need to change position
         if current_position is None:
+            if target_side == OrderSide.SELL and short_entry_policy is not ShortEntryPolicy.ALLOW:
+                execution_params["action"] = "hold"
+                execution_params["short_entry_policy"] = short_policy_value
+                execution_params["reason"] = "short_entry_blocked"
+                self._persist_strategy_decision(
+                    signal=signal,
+                    decision_type="HOLD",
+                    position_size=None,
+                    risk_metrics=risk_metrics,
+                    execution_params=execution_params,
+                )
+                try:
+                    short_entry_blocked_total.labels(
+                        strategy_id=str(self.id),
+                        policy=short_policy_value,
+                    ).inc()
+                except Exception as exc:
+                    self.log.debug(
+                        "ml_strategy.short_entry_blocked_metric_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(exc),
+                    )
+                self.log.info(
+                    f"Short entry blocked by policy ({short_policy_value}); holding flat",
+                )
+                return
             # No position, enter new one
             execution_params["action"] = "enter"
             self._persist_strategy_decision(
@@ -360,6 +396,36 @@ class MLTradingStrategy(BaseMLStrategy):
                 execution_params["action"] = model_exit.action
                 execution_params["exit"] = exit_payload
                 if model_exit.action == "reverse":
+                    if target_side == OrderSide.SELL and short_entry_policy is not ShortEntryPolicy.ALLOW:
+                        exit_side = self._exit_side_for_position(current_position)
+                        exit_payload["short_entry_policy"] = short_policy_value
+                        exit_payload["blocked_action"] = "reverse"
+                        execution_params["action"] = "exit"
+                        execution_params["exit"] = exit_payload
+                        self._persist_strategy_decision(
+                            signal=signal,
+                            decision_type=exit_side.name if exit_side is not None else decision_type,
+                            position_size=current_position.quantity,
+                            risk_metrics=risk_metrics,
+                            execution_params=execution_params,
+                        )
+                        if self._config.execute_trades:
+                            if exit_side is None:
+                                self.log.warning("Exit requested but position side is unknown")
+                                return
+                            self._set_exit_intent_metadata(exit_payload)
+                            self._place_market_order(
+                                exit_side,
+                                current_position.quantity,
+                                reduce_only=True,
+                            )
+                        else:
+                            self._dry_run_trades += 1
+                            self.log.info(
+                                "[DRY RUN] Would exit %s position due to short-entry policy (execute_trades=False)",
+                                current_position.side.name,
+                            )
+                        return
                     execution_params["current_side"] = current_position.side.name
                     self._persist_strategy_decision(
                         signal=signal,
@@ -421,6 +487,39 @@ class MLTradingStrategy(BaseMLStrategy):
                 trigger_price=current_price,
                 time_in_trade_ns=time_in_trade_ns,
             )
+            if target_side == OrderSide.SELL and short_entry_policy is not ShortEntryPolicy.ALLOW:
+                exit_side = self._exit_side_for_position(current_position)
+                execution_params["action"] = "exit"
+                execution_params["exit"] = self._build_exit_metadata(
+                    reason="short_entry_policy_exit_only",
+                    trigger_price=current_price,
+                    time_in_trade_ns=time_in_trade_ns,
+                )
+                execution_params["short_entry_policy"] = short_policy_value
+                self._persist_strategy_decision(
+                    signal=signal,
+                    decision_type=exit_side.name if exit_side is not None else decision_type,
+                    position_size=current_position.quantity,
+                    risk_metrics=risk_metrics,
+                    execution_params=execution_params,
+                )
+                if self._config.execute_trades:
+                    if exit_side is None:
+                        self.log.warning("Exit requested but position side is unknown")
+                        return
+                    self._set_exit_intent_metadata(execution_params["exit"])
+                    self._place_market_order(
+                        exit_side,
+                        current_position.quantity,
+                        reduce_only=True,
+                    )
+                else:
+                    self._dry_run_trades += 1
+                    self.log.info(
+                        "[DRY RUN] Would exit %s position due to short-entry policy (execute_trades=False)",
+                        current_position.side.name,
+                    )
+                return
             self._persist_strategy_decision(
                 signal=signal,
                 decision_type=decision_type,
@@ -472,6 +571,16 @@ class MLTradingStrategy(BaseMLStrategy):
             The signal triggering the entry.
 
         """
+        if side == OrderSide.SELL and self._resolve_short_entry_policy() is not ShortEntryPolicy.ALLOW:
+            self.log.info(
+                "Short entry blocked by policy; skipping entry",
+            )
+            return
+        if self._should_block_entry_orders():
+            self.log.info(
+                "Intent entry suppressed due to max_positions; reduce-only orders only",
+            )
+            return
         # Determine quantity via sizer + risk gate (fallback to legacy sizing for test doubles)
         try:
             quantity = self.size_and_validate(signal)
@@ -560,6 +669,11 @@ class MLTradingStrategy(BaseMLStrategy):
         )
 
         # Open new position in opposite direction
+        if self._should_block_entry_orders():
+            self.log.info(
+                "Intent entry suppressed due to max_positions; reduce-only orders only",
+            )
+            return
         try:
             quantity = self.size_and_validate(signal)
         except AttributeError:

@@ -6,8 +6,10 @@ from typing import Any
 import pytest
 
 from ml.config.events import Stage
+from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategySignal
 from ml.stores.services.strategy_services import (
+    StrategyOrderEventWriteService,
     StrategySignalQueryService,
     StrategySignalWriteService,
 )
@@ -42,6 +44,7 @@ class _FakeLogger(LoggerLike):  # pragma: no cover - trivial
 class _FakeWriteDeps(StrategyWriteDepsStrict):
     def __init__(self) -> None:
         self.strategy_signals_table: TableLike = _TableStub()
+        self.strategy_order_events_table: TableLike = _TableStub()
         self.last_call: dict[str, Any] | None = None
 
     def _execute_upsert_and_publish(
@@ -149,6 +152,30 @@ def test_strategy_write_service_calls_upsert_and_publish() -> None:
     assert deps.last_call["dataset_id"] == "signals"
     assert deps.last_call["stage"] == Stage.SIGNAL_EMITTED
     assert deps.last_call["key_fields"] == ("strategy_id", "instrument_id", "ts_event")
+
+
+def test_strategy_order_event_write_service_calls_upsert_and_publish() -> None:
+    deps = _FakeWriteDeps()
+    svc = StrategyOrderEventWriteService(deps, logger=_FakeLogger())
+    evt = StrategyOrderEvent(
+        event_id="evt-1",
+        strategy_id="s",
+        instrument_id="i",
+        client_order_id="c1",
+        venue_order_id=None,
+        event_type="OrderSubmitted",
+        payload={"type": "OrderSubmitted"},
+        _ts_event=10,
+        _ts_init=11,
+        is_live=True,
+    )
+    svc.write_batch([evt])
+
+    assert deps.last_call is not None
+    assert deps.last_call["dataset_id"] == "order_events"
+    assert deps.last_call["stage"] == Stage.ORDER_EVENT_EMITTED
+    assert deps.last_call["key_fields"] == ("event_id", "strategy_id", "ts_event")
+    assert deps.last_call["publish_bus"] is True
 
 
 def test_strategy_query_service_uses_safe_table_allowlist() -> None:

@@ -284,6 +284,7 @@ def stage_for_dataset_type(dataset_type: DatasetType) -> Stage:
         DatasetType.FEATURES: Stage.FEATURE_COMPUTED,
         DatasetType.PREDICTIONS: Stage.PREDICTION_EMITTED,
         DatasetType.SIGNALS: Stage.SIGNAL_EMITTED,
+        DatasetType.ORDER_EVENTS: Stage.ORDER_EVENT_EMITTED,
         DatasetType.EARNINGS_ACTUALS: Stage.DATA_INGESTED,
         DatasetType.EARNINGS_ESTIMATES: Stage.DATA_INGESTED,
         DatasetType.MACRO_RELEASES: Stage.DATA_INGESTED,
