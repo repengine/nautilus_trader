@@ -29,6 +29,7 @@ from ml.registry.dataclasses import (
     ValidationRuleType,
 )
 from ml.features.earnings.store import DummyEarningsStore
+from ml.config.market_data import MarketDataTableConfig
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
@@ -232,5 +233,58 @@ def test_sql_market_data_writer_maps_mbp_columns(patch_engine_manager) -> None:
     assert rows == [
         (1, 100.0, 101.0, 10.0, 12.0),
         (2, 200.0, 201.0, 20.0, 22.0),
+    ]
+    engine.dispose()
+
+
+def test_sql_market_data_writer_filters_quote_sentinel_price(patch_engine_manager) -> None:
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    Table(
+        "market_data",
+        metadata,
+        Column("instrument_id", String(100), nullable=False),
+        Column("ts_event", BigInteger, nullable=False),
+        Column("ts_init", BigInteger, nullable=False),
+        Column("bid", Float),
+        Column("ask", Float),
+        Column("bid_size", Float),
+        Column("ask_size", Float),
+    )
+    metadata.create_all(engine)
+
+    sentinel = MarketDataTableConfig().quote_sentinel_price
+    assert sentinel is not None
+
+    with patch_engine_manager(engine=engine):
+        writer = SqlMarketDataWriter(connection_string="sqlite://", table_name="market_data")
+        frame = pd.DataFrame(
+            {
+                "ts_event": [1, 2],
+                "ts_init": [1, 2],
+                "bid": [sentinel, 100.0],
+                "ask": [101.0, sentinel],
+                "bid_size": [10.0, 11.0],
+                "ask_size": [12.0, 13.0],
+            },
+        )
+        writer.write(
+            dataset_id="EQUS.MINI_QUOTES",
+            schema="quotes",
+            instrument_id="SPY.XNAS",
+            df=frame,
+        )
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT ts_event, bid, ask "
+                "FROM market_data ORDER BY ts_event"
+            ),
+        ).fetchall()
+
+    assert rows == [
+        (1, None, 101.0),
+        (2, 100.0, None),
     ]
     engine.dispose()

@@ -361,6 +361,7 @@ class ConfigResolver:
                 descriptor_id=descriptor.descriptor_id,
                 dataset_id=descriptor.dataset_id,
                 provider_dataset_id=descriptor.provider_dataset_id,
+                provider_schema=descriptor.provider_schema,
                 symbols=(symbol,),
                 schema_override=descriptor.schema,
                 storage_kind_override=descriptor.storage_kind,

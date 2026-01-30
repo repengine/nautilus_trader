@@ -327,6 +327,7 @@ class TFTDatasetBuilder:
                 license_start=binding.license_start,
                 license_end=binding.license_end,
                 provider_dataset_id=binding.provider_dataset_id,
+                provider_schema=binding.provider_schema,
             )
             for inst in binding.instrument_ids:
                 self._binding_index[inst.upper()] = binding
@@ -728,10 +729,16 @@ class TFTDatasetBuilder:
             pl.col("filing_date").cast(pl.Datetime("ns", "UTC")),
         ).with_columns(
             (pl.col("filing_date") + pl.duration(days=self.earnings_lag_days)).alias("effective_date"),
+        ).with_columns(
+            pl.col("effective_date").cast(pl.Datetime("ns", "UTC")),
         )
 
         bar_df = pl.DataFrame({"timestamp": timestamps}).sort("timestamp")
         if bar_df["timestamp"].dtype != pl.Datetime:
+            bar_df = bar_df.with_columns(
+                pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+            )
+        else:
             bar_df = bar_df.with_columns(
                 pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
             )
@@ -1514,9 +1521,10 @@ class TFTDatasetBuilder:
                     return _cast("_pl.DataFrame", pl.DataFrame())
 
                 lazy_frames = [pl.scan_parquet(str(path)) for path in part_paths]
+                # Allow symbol-specific feature columns by aligning schemas before concat.
                 final_df = _cast(
                     "_pl.DataFrame",
-                    pl.concat(lazy_frames).collect(streaming=True),
+                    pl.concat(lazy_frames, how="diagonal_relaxed").collect(streaming=True),
                 )
         else:
             for symbol in self.symbols:
@@ -2031,6 +2039,10 @@ class TFTDatasetBuilder:
 
         if self.include_earnings and "timestamp" in dataset.columns:
             try:
+                if dataset["timestamp"].dtype != pl.Datetime("ns", "UTC"):
+                    dataset = dataset.with_columns(
+                        pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                    )
                 ts_series = dataset.get_column("timestamp")
                 earnings_df = self._fetch_earnings_features(
                     ticker=symbol,

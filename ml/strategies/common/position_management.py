@@ -84,7 +84,10 @@ class PositionSizerProtocol(Protocol):
         current_positions: list[Any],
     ) -> Any | None:
         """
-        Calculate position size based on signal and account state.
+        Calculate position value based on signal and account state.
+
+        Implementations should return the proposed position value in base
+        currency (encoded as a Quantity), not the final instrument quantity.
         """
         ...
 
@@ -204,7 +207,8 @@ class PositionManagementComponent:
     position_size_pct : float, default 0.02
         Position size as percentage of account balance.
     position_sizer : PositionSizerProtocol | None, optional
-        Advanced position sizer (e.g., CompositeSizer).
+        Advanced position sizer (e.g., CompositeSizer) that returns a position
+        value in base currency (encoded as a Quantity).
     risk_manager : RiskManagerProtocol | None, optional
         Risk manager for position validation.
     portfolio_manager : PortfolioManagerProtocol | None, optional
@@ -270,6 +274,7 @@ class PositionManagementComponent:
         self._log = _SafeLogger(log if log is not None else _NoOpLogger())
         self._strategy_id = strategy_id
         self._allow_min_quantity_fallback = allow_min_quantity_fallback
+        self._last_rejection_reason: str | None = None
 
     # -------------------------------------------------------------------------
     # Public Properties
@@ -855,7 +860,7 @@ class PositionManagementComponent:
         Comprehensive position sizing with risk validation and portfolio allocation.
 
         This method implements the full position sizing workflow:
-        1. Use position sizer if available, else fall back to basic sizing
+        1. Use position sizer if available (value-based), else fall back to basic sizing
         2. Apply portfolio allocation constraints
         3. Validate with risk manager
         4. Convert value to instrument-aware quantity
@@ -880,12 +885,15 @@ class PositionManagementComponent:
         ...     pass
 
         """
+        self._last_rejection_reason = None
         if self._cache is None:
             self._log.error("Cache not available for position sizing")
+            self._last_rejection_reason = "cache_missing"
             return None
 
         if self._instrument_id is None:
             self._log.error("Instrument ID not configured for position sizing")
+            self._last_rejection_reason = "instrument_id_missing"
             return None
 
         # Resolve instrument and account
@@ -894,6 +902,7 @@ class PositionManagementComponent:
             self._log.error(
                 f"Instrument {self._instrument_id} not found in cache",
             )
+            self._last_rejection_reason = "instrument_not_found"
             return None
 
         account = self._cache.account_for_venue(instrument.venue)
@@ -905,6 +914,7 @@ class PositionManagementComponent:
             if fallback_qty is not None:
                 return fallback_qty
             self._log.error(f"No account for venue {instrument.venue}")
+            self._last_rejection_reason = "account_missing"
             return None
 
         # Resolve market price
@@ -916,6 +926,7 @@ class PositionManagementComponent:
             )
             if fallback_qty is not None:
                 return fallback_qty
+            self._last_rejection_reason = "market_price_missing"
             return None
 
         # Gather current open positions
@@ -943,8 +954,9 @@ class PositionManagementComponent:
                 instrument_id=self._instrument_id,
             )
 
-        # Step 1: Calculate position size using position sizer or fallback
+        # Step 1: Calculate position value using position sizer or fallback
         proposed_value_qty: Quantity | None = None
+        proposed_value: float | None = None
         if self._position_sizer is not None:
             try:
                 proposed_value_qty = self._position_sizer.calculate(
@@ -962,18 +974,22 @@ class PositionManagementComponent:
 
         # Fallback to basic sizing if sizer returns None or not configured
         if proposed_value_qty is None:
-            proposed_value_qty = self.calculate_position_size()
-
-        if proposed_value_qty is None:
-            return None
+            fallback_qty = self.calculate_position_size()
+            if fallback_qty is None:
+                self._last_rejection_reason = "sizing_unavailable"
+                return None
+            proposed_value = float(fallback_qty.as_double()) * market_price
+        else:
+            proposed_value = float(proposed_value_qty.as_double())
 
         # Step 2: Apply portfolio allocation
-        proposed_value = float(proposed_value_qty.as_double()) * market_price
         allocated_value = self.apply_portfolio_allocation(
             signal=signal,
             proposed_value=proposed_value,
             account=account,
         )
+        if allocated_value > proposed_value:
+            allocated_value = proposed_value
 
         # Check for zero allocation
         if allocated_value <= 0.0:
@@ -982,26 +998,25 @@ class PositionManagementComponent:
                 strategy_id=self._strategy_id,
                 instrument=str(signal.instrument_id),
             )
+            self._last_rejection_reason = "portfolio_allocation_zero"
             return None
 
-        # Scale quantity if allocation is less than proposed
-        if proposed_value > 0.0 and allocated_value < proposed_value:
-            scale = allocated_value / proposed_value
-            scaled_qty = float(proposed_value_qty.as_double()) * scale
-            scaled_qty = self._apply_min_quantity_floor(scaled_qty, instrument)
-            try:
-                proposed_value_qty = self._make_quantity(instrument, scaled_qty)
-            except Exception as exc:
-                self._log.debug(
-                    "ml_strategy.position_sizing_scale_failed",
-                    strategy_id=self._strategy_id,
-                    instrument=str(signal.instrument_id),
-                    exc_info=True,
-                    error=str(exc),
-                )
-                return None
-
         # Step 3: Risk manager validation
+        try:
+            from nautilus_trader.model.objects import Quantity
+
+            proposed_value_qty = Quantity.from_str(str(allocated_value))
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.position_value_quantity_failed",
+                strategy_id=self._strategy_id,
+                instrument=str(signal.instrument_id),
+                exc_info=True,
+                error=str(exc),
+            )
+            self._last_rejection_reason = "position_value_quantity_failed"
+            return None
+
         approved_value_qty: Quantity | None = proposed_value_qty
         if self._risk_manager is not None:
             if self._portfolio is None:
@@ -1041,21 +1056,40 @@ class PositionManagementComponent:
                 return None
 
         if approved_value_qty is None:
+            self._last_rejection_reason = "risk_rejected"
             return None
 
         # Step 4: Convert approved value to quantity using market price
         # Re-resolve price to ensure freshness
         current_price = self.resolve_market_price(self._instrument_id)
         if current_price is None:
+            self._last_rejection_reason = "market_price_missing"
             return None
 
-        # Convert quantity value to proper quantity
+        # Convert value to proper quantity
         val = float(approved_value_qty.as_double())
-        return self.value_to_quantity(
-            value=val * current_price,  # Convert back to value for consistent conversion
-            price=current_price,
-            instrument=instrument,
-        )
+        try:
+            return self.value_to_quantity(
+                value=val,
+                price=current_price,
+                instrument=instrument,
+            )
+        except Exception as exc:
+            self._log.debug(
+                "ml_strategy.value_to_quantity_failed",
+                strategy_id=self._strategy_id,
+                instrument=str(signal.instrument_id),
+                exc_info=True,
+                error=str(exc),
+            )
+            self._last_rejection_reason = "value_to_quantity_failed"
+            return None
+
+    def get_last_rejection_reason(self) -> str | None:
+        """
+        Return the last sizing rejection reason when size_and_validate failed.
+        """
+        return self._last_rejection_reason
 
 
 __all__ = [

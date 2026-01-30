@@ -87,7 +87,7 @@ Paste the Markdown summary into `ml/docs/ops/streaming_scaling_experiments.md` t
 | `PIPELINE_MODE` | `daily` | Pipeline schedule (`daily`, `backfill`, `realtime`). | `.env.example`, `ml_pipeline` env |
 | `PIPELINE_SCHEDULE` | `0 17 * * *` | Cron expression used when `PIPELINE_MODE=daily`. | `.env.example`, `ml_pipeline` env |
 | `UNIVERSE_SYMBOLS` | `SPY.XNAS` | Comma-separated symbol universe. | `.env.example`, `ml_pipeline` env |
-| `MARKET_DATASET_INPUTS` | *(empty)* | Optional JSON array or comma-separated descriptor IDs for supplemental feeds (defaults wire `EQUS.MINI_TBBO`, `EQUS.MINI_MBP1`, and `XNAS.ITCH_MBP10`). Entries are validated against `ml/config/market_feed_descriptors.json`; unsupported dataset/schema pairs now raise during pipeline bootstrap. | `.env`, `ml_pipeline` env |
+| `MARKET_DATASET_INPUTS` | *(empty)* | Optional JSON array or comma-separated descriptor IDs for supplemental feeds (defaults wire `XNAS.ITCH_MBP10`). Entries are validated against `ml/config/market_feed_descriptors.json`; unsupported dataset/schema pairs now raise during pipeline bootstrap. | `.env`, `ml_pipeline` env |
 | `MARKET_BACKFILL_LOOKBACK_DAYS` | `365` | Gap-detection window (days) applied to configured market datasets during orchestrator backfills (clamped to dataset license bounds). | `.env`, `ml_pipeline` env |
 | `LOG_LEVEL` | `INFO` | Default log level for services. | `.env.example`, multiple services |
 | `POSTGRES_HOST_PORT` | `5433` | Host port mapped to Postgres (`5433:5432`). | `.env.example`, compose `postgres.ports` |

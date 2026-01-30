@@ -310,13 +310,14 @@ def test_backfill_binding_uses_binding_and_logs_sql_warning(monkeypatch, caplog)
         *,
         dataset_id: str,
         provider_dataset_id: str | None = None,
+        provider_schema: str | None = None,
         schema: str,
         instrument_id: str,
         lookback_days: int,
         state: IngestState | None = None,
         symbol_hint: str | None = None,
     ) -> BackfillWindowList:
-        calls.append((dataset_id, schema, instrument_id, lookback_days))
+        calls.append((dataset_id, schema, instrument_id, lookback_days, provider_schema))
         return BackfillWindowList(
             ((0, DAY_NS),),
             requested=((0, DAY_NS),),
@@ -329,7 +330,7 @@ def test_backfill_binding_uses_binding_and_logs_sql_warning(monkeypatch, caplog)
     caplog.set_level("WARNING")
     results = orch.backfill_binding(binding=binding, lookback_days=3)
 
-    assert calls == [("EQUS.MINI", "tbbo", "EURUSD.SIM", 3)]
+    assert calls == [("EQUS.MINI", "tbbo", "EURUSD.SIM", 3, "tbbo")]
     assert results.get("EURUSD.SIM") == [(0, DAY_NS)]
     assert any("not SQL-backed" in record.message for record in caplog.records)
 

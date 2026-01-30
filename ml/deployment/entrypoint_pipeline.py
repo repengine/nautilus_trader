@@ -555,6 +555,12 @@ class PipelineRunner:
                 provider_dataset_str = str(provider_dataset_obj).strip()
                 provider_dataset_id = provider_dataset_str or None
 
+            provider_schema_obj = payload.get("provider_schema")
+            provider_schema = None
+            if provider_schema_obj is not None:
+                provider_schema_str = str(provider_schema_obj).strip()
+                provider_schema = provider_schema_str or None
+
             schema_obj = payload.get("schema_override")
             schema_override = None
             if schema_obj is not None:
@@ -578,6 +584,7 @@ class PipelineRunner:
                     descriptor_id=descriptor_id,
                     dataset_id=dataset_id,
                     provider_dataset_id=provider_dataset_id,
+                    provider_schema=provider_schema,
                     symbols=symbols_tuple,
                     schema_override=schema_override,
                     storage_kind_override=storage_kind_override,
@@ -1347,6 +1354,11 @@ class PipelineRunner:
                     scheduler_config=scheduler_config,
                 )
         if dry_run:
+            self._log_coverage_dry_run_summary(
+                entries=entries,
+                classifications=classifications,
+                parquet_specs=parquet_specs,
+            )
             logger.info(
                 "coverage_manager.dry_run",
                 extra={
@@ -1392,6 +1404,80 @@ class PipelineRunner:
         last_error = self._coverage_status().get("last_error")
         if last_error:
             self._maybe_raise_coverage_failure(reason=last_error)
+
+    def _log_coverage_dry_run_summary(
+        self,
+        *,
+        entries: Sequence[CoverageDatasetEntry],
+        classifications: Sequence[BucketClassification],
+        parquet_specs: Mapping[str, ParquetCoverageSpec],
+    ) -> None:
+        """
+        Emit a dataset-level dry-run summary with inclusion/exclusion reasons.
+        """
+        if not entries:
+            return
+        stats: dict[str, dict[str, int]] = {
+            entry.dataset.dataset_id: {"total": 0, "healthy": 0, "restore": 0, "reingest": 0}
+            for entry in entries
+        }
+        for classification in classifications:
+            dataset_id = classification.spec.dataset_id
+            counters = stats.setdefault(
+                dataset_id,
+                {"total": 0, "healthy": 0, "restore": 0, "reingest": 0},
+            )
+            counters["total"] += 1
+            if classification.status is BucketStatus.HEALTHY:
+                counters["healthy"] += 1
+            elif classification.status is BucketStatus.RESTORE_FROM_CATALOG:
+                counters["restore"] += 1
+            elif classification.status is BucketStatus.REINGEST_FROM_SOURCE:
+                counters["reingest"] += 1
+        parquet_dataset_ids = set(parquet_specs.keys())
+        summaries: list[dict[str, object]] = []
+        for entry in entries:
+            dataset_id = entry.dataset.dataset_id
+            instruments = entry.dataset.normalized_instruments()
+            counts = stats.get(dataset_id, {"total": 0, "healthy": 0, "restore": 0, "reingest": 0})
+            restore = counts["restore"]
+            reingest = counts["reingest"]
+            reason = "no_action_needed"
+            status = "healthy"
+            if dataset_id in SUPPORTED_FEATURE_DATASET_IDS and dataset_id not in parquet_dataset_ids:
+                reason = "parquet_spec_missing"
+                status = "excluded"
+            elif not instruments:
+                reason = "no_instruments_configured"
+                status = "excluded"
+            elif counts["total"] == 0:
+                reason = "no_buckets_in_window"
+                status = "excluded"
+            elif restore or reingest:
+                status = "included"
+                if restore and reingest:
+                    reason = "restore_and_reingest_required"
+                elif restore:
+                    reason = "restore_required"
+                else:
+                    reason = "reingest_required"
+            summaries.append(
+                {
+                    "dataset_id": dataset_id,
+                    "schema": entry.dataset.schema,
+                    "instruments": len(instruments),
+                    "buckets_total": counts["total"],
+                    "buckets_healthy": counts["healthy"],
+                    "buckets_restore": restore,
+                    "buckets_reingest": reingest,
+                    "status": status,
+                    "reason": reason,
+                },
+            )
+        logger.info(
+            "coverage_manager.dry_run_dataset_summary",
+            extra={"datasets": summaries},
+        )
 
     def _maybe_raise_coverage_failure(self, *, reason: str, raise_immediately: bool = False) -> None:
         if not self._coverage_restore_enabled():
@@ -1528,6 +1614,23 @@ class PipelineRunner:
             seen.add(token)
             ordered.append(token)
         return tuple(ordered)
+
+    @staticmethod
+    def _load_macro_series_ids(
+        path: Path = Path("ml/config/macro_fred_series.txt"),
+    ) -> tuple[str, ...]:
+        """
+        Load macro series identifiers from the configured series list file.
+        """
+        if not path.exists():
+            return ()
+        series: list[str] = []
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            token = raw.strip()
+            if not token or token.startswith("#"):
+                continue
+            series.append(token)
+        return tuple(series)
 
     @staticmethod
     def _resolve_raw_tier1_dir() -> Path:
@@ -1761,14 +1864,22 @@ class PipelineRunner:
         event_specs = grouped.get(EVENTS_CALENDAR_DATASET_ID, [])
         if event_specs:
             try:
+                from ml.orchestration.config_types import MacroIngestionConfig
                 from ml.preprocessing.event_ingestion import EventIngestionConfig
                 from ml.preprocessing.event_ingestion import EventIngestionUtility
 
                 start_dt, end_dt = self._bucket_datetime_window(event_specs)
+                macro_cfg = MacroIngestionConfig()
+                series_ids = self._unique_instruments(event_specs)
+                if not series_ids:
+                    series_ids = macro_cfg.series_ids or self._load_macro_series_ids()
+                alfred_dir = Path(macro_cfg.vintage_dir) if macro_cfg.vintage_dir else None
                 config = EventIngestionConfig(
                     start=start_dt,
                     end=end_dt,
                     out_dir=events_dir,
+                    alfred_vintage_dir=alfred_dir,
+                    economic_series=series_ids or ("CPI",),
                 )
                 utility = EventIngestionUtility(
                     config,

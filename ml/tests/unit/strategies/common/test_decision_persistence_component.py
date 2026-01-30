@@ -450,6 +450,23 @@ class TestHoldSignalFiltering:
         assert result is True
         mock_strategy_store.write_signal.assert_called_once()
 
+    def test_persist_decision_hold_signal_persisted_with_override(
+        self,
+        decision_persistence_component: DecisionPersistenceComponent,
+        mock_strategy_store: MagicMock,
+    ) -> None:
+        """Verify HOLD decisions persisted when override flag is provided."""
+        signal = create_mock_signal()
+
+        result = decision_persistence_component.persist_decision(
+            signal=signal,
+            decision_type="HOLD",
+            persist_hold=True,
+        )
+
+        assert result is True
+        mock_strategy_store.write_signal.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Test Class: Risk Metrics Calculation

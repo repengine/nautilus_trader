@@ -49,6 +49,7 @@
       "descriptor_id": "EQUS.MINI_QUOTES",
       "dataset_id": "EQUS.MINI_QUOTES",
       "provider_dataset_id": "EQUS.MINI",
+      "provider_schema": "tbbo",
       "storage_kind": "postgres",
       "schema": "quotes",
       "symbol_patterns": [

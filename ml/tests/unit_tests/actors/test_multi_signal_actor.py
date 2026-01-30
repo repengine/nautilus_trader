@@ -131,7 +131,7 @@ def test_infer_batch_vectorized_ort_path_returns_expected() -> None:
 
     # Fake ORT model that returns two outputs: pred = sum(row), conf = 0.9
     def _ort_fn(x: npt.NDArray[np.float32]) -> list[npt.NDArray[np.float32]]:
-        preds = np.sum(x, axis=1, dtype=np.float32).astype(np.float32)
+        preds = (np.sum(x, axis=1, dtype=np.float32) / 10.0).astype(np.float32)
         confs = np.full((x.shape[0],), 0.9, dtype=np.float32)
         return [preds, confs]
 
@@ -148,7 +148,7 @@ def test_infer_batch_vectorized_ort_path_returns_expected() -> None:
     preds, confs = actor._infer_batch(batch)
     assert preds.shape == (3,)
     assert confs.shape == (3,)
-    np.testing.assert_allclose(preds, np.array([6.0, 1.5, 3.0], dtype=np.float32))
+    np.testing.assert_allclose(preds, np.array([0.6, 0.15, 0.3], dtype=np.float32))
     np.testing.assert_allclose(confs, np.array([0.9, 0.9, 0.9], dtype=np.float32))
 
 
@@ -175,7 +175,7 @@ def test_infer_batch_falls_back_to_per_row_on_ort_error(monkeypatch: Any) -> Non
 
     # Patch the base class _predict to a simple function of features for easy assertion
     def _fake_predict(self: Any, features: npt.NDArray[np.float32]) -> tuple[float, float]:
-        return float(features[0] + features[1]), 0.7
+        return float((features[0] + features[1]) / 10.0), 0.7
 
     from ml.actors.signal import MLSignalActor as _Base
 
@@ -183,7 +183,7 @@ def test_infer_batch_falls_back_to_per_row_on_ort_error(monkeypatch: Any) -> Non
 
     batch = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     preds, confs = actor._infer_batch(batch)
-    np.testing.assert_allclose(preds, np.array([3.0, 7.0], dtype=np.float32))
+    np.testing.assert_allclose(preds, np.array([0.3, 0.7], dtype=np.float32))
     np.testing.assert_allclose(confs, np.array([0.7, 0.7], dtype=np.float32))
 
 

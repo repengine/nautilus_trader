@@ -21,6 +21,7 @@ def test_risk_parity_with_correlation_adjustment() -> None:
         max_position_weight=1.0,
         correlation_threshold=0.6,
         correlation_lookback=30,
+        annualization_factor=252.0,
     )
 
     pm = PortfolioManager(cfg)

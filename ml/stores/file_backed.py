@@ -40,6 +40,7 @@ from ml.config.events import Stage
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategyOrderEvent
+from ml.stores.base import StrategyReplaySummary
 from ml.stores.base import StrategySignal
 from ml.stores.earnings_store import DummyEarningsStore
 from ml.stores.protocols import EarningsStoreProtocol
@@ -472,6 +473,14 @@ class FileStrategyStore(StrategyStoreProtocol):
         self._paths.mkdir(parents=True, exist_ok=True)
         self._store = _JsonLineStore(self._paths / "signals.jsonl", history_limit)
         self._order_store = _JsonLineStore(self._paths / "order_events.jsonl", history_limit)
+        self._risk_halt_store = _JsonLineStore(
+            self._paths / "risk_halt_events.jsonl",
+            history_limit,
+        )
+        self._replay_summary_store = _JsonLineStore(
+            self._paths / "replay_summary.jsonl",
+            history_limit,
+        )
         self._by_strategy: MutableMapping[str, list[dict[str, Any]]] = defaultdict(list)
         for record in self._store.records():
             self._index_record(record)
@@ -483,6 +492,16 @@ class FileStrategyStore(StrategyStoreProtocol):
         self._order_write_counter = get_counter(
             "ml_file_strategy_order_events_total",
             "Total strategy order events persisted via file store",
+            ["mode"],
+        )
+        self._risk_halt_write_counter = get_counter(
+            "ml_file_strategy_risk_halt_events_total",
+            "Total strategy risk-halt events persisted via file store",
+            ["mode"],
+        )
+        self._replay_summary_write_counter = get_counter(
+            "ml_file_strategy_replay_summary_total",
+            "Total replay summary rows persisted via file store",
             ["mode"],
         )
 
@@ -506,6 +525,7 @@ class FileStrategyStore(StrategyStoreProtocol):
         execution_params: dict[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None:
         record = {
             "strategy_id": strategy_id,
@@ -518,24 +538,38 @@ class FileStrategyStore(StrategyStoreProtocol):
             "ts_event": int(ts_event),
             "ts_init": int(ts_event),
             "is_live": bool(is_live),
+            "run_id": run_id,
+            "ingested_at_ns": time.time_ns(),
         }
         self._store.append(record)
         self._index_record(record)
         self._write_counter.labels(mode="write_signal").inc()
 
-    def write_order_event(self, event: StrategyOrderEvent | object, *, is_live: bool = False) -> None:
+    def write_order_event(
+        self,
+        event: StrategyOrderEvent | object,
+        *,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None:
         record = (
             event
             if isinstance(event, StrategyOrderEvent)
             else StrategyOrderEvent.from_event(
                 event,
                 is_live=is_live,
+                run_id=run_id,
+                ingested_at_ns=time.time_ns(),
                 logger=_LOGGER,
                 context="FileStrategyStore.write_order_event",
             )
         )
         if record is None:
             return
+        if record.run_id is None:
+            record.run_id = run_id
+        if record.ingested_at_ns is None:
+            record.ingested_at_ns = time.time_ns()
         payload = {
             "event_id": record.event_id,
             "strategy_id": record.strategy_id,
@@ -547,9 +581,65 @@ class FileStrategyStore(StrategyStoreProtocol):
             "ts_event": record.ts_event,
             "ts_init": record.ts_init,
             "is_live": bool(record.is_live),
+            "run_id": record.run_id,
+            "ingested_at_ns": record.ingested_at_ns,
         }
         self._order_store.append(payload)
         self._order_write_counter.labels(mode="write_order_event").inc()
+
+    def write_risk_halt_event(
+        self,
+        *,
+        strategy_id: str,
+        instrument_id: str,
+        event_type: str,
+        reason: str,
+        detail: str | None,
+        ts_event: int,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None:
+        payload = {
+            "event_id": f"{strategy_id}_{ts_event}",
+            "strategy_id": strategy_id,
+            "instrument_id": instrument_id,
+            "event_type": event_type,
+            "reason": reason,
+            "detail": detail,
+            "ts_event": int(ts_event),
+            "ts_init": int(ts_event),
+            "is_live": bool(is_live),
+            "run_id": run_id,
+            "ingested_at_ns": time.time_ns(),
+        }
+        self._risk_halt_store.append(payload)
+        self._risk_halt_write_counter.labels(mode="write_risk_halt_event").inc()
+
+    def write_replay_summary(
+        self,
+        summary: StrategyReplaySummary,
+        *,
+        publish_bus: bool = True,
+    ) -> None:
+        del publish_bus
+        payload = {
+            "run_id": summary.run_id,
+            "instrument_ids": list(summary.instrument_ids),
+            "started_ns": summary.started_ns,
+            "finished_ns": summary.finished_ns,
+            "total_orders": int(summary.total_orders),
+            "total_fills": int(summary.total_fills),
+            "total_halts": int(summary.total_halts),
+            "total_sizing_rejects": int(summary.total_sizing_rejects),
+            "total_positions": int(summary.total_positions),
+            "ts_event": int(summary.ts_event),
+            "ts_init": int(summary.ts_init),
+            "ingested_at_ns": summary.ingested_at_ns,
+        }
+        if payload["ingested_at_ns"] is None:
+            payload["ingested_at_ns"] = time.time_ns()
+        self._replay_summary_store.append(payload)
+        self._replay_summary_write_counter.labels(mode="write_replay_summary").inc()
 
     def write_batch(self, data: Sequence[StrategySignal]) -> None:
         for item in data:
@@ -563,6 +653,7 @@ class FileStrategyStore(StrategyStoreProtocol):
                 execution_params=dict(getattr(item, "execution_params", {})),
                 ts_event=item.ts_event,
                 is_live=bool(getattr(item, "is_live", False)),
+                run_id=getattr(item, "run_id", None),
             )
         self._write_counter.labels(mode="batch").inc()
 
@@ -628,6 +719,8 @@ class FileStrategyStore(StrategyStoreProtocol):
     def flush(self) -> None:
         self._store.flush()
         self._order_store.flush()
+        self._risk_halt_store.flush()
+        self._replay_summary_store.flush()
 
 
 class FileEarningsStore(EarningsStoreProtocol):

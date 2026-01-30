@@ -84,6 +84,10 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
         Path to the model registry. Required if using model_id.
     prediction_threshold : NonNegativeFloat, default 0.5
         Minimum confidence threshold for predictions to be considered valid.
+    prediction_neutral_band : NonNegativeFloat, default 0.0
+        Neutral-band half width around 0.5 for downstream decision mapping.
+    prediction_neutral_band : NonNegativeFloat, default 0.0
+        Neutral-band half width around the 0.5 threshold for downstream decision mapping.
     max_inference_latency_ms : PositiveFloat, default 5.0
         Maximum allowed inference latency in milliseconds.
     feature_config : MLFeatureConfig, optional
@@ -105,6 +109,7 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
     model_id: str | None = None
     registry_path: str | None = None
     prediction_threshold: NonNegativeFloat = 0.5
+    prediction_neutral_band: NonNegativeFloat = 0.0
     max_inference_latency_ms: PositiveFloat = 5.0
     feature_config: MLFeatureConfig | None = None
     batch_size: PositiveInt = 1
@@ -122,6 +127,8 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("registry_path is required when using model_id")
         if self.model_path and self.model_id:
             raise ValidationError("Cannot specify both model_path and model_id")
+        if self.prediction_neutral_band < 0.0 or self.prediction_neutral_band > 0.5:
+            raise ValidationError("prediction_neutral_band must be within [0, 0.5]")
 
     @classmethod
     def from_env(
@@ -142,6 +149,8 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
             Path to registry root when using ``model_id``.
         ML_PREDICTION_THRESHOLD
             Prediction threshold within [0, 1].
+        ML_PREDICTION_NEUTRAL_BAND
+            Neutral-band half width around 0.5 for downstream decision mapping.
         ML_MAX_INFERENCE_LATENCY_MS
             Maximum inference latency in milliseconds.
         ML_INFERENCE_BATCH_SIZE
@@ -179,6 +188,17 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
                 extra={"value": prediction_threshold},
             )
             prediction_threshold = 0.5
+        prediction_neutral_band = _env_positive_float(
+            source,
+            "ML_PREDICTION_NEUTRAL_BAND",
+            0.0,
+        )
+        if prediction_neutral_band > 0.5:
+            LOGGER.debug(
+                "prediction_neutral_band_out_of_bounds",
+                extra={"value": prediction_neutral_band},
+            )
+            prediction_neutral_band = 0.5
 
         max_latency_ms = _env_positive_float(
             source,
@@ -203,6 +223,7 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
             model_id=inferred_model_id,
             registry_path=registry_path,
             prediction_threshold=prediction_threshold,
+            prediction_neutral_band=prediction_neutral_band,
             max_inference_latency_ms=max_latency_ms,
             feature_config=None,
             batch_size=batch_size,
@@ -301,6 +322,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     bar_type: BarType
     instrument_id: InstrumentId
     prediction_threshold: NonNegativeFloat = 0.5
+    prediction_neutral_band: NonNegativeFloat = 0.0
     max_inference_latency_ms: PositiveFloat = 5.0
     feature_config: MLFeatureConfig | None = None
     batch_size: PositiveInt = 1
@@ -328,6 +350,13 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     persistence_queue_size: PositiveInt = 10000
     persistence_flush_interval: PositiveFloat = 1.0
     persistence_batch_size: PositiveInt = 100
+
+    def __post_init__(self) -> None:
+        """
+        Validate configuration.
+        """
+        if self.prediction_neutral_band < 0.0 or self.prediction_neutral_band > 0.5:
+            raise ValidationError("prediction_neutral_band must be within [0, 0.5]")
 
     @classmethod
     def from_env(
@@ -361,6 +390,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         ML_ENABLE_ASYNC_PERSISTENCE, ML_PERSISTENCE_QUEUE_SIZE,
         ML_PERSISTENCE_FLUSH_INTERVAL_S, ML_PERSISTENCE_BATCH_SIZE
             Optional runtime tunables aligned with config fields.
+        ML_PREDICTION_NEUTRAL_BAND
+            Neutral-band half width around 0.5 for downstream decision mapping.
         COMPONENT_ID / ML_COMPONENT_ID
             Optional component identifier.
 
@@ -440,6 +471,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             bar_type=bar_type,
             instrument_id=instrument_id,
             prediction_threshold=inference_cfg.prediction_threshold,
+            prediction_neutral_band=inference_cfg.prediction_neutral_band,
             max_inference_latency_ms=inference_cfg.max_inference_latency_ms,
             feature_config=inference_cfg.feature_config,
             batch_size=inference_cfg.batch_size,
@@ -601,6 +633,8 @@ class PositionsConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether live trading requires a positions source to be available.
     allow_degraded : bool, default True
         Whether to allow degraded operation when only partial positions are available.
+    log_degraded_in_backtest : bool, default True
+        Whether to log degraded positions readiness during backtests/replays.
 
     """
 
@@ -615,6 +649,7 @@ class PositionsConfig(NautilusConfig, kw_only=True, frozen=True):
     )
     positions_required_for_live: bool = True
     allow_degraded: bool = True
+    log_degraded_in_backtest: bool = True
 
     def __post_init__(self) -> None:
         """
@@ -660,6 +695,68 @@ class ExposurePriceConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("source_priority must contain at least one price source")
         if len(set(self.source_priority)) != len(self.source_priority):
             raise ValidationError("source_priority entries must be unique")
+
+
+class ReturnsPriceSource(str, Enum):
+    """
+    Available price sources for returns updates.
+    """
+
+    QUOTE_MID = "quote_mid"
+    LAST_TRADE = "last_trade"
+    BAR_CLOSE = "bar_close"
+
+
+class ReturnsUpdateMode(str, Enum):
+    """
+    Controls when returns are updated.
+    """
+
+    SIGNAL = "signal"
+    BAR = "bar"
+    BOTH = "both"
+
+
+class ReturnsConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for portfolio returns updates.
+
+    Parameters
+    ----------
+    source_priority : list[ReturnsPriceSource]
+        Ordered list of price sources to attempt.
+    max_price_age_ms : NonNegativeInt | None, optional
+        Maximum age in milliseconds for prices used in returns updates.
+    update_cadence_ms : NonNegativeInt | None, optional
+        Minimum cadence in milliseconds between return updates.
+    update_mode : ReturnsUpdateMode, default ReturnsUpdateMode.SIGNAL
+        Whether returns update on signals, bars, or both.
+    bar_spec : str | None, optional
+        Bar spec string used to derive cadence and annualization.
+    annualization_factor : PositiveFloat | None, optional
+        Override for bars-per-year annualization factor.
+
+    """
+
+    source_priority: list[ReturnsPriceSource] = msgspec.field(
+        default_factory=lambda: [
+            ReturnsPriceSource.QUOTE_MID,
+            ReturnsPriceSource.LAST_TRADE,
+        ],
+    )
+    max_price_age_ms: NonNegativeInt | None = None
+    update_cadence_ms: NonNegativeInt | None = None
+    update_mode: ReturnsUpdateMode = ReturnsUpdateMode.SIGNAL
+    bar_spec: str | None = None
+    annualization_factor: PositiveFloat | None = None
+
+    def __post_init__(self) -> None:
+        if not self.source_priority:
+            raise ValidationError("source_priority must contain at least one returns source")
+        if len(set(self.source_priority)) != len(self.source_priority):
+            raise ValidationError("source_priority entries must be unique")
+        if self.bar_spec is not None and not self.bar_spec.strip():
+            raise ValidationError("bar_spec must be non-empty when provided")
 
 
 class CorrelationDataConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -838,6 +935,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Percentage of account balance to risk per trade (0.0 to 1.0).
     min_confidence : NonNegativeFloat, default 0.7
         Minimum ML signal confidence required to place trades.
+    prediction_neutral_band : NonNegativeFloat, default 0.0
+        Neutral-band half width around 0.5 for decision mapping.
     max_positions : PositiveInt, default 1
         Maximum number of concurrent positions allowed.
     account_mode : AccountMode, default AccountMode.CASH
@@ -857,8 +956,14 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Whether to persist strategy decisions to StrategyStore.
     strategy_store_config : dict[str, Any] | None, default None
         Configuration for StrategyStore (connection_string, batch_size, flush_interval_ms).
+    run_id : str | None, optional
+        Optional run identifier for replay/audit correlation.
     persist_all_signals : bool, default False
         Whether to persist HOLD signals in addition to BUY/SELL.
+    persist_hold_on_short_entry_block : bool, default True
+        Whether to persist HOLD decisions when short-entry policy blocks a SELL entry.
+    persist_hold_on_sizing_reject : bool, default True
+        Whether to persist HOLD decisions when sizing rejects an entry.
     execute_trades : bool, default True
         Whether to execute actual trades. If False, the strategy will process signals,
         calculate decisions, persist to stores, and update metrics, but will not submit
@@ -880,6 +985,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Maximum age in milliseconds allowed for quote ticks used in execution.
     positions_config : PositionsConfig | None, optional
         Optional positions provider configuration for strategy runtime checks.
+    returns_config : ReturnsConfig | None, optional
+        Optional returns update configuration for sizing/portfolio volatility.
 
     """
 
@@ -887,6 +994,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     ml_signal_source: str
     position_size_pct: PositiveFloat = 0.1
     min_confidence: NonNegativeFloat = 0.7
+    prediction_neutral_band: NonNegativeFloat = 0.0
     max_positions: PositiveInt = 1
     account_mode: AccountMode = AccountMode.CASH
     short_entry_policy: ShortEntryPolicy | None = None
@@ -894,7 +1002,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     take_profit_pct: NonNegativeFloat = 0.04
     use_strategy_store: bool = True
     strategy_store_config: dict[str, Any] | None = None
+    run_id: str | None = None
     persist_all_signals: bool = False
+    persist_hold_on_short_entry_block: bool = True
+    persist_hold_on_sizing_reject: bool = True
     execute_trades: bool = False
     serialize_order_intents: bool = False
     order_intent_path: str | None = None
@@ -903,6 +1014,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     max_quote_age_ms: NonNegativeInt | None = None
     # Optional sub-configs for strategy components (protocol-first)
     positions_config: PositionsConfig | None = None
+    returns_config: ReturnsConfig | None = None
     exit_policy_config: ExitPolicyConfig | None = None
     model_exit_config: ModelExitConfig | None = None
     sizing_config: _SizingConfig | None = None
@@ -923,12 +1035,16 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             raise ValidationError("position_size_pct must be within (0, 1]")
         if not (0.0 <= float(self.min_confidence) <= 1.0):
             raise ValidationError("min_confidence must be within [0, 1]")
+        if self.prediction_neutral_band < 0.0 or self.prediction_neutral_band > 0.5:
+            raise ValidationError("prediction_neutral_band must be within [0, 0.5]")
         if self.stop_loss_pct < 0.0:
             raise ValidationError("stop_loss_pct must be non-negative")
         if self.take_profit_pct < 0.0:
             raise ValidationError("take_profit_pct must be non-negative")
         if self.quote_schema is not None and not self.quote_schema.strip():
             raise ValidationError("quote_schema must be non-empty when provided")
+        if self.run_id is not None and not self.run_id.strip():
+            raise ValidationError("run_id must be non-empty when provided")
         if self.exit_policy_config is not None:
             if self.stop_loss_pct != self.exit_policy_config.stop_loss_pct:
                 raise ValidationError(
@@ -958,6 +1074,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Fractional position sizing within (0, 1].
         ML_MIN_CONFIDENCE
             Minimum confidence threshold within [0, 1].
+        ML_PREDICTION_NEUTRAL_BAND
+            Neutral-band half width around 0.5 for decision mapping.
         ML_MAX_POSITIONS
             Maximum concurrent positions (> 0).
         ML_ACCOUNT_MODE
@@ -980,8 +1098,14 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Minimum holding time in milliseconds before model exits are allowed.
         ML_USE_STRATEGY_STORE
             Toggle strategy store persistence.
+        ML_RUN_ID
+            Optional run identifier for replay/audit correlation.
         ML_PERSIST_ALL_SIGNALS
             Toggle persistence of HOLD/neutral signals.
+        ML_PERSIST_HOLD_ON_SHORT_ENTRY_BLOCK
+            Toggle persistence of HOLD decisions when short-entry policy blocks a SELL entry.
+        ML_PERSIST_HOLD_ON_SIZING_REJECT
+            Toggle persistence of HOLD decisions when sizing rejects an entry.
         ML_EXECUTE_TRADES
             Toggle live order submission.
         ML_SERIALIZE_ORDER_INTENTS
@@ -1026,6 +1150,18 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             )
             min_confidence = 1.0
 
+        prediction_neutral_band = _env_positive_float(
+            source,
+            "ML_PREDICTION_NEUTRAL_BAND",
+            0.0,
+        )
+        if prediction_neutral_band > 0.5:
+            LOGGER.debug(
+                "prediction_neutral_band_out_of_bounds",
+                extra={"value": prediction_neutral_band},
+            )
+            prediction_neutral_band = 0.5
+
         max_positions = _env_positive_int(source, "ML_MAX_POSITIONS", 1)
         account_mode_raw = source.get("ML_ACCOUNT_MODE")
         try:
@@ -1057,7 +1193,24 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         take_profit_pct = _env_positive_float(source, "ML_TAKE_PROFIT_PCT", 0.04)
 
         use_strategy_store = _env_truthy(source, "ML_USE_STRATEGY_STORE", True)
+        run_id = source.get("ML_RUN_ID")
+        if run_id is not None and not run_id.strip():
+            LOGGER.debug(
+                "invalid_run_id_env_override",
+                extra={"key": "ML_RUN_ID", "value": run_id},
+            )
+            run_id = None
         persist_all_signals = _env_truthy(source, "ML_PERSIST_ALL_SIGNALS", False)
+        persist_hold_on_short_entry_block = _env_truthy(
+            source,
+            "ML_PERSIST_HOLD_ON_SHORT_ENTRY_BLOCK",
+            True,
+        )
+        persist_hold_on_sizing_reject = _env_truthy(
+            source,
+            "ML_PERSIST_HOLD_ON_SIZING_REJECT",
+            True,
+        )
         execute_trades = _env_truthy(source, "ML_EXECUTE_TRADES", False)
         serialize_order_intents = _env_truthy(source, "ML_SERIALIZE_ORDER_INTENTS", False)
         order_intent_path = source.get("ML_ORDER_INTENT_PATH")
@@ -1147,6 +1300,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             ml_signal_source=signal_source,
             position_size_pct=position_size_pct,
             min_confidence=min_confidence,
+            prediction_neutral_band=prediction_neutral_band,
             max_positions=max_positions,
             account_mode=account_mode,
             short_entry_policy=short_entry_policy,
@@ -1154,7 +1308,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             take_profit_pct=take_profit_pct,
             use_strategy_store=use_strategy_store,
             strategy_store_config=None,
+            run_id=run_id,
             persist_all_signals=persist_all_signals,
+            persist_hold_on_short_entry_block=persist_hold_on_short_entry_block,
+            persist_hold_on_sizing_reject=persist_hold_on_sizing_reject,
             execute_trades=execute_trades,
             serialize_order_intents=serialize_order_intents,
             order_intent_path=order_intent_path,

@@ -878,7 +878,7 @@ class TestDataFactory:
             List of prediction dictionaries with keys:
                 - instrument_id: str (instrument identifier)
                 - timestamp: int (nanoseconds since epoch)
-                - prediction: float in [-1, 1]
+                - prediction: float in [0, 1]
                 - confidence: float in [0, 1]
 
         Raises
@@ -892,7 +892,7 @@ class TestDataFactory:
         >>> preds = factory.predictions(n=10)
         >>> assert len(preds) == 10
         >>> assert all(0 <= p["confidence"] <= 1 for p in preds)
-        >>> assert all(-1 <= p["prediction"] <= 1 for p in preds)
+        >>> assert all(0 <= p["prediction"] <= 1 for p in preds)
 
         """
         import time
@@ -912,13 +912,13 @@ class TestDataFactory:
         interval_ns = 60_000_000_000  # 1 minute between predictions
 
         for i in range(n):
-            # Generate prediction in [-1, 1] range
-            prediction = float(rng.uniform(-1, 1))
+            # Generate prediction in [0, 1] range
+            prediction = float(rng.uniform(0, 1))
 
             # Generate confidence in [0, 1] range
-            # Higher confidence for predictions closer to extremes
-            confidence = float(abs(prediction) * rng.uniform(0.5, 1.0))
-            confidence = min(confidence, 1.0)  # Ensure <= 1.0
+            # Higher confidence for predictions closer to extremes (0 or 1)
+            confidence = float(max(prediction, 1.0 - prediction) * rng.uniform(0.5, 1.0))
+            confidence = min(max(confidence, 0.0), 1.0)  # Clamp to [0, 1]
 
             pred_dict: dict[str, Any] = {
                 "instrument_id": instrument,

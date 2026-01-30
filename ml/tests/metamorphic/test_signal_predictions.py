@@ -86,14 +86,14 @@ class TestSignalPredictionMetamorphic:
         features = np.array(features)
 
         # Generate predictions with varying confidence
-        low_confidence_pred = 0.3
+        low_confidence_pred = 0.52
         high_confidence_pred = 0.9
 
         # Signal strength should be monotonic with confidence
         def signal_strength(prediction, threshold):
-            confidence = abs(prediction)
+            confidence = max(prediction, 1.0 - prediction)
             if confidence > threshold:
-                return prediction
+                return confidence
             return 0.0
 
         low_signal = signal_strength(low_confidence_pred, confidence_threshold)
@@ -146,7 +146,7 @@ class TestSignalPredictionMetamorphic:
         assert individual_variance >= 0, "Variance should be non-negative"
 
     @given(
-        base_prediction=st.floats(min_value=-0.9, max_value=0.9),
+        base_prediction=st.floats(min_value=0.0, max_value=1.0),
         scale_factors=st.lists(
             st.floats(min_value=0.5, max_value=2.0),
             min_size=2,
@@ -159,41 +159,41 @@ class TestSignalPredictionMetamorphic:
         Metamorphic relation: Scaling predictions should maintain
         bounds and relative relationships.
         """
-        # Apply different scales to the same base prediction
-        scaled_predictions = [base_prediction * scale for scale in scale_factors]
+        centered = base_prediction - 0.5
+        # Apply different scales around the neutral 0.5 center
+        scaled_predictions = [0.5 + centered * scale for scale in scale_factors]
 
-        # Ensure all scaled predictions maintain bounds [-1, 1]
-        clipped_predictions = [np.clip(pred, -1, 1) for pred in scaled_predictions]
+        # Ensure all scaled predictions maintain bounds [0, 1]
+        clipped_predictions = [np.clip(pred, 0, 1) for pred in scaled_predictions]
 
         # Metamorphic relations:
-        # 1. Sign should be preserved (unless clipped)
+        # 1. Direction around 0.5 should be preserved (unless clipped)
         tiny = np.finfo(np.float64).tiny
         for pred, clipped in zip(scaled_predictions, clipped_predictions):
-            if abs(pred) <= 1:
-                # Guard against IEEE-754 underflow to 0.0 when scaling subnormal values
-                if abs(base_prediction) < tiny or abs(pred) < tiny:
-                    # Treat as effectively zero; sign is not meaningful
-                    continue
+            # Guard against IEEE-754 underflow to 0.0 when scaling subnormal values
+            if abs(centered) < tiny or abs(pred - 0.5) < tiny:
+                continue
+            if 0.0 < clipped < 1.0:
                 assert (
-                    np.sign(pred) == np.sign(base_prediction) or base_prediction == 0
-                ), "Scaling should preserve prediction sign"
+                    np.sign(pred - 0.5) == np.sign(centered)
+                ), "Scaling should preserve prediction direction around 0.5"
 
         # 2. Relative ordering should be preserved
         sorted_scales = sorted(scale_factors)
         # Preserve the mapping order (do not sort predictions themselves)
-        sorted_preds = [base_prediction * s for s in sorted_scales]
-        clipped_sorted = [np.clip(p, -1, 1) for p in sorted_preds]
+        sorted_preds = [0.5 + centered * s for s in sorted_scales]
+        clipped_sorted = [np.clip(p, 0, 1) for p in sorted_preds]
 
         # Check monotonicity (considering clipping)
         for i in range(len(clipped_sorted) - 1):
-            if base_prediction >= 0:
+            if centered >= 0:
                 assert (
                     clipped_sorted[i] <= clipped_sorted[i + 1]
-                ), "Positive predictions should maintain order after scaling"
+                ), "Bullish predictions should maintain order after scaling"
             else:
                 assert (
                     clipped_sorted[i] >= clipped_sorted[i + 1]
-                ), "Negative predictions should maintain reverse order after scaling"
+                ), "Bearish predictions should maintain reverse order after scaling"
 
     @given(
         features=st.lists(
@@ -243,12 +243,12 @@ class TestSignalThresholdMetamorphic:
 
     @given(
         predictions=st.lists(
-            st.floats(min_value=-1.0, max_value=1.0),
+            st.floats(min_value=0.0, max_value=1.0),
             min_size=10,
             max_size=100,
         ),
-        base_threshold=st.floats(min_value=0.1, max_value=0.5),
-        threshold_delta=st.floats(min_value=0.05, max_value=0.3),
+        base_threshold=st.floats(min_value=0.5, max_value=0.8),
+        threshold_delta=st.floats(min_value=0.05, max_value=0.2),
     )
     @settings(max_examples=30, deadline=5000)
     def test_threshold_monotonicity(self, predictions, base_threshold, threshold_delta):
@@ -259,7 +259,7 @@ class TestSignalThresholdMetamorphic:
         assume(base_threshold + threshold_delta < 1.0)
 
         predictions = np.array(predictions)
-        confidences = np.abs(predictions)
+        confidences = np.maximum(predictions, 1.0 - predictions)
 
         # Count signals at different thresholds
         threshold_low = base_threshold
@@ -294,22 +294,22 @@ class TestSignalThresholdMetamorphic:
         similar signal patterns.
         """
         # Generate base predictions
-        base_predictions = np.random.uniform(-1, 1, n_predictions)
+        base_predictions = np.random.uniform(0, 1, n_predictions)
 
         # Generate correlated predictions for each instrument
         instrument_predictions = {}
         for i in range(n_instruments):
             # Add correlated noise
-            noise = np.random.normal(0, 1 - correlation, n_predictions)
-            correlated_pred = correlation * base_predictions + np.sqrt(1 - correlation**2) * noise
+            noise = np.random.uniform(0, 1, n_predictions)
+            correlated_pred = correlation * base_predictions + (1 - correlation) * noise
             # Clip to valid range
-            instrument_predictions[f"INST{i}"] = np.clip(correlated_pred, -1, 1)
+            instrument_predictions[f"INST{i}"] = np.clip(correlated_pred, 0, 1)
 
         # Calculate signal correlations
         threshold = 0.5
         instrument_signals = {}
         for inst, preds in instrument_predictions.items():
-            instrument_signals[inst] = np.abs(preds) > threshold
+            instrument_signals[inst] = preds > threshold
 
         # Metamorphic relation: Higher correlation -> more similar signals
         if n_instruments >= 2 and correlation > 0.7:
@@ -326,7 +326,7 @@ class TestSignalThresholdMetamorphic:
 
     @given(
         prediction_sequence=st.lists(
-            st.floats(min_value=-1.0, max_value=1.0),
+            st.floats(min_value=0.0, max_value=1.0),
             min_size=20,
             max_size=100,
         ),
@@ -342,14 +342,16 @@ class TestSignalThresholdMetamorphic:
 
         # Raw signals (no persistence)
         threshold = 0.5
-        raw_signals = np.abs(predictions) > threshold
+        raw_confidence = np.maximum(predictions, 1.0 - predictions)
+        raw_signals = raw_confidence > threshold
 
         # Smoothed signals (require persistence over lookback period)
         smoothed_signals = np.zeros_like(raw_signals, dtype=bool)
         for i in range(lookback, len(predictions)):
             window = predictions[i - lookback : i]
-            # Signal only if majority of window exceeds threshold
-            smoothed_signals[i] = np.mean(np.abs(window) > threshold) > 0.5
+            # Signal only if majority of window exceeds confidence threshold
+            window_conf = np.maximum(window, 1.0 - window)
+            smoothed_signals[i] = np.mean(window_conf > threshold) > 0.5
 
         # Count signal changes
         def count_switches(signals):
@@ -357,8 +359,9 @@ class TestSignalThresholdMetamorphic:
                 return 0
             return np.sum(signals[1:] != signals[:-1])
 
-        raw_switches = count_switches(raw_signals)
-        smoothed_switches = count_switches(smoothed_signals)
+        # Ignore warm-up region where smoothing initializes
+        raw_switches = count_switches(raw_signals[lookback:])
+        smoothed_switches = count_switches(smoothed_signals[lookback:])
 
         # Metamorphic relation: Smoothing should reduce switching
         assert (

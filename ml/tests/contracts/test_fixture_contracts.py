@@ -163,8 +163,8 @@ class TestSamplePredictionsFixtureContracts:
         )
 
         # Values are reasonable predictions
-        assert all(-1.0 <= v <= 1.0 for v in sample_predictions), (
-            "Predictions should be in range [-1, 1]"
+        assert all(0.0 <= v <= 1.0 for v in sample_predictions), (
+            "Predictions should be in range [0, 1]"
         )
 
 
@@ -216,7 +216,7 @@ class TestFixtureImmutability:
         """
         # Fixture is called once per test, but we can verify it's deterministic
         # by checking the values match expected defaults
-        expected = np.array([0.65, -0.3, 0.8], dtype=np.float32)
+        expected = np.array([0.65, 0.3, 0.8], dtype=np.float32)
 
         # Value equality (not identity)
         assert np.array_equal(sample_predictions, expected), (

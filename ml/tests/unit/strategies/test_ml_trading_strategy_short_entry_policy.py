@@ -62,6 +62,39 @@ def test_short_entry_blocked_when_exit_only_and_no_position() -> None:
     assert exec_params["short_entry_policy"] == ShortEntryPolicy.EXIT_ONLY.value
 
 
+def test_short_entry_blocked_persists_hold_when_configured() -> None:
+    strat = build_ml_trading_strategy_stub(execute_trades=True)
+    strat.log = LoggerStub()
+    strat._config.account_mode = AccountMode.CASH
+    strat._config.short_entry_policy = ShortEntryPolicy.EXIT_ONLY
+    strat._config.persist_hold_on_short_entry_block = True
+    strat._config.persist_all_signals = False
+    cast(Any, strat)._get_current_position = lambda: None
+
+    captured: dict[str, object] = {}
+
+    def _persist_strategy_decision(
+        *,
+        signal: MLSignal,
+        decision_type: str,
+        position_size: object,
+        risk_metrics: object,
+        execution_params: object,
+        persist_hold: bool = False,
+    ) -> None:
+        del signal, decision_type, position_size, risk_metrics, execution_params
+        captured["persist_hold"] = persist_hold
+
+    cast(Any, strat)._persist_strategy_decision = _persist_strategy_decision
+    cast(Any, strat).target_side_from_prediction = (
+        MLTradingStrategy.target_side_from_prediction.__get__(strat, MLTradingStrategy)
+    )
+
+    MLTradingStrategy._process_ml_signal(strat, _sig(0.1))
+
+    assert captured.get("persist_hold") is True
+
+
 def test_short_entry_allowed_when_margin_and_policy_unset() -> None:
     recorder = StrategyDecisionRecorder()
     strat = build_ml_trading_strategy_stub(execute_trades=True, decision_recorder=recorder)

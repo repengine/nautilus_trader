@@ -283,7 +283,7 @@ def deterministic_prediction(features: npt.NDArray[np.float32], seed: int = 42) 
 
     # Simple deterministic mapping: sum of features normalized
     feature_sum = float(np.sum(features))
-    prediction = np.tanh(feature_sum / 100.0)  # Bound to [-1, 1]
+    prediction = 0.5 + 0.5 * np.tanh(feature_sum / 100.0)  # Bound to [0, 1]
     confidence = min(1.0, abs(prediction) + 0.1)  # Ensure some minimum confidence
 
     return prediction, confidence
@@ -370,7 +370,7 @@ class TestMLSignalActorDeterminism:
         assert conf1 == conf3, f"Same features produced different confidences: {conf1} != {conf3}"
 
         # Values should be in expected ranges
-        assert -1.0 <= pred1 <= 1.0, f"Prediction {pred1} out of bounds [-1, 1]"
+        assert 0.0 <= pred1 <= 1.0, f"Prediction {pred1} out of bounds [0, 1]"
         assert 0.0 <= conf1 <= 1.0, f"Confidence {conf1} out of bounds [0, 1]"
 
     @given(

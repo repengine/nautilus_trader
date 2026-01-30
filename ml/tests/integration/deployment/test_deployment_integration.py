@@ -319,7 +319,9 @@ class TestDeploymentIntegration:
                             mock_scheduler_class.return_value = mock_scheduler
 
                             # Mock the run method to prevent infinite loop
-                            with patch.object(runner, "_run_daily"):
+                            with patch.object(runner, "_run_daily"), patch.object(
+                                runner, "_bootstrap_database"
+                            ):
                                 runner.run()
 
                             # Verify stores were initialized with PostgreSQL

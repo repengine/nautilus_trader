@@ -181,9 +181,9 @@ def _make_test_registry(
                 ValidationRule(
                     rule_type=ValidationRuleType.RANGE,
                     field_name="prediction",
-                    parameters={"min": -1.0, "max": 1.0},
+                    parameters={"min": 0.0, "max": 1.0},
                     severity=QualityFlag.FAIL,
-                    description="Predictions must be in [-1, 1] range",
+                    description="Predictions must be in [0, 1] range",
                 ),
                 ValidationRule(
                     rule_type=ValidationRuleType.RANGE,
@@ -539,15 +539,15 @@ class TestDataStoreValidation:
     )
     @settings(max_examples=20)
     def test_prediction_bounds_property(self, predictions):
-        """Property: All predictions within [-1, 1] should pass validation."""
+        """Property: All predictions within [0, 1] should pass validation."""
         datastore, _, _, _, _ = _create_test_datastore(
             "predictions_property",
             DatasetType.PREDICTIONS,
         )
 
         # Filter to valid range
-        valid_predictions = [p for p in predictions if -1.0 <= p <= 1.0]
-        invalid_predictions = [p for p in predictions if not (-1.0 <= p <= 1.0)]
+        valid_predictions = [p for p in predictions if 0.0 <= p <= 1.0]
+        invalid_predictions = [p for p in predictions if not (0.0 <= p <= 1.0)]
 
         # Test valid predictions
         if valid_predictions:

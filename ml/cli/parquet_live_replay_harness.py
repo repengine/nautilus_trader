@@ -217,6 +217,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Take profit percentage (default: 0.04).",
     )
     parser.add_argument(
+        "--max-holding-ms",
+        type=int,
+        default=None,
+        help="Maximum holding time in milliseconds before forcing an exit.",
+    )
+    parser.add_argument(
         "--liquidation-enabled",
         action="store_true",
         help="Enable staged liquidation safeguards.",
@@ -408,6 +414,7 @@ def main() -> None:
         short_entry_policy=short_entry_policy,
         stop_loss_pct=args.stop_loss_pct,
         take_profit_pct=args.take_profit_pct,
+        max_holding_ms=args.max_holding_ms,
         model_exit_config=model_exit_config,
         risk_config=risk_config,
         persist_all_signals=args.persist_all_signals,

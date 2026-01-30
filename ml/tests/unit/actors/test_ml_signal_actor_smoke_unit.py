@@ -16,6 +16,7 @@ import numpy as np
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import make_stub_bar
 from ml.tests.utils.stubs import SignalActorHarness
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
@@ -23,9 +24,8 @@ from nautilus_trader.model.identifiers import Venue
 
 
 def _stub_bar(instrument_id: InstrumentId) -> object:
-    bar_type = SimpleNamespace(instrument_id=instrument_id)
-    # Only the attributes used by strategies are required
-    return SimpleNamespace(bar_type=bar_type, ts_event=1)
+    # Only the attributes used by strategies/metadata are required
+    return make_stub_bar(instrument_id)
 
 
 def test_ml_signal_actor_try_generate_signal_smoke(default_instrument_id: InstrumentId) -> None:

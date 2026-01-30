@@ -29,6 +29,7 @@ class MarketFeedDescriptor(msgspec.Struct, kw_only=True, frozen=True):
     descriptor_id: str
     dataset_id: str
     provider_dataset_id: str | None = None
+    provider_schema: str | None = None
     storage_kind: StorageKind
     schema: str
     symbol_patterns: tuple[str, ...]
@@ -45,6 +46,7 @@ class MarketDatasetInput(msgspec.Struct, kw_only=True, frozen=False):
     descriptor_id: str | None = None
     dataset_id: str | None = None
     provider_dataset_id: str | None = None
+    provider_schema: str | None = None
     symbols: tuple[str, ...] | None = None
     schema: str | None = None
     schema_override: str | None = None
@@ -170,6 +172,7 @@ class MarketDataTableConfig:
         tbbo_table: Per-class table for TBBO data.
         mbp1_table: Per-class table for MBP-1 data.
         trade_tick_table: Per-class table for trade ticks.
+        quote_sentinel_price: Price sentinel to treat as null (e.g., vendor missing-price marker).
     """
 
     profile: MarketDataTableProfile = MarketDataTableProfile.AUTO
@@ -179,6 +182,8 @@ class MarketDataTableConfig:
     tbbo_table: str = "market_data_tbbo"
     mbp1_table: str = "market_data_mbp1"
     trade_tick_table: str = "market_data_trade_tick"
+    write_batch_size: int = 10000
+    quote_sentinel_price: float | None = 9_223_372_036.85
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -191,6 +196,8 @@ class MarketDataTableConfig:
         ):
             if not value or not value.strip():
                 raise ValueError(f"{label} must be non-empty")
+        if self.write_batch_size < 1:
+            raise ValueError("write_batch_size must be >= 1")
 
     def table_for_dataset_type(self, dataset_type: DatasetType) -> str:
         """
@@ -261,6 +268,8 @@ class MarketDataTableConfig:
             ML_MARKET_DATA_TABLE_TBBO
             ML_MARKET_DATA_TABLE_MBP1
             ML_MARKET_DATA_TABLE_TRADES
+            ML_MARKET_DATA_WRITE_BATCH_SIZE
+            ML_MARKET_DATA_QUOTE_SENTINEL_PRICE
 
         Args:
             env: Optional environment mapping (defaults to os.environ).
@@ -272,6 +281,28 @@ class MarketDataTableConfig:
         source = env or os.environ
         profile = MarketDataTableProfile.from_env(source.get("ML_MARKET_DATA_PROFILE"))
         defaults = cls()
+        batch_size_raw = source.get("ML_MARKET_DATA_WRITE_BATCH_SIZE")
+        write_batch_size = defaults.write_batch_size
+        if batch_size_raw is not None and batch_size_raw.strip():
+            try:
+                write_batch_size = int(batch_size_raw)
+            except ValueError:
+                raise ValueError(
+                    "ML_MARKET_DATA_WRITE_BATCH_SIZE must be an integer",
+                ) from None
+        quote_sentinel_raw = source.get("ML_MARKET_DATA_QUOTE_SENTINEL_PRICE")
+        quote_sentinel_price = defaults.quote_sentinel_price
+        if quote_sentinel_raw is not None:
+            token = quote_sentinel_raw.strip()
+            if not token:
+                quote_sentinel_price = None
+            else:
+                try:
+                    quote_sentinel_price = float(token)
+                except ValueError:
+                    raise ValueError(
+                        "ML_MARKET_DATA_QUOTE_SENTINEL_PRICE must be a float",
+                    ) from None
         return cls(
             profile=profile,
             legacy_table=source.get("ML_MARKET_DATA_TABLE_LEGACY")
@@ -282,6 +313,8 @@ class MarketDataTableConfig:
             tbbo_table=source.get("ML_MARKET_DATA_TABLE_TBBO") or defaults.tbbo_table,
             mbp1_table=source.get("ML_MARKET_DATA_TABLE_MBP1") or defaults.mbp1_table,
             trade_tick_table=source.get("ML_MARKET_DATA_TABLE_TRADES") or defaults.trade_tick_table,
+            write_batch_size=write_batch_size,
+            quote_sentinel_price=quote_sentinel_price,
         )
 
 

@@ -62,7 +62,7 @@ MACRO_OBSERVATIONS_DATASET_ID: Final[str] = "ml.macro_observations"
 EVENTS_CALENDAR_DATASET_ID: Final[str] = "ml.events_calendar"
 """Dataset identifier for normalized events/calendar features."""
 
-FEATURE_VALUES_DATASET_ID: Final[str] = "ml.feature_values"
+FEATURE_VALUES_DATASET_ID: Final[str] = "features"
 """Dataset identifier for computed FeatureStore values."""
 
 MICRO_MINUTE_DATASET_ID: Final[str] = "ml.microstructure_minute"

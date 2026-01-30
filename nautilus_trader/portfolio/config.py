@@ -44,6 +44,14 @@ class PortfolioConfig(NautilusConfig, frozen=True):
         When set, account state updates will only be logged if this much time has passed since the last log.
         Useful for HFT deployments to prevent excessive logging when account states change rapidly.
         Default is None (no throttling).
+    track_account_returns : bool, default False
+        If True, record returns from account balance deltas for performance
+        statistics. This adds per-account update tracking and should typically
+        be enabled for backtests/replays, not latency-sensitive live trading.
+    track_bar_returns : bool, default False
+        If True, record returns from bar updates using account balances plus
+        unrealized PnL for performance statistics. This is higher frequency
+        than account-state updates and should be enabled for backtests/replays.
     debug : bool, default False
         If debug mode is active (will provide extra debug logging).
 
@@ -54,4 +62,6 @@ class PortfolioConfig(NautilusConfig, frozen=True):
     bar_updates: bool = True
     convert_to_account_base_currency: bool = True
     min_account_state_logging_interval_ms: PositiveInt | None = None
+    track_account_returns: bool = False
+    track_bar_returns: bool = False
     debug: bool = False

@@ -455,6 +455,7 @@ def ensure_macro_ready(
     alfred_realtime_start: str | None = None,
     alfred_realtime_end: str | None = None,
     alfred_window_days: int = 365,
+    alfred_fallback_series: Sequence[str] | None = None,
 ) -> MacroRefreshResult:
     """
     Ensure macro artifacts exist within *max_age* and refresh when necessary.
@@ -486,6 +487,8 @@ def ensure_macro_ready(
         Optional ALFRED realtime end date override.
     alfred_window_days : int
         Window size for ALFRED time-sliced fetches.
+    alfred_fallback_series : Sequence[str] | None
+        Series IDs to fall back to FRED series when ALFRED vintages are unavailable.
 
     Returns
     -------
@@ -503,6 +506,17 @@ def ensure_macro_ready(
     alfred_error: Exception | None = None
     if vintage_dir is not None:
         loader_factory = alfred_loader_factory
+        fallback_series = alfred_fallback_series
+        if fallback_series is None:
+            fallback_path = Path("ml/config/macro_alfred_fallback_series.txt")
+            if fallback_path.exists():
+                tokens = []
+                for line in fallback_path.read_text(encoding="utf-8").splitlines():
+                    token = line.strip()
+                    if not token or token.startswith("#"):
+                        continue
+                    tokens.append(token)
+                fallback_series = tokens
         if loader_factory is None:
             def _factory(series: Sequence[str]) -> _ALFREDLoaderProtocol:
                 return _build_alfred_loader(
@@ -510,6 +524,7 @@ def ensure_macro_ready(
                     alfred_realtime_start,
                     alfred_realtime_end,
                     alfred_window_days,
+                    fallback_series,
                 )
 
             loader_factory = _factory
@@ -592,6 +607,7 @@ def _build_alfred_loader(
     realtime_start: str | None,
     realtime_end: str | None,
     window_days: int,
+    fallback_series: Sequence[str] | None = None,
 ) -> _ALFREDLoaderProtocol:
     from ml.data.loaders.alfred_loader import ALFREDConfig
     from ml.data.loaders.alfred_loader import ALFREDDataLoader
@@ -601,5 +617,6 @@ def _build_alfred_loader(
         start_date=realtime_start,
         end_date=realtime_end,
         window_days=window_days,
+        fallback_to_fred_series=tuple(fallback_series or ()),
     )
     return cast(_ALFREDLoaderProtocol, ALFREDDataLoader(cfg))

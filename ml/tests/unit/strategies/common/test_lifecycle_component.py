@@ -78,6 +78,12 @@ def mock_subscribe_quote_ticks() -> MagicMock:
 
 
 @pytest.fixture
+def mock_subscribe_bars() -> MagicMock:
+    """Create a mock subscribe_bars callback."""
+    return MagicMock()
+
+
+@pytest.fixture
 def lifecycle_component(
     mock_logger: MagicMock,
     mock_subscribe_data: MagicMock,
@@ -221,6 +227,39 @@ class TestOnStartInstrumentSubscription:
         call_args = mock_subscribe_instrument.call_args
         instrument_id = call_args[0][0]  # First positional argument
         assert str(instrument_id) == "EURUSD.SIM"
+
+
+# ---------------------------------------------------------------------------
+# Test Class: on_start - Return Bar Subscriptions
+# ---------------------------------------------------------------------------
+
+
+class TestOnStartReturnBarSubscription:
+    """Test on_start return bar subscription behavior."""
+
+    def test_on_start_subscribes_to_return_bars(
+        self,
+        mock_logger: MagicMock,
+        mock_subscribe_bars: MagicMock,
+    ) -> None:
+        """Verify return bar subscription is called when configured."""
+        instrument_id = create_instrument_id("EURUSD.SIM")
+        component = LifecycleComponent(
+            strategy_id="test_strategy",
+            instrument_id=instrument_id,
+            subscribe_data_callback=None,
+            subscribe_instrument_callback=None,
+            returns_bar_spec="1-MINUTE-LAST",
+            subscribe_bars_callback=mock_subscribe_bars,
+            log=mock_logger,
+        )
+
+        component.on_start()
+
+        mock_subscribe_bars.assert_called_once()
+        bar_type = mock_subscribe_bars.call_args.args[0]
+        assert bar_type.instrument_id == instrument_id
+        assert str(bar_type.spec) == "1-MINUTE-LAST"
 
 
 # ---------------------------------------------------------------------------

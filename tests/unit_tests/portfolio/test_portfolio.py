@@ -201,6 +201,34 @@ class TestPortfolio:
         # Arrange, Act, Assert
         assert self.portfolio.is_flat(AUDUSD_SIM.id) is True
 
+    def test_update_bar_tracks_returns_when_enabled(self):
+        # Arrange
+        msgbus = MessageBus(
+            trader_id=self.trader_id,
+            clock=self.clock,
+        )
+        cache = TestComponentStubs.cache()
+        cache.add_instrument(AUDUSD_SIM)
+        portfolio = Portfolio(
+            msgbus=msgbus,
+            cache=cache,
+            clock=self.clock,
+            config=PortfolioConfig(track_bar_returns=True),
+        )
+        portfolio.update_account(TestEventStubs.cash_account_state())
+
+        bar1 = TestDataStubs.bar_5decimal(ts_event=1_000_000_000, ts_init=1_000_000_000)
+        bar2 = TestDataStubs.bar_5decimal(ts_event=2_000_000_000, ts_init=2_000_000_000)
+
+        # Act
+        portfolio.update_bar(bar1)
+        portfolio.update_bar(bar2)
+
+        # Assert
+        returns = portfolio.analyzer.returns()
+        assert len(returns) == 1
+        assert float(returns.iloc[0]) == 0.0
+
     def test_is_completely_flat_when_no_positions_returns_true(self):
         # Arrange, Act, Assert
         assert self.portfolio.is_flat(AUDUSD_SIM.id) is True

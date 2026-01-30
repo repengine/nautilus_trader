@@ -273,3 +273,9 @@ docs/plans/2026-01-18-codex-session-reconstruction.md
 docs/plans/2026-01-18-codex-session-recovery.md
 docs/plans/2026-01-18-gap-recovery-decisions.md
 docs/plans/2026-01-18-gap-recovery-plan.md
+rehydrate_full_eqs_bars_command.txt
+rehydrate_and_earnings_commands.txt
+gdb.txt
+ml/config/coverage_datasets_earnings_only.toml
+ml/config/coverage_datasets_macro_only.toml
+ml/config/coverage_datasets_tier1.toml

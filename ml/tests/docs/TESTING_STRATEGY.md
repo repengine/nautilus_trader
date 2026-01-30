@@ -26,7 +26,7 @@ Property-based tests verify mathematical properties and invariants that must hol
 **Key Invariants Tested**:
 
 - **FeatureStore**: Timestamp monotonicity, feature immutability, partition consistency
-- **ModelStore**: Prediction bounds [-1, 1], version ordering consistency
+- **ModelStore**: Prediction bounds [0, 1], version ordering consistency
 - **StrategyStore**: Signal temporal ordering, position state consistency
 - **DataStore**: Watermark progression (non-decreasing), event ordering
 
@@ -65,7 +65,7 @@ Contract tests define and validate data contracts at component boundaries using 
 
 ```python
 class PredictionSchema(pa.DataFrameModel):
-    prediction: Series[float] = pa.Field(ge=-1.0, le=1.0)
+    prediction: Series[float] = pa.Field(ge=0.0, le=1.0)
     confidence: Series[float] = pa.Field(ge=0.0, le=1.0)
     ts_event: Series[np.int64] = pa.Field(ge=0)
 
@@ -312,7 +312,7 @@ All new tests follow strict typing (mypy --strict), lint (ruff), and run in the 
 
 1. **Focus on Properties, Not Examples**
    - ❌ `assert compute_return(100, 101) == 0.01`
-   - ✅ `assert all returns are bounded by [-1, 1]`
+   - ✅ `assert all returns are bounded by [0, 1]`
 
 2. **Test Relationships, Not Values**
    - ❌ `assert feature_value == 42.5`

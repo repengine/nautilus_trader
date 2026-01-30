@@ -126,6 +126,7 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
         execution_params: Mapping[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None:
         # Delegate directly; underlying store tolerates Mapping
         getattr(self._store, "write_signal")(
@@ -138,10 +139,47 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
             execution_params=execution_params,
             ts_event=ts_event,
             is_live=is_live,
+            run_id=run_id,
         )
 
-    def write_order_event(self, event: object, *, is_live: bool = False) -> None:
-        getattr(self._store, "write_order_event")(event, is_live=is_live)
+    def write_order_event(
+        self,
+        event: object,
+        *,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None:
+        getattr(self._store, "write_order_event")(event, is_live=is_live, run_id=run_id)
+
+    def write_risk_halt_event(
+        self,
+        *,
+        strategy_id: str,
+        instrument_id: str,
+        event_type: str,
+        reason: str,
+        detail: str | None,
+        ts_event: int,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None:
+        writer = getattr(self._store, "write_risk_halt_event", None)
+        if callable(writer):
+            writer(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                event_type=event_type,
+                reason=reason,
+                detail=detail,
+                ts_event=ts_event,
+                is_live=is_live,
+                run_id=run_id,
+            )
+
+    def write_replay_summary(self, summary: Any) -> None:
+        writer = getattr(self._store, "write_replay_summary", None)
+        if callable(writer):
+            writer(summary)
 
     def write_batch(self, data: Sequence[Any]) -> None:
         getattr(self._store, "write_batch")(list(data))

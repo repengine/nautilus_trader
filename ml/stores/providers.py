@@ -20,6 +20,7 @@ from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import bindparam
 from sqlalchemy import inspect
+from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.exc import OperationalError
@@ -595,6 +596,8 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
         table = self._resolve_table(schema)
         table_columns = set(table.columns.keys())
         cols = set(map(str, df.columns))
+        batch_size = max(1, int(self._table_config.write_batch_size))
+        quote_sentinel_price = self._table_config.quote_sentinel_price
 
         def _maybe(val: object) -> object | None:
             if val is None:
@@ -622,11 +625,21 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                     return cast(object, scalar)
             return val
 
+        def _is_quote_sentinel(value: object) -> bool:
+            if quote_sentinel_price is None:
+                return False
+            try:
+                return float(str(value)) == quote_sentinel_price
+            except (TypeError, ValueError):
+                return False
+
         def _first_present_value(row: object, candidates: tuple[str, ...]) -> object | None:
             for key in candidates:
                 if key not in cols:
                     continue
                 value = _maybe(getattr(row, key, None))
+                if value is not None and _is_quote_sentinel(value):
+                    return None
                 if value is not None:
                     return value
             return None
@@ -707,9 +720,10 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                 d["source_dataset"] = _maybe(getattr(r, "source_dataset", None))
             return d
 
-        records: list[dict[str, object]] = [_row(r) for r in df.itertuples(index=False)]
-        dialect = self._engine.dialect.name
-        with self._engine.begin() as conn:
+        def _write_records(conn: Connection, records: list[dict[str, object]]) -> None:
+            if not records:
+                return
+            dialect = self._engine.dialect.name
             if dialect == "postgresql":
                 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -718,7 +732,20 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                 conn.execute(stmt)
             else:
                 conn.execute(table.insert().prefix_with("OR IGNORE"), records)
-        return len(records)
+
+        total = 0
+        batch: list[dict[str, object]] = []
+        with self._engine.begin() as conn:
+            for row in df.itertuples(index=False):
+                batch.append(_row(row))
+                if len(batch) >= batch_size:
+                    _write_records(conn, batch)
+                    total += len(batch)
+                    batch = []
+            if batch:
+                _write_records(conn, batch)
+                total += len(batch)
+        return total
 
     def _resolve_table(self, schema: str) -> Table:
         table_name = self._resolve_table_name(schema)

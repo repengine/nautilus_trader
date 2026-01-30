@@ -59,8 +59,8 @@ PROPERTY_TEST_SETTINGS = settings(
     suppress_health_check=(HealthCheck.too_slow,),
 )
 
-# Prediction value bounds per Nautilus convention
-PREDICTION_MIN = -1.0
+# Prediction value bounds per canonical probability surface
+PREDICTION_MIN = 0.0
 PREDICTION_MAX = 1.0
 CONFIDENCE_MIN = 0.0
 CONFIDENCE_MAX = 1.0
@@ -591,7 +591,7 @@ class TestModelStorePerformanceInvariants:
 
         # Verify mathematical properties
         assert (
-            -1.0 <= mean_prediction <= 1.0
+            0.0 <= mean_prediction <= 1.0
         ), f"Mean prediction {mean_prediction} outside valid bounds"
         assert std_prediction >= 0, f"Standard deviation {std_prediction} cannot be negative"
 

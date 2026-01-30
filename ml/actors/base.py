@@ -38,7 +38,10 @@ from ml.actors.common import RegistryComponent
 
 # Component imports for facade pattern (Phase 2.3.5a)
 from ml.actors.common import StoreOperationsComponent
+from ml.actors.common.signal_metadata import build_signal_metadata
 from ml.common.metrics_manager import MetricsManager
+from ml.common.prediction_surface import normalize_prediction_output
+from ml.common.prediction_surface import resolve_output_is_logits
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -662,9 +665,10 @@ class MLSignal(NautilusData):
     model_id : str
         Unique identifier for the model that generated this signal.
     prediction : float
-        The model prediction value.
+        The model prediction probability in [0, 1].
     confidence : float
-        The confidence score for the prediction (0.0 to 1.0).
+        The confidence score for the prediction (0.0 to 1.0), derived from the
+        calibrated probability when explicit confidence is unavailable.
     features : npt.NDArray[np.float32], optional
         The feature vector used for prediction (for debugging).
     metadata : dict[str, Any], optional
@@ -1553,6 +1557,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     prediction=prediction,
                     confidence=confidence,
                     features=features if self._config.log_predictions else None,
+                    metadata=build_signal_metadata(bar),
                     ts_event=bar.ts_event,
                     ts_init=self.clock.timestamp_ns(),
                 )
@@ -2075,17 +2080,18 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
         # Run inference
         outputs = self._model.run(self._output_names, {self._input_name: features_2d})
 
-        # Extract prediction and confidence
+        output_is_logits = resolve_output_is_logits(self._model_metadata)
         if len(outputs) >= 2:
-            # Model outputs both prediction and confidence
-            prediction = float(outputs[0][0])
-            confidence = float(outputs[1][0])
-        else:
-            # Model outputs only prediction, assume high confidence
-            prediction = float(outputs[0][0])
-            confidence = 0.95
-
-        return prediction, confidence
+            return normalize_prediction_output(
+                outputs[0],
+                outputs[1],
+                output_is_logits=output_is_logits,
+            )
+        return normalize_prediction_output(
+            outputs[0],
+            None,
+            output_is_logits=output_is_logits,
+        )
 
 
 class EnhancedMLInferenceActor(BaseMLInferenceActor):
@@ -2247,14 +2253,18 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         outputs = self._model.run(output_names, {input_name: features_2d})
 
+        output_is_logits = resolve_output_is_logits(self._model_metadata)
         if len(outputs) >= 2:
-            prediction = float(outputs[0][0])
-            confidence = float(outputs[1][0])
-        else:
-            prediction = float(outputs[0][0])
-            confidence = 0.95
-
-        return prediction, confidence
+            return normalize_prediction_output(
+                outputs[0],
+                outputs[1],
+                output_is_logits=output_is_logits,
+            )
+        return normalize_prediction_output(
+            outputs[0],
+            None,
+            output_is_logits=output_is_logits,
+        )
 
     def _predict_sklearn(self, features: npt.NDArray[np.float64]) -> tuple[float, float]:
         """
@@ -2264,13 +2274,18 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         if hasattr(self._model, "predict_proba"):
             probabilities = self._model.predict_proba(features_2d)[0]
-            prediction = np.argmax(probabilities)
-            confidence = np.max(probabilities)
+            classes = getattr(self._model, "classes_", None)
+            return normalize_prediction_output(
+                probabilities,
+                None,
+                classes=classes,
+            )
         else:
             prediction = self._model.predict(features_2d)[0]
-            confidence = 1.0
-
-        return float(prediction), float(confidence)
+            return normalize_prediction_output(
+                prediction,
+                None,
+            )
 
     def _backup_indicator_state(self) -> None:
         """

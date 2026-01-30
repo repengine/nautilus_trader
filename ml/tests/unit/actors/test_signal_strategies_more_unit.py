@@ -8,7 +8,6 @@ under deterministic contexts.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -16,13 +15,12 @@ import numpy as np
 from ml.actors.base import MLSignal
 from ml.actors.signal import ExtremesStrategy
 from ml.actors.signal import MomentumStrategy
+from ml.tests.utils.stubs import make_stub_bar
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
 
 
-def _stub_bar(instrument_id: InstrumentId) -> SimpleNamespace:
-    return SimpleNamespace(bar_type=SimpleNamespace(instrument_id=instrument_id), ts_event=1)
+def _stub_bar(instrument_id: InstrumentId) -> object:
+    return make_stub_bar(instrument_id)
 
 
 def test_extremes_strategy_detects_top_extreme(default_instrument_id: InstrumentId) -> None:

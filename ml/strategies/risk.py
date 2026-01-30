@@ -268,6 +268,7 @@ class RiskManager:
         # Drawdown tracking
         self._peak_equity: float = 0.0
         self._current_equity: float = 0.0
+        self._equity_initialized: bool = False
 
         # Position tracking
         self._position_values: dict[InstrumentId, float] = {}
@@ -471,6 +472,7 @@ class RiskManager:
                 return None
 
             balance = float(account.balance_total().as_double())
+            self._initialize_equity(balance)
             position_value = float(proposed_size.as_double())  # This is value, not qty
 
             # Per-trade checks
@@ -503,6 +505,20 @@ class RiskManager:
             risk_check_latency_seconds.labels(check_type="full").observe(
                 time.perf_counter() - start_time,
             )
+
+    def _initialize_equity(self, balance: float) -> None:
+        """
+        Initialize equity tracking from account balance when available.
+
+        This prevents drawdown limits from being computed off a near-zero
+        equity baseline early in the session.
+        """
+        if self._equity_initialized or balance <= 0:
+            return
+        self._current_equity = balance
+        if balance > self._peak_equity:
+            self._peak_equity = balance
+        self._equity_initialized = True
 
     def _check_trade_limits(self, position_value: float, balance: float) -> bool:
         """
@@ -1240,6 +1256,7 @@ class RiskManager:
 
         """
         self._check_daily_reset(ts_event)
+        self._initialize_equity(self._current_equity)
         self._daily_pnl += pnl
         self._current_equity += pnl
         self._trades_today += 1

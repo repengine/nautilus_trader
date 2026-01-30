@@ -68,7 +68,7 @@ class PortfolioConfig:
     # Allocation limits
     max_positions: int = 10  # Max concurrent positions
     min_position_weight: float = 0.05  # Min 5% per position
-    max_position_weight: float = 0.25  # Max 25% per position
+    max_position_weight: float = 0.15  # Max 15% per position
     max_correlated_weight: float = 0.40  # Max 40% in correlated assets
 
     # Allocation method
@@ -84,6 +84,7 @@ class PortfolioConfig:
     # Performance tracking
     track_attribution: bool = True  # Track per-instrument P&L
     attribution_window: int = 30  # Days to track attribution
+    annualization_factor: float | None = None  # Bars per year for volatility scaling
 
 
 # ===== Portfolio Manager =====
@@ -124,8 +125,11 @@ class PortfolioManager:
 
         # Returns buffer for correlation calculation
         self._returns_buffer: dict[InstrumentId, npt.NDArray[np.float32]] = {}
+        self._returns_index: dict[InstrumentId, int] = {}
+        self._returns_count: dict[InstrumentId, int] = {}
         self._buffer_size: Final[int] = self.config.correlation_lookback
         self._correlation_last_update_ns: int | None = None
+        self._annualization_factor: float | None = self.config.annualization_factor
 
         # Performance attribution
         self._instrument_pnl: dict[InstrumentId, float] = {}
@@ -664,13 +668,18 @@ class PortfolioManager:
             return 0.15  # Default 15% volatility
 
         returns = self._returns_buffer[instrument]
-        if len(returns) < 2:
+        count = self._returns_count.get(instrument, 0)
+        if count < 2:
             return 0.15
 
         # Calculate standard deviation
+        if count < self._buffer_size:
+            returns = returns[:count]
         std = np.std(returns)
-        # Annualize (assuming daily returns)
-        annual_vol = std * np.sqrt(252)
+        annualization_factor = self._annualization_factor or 1.0
+        if annualization_factor <= 0:
+            annualization_factor = 1.0
+        annual_vol = std * np.sqrt(annualization_factor)
 
         return max(float(annual_vol), 0.01)  # Min 1% vol
 
@@ -692,10 +701,16 @@ class PortfolioManager:
         """
         if instrument not in self._returns_buffer:
             self._returns_buffer[instrument] = np.zeros(self._buffer_size, dtype=np.float32)
+            self._returns_index[instrument] = 0
+            self._returns_count[instrument] = 0
 
-        # Shift and add new return (FIFO)
-        self._returns_buffer[instrument][:-1] = self._returns_buffer[instrument][1:]
-        self._returns_buffer[instrument][-1] = return_pct
+        idx = self._returns_index[instrument] % self._buffer_size
+        self._returns_buffer[instrument][idx] = return_pct
+        self._returns_index[instrument] += 1
+        self._returns_count[instrument] = min(
+            self._returns_count[instrument] + 1,
+            self._buffer_size,
+        )
 
     def update_performance(
         self,
@@ -721,13 +736,33 @@ class PortfolioManager:
         # Update Sharpe ratio estimate
         if instrument in self._returns_buffer:
             returns = self._returns_buffer[instrument]
-            if len(returns) > 10:
+            count = self._returns_count.get(instrument, 0)
+            if count > 10:
                 # Simple Sharpe calculation
+                if count < self._buffer_size:
+                    returns = returns[:count]
                 mean_return = np.mean(returns)
                 std_return = np.std(returns)
                 if std_return > 0:
-                    sharpe = mean_return / std_return * np.sqrt(252)
+                    annualization_factor = self._annualization_factor or 1.0
+                    if annualization_factor <= 0:
+                        annualization_factor = 1.0
+                    sharpe = mean_return / std_return * np.sqrt(annualization_factor)
                     self._instrument_sharpe[instrument] = float(sharpe)
+
+    def set_annualization_factor(self, factor: float) -> None:
+        """
+        Set annualization factor for volatility calculations.
+
+        Parameters
+        ----------
+        factor : float
+            Bars-per-year annualization factor.
+
+        """
+        if factor <= 0:
+            return
+        self._annualization_factor = float(factor)
 
     def should_rebalance(self) -> bool:
         """

@@ -10,6 +10,7 @@ import pytest
 
 from ml._imports import HAS_POLARS
 from ml.actors.base import MLSignal
+from ml.stores.base import StrategyReplaySummary
 from ml.stores.file_backed import FileEarningsStore
 from ml.stores.file_backed import FileDataStore
 from ml.stores.file_backed import FileFeatureStore
@@ -87,7 +88,7 @@ def test_file_strategy_store_writes_order_events(file_root: Path) -> None:
     ts_event = 1_700_000_000_000_000_000
     event = TestEventStubs.order_submitted(order, ts_event=ts_event)
 
-    store.write_order_event(event, is_live=True)
+    store.write_order_event(event, is_live=True, run_id="run-1")
     store.flush()
 
     events_path = file_root / "order_events.jsonl"
@@ -99,6 +100,69 @@ def test_file_strategy_store_writes_order_events(file_root: Path) -> None:
     assert payload["instrument_id"] == str(order.instrument_id)
     assert payload["ts_event"] == ts_event
     assert payload["is_live"] is True
+    assert payload["run_id"] == "run-1"
+    assert payload["ingested_at_ns"] is not None
+
+
+def test_file_strategy_store_writes_risk_halt_events(file_root: Path) -> None:
+    store = FileStrategyStore(base_path=file_root)
+    ts_event = 1_700_000_000_000_000_000
+
+    store.write_risk_halt_event(
+        strategy_id="strat",
+        instrument_id="EURUSD",
+        event_type="halted",
+        reason="daily_loss_limit",
+        detail="Daily loss limit reached",
+        ts_event=ts_event,
+        is_live=True,
+        run_id="run-2",
+    )
+    store.flush()
+
+    events_path = file_root / "risk_halt_events.jsonl"
+    assert events_path.exists()
+    lines = events_path.read_text(encoding="utf-8").strip().splitlines()
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["event_type"] == "halted"
+    assert payload["reason"] == "daily_loss_limit"
+    assert payload["instrument_id"] == "EURUSD"
+    assert payload["ts_event"] == ts_event
+    assert payload["is_live"] is True
+    assert payload["run_id"] == "run-2"
+    assert payload["ingested_at_ns"] is not None
+
+
+def test_file_strategy_store_writes_replay_summary(file_root: Path) -> None:
+    store = FileStrategyStore(base_path=file_root)
+    summary = StrategyReplaySummary(
+        run_id="run-3",
+        instrument_ids=["EURUSD"],
+        total_orders=4,
+        total_fills=3,
+        total_halts=1,
+        total_sizing_rejects=2,
+        total_positions=1,
+        started_ns=10,
+        finished_ns=20,
+        _ts_event=30,
+        _ts_init=30,
+    )
+    store.write_replay_summary(summary)
+    store.flush()
+
+    summary_path = file_root / "replay_summary.jsonl"
+    assert summary_path.exists()
+    lines = summary_path.read_text(encoding="utf-8").strip().splitlines()
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["run_id"] == "run-3"
+    assert payload["total_orders"] == 4
+    assert payload["total_fills"] == 3
+    assert payload["total_halts"] == 1
+    assert payload["total_sizing_rejects"] == 2
+    assert payload["instrument_ids"] == ["EURUSD"]
 
 
 def test_file_data_store_writes_jsonl(file_root: Path) -> None:

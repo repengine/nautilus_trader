@@ -57,7 +57,7 @@ def _patch_model_store_io(sink: list[dict[str, Any]]):
                 "model_id": st.text(min_size=1, max_size=10),
                 "instrument_id": st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True),
                 "prediction": st.floats(
-                    min_value=-1.0,
+                    min_value=0.0,
                     max_value=1.0,
                     allow_nan=False,
                     allow_infinity=False,
@@ -120,7 +120,7 @@ def test_model_store_write_batch_invariants(
     last_ts = -1
     for v in sink:
         # Bounds invariants (by contract)
-        assert -1.0 <= float(v["prediction"]) <= 1.0
+        assert 0.0 <= float(v["prediction"]) <= 1.0
         assert 0.0 <= float(v["confidence"]) <= 1.0
         # Timestamp invariants
         assert int(v["ts_init"]) >= int(v["ts_event"])  # monotone init

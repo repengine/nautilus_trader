@@ -29,6 +29,7 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.common.manifest_defaults import resolve_primary_keys
+from ml.registry.common.sql_utils import set_instrumentation_search_path
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
@@ -1217,6 +1218,7 @@ class DataRegistry(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
+                    set_instrumentation_search_path(session)
                     # Prefer extended function with metadata if available; else fallback
                     try:
                         query_ext = text(
@@ -1246,6 +1248,7 @@ class DataRegistry(MLComponentMixin):
                     except Exception:
                         # Clear the failed transaction before fallback
                         session.rollback()
+                        set_instrumentation_search_path(session)
                         query = text(
                             """
                             SELECT emit_data_event(
@@ -1276,6 +1279,7 @@ class DataRegistry(MLComponentMixin):
                     # a direct insert into ml_data_events without updating watermarks.
                     session.rollback()
                     try:
+                        set_instrumentation_search_path(session)
                         fallback_insert = text(
                             """
                             INSERT INTO ml_data_events (
@@ -1492,6 +1496,7 @@ class DataRegistry(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
+                    set_instrumentation_search_path(session)
                     query = text(
                         """
                         SELECT dataset_id, instrument_id, source,
@@ -1568,6 +1573,7 @@ class DataRegistry(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
+                    set_instrumentation_search_path(session)
                     conditions: list[str] = []
                     params: dict[str, Any] = {}
                     if dataset_id is not None:

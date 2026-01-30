@@ -599,6 +599,32 @@ class TestSizeAndValidateWithSizer:
         # Sizer should have been called
         assert len(sizer.calculate_calls) == 1
 
+    def test_size_and_validate_converts_value_sizer_to_quantity(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify value-based sizer outputs convert to quantity once."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        # Value of 500 at price 100 should yield quantity 5.0
+        sizer = MockPositionSizer(return_value=Quantity.from_str("500.0"))
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            position_sizer=sizer,
+            cache=mock_cache,
+            instrument_id=instrument_id,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        assert abs(float(result.as_double()) - 5.0) < 0.01
+
     def test_size_and_validate_fallback_to_basic_sizing(
         self,
         instrument_id: InstrumentId,
@@ -709,6 +735,34 @@ class TestSizeAndValidateWithRiskManager:
 
         assert result is not None
 
+    def test_size_and_validate_passes_value_to_risk_manager(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify risk manager receives value (not quantity)."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        risk_manager = MockRiskManager(return_value=Quantity.from_str("500.0"))
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            risk_manager=risk_manager,
+            cache=mock_cache,
+            instrument_id=instrument_id,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        assert len(risk_manager.check_position_calls) == 1
+        proposed_size = risk_manager.check_position_calls[0][0]
+        assert float(proposed_size.as_double()) == pytest.approx(500.0)
+        assert abs(float(result.as_double()) - 5.0) < 0.01
+
 
 # ---------------------------------------------------------------------------
 # Test: Portfolio Allocation
@@ -745,6 +799,38 @@ class TestPortfolioAllocation:
 
         # Portfolio manager should have been consulted
         assert len(portfolio_manager.allocate_calls) == 1
+
+    def test_size_and_validate_caps_allocation_above_proposed_value(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify allocation cannot exceed proposed value from sizing."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        # Proposed value from sizing: 500.0
+        # Portfolio manager attempts to allocate 800.0 (should cap to 500.0)
+        sizer = MockPositionSizer(return_value=Quantity.from_str("500.0"))
+        portfolio_manager = MockPortfolioManager(
+            allocations={instrument_id: 800.0},
+        )
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            position_sizer=sizer,
+            portfolio_manager=portfolio_manager,
+            cache=mock_cache,
+            instrument_id=instrument_id,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        # price=100 -> quantity should be 5.0 (500/100)
+        assert abs(float(result.as_double()) - 5.0) < 0.01
 
     def test_size_and_validate_zero_allocation_returns_none(
         self,

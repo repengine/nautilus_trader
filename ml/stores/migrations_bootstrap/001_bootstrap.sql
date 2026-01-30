@@ -228,6 +228,8 @@ CREATE TABLE IF NOT EXISTS ml_strategy_signals (
     instrument_id VARCHAR(100) NOT NULL,
     ts_event BIGINT NOT NULL,
     ts_init BIGINT NOT NULL,
+    run_id VARCHAR(255),
+    ingested_at_ns BIGINT,
     signal_type VARCHAR(50) NOT NULL,
     strength DOUBLE PRECISION NOT NULL,
     model_predictions JSONB,
@@ -252,6 +254,39 @@ CREATE TABLE IF NOT EXISTS ml_strategy_performance (
     avg_risk_score DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (strategy_id, period_start)
+);
+
+CREATE TABLE IF NOT EXISTS ml_strategy_risk_halt_events (
+    event_id VARCHAR(64) NOT NULL,
+    strategy_id VARCHAR(255) NOT NULL,
+    instrument_id VARCHAR(100) NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    detail TEXT,
+    ts_event BIGINT NOT NULL,
+    ts_init BIGINT,
+    is_live BOOLEAN DEFAULT FALSE,
+    run_id VARCHAR(255),
+    ingested_at_ns BIGINT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (event_id)
+);
+
+CREATE TABLE IF NOT EXISTS ml_strategy_replay_summary (
+    run_id VARCHAR(255) NOT NULL,
+    instrument_ids JSONB,
+    started_ns BIGINT,
+    finished_ns BIGINT,
+    total_orders BIGINT,
+    total_fills BIGINT,
+    total_halts BIGINT,
+    total_sizing_rejects BIGINT,
+    total_positions BIGINT,
+    ts_event BIGINT,
+    ts_init BIGINT,
+    ingested_at_ns BIGINT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (run_id)
 );
 
 -- ============================================================================
@@ -501,6 +536,9 @@ CREATE TABLE IF NOT EXISTS ml_dataset_registry (
             'FEATURES',
             'PREDICTIONS',
             'SIGNALS',
+            'ORDER_EVENTS',
+            'RISK_HALT_EVENTS',
+            'REPLAY_SUMMARY',
             'EARNINGS_ACTUALS',
             'EARNINGS_ESTIMATES',
             'MACRO_RELEASES',
@@ -539,7 +577,10 @@ CREATE TABLE IF NOT EXISTS ml_data_events (
             'FEATURE_COMPUTED',
             'PREDICTION_EMITTED',
             'SIGNAL_EMITTED',
-            'MODEL_INFERRED'
+            'MODEL_INFERRED',
+            'ORDER_EVENT_EMITTED',
+            'RISK_HALT_EMITTED',
+            'REPLAY_SUMMARY_EMITTED'
         )
     ),
     CONSTRAINT check_source CHECK (
@@ -1276,6 +1317,12 @@ CREATE INDEX IF NOT EXISTS brin_ml_strategy_signals_ts
 
 CREATE INDEX IF NOT EXISTS idx_ml_strategy_performance
     ON ml_strategy_performance (strategy_id, period_start);
+CREATE INDEX IF NOT EXISTS idx_ml_strategy_risk_halt_events_lookup
+    ON ml_strategy_risk_halt_events (strategy_id, instrument_id, ts_event);
+CREATE INDEX IF NOT EXISTS idx_ml_strategy_risk_halt_events_type
+    ON ml_strategy_risk_halt_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_ml_strategy_replay_summary
+    ON ml_strategy_replay_summary (run_id);
 
 CREATE INDEX IF NOT EXISTS idx_market_data_bar_time
     ON market_data_bar USING BRIN (ts_event);

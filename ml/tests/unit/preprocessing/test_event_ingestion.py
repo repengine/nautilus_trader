@@ -114,6 +114,12 @@ def test_event_ingestion_writes_sql_when_data_store_provided(tmp_path: Path) -> 
                 "name": "Retail Sales",
                 "importance": "HIGH",
             },
+            {
+                "timestamp": "2024-02-15T13:30:00",
+                "event_type": "economic_release",
+                "name": "Retail Sales",
+                "importance": "HIGH",
+            },
         ],
     )
     cfg = EventIngestionConfig(
@@ -144,3 +150,8 @@ def test_event_ingestion_writes_sql_when_data_store_provided(tmp_path: Path) -> 
         records.get_column("instrument_id").unique().to_list()
         == [GLOBAL_ENTITY_ID]
     )
+    deduped = records.filter(
+        (pl.col("event_type") == "economic_release")
+        & (pl.col("name") == "Retail Sales"),
+    )
+    assert deduped.height == 1

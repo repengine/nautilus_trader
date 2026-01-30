@@ -75,6 +75,7 @@ class StrategyStoreProtocol(Protocol):
         execution_params: dict[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None:
         """
         Write a strategy signal to the store.
@@ -240,6 +241,8 @@ class DecisionPersistenceComponent:
         Whether in backtesting mode.
     model_signals : dict[str, MLSignal] | None, optional
         Current model signals buffer for aggregated predictions.
+    run_id : str | None, optional
+        Optional run identifier for replay/audit correlation.
 
     Examples
     --------
@@ -268,6 +271,7 @@ class DecisionPersistenceComponent:
         max_positions: int = 1,
         is_backtesting: bool = False,
         model_signals: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ) -> None:
         """
         Initialize the decision persistence component.
@@ -287,6 +291,7 @@ class DecisionPersistenceComponent:
         self._max_positions = max_positions
         self._is_backtesting = is_backtesting
         self._model_signals = model_signals or {}
+        self._run_id = run_id
         self._positions_metadata: PositionsMetadata | None = None
 
         # Decision publisher (lazily initialized)
@@ -456,6 +461,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float] | None = None,
         execution_params: dict[str, Any] | None = None,
         model_signals: dict[str, Any] | None = None,
+        persist_hold: bool = False,
     ) -> bool:
         """
         Persist a strategy decision.
@@ -482,6 +488,8 @@ class DecisionPersistenceComponent:
             Execution parameters for the trade.
         model_signals : dict[str, Any] | None, optional
             Model signals buffer for aggregated predictions.
+        persist_hold : bool, optional
+            Force persistence of HOLD decisions even when HOLD filtering is enabled.
 
         Returns
         -------
@@ -517,7 +525,7 @@ class DecisionPersistenceComponent:
             )
 
         # Skip HOLD signals unless configured to persist them
-        if decision_type == "HOLD" and not self._persist_all_signals:
+        if decision_type == "HOLD" and not self._persist_all_signals and not persist_hold:
             return False
 
         # Calculate default risk metrics if not provided
@@ -679,6 +687,7 @@ class DecisionPersistenceComponent:
                     execution_params=execution_params,
                     ts_event=signal.ts_event,
                     is_live=is_live,
+                    run_id=self._run_id,
                 )
 
                 # Record circuit breaker success

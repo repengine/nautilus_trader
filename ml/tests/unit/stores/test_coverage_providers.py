@@ -241,20 +241,20 @@ def test_partitioned_parquet_provider_reads_day_partition_for_feature_values(
     ).to_parquet(path, index=False)
 
     spec = ParquetCoverageSpec(
-        dataset_id="ml.feature_values",
+        dataset_id="features",
         base_path=str(base_path),
         partition_field="instrument_id",
         timestamp_field="ts_event",
         partition_template="{value}",
     )
-    provider = PartitionedParquetCoverageProvider({"ml.feature_values": spec})
+    provider = PartitionedParquetCoverageProvider({"features": spec})
     monkeypatch.setattr("ml.stores.providers.HAS_PANDAS", False)
     monkeypatch.setattr("ml.stores.providers.pd_runtime", None)
 
     start_ns = int(day_start.timestamp() * 1_000_000_000)
     end_ns = start_ns + DAY_NS
     buckets = provider.read_bucket_coverage(
-        dataset_id="ml.feature_values",
+        dataset_id="features",
         schema="feature_values",
         instrument_id=instrument_id,
         start_ns=start_ns,

@@ -107,6 +107,31 @@ class MLTradingStrategy(BaseMLStrategy):
             )
         return time.time_ns()
 
+    def _update_returns_from_signal(self, signal: MLSignal) -> None:
+        """
+        Update returns buffers using the latest signal timestamp.
+        """
+        updater = getattr(self, "_returns_updater", None)
+        if updater is None:
+            return
+        should_update = getattr(updater, "should_update_from_signal", None)
+        if callable(should_update) and not should_update():
+            return
+        cache = self.cache if hasattr(self, "cache") else None
+        reference_ts = signal.ts_event or self._timestamp_ns()
+        try:
+            updater.update_from_signal(
+                signal,
+                cache=cache,
+                reference_ts=reference_ts,
+            )
+        except Exception as exc:
+            self.log.debug(
+                "ml_strategy.returns_update_failed",
+                exc_info=True,
+                error=str(exc),
+            )
+
     def _position_entry_price(self, position: object) -> float | None:
         """
         Resolve a position entry price for exit calculations.
@@ -236,25 +261,38 @@ class MLTradingStrategy(BaseMLStrategy):
         """
         current_position = self._get_current_position()
 
-        # Determine target side based on prediction (use shared helper)
-        # Using 0.5 as threshold for binary classification
+        # Determine decision and target side based on canonical prediction surface.
+        # Using 0.5 as threshold for binary classification.
         # Some unit tests call this method on a lightweight dummy instance which
-        # may not inherit BaseMLStrategy. Fall back to the base helper to keep
+        # may not inherit BaseMLStrategy. Fall back to the base helpers to keep
         # behavior consistent without requiring full initialization.
+        try:
+            decision = self.decision_from_prediction(signal.prediction)
+        except AttributeError:
+            from ml.strategies.base import BaseMLStrategy as _Base
+
+            decision = _Base.decision_from_prediction(self, signal.prediction)
         try:
             target_side = self.target_side_from_prediction(signal.prediction, 0.5)
         except AttributeError:
             from ml.strategies.base import BaseMLStrategy as _Base
 
             target_side = _Base.target_side_from_prediction(self, signal.prediction, 0.5)
-        if target_side == OrderSide.BUY:
+
+        if decision == "HOLD":
+            signal_direction = "HOLD"
+        elif target_side == OrderSide.BUY:
             signal_direction = "LONG"
-            decision_type = "BUY"
         else:
             signal_direction = "SHORT"
-            decision_type = "SELL"
+        decision_type = "BUY" if target_side == OrderSide.BUY else "SELL"
         short_entry_policy = self._resolve_short_entry_policy()
         short_policy_value = getattr(short_entry_policy, "value", str(short_entry_policy))
+        persist_hold_on_block = bool(
+            getattr(self._config, "persist_hold_on_short_entry_block", False),
+        )
+
+        self._update_returns_from_signal(signal)
 
         # Log signal details
         model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
@@ -283,6 +321,21 @@ class MLTradingStrategy(BaseMLStrategy):
             "action": None,  # Will be set based on decision
         }
 
+        if decision == "HOLD" and current_position is None:
+            execution_params["action"] = "hold"
+            execution_params["reason"] = "neutral_band"
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type="HOLD",
+                position_size=None,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+            )
+            self.log.info(
+                "Neutral-band signal; holding flat",
+            )
+            return
+
         # Check if we need to change position
         if current_position is None:
             if target_side == OrderSide.SELL and short_entry_policy is not ShortEntryPolicy.ALLOW:
@@ -295,6 +348,7 @@ class MLTradingStrategy(BaseMLStrategy):
                     position_size=None,
                     risk_metrics=risk_metrics,
                     execution_params=execution_params,
+                    persist_hold=persist_hold_on_block,
                 )
                 try:
                     short_entry_blocked_total.labels(
@@ -587,8 +641,28 @@ class MLTradingStrategy(BaseMLStrategy):
         except AttributeError:
             quantity = self._calculate_position_size()
         if quantity is None:
+            reject_reason = self._get_sizing_reject_reason() or "unknown"
+            persist_hold_on_reject = bool(
+                getattr(self._config, "persist_hold_on_sizing_reject", False),
+            )
+            execution_params = {
+                "action": "hold",
+                "reason": "sizing_rejected",
+                "sizing_reject_reason": reject_reason,
+                "target_side": side.name,
+                "intended_action": "enter",
+            }
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type="HOLD",
+                position_size=None,
+                risk_metrics=None,
+                execution_params=execution_params,
+                persist_hold=persist_hold_on_reject,
+            )
             self.log.warning(
-                f"Cannot enter position due to sizing failure for {signal.instrument_id}",
+                f"Cannot enter position due to sizing failure for {signal.instrument_id} "
+                f"(reason={reject_reason})",
             )
             return
 

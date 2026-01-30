@@ -24,6 +24,7 @@ from sqlalchemy import text
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.registry.common.sql_utils import set_instrumentation_search_path
 from ml.registry.persistence import BackendType
 
 
@@ -265,6 +266,7 @@ class EventEmissionComponent:
             raise RuntimeError("Failed to get database session")
 
         try:
+            set_instrumentation_search_path(session)
             # Prefer extended function with metadata if available; else fallback
             try:
                 query_ext = text(
@@ -294,6 +296,7 @@ class EventEmissionComponent:
             except Exception:
                 # Clear the failed transaction before fallback
                 session.rollback()
+                set_instrumentation_search_path(session)
                 query = text(
                     """
                     SELECT emit_data_event(
@@ -323,6 +326,7 @@ class EventEmissionComponent:
             # Fallback: if SQL function path fails, attempt direct insert
             session.rollback()
             try:
+                set_instrumentation_search_path(session)
                 fallback_insert = text(
                     """
                     INSERT INTO ml_data_events (

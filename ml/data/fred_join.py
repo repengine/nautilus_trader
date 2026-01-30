@@ -383,6 +383,15 @@ def join_fred_asof(
                 .alias("ts_effective"),
             ],
         )
+        series_cols = [
+            col
+            for col, dtype in fred_wide.schema.items()
+            if col not in {"timestamp", "release_ts", "ts_effective"} and dtype.is_numeric()
+        ]
+        if series_cols:
+            fred_wide = fred_wide.sort("ts_effective").with_columns(
+                [_pl.col(col).fill_null(strategy="forward") for col in series_cols],
+            )
 
         if timestamp_col not in df.columns:
             return cast(DataFrameLike, df)
@@ -412,6 +421,15 @@ def join_fred_asof(
             ]
             if realtime_exprs:
                 joined = joined.with_columns(realtime_exprs)
+            fill_exprs = []
+            for name in series_list:
+                rt_col = f"{name}__value_real_time"
+                if name in joined.columns and rt_col in joined.columns:
+                    fill_exprs.append(
+                        _pl.coalesce([_pl.col(name), _pl.col(rt_col)]).alias(name),
+                    )
+            if fill_exprs:
+                joined = joined.with_columns(fill_exprs)
 
         release_dtype_joined = joined.schema.get("release_ts")
         if release_dtype_joined is not None and series_list:
@@ -455,6 +473,16 @@ def join_fred_asof(
             if target_dtype is not None and final_pivot.schema.get("ts_effective_final") != target_dtype:
                 final_pivot = final_pivot.with_columns(
                     _pl.col("ts_effective_final").cast(target_dtype),
+                )
+
+            final_series_cols = [
+                col
+                for col, dtype in final_pivot.schema.items()
+                if col != "ts_effective_final" and dtype.is_numeric()
+            ]
+            if final_series_cols:
+                final_pivot = final_pivot.sort("ts_effective_final").with_columns(
+                    [_pl.col(col).fill_null(strategy="forward") for col in final_series_cols],
                 )
 
             rename_map = {
@@ -573,6 +601,11 @@ def join_fred_asof(
         ).reset_index()
         wide.columns.name = None
         wide = wide.sort_values(["ts_effective", "timestamp"])
+        series_cols_pd = [
+            col for col in wide.columns if col not in {"ts_effective", "release_ts", "timestamp"}
+        ]
+        if series_cols_pd:
+            wide[series_cols_pd] = wide[series_cols_pd].ffill()
 
         left_pd = df.sort_values(timestamp_col)
         merged = pd.merge_asof(
@@ -592,6 +625,10 @@ def join_fred_asof(
                             merged[name].notna(),
                             pd.NaT,
                         )
+            for name in series_list_pd:
+                rt_col = f"{name}__value_real_time"
+                if name in merged.columns and rt_col in merged.columns:
+                    merged[name] = merged[name].fillna(merged[rt_col])
 
         final_wide = pd.DataFrame()
         if not fred_ml.empty and series_list_pd:
@@ -607,6 +644,11 @@ def join_fred_asof(
                 .reset_index()
                 .sort_values("ts_effective_final")
             )
+            series_cols_final = [
+                col for col in final_wide.columns if col != "ts_effective_final"
+            ]
+            if series_cols_final:
+                final_wide[series_cols_final] = final_wide[series_cols_final].ffill()
             rename_map_pd = {
                 name: f"{name}__value_final"
                 for name in series_list_pd

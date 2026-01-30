@@ -177,6 +177,38 @@ class TestEmitEvent:
         event = persistence._events[-1]
         assert event["error"] == error_msg
 
+    def test_emit_event_sets_public_search_path_for_postgres(self) -> None:
+        """Ensure Postgres emission sets search_path to public for instrumentation."""
+        from types import SimpleNamespace
+        import threading
+
+        from ml.registry.common.event_emission import EventEmissionComponent
+
+        session = MagicMock()
+        persistence = SimpleNamespace(
+            _lock=threading.RLock(),
+            backend=BackendType.POSTGRES,
+            persistence=SimpleNamespace(get_session=lambda: session),
+        )
+
+        component = EventEmissionComponent(persistence=persistence)  # type: ignore[arg-type]
+
+        component.emit_event(
+            dataset_id="test_dataset",
+            instrument_id="EUR/USD",
+            stage=Stage.CATALOG_WRITTEN,
+            source=Source.HISTORICAL,
+            run_id="run_1",
+            ts_min=1000000000000000000,
+            ts_max=2000000000000000000,
+            count=100,
+            status=EventStatus.SUCCESS,
+        )
+
+        assert session.execute.call_args_list
+        first_stmt = str(session.execute.call_args_list[0].args[0])
+        assert "SET LOCAL search_path TO public" in first_stmt
+
 
 # =============================================================================
 # Event Trimming Tests

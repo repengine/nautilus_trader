@@ -138,6 +138,10 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
         """
         Map backward-compat alias fields to canonical fields while frozen.
         """
+        try:
+            super().__post_init__()
+        except AttributeError:  # pragma: no cover - upstream variant without super
+            pass
         # Map signal_policy -> signal_strategy when provided
         try:
             sp = getattr(self, "signal_policy", None)

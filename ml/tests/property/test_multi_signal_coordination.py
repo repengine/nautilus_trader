@@ -69,11 +69,11 @@ class CoordinationMechanisms:
         Returns (prediction, confidence).
         """
         if not signals:
-            return 0.0, 0.0
+            return 0.5, 0.0
 
         total_weight = sum(s.weight for s in signals)
         if total_weight <= 0:
-            return 0.0, 0.0
+            return 0.5, 0.0
 
         weighted_pred = sum(s.prediction * s.weight for s in signals) / total_weight
         weighted_conf = CoordinationMechanisms.aggregate_confidence(signals)
@@ -106,13 +106,13 @@ class CoordinationMechanisms:
         """
         Majority consensus mechanism.
 
-        Returns aggregated signal if majority agrees (prediction > threshold or < -threshold).
+        Returns aggregated signal if majority agrees (prediction > threshold or < threshold).
         """
         if not signals:
-            return 0.0, 0.0
+            return 0.5, 0.0
 
         positive_signals = [s for s in signals if s.prediction > threshold]
-        negative_signals = [s for s in signals if s.prediction < -threshold]
+        negative_signals = [s for s in signals if s.prediction < threshold]
 
         if len(positive_signals) > len(signals) / 2:
             return CoordinationMechanisms.weighted_average(positive_signals)
@@ -120,7 +120,7 @@ class CoordinationMechanisms:
             return CoordinationMechanisms.weighted_average(negative_signals)
         else:
             # No majority, return neutral
-            return 0.0, 0.0
+            return 0.5, 0.0
 
     @staticmethod
     def unanimous_consensus(signals: list[SignalData], threshold: float = 0.5) -> tuple[float, float]:
@@ -130,15 +130,15 @@ class CoordinationMechanisms:
         Returns aggregated signal only if all signals agree in direction.
         """
         if not signals:
-            return 0.0, 0.0
+            return 0.5, 0.0
 
         all_positive = all(s.prediction > threshold for s in signals)
-        all_negative = all(s.prediction < -threshold for s in signals)
+        all_negative = all(s.prediction < threshold for s in signals)
 
         if all_positive or all_negative:
             return CoordinationMechanisms.weighted_average(signals)
         else:
-            return 0.0, 0.0
+            return 0.5, 0.0
 
 
 # Hypothesis strategies for generating test data
@@ -151,7 +151,7 @@ def signal_data(draw, min_sources=1, max_sources=10):
     for i in range(n_sources):
         source_id = f"source_{i}"
         prediction = draw(st.floats(
-            min_value=-1.0,
+            min_value=0.0,
             max_value=1.0,
             allow_nan=False,
             allow_infinity=False
@@ -278,24 +278,24 @@ class TestMultiSignalCoordinationProperties:
 
         Property: If majority signals agree in direction, result has same direction.
         """
-        threshold = 0.1  # Small threshold for testing
+        threshold = 0.5  # Neutral threshold for probability surface
 
         pred, conf = CoordinationMechanisms.majority_consensus(signals, threshold)
 
         # Count signals by direction
         positive_count = sum(1 for s in signals if s.prediction > threshold)
-        negative_count = sum(1 for s in signals if s.prediction < -threshold)
+        negative_count = sum(1 for s in signals if s.prediction < threshold)
         neutral_count = len(signals) - positive_count - negative_count
 
         if positive_count > len(signals) / 2:
-            # Majority positive - result should be positive or zero
-            assert pred >= -1e-10
+            # Majority positive - result should be above threshold
+            assert pred >= threshold
         elif negative_count > len(signals) / 2:
-            # Majority negative - result should be negative or zero
-            assert pred <= 1e-10
+            # Majority negative - result should be below threshold
+            assert pred <= threshold
         else:
             # No majority - result should be neutral
-            assert abs(pred) < 1e-10
+            assert pred == 0.5
             assert abs(conf) < 1e-10
 
     @given(signals=signal_data(min_sources=2, max_sources=5))
@@ -305,22 +305,22 @@ class TestMultiSignalCoordinationProperties:
 
         Property: Result is non-zero only if all signals agree in direction.
         """
-        threshold = 0.1
+        threshold = 0.5
 
         pred, conf = CoordinationMechanisms.unanimous_consensus(signals, threshold)
 
         all_positive = all(s.prediction > threshold for s in signals)
-        all_negative = all(s.prediction < -threshold for s in signals)
+        all_negative = all(s.prediction < threshold for s in signals)
 
         if all_positive:
-            # All positive - result should be positive
-            assert pred > -1e-10
+            # All positive - result should be above threshold
+            assert pred >= threshold
         elif all_negative:
-            # All negative - result should be negative
-            assert pred < 1e-10
+            # All negative - result should be below threshold
+            assert pred <= threshold
         else:
             # Not unanimous - result should be neutral
-            assert abs(pred) < 1e-10
+            assert pred == 0.5
             assert abs(conf) < 1e-10
 
     @given(signals=ordered_signals(min_size=2, max_size=8))
@@ -399,7 +399,7 @@ class TestMultiSignalCoordinationProperties:
         """
         Test that aggregated predictions remain within reasonable bounds.
 
-        Property: If all predictions are in [-1, 1], aggregated prediction is in [-1, 1].
+        Property: If all predictions are in [0, 1], aggregated prediction is in [0, 1].
         """
         # Skip if all weights are zero
         assume(any(s.weight > 0 for s in signals))
@@ -407,10 +407,10 @@ class TestMultiSignalCoordinationProperties:
         pred, _conf = CoordinationMechanisms.weighted_average(signals)
 
         # All input predictions are bounded by construction
-        assert all(-1.0 <= s.prediction <= 1.0 for s in signals)
+        assert all(0.0 <= s.prediction <= 1.0 for s in signals)
 
         # Output should also be bounded (weighted average preserves bounds)
-        assert -1.0 <= pred <= 1.0
+        assert 0.0 <= pred <= 1.0
 
     def test_empty_signals_handling(self) -> None:
         """
@@ -422,13 +422,13 @@ class TestMultiSignalCoordinationProperties:
 
         # All mechanisms should handle empty input
         pred, conf = CoordinationMechanisms.weighted_average(empty_signals)
-        assert pred == 0.0 and conf == 0.0
+        assert pred == 0.5 and conf == 0.0
 
         pred, conf = CoordinationMechanisms.majority_consensus(empty_signals)
-        assert pred == 0.0 and conf == 0.0
+        assert pred == 0.5 and conf == 0.0
 
         pred, conf = CoordinationMechanisms.unanimous_consensus(empty_signals)
-        assert pred == 0.0 and conf == 0.0
+        assert pred == 0.5 and conf == 0.0
 
         # Weight normalization should return empty list
         normalized = CoordinationMechanisms.normalize_weights([])
@@ -573,7 +573,7 @@ class TestMultiSignalActorIntegration:
             pred, conf = CoordinationMechanisms.weighted_average(signals)
 
             # Aggregated result should be valid
-            assert -1.0 <= pred <= 1.0
+            assert 0.0 <= pred <= 1.0
             assert 0.0 <= conf <= 1.0
 
             # Result should be average of working sources only
@@ -599,7 +599,7 @@ class TestMultiSignalActorIntegration:
                 pred, conf = CoordinationMechanisms.weighted_average(remaining_signals)
 
                 # System should continue to produce valid results
-                assert -1.0 <= pred <= 1.0
+                assert 0.0 <= pred <= 1.0
                 assert 0.0 <= conf <= 1.0
 
                 # Should not crash or produce NaN/infinity
@@ -715,7 +715,7 @@ class TestMultiSignalActorIntegration:
             noise_pred = np.random.normal(0, noise_scale)
             noise_conf = np.random.normal(0, noise_scale * 0.1)  # Smaller noise for confidence
 
-            new_pred = np.clip(signal.prediction + noise_pred, -1.0, 1.0)
+            new_pred = np.clip(signal.prediction + noise_pred, 0.0, 1.0)
             new_conf = np.clip(signal.confidence + noise_conf, 0.0, 1.0)
 
             noisy_signals.append(
@@ -753,7 +753,7 @@ class TestMultiSignalActorIntegration:
         for i, signal in enumerate(signals):
             # Small variations around base prediction
             pred = base_pred + (i * 0.05 - 0.1)  # ±0.1 variation
-            pred = np.clip(pred, -1.0, 1.0)
+            pred = np.clip(pred, 0.0, 1.0)
             high_consensus_signals.append(
                 SignalData(signal.source_id, pred, signal.confidence, signal.weight, signal.timestamp_ns)
             )
@@ -762,7 +762,7 @@ class TestMultiSignalActorIntegration:
         low_consensus_signals = []
         for i, signal in enumerate(signals):
             # Large variations
-            pred = -0.8 + (i * 1.6 / (len(signals) - 1))  # Spread from -0.8 to 0.8
+            pred = 0.1 + (i * 0.8 / (len(signals) - 1))  # Spread from 0.1 to 0.9
             low_consensus_signals.append(
                 SignalData(signal.source_id, pred, signal.confidence, signal.weight, signal.timestamp_ns)
             )

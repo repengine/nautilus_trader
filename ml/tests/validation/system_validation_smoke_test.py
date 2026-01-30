@@ -92,9 +92,14 @@ def test_component_progressive_fallback():
 
     # And: Stores are DummyStore instances
     # (Name check - DummyStore classes have "Dummy" in name)
-    assert "Dummy" in type(component.feature_store).__name__
-    assert "Dummy" in type(component.model_store).__name__
-    assert "Dummy" in type(component.strategy_store).__name__
+    def _unwrap_store(store: object) -> object:
+        # Avoid DummyStore.__getattr__ which returns a dummy function for any attr.
+        store_dict = getattr(store, "__dict__", {})
+        return store_dict.get("_store", store)
+
+    assert "Dummy" in type(_unwrap_store(component.feature_store)).__name__
+    assert "Dummy" in type(_unwrap_store(component.model_store)).__name__
+    assert "Dummy" in type(_unwrap_store(component.strategy_store)).__name__
 
     # And: Health check still works
     health = component.get_health_status()

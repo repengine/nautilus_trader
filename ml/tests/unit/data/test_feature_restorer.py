@@ -187,6 +187,51 @@ def test_restorer_filters_to_requested_buckets(tmp_path: Path) -> None:
     assert writer.estimate_calls[0]["estimate_date"] == "2025-11-08"
 
 
+def test_restorer_replays_all_rows_in_bucket_for_earnings(tmp_path: Path) -> None:
+    dataset_id = "ml.earnings_estimates"
+    ts_event = 1_762_665_600_000_000_000
+    base_path = tmp_path / "estimates_full_bucket"
+    partition = base_path / "ticker=AAPL"
+    partition.mkdir(parents=True)
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "estimate_date": "2025-11-08",
+                "period_end": "2025-12-31",
+                "ts_event": ts_event,
+                "ts_init": ts_event + 99,
+                "eps_consensus": 2.66,
+            },
+            {
+                "ticker": "AAPL",
+                "estimate_date": "2025-11-08",
+                "period_end": "2025-12-31",
+                "ts_event": ts_event + 42,
+                "ts_init": ts_event + 123,
+                "eps_consensus": 2.7,
+            },
+        ],
+    )
+    frame.to_parquet(partition / "estimates.parquet")
+
+    spec = _parquet_spec(dataset_id, base_path)
+    bucket_spec = _bucket_spec(dataset_id, instrument="AAPL", ts_event=ts_event)
+    writer = _StubWriter()
+    restorer = FeatureCoverageRestorer(
+        db_connection="postgresql://stub",
+        parquet_specs={dataset_id: spec},
+        writer_factory=lambda _: writer,
+    )
+
+    result = restorer.restore((bucket_spec,))
+
+    assert result.rows_written == 2
+    assert result.buckets_restored == 1
+    assert not result.failures
+    assert len(writer.estimate_calls) == 2
+
+
 def test_restorer_replays_feature_values(tmp_path: Path) -> None:
     dataset_id = FEATURE_VALUES_DATASET_ID
     ts_event = 1_736_352_000_000_000_000

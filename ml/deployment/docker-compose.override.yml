@@ -21,7 +21,7 @@ services:
       DUAL_WRITE: "1"
       ML_MARKET_DATA_PROFILE: "class_tables"
       ML_ALLOW_MIGRATION_DRIFT: "1"
-      MARKET_DATASET_INPUTS: '[{"descriptor_id":"EQUS.MINI_TBBO","start":"2023-03-28"},{"descriptor_id":"EQUS.MINI_MBP1","start":"2023-03-28"},{"descriptor_id":"XNAS.ITCH_MBP10","start":"2023-03-28"}]'
+      MARKET_DATASET_INPUTS: '[{"descriptor_id":"XNAS.ITCH_MBP10","start":"2023-03-28"}]'
       MARKET_BACKFILL_LOOKBACK_DAYS: "7"
     volumes:
       - ../models:/app/models:rw

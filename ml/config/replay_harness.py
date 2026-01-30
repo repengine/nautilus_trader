@@ -13,6 +13,7 @@ from ml.config.base import AccountMode
 from ml.config.base import ExecutionValidationMode
 from ml.config.base import MLFeatureConfig
 from ml.config.base import ModelExitConfig
+from ml.config.base import ReturnsConfig
 from ml.config.base import ShortEntryPolicy
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
@@ -129,8 +130,12 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
         Optional quote schema parameter passed to data clients (e.g., "mbp-1").
     max_quote_age_ms : NonNegativeInt | None, optional
         Maximum quote age in milliseconds allowed for execution market state.
+    positions_log_degraded_in_backtest : bool, default False
+        Whether to log degraded positions readiness during replay/backtest.
     execution_validation_mode : ExecutionValidationMode | None, optional
         Replay-only execution mode to force marketable orders for fill validation.
+    returns_config : ReturnsConfig | None, optional
+        Optional returns update configuration for sizing/portfolio volatility.
     use_strategy_store : bool, default True
         Whether to persist strategy decisions to StrategyStore.
     risk_config : RiskConfig | None, optional
@@ -158,7 +163,9 @@ class StrategyReplayConfig(NautilusConfig, kw_only=True, frozen=True):
     subscribe_quote_ticks: bool = False
     quote_schema: str | None = None
     max_quote_age_ms: NonNegativeInt | None = None
+    positions_log_degraded_in_backtest: bool = False
     execution_validation_mode: ExecutionValidationMode | None = None
+    returns_config: ReturnsConfig | None = None
     use_strategy_store: bool = True
     risk_config: RiskConfig | None = None
     liquidation_config: RiskLiquidationConfig | None = None

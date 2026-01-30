@@ -399,7 +399,7 @@ class TestMLStrategyBacktest:
                     self.bar_count += 1
                     # Generate signal every 5 bars with alternating direction
                     if self.bar_count % 5 == 0:
-                        prediction = 1.0 if (self.bar_count // 5) % 2 == 0 else -1.0
+                        prediction = 0.9 if (self.bar_count // 5) % 2 == 0 else 0.1
                         confidence = 0.7 + (self.bar_count % 10) * 0.02
 
                         signal = MLSignal(
@@ -590,7 +590,7 @@ class TestMLStrategyBacktest:
                     if self.bar_count % 28 == 0:
                         prediction = 2.0  # Out of normal range
                     else:
-                        prediction = 1.0 if self.bar_count % 2 == 0 else -1.0
+                        prediction = 0.9 if self.bar_count % 2 == 0 else 0.1
 
                     signal = MLSignal(
                         instrument_id=self.bar_type.instrument_id,
@@ -709,7 +709,7 @@ class TestMLStrategyBacktest:
                 # Generate signals at specific intervals for consistent testing
                 if self.bar_count % 3 == 0 and self.signal_count < 10:  # Limit to 10 signals
                     # Create alternating buy/sell signals
-                    prediction = 1.0 if self.signal_count % 2 == 0 else -1.0
+                    prediction = 0.9 if self.signal_count % 2 == 0 else 0.1
                     confidence = 0.7 + (self.signal_count % 5) * 0.05
 
                     signal = MLSignal(
@@ -933,7 +933,7 @@ class TestMLStrategyBacktest:
 
                 # Base prediction on price momentum
                 if abs(price_change) > 0.0001:
-                    prediction = 1.0 if price_change > 0 else -1.0
+                    prediction = 0.9 if price_change > 0 else 0.1
                     # Add some noise
                     confidence = 0.6 + abs(price_change) * 1000 + rng.random() * 0.2
                     confidence = min(confidence, 0.95)
@@ -1028,7 +1028,7 @@ class TestMLStrategyBacktest:
                 if i % 28 == 0:
                     prediction = 2.0  # Out of normal range
                 else:
-                    prediction = 1.0 if i % 2 == 0 else -1.0
+                    prediction = 0.9 if i % 2 == 0 else 0.1
 
                 signal = MLSignal(
                     instrument_id=instrument_id,

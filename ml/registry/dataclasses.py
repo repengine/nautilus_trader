@@ -47,6 +47,10 @@ class DatasetType(Enum):
         Strategy signals
     ORDER_EVENTS : str
         Strategy order events
+    RISK_HALT_EVENTS : str
+        Strategy risk-halt events
+    REPLAY_SUMMARY : str
+        Strategy replay summary rows
     EARNINGS_ACTUALS : str
         Reported corporate earnings fundamentals
     EARNINGS_ESTIMATES : str
@@ -63,6 +67,8 @@ class DatasetType(Enum):
     PREDICTIONS = "predictions"
     SIGNALS = "signals"
     ORDER_EVENTS = "order_events"
+    RISK_HALT_EVENTS = "risk_halt_events"
+    REPLAY_SUMMARY = "replay_summary"
     EARNINGS_ACTUALS = "earnings_actuals"
     EARNINGS_ESTIMATES = "earnings_estimates"
     MACRO_RELEASES = "macro_releases"

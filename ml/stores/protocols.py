@@ -100,8 +100,28 @@ class StrategyStoreProtocol(Protocol):
         execution_params: dict[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None: ...
-    def write_order_event(self, event: object, *, is_live: bool = False) -> None: ...
+    def write_order_event(
+        self,
+        event: object,
+        *,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None: ...
+    def write_risk_halt_event(
+        self,
+        *,
+        strategy_id: str,
+        instrument_id: str,
+        event_type: str,
+        reason: str,
+        detail: str | None,
+        ts_event: int,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None: ...
+    def write_replay_summary(self, summary: Any) -> None: ...
     def write_batch(self, data: list[Any]) -> None: ...
     def read_signals(
         self,
@@ -195,8 +215,28 @@ class StrategyStoreStrictProtocol(Protocol):
         execution_params: Mapping[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None: ...
-    def write_order_event(self, event: object, *, is_live: bool = False) -> None: ...
+    def write_order_event(
+        self,
+        event: object,
+        *,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None: ...
+    def write_risk_halt_event(
+        self,
+        *,
+        strategy_id: str,
+        instrument_id: str,
+        event_type: str,
+        reason: str,
+        detail: str | None,
+        ts_event: int,
+        is_live: bool = False,
+        run_id: str | None = None,
+    ) -> None: ...
+    def write_replay_summary(self, summary: Any) -> None: ...
     def write_batch(self, data: Sequence[Any]) -> None: ...
     def flush(self) -> None: ...
 
@@ -511,6 +551,8 @@ class ModelClearDepsStrict(Protocol):
 class StrategyWriteDepsStrict(Protocol):
     strategy_signals_table: TableLike
     strategy_order_events_table: TableLike
+    strategy_risk_halt_events_table: TableLike
+    strategy_replay_summary_table: TableLike
 
     def _execute_upsert_and_publish(
         self,

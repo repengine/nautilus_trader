@@ -4,9 +4,11 @@ Model-driven exit policy helpers for ML strategies.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
+from ml.common.prediction_surface import neutral_band_bounds
 from ml.config.base import ModelExitConfig
 
 
@@ -118,6 +120,9 @@ def evaluate_model_exit(
         return None
 
     prediction = float(signal.prediction)
+    if not math.isfinite(prediction):
+        prediction = 0.5
+    prediction = min(max(prediction, 0.0), 1.0)
     confidence = float(signal.confidence)
     time_in_trade_ns = resolve_time_in_trade_ns(position, now_ns)
 
@@ -139,8 +144,7 @@ def evaluate_model_exit(
     band = float(config.exit_prediction_band)
     threshold = 0.5
     if band > 0.0:
-        lower = threshold - band
-        upper = threshold + band
+        lower, upper = neutral_band_bounds(band, threshold=threshold)
         if side_name == "LONG":
             if prediction <= lower:
                 return _flip_decision(

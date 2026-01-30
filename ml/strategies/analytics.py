@@ -21,6 +21,7 @@ import numpy.typing as npt
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.prediction_surface import decision_from_probability
 
 
 if TYPE_CHECKING:
@@ -168,7 +169,21 @@ class PerformanceTracker:
         self._signal_count += 1
 
         # Update metrics
-        direction = "long" if signal.prediction > 0 else "short"
+        neutral_band = 0.0
+        if hasattr(signal, "metadata") and isinstance(signal.metadata, dict):
+            nb_value = signal.metadata.get("neutral_band")
+            if isinstance(nb_value, (int, float)):
+                neutral_band = float(nb_value)
+        decision = decision_from_probability(
+            float(signal.prediction),
+            neutral_band=neutral_band,
+        )
+        if decision == "BUY":
+            direction = "long"
+        elif decision == "SELL":
+            direction = "short"
+        else:
+            direction = "neutral"
         signals_recorded_total.labels(
             instrument=str(signal.instrument_id),
             direction=direction,

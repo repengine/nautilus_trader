@@ -252,16 +252,16 @@ class TestMLSignalActorParameterized:
         [
             # Threshold strategy tests
             (SignalStrategy.THRESHOLD, 0.8, 0.9, 0.5, (0.5, 1.0)),
-            (SignalStrategy.THRESHOLD, -0.8, 0.9, 0.5, (-1.0, -0.5)),
-            (SignalStrategy.THRESHOLD, 0.3, 0.9, 0.5, (-0.1, 0.1)),  # Below threshold
+            (SignalStrategy.THRESHOLD, 0.2, 0.9, 0.5, (0.0, 0.5)),
+            (SignalStrategy.THRESHOLD, 0.3, 0.9, 0.5, (0.45, 0.55)),  # Below threshold
             (SignalStrategy.THRESHOLD, 0.6, 0.4, 0.5, (0.0, 0.5)),  # Low confidence
             # Extremes strategy tests
             (SignalStrategy.EXTREMES, 0.95, 0.8, 0.5, (0.7, 1.0)),
-            (SignalStrategy.EXTREMES, -0.95, 0.8, 0.5, (-1.0, -0.7)),
-            (SignalStrategy.EXTREMES, 0.5, 0.8, 0.5, (-0.1, 0.1)),  # Not extreme
+            (SignalStrategy.EXTREMES, 0.05, 0.8, 0.5, (0.0, 0.3)),
+            (SignalStrategy.EXTREMES, 0.5, 0.8, 0.5, (0.45, 0.55)),  # Not extreme
             # Momentum strategy tests
             (SignalStrategy.MOMENTUM, 0.7, 0.8, 0.5, (0.0, 1.0)),
-            (SignalStrategy.MOMENTUM, -0.7, 0.8, 0.5, (-1.0, 0.0)),
+            (SignalStrategy.MOMENTUM, 0.3, 0.8, 0.5, (0.0, 1.0)),
         ],
         ids=[
             "threshold_bullish_high_conf",
@@ -317,7 +317,11 @@ class TestMLSignalActorParameterized:
 
         # Build prediction history for strategies that need it
         if strategy in [SignalStrategy.EXTREMES, SignalStrategy.MOMENTUM]:
-            actor._prediction_history = [prediction - 0.2, prediction - 0.1, prediction]
+            actor._prediction_history = [
+                max(0.0, prediction - 0.2),
+                max(0.0, prediction - 0.1),
+                prediction,
+            ]
 
         # Verify actor is functioning
         assert actor._is_warmed_up
@@ -449,7 +453,7 @@ class TestMLSignalActorParameterized:
     # ============================================================================
 
     @given(
-        prediction=st.floats(min_value=-1.0, max_value=1.0),
+        prediction=st.floats(min_value=0.0, max_value=1.0),
         confidence=st.floats(min_value=0.0, max_value=1.0),
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -458,7 +462,7 @@ class TestMLSignalActorParameterized:
         prediction: float,
         confidence: float,
     ) -> None:
-        """Property: All signals must be bounded between -1 and 1."""
+        """Property: All signals must be bounded between 0 and 1."""
         actor = self.create_test_actor()
 
         # Mock predict to return test values

@@ -140,9 +140,12 @@ class PortfolioAnalyzer:
         self._account_balances_starting = account.starting_balances()
         self._account_balances = account.balances_total()
         self._realized_pnls = {}
+        existing_returns = self._returns.copy() if not self._returns.empty else None
         self._returns = pd.Series(dtype=float64)
 
         self.add_positions(positions)
+        if existing_returns is not None and not existing_returns.empty:
+            self._returns = existing_returns
         self._returns.sort_index()
 
     def add_positions(self, positions: list[Position]) -> None:

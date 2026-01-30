@@ -11,7 +11,7 @@ from ml.strategies.common.correlation import CorrelationSnapshot
 from ml.strategies.common.positions import PositionsHealthStatus
 from ml.strategies.common.positions import PositionsSnapshot
 from ml.strategies.risk import RiskConfig, RiskManager
-from ml.strategies.sizing import CompositeSizer, SizingConfig
+from ml.strategies.sizing import CompositeSizer, SizingConfig, VolatilitySizer
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from pytest import MonkeyPatch
@@ -249,3 +249,37 @@ def test_risk_manager_uses_positions_provider_snapshot() -> None:
     portfolio = _DummyPortfolio()
 
     assert rm._check_correlation_limits(inst, portfolio) is False
+
+
+def test_volatility_sizer_annualization_factor_scales_sizes() -> None:
+    returns = [0.01, -0.005, 0.02, 0.0, -0.01]
+
+    cfg_low = SizingConfig(
+        target_volatility=0.2,
+        max_position_pct=1.0,
+        min_position_pct=0.001,
+        confidence_scaling=False,
+        performance_scaling=False,
+        lookback_periods=len(returns),
+        annualization_factor=1.0,
+    )
+    sizer_low = VolatilitySizer(cfg_low)
+    for ret in returns:
+        sizer_low.update_returns(ret)
+    size_low = sizer_low.calculate_vol_adjusted_pct()
+
+    cfg_high = SizingConfig(
+        target_volatility=0.2,
+        max_position_pct=1.0,
+        min_position_pct=0.001,
+        confidence_scaling=False,
+        performance_scaling=False,
+        lookback_periods=len(returns),
+        annualization_factor=100.0,
+    )
+    sizer_high = VolatilitySizer(cfg_high)
+    for ret in returns:
+        sizer_high.update_returns(ret)
+    size_high = sizer_high.calculate_vol_adjusted_pct()
+
+    assert size_high < size_low

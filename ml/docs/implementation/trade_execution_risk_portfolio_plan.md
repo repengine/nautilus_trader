@@ -25,6 +25,8 @@
 - Realized PnL from position closes feeds risk and sizing updates with event-time reset alignment (`ml/strategies/base_facade.py`, `ml/strategies/risk.py`).
 - Positions provider uses a fallback chain and readiness checks with metrics (`ml/strategies/common/positions_provider.py`, `ml/strategies/base_facade.py`).
 - Order intents include positions, quote staleness, exit, and execution metadata (`ml/strategies/base_facade.py`, `ml/strategies/common/order_submission.py`).
+- Returns updates are centralized in `ReturnsUpdater` and fed via signal metadata (bar close + bar spec) to keep sizing and portfolio volatility aligned (`ml/actors/common/signal_metadata.py`, `ml/strategies/common/returns_updater.py`, `ml/strategies/ml_strategy.py`).
+- Order event persistence syncs component strategy IDs on start so trader-assigned IDs (order_id_tag) align with stored events (`ml/strategies/base_facade.py`).
 
 ## Trade Lifecycle
 
@@ -96,17 +98,87 @@
 
 #### Validation (Replay Harness)
 
-- [ ] Run the replay harness over a longer window (>= 5 trading days or the maximum
+- [x] Run the replay harness over a longer window (>= 5 trading days or the maximum
   available catalog range) with `--execute-trades` and quote ticks enabled.
-- [ ] Inspect `backtest_result.json` and logs for exit reasons distribution,
+- [x] Inspect `backtest_result.json` and logs for exit reasons distribution,
   positions lifecycle, and absence of order rejections.
+  - Note: ML signal/decision tables do not currently carry a run_id, so exit-reason
+    analysis is window- and model_id-scoped rather than run-scoped.
+
+#### Recent Replay Validation (2026-01-27)
+
+- [x] Multi-day replay (model exits enabled, market validation)
+  - Run: `replay_multi_day_3sym_2024-11-18_25_margin_market_model_exit`
+  - Window: 2024-11-18 14:30 → 2024-11-25 15:30 UTC (7d 1h)
+  - Symbols: SPY/AAPL/MSFT; account: MARGIN; model: dummy_model.onnx
+  - Results: total_orders=6, total_positions=3, PnL=+13.68 USD
+  - Exit reasons observed (window-scoped): `model_flip` (3), `stop_loss` (1)
+- [x] Cash-mode replay (exit-only policy)
+  - Run: `replay_cash_mode_3sym_2024-11-18_20_market_model_exit_dummy_cash`
+  - Window: 2024-11-18 14:30 → 2024-11-20 15:30 UTC
+  - Symbols: SPY/AAPL/MSFT; account: CASH; model_id: dummy_cash
+  - Decisions: 3 enters, 3 exits; no reversals recorded for dummy_cash
+  - Short-entry blocking evidence is limited by missing run_id + hold persistence
+    in signals; see “Open Gaps” below.
+
+#### Audit Notes (DB)
+
+- Order events dataset is registered (`ml_dataset_registry.dataset_type=ORDER_EVENTS`)
+  with `location=ml_strategy_order_events` (postgres).
+- Order lifecycle persistence is now wired through `on_order_event` and
+  `on_order_filled`; re-run replay to confirm non-submitted events are captured.
+- Replay verification (2026-01-27): `replay_order_events_2sym_2h_margin_market_sync`
+  produced `OrderInitialized`, `OrderSubmitted`, and `OrderFilled` rows for
+  `MLStrategy-000/001` after syncing component strategy IDs.
+
+#### Audit/Telemetry Tasks
+
+- [x] Add `run_id` + `ingested_at_ns` to `ml_strategy_signals` and
+  `ml_strategy_order_events` for deterministic replay audits.
+- [x] Persist order lifecycle events (accepted/rejected/filled/canceled) via
+  strategy order-event hooks.
+- [x] Persist HOLD decisions when short-entry is blocked (or add a DB metric table)
+  to validate cash-mode short-entry suppression without relying on logs.
+- [x] Emit structured sizing-rejection reason codes (market price missing, portfolio
+  allocation zero, risk rejection) in decision persistence for audit.
+- [x] Add a risk-halt audit trace (reason + timestamp per strategy) to support
+  replay/postmortem analysis without log scraping.
+- [x] Add a replay summary row to Postgres (orders, fills, halts, sizing rejects)
+  for fast run audits.
+- [x] Add replay exit overrides (max holding/TP/SL) and run replay with forced
+  exits so return statistics are non-`nan`.
+- [x] Add CLI flag for replay `max_holding_ms` and document recommended values
+  for short-window validation.
+- [x] Validate registry emission for `replay_summary` and `risk_halt_events`
+  (ml_data_events + watermarks) with a forced halt replay; fix partition
+  `check_stage` constraints if new stages are rejected.
+- [x] Update `ml_data_events` partition `check_stage` constraints to include
+  newly added stages (REPLAY_SUMMARY_EMITTED/RISK_HALT_EMITTED) for existing
+  monthly partitions.
+- [x] Ensure registry instrumentation tables accept new stages by aligning
+  `ml_registry.ml_data_events` constraints and routing event emission to the
+  public instrumentation schema (search_path override per transaction).
+- [x] Fix risk-liquidation logging to avoid runtime TypeError during halt
+  handling (logger signature expects only message + color).
+- [x] Add bar-close/account-equity returns (via `track_bar_returns`) and enable
+  higher-frequency returns tracking in replay harness runs.
+- [x] Sanitize replay output by converting `nan` return stats to `null` and
+  logging the affected metrics as “insufficient samples.”
+- [x] Re-run a multi-day replay to confirm Sharpe/volatility/Sortino are
+  non-`nan` with bar returns enabled; tune cadence or add guardrails if still sparse.
+- [x] Investigate `positions_ready_degraded` warnings in replay (expected when
+  broker positions are unavailable); add replay-only suppression flag
+  (`PositionsConfig.log_degraded_in_backtest`) and wire it in the harness.
 
 #### Definition of Done
 
 - [x] Model-driven exits are config-driven, type-safe, and DRY across strategies.
 - [x] Decisions and order intents include model-exit reasons and thresholds.
 - [x] Tests cover flip/neutral/confidence/ordering and pass `pytest -k model_exit`.
-- [ ] Replay harness run demonstrates rational exits across multiple sessions.
+- [x] Replay harness run demonstrates rational exits across multiple sessions
+  (2024-11-18→20 + 2024-11-21→25 windows; exits driven by `timeout` from
+  `max_holding_ms` overrides).
+- [x] Replay harness run produces non-`nan` return stats with forced exits.
 
 ## Execution
 
@@ -230,28 +302,55 @@
 - Keep positions access authoritative via the provider with explicit readiness checks.
 - Require full positions list for live trading when configured.
 - Keep portfolio returns/volatility signals consistent across sizing and allocation.
+- Use L1 quote mid (NBBO) as the canonical live return source, with explicit fallbacks.
 
 ### Guardrails
 
 - No direct portfolio/cache access outside provider or dedicated adapters.
 - Degraded mode must be explicit and observable.
+- Annualization must be derived from bar cadence/session metadata, not hard-coded.
+- Returns cadence should be derived from the feature bar spec by default (with config override).
+- Skip returns updates when quotes are stale, crossed, or invalid; use fallback chain with metrics.
 
 ### Tasks
 
 - [x] Tighten live readiness: require full positions list when `positions_required_for_live` is set.
 - [x] Expand contract tests for all provider fallbacks (cache/portfolio/net).
 - [x] Ensure positions metadata is persisted in decisions and intents for audits.
-- [ ] Define a single returns/volatility update path (shared helper or provider) used by
+- [x] Define a single returns/volatility update path (shared helper or provider) used by
   both portfolio allocation and position sizing.
-- [ ] Wire the returns update into the strategy hot path (no I/O), using bar/price deltas
-  or signal-time prices; keep buffers pre-allocated and allocations minimal.
+- [x] Add config-driven return source selection for live L1 (`quote_mid` → `last_trade` →
+  skip update) with freshness thresholds; derive cadence from feature bar spec by default.
+- [x] Derive annualization from schema/session metadata (bars per year) rather than
+  hard-coding sqrt(252); expose a config override when schema is unavailable.
+- [x] Wire the returns update into the strategy hot path (no I/O), using bar-cadence
+  price deltas or signal-time prices; keep buffers pre-allocated and allocations minimal.
+- [x] Add quote-freshness guards for returns updates (max quote age, crossed/invalid BBO)
+  and emit fallback metrics when non-mid sources are used.
+- [x] For backtests, drive returns updates from catalog bar close (same bar spec as features)
+  to preserve parity with training/inference.
+- [x] Align sizing output semantics (value vs quantity) between `CompositeSizer` and
+  `PositionManagementComponent`; update one side to remove double-multiplication.
+- [x] Add sizing invariants tests to lock the semantics (value vs quantity) and
+  ensure allocation scaling uses consistent units.
+- [x] Add `returns_update_mode` (signal/bar/both) to ReturnsConfig and plumb it
+  through MLStrategyConfig defaults.
+- [x] Subscribe strategies to bar streams when `returns_update_mode` includes bar
+  updates and a `bar_spec` is available.
+- [x] Add `ReturnsUpdater.update_from_bar` and wire `BaseMLStrategyFacade.on_bar`
+  to update returns on every bar without duplicating signal routing.
+- [x] Add unit tests for bar-driven returns updates and lifecycle bar subscriptions.
 
 ### Definition of Done
 
 - [x] Live mode fails fast if positions readiness is not met.
 - [x] Provider fallbacks are covered by tests and emit metrics.
 - [x] Audit metadata includes positions source and readiness state.
-- [ ] Portfolio + sizing use a consistent volatility source with documented update timing.
+- [x] Portfolio + sizing use a consistent volatility source with documented update timing
+  and schema-derived annualization.
+- [x] L1 mid is the default live return source with explicit fallback + freshness rules;
+  backtests use bar close from the feature bar spec.
+- [x] Sizing output semantics are consistent and unit-tested (no double price scaling).
 
 ## References
 

@@ -483,6 +483,68 @@ class TestPositionsReadiness:
 
         assert provider.calls == [(instrument_id, True, True)]
 
+    def test_positions_ready_degraded_logs_suppressed_in_backtest_when_configured(self) -> None:
+        """Ensure degraded readiness logs can be suppressed during backtests."""
+        from types import SimpleNamespace
+
+        from ml.config.base import PositionsConfig, PositionsSource
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.common.positions import PositionsHealthStatus
+        from ml.tests.utils.stubs import LoggerStub
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            _log_stub = LoggerStub()
+            _cache_stub = SimpleNamespace(is_backtesting=True)
+
+            @property
+            def log(self) -> LoggerStub:
+                return self._log_stub
+
+            @property
+            def cache(self) -> SimpleNamespace:
+                return self._cache_stub
+
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        class StubProvider:
+            def check_positions_ready(
+                self,
+                *,
+                instrument_id: InstrumentId | None = None,
+                require_full_list: bool = False,
+                require_positions: bool = False,
+            ) -> PositionsHealthStatus:
+                del instrument_id, require_full_list, require_positions
+                return PositionsHealthStatus(
+                    ready=True,
+                    degraded=True,
+                    source=PositionsSource.PORTFOLIO_NET,
+                    reason="net_position_only",
+                    positions_count=0,
+                )
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(
+            positions_config=PositionsConfig(
+                positions_required_for_live=True,
+                allow_degraded=True,
+                source_priority=[PositionsSource.PORTFOLIO_NET],
+                log_degraded_in_backtest=False,
+            ),
+            execute_trades=True,
+            instrument_id=InstrumentId.from_str("AAA.SIM"),
+        )
+        strategy._positions_provider = StubProvider()
+        strategy._positions_health = None
+
+        strategy._check_positions_ready()
+
+        messages = [record[1][0] for record in strategy.log.records if record[1]]
+        assert "ml_strategy.positions_ready_degraded" in messages
+        assert all(record[0] != "warning" for record in strategy.log.records)
+
 
 # ---------------------------------------------------------------------------
 # Signal Handling Guardrails
@@ -616,6 +678,113 @@ class TestSignalHandlingGuardrails:
         assert strategy.liquidated is True
         assert strategy.processed is False
 
+    def test_liquidation_no_positions_is_throttled(
+        self,
+        mock_config: MockMLStrategyConfig,
+    ) -> None:
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.risk import RiskAction
+        from ml.strategies.risk import RiskActionDecision
+        from ml.strategies.risk import RiskConfig
+        from ml.strategies.risk import RiskLiquidationConfig
+        from ml.tests.utils.stubs import LoggerStub
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            _log_stub = LoggerStub()
+
+            @property
+            def log(self) -> LoggerStub:
+                return self._log_stub
+
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                del signal
+
+            def _resolve_liquidation_positions(self) -> tuple[list[Any], str | None]:
+                return [], None
+
+        class StubRiskManager:
+            def __init__(self) -> None:
+                self.config = RiskConfig(
+                    liquidation_config=RiskLiquidationConfig(
+                        enabled=True,
+                        drawdown_limit_pct=0.0,
+                        cooldown_ms=60_000,
+                    ),
+                )
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        strategy.risk_manager = StubRiskManager()
+        strategy._last_liquidation_no_positions_ts = None
+
+        decision = RiskActionDecision(
+            action=RiskAction.LIQUIDATE,
+            reason="drawdown_liquidate",
+            detail=None,
+        )
+
+        first_ts = 1_000_000_000
+        strategy._liquidate_positions(decision, MockMLSignal(ts_event=first_ts))
+        assert strategy._last_liquidation_no_positions_ts == first_ts
+
+        strategy._liquidate_positions(decision, MockMLSignal(ts_event=1_000_500_000))
+        assert strategy._last_liquidation_no_positions_ts == first_ts
+
+
+# ---------------------------------------------------------------------------
+# Returns Bar Subscription
+# ---------------------------------------------------------------------------
+
+
+def test_on_data_subscribes_returns_bars_from_signal_metadata(
+    mock_config: MockMLStrategyConfig,
+) -> None:
+    """Ensure returns bar subscription happens when bar_spec arrives in signals."""
+    from ml.actors.base import MLSignal
+    from ml.config.base import ReturnsConfig
+    from ml.config.base import ReturnsUpdateMode
+    from ml.strategies.base_facade import BaseMLStrategyFacade
+    from nautilus_trader.model.identifiers import InstrumentId
+
+    class DummyStrategy(BaseMLStrategyFacade):
+        def _process_ml_signal(self, signal: Any) -> None:
+            del signal
+
+        def subscribe_bars(self, bar_type: Any, *args: Any, **kwargs: Any) -> None:
+            self.subscribed.append(bar_type)
+
+    class _Updater:
+        def should_update_from_bar(self) -> bool:
+            return True
+
+    instrument_id = InstrumentId.from_str("EURUSD.SIM")
+    mock_config.instrument_id = instrument_id
+    mock_config.returns_config = ReturnsConfig(update_mode=ReturnsUpdateMode.BAR)
+
+    strategy = DummyStrategy.__new__(DummyStrategy)
+    strategy._config = mock_config
+    strategy._signal_history = []
+    strategy._order_submitter = None
+    strategy._signal_router = None
+    strategy._returns_updater = _Updater()
+    strategy._returns_bar_subscribed = False
+    strategy._returns_bar_subscription_attempted = False
+    strategy.subscribed = []
+
+    signal = MLSignal(
+        instrument_id=instrument_id,
+        model_id="model",
+        prediction=0.5,
+        confidence=0.9,
+        ts_event=1,
+        ts_init=1,
+        metadata={"bar_spec": "1-MINUTE-LAST"},
+    )
+
+    BaseMLStrategyFacade.on_data(strategy, signal)
+
+    assert len(strategy.subscribed) == 1
+    assert str(strategy.subscribed[0].spec) == "1-MINUTE-LAST"
 
 # ---------------------------------------------------------------------------
 # Position Closed Updates
@@ -689,6 +858,131 @@ class TestOrderEventPersistence:
 
         store.write_order_event.assert_called_once()
         assert store.write_order_event.call_args.kwargs["is_live"] is True
+
+    def test_on_order_filled_persists_event(
+        self,
+    ) -> None:
+        """Ensure order filled events are persisted for audit."""
+        from ml.config.base import MLStrategyConfig
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from nautilus_trader.test_kit.providers import TestInstrumentProvider
+        from nautilus_trader.test_kit.stubs.execution import TestExecStubs
+        from nautilus_trader.test_kit.stubs.events import TestEventStubs
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                del signal
+
+        instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD")
+        order = TestExecStubs.limit_order(instrument=instrument)
+        event = TestEventStubs.order_filled(order=order, instrument=instrument)
+
+        config = MLStrategyConfig(
+            instrument_id=instrument.id,
+            ml_signal_source="ACTOR",
+            use_strategy_store=False,
+            execute_trades=True,
+        )
+        strategy = DummyStrategy(config)
+        strategy.strategy_store = MagicMock()
+        strategy._pending_orders = 1
+        strategy._active_positions = 0
+        strategy.position_count_metric = None
+        strategy._get_current_position = lambda: None
+
+        strategy.on_order_filled(event)
+
+        strategy.strategy_store.write_order_event.assert_called_once()
+
+    def test_on_start_syncs_component_strategy_ids_when_id_changes(
+        self,
+    ) -> None:
+        """Ensure component strategy IDs sync after trader-assigned updates."""
+        from ml.config.base import MLStrategyConfig
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.identifiers import StrategyId
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                del signal
+
+        config = MLStrategyConfig(
+            instrument_id=InstrumentId.from_str("SPY.EQUS"),
+            ml_signal_source="ACTOR",
+            strategy_id="MLStrategy-SPY.EQUS",
+            use_strategy_store=False,
+        )
+        strategy = DummyStrategy(config)
+        strategy.change_id(StrategyId("MLStrategy-000"))
+
+        strategy._sync_component_strategy_ids()
+
+        assert strategy._order_submitter is not None
+        assert strategy._decision_persister is not None
+        assert strategy._order_submitter._strategy_id == "MLStrategy-000"
+        assert strategy._decision_persister._strategy_id == "MLStrategy-000"
+
+
+# ---------------------------------------------------------------------------
+# Risk Halt Event Persistence
+# ---------------------------------------------------------------------------
+
+
+class TestRiskHaltPersistence:
+    """Tests for risk-halt audit persistence wiring."""
+
+    def test_record_risk_halt_transition_persists_events(
+        self,
+        mock_config: MockMLStrategyConfig,
+    ) -> None:
+        """Ensure risk halt transitions are persisted once per state change."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: MockMLSignal) -> None:
+                del signal
+
+        class RiskManagerStub:
+            def __init__(self) -> None:
+                self.halted = False
+                self.reason: str | None = None
+
+            def is_trading_halted(self) -> bool:
+                return self.halted
+
+            def get_halt_reason(self) -> str | None:
+                return self.reason
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = mock_config
+        strategy.strategy_store = MagicMock()
+        strategy.risk_manager = RiskManagerStub()
+        strategy._last_risk_halt_state = None
+        strategy._last_risk_halt_reason = None
+
+        # Initial non-halted state should not persist an event
+        BaseMLStrategyFacade._record_risk_halt_transition(strategy, ts_event=100)
+        strategy.strategy_store.write_risk_halt_event.assert_not_called()
+
+        # Transition to halted should persist once
+        strategy.risk_manager.halted = True
+        strategy.risk_manager.reason = "daily_loss_limit"
+        BaseMLStrategyFacade._record_risk_halt_transition(strategy, ts_event=200)
+        assert strategy.strategy_store.write_risk_halt_event.call_count == 1
+        call = strategy.strategy_store.write_risk_halt_event.call_args.kwargs
+        assert call["event_type"] == "halted"
+        assert call["reason"] == "daily_loss_limit"
+        assert call["ts_event"] == 200
+
+        # Transition to resumed should persist once
+        strategy.risk_manager.halted = False
+        BaseMLStrategyFacade._record_risk_halt_transition(strategy, ts_event=300)
+        assert strategy.strategy_store.write_risk_halt_event.call_count == 2
+        call = strategy.strategy_store.write_risk_halt_event.call_args.kwargs
+        assert call["event_type"] == "resumed"
+        assert call["reason"] == "daily_loss_limit"
+        assert call["ts_event"] == 300
 
 
 # ---------------------------------------------------------------------------

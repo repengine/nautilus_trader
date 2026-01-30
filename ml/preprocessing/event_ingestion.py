@@ -176,14 +176,16 @@ class EventIngestionUtility:
         Collect events and persist to ``out_dir/events.parquet``.
         """
         events_df = self._collect_events()
-        self._latest_frame = events_df.clone()
+        prepared_parquet = self._prepare_events_frame(events_df, for_sql=False)
+        prepared_sql = self._prepare_events_frame(events_df, for_sql=True)
+        self._latest_frame = prepared_parquet.clone()
         out_dir = self._cfg.out_dir.expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         target = out_dir / "events.parquet"
         if self._cfg.write_parquet:
-            events_df.write_parquet(target)
+            prepared_parquet.write_parquet(target)
         if self._data_store is not None:
-            self._ingest_sql(events_df)
+            self._ingest_sql(prepared_sql)
         return target
 
     def latest_frame(self) -> PolarsDF | None:
@@ -228,22 +230,24 @@ class EventIngestionUtility:
         df = df.sort(["event_timestamp", "event_type", "name"])
         return cast(PolarsDF, df)
 
-    def _ingest_sql(self, frame: PolarsDF) -> None:
+    def _prepare_events_frame(self, frame: PolarsDF, *, for_sql: bool) -> PolarsDF:
+        """
+        Normalize and deduplicate events for parquet + SQL persistence.
+
+        Ensures ts_event/ts_init columns exist and removes duplicate rows using
+        the same keys as SQL ingestion.
+        """
         if frame.is_empty():
-            return
+            return frame
         _pl = POLARS
         ts_init = sanitize_timestamp_ns(time.time_ns(), context="events_ingest")
+        event_ts = _pl.col("event_timestamp").cast(_pl.Datetime("ns"))
+        event_ts_col = event_ts.cast(_pl.Int64) if for_sql else event_ts
         prepared = (
             frame.with_columns(
                 [
-                    _pl.col("event_timestamp")
-                    .cast(_pl.Datetime("ns"))
-                    .cast(_pl.Int64)
-                    .alias("event_timestamp"),
-                    _pl.col("event_timestamp")
-                    .cast(_pl.Datetime("ns"))
-                    .cast(_pl.Int64)
-                    .alias("ts_event"),
+                    event_ts_col.alias("event_timestamp"),
+                    event_ts.cast(_pl.Int64).alias("ts_event"),
                     _pl.lit(ts_init).alias("ts_init"),
                 ],
             )
@@ -267,10 +271,22 @@ class EventIngestionUtility:
                 ],
             )
         )
+        dedup_keys = [
+            column
+            for column in ("event_type", "event_timestamp", "instrument_id", "name", "ts_event")
+            if column in prepared.columns
+        ]
+        if dedup_keys:
+            prepared = prepared.unique(subset=dedup_keys, keep="last")
+        return prepared
+
+    def _ingest_sql(self, frame: PolarsDF) -> None:
+        if frame.is_empty():
+            return
         try:
             self._data_store.write_ingestion(  # type: ignore[union-attr]
                 dataset_id=EVENTS_CALENDAR_DATASET_ID,
-                records=prepared,
+                records=frame,
                 source=Source.HISTORICAL.value,
                 run_id=self._ingest_run_id,
             )

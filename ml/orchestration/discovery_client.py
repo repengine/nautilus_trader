@@ -357,6 +357,7 @@ class DiscoveryClient:
             end=None,
             source="discovered",
             provider_dataset_id=discovery.dataset_id,
+            provider_schema=discovery.schema,
         )
 
     def _discover_symbol_via_dataset_service(

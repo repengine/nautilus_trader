@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Mapping
 from collections.abc import MutableMapping
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
@@ -47,6 +48,7 @@ import numpy as np
 import numpy.typing as npt
 from nautilus_trader.model.data import Bar
 
+from ml.actors.common.signal_metadata import build_signal_metadata
 from ml.common.logging_utils import log_best_effort
 
 
@@ -70,6 +72,24 @@ def _get_ml_signal_class() -> type[MLSignal]:
     from ml.actors.base import MLSignal
 
     return MLSignal
+
+
+def _compose_signal_metadata(
+    context: MutableMapping[str, Any],
+    extra: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any] | None:
+    """
+    Combine base signal metadata from context with strategy-specific extras.
+    """
+    base = context.get("signal_metadata")
+    if base is None and extra is None:
+        return None
+    merged: dict[str, Any] = {}
+    if isinstance(base, Mapping):
+        merged.update(base)
+    if extra:
+        merged.update(extra)
+    return merged or None
 
 
 # =================================================================================================
@@ -256,6 +276,10 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
                 prediction=prediction,
                 confidence=confidence,
                 features=features if context.get("log_predictions", False) else None,
+                metadata=build_signal_metadata(
+                    bar,
+                    extra=_compose_signal_metadata(context),
+                ),
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )
@@ -387,6 +411,10 @@ class ExtremesStrategy(SignalGenerationStrategy):
                 prediction=prediction,
                 confidence=confidence,
                 features=features if context.get("log_predictions", False) else None,
+                metadata=build_signal_metadata(
+                    bar,
+                    extra=_compose_signal_metadata(context),
+                ),
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )
@@ -487,13 +515,22 @@ class MomentumStrategy(SignalGenerationStrategy):
             momentum = np.mean(np.diff(recent_predictions))
 
         if abs(momentum) > self.momentum_threshold and confidence >= self.threshold:
+            adjusted_prediction = prediction * (1 + momentum)
+            if adjusted_prediction < 0.0:
+                adjusted_prediction = 0.0
+            elif adjusted_prediction > 1.0:
+                adjusted_prediction = 1.0
             MLSignal = _get_ml_signal_class()
             return MLSignal(
                 instrument_id=bar.bar_type.instrument_id,
                 model_id=context.get("model_id", "unknown"),
-                prediction=prediction * (1 + momentum),
+                prediction=adjusted_prediction,
                 confidence=confidence,
                 features=features if context.get("log_predictions", False) else None,
+                metadata=build_signal_metadata(
+                    bar,
+                    extra=_compose_signal_metadata(context),
+                ),
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )
@@ -597,6 +634,10 @@ class EnsembleStrategy(SignalGenerationStrategy):
                     prediction=prediction,
                     confidence=ensemble_confidence,
                     features=features if context.get("log_predictions", False) else None,
+                    metadata=build_signal_metadata(
+                        bar,
+                        extra=_compose_signal_metadata(context),
+                    ),
                     ts_event=bar.ts_event,
                     ts_init=context["timestamp_ns"],
                 )
@@ -699,11 +740,17 @@ class AdaptiveStrategy(SignalGenerationStrategy):
                 prediction=prediction,
                 confidence=confidence,
                 features=features,
-                metadata={
-                    "adaptive_threshold": adaptive_threshold,
-                    "signal_strength": signal_strength,
-                    "market_regime": market_regime,
-                },
+                metadata=build_signal_metadata(
+                    bar,
+                    extra=_compose_signal_metadata(
+                        context,
+                        {
+                            "adaptive_threshold": adaptive_threshold,
+                            "signal_strength": signal_strength,
+                            "market_regime": market_regime,
+                        },
+                    ),
+                ),
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )

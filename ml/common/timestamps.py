@@ -37,11 +37,12 @@ def normalize_timestamp_ns(ts_value: int) -> tuple[int, bool]:
     except Exception:
         return int(ts_value), False
 
-    if ts < 100_000_000_000:  # seconds
+    magnitude = abs(ts)
+    if magnitude < 100_000_000_000:  # seconds
         return ts * 1_000_000_000, True
-    if ts < 100_000_000_000_000:  # milliseconds
+    if magnitude < 100_000_000_000_000:  # milliseconds
         return ts * 1_000_000, True
-    if ts < 100_000_000_000_000_000:  # microseconds
+    if magnitude < 10_000_000_000_000_000:  # microseconds
         return ts * 1_000, True
     return ts, False
 

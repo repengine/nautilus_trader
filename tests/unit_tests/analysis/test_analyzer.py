@@ -20,6 +20,7 @@ from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
@@ -124,6 +125,26 @@ class TestPortfolioAnalyzer:
 
         # Assert
         assert len(result) == 10
+
+    def test_calculate_statistics_preserves_existing_returns(self):
+        # Arrange
+        t1 = datetime(year=2010, month=1, day=1)
+        self.analyzer.add_return(t1, 0.1)
+
+        class _AccountStub:
+            def starting_balances(self):
+                return {USD: Money(100.0, USD)}
+
+            def balances_total(self):
+                return {USD: Money(100.0, USD)}
+
+        # Act
+        self.analyzer.calculate_statistics(_AccountStub(), [])
+        result = self.analyzer.returns()
+
+        # Assert
+        assert len(result) == 1
+        assert float(result.iloc[0]) == 0.1
 
     def test_get_realized_pnls_when_all_flat_positions_returns_expected_series(self):
         # Arrange

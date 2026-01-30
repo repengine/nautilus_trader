@@ -58,18 +58,9 @@ def _signal_dict(draw: Any) -> dict[str, Any]:
     sid = draw(st.text(min_size=1, max_size=10))
     inst = draw(st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True))
     stype = draw(st.sampled_from(["BUY", "SELL", "HOLD"]))
-    if stype == "BUY":
-        strength = draw(
-            st.floats(min_value=0.0, max_value=1.0, allow_infinity=False, allow_nan=False),
-        )
-    elif stype == "SELL":
-        strength = draw(
-            st.floats(min_value=-1.0, max_value=0.0, allow_infinity=False, allow_nan=False),
-        )
-    else:
-        strength = draw(
-            st.floats(min_value=-1.0, max_value=1.0, allow_infinity=False, allow_nan=False),
-        )
+    strength = draw(
+        st.floats(min_value=0.0, max_value=1.0, allow_infinity=False, allow_nan=False),
+    )
     return {
         "strategy_id": sid,
         "instrument_id": inst,
@@ -128,12 +119,8 @@ def test_strategy_store_write_batch_invariants(
     last_ts = -1
     for v in sink:
         stype = str(v["signal_type"]).upper()
-        strength = float(v["strength"])  # within [-1,1]
-        # Directional invariants
-        if stype == "BUY":
-            assert strength >= 0.0
-        elif stype == "SELL":
-            assert strength <= 0.0
+        strength = float(v["strength"])  # within [0,1]
+        assert 0.0 <= strength <= 1.0
         # Timestamp invariants
         assert int(v["ts_init"]) >= int(v["ts_event"])  # init not before event
         assert int(v["ts_event"]) >= last_ts

@@ -28,6 +28,7 @@ from nautilus_trader.model.events.account cimport AccountState
 from nautilus_trader.model.events.order cimport OrderEvent
 from nautilus_trader.model.events.position cimport PositionEvent
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.identifiers cimport AccountId
 from nautilus_trader.model.identifiers cimport PositionId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.instruments.base cimport Instrument
@@ -48,6 +49,8 @@ cdef class Portfolio(PortfolioFacade):
     cdef bint _use_mark_prices
     cdef bint _use_mark_xrates
     cdef bint _convert_to_account_base_currency
+    cdef bint _track_account_returns
+    cdef bint _track_bar_returns
     cdef uint64_t _min_account_state_logging_interval_ns
     cdef str _log_price
     cdef str _log_xrate
@@ -60,6 +63,8 @@ cdef class Portfolio(PortfolioFacade):
     cdef set[InstrumentId] _pending_calcs
     cdef dict[InstrumentId, Price] _bar_close_prices
     cdef dict[AccountId, uint64_t] _last_account_state_log_ts
+    cdef dict[AccountId, Money] _last_account_returns_total
+    cdef dict[AccountId, uint64_t] _last_account_returns_ts
 
 # -- COMMANDS -------------------------------------------------------------------------------------
 
@@ -80,6 +85,9 @@ cdef class Portfolio(PortfolioFacade):
 # -- INTERNAL -------------------------------------------------------------------------------------
 
     cdef void _update_account(self, AccountState event)
+    cdef void _update_account_returns(self, Account account, AccountState event)
+    cdef void _update_bar_returns(self, InstrumentId instrument_id, uint64_t ts_event)
+    cdef void _record_account_return(self, Account account, Money current_total, uint64_t ts_event)
     cdef void _update_instrument_id(self, InstrumentId instrument_id)
     cdef void _update_net_position(self, InstrumentId instrument_id, list positions_open)
     cdef object _net_position(self, InstrumentId instrument_id)

@@ -91,7 +91,7 @@ def test_load_dataset_coverage_entries_parses_entities_file(tmp_path: Path) -> N
         tmp_path,
         """
         [[datasets]]
-        dataset_id = "ml.feature_values"
+        dataset_id = "features"
         schema = "feature_values"
         entities_file = "entities.txt"
         entity_field = "instrument_id"

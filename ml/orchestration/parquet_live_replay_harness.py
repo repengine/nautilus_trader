@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time
 from collections.abc import Iterable
 from dataclasses import asdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
@@ -31,15 +33,26 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+from sqlalchemy import text
 
 from ml.actors import MLSignalActor
+from ml.common.db_connections import ConnectionRole
+from ml.common.db_connections import collect_postgres_candidates
+from ml.common.db_connections import select_first_working_connection
 from ml.config.actors import MLSignalActorConfig
 from ml.config.base import AccountMode
 from ml.config.base import ExitPolicyConfig
 from ml.config.base import MLStrategyConfig
+from ml.config.base import PositionsConfig
+from ml.config.base import ReturnsConfig
+from ml.config.base import ReturnsPriceSource
+from ml.config.base import ReturnsUpdateMode
 from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
 from ml.config.replay_harness import StrategyReplayConfig
+from ml.core.db_engine import EngineManager
+from ml.stores.base import StrategyReplaySummary
+from ml.stores.strategy_store import StrategyStore
 from ml.strategies.execution import ExecutionConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.risk import RiskConfig
@@ -50,6 +63,7 @@ from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.instruments import Equity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.portfolio.config import PortfolioConfig
 
 
 logger = logging.getLogger(__name__)
@@ -163,6 +177,12 @@ def run_parquet_live_replay_harness(
         engine.run(start=config.start_time, end=config.end_time)
         backtest_result = engine.get_result()
         _persist_backtest_result(backtest_result, output_path)
+        _persist_replay_summary(
+            config=config,
+            run_id=run_id,
+            instrument_ids=instrument_ids,
+            backtest_result=backtest_result,
+        )
     finally:
         try:
             engine.dispose()
@@ -214,6 +234,20 @@ def _configure_environment(
         os.environ.setdefault("ML_TFT_ALLOW_PARQUET_FALLBACK", "1")
 
 
+def _sanitize_backtest_payload(payload: dict[str, Any]) -> list[str]:
+    """
+    Replace NaN stats with None and return keys that were sanitized.
+    """
+    nan_keys: list[str] = []
+    stats_returns = payload.get("stats_returns")
+    if isinstance(stats_returns, dict):
+        for key, value in stats_returns.items():
+            if isinstance(value, float) and math.isnan(value):
+                stats_returns[key] = None
+                nan_keys.append(str(key))
+    return nan_keys
+
+
 def _persist_backtest_result(
     result: BacktestResult,
     output_path: Path | None,
@@ -225,6 +259,7 @@ def _persist_backtest_result(
         return
     result_path = output_path / "backtest_result.json"
     payload = asdict(result)
+    nan_keys = _sanitize_backtest_payload(payload)
     try:
         with result_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True, ensure_ascii=True)
@@ -235,10 +270,136 @@ def _persist_backtest_result(
             extra={"error": str(exc), "output_path": str(result_path)},
         )
         raise
+    if nan_keys:
+        logger.warning(
+            "replay_backtest_stats_insufficient_samples",
+            extra={"stats": nan_keys, "output_path": str(result_path)},
+        )
     logger.info(
         "replay_backtest_result_written",
         extra={"output_path": str(result_path)},
     )
+
+
+def _resolve_replay_summary_connection(
+    config: ParquetLiveReplayHarnessConfig,
+) -> str | None:
+    """
+    Resolve a working PostgreSQL connection string for replay summary persistence.
+    """
+    if bool(getattr(config.actor, "use_dummy_stores", False)):
+        return None
+    explicit = getattr(config.actor, "db_connection", None)
+    try:
+        candidates = collect_postgres_candidates(
+            ConnectionRole.PRIMARY,
+            explicit=explicit,
+        ).urls
+        return select_first_working_connection(candidates)
+    except Exception as exc:
+        logger.debug(
+            "replay_summary_db_unavailable",
+            exc_info=True,
+            extra={"error": str(exc)},
+        )
+        return None
+
+
+def _fetch_replay_summary_counts(
+    engine: Any,
+    run_id: str,
+) -> dict[str, int]:
+    """
+    Fetch replay summary counts from persisted strategy tables.
+    """
+    counts = {
+        "fills": 0,
+        "halts": 0,
+        "sizing_rejects": 0,
+    }
+    queries = {
+        "fills": (
+            "SELECT COUNT(*) FROM ml_strategy_order_events "
+            "WHERE run_id = :run_id AND event_type = 'OrderFilled'"
+        ),
+        "halts": (
+            "SELECT COUNT(*) FROM ml_strategy_risk_halt_events "
+            "WHERE run_id = :run_id AND event_type = 'halted'"
+        ),
+        "sizing_rejects": (
+            "SELECT COUNT(*) FROM ml_strategy_signals "
+            "WHERE run_id = :run_id AND execution_params->>'reason' = 'sizing_rejected'"
+        ),
+    }
+    for key, sql in queries.items():
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text(sql), {"run_id": run_id}).scalar()
+            counts[key] = int(result or 0)
+        except Exception as exc:
+            logger.debug(
+                "replay_summary_count_failed",
+                exc_info=True,
+                extra={"error": str(exc), "metric": key},
+            )
+            counts[key] = 0
+    return counts
+
+
+def _persist_replay_summary(
+    *,
+    config: ParquetLiveReplayHarnessConfig,
+    run_id: str,
+    instrument_ids: Iterable[InstrumentId],
+    backtest_result: BacktestResult,
+) -> None:
+    """
+    Persist a replay summary row to Postgres when available.
+    """
+    if not getattr(config.strategy, "use_strategy_store", True):
+        return
+    connection = _resolve_replay_summary_connection(config)
+    if connection is None:
+        return
+    try:
+        engine = EngineManager.get_engine(connection)
+    except Exception as exc:
+        logger.debug(
+            "replay_summary_engine_unavailable",
+            exc_info=True,
+            extra={"error": str(exc)},
+        )
+        return
+
+    counts = _fetch_replay_summary_counts(engine, run_id)
+    ts_event = backtest_result.run_finished or backtest_result.backtest_end or int(time.time_ns())
+    ts_init = backtest_result.run_started or backtest_result.backtest_start or ts_event
+
+    summary = StrategyReplaySummary(
+        run_id=run_id,
+        instrument_ids=[str(inst) for inst in instrument_ids],
+        started_ns=backtest_result.run_started,
+        finished_ns=backtest_result.run_finished,
+        total_orders=int(backtest_result.total_orders),
+        total_fills=int(counts["fills"]),
+        total_halts=int(counts["halts"]),
+        total_sizing_rejects=int(counts["sizing_rejects"]),
+        total_positions=int(backtest_result.total_positions),
+        _ts_event=int(ts_event),
+        _ts_init=int(ts_init),
+        ingested_at_ns=int(time.time_ns()),
+    )
+
+    try:
+        store = StrategyStore(connection_string=connection, run_id=run_id)
+        store.write_replay_summary(summary, publish_bus=False)
+        store.flush()
+    except Exception as exc:
+        logger.debug(
+            "replay_summary_persist_failed",
+            exc_info=True,
+            extra={"error": str(exc)},
+        )
 
 
 def _normalize_instrument_ids(
@@ -434,6 +595,10 @@ def _build_engine(
         config=BacktestEngineConfig(
             trader_id=TraderId(config.trader_id),
             logging=LoggingConfig(log_level=config.engine_log_level),
+            portfolio=PortfolioConfig(
+                track_account_returns=True,
+                track_bar_returns=True,
+            ),
         ),
     )
 
@@ -544,6 +709,8 @@ def _build_strategy_config(
     instrument_id: InstrumentId,
     actor_id: str,
     strategy_id: str,
+    bar_spec: str | None = None,
+    run_id: str | None = None,
 ) -> MLStrategyConfig:
     """
     Build MLStrategyConfig for the replay harness.
@@ -558,6 +725,20 @@ def _build_strategy_config(
         stop_loss_pct=strategy_config.stop_loss_pct,
         take_profit_pct=strategy_config.take_profit_pct,
         max_holding_ms=strategy_config.max_holding_ms,
+    )
+    returns_config = strategy_config.returns_config
+    if returns_config is None:
+        returns_config = ReturnsConfig(
+            source_priority=[
+                ReturnsPriceSource.BAR_CLOSE,
+                ReturnsPriceSource.LAST_TRADE,
+            ],
+            max_price_age_ms=strategy_config.max_quote_age_ms,
+            bar_spec=bar_spec,
+            update_mode=ReturnsUpdateMode.BAR,
+        )
+    positions_config = PositionsConfig(
+        log_degraded_in_backtest=strategy_config.positions_log_degraded_in_backtest,
     )
     return MLStrategyConfig(
         strategy_id=strategy_id,
@@ -582,6 +763,9 @@ def _build_strategy_config(
         subscribe_quote_ticks=strategy_config.subscribe_quote_ticks,
         quote_schema=strategy_config.quote_schema,
         max_quote_age_ms=strategy_config.max_quote_age_ms,
+        positions_config=positions_config,
+        returns_config=returns_config,
+        run_id=run_id,
     )
 
 
@@ -663,6 +847,8 @@ def _attach_components(
             instrument_id=inst,
             actor_id=actor_id,
             strategy_id=strategy_id,
+            bar_spec=str(bar_type.spec),
+            run_id=config.run_id,
         )
 
         actor = MLSignalActor(config=actor_config)

@@ -38,6 +38,7 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.schema import PREDICTION_SURFACE_V1
 
 
 def create_standard_manifests() -> list[DatasetManifest]:
@@ -210,13 +211,16 @@ def create_standard_manifests() -> list[DatasetManifest]:
             "required_fields": ["ts_event", "ts_init", "instrument_id", "model_id", "prediction"],
             "nullable_fields": ["confidence"],
             "ranges": {
-                "prediction": {"min": -1.0, "max": 1.0},
+                "prediction": {"min": 0.0, "max": 1.0},
                 "confidence": {"min": 0.0, "max": 1.0},
             },
         },
         lineage=["features"],
         pipeline_signature="model_store_v1",
         version="1.0.0",
+        metadata={
+            "prediction_surface": PREDICTION_SURFACE_V1.to_metadata(),
+        },
     )
     manifests.append(predictions_manifest)
 
@@ -233,24 +237,47 @@ def create_standard_manifests() -> list[DatasetManifest]:
             "ts_init": "int64",
             "instrument_id": "str",
             "strategy_id": "str",
-            "signal": "int64",
+            "signal_type": "str",
             "strength": "float64",
+            "model_predictions": "json",
+            "risk_metrics": "json",
+            "execution_params": "json",
+            "run_id": "str",
+            "ingested_at_ns": "int64",
+            "is_live": "bool",
         },
         ts_field="ts_event",
         seq_field=None,
         primary_keys=["ts_event", "instrument_id", "strategy_id"],
         schema_hash="",
         constraints={
-            "required_fields": ["ts_event", "ts_init", "instrument_id", "strategy_id", "signal"],
-            "nullable_fields": ["strength"],
+            "required_fields": [
+                "ts_event",
+                "ts_init",
+                "instrument_id",
+                "strategy_id",
+                "signal_type",
+                "strength",
+            ],
+            "nullable_fields": [
+                "model_predictions",
+                "risk_metrics",
+                "execution_params",
+                "run_id",
+                "ingested_at_ns",
+                "is_live",
+            ],
             "ranges": {
-                "signal": {"min": -1, "max": 1},
                 "strength": {"min": 0.0, "max": 1.0},
             },
         },
         lineage=["predictions"],
         pipeline_signature="strategy_store_v1",
         version="1.0.0",
+        metadata={
+            "prediction_surface": PREDICTION_SURFACE_V1.to_metadata(),
+            "signal_strength_semantics": "confidence",
+        },
     )
     manifests.append(signals_manifest)
 
@@ -1032,7 +1059,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
         validation_rules=[
             make_rule(ValidationRuleType.TYPE_CHECK),
             make_rule(ValidationRuleType.NULLABILITY),
-            make_rule(ValidationRuleType.RANGE, "prediction", min=-1.0, max=1.0),
+            make_rule(ValidationRuleType.RANGE, "prediction", min=0.0, max=1.0),
+            make_rule(ValidationRuleType.RANGE, "confidence", min=0.0, max=1.0),
             make_rule(ValidationRuleType.UNIQUENESS),
         ],
         quality_thresholds={
@@ -1055,7 +1083,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
         enforcement_mode="monitor_only",
         validation_rules=[
             make_rule(ValidationRuleType.TYPE_CHECK),
-            make_rule(ValidationRuleType.RANGE, "signal", min=-1, max=1),
+            make_rule(ValidationRuleType.RANGE, "strength", min=0.0, max=1.0),
+            make_rule(ValidationRuleType.REGEX, "signal_type", pattern="(?i)^(BUY|SELL|HOLD)$"),
         ],
         quality_thresholds={
             "null_rate": 0.05,

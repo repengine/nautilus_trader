@@ -63,6 +63,7 @@ class _DummyStrategy(StrategyStoreStrictProtocol):  # runtime structural
         execution_params: object,
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None:
         return None
 

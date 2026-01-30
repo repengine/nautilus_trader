@@ -9,6 +9,7 @@ data including features, predictions, and signals.
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -221,6 +222,10 @@ class StrategySignal(NautilusData):
         Risk metrics at decision time
     execution_params : dict[str, Any]
         Execution parameters (stop loss, take profit, etc.)
+    run_id : str | None
+        Optional run identifier for replay/audit correlation.
+    ingested_at_ns : int | None
+        Ingestion timestamp in nanoseconds.
     _ts_event : int
         Event timestamp in nanoseconds
     _ts_init : int
@@ -237,6 +242,8 @@ class StrategySignal(NautilusData):
     execution_params: dict[str, Any]
     _ts_event: int
     _ts_init: int
+    run_id: str | None = None
+    ingested_at_ns: int | None = None
 
     @property
     def ts_event(self) -> int:
@@ -274,6 +281,10 @@ class StrategyOrderEvent(NautilusData):
         Order event type (e.g., OrderSubmitted).
     payload : dict[str, Any]
         Full order event payload for audit.
+    run_id : str | None
+        Optional run identifier for replay/audit correlation.
+    ingested_at_ns : int | None
+        Ingestion timestamp in nanoseconds.
     _ts_event : int
         Event timestamp in nanoseconds.
     _ts_init : int
@@ -293,6 +304,8 @@ class StrategyOrderEvent(NautilusData):
     _ts_event: int
     _ts_init: int
     is_live: bool = False
+    run_id: str | None = None
+    ingested_at_ns: int | None = None
 
     @property
     def ts_event(self) -> int:
@@ -325,6 +338,8 @@ class StrategyOrderEvent(NautilusData):
         event: object,
         *,
         is_live: bool = False,
+        run_id: str | None = None,
+        ingested_at_ns: int | None = None,
         logger: logging.Logger | None = None,
         context: str = "StrategyOrderEvent.from_event",
     ) -> StrategyOrderEvent | None:
@@ -354,7 +369,10 @@ class StrategyOrderEvent(NautilusData):
         try:
             to_dict = getattr(event, "to_dict", None)
             if callable(to_dict):
-                raw = to_dict(event)
+                try:
+                    raw = to_dict()
+                except TypeError:
+                    raw = to_dict(event)
         except Exception as exc:
             if logger is not None:
                 logger.debug(
@@ -417,6 +435,8 @@ class StrategyOrderEvent(NautilusData):
             ts_init = ts_event
 
         payload = dict(raw) if raw else {}
+        if ingested_at_ns is None:
+            ingested_at_ns = time.time_ns()
         return cls(
             event_id=str(event_id),
             strategy_id=str(strategy_id),
@@ -428,7 +448,130 @@ class StrategyOrderEvent(NautilusData):
             _ts_event=ts_event,
             _ts_init=ts_init,
             is_live=is_live,
+            run_id=run_id,
+            ingested_at_ns=ingested_at_ns,
         )
+
+
+@dataclass
+class StrategyRiskHaltEvent(NautilusData):
+    """
+    Store risk-halt transitions for strategy audit.
+
+    Attributes
+    ----------
+    event_id : str
+        Unique event identifier.
+    strategy_id : str
+        Strategy identifier.
+    instrument_id : str
+        Instrument identifier.
+    event_type : str
+        Halt transition type (e.g., "halted", "resumed").
+    reason : str
+        Halt reason label.
+    detail : str | None
+        Optional detail for the halt reason.
+    run_id : str | None
+        Optional run identifier for replay/audit correlation.
+    ingested_at_ns : int | None
+        Ingestion timestamp in nanoseconds.
+    _ts_event : int
+        Event timestamp in nanoseconds.
+    _ts_init : int
+        Initialization timestamp in nanoseconds.
+    is_live : bool
+        Whether this event occurred in live trading.
+
+    """
+
+    event_id: str
+    strategy_id: str
+    instrument_id: str
+    event_type: str
+    reason: str
+    detail: str | None
+    _ts_event: int
+    _ts_init: int
+    is_live: bool = False
+    run_id: str | None = None
+    ingested_at_ns: int | None = None
+
+    @property
+    def ts_event(self) -> int:
+        """
+        Event timestamp in nanoseconds.
+        """
+        return self._ts_event
+
+    @property
+    def ts_init(self) -> int:
+        """
+        Initialization timestamp in nanoseconds.
+        """
+        return self._ts_init
+
+
+@dataclass
+class StrategyReplaySummary(NautilusData):
+    """
+    Store replay summary statistics for fast audits.
+
+    Attributes
+    ----------
+    run_id : str
+        Replay run identifier.
+    instrument_ids : list[str]
+        Instruments included in the replay.
+    started_ns : int | None
+        Run start timestamp in nanoseconds when available.
+    finished_ns : int | None
+        Run end timestamp in nanoseconds when available.
+    total_orders : int
+        Total orders submitted during the replay.
+    total_fills : int
+        Total fills recorded during the replay.
+    total_halts : int
+        Total risk-halt transitions recorded.
+    total_sizing_rejects : int
+        Total sizing rejections recorded.
+    total_positions : int
+        Total positions opened during the replay.
+    _ts_event : int
+        Event timestamp in nanoseconds.
+    _ts_init : int
+        Initialization timestamp in nanoseconds.
+    ingested_at_ns : int | None
+        Ingestion timestamp in nanoseconds.
+
+    """
+
+    run_id: str
+    instrument_ids: list[str]
+    started_ns: int | None
+    finished_ns: int | None
+    total_orders: int
+    total_fills: int
+    total_halts: int
+    total_sizing_rejects: int
+    total_positions: int
+    _ts_event: int
+    _ts_init: int
+    ingested_at_ns: int | None = None
+
+    @property
+    def ts_event(self) -> int:
+        """
+        Event timestamp in nanoseconds.
+        """
+        return self._ts_event
+
+    @property
+    def ts_init(self) -> int:
+        """
+        Initialization timestamp in nanoseconds.
+        """
+        return self._ts_init
 
 
 class BaseStore(MLComponentMixin, ABC):

@@ -513,6 +513,7 @@ class BindingResolver:
         schema = binding.schema or default_schema
         if not schema:
             return False
+        provider_schema = binding.provider_schema or schema
 
         provider_dataset_id = binding.provider_dataset_id or binding.dataset_id
         # Check availability and cost with ingestion service
@@ -520,7 +521,7 @@ class BindingResolver:
             try:
                 available_start_ns, available_end_ns = service.get_available_range_ns(
                     dataset=provider_dataset_id,
-                    schema=schema,
+                    schema=provider_schema,
                 )
             except IngestionError as exc:
                 logger.info(
@@ -529,6 +530,7 @@ class BindingResolver:
                         "dataset_id": binding.dataset_id,
                         "provider_dataset_id": provider_dataset_id,
                         "schema": schema,
+                        "provider_schema": provider_schema,
                         "symbol": symbol,
                         "reason": str(exc),
                     },
@@ -542,6 +544,7 @@ class BindingResolver:
                         "dataset_id": binding.dataset_id,
                         "provider_dataset_id": provider_dataset_id,
                         "schema": schema,
+                        "provider_schema": provider_schema,
                         "symbol": symbol,
                     },
                 )
@@ -554,6 +557,7 @@ class BindingResolver:
                             "dataset_id": binding.dataset_id,
                             "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
+                            "provider_schema": provider_schema,
                             "symbol": symbol,
                             "available_start_ns": available_start_ns,
                             "requested_end_ns": end_ns,
@@ -568,6 +572,7 @@ class BindingResolver:
                             "dataset_id": binding.dataset_id,
                             "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
+                            "provider_schema": provider_schema,
                             "symbol": symbol,
                             "available_end_ns": available_end_ns,
                             "requested_start_ns": start_ns,
@@ -579,7 +584,7 @@ class BindingResolver:
                 try:
                     cost_usd = service.estimate_cost_usd(
                         dataset=provider_dataset_id,
-                        schema=schema,
+                        schema=provider_schema,
                         symbols=(symbol,),
                         start=DiscoveryClient.ns_to_datetime(start_ns),
                         end=DiscoveryClient.ns_to_datetime(end_ns),
@@ -591,6 +596,7 @@ class BindingResolver:
                             "dataset_id": binding.dataset_id,
                             "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
+                            "provider_schema": provider_schema,
                             "symbol": symbol,
                             "reason": str(exc),
                         },
@@ -604,6 +610,7 @@ class BindingResolver:
                             "dataset_id": binding.dataset_id,
                             "provider_dataset_id": provider_dataset_id,
                             "schema": schema,
+                            "provider_schema": provider_schema,
                             "symbol": symbol,
                         },
                     )
@@ -615,6 +622,7 @@ class BindingResolver:
                                 "dataset_id": binding.dataset_id,
                                 "provider_dataset_id": provider_dataset_id,
                                 "schema": schema,
+                                "provider_schema": provider_schema,
                                 "symbol": symbol,
                                 "cost_usd": cost_usd,
                             },

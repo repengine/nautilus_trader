@@ -2560,7 +2560,7 @@ class TestPropertyTests:
         assert 0.0 <= signal.confidence <= 1.0
 
     @given(
-        prediction=st.floats(min_value=-1.0, max_value=1.0, allow_nan=False),
+        prediction=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
         confidence=st.floats(min_value=0.5, max_value=1.0, allow_nan=False),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -2611,7 +2611,7 @@ class TestPropertyTests:
             assert signal1.confidence == signal2.confidence
 
     @given(
-        prediction=st.floats(min_value=-1.0, max_value=1.0, allow_nan=False),
+        prediction=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_strategy_context_immutability_property(

@@ -142,9 +142,9 @@ class PredictionSchema(pa.DataFrameModel):
     instrument_id: Series[str] = pa.Field(nullable=False)
     prediction: Series[float] = pa.Field(
         nullable=False,
-        ge=-1.0,
+        ge=0.0,
         le=1.0,
-        description="Model prediction value",
+        description="Model prediction probability",
     )
     confidence: Series[float] = pa.Field(
         nullable=False,
@@ -221,7 +221,7 @@ class SignalSchema(pa.DataFrameModel):
     )
     signal_strength: Series[float] = pa.Field(
         nullable=False,
-        ge=-1.0,
+        ge=0.0,
         le=1.0,
     )
     ts_event: Series[int] = pa.Field(nullable=False, ge=0)
@@ -230,15 +230,10 @@ class SignalSchema(pa.DataFrameModel):
     @pa.dataframe_check()
     def check_signal_consistency(cls, df: DataFrame[Any]) -> Series[bool]:
         """
-        BUY signals should be positive, SELL signals negative.
+        Signal strength should be within [0, 1] for all signal types.
         """
-        buy_mask = df["signal_type"] == "BUY"
-        sell_mask = df["signal_type"] == "SELL"
-
-        buy_check = ~buy_mask | (df["signal_strength"] >= 0)
-        sell_check = ~sell_mask | (df["signal_strength"] <= 0)
-
-        return cast(Series[bool], buy_check & sell_check)
+        strengths = df["signal_strength"]
+        return cast(Series[bool], strengths.between(0.0, 1.0))
 
     @pa.check("instrument_id", name="instrument_id_format")
     def check_instrument_id_format(cls, s: Series[str]) -> Series[bool]:
@@ -395,8 +390,8 @@ class TestStoreSchemaContracts:
             {
                 "model_id": ["xgb_v1", "xgb_v1"],
                 "instrument_id": ["EURUSD.SIM", "GBPUSD.SIM"],
-                "prediction": [0.7, -0.3],
-                "confidence": [0.8, 0.4],
+                "prediction": [0.7, 0.3],
+                "confidence": [0.8, 0.6],
                 "ts_event": [1000000, 2000000],
                 "ts_init": [1000001, 2000001],
             },
@@ -410,7 +405,7 @@ class TestStoreSchemaContracts:
             {
                 "model_id": ["xgb_v1"],
                 "instrument_id": ["EURUSD.SIM"],
-                "prediction": [1.5],  # Out of [-1, 1]
+                "prediction": [1.5],  # Out of [0, 1]
                 "confidence": [0.8],
                 "ts_event": [1000000],
                 "ts_init": [1000001],
@@ -538,7 +533,7 @@ class TestStoreSchemaContracts:
                 "strategy_id": ["strategy_1"],
                 "instrument_id": [instrument_id],
                 "signal_type": ["BUY"],
-                "signal_strength": [0.7],
+                "signal_strength": [0.8],
                 "ts_event": [ts_event],
                 "ts_init": [ts_init],
             },
@@ -554,7 +549,7 @@ class TestStoreSchemaContracts:
         # Verify consistency
         assert prediction_df["instrument_id"].iloc[0] == feature_df["instrument_id"].iloc[0]
         assert signal_df["instrument_id"].iloc[0] == prediction_df["instrument_id"].iloc[0]
-        assert signal_df["signal_strength"].iloc[0] == prediction_df["prediction"].iloc[0]
+        assert signal_df["signal_strength"].iloc[0] == prediction_df["confidence"].iloc[0]
 
 
 class TestSchemaEvolution:

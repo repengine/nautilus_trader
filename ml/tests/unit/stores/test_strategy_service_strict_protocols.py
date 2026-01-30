@@ -13,11 +13,14 @@ from ml.registry.protocols import RegistryProtocol
 from ml.stores.base import StrategySignal
 from ml.stores.services.strategy_services import (
     StrategyOrderEventEventService,
+    StrategyReplaySummaryEventService,
+    StrategyRiskHaltEventEventService,
     StrategySignalClearService,
     StrategySignalEventService,
     StrategySignalQueryService,
     StrategySignalStatsService,
     StrategySignalWriteService,
+    StrategyRiskHaltEventWriteService,
 )
 from ml.stores.protocols import (
     LoggerLike,
@@ -57,6 +60,8 @@ class _WriteDeps(StrategyWriteDepsStrict):
     def __init__(self) -> None:
         self.strategy_signals_table = _DummyTable()
         self.strategy_order_events_table = _DummyTable()
+        self.strategy_risk_halt_events_table = _DummyTable()
+        self.strategy_replay_summary_table = _DummyTable()
         self.last_values: list[dict[str, object]] | None = None
 
     def _execute_upsert_and_publish(
@@ -236,6 +241,26 @@ def test_strategy_write_service_strict_protocol_roundtrip() -> None:
     assert deps.last_values[0]["strategy_id"] == "s1"
 
 
+def test_strategy_risk_halt_write_service_strict_protocol_roundtrip() -> None:
+    from ml.stores.base import StrategyRiskHaltEvent
+
+    deps = _WriteDeps()
+    svc = StrategyRiskHaltEventWriteService(deps, logging.getLogger(__name__))
+    evt = StrategyRiskHaltEvent(
+        event_id="halt-1",
+        strategy_id="s1",
+        instrument_id="i1",
+        event_type="halted",
+        reason="daily_loss_limit",
+        detail=None,
+        _ts_event=1,
+        _ts_init=1,
+    )
+    svc.write_batch([evt])
+    assert deps.last_values is not None
+    assert deps.last_values[0]["strategy_id"] == "s1"
+
+
 def test_strategy_read_services_strict_protocol_basic() -> None:
     deps = _ReadDeps()
     q = StrategySignalQueryService(deps)
@@ -258,3 +283,9 @@ def test_strategy_clear_and_events_strict_protocol_smoke() -> None:
 
     oes = StrategyOrderEventEventService(eeps, logging.getLogger(__name__))
     oes.emit_order_events([])  # no error on empty input
+
+    rhes = StrategyRiskHaltEventEventService(eeps, logging.getLogger(__name__))
+    rhes.emit_risk_halt_events([])  # no error on empty input
+
+    rses = StrategyReplaySummaryEventService(eeps, logging.getLogger(__name__))
+    rses.emit_replay_summary_events([])  # no error on empty input

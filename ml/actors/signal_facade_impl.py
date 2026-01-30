@@ -39,7 +39,6 @@ Critical Safeguards:
 
 from __future__ import annotations
 
-import math
 import os
 import sys
 import time
@@ -55,7 +54,11 @@ from ml.actors.base import MLSignal
 from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.prediction_surface import decision_from_probability
+from ml.common.prediction_surface import normalize_prediction_output
+from ml.common.prediction_surface import resolve_output_is_logits
 from ml.config.names import FEATURE_TIME_BUCKETS
+from ml.schema import PREDICTION_SURFACE_V1
 
 
 if TYPE_CHECKING:
@@ -98,6 +101,9 @@ _inference_fallback_counter = get_counter(
     "Total fallback activations by component and stage",
     ["component", "level"],
 )
+
+_PREDICTION_SURFACE_VERSION = PREDICTION_SURFACE_V1.version
+_CONFIDENCE_SEMANTICS = PREDICTION_SURFACE_V1.confidence_semantics
 
 
 def _resolve_feature_time_metric() -> Any | None:
@@ -542,9 +548,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         bar : Bar
             Current price bar.
         prediction : float
-            Model prediction [-1, 1].
+            Model prediction probability in [0, 1].
         confidence : float
-            Prediction confidence [0, 1].
+            Prediction confidence [0, 1] (calibrated probability or derived).
         features : npt.NDArray[np.float32]
             Feature array.
 
@@ -608,6 +614,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
             # Build complete context for strategy
             log_predictions = bool(getattr(self._config, "log_predictions", False))
+            neutral_band = float(getattr(self._signal_config, "prediction_neutral_band", 0.0))
             context: dict[str, Any] = {
                 "prediction_history": prediction_history,
                 "confidence_history": confidence_history,
@@ -620,6 +627,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 "_prediction_ring": ring_metadata.get("_prediction_ring"),
                 "_prediction_ring_index": ring_metadata.get("_prediction_ring_index", 0),
                 "_prediction_ring_count": ring_metadata.get("_prediction_ring_count", 0),
+                "signal_metadata": {
+                    "prediction_surface": "probability",
+                    "prediction_surface_version": _PREDICTION_SURFACE_VERSION,
+                    "neutral_band": neutral_band,
+                    "confidence_semantics": _CONFIDENCE_SEMANTICS,
+                },
             }
 
             # 5. Generate signal (Component 1 - hot path)
@@ -639,6 +652,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             if signal is None:
                 return
 
+            decision = decision_from_probability(
+                float(signal.prediction),
+                neutral_band=neutral_band,
+            )
+            signal_type = decision.lower()
+
             # 6. Update last signal bar
             self._last_signal_bar = self._bars_processed
 
@@ -655,8 +674,8 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 self._strategy_store.write_signal(
                     strategy_id=(str(self.id) if getattr(self, "id", None) else "ml_signal"),
                     instrument_id=str(bar.bar_type.instrument_id),
-                    signal_type="buy" if signal.prediction > 0 else "sell",
-                    strength=abs(signal.prediction),
+                    signal_type=signal_type,
+                    strength=float(signal.confidence),
                     model_predictions={context.get("model_id", "unknown"): prediction},
                     risk_metrics={"confidence": confidence},
                     execution_params={"threshold": adaptive_threshold},
@@ -688,7 +707,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 metric.labels(
                     actor_id=actor_id_str,
                     strategy=strategy_name_str_2,
-                    signal_type="buy" if signal.prediction > 0 else "sell",
+                    signal_type=signal_type,
                 ).inc()
 
         except Exception as exc:
@@ -1362,28 +1381,17 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
     def _sanitize_prediction_output(
         self,
-        prediction: float,
-        confidence: float,
+        prediction: Any,
+        confidence: Any | None,
     ) -> tuple[float, float]:
-        pred = float(prediction)
-        conf = float(confidence)
-
-        if not math.isfinite(pred):
-            pred = 0.0
-        if not math.isfinite(conf):
-            conf = 0.0
-
-        if pred > 1.0:
-            pred = 1.0
-        elif pred < -1.0:
-            pred = -1.0
-
-        if conf > 1.0:
-            conf = 1.0
-        elif conf < 0.0:
-            conf = 0.0
-
-        return pred, conf
+        output_is_logits = resolve_output_is_logits(self._model_metadata)
+        classes = getattr(self._model, "classes_", None)
+        return normalize_prediction_output(
+            prediction,
+            confidence,
+            classes=classes,
+            output_is_logits=output_is_logits,
+        )
 
     def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
@@ -1397,11 +1405,11 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         Returns
         -------
         tuple[float, float]
-            A tuple of (prediction, confidence) values.
+            A tuple of (probability, confidence) values.
 
         """
         if self._model is None:
-            return 0.0, 0.0
+            return self._sanitize_prediction_output(0.5, 0.0)
 
         try:
             # Check for Mock objects (testing)
@@ -1414,9 +1422,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
                     probabilities = self._model.predict_proba(self._predict_input_buf)[0]
-                    prediction = float(np.argmax(probabilities))
-                    confidence = float(np.max(probabilities))
-                    return self._sanitize_prediction_output(prediction, confidence)
+                    return self._sanitize_prediction_output(probabilities, None)
                 elif hasattr(self._model, "run"):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
@@ -1424,18 +1430,18 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     outputs = self._model.run(None, {mock_input_name: self._predict_input_buf})
                     if len(outputs) >= 2:
                         return self._sanitize_prediction_output(
-                            self._extract_output_scalar(outputs[0], label="prediction"),
-                            self._extract_output_scalar(outputs[1], label="confidence"),
+                            outputs[0],
+                            outputs[1],
                         )
                     return self._sanitize_prediction_output(
-                        self._extract_output_scalar(outputs[0], label="prediction"),
-                        0.5,
+                        outputs[0],
+                        None,
                     )
                 elif hasattr(self._model, "predict"):
                     size = features.shape[0]
                     self._predict_input_buf[0, :size] = features
                     prediction = float(self._model.predict(self._predict_input_buf)[0])
-                    return self._sanitize_prediction_output(prediction, 0.5)
+                    return self._sanitize_prediction_output(prediction, None)
 
             # ONNX model
             if hasattr(self._model, "run"):
@@ -1457,30 +1463,28 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
                     if len(outputs) >= 2:
                         return self._sanitize_prediction_output(
-                            self._extract_output_scalar(outputs[0], label="prediction"),
-                            self._extract_output_scalar(outputs[1], label="confidence"),
+                            outputs[0],
+                            outputs[1],
                         )
                     return self._sanitize_prediction_output(
-                        self._extract_output_scalar(outputs[0], label="prediction"),
-                        0.5,
+                        outputs[0],
+                        None,
                     )
 
             # Scikit-learn with predict_proba
             if hasattr(self._model, "predict_proba"):
                 features_2d = features.reshape(1, -1)
                 probabilities = self._model.predict_proba(features_2d)[0]
-                prediction = float(np.argmax(probabilities))
-                confidence = float(np.max(probabilities))
-                return self._sanitize_prediction_output(prediction, confidence)
+                return self._sanitize_prediction_output(probabilities, None)
 
             # Generic predict
             if hasattr(self._model, "predict"):
                 features_2d = features.reshape(1, -1)
                 prediction = float(self._model.predict(features_2d)[0])
-                return self._sanitize_prediction_output(prediction, 0.5)
+                return self._sanitize_prediction_output(prediction, None)
 
             self.log.error(f"Unsupported model type: {type(self._model)}")
-            return self._sanitize_prediction_output(0.0, 0.0)
+            return self._sanitize_prediction_output(0.5, 0.0)
 
         except Exception as e:
             self.log.exception(f"Prediction failed: {e}", e)

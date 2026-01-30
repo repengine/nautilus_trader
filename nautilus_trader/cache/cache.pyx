@@ -2200,9 +2200,18 @@ cdef class Cache(CacheFacade):
         cdef list[bytes] snapshots = self._position_snapshots.get(position_id)
 
         # Create snapshot with modified position ID
-        cdef Position copied_position = pickle.loads(pickle.dumps(position))
-        copied_position.id = PositionId(f"{position_id.to_str()}-{uuid.uuid4()}")
-        cdef bytes position_pickled = pickle.dumps(copied_position)
+        cdef Position copied_position
+        cdef bytes position_pickled
+        try:
+            copied_position = pickle.loads(pickle.dumps(position))
+            copied_position.id = PositionId(f"{position_id.to_str()}-{uuid.uuid4()}")
+            position_pickled = pickle.dumps(copied_position)
+        except Exception as exc:
+            self._log.exception(
+                f"Failed to snapshot position {position_id.to_str()} (skipping)",
+                exc,
+            )
+            return
 
         if snapshots is not None:
             snapshots.append(position_pickled)

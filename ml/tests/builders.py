@@ -503,7 +503,7 @@ class DataBuilder:
         n_outputs : int
             Number of outputs per sample
         bounded : bool
-            Whether to bound predictions to [-1, 1]
+            Whether to bound predictions to [0, 1]
 
         Returns
         -------
@@ -514,8 +514,8 @@ class DataBuilder:
         rng = np.random.default_rng(42)
 
         if bounded:
-            # Generate predictions in [-1, 1] range
-            predictions = rng.uniform(-1, 1, (n_samples, n_outputs)).astype(np.float32)
+            # Generate predictions in [0, 1] range
+            predictions = rng.uniform(0, 1, (n_samples, n_outputs)).astype(np.float32)
         else:
             predictions = rng.standard_normal((n_samples, n_outputs)).astype(np.float32)
 

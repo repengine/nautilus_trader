@@ -20,7 +20,7 @@ DATASET_ID_EXPECTATIONS: Final[tuple[tuple[str, str], ...]] = (
     ("EQUS_MINI_TBBO_DATASET_ID", "EQUS.MINI_TBBO"),
     ("EQUS_MINI_TRADES_DATASET_ID", "EQUS.MINI_TRADES"),
     ("EVENTS_CALENDAR_DATASET_ID", "ml.events_calendar"),
-    ("FEATURE_VALUES_DATASET_ID", "ml.feature_values"),
+    ("FEATURE_VALUES_DATASET_ID", "features"),
     ("L2_MINUTE_DATASET_ID", "ml.l2_minute"),
     ("MACRO_OBSERVATIONS_DATASET_ID", "ml.macro_observations"),
     ("MACRO_RELEASES_DATASET_ID", "ml.macro_release_calendar"),
@@ -50,11 +50,13 @@ def test_dataset_ids_have_correct_values() -> None:
     """Dataset IDs have the expected string values."""
     from ml.config import dataset_ids as module
 
+    no_namespace_attrs = {"FEATURE_VALUES_DATASET_ID"}
     for attr, expected in DATASET_ID_EXPECTATIONS:
         value = getattr(module, attr)
         assert isinstance(value, str)
-        # Most IDs start with "ml." but some (EQUS_MINI) use different prefix
-        assert "." in value, f"{attr} should contain namespace separator"
+        # Most IDs start with "ml." but some use different prefixes or legacy names.
+        if attr not in no_namespace_attrs:
+            assert "." in value, f"{attr} should contain namespace separator"
         assert value == expected
 
 

@@ -346,7 +346,7 @@ def sample_predictions() -> np.ndarray:
     """
     Sample model predictions.
     """
-    return np.array([0.65, -0.3, 0.8], dtype=np.float32)
+    return np.array([0.65, 0.3, 0.8], dtype=np.float32)
 
 
 @pytest.fixture

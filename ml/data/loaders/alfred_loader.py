@@ -287,11 +287,17 @@ class ALFREDDataLoader:
         end_raw = self._config.end_date
         window_days = max(int(self._config.window_days or 0), 0)
         fallback_enabled = series_id in self._config.fallback_to_fred_series
+
+        def _should_fallback(exc: Exception) -> bool:
+            if fallback_enabled:
+                return True
+            message = str(exc).lower()
+            return "does not exist in alfred" in message or "no data exists for series id" in message
         if not start_raw and not end_raw:
             try:
                 return self._client.get_series_all_releases(series_id)
-            except Exception:
-                if fallback_enabled:
+            except Exception as exc:
+                if _should_fallback(exc):
                     return self._fetch_fred_series(series_id)
                 raise
 
@@ -317,8 +323,8 @@ class ALFREDDataLoader:
                     realtime_start=current_start.strftime("%Y-%m-%d"),
                     realtime_end=current_end.strftime("%Y-%m-%d"),
                 )
-            except Exception:
-                if fallback_enabled:
+            except Exception as exc:
+                if _should_fallback(exc):
                     return self._fetch_fred_series(series_id)
                 raise
             if not frame.empty:

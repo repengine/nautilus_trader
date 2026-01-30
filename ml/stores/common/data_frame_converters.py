@@ -249,6 +249,8 @@ def data_frame_to_signals(
                     execution_params=row.get("execution_params", {}),
                     _ts_event=ts_event,
                     _ts_init=ts_init,
+                    run_id=row.get("run_id"),
+                    ingested_at_ns=row.get("ingested_at_ns"),
                 ),
             )
     elif hasattr(data_frame_any, "iterrows"):
@@ -270,6 +272,8 @@ def data_frame_to_signals(
                     execution_params=row.get("execution_params", {}),
                     _ts_event=ts_event,
                     _ts_init=ts_init,
+                    run_id=row.get("run_id"),
+                    ingested_at_ns=row.get("ingested_at_ns"),
                 ),
             )
     else:
@@ -292,6 +296,8 @@ def data_frame_to_signals(
                         execution_params=row.get("execution_params", {}),
                         _ts_event=ts_event,
                         _ts_init=ts_init,
+                        run_id=row.get("run_id"),
+                        ingested_at_ns=row.get("ingested_at_ns"),
                     ),
                 )
 

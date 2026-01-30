@@ -26,12 +26,17 @@ def test_schema_spec_includes_dataset_type_and_template() -> None:
     assert spec.data_class is QuoteTick
     assert spec.identifier_template == "{instrument_id}"
     assert map_schema_to_dataset_type("tbbo") is DatasetType.TBBO
+    assert map_schema_to_dataset_type("quotes") is DatasetType.QUOTES
+    assert map_schema_to_dataset_type("predictions") is DatasetType.PREDICTIONS
+    assert map_schema_to_dataset_type("signals") is DatasetType.SIGNALS
 
 
 @pytest.mark.unit
 def test_schema_identifier_templates_default_to_registry() -> None:
     assert schema_to_identifier_template("ohlcv-1m") == DEFAULT_BAR_IDENTIFIER_TEMPLATE
     assert schema_to_dataclass("trades") is TradeTick
+    assert schema_to_dataclass("predictions") is dict
+    assert schema_to_dataclass("signals") is dict
     assert default_identifier_template_for_dataset_type(DatasetType.TBBO) == "{instrument_id}"
 
 

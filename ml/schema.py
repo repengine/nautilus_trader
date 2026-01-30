@@ -18,6 +18,8 @@ from ml.registry.dataclasses import DatasetType
 __all__ = [
     "DATASET_TYPE_IDENTIFIER_DEFAULTS",
     "DEFAULT_BAR_IDENTIFIER_TEMPLATE",
+    "PREDICTION_SURFACE_V1",
+    "PredictionSurfaceSpec",
     "SchemaSpec",
     "dataset_type_to_dataclass",
     "default_identifier_template_for_dataset_type",
@@ -46,6 +48,75 @@ class SchemaSpec:
         Validate spec configuration.
         """
         validate_identifier_template(self.identifier_template, label="schema identifier template")
+
+
+@dataclass(frozen=True)
+class PredictionSurfaceSpec:
+    """
+    Canonical prediction surface specification.
+
+    Attributes
+    ----------
+    surface : str
+        Surface type (e.g., "probability").
+    range_min : float
+        Minimum value for the surface.
+    range_max : float
+        Maximum value for the surface.
+    threshold : float
+        Decision threshold center (default 0.5 for probability).
+    neutral_band_supported : bool
+        Whether a neutral band is supported around the threshold.
+    confidence_semantics : str
+        Description of how confidence is derived.
+    output_is_logits : bool
+        True if raw outputs are logits prior to normalization.
+    calibration : Mapping[str, Any] | None
+        Optional calibration metadata (method, version, params).
+    version : str
+        Schema version identifier.
+
+    """
+
+    surface: str
+    range_min: float
+    range_max: float
+    threshold: float = 0.5
+    neutral_band_supported: bool = True
+    confidence_semantics: str = "max_probability"
+    output_is_logits: bool = False
+    calibration: Mapping[str, Any] | None = None
+    version: str = "v1"
+
+    def to_metadata(self) -> dict[str, Any]:
+        """
+        Render the surface spec as a JSON-serializable metadata dict.
+        """
+        metadata: dict[str, Any] = {
+            "version": self.version,
+            "surface": self.surface,
+            "range": {"min": self.range_min, "max": self.range_max},
+            "threshold": self.threshold,
+            "neutral_band_supported": self.neutral_band_supported,
+            "confidence_semantics": self.confidence_semantics,
+            "output_is_logits": self.output_is_logits,
+        }
+        if self.calibration is not None:
+            metadata["calibration"] = dict(self.calibration)
+        return metadata
+
+
+PREDICTION_SURFACE_V1 = PredictionSurfaceSpec(
+    surface="probability",
+    range_min=0.0,
+    range_max=1.0,
+    threshold=0.5,
+    neutral_band_supported=True,
+    confidence_semantics="max_probability",
+    output_is_logits=False,
+    calibration=None,
+    version="v1",
+)
 
 
 def validate_identifier_template(template: str, *, label: str) -> str:
@@ -120,9 +191,18 @@ _register(
 )
 _register(
     _SCHEMA_REGISTRY,
-    ("tbbo", "bbo", "bbo-1s", "bbo-1m", "tcbbo", "quote", "quotes"),
+    ("tbbo", "bbo", "bbo-1s", "bbo-1m", "tcbbo"),
     SchemaSpec(
         dataset_type=DatasetType.TBBO,
+        data_class=QuoteTick,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("quote", "quotes", "quote_tick", "quote-tick"),
+    SchemaSpec(
+        dataset_type=DatasetType.QUOTES,
         data_class=QuoteTick,
         identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
     ),
@@ -218,6 +298,24 @@ _register(
     ("feature_values", "feature-values", "features"),
     SchemaSpec(
         dataset_type=DatasetType.FEATURES,
+        data_class=dict,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("predictions", "prediction", "model_predictions", "model-predictions"),
+    SchemaSpec(
+        dataset_type=DatasetType.PREDICTIONS,
+        data_class=dict,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("signals", "signal", "strategy_signals", "strategy-signals"),
+    SchemaSpec(
+        dataset_type=DatasetType.SIGNALS,
         data_class=dict,
         identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
     ),

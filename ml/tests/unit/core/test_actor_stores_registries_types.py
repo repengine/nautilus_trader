@@ -463,6 +463,7 @@ def test_dataclass_can_be_instantiated_with_typed_fields() -> None:
     # Instantiate dataclass
     container = ActorStoresRegistries(
         feature_store=mock_feature_store,
+        feature_dataset_store=None,
         model_store=mock_model_store,
         strategy_store=mock_strategy_store,
         data_store=mock_data_store,
@@ -507,6 +508,7 @@ def test_existing_usage_patterns_still_work() -> None:
     # Pattern 1: Create with all fields
     container = ActorStoresRegistries(
         feature_store=MagicMock(),
+        feature_dataset_store=None,
         model_store=MagicMock(),
         strategy_store=MagicMock(),
         data_store=MagicMock(),

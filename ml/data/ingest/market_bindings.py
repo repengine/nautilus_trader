@@ -32,6 +32,7 @@ class ResolvedMarketBinding:
     end: str | None
     source: str
     provider_dataset_id: str | None = None
+    provider_schema: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +50,7 @@ class MarketBindingStats:
     license_start: str | None
     license_end: str | None
     provider_dataset_id: str | None = None
+    provider_schema: str | None = None
     rows_from_store: int = 0
     rows_from_catalog: int = 0
     ts_event_start_ns: int | None = None
@@ -115,6 +117,11 @@ def resolve_market_dataset_bindings(
             or dataset_id
         )
         schema = raw.schema_override or (descriptor.schema if descriptor else None)
+        provider_schema = (
+            raw.provider_schema
+            or (descriptor.provider_schema if descriptor else None)
+            or schema
+        )
         storage_kind = raw.storage_kind_override or (descriptor.storage_kind if descriptor else None)
         for symbol in matched_symbols:
             instruments = _resolve_instruments(symbol, instrument_lookup, descriptor)
@@ -133,6 +140,7 @@ def resolve_market_dataset_bindings(
                 end=raw.end,
                 source="descriptor",
                 provider_dataset_id=provider_dataset_id,
+                provider_schema=provider_schema,
             )
             assigned.setdefault(symbol, []).append(binding)
 
@@ -156,6 +164,7 @@ def resolve_market_dataset_bindings(
                 end=None,
                 source="legacy",
                 provider_dataset_id=market_dataset_id,
+                provider_schema=None,
             )
             assigned.setdefault(symbol, []).append(binding)
 

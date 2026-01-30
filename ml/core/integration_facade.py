@@ -349,6 +349,7 @@ class ActorStoresRegistries:
     """
 
     feature_store: FeatureStoreLike
+    feature_dataset_store: FeatureDatasetStore | None
     model_store: ModelStoreLike
     strategy_store: StrategyStoreLike
     data_store: DataStoreFacadeLike
@@ -1528,6 +1529,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
     if bool(getattr(config, "use_dummy_stores", False)) or force_dummy:
         return ActorStoresRegistries(
             feature_store=DummyStore(),
+            feature_dataset_store=None,
             model_store=DummyStore(),
             strategy_store=DummyStore(),
             data_store=cast(DataStoreFacadeProtocol, DummyStore()),
@@ -1656,6 +1658,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
 
             return ActorStoresRegistries(
                 feature_store=feature_store,
+                feature_dataset_store=None,
                 model_store=model_store,
                 strategy_store=strategy_store,
                 data_store=cast(DataStoreFacadeProtocol, file_data_store),
@@ -1674,6 +1677,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
 
         return ActorStoresRegistries(
             feature_store=DummyStore(),
+            feature_dataset_store=None,
             model_store=DummyStore(),
             strategy_store=DummyStore(),
             data_store=cast(DataStoreFacadeProtocol, DummyStore()),
@@ -1690,6 +1694,14 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
         connection_string=db_connection,
     )
     feature_store = FeatureStore(connection_string=db_connection)
+    try:
+        feature_dataset_store = FeatureDatasetStore(connection_string=db_connection)
+    except Exception:
+        logger.warning(
+            "FeatureDatasetStore initialization failed; continuing without SQL feature datasets",
+            exc_info=True,
+        )
+        feature_dataset_store = None
     model_store = ModelStore(persistence_config=persistence_config)
     strategy_store = StrategyStore(persistence_config=persistence_config)
 
@@ -1731,17 +1743,37 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             logger.debug("EarningsStore fallback metric emit failed", exc_info=True)
         earnings_store = DummyEarningsStore()
 
+    raw_reader: RawReaderProtocol | None = None
+    if db_connection:
+        try:
+            from ml.stores.providers import SqlMarketDataReader
+
+            table_name = os.getenv("TABLE_NAME", "market_data")
+            raw_reader = SqlMarketDataReader(
+                connection_string=db_connection,
+                table_name=table_name,
+            )
+        except Exception:
+            logger.debug(
+                "SqlMarketDataReader init failed; raw_reader disabled",
+                exc_info=True,
+            )
+            raw_reader = None
+
     data_store = create_data_store(
         registry=data_registry,
         connection_string=db_connection,
         feature_store=feature_store,
+        feature_dataset_store=feature_dataset_store,
         model_store=model_store,
         strategy_store=strategy_store,
         earnings_store=earnings_store,
+        raw_reader=raw_reader,
     )
 
     return ActorStoresRegistries(
         feature_store=feature_store,
+        feature_dataset_store=feature_dataset_store,
         model_store=model_store,
         strategy_store=strategy_store,
         data_store=data_store,

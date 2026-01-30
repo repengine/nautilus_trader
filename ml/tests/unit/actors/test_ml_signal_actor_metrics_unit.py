@@ -14,6 +14,7 @@ import numpy as np
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import make_stub_bar
 from ml.tests.utils.stubs import SignalActorHarness
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
@@ -40,7 +41,7 @@ class _DummyCounter:
 
 def _stub_bar() -> object:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    return SimpleNamespace(bar_type=SimpleNamespace(instrument_id=inst), ts_event=1)
+    return make_stub_bar(inst)
 
 
 def test_signals_generated_metric_incremented() -> None:

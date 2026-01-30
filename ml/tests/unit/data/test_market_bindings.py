@@ -146,6 +146,24 @@ def test_resolve_market_bindings_sets_provider_dataset_id_from_descriptor() -> N
     assert binding.provider_dataset_id == "EQUS.MINI"
 
 
+def test_resolve_market_bindings_sets_provider_schema_from_descriptor() -> None:
+    descriptors = load_market_feed_descriptors().as_mapping()
+
+    bindings = resolve_market_dataset_bindings(
+        symbols=["AAPL"],
+        instrument_ids=("AAPL.XNAS",),
+        market_dataset_id=None,
+        market_inputs=(MarketDatasetInput(descriptor_id="EQUS.MINI_QUOTES"),),
+        descriptors=descriptors,
+    )
+
+    assert len(bindings) == 1
+    binding = bindings[0]
+    assert binding.dataset_id == "EQUS.MINI_QUOTES"
+    assert binding.schema == "quotes"
+    assert binding.provider_schema == "tbbo"
+
+
 def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> None:
     metadata = DatasetMetadata(
         dataset_id="demo",
@@ -176,6 +194,7 @@ def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> No
                 rows_from_store=0,
                 rows_from_catalog=0,
                 provider_dataset_id="EQUS.MINI",
+                provider_schema="tbbo",
             ),
         ),
     )
@@ -187,3 +206,4 @@ def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> No
     reloaded = load_dataset_metadata(metadata_path)
     assert reloaded.market_bindings is not None
     assert reloaded.market_bindings[0].provider_dataset_id == "EQUS.MINI"
+    assert reloaded.market_bindings[0].provider_schema == "tbbo"

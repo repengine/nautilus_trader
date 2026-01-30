@@ -28,6 +28,8 @@ import numpy.typing as npt
 from nautilus_trader.model.data import Bar
 
 from ml.actors.signal import MLSignalActor
+from ml.common.prediction_surface import normalize_prediction_batch
+from ml.common.prediction_surface import resolve_output_is_logits
 from ml.config.actors import MLSignalActorConfig as _BaseCfg
 
 
@@ -431,17 +433,25 @@ class MultiInstrumentSignalActor(MLSignalActor):
             model = getattr(self, "_model", None)
             meta = getattr(self, "_model_metadata", {})
             if model is not None and hasattr(model, "run") and isinstance(meta, dict):
+                output_is_logits = resolve_output_is_logits(meta)
                 input_names = meta.get("input_names")
                 input_name = input_names[0] if input_names else "input"
                 outputs = model.run(None, {str(input_name): features})
                 if len(outputs) >= 2:
-                    preds = np.asarray(outputs[0]).reshape(-1).astype(np.float32)
-                    confs = np.asarray(outputs[1]).reshape(-1).astype(np.float32)
-                    return preds, confs
+                    preds = np.asarray(outputs[0])
+                    confs = np.asarray(outputs[1])
+                    return normalize_prediction_batch(
+                        preds,
+                        confs,
+                        output_is_logits=output_is_logits,
+                    )
                 if len(outputs) == 1:
-                    preds = np.asarray(outputs[0]).reshape(-1).astype(np.float32)
-                    confs.fill(0.5)
-                    return preds, confs
+                    preds = np.asarray(outputs[0])
+                    return normalize_prediction_batch(
+                        preds,
+                        None,
+                        output_is_logits=output_is_logits,
+                    )
         except Exception as exc:
             # Fall through to per-row inference on any failure
             self.log.exception(

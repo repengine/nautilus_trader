@@ -56,6 +56,7 @@ class SizingConfig:
     confidence_scaling: bool = True  # Scale by signal confidence
     performance_scaling: bool = True  # Scale by recent performance
     lookback_periods: int = 20  # Periods for performance calc
+    annualization_factor: float | None = None  # Bars per year for volatility scaling
 
 
 # ===== Kelly Criterion Sizer =====
@@ -166,6 +167,7 @@ class VolatilitySizer:
         self.max_position_pct: Final[float] = config.max_position_pct
         self.min_position_pct: Final[float] = config.min_position_pct
         self.lookback: Final[int] = config.lookback_periods
+        self._annualization_factor: float | None = config.annualization_factor
 
         # Pre-allocated array for returns (hot path optimization)
         self._returns_buffer: npt.NDArray[np.float32] = np.zeros(self.lookback, dtype=np.float32)
@@ -187,6 +189,20 @@ class VolatilitySizer:
         if self._buffer_idx >= self.lookback:
             self._buffer_filled = True
 
+    def set_annualization_factor(self, factor: float) -> None:
+        """
+        Set annualization factor for volatility sizing.
+
+        Parameters
+        ----------
+        factor : float
+            Bars-per-year annualization factor.
+
+        """
+        if factor <= 0:
+            return
+        self._annualization_factor = float(factor)
+
     def calculate_vol_adjusted_pct(self) -> float:
         """
         Calculate volatility-adjusted position size percentage.
@@ -203,7 +219,10 @@ class VolatilitySizer:
 
         # Calculate realized volatility (annualized)
         returns_std: float = float(np.std(self._returns_buffer))
-        annual_vol: float = returns_std * math.sqrt(252.0)  # Assuming daily returns
+        annualization_factor = self._annualization_factor or 1.0
+        if annualization_factor <= 0:
+            annualization_factor = 1.0
+        annual_vol: float = returns_std * math.sqrt(annualization_factor)
 
         if annual_vol < 0.01:  # Very low vol
             return self.max_position_pct
@@ -255,7 +274,7 @@ class CompositeSizer:
         current_positions: list[Position],
     ) -> Quantity | None:
         """
-        Calculate position size using composite method.
+        Calculate position value using composite method.
 
         Parameters
         ----------
@@ -269,7 +288,8 @@ class CompositeSizer:
         Returns
         -------
         Quantity | None
-            Calculated position size, or None if should not trade.
+            Calculated position value (base currency encoded as a Quantity), or
+            None if should not trade.
 
         """
         import time
@@ -386,6 +406,18 @@ class CompositeSizer:
 
         """
         self.vol_sizer.update_returns(return_pct)
+
+    def set_annualization_factor(self, factor: float) -> None:
+        """
+        Set annualization factor for volatility sizing.
+
+        Parameters
+        ----------
+        factor : float
+            Bars-per-year annualization factor.
+
+        """
+        self.vol_sizer.set_annualization_factor(factor)
 
 
 # ===== Public API =====

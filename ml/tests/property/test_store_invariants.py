@@ -244,7 +244,7 @@ class TestModelStoreInvariants:
 
     @given(
         predictions=st.lists(
-            st.floats(min_value=-1.0, max_value=1.0, allow_nan=False),
+            st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
             min_size=10,
             max_size=100,
         ),
@@ -261,10 +261,10 @@ class TestModelStoreInvariants:
         """
         for pred in predictions:
             # Property: Predictions should be bounded
-            assert -1.0 <= pred <= 1.0, f"Prediction {pred} out of bounds [-1, 1]"
+            assert 0.0 <= pred <= 1.0, f"Prediction {pred} out of bounds [0, 1]"
 
-            # Property: Confidence derived from absolute value should be valid
-            confidence = abs(pred)
+            # Property: Confidence derived from probability should be valid
+            confidence = max(pred, 1.0 - pred)
             assert 0.0 <= confidence <= 1.0, f"Confidence {confidence} out of bounds [0, 1]"
 
             # Property: Threshold filtering should work correctly

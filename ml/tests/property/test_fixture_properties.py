@@ -69,9 +69,9 @@ class TestFixtureValueProperties:
         """
         Verify all prediction values are in valid range.
 
-        Property: All predictions are bounded within [-1, 1].
+        Property: All predictions are bounded within [0, 1].
         """
-        assert -1.0 <= sample_predictions[index] <= 1.0, (
+        assert 0.0 <= sample_predictions[index] <= 1.0, (
             f"Prediction at index {index} out of range: {sample_predictions[index]}"
         )
 
@@ -170,7 +170,7 @@ class TestFixtureDeterminism:
         Property: Fixture is deterministic (same array every time for same test).
         """
         # Expected values from fixture definition
-        expected = np.array([0.65, -0.3, 0.8], dtype=np.float32)
+        expected = np.array([0.65, 0.3, 0.8], dtype=np.float32)
 
         # Verify values match expected (regardless of invocation number)
         assert np.allclose(sample_predictions, expected, rtol=1e-6), (

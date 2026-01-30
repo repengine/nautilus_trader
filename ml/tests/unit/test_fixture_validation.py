@@ -125,7 +125,7 @@ def test_data_builder():
     # Test predictions generation
     predictions = DataBuilder.predictions(n_samples=100, bounded=True)
     assert len(predictions) == 100
-    assert predictions.min() >= -1.0
+    assert predictions.min() >= 0.0
     assert predictions.max() <= 1.0
 
     # Test OHLCV data generation

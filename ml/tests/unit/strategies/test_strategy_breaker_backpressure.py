@@ -27,6 +27,7 @@ class _FailingStore:
         execution_params: dict[str, Any],
         ts_event: int,
         is_live: bool = False,
+        run_id: str | None = None,
     ) -> None:
         self.calls += 1
         raise RuntimeError("store down")

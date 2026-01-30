@@ -31,6 +31,7 @@ from decimal import Decimal
 from nautilus_trader.analysis import statistics
 from nautilus_trader.analysis.analyzer import PortfolioAnalyzer
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.datetime import unix_nanos_to_dt
 from nautilus_trader.portfolio.config import PortfolioConfig
 
 from libc.stdint cimport uint64_t
@@ -137,6 +138,8 @@ cdef class Portfolio(PortfolioFacade):
         self._use_mark_prices: bool = config.use_mark_prices
         self._use_mark_xrates: bool = config.use_mark_xrates
         self._convert_to_account_base_currency: bool = config.convert_to_account_base_currency
+        self._track_account_returns: bool = config.track_account_returns
+        self._track_bar_returns: bool = config.track_bar_returns
         self._log_price: str = "mark price" if config.use_mark_prices else "quote, trade, or bar price"
         self._log_xrate: str = "mark" if config.use_mark_xrates else "data to calculate"
 
@@ -152,6 +155,8 @@ cdef class Portfolio(PortfolioFacade):
         self._pending_calcs: set[InstrumentId] = set()
         self._bar_close_prices: dict[InstrumentId, Price] = {}
         self._last_account_state_log_ts: dict[AccountId, uint64_t] = {}
+        self._last_account_returns_total: dict[AccountId, Money] = {}
+        self._last_account_returns_ts: dict[AccountId, uint64_t] = {}
 
         self.analyzer = PortfolioAnalyzer()
 
@@ -426,6 +431,8 @@ cdef class Portfolio(PortfolioFacade):
         cdef InstrumentId instrument_id = bar.bar_type.instrument_id
         self._bar_close_prices[instrument_id] = bar.close
         self._update_instrument_id(instrument_id)
+        if self._track_bar_returns:
+            self._update_bar_returns(instrument_id, bar.ts_event)
 
     cpdef void update_account(self, AccountState event):
         """
@@ -682,6 +689,8 @@ cdef class Portfolio(PortfolioFacade):
         self._unrealized_pnls.clear()
         self._pending_calcs.clear()
         self.analyzer.reset()
+        self._last_account_returns_total.clear()
+        self._last_account_returns_ts.clear()
 
         self.initialized = False
 
@@ -1378,6 +1387,92 @@ cdef class Portfolio(PortfolioFacade):
 
         if should_log:
             self._log.info(f"Updated {event}")
+
+        if self._track_account_returns:
+            self._update_account_returns(account, event)
+
+    cdef void _update_account_returns(self, Account account, AccountState event):
+        if account is None:
+            return
+
+        cdef dict balances_total = account.balances_total()
+        if not balances_total:
+            return
+
+        cdef Money current_total = None
+        cdef Currency base_currency = account.base_currency
+        if base_currency is not None and base_currency in balances_total:
+            current_total = balances_total[base_currency]
+        elif len(balances_total) == 1:
+            current_total = next(iter(balances_total.values()))
+        else:
+            return
+
+        self._record_account_return(account, current_total, event.ts_event)
+
+    cdef void _update_bar_returns(self, InstrumentId instrument_id, uint64_t ts_event):
+        cdef Account account = self._cache.account_for_venue(instrument_id.venue)
+        if account is None:
+            return
+
+        cdef double current_value = 0.0
+        cdef double unrealized_value = 0.0
+        cdef dict balances_total = account.balances_total()
+        if not balances_total:
+            return
+
+        cdef Money current_total = None
+        cdef Currency base_currency = account.base_currency
+        if base_currency is not None and base_currency in balances_total:
+            current_total = balances_total[base_currency]
+        elif len(balances_total) == 1:
+            current_total = next(iter(balances_total.values()))
+        else:
+            return
+
+        cdef dict unrealized = self.unrealized_pnls(instrument_id.venue)
+        cdef Money unrealized_total = None
+        if unrealized:
+            if base_currency is not None and base_currency in unrealized:
+                unrealized_total = unrealized[base_currency]
+            elif len(unrealized) == 1:
+                unrealized_total = next(iter(unrealized.values()))
+
+        if unrealized_total is not None:
+            if unrealized_total.currency != current_total.currency:
+                return
+            current_value = current_total.as_f64_c()
+            unrealized_value = unrealized_total.as_f64_c()
+            current_total = Money(current_value + unrealized_value, current_total.currency)
+
+        self._record_account_return(account, current_total, ts_event)
+
+    cdef void _record_account_return(
+        self,
+        Account account,
+        Money current_total,
+        uint64_t ts_event,
+    ):
+        if account is None or current_total is None:
+            return
+        cdef uint64_t last_ts = self._last_account_returns_ts.get(account.id, 0)
+        if last_ts and ts_event <= last_ts:
+            return
+        self._last_account_returns_ts[account.id] = ts_event
+
+        cdef Money last_total = self._last_account_returns_total.get(account.id)
+        self._last_account_returns_total[account.id] = current_total
+        if last_total is None:
+            return
+        if current_total.currency != last_total.currency:
+            return
+
+        cdef double last_value = last_total.as_f64_c()
+        if last_value <= 0.0:
+            return
+        cdef double current_value = current_total.as_f64_c()
+        cdef double return_value = (current_value - last_value) / last_value
+        self.analyzer.add_return(unix_nanos_to_dt(ts_event), return_value)
 
     cdef void _update_net_position(self, InstrumentId instrument_id, list positions_open):
         net_position = Decimal(0)

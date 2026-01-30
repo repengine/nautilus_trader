@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -119,6 +120,33 @@ def test_restore_all_raises_when_schema_audit_fails() -> None:
     )
     with pytest.raises(RuntimeError):
         manager.restore_all()
+
+
+def test_restore_all_logs_parity_gap_when_catalog_only(caplog: pytest.LogCaptureFixture) -> None:
+    dataset = DatasetCoverageConfig(
+        dataset_id="EQUS.MINI",
+        schema="tbbo",
+        instruments=("AAPL.XNAS",),
+        bucket_mode=CoverageBucketMode.CATALOG,
+    )
+    config = CoverageManagerConfig(datasets=(dataset,), lookback_days=1)
+    bucket_ns = int(datetime(2024, 1, 11, tzinfo=UTC).timestamp() * 1_000_000_000)
+    bucket_idx = bucket_ns // DAY_NS
+    sql_provider = _FakeCoverageProvider()
+    catalog_provider = _FakeCoverageProvider(
+        {"EQUS.MINI:tbbo:AAPL.XNAS": {bucket_idx}},
+    )
+    manager = CoverageManager(
+        config=config,
+        sql_provider=sql_provider,
+        catalog_provider=catalog_provider,
+        schema_auditor=_HealthyAuditor(),
+    )
+
+    caplog.set_level(logging.WARNING)
+    manager.restore_all()
+
+    assert any(record.message == "coverage_manager.parity_gap" for record in caplog.records)
 
 def test_parse_dataset_arg_handles_symbols() -> None:
     cfg = _parse_dataset_arg("EQUS.MINI:tbbo:AAPL.XNAS,MSFT.XNAS")

@@ -19,7 +19,7 @@ only to backfill new or missing history.
   `PartitionedParquetCoverageProvider` (scan-based today).
 - FeatureStore computed features: mirror writer + backfill utility exist and are
   wired through FeatureStore; historical compute now mirrors to parquet and falls
-  back to `public.market_data` when `public.bar` is absent. `ml.feature_values`
+  back to `public.market_data` when `public.bar` is absent. `features`
   is in coverage manifests and supported by `FeatureCoverageRestorer`. Remaining
   gaps are validation/hygiene and coverage-detection performance tuning.
 - Coverage restore can now skip legacy `market_data` via the schema-audit allowlist

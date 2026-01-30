@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -633,6 +634,7 @@ def test_run_coverage_restoration_skips_source_reingest_when_disabled(
 def test_run_coverage_restoration_dry_run_skips_restores(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     runner = entrypoint_pipeline.PipelineRunner()
     scheduler_config = SchedulerConfig(
@@ -742,12 +744,17 @@ def test_run_coverage_restoration_dry_run_skips_restores(
         _record_catalog_restore,
     )
 
+    caplog.set_level(logging.INFO)
     runner._run_coverage_restoration(scheduler_config, dry_run=True)
 
     assert restored_features == []
     assert restored_catalog == []
     assert runner.scheduler is not None
     assert runner.scheduler.targeted_calls == []
+    assert any(
+        record.message == "coverage_manager.dry_run_dataset_summary"
+        for record in caplog.records
+    )
 
 
 def test_run_coverage_restoration_triggers_feature_reingest_when_bucket_missing(

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -24,6 +26,7 @@ import pandas as pd
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.data import capsule_to_list
 from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.common.event_emitter import emit_dataset_event_and_watermark
@@ -186,20 +189,27 @@ class ParquetCatalogRehydrator:
         """
         self._catalog = catalog
         self._config = config
+        base_table_config = config.table_config or MarketDataTableConfig.from_env(
+            legacy_table=config.table_name,
+        )
+        if base_table_config.write_batch_size != config.batch_size:
+            base_table_config = replace(
+                base_table_config,
+                write_batch_size=config.batch_size,
+            )
+
         self._writer = writer or SqlMarketDataWriter(
             connection_string=db_connection,
             table_name=config.table_name,
             table_config=(
-                config.table_config
-                or MarketDataTableConfig.from_env(legacy_table=config.table_name)
+                base_table_config
             ),
         )
         self._coverage = coverage_provider or SqlCoverageProvider(
             connection_string=db_connection,
             table_name=config.table_name,
             table_config=(
-                config.table_config
-                or MarketDataTableConfig.from_env(legacy_table=config.table_name)
+                base_table_config
             ),
         )
         self._schema_templates = validate_schema_identifier_templates(
@@ -393,6 +403,50 @@ class ParquetCatalogRehydrator:
         for bucket in missing_buckets:
             bucket_start_ns = bucket * DAY_NS
             bucket_end_ns = (bucket + 1) * DAY_NS
+            if dataset_type in (DatasetType.QUOTES, DatasetType.TRADES):
+                stream_rows, ts_min_ns, ts_max_ns = self._rehydrate_bucket_streaming(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    identifier=identifier,
+                    dataset_type=dataset_type,
+                    instrument=instrument_obj,
+                    bucket_start_ns=bucket_start_ns,
+                    bucket_end_ns=bucket_end_ns,
+                )
+                if stream_rows <= 0:
+                    logger.debug(
+                        "catalog_rehydrate.bucket_empty",
+                        extra={"instrument_id": instrument_id, "bucket": bucket},
+                    )
+                    continue
+                buckets_restored += 1
+                rows_written += stream_rows
+                _rehydrate_rows_total.labels(instrument=instrument_id).inc(stream_rows)
+                logger.info(
+                    "catalog_rehydrate.bucket_restored",
+                    extra={
+                        "instrument_id": instrument_id,
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "bucket": bucket,
+                        "rows": stream_rows,
+                    },
+                )
+                if ts_min_ns is not None and ts_max_ns is not None:
+                    self._emit_registry_event_stats(
+                        dataset_id=dataset_id,
+                        schema=schema,
+                        instrument_id=instrument_id,
+                        identifier=identifier,
+                        dataset_type=dataset_type,
+                        bucket=bucket,
+                        ts_min_ns=ts_min_ns,
+                        ts_max_ns=ts_max_ns,
+                        count=stream_rows,
+                    )
+                continue
+
             frame = self._load_bucket_frame(
                 dataset_type=dataset_type,
                 instrument=instrument_obj,
@@ -466,6 +520,33 @@ class ParquetCatalogRehydrator:
                 return
             ts_min_ns = int(numeric.min())
             ts_max_ns = int(numeric.max())
+        self._emit_registry_event_stats(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            identifier=identifier,
+            dataset_type=dataset_type,
+            bucket=bucket,
+            ts_min_ns=ts_min_ns,
+            ts_max_ns=ts_max_ns,
+            count=len(frame.index),
+        )
+
+    def _emit_registry_event_stats(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        identifier: str,
+        dataset_type: DatasetType,
+        bucket: int,
+        ts_min_ns: int,
+        ts_max_ns: int,
+        count: int,
+    ) -> None:
+        if self._registry is None:
+            return
         try:
             emit_dataset_event_and_watermark(
                 self._registry,
@@ -476,7 +557,7 @@ class ParquetCatalogRehydrator:
                 run_id="catalog_rehydrate",
                 ts_min=ts_min_ns,
                 ts_max=ts_max_ns,
-                count=len(frame.index),
+                count=count,
                 status=EventStatus.SUCCESS,
                 dataset_type=dataset_type.value,
                 component=self.__class__.__name__,
@@ -516,6 +597,8 @@ class ParquetCatalogRehydrator:
             end=bucket_end_ns,
         )
         if not objects:
+            if dataset_type in (DatasetType.QUOTES, DatasetType.TRADES, DatasetType.TBBO, DatasetType.MBP1):
+                return pd.DataFrame()
             try:
                 objects = self._catalog.query(
                     data_cls=data_class,
@@ -548,6 +631,101 @@ class ParquetCatalogRehydrator:
         frame = pd.DataFrame.from_records(
             [data_class.to_dict(obj) for obj in objects],
         )
+        return self._normalize_bucket_frame(
+            dataset_type=dataset_type,
+            instrument=instrument,
+            dataset_id=dataset_id,
+            frame=frame,
+        )
+
+    def _iter_bucket_frames(
+        self,
+        *,
+        dataset_type: DatasetType,
+        instrument: InstrumentId,
+        identifier: str,
+        dataset_id: str,
+        bucket_start_ns: int,
+        bucket_end_ns: int,
+    ) -> Iterator[pd.DataFrame]:
+        data_class = _data_class_for_dataset(dataset_type)
+        session = self._catalog.backend_session(
+            data_cls=data_class,
+            identifiers=[identifier],
+            start=bucket_start_ns,
+            end=bucket_end_ns,
+        )
+        result = session.to_query_result()
+        for chunk in result:
+            objects = capsule_to_list(chunk)
+            if not objects:
+                continue
+            frame = pd.DataFrame.from_records(
+                [data_class.to_dict(obj) for obj in objects],
+            )
+            if frame.empty:
+                continue
+            yield self._normalize_bucket_frame(
+                dataset_type=dataset_type,
+                instrument=instrument,
+                dataset_id=dataset_id,
+                frame=frame,
+            )
+
+    def _rehydrate_bucket_streaming(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        identifier: str,
+        dataset_type: DatasetType,
+        instrument: InstrumentId,
+        bucket_start_ns: int,
+        bucket_end_ns: int,
+    ) -> tuple[int, int | None, int | None]:
+        total_rows = 0
+        ts_min_ns: int | None = None
+        ts_max_ns: int | None = None
+        frames = self._iter_bucket_frames(
+            dataset_type=dataset_type,
+            instrument=instrument,
+            identifier=identifier,
+            dataset_id=dataset_id,
+            bucket_start_ns=bucket_start_ns,
+            bucket_end_ns=bucket_end_ns,
+        )
+        for frame in frames:
+            if frame.empty:
+                continue
+            write_count = self._writer.write(
+                dataset_id=dataset_id,
+                schema=schema,
+                instrument_id=instrument_id,
+                df=frame,
+            )
+            if write_count <= 0:
+                continue
+            total_rows += write_count
+            _rehydrate_rows_total.labels(instrument=instrument_id).inc(write_count)
+            frame_min = frame["ts_event"].min()
+            frame_max = frame["ts_event"].max()
+            if frame_min is not None:
+                ts_min_ns = frame_min if ts_min_ns is None else min(ts_min_ns, int(frame_min))
+            if frame_max is not None:
+                ts_max_ns = frame_max if ts_max_ns is None else max(ts_max_ns, int(frame_max))
+        return total_rows, ts_min_ns, ts_max_ns
+
+    def _normalize_bucket_frame(
+        self,
+        *,
+        dataset_type: DatasetType,
+        instrument: InstrumentId,
+        dataset_id: str,
+        frame: pd.DataFrame,
+    ) -> pd.DataFrame:
+        if frame.empty:
+            return frame
         if "instrument_id" not in frame.columns:
             frame["instrument_id"] = instrument.value
         frame["source_dataset"] = dataset_id
@@ -573,7 +751,6 @@ class ParquetCatalogRehydrator:
                     "int64",
                     errors="ignore",
                 )
-
         return frame
 
     def _catalog_bucket_set(

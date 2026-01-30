@@ -8,12 +8,11 @@ produces an MLSignal when the confidence threshold is met, and returns None othe
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from ml.actors.base import MLSignal
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import make_stub_bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -21,8 +20,7 @@ from nautilus_trader.model.identifiers import Venue
 
 def _stub_bar() -> object:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    bar_type = SimpleNamespace(instrument_id=inst)
-    return SimpleNamespace(bar_type=bar_type, ts_event=1)
+    return make_stub_bar(inst)
 
 
 def test_threshold_strategy_generates_signal_when_confident() -> None:

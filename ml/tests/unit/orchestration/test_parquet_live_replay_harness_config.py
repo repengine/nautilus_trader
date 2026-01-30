@@ -9,6 +9,7 @@ from ml.config.replay_harness import ActorReplayConfig
 from ml.config.replay_harness import StrategyReplayConfig
 from ml.orchestration.parquet_live_replay_harness import _build_actor_config
 from ml.orchestration.parquet_live_replay_harness import _build_strategy_config
+from ml.orchestration.parquet_live_replay_harness import _sanitize_backtest_payload
 from ml.strategies.risk import RiskConfig
 from ml.strategies.risk import RiskLiquidationConfig
 from nautilus_trader.model.data import BarSpecification
@@ -79,10 +80,25 @@ def test_build_strategy_config_includes_account_and_validation_mode() -> None:
         strategy_id="STRAT-1",
     )
 
-    assert cfg.account_mode is AccountMode.MARGIN
-    assert cfg.short_entry_policy is ShortEntryPolicy.ALLOW
+    assert cfg.account_mode == AccountMode.MARGIN
+    assert cfg.short_entry_policy == ShortEntryPolicy.ALLOW
     assert cfg.execution_config is not None
-    assert cfg.execution_config.validation_mode is ExecutionValidationMode.MARKET
+    assert cfg.execution_config.validation_mode == ExecutionValidationMode.MARKET
+
+
+def test_build_strategy_config_includes_positions_log_degraded_flag() -> None:
+    strategy = StrategyReplayConfig(positions_log_degraded_in_backtest=True)
+    instrument_id = InstrumentId.from_str("EUR/USD.SIM")
+
+    cfg = _build_strategy_config(
+        strategy_config=strategy,
+        instrument_id=instrument_id,
+        actor_id="ACTOR-1",
+        strategy_id="STRAT-1",
+    )
+
+    assert cfg.positions_config is not None
+    assert cfg.positions_config.log_degraded_in_backtest is True
 
 
 def test_build_actor_config_includes_actor_overrides() -> None:
@@ -136,3 +152,17 @@ def test_strategy_replay_config_rejects_risk_and_liquidation_config() -> None:
             risk_config=RiskConfig(),
             liquidation_config=RiskLiquidationConfig(enabled=True),
         )
+
+
+def test_sanitize_backtest_payload_replaces_nan_with_none() -> None:
+    payload = {
+        "stats_returns": {
+            "Sharpe Ratio (252 days)": float("nan"),
+            "Returns Average (252 days)": 0.1,
+        },
+    }
+
+    nan_keys = _sanitize_backtest_payload(payload)
+
+    assert nan_keys == ["Sharpe Ratio (252 days)"]
+    assert payload["stats_returns"]["Sharpe Ratio (252 days)"] is None

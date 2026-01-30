@@ -387,6 +387,10 @@ class FeatureCoverageRestorer:
                         break
                 continue
 
+            stop_after_buckets = dataset_id not in {
+                EARNINGS_ACTUALS_DATASET_ID,
+                EARNINGS_ESTIMATES_DATASET_ID,
+            }
             for record in records:
                 bucket_index_value = record.pop("_bucket_index", None)
                 bucket_index = self._coerce_int(bucket_index_value)
@@ -404,9 +408,9 @@ class FeatureCoverageRestorer:
                     continue
                 restored_buckets.add(bucket_index)
                 rows_written += 1
-                if restored_buckets >= bucket_targets:
+                if stop_after_buckets and restored_buckets >= bucket_targets:
                     break
-            if restored_buckets >= bucket_targets:
+            if stop_after_buckets and restored_buckets >= bucket_targets:
                 break
 
         missing = bucket_targets - restored_buckets

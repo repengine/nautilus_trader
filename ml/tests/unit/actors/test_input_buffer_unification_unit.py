@@ -48,7 +48,7 @@ def test_unified_input_buffer_and_model_interfaces(monkeypatch: pytest.MonkeyPat
     # Called with the preallocated buffer
     arg_array = mock_proba.predict_proba.call_args[0][0]
     assert arg_array is actor._predict_input_buf
-    assert p1 == pytest.approx(1.0)
+    assert p1 == pytest.approx(0.9)
     assert c1 == pytest.approx(0.9, rel=1e-6)
 
     # predict path (use a concrete stub so hasattr checks don't fabricate attributes)
@@ -60,7 +60,7 @@ def test_unified_input_buffer_and_model_interfaces(monkeypatch: pytest.MonkeyPat
     arg_array2 = pred_model.predict.call_args[0][0]
     assert arg_array2 is actor._predict_input_buf
     assert p2 == pytest.approx(0.42)
-    assert c2 == pytest.approx(0.5)
+    assert c2 == pytest.approx(0.58)
 
     # run (ONNX) path
     mock_onnx = Mock(spec=["run"])  # Only exposes run
@@ -78,3 +78,23 @@ def test_unified_input_buffer_and_model_interfaces(monkeypatch: pytest.MonkeyPat
 
     # Buffer reused across calls
     assert actor._predict_input_buf is buf
+
+
+@pytest.mark.unit
+def test_predict_onnx_single_output_derives_confidence() -> None:
+    """
+    Regression: single-output ONNX inference derives confidence from probability.
+    """
+    cfg = MLConfigBuilder.signal_config()
+    actor = MLSignalActor(cfg)
+
+    mock_onnx = Mock(spec=["run"])  # Only exposes run
+    mock_onnx.run.return_value = [np.array([[0.7]], dtype=np.float32)]
+    actor._model = mock_onnx
+    actor._model_metadata = {"input_names": ["input"]}
+
+    features = np.zeros(actor._feature_engineer.n_features, dtype=np.float32)
+    pred, conf = actor._predict(features)
+
+    assert pred == pytest.approx(0.7)
+    assert conf == pytest.approx(0.7)

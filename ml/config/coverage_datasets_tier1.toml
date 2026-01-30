@@ -1,7 +1,7 @@
 [[datasets]]
 dataset_id = "ml.earnings_actuals"
 schema = "earnings_actuals"
-entities = "@tier1_full"
+entities_file = "equs_mini_symbols.txt"
 entity_field = "ticker"
 strip_venue = true
 bucket_mode = "catalog"
@@ -20,7 +20,7 @@ timestamp_field = "ts_event"
 [[datasets]]
 dataset_id = "ml.earnings_estimates"
 schema = "earnings_estimates"
-entities = "@tier1_full"
+entities_file = "equs_mini_symbols.txt"
 entity_field = "ticker"
 strip_venue = true
 bucket_mode = "catalog"
@@ -39,7 +39,7 @@ timestamp_field = "ts_event"
 [[datasets]]
 dataset_id = "ml.macro_release_calendar"
 schema = "macro_release_calendar"
-entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
+entities_file = "macro_fred_series.txt"
 entity_field = "series_id"
 bucket_mode = "catalog"
 
@@ -58,7 +58,7 @@ timestamp_field = "release_ts"
 [[datasets]]
 dataset_id = "ml.macro_observations"
 schema = "macro_observations"
-entities = "CPIAUCSL,PCEPI,PAYEMS,UNRATE,GDP,FEDFUNDS"
+entities_file = "macro_fred_series.txt"
 entity_field = "series_id"
 bucket_mode = "catalog"
 
@@ -133,7 +133,7 @@ partition_template = "{value}"
 timestamp_field = "timestamp"
 
 [[datasets]]
-dataset_id = "ml.feature_values"
+dataset_id = "features"
 schema = "feature_values"
 entities_file = "equs_mini_symbols.txt"
 entity_field = "instrument_id"

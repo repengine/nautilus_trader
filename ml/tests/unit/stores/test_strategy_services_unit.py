@@ -7,9 +7,13 @@ import pytest
 
 from ml.config.events import Stage
 from ml.stores.base import StrategyOrderEvent
+from ml.stores.base import StrategyReplaySummary
+from ml.stores.base import StrategyRiskHaltEvent
 from ml.stores.base import StrategySignal
 from ml.stores.services.strategy_services import (
     StrategyOrderEventWriteService,
+    StrategyReplaySummaryWriteService,
+    StrategyRiskHaltEventWriteService,
     StrategySignalQueryService,
     StrategySignalWriteService,
 )
@@ -45,6 +49,8 @@ class _FakeWriteDeps(StrategyWriteDepsStrict):
     def __init__(self) -> None:
         self.strategy_signals_table: TableLike = _TableStub()
         self.strategy_order_events_table: TableLike = _TableStub()
+        self.strategy_risk_halt_events_table: TableLike = _TableStub()
+        self.strategy_replay_summary_table: TableLike = _TableStub()
         self.last_call: dict[str, Any] | None = None
 
     def _execute_upsert_and_publish(
@@ -176,6 +182,53 @@ def test_strategy_order_event_write_service_calls_upsert_and_publish() -> None:
     assert deps.last_call["stage"] == Stage.ORDER_EVENT_EMITTED
     assert deps.last_call["key_fields"] == ("event_id", "strategy_id", "ts_event")
     assert deps.last_call["publish_bus"] is True
+
+
+def test_strategy_risk_halt_write_service_calls_upsert_and_publish() -> None:
+    deps = _FakeWriteDeps()
+    svc = StrategyRiskHaltEventWriteService(deps, logger=_FakeLogger())
+    evt = StrategyRiskHaltEvent(
+        event_id="halt-1",
+        strategy_id="s",
+        instrument_id="i",
+        event_type="halted",
+        reason="daily_loss_limit",
+        detail=None,
+        _ts_event=10,
+        _ts_init=11,
+        is_live=True,
+    )
+    svc.write_batch([evt])
+
+    assert deps.last_call is not None
+    assert deps.last_call["dataset_id"] == "risk_halt_events"
+    assert deps.last_call["stage"] == Stage.RISK_HALT_EMITTED
+    assert deps.last_call["key_fields"] == ("event_id", "strategy_id", "ts_event")
+
+
+def test_strategy_replay_summary_write_service_calls_upsert_and_publish() -> None:
+    deps = _FakeWriteDeps()
+    svc = StrategyReplaySummaryWriteService(deps, logger=_FakeLogger())
+    summary = StrategyReplaySummary(
+        run_id="run-1",
+        instrument_ids=["EURUSD"],
+        started_ns=10,
+        finished_ns=20,
+        total_orders=2,
+        total_fills=1,
+        total_halts=1,
+        total_sizing_rejects=0,
+        total_positions=1,
+        _ts_event=20,
+        _ts_init=20,
+        ingested_at_ns=21,
+    )
+    svc.write_batch([summary])
+
+    assert deps.last_call is not None
+    assert deps.last_call["dataset_id"] == "replay_summary"
+    assert deps.last_call["stage"] == Stage.REPLAY_SUMMARY_EMITTED
+    assert deps.last_call["key_fields"] == ("run_id", "run_id", "ts_event")
 
 
 def test_strategy_query_service_uses_safe_table_allowlist() -> None:

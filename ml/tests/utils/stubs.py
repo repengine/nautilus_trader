@@ -49,6 +49,39 @@ if TYPE_CHECKING:  # pragma: no cover - typing only imports
     from nautilus_trader.model.orders import Order
 
 
+class _StubPrice:
+    """Lightweight price stub exposing ``as_double`` for signal metadata."""
+
+    def __init__(self, value: float) -> None:
+        self._value = float(value)
+
+    def as_double(self) -> float:
+        return self._value
+
+
+def make_stub_bar(
+    instrument_id: object,
+    *,
+    ts_event: int = 1,
+    close: float = 1.0,
+    bar_spec: str = "stub",
+) -> object:
+    """
+    Build a minimal bar-like object for signal strategy tests.
+
+    Args:
+        instrument_id: Instrument identifier attached to the bar type.
+        ts_event: Event timestamp (ns).
+        close: Close price value returned by ``as_double``.
+        bar_spec: String spec used in signal metadata.
+
+    Returns:
+        Bar-like object with ``bar_type``, ``ts_event``, and ``close`` attributes.
+    """
+    bar_type = SimpleNamespace(instrument_id=instrument_id, spec=bar_spec)
+    return SimpleNamespace(bar_type=bar_type, ts_event=ts_event, close=_StubPrice(close))
+
+
 class RegistryTestStub(RegistryProtocol):
     """Simple in-memory implementation of :class:`RegistryProtocol` for tests."""
 
@@ -411,6 +444,8 @@ def build_ml_trading_strategy_stub(
                 exit_policy_config=None,
                 account_mode="cash",
                 short_entry_policy=None,
+                persist_hold_on_short_entry_block=True,
+                persist_hold_on_sizing_reject=True,
             )
             self.id = "strategy_stub"
             self._active_positions = 0
@@ -423,6 +458,10 @@ def build_ml_trading_strategy_stub(
                 MLTradingStrategy,
             )
             self._timestamp_ns = MLTradingStrategy._timestamp_ns.__get__(self, MLTradingStrategy)
+            self._update_returns_from_signal = MLTradingStrategy._update_returns_from_signal.__get__(
+                self,
+                MLTradingStrategy,
+            )
             self._position_entry_price = MLTradingStrategy._position_entry_price.__get__(
                 self,
                 MLTradingStrategy,
@@ -478,7 +517,9 @@ def build_ml_trading_strategy_stub(
             position_size: object,
             risk_metrics: Mapping[str, float],
             execution_params: Mapping[str, object],
+            persist_hold: bool = False,
         ) -> None:
+            del persist_hold
             self._decision_recorder(
                 signal=signal,
                 decision_type=decision_type,

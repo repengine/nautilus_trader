@@ -19,6 +19,8 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.stores.base import StrategyOrderEvent
+from ml.stores.base import StrategyReplaySummary
+from ml.stores.base import StrategyRiskHaltEvent
 from ml.stores.base import StrategySignal
 from ml.stores.protocols import LoggerLike
 from ml.stores.protocols import StrategyClearDepsStrict
@@ -51,6 +53,8 @@ class StrategySignalWriteService:
                     "instrument_id": item.instrument_id,
                     "ts_event": item.ts_event,
                     "ts_init": item.ts_init,
+                    "run_id": item.run_id,
+                    "ingested_at_ns": item.ingested_at_ns,
                     "signal_type": item.signal_type,
                     "strength": item.strength,
                     "model_predictions": item.model_predictions if item.model_predictions else None,
@@ -90,6 +94,8 @@ class StrategySignalWriteService:
                 "risk_metrics",
                 "execution_params",
                 "is_live",
+                "run_id",
+                "ingested_at_ns",
             ],
             dataset_id="signals",
             stage=Stage.SIGNAL_EMITTED,
@@ -128,6 +134,8 @@ class StrategyOrderEventWriteService:
                     "ts_event": item.ts_event,
                     "ts_init": item.ts_init,
                     "is_live": getattr(item, "is_live", False),
+                    "run_id": item.run_id,
+                    "ingested_at_ns": item.ingested_at_ns,
                 }
             )
 
@@ -149,6 +157,8 @@ class StrategyOrderEventWriteService:
                 "ts_event",
                 "ts_init",
                 "is_live",
+                "run_id",
+                "ingested_at_ns",
             ],
             dataset_id="order_events",
             stage=Stage.ORDER_EVENT_EMITTED,
@@ -156,6 +166,130 @@ class StrategyOrderEventWriteService:
             ts_field="ts_event",
             run_id_batch="strategy_order_event_write",
             run_id_row="strategy_order_event_row",
+            source="strategy",
+            logger=self.logger,
+            publish_bus=publish_bus,
+        )
+
+
+@dataclass(slots=True)
+class StrategyRiskHaltEventWriteService:
+    """Pure persistence for strategy risk-halt events."""
+
+    deps: StrategyWriteDepsStrict
+    logger: LoggerLike
+
+    def write_batch(self, data: list[StrategyRiskHaltEvent], publish_bus: bool = True) -> None:
+        if not data:
+            return
+
+        values: list[dict[str, Any]] = []
+        for item in data:
+            values.append(
+                {
+                    "event_id": item.event_id,
+                    "strategy_id": item.strategy_id,
+                    "instrument_id": item.instrument_id,
+                    "event_type": item.event_type,
+                    "reason": item.reason,
+                    "detail": item.detail,
+                    "ts_event": item.ts_event,
+                    "ts_init": item.ts_init,
+                    "is_live": getattr(item, "is_live", False),
+                    "run_id": item.run_id,
+                    "ingested_at_ns": item.ingested_at_ns,
+                }
+            )
+
+        self.deps._execute_upsert_and_publish(
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="StrategyStore._execute_risk_halt_write",
+            key_fields=("event_id", "strategy_id", "ts_event"),
+            table=self.deps.strategy_risk_halt_events_table,
+            conflict_cols=["event_id"],
+            update_cols=[
+                "strategy_id",
+                "instrument_id",
+                "event_type",
+                "reason",
+                "detail",
+                "ts_event",
+                "ts_init",
+                "is_live",
+                "run_id",
+                "ingested_at_ns",
+            ],
+            dataset_id="risk_halt_events",
+            stage=Stage.RISK_HALT_EMITTED,
+            instrument_key="instrument_id",
+            ts_field="ts_event",
+            run_id_batch="strategy_risk_halt_write",
+            run_id_row="strategy_risk_halt_row",
+            source="strategy",
+            logger=self.logger,
+            publish_bus=publish_bus,
+        )
+
+
+@dataclass(slots=True)
+class StrategyReplaySummaryWriteService:
+    """Persistence for replay summary rows."""
+
+    deps: StrategyWriteDepsStrict
+    logger: LoggerLike
+
+    def write_batch(self, data: list[StrategyReplaySummary], publish_bus: bool = True) -> None:
+        if not data:
+            return
+
+        values: list[dict[str, Any]] = []
+        for item in data:
+            values.append(
+                {
+                    "run_id": item.run_id,
+                    "instrument_ids": item.instrument_ids,
+                    "started_ns": item.started_ns,
+                    "finished_ns": item.finished_ns,
+                    "total_orders": item.total_orders,
+                    "total_fills": item.total_fills,
+                    "total_halts": item.total_halts,
+                    "total_sizing_rejects": item.total_sizing_rejects,
+                    "total_positions": item.total_positions,
+                    "ts_event": item.ts_event,
+                    "ts_init": item.ts_init,
+                    "ingested_at_ns": item.ingested_at_ns,
+                }
+            )
+
+        self.deps._execute_upsert_and_publish(
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="StrategyStore._execute_replay_summary_write",
+            key_fields=("run_id", "run_id", "ts_event"),
+            table=self.deps.strategy_replay_summary_table,
+            conflict_cols=["run_id"],
+            update_cols=[
+                "instrument_ids",
+                "started_ns",
+                "finished_ns",
+                "total_orders",
+                "total_fills",
+                "total_halts",
+                "total_sizing_rejects",
+                "total_positions",
+                "ts_event",
+                "ts_init",
+                "ingested_at_ns",
+            ],
+            dataset_id="replay_summary",
+            stage=Stage.REPLAY_SUMMARY_EMITTED,
+            instrument_key="run_id",
+            ts_field="ts_event",
+            run_id_batch="strategy_replay_summary_write",
+            run_id_row="strategy_replay_summary_row",
             source="strategy",
             logger=self.logger,
             publish_bus=publish_bus,
@@ -1024,6 +1158,398 @@ class StrategyOrderEventEventService:
                             )
         except Exception:
             self.logger.warning("Failed to emit order events", exc_info=True)
+
+
+@dataclass(slots=True)
+class StrategyRiskHaltEventEventService:
+    """Event emission service for strategy risk-halt events (registry/metrics)."""
+
+    deps: StrategyEventDepsStrict
+    logger: LoggerLike
+
+    def emit_risk_halt_events(self, events: list[StrategyRiskHaltEvent]) -> None:
+        if not events:
+            return
+
+        try:
+            registry = self.deps._get_data_registry()
+            if registry is None:
+                return
+
+            try:
+                registry.get_manifest("risk_halt_events")
+            except Exception:
+                self.logger.debug(
+                    "Manifest lookup for 'risk_halt_events' failed; attempting auto-registration",
+                    exc_info=True,
+                )
+                try:
+                    from ml.common.metrics_manager import MetricsManager as _MM
+                    from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
+                    from ml.registry.dataclasses import DatasetType
+                    from ml.registry.dataclasses import StorageKind
+
+                    manifest = build_auto_dataset_manifest(
+                        dataset_id="risk_halt_events",
+                        dataset_type=DatasetType.RISK_HALT_EVENTS,
+                        location="ml_strategy_risk_halt_events",
+                        storage_kind=StorageKind.POSTGRES,
+                        pipeline_signature="strategy_services_auto",
+                        metadata={
+                            "ts_field": "ts_event",
+                            "primary_keys": ["event_id"],
+                            "auto_registered": True,
+                        },
+                    )
+                    registry.register_dataset(manifest)
+                except Exception as exc:
+                    try:
+                        self.logger.warning(
+                            "Auto-registration of 'risk_halt_events' dataset failed: %s",
+                            exc,
+                            extra={
+                                "component": "strategy_services",
+                                "operation": "register_dataset",
+                                "dataset_id": "risk_halt_events",
+                            },
+                            exc_info=True,
+                        )
+                        _mm = _MM.default()
+                        _mm.inc(
+                            "ml_pipeline_errors_total",
+                            "ML pipeline errors",
+                            labels={
+                                "component": "strategy_services",
+                                "op": "register_dataset",
+                                "error_type": "exception",
+                            },
+                            labelnames=("component", "op", "error_type"),
+                        )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Auto-registration metrics/logging failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during auto-registration",
+                                exc_info=log_exc,
+                            )
+
+            from collections import defaultdict
+
+            grouped: dict[tuple[str, str], list[StrategyRiskHaltEvent]] = defaultdict(list)
+            for event in events:
+                grouped[(event.strategy_id, event.instrument_id)].append(event)
+
+            for (strategy_id, instrument_id), group in grouped.items():
+                if not group:
+                    continue
+
+                import time as _time
+                import uuid as _uuid
+
+                run_id = (
+                    f"risk_halt_{strategy_id}_{_uuid.uuid4().hex[:8]}_{int(_time.time())}"
+                )
+                ts_vals = [e.ts_event for e in group]
+                ts_min, ts_max = min(ts_vals), max(ts_vals)
+                src_enum = Source.LIVE if getattr(group[0], "is_live", False) else Source.HISTORICAL
+
+                try:
+                    from ml.common import event_emitter as _ee
+
+                    _emit_wm = getattr(_ee, "emit_dataset_event_and_watermark", None)
+                    _emit = getattr(_ee, "emit_dataset_event", None)
+                except Exception:
+                    _emit_wm = None
+                    _emit = None
+
+                if callable(_emit_wm):
+                    try:
+                        _emit_wm(
+                            registry,
+                            dataset_id="risk_halt_events",
+                            instrument_id=instrument_id,
+                            stage=Stage.RISK_HALT_EMITTED,
+                            source=src_enum,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            dataset_type="risk_halt_events",
+                            component=strategy_id,
+                        )
+                    except Exception:
+                        try:
+                            registry.emit_event(
+                                dataset_id="risk_halt_events",
+                                instrument_id=instrument_id,
+                                stage=Stage.RISK_HALT_EMITTED,
+                                source=src_enum,
+                                run_id=run_id,
+                                ts_min=ts_min,
+                                ts_max=ts_max,
+                                count=len(group),
+                                status=EventStatus.SUCCESS,
+                                metadata={"component": strategy_id},
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry emit_event fallback failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during emit_event fallback",
+                                    exc_info=log_exc,
+                                )
+                else:
+                    try:
+                        registry.emit_event(
+                            dataset_id="risk_halt_events",
+                            instrument_id=instrument_id,
+                            stage=Stage.RISK_HALT_EMITTED,
+                            source=src_enum,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            metadata={"component": strategy_id},
+                        )
+                        try:
+                            registry.update_watermark(
+                                dataset_id="risk_halt_events",
+                                instrument_id=instrument_id,
+                                source=src_enum,
+                                last_success_ns=ts_max,
+                                count=len(group),
+                                completeness_pct=100.0,
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry watermark update failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during watermark update",
+                                    exc_info=log_exc,
+                                )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Registry emit_event failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during emit_event",
+                                exc_info=log_exc,
+                            )
+        except Exception:
+            self.logger.warning("Failed to emit risk-halt events", exc_info=True)
+
+
+@dataclass(slots=True)
+class StrategyReplaySummaryEventService:
+    """Event emission service for replay summary rows (registry/metrics)."""
+
+    deps: StrategyEventDepsStrict
+    logger: LoggerLike
+
+    def emit_replay_summary_events(self, summaries: list[StrategyReplaySummary]) -> None:
+        if not summaries:
+            return
+
+        try:
+            registry = self.deps._get_data_registry()
+            if registry is None:
+                return
+
+            try:
+                registry.get_manifest("replay_summary")
+            except Exception:
+                self.logger.debug(
+                    "Manifest lookup for 'replay_summary' failed; attempting auto-registration",
+                    exc_info=True,
+                )
+                try:
+                    from ml.common.metrics_manager import MetricsManager as _MM
+                    from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
+                    from ml.registry.dataclasses import DatasetType
+                    from ml.registry.dataclasses import StorageKind
+
+                    manifest = build_auto_dataset_manifest(
+                        dataset_id="replay_summary",
+                        dataset_type=DatasetType.REPLAY_SUMMARY,
+                        location="ml_strategy_replay_summary",
+                        storage_kind=StorageKind.POSTGRES,
+                        pipeline_signature="strategy_services_auto",
+                        metadata={
+                            "ts_field": "ts_event",
+                            "primary_keys": ["run_id"],
+                            "auto_registered": True,
+                        },
+                    )
+                    registry.register_dataset(manifest)
+                except Exception as exc:
+                    try:
+                        self.logger.warning(
+                            "Auto-registration of 'replay_summary' dataset failed: %s",
+                            exc,
+                            extra={
+                                "component": "strategy_services",
+                                "operation": "register_dataset",
+                                "dataset_id": "replay_summary",
+                            },
+                            exc_info=True,
+                        )
+                        _mm = _MM.default()
+                        _mm.inc(
+                            "ml_pipeline_errors_total",
+                            "ML pipeline errors",
+                            labels={
+                                "component": "strategy_services",
+                                "op": "register_dataset",
+                                "error_type": "exception",
+                            },
+                            labelnames=("component", "op", "error_type"),
+                        )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Auto-registration metrics/logging failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during auto-registration",
+                                exc_info=log_exc,
+                            )
+
+            from collections import defaultdict
+
+            grouped: dict[str, list[StrategyReplaySummary]] = defaultdict(list)
+            for summary in summaries:
+                grouped[str(summary.run_id)].append(summary)
+
+            for run_id, group in grouped.items():
+                if not group:
+                    continue
+
+                import time as _time
+                import uuid as _uuid
+
+                registry_run_id = (
+                    f"replay_summary_{run_id}_{_uuid.uuid4().hex[:8]}_{int(_time.time())}"
+                )
+                ts_vals = [s.ts_event for s in group]
+                ts_min, ts_max = min(ts_vals), max(ts_vals)
+                src_enum = Source.HISTORICAL
+
+                try:
+                    from ml.common import event_emitter as _ee
+
+                    _emit_wm = getattr(_ee, "emit_dataset_event_and_watermark", None)
+                    _emit = getattr(_ee, "emit_dataset_event", None)
+                except Exception:
+                    _emit_wm = None
+                    _emit = None
+
+                if callable(_emit_wm):
+                    try:
+                        _emit_wm(
+                            registry,
+                            dataset_id="replay_summary",
+                            instrument_id=run_id,
+                            stage=Stage.REPLAY_SUMMARY_EMITTED,
+                            source=src_enum,
+                            run_id=registry_run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            dataset_type="replay_summary",
+                            component="replay_summary",
+                        )
+                    except Exception:
+                        try:
+                            registry.emit_event(
+                                dataset_id="replay_summary",
+                                instrument_id=run_id,
+                                stage=Stage.REPLAY_SUMMARY_EMITTED,
+                                source=src_enum,
+                                run_id=registry_run_id,
+                                ts_min=ts_min,
+                                ts_max=ts_max,
+                                count=len(group),
+                                status=EventStatus.SUCCESS,
+                                metadata={"component": "replay_summary"},
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry emit_event fallback failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during emit_event fallback",
+                                    exc_info=log_exc,
+                                )
+                else:
+                    try:
+                        registry.emit_event(
+                            dataset_id="replay_summary",
+                            instrument_id=run_id,
+                            stage=Stage.REPLAY_SUMMARY_EMITTED,
+                            source=src_enum,
+                            run_id=registry_run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(group),
+                            status=EventStatus.SUCCESS,
+                            metadata={"component": "replay_summary"},
+                        )
+                        try:
+                            registry.update_watermark(
+                                dataset_id="replay_summary",
+                                instrument_id=run_id,
+                                source=src_enum,
+                                last_success_ns=ts_max,
+                                count=len(group),
+                                completeness_pct=100.0,
+                            )
+                        except Exception:
+                            try:
+                                self.logger.debug(
+                                    "Registry watermark update failed (ignored)",
+                                    exc_info=True,
+                                )
+                            except Exception as log_exc:
+                                self.logger.debug(
+                                    "Suppressed logging failure during watermark update",
+                                    exc_info=log_exc,
+                                )
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Registry emit_event failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during emit_event",
+                                exc_info=log_exc,
+                            )
+        except Exception:
+            self.logger.warning("Failed to emit replay summary events", exc_info=True)
 
 
 @dataclass(slots=True)

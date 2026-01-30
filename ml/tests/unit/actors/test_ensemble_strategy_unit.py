@@ -4,12 +4,11 @@ Functional test for EnsembleStrategy weighted voting.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from ml.actors.signal import EnsembleStrategy
 from ml.actors.signal import ThresholdSignalStrategy
+from ml.tests.utils.stubs import make_stub_bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -17,7 +16,7 @@ from nautilus_trader.model.identifiers import Venue
 
 def _stub_bar() -> object:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    return SimpleNamespace(bar_type=SimpleNamespace(instrument_id=inst), ts_event=1)
+    return make_stub_bar(inst)
 
 
 def test_ensemble_weighted_vote_emits_signal() -> None:

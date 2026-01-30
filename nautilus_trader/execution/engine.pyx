@@ -1442,8 +1442,9 @@ cdef class ExecutionEngine(Component):
             self._cache.add_position(position, oms_type)
         else:
             try:
-                # Always snapshot opening positions to handle NETTING OMS
-                self._cache.snapshot_position(position)
+                # Snapshot opening positions only when enabled (NETTING OMS history)
+                if self._config.get("snapshot_positions", False):
+                    self._cache.snapshot_position(position)
                 position.apply(fill)
                 self._cache.update_position(position)
             except KeyError as e:

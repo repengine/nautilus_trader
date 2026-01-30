@@ -15,6 +15,8 @@ _DEFAULT_PRIMARY_KEYS_BY_TYPE: dict[DatasetType, tuple[str, ...]] = {
     DatasetType.EVENTS_CALENDAR: ("event_type", "event_timestamp", "instrument_id", "name", "ts_event"),
     DatasetType.MICRO_MINUTE_FEATURES: ("instrument_id", "timestamp", "ts_event"),
     DatasetType.L2_MINUTE_FEATURES: ("instrument_id", "timestamp", "ts_event"),
+    DatasetType.RISK_HALT_EVENTS: ("event_id",),
+    DatasetType.REPLAY_SUMMARY: ("run_id",),
 }
 
 

@@ -301,6 +301,7 @@ class CoverageManager:
                 raise RuntimeError(msg)
         classifications = self.classify_buckets()
         _log_classification_summary(classifications)
+        _log_parity_gaps(classifications)
         return classifications
 
 
@@ -329,6 +330,46 @@ def _log_classification_summary(classifications: Sequence[BucketClassification])
         },
     )
 
+
+@dataclass(slots=True)
+class _ParityStats:
+    catalog: int = 0
+    sql: int = 0
+    catalog_only: int = 0
+    instruments: set[str] = field(default_factory=set)
+
+
+def _log_parity_gaps(classifications: Sequence[BucketClassification]) -> None:
+    """
+    Emit a warning when catalog coverage exists but SQL coverage is empty.
+    """
+    if not classifications:
+        return
+    stats: dict[tuple[str, str], _ParityStats] = {}
+    for classification in classifications:
+        key = (classification.spec.dataset_id, classification.spec.schema)
+        entry = stats.setdefault(key, _ParityStats())
+        if classification.has_catalog:
+            entry.catalog += 1
+        if classification.has_sql:
+            entry.sql += 1
+        if classification.has_catalog and not classification.has_sql:
+            entry.catalog_only += 1
+            entry.instruments.add(classification.spec.instrument_id)
+    for (dataset_id, schema), entry in stats.items():
+        if entry.catalog > 0 and entry.sql == 0:
+            instruments = sorted(entry.instruments)
+            logger.warning(
+                "coverage_manager.parity_gap",
+                extra={
+                    "dataset_id": dataset_id,
+                    "schema": schema,
+                    "catalog_buckets": entry.catalog,
+                    "sql_buckets": entry.sql,
+                    "catalog_only_buckets": entry.catalog_only,
+                    "instruments": instruments,
+                },
+            )
 
 def _parse_dataset_arg(value: str) -> DatasetCoverageConfig:
     parts = value.split(":")

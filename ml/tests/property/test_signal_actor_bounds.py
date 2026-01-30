@@ -6,7 +6,7 @@ regardless of input data variations. They help ensure robustness against edge ca
 and verify mathematical invariants that must hold for all valid inputs.
 
 Key Properties Tested:
-- Predictions always in [-1, 1]
+- Predictions always in [0, 1]
 - Confidence always in [0, 1]
 - Signal strength always in [0, 1]
 - Feature values within expected ranges
@@ -467,10 +467,10 @@ class TestMLSignalActorBounds:
     @settings(max_examples=100, deadline=10000)
     def test_prediction_bounds_invariant(self, config, prediction, confidence):
         """
-        Property: Model predictions must always be bounded to [-1, 1].
+        Property: Model predictions must always be bounded to [0, 1].
 
         Invariant: No matter what the raw model outputs, the final prediction
-        in any generated signal must be within [-1, 1] range.
+        in any generated signal must be within [0, 1] range.
         """
         # Create actor with controlled prediction output
         actor = create_actor_with_mock_stores(config)
@@ -486,7 +486,7 @@ class TestMLSignalActorBounds:
             pred, conf = actor._predict(features)
 
             # Property: Predictions must be bounded
-            assert -1.0 <= pred <= 1.0, f"Prediction {pred} out of bounds [-1, 1]"
+            assert 0.0 <= pred <= 1.0, f"Prediction {pred} out of bounds [0, 1]"
 
             # Property: If a signal is generated, its prediction must also be bounded
             bar = Bar(
@@ -515,8 +515,8 @@ class TestMLSignalActorBounds:
 
             if signal is not None:
                 assert (
-                    -1.0 <= signal.prediction <= 1.0
-                ), f"Signal prediction {signal.prediction} out of bounds [-1, 1]"
+                    0.0 <= signal.prediction <= 1.0
+                ), f"Signal prediction {signal.prediction} out of bounds [0, 1]"
 
         except Exception:
             # If prediction fails due to invalid input, that's acceptable
@@ -618,7 +618,7 @@ class TestMLSignalActorBounds:
             pred, conf = actor._predict(computed_features)
 
             # Verify outputs are still bounded
-            assert -1.0 <= pred <= 1.0, f"Extreme input led to unbounded prediction {pred}"
+            assert 0.0 <= pred <= 1.0, f"Extreme input led to unbounded prediction {pred}"
             assert 0.0 <= conf <= 1.0, f"Extreme input led to unbounded confidence {conf}"
 
             # Test signal generation
@@ -642,7 +642,7 @@ class TestMLSignalActorBounds:
 
             if signal is not None:
                 # Verify signal properties
-                assert -1.0 <= signal.prediction <= 1.0
+                assert 0.0 <= signal.prediction <= 1.0
                 assert 0.0 <= signal.confidence <= 1.0
                 assert signal.instrument_id == bar.bar_type.instrument_id
                 assert signal.ts_event == bar.ts_event
@@ -659,20 +659,18 @@ class TestMLSignalActorBounds:
     @settings(max_examples=20, deadline=15000)
     def test_signal_strength_consistency(self, config, n_predictions):
         """
-        Property: Signal strength should be consistent with prediction magnitude.
+        Property: Signal strength should be consistent with confidence.
 
-        Invariant: Stronger predictions (higher absolute value) should generally
-        lead to stronger signals when confidence is sufficient.
+        Invariant: Higher confidence should generally lead to stronger signals.
         """
         actor = create_actor_with_mock_stores(config)
 
-        predictions = []
         confidences = []
         signal_strengths = []
 
         for i in range(n_predictions):
             # Generate prediction and confidence
-            prediction = np.random.uniform(-1.0, 1.0)
+            prediction = np.random.uniform(0.0, 1.0)
             confidence = np.random.uniform(config.prediction_threshold, 1.0)  # Above threshold
 
             # Mock model output
@@ -708,30 +706,28 @@ class TestMLSignalActorBounds:
                 signal = actor._signal_strategy.generate_signal(bar, pred, conf, features, context)
 
                 if signal is not None:
-                    predictions.append(abs(pred))
                     confidences.append(conf)
-                    signal_strengths.append(abs(signal.prediction))
+                    signal_strengths.append(signal.confidence)
 
             except Exception:
                 continue  # Skip failed predictions
 
-        # Property: Signal strength should correlate with prediction magnitude
-        # when confidence is above threshold
+        # Property: Signal strength should correlate with confidence
         if len(signal_strengths) >= 3:
-            # Check that stronger predictions tend to produce stronger signals
+            # Check that higher confidence tends to produce stronger signals
             # This is a statistical property, not absolute
-            strong_predictions = [s for p, s in zip(predictions, signal_strengths) if p > 0.7]
-            weak_predictions = [s for p, s in zip(predictions, signal_strengths) if p < 0.3]
+            strong_conf = [s for c, s in zip(confidences, signal_strengths) if c > 0.75]
+            weak_conf = [s for c, s in zip(confidences, signal_strengths) if c < 0.55]
 
-            if strong_predictions and weak_predictions:
-                avg_strong = np.mean(strong_predictions)
-                avg_weak = np.mean(weak_predictions)
+            if strong_conf and weak_conf:
+                avg_strong = np.mean(strong_conf)
+                avg_weak = np.mean(weak_conf)
 
                 # Allow some tolerance for statistical variation
                 assert avg_strong >= avg_weak * 0.8, (
-                    f"Signal strength inconsistency: strong predictions "
+                    f"Signal strength inconsistency: strong confidence "
                     f"({avg_strong:.3f}) should generally be stronger than "
-                    f"weak predictions ({avg_weak:.3f})"
+                    f"weak confidence ({avg_weak:.3f})"
                 )
 
     @given(
@@ -777,7 +773,7 @@ class TestMLSignalActorBounds:
             assert not math.isinf(conf), "Confidence returned Inf"
 
             # And still bounded
-            assert -1.0 <= pred <= 1.0, f"Prediction {pred} out of bounds despite NaN/Inf input"
+            assert 0.0 <= pred <= 1.0, f"Prediction {pred} out of bounds despite NaN/Inf input"
             assert 0.0 <= conf <= 1.0, f"Confidence {conf} out of bounds despite NaN/Inf input"
 
         except (ValueError, RuntimeError, TypeError) as e:
@@ -934,7 +930,7 @@ class TestMLSignalActorEdgeCases:
                 pred, conf = actor._predict(features)
 
                 # Property: Outputs should still be valid with zero volume
-                assert -1.0 <= pred <= 1.0
+                assert 0.0 <= pred <= 1.0
                 assert 0.0 <= conf <= 1.0
 
             except Exception:
