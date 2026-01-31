@@ -18,6 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ml.common.decision_metadata import normalize_decision_metadata
 from ml.strategies.common.positions import PositionsMetadata
 
 
@@ -74,6 +75,7 @@ class StrategyStoreProtocol(Protocol):
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         ts_event: int,
+        decision_metadata: dict[str, Any] | None = None,
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:
@@ -512,6 +514,10 @@ class DecisionPersistenceComponent:
 
         # Build model predictions for event/store
         model_predictions = self._build_model_predictions(signal)
+        decision_metadata = normalize_decision_metadata(
+            signal.metadata,
+            model_id=signal.model_id,
+        )
 
         # If no store is configured, publish event directly (best-effort)
         if self._strategy_store is None:
@@ -522,6 +528,7 @@ class DecisionPersistenceComponent:
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
                 model_predictions=model_predictions,
+                decision_metadata=decision_metadata,
             )
 
         # Skip HOLD signals unless configured to persist them
@@ -547,6 +554,7 @@ class DecisionPersistenceComponent:
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
                 model_predictions=model_predictions,
+                decision_metadata=decision_metadata,
             )
 
         # Write to store with timing
@@ -556,6 +564,7 @@ class DecisionPersistenceComponent:
             risk_metrics=risk_metrics,
             execution_params=execution_params,
             model_predictions=model_predictions,
+            decision_metadata=decision_metadata,
         )
 
     def _handle_no_store(
@@ -565,6 +574,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float] | None,
         execution_params: dict[str, Any] | None,
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
     ) -> bool:
         """
         Handle persistence when no store is available.
@@ -585,6 +595,7 @@ class DecisionPersistenceComponent:
                 model_predictions=model_predictions,
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
+                decision_metadata=decision_metadata,
                 ts_event=int(signal.ts_event),
                 is_live=is_live,
                 status=EventStatus.SUCCESS,
@@ -647,6 +658,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
     ) -> bool:
         """
         Handle persistence when circuit breaker is open.
@@ -658,6 +670,7 @@ class DecisionPersistenceComponent:
             risk_metrics=risk_metrics,
             execution_params=execution_params,
             model_predictions=model_predictions,
+            decision_metadata=decision_metadata,
         )
 
     def _write_to_store(
@@ -667,6 +680,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
     ) -> bool:
         """
         Write decision to strategy store with timing.
@@ -685,6 +699,7 @@ class DecisionPersistenceComponent:
                     model_predictions=model_predictions,
                     risk_metrics=risk_metrics,
                     execution_params=execution_params,
+                    decision_metadata=decision_metadata,
                     ts_event=signal.ts_event,
                     is_live=is_live,
                     run_id=self._run_id,
@@ -713,6 +728,7 @@ class DecisionPersistenceComponent:
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
                 model_predictions=model_predictions,
+                decision_metadata=decision_metadata,
             )
             return False
 
@@ -726,6 +742,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
     ) -> None:
         """
         Handle store write failure.
@@ -747,6 +764,7 @@ class DecisionPersistenceComponent:
             risk_metrics=risk_metrics,
             execution_params=execution_params,
             model_predictions=model_predictions,
+            decision_metadata=decision_metadata,
         )
 
         # Log error
@@ -766,6 +784,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
     ) -> bool:
         """
         Publish a PARTIAL status event.
@@ -787,6 +806,7 @@ class DecisionPersistenceComponent:
                 model_predictions=model_predictions,
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
+                decision_metadata=decision_metadata,
                 ts_event=int(signal.ts_event),
                 is_live=is_live,
                 status=EventStatus.PARTIAL,
@@ -907,6 +927,7 @@ class DecisionPersistenceComponent:
         risk_metrics: dict[str, float] | None = None,
         execution_params: dict[str, Any] | None = None,
         model_predictions: dict[str, float] | None = None,
+        decision_metadata: dict[str, Any] | None = None,
         is_live: bool = True,
     ) -> bool:
         """
@@ -929,6 +950,8 @@ class DecisionPersistenceComponent:
             Execution parameters for the trade.
         model_predictions : dict[str, float] | None, optional
             Model predictions dictionary.
+        decision_metadata : dict[str, Any] | None, optional
+            Decision metadata payload.
         is_live : bool, default True
             Whether this is live trading or backtesting.
 
@@ -972,6 +995,11 @@ class DecisionPersistenceComponent:
             # Build model predictions if not provided
             if model_predictions is None:
                 model_predictions = self._build_model_predictions(signal)
+            if decision_metadata is None:
+                decision_metadata = normalize_decision_metadata(
+                    signal.metadata,
+                    model_id=signal.model_id,
+                )
 
             payload: dict[str, Any] = {
                 "dataset_id": "signals",
@@ -985,6 +1013,7 @@ class DecisionPersistenceComponent:
                 "model_predictions": model_predictions,
                 "risk_metrics": risk_metrics or {},
                 "execution_params": execution_params or {},
+                "decision_metadata": decision_metadata or {},
                 "ts_event": int(signal.ts_event),
             }
 

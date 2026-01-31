@@ -684,6 +684,28 @@ class TestDatabase:
         if (
             self._schema_initialized or _SCHEMA_INITIALIZED.get(engine_key, False)
         ) and not needs_init:
+            try:
+                with self.engine.begin() as _conn:
+                    column_exists = _conn.execute(
+                        text(
+                            """
+SELECT 1
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'ml_strategy_signals'
+  AND column_name = 'decision_metadata'
+""",
+                        ),
+                    ).scalar()
+                    if not column_exists:
+                        _conn.execute(
+                            text(
+                                "ALTER TABLE public.ml_strategy_signals "
+                                "ADD COLUMN IF NOT EXISTS decision_metadata JSONB",
+                            ),
+                        )
+            except Exception:
+                pass
             self._schema_initialized = True
             return
 
@@ -861,6 +883,17 @@ $$ LANGUAGE plpgsql;
             _ensure_functions_and_partitions(self.engine)
         except Exception:
             # Non-fatal: tests depending on the helper will surface issues explicitly.
+            pass
+
+        try:
+            with self.engine.begin() as _conn:
+                _conn.execute(
+                    text(
+                        "ALTER TABLE IF EXISTS public.ml_strategy_signals "
+                        "ADD COLUMN IF NOT EXISTS decision_metadata JSONB",
+                    ),
+                )
+        except Exception:
             pass
 
     def _get_default_schema_files(self) -> list[Path]:

@@ -1155,6 +1155,15 @@ class SchemaValidatorComponent:
         actual_lower = actual.lower()
         expected_lower = expected.lower()
 
+        if actual_lower in {"null", "none"}:
+            return True
+
+        if expected_lower in {"json", "jsonb"}:
+            return any(
+                token in actual_lower
+                for token in ("struct", "object", "dict", "map", "json", "string", "utf8")
+            )
+
         if expected_lower in {"date", "datetime"}:
             return any(
                 token in actual_lower

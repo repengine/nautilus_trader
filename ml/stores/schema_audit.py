@@ -327,7 +327,13 @@ def _default_table_expectations() -> tuple[TableExpectation, ...]:
         ),
         TableExpectation(
             table="ml_strategy_signals",
-            required_columns=("strategy_id", "instrument_id", "ts_event", "signal_type"),
+            required_columns=(
+                "strategy_id",
+                "instrument_id",
+                "ts_event",
+                "signal_type",
+                "decision_metadata",
+            ),
             require_primary_key=("strategy_id", "instrument_id", "ts_event"),
         ),
         TableExpectation(

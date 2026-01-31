@@ -236,12 +236,124 @@ def mock_registry(mock_registry_factory):
     """
     import time
     from ml.registry.dataclasses import DataContract
+    from ml.registry.dataclasses import DatasetManifest
+    from ml.registry.dataclasses import DatasetType
+    from ml.registry.dataclasses import QualityFlag
+    from ml.registry.dataclasses import StorageKind
     from ml.registry.dataclasses import ValidationRule
     from ml.registry.dataclasses import ValidationRuleType
-    from ml.registry.dataclasses import QualityFlag
+    from ml.registry.utils import compute_dataset_schema_hash
 
     # Get registry with default manifest
     registry = mock_registry_factory("data", with_manifest=True)
+    base_manifest = registry.get_manifest.return_value
+
+    feature_schema = {
+        "ts_event": "int64",
+        "ts_init": "int64",
+        "instrument_id": "str",
+        "feature_set_id": "str",
+        "feature_values": "json",
+    }
+    prediction_schema = {
+        "ts_event": "int64",
+        "ts_init": "int64",
+        "instrument_id": "str",
+        "model_id": "str",
+        "prediction": "float64",
+        "confidence": "float64",
+    }
+    signal_schema = {
+        "ts_event": "int64",
+        "ts_init": "int64",
+        "instrument_id": "str",
+        "strategy_id": "str",
+        "signal_type": "str",
+        "strength": "float64",
+        "model_predictions": "json",
+        "risk_metrics": "json",
+        "execution_params": "json",
+        "decision_metadata": "json",
+        "run_id": "str",
+        "ingested_at_ns": "int64",
+        "is_live": "bool",
+    }
+    manifest_map = {
+        "features": DatasetManifest(
+            dataset_id="features",
+            dataset_type=DatasetType.FEATURES,
+            storage_kind=StorageKind.POSTGRES,
+            location="ml_feature_values",
+            partitioning={},
+            retention_days=90,
+            schema=feature_schema,
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["ts_event", "instrument_id", "feature_set_id"],
+            schema_hash=compute_dataset_schema_hash(
+                schema=feature_schema,
+                primary_keys=["ts_event", "instrument_id", "feature_set_id"],
+                ts_field="ts_event",
+                seq_field=None,
+                pipeline_signature="feature_store_v1",
+            ),
+            constraints={},
+            lineage=[],
+            pipeline_signature="feature_store_v1",
+            version="1.0.0",
+        ),
+        "predictions": DatasetManifest(
+            dataset_id="predictions",
+            dataset_type=DatasetType.PREDICTIONS,
+            storage_kind=StorageKind.POSTGRES,
+            location="ml_model_predictions",
+            partitioning={},
+            retention_days=90,
+            schema=prediction_schema,
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["ts_event", "instrument_id", "model_id"],
+            schema_hash=compute_dataset_schema_hash(
+                schema=prediction_schema,
+                primary_keys=["ts_event", "instrument_id", "model_id"],
+                ts_field="ts_event",
+                seq_field=None,
+                pipeline_signature="model_store_v1",
+            ),
+            constraints={},
+            lineage=[],
+            pipeline_signature="model_store_v1",
+            version="1.0.0",
+        ),
+        "signals": DatasetManifest(
+            dataset_id="signals",
+            dataset_type=DatasetType.SIGNALS,
+            storage_kind=StorageKind.POSTGRES,
+            location="ml_strategy_signals",
+            partitioning={},
+            retention_days=90,
+            schema=signal_schema,
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["ts_event", "instrument_id", "strategy_id"],
+            schema_hash=compute_dataset_schema_hash(
+                schema=signal_schema,
+                primary_keys=["ts_event", "instrument_id", "strategy_id"],
+                ts_field="ts_event",
+                seq_field=None,
+                pipeline_signature="strategy_store_v1",
+            ),
+            constraints={},
+            lineage=[],
+            pipeline_signature="strategy_store_v1",
+            version="1.0.0",
+        ),
+    }
+
+    def _get_manifest(dataset_id: str) -> DatasetManifest:
+        return manifest_map.get(dataset_id, base_manifest)
+
+    registry.get_manifest.side_effect = _get_manifest
 
     # Add custom contract
     contract = DataContract(

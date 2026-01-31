@@ -38,6 +38,7 @@ from ml.actors.common import RegistryComponent
 
 # Component imports for facade pattern (Phase 2.3.5a)
 from ml.actors.common import StoreOperationsComponent
+from ml.actors.common.signal_metadata import build_prediction_surface_metadata
 from ml.actors.common.signal_metadata import build_signal_metadata
 from ml.common.metrics_manager import MetricsManager
 from ml.common.prediction_surface import normalize_prediction_output
@@ -900,6 +901,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._model_metadata: dict[str, Any] = {}
         self._model_version: str | None = None
         self._model_id: str = "unknown"  # Track model ID for signals
+        self._decision_metadata_payload: dict[str, Any] | None = None
+        self._signal_metadata_extra: dict[str, Any] | None = None
         self._model_loader: ModelLoader = ProductionModelLoader()
         self._features_buffer: npt.NDArray[np.float32] | None = None
         self._feature_window: deque[npt.NDArray[np.float32]] = deque(
@@ -1251,6 +1254,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._model_version = self._model_component.model_version
             if self._model_component.model_id is not None:
                 self._model_id = self._model_component.model_id
+            self._refresh_decision_metadata_payload()
             self.log.debug(f"Model loaded via ModelComponent: {self._model_component.model_id}")
 
             # FACADE: FeaturesComponent initialization happens in __init__, no separate step needed
@@ -1557,7 +1561,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     prediction=prediction,
                     confidence=confidence,
                     features=features if self._config.log_predictions else None,
-                    metadata=build_signal_metadata(bar),
+                    metadata=build_signal_metadata(
+                        bar,
+                        extra=self._signal_metadata_extra,
+                    ),
                     ts_event=bar.ts_event,
                     ts_init=self.clock.timestamp_ns(),
                 )
@@ -1713,6 +1720,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
             # Determine model_id
             self._determine_model_id()
+            self._refresh_decision_metadata_payload()
 
             # Call the original abstract method for backward compatibility
             self._load_model()
@@ -1852,6 +1860,31 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         version_str = self._model_version[:8] if self._model_version else "v1"
         self._model_id = f"{model_name}_{version_str}"
 
+    def _refresh_decision_metadata_payload(self) -> None:
+        """
+        Refresh decision metadata payloads after model metadata updates.
+        """
+        try:
+            from ml.common.decision_metadata import decision_metadata_from_model_metadata
+
+            payload = decision_metadata_from_model_metadata(
+                self._model_metadata,
+                model_id=self._model_id,
+                model_version=self._model_version,
+            )
+            self._decision_metadata_payload = payload
+            neutral_band = float(getattr(self._config, "prediction_neutral_band", 0.0))
+            self._signal_metadata_extra = build_prediction_surface_metadata(
+                neutral_band=neutral_band,
+                decision_metadata=payload,
+            )
+        except Exception as exc:
+            self.log.debug(
+                "decision_metadata_refresh_failed",
+                exc_info=True,
+                error=str(exc),
+            )
+
     def _schedule_model_checks(self) -> None:
         """
         Schedule periodic model version checks for hot reload.
@@ -1926,6 +1959,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._model = new_model
             self._model_metadata = new_metadata
             self._model_version = new_metadata.get("version")
+            self._refresh_decision_metadata_payload()
 
             # Update health status
             if self._health_monitor:

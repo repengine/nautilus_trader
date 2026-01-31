@@ -29,6 +29,7 @@ def test_publisher_builds_domain_op_topic_and_payload() -> None:
         model_predictions={"M": 0.9},
         risk_metrics={"r": 1.0},
         execution_params={"e": 2},
+        decision_metadata={"version": "v1", "policy": "threshold"},
         ts_event=123,
         is_live=True,
         status=EventStatus.SUCCESS,
@@ -42,6 +43,7 @@ def test_publisher_builds_domain_op_topic_and_payload() -> None:
     assert payload["strategy_id"] == "STRAT1"
     assert payload["instrument_id"].startswith("EUR/USD")
     assert payload["signal_type"] == "BUY"
+    assert payload["decision_metadata"]["version"] == "v1"
 
 
 def test_publisher_builds_stage_first_topic() -> None:
@@ -58,6 +60,7 @@ def test_publisher_builds_stage_first_topic() -> None:
         model_predictions={"M": 0.4},
         risk_metrics={},
         execution_params={},
+        decision_metadata=None,
         ts_event=999,
         is_live=False,
         status=EventStatus.SUCCESS,
@@ -84,6 +87,7 @@ def test_publisher_is_non_blocking_on_failure() -> None:
         model_predictions={},
         risk_metrics=None,
         execution_params=None,
+        decision_metadata=None,
         ts_event=0,
         is_live=True,
         status=EventStatus.SUCCESS,

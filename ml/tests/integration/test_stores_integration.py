@@ -382,6 +382,7 @@ class TestStrategyStore:
                         model_predictions,
                         risk_metrics,
                         execution_params,
+                        decision_metadata,
                         is_live
                     )
                     VALUES (
@@ -394,6 +395,7 @@ class TestStrategyStore:
                         :mp,
                         :rm,
                         :ep,
+                        :dm,
                         :live
                     )
                     ON CONFLICT (strategy_id, instrument_id, ts_event)
@@ -410,6 +412,7 @@ class TestStrategyStore:
                     "mp": json.dumps({"xgboost": 0.75}),
                     "rm": json.dumps({"position_size": 100}),
                     "ep": json.dumps({"order_type": "LIMIT"}),
+                    "dm": json.dumps({"version": "v1"}),
                     "live": True,
                 },
             )

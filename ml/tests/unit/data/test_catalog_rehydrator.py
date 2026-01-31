@@ -12,6 +12,8 @@ import pytest
 from sqlalchemy import create_engine
 
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.config.events import EventStatus
 from ml.config.events import Source
@@ -106,6 +108,20 @@ class _StubRegistry:
         )
 
 
+class _StubBackendSession:
+    def to_query_result(self) -> list[object]:
+        return []
+
+
+class _StubCatalog:
+    def __init__(self) -> None:
+        self.session = None
+
+    def backend_session(self, *args: object, **kwargs: object) -> _StubBackendSession:
+        self.session = kwargs.get("session")
+        return _StubBackendSession()
+
+
 @contextmanager
 def _patched_sqlite_engine(connection: str, patch_engine_manager) -> Iterator[None]:
     with ExitStack() as stack:
@@ -198,6 +214,37 @@ class TestParquetCatalogRehydrator:
         )
 
         assert identifier == "SPY.XNAS"
+
+    def test_stream_chunk_size_passed_to_backend_session(self) -> None:
+        config = CatalogRehydrationConfig(
+            enabled=True,
+            lookback_days=1,
+            batch_size=10,
+            stream_chunk_size=5_000,
+        )
+        catalog = _StubCatalog()
+        rehydrator = ParquetCatalogRehydrator(
+            catalog=catalog,  # type: ignore[arg-type]
+            db_connection="sqlite://",
+            config=config,
+            writer=_StubWriter(),
+            coverage_provider=_StubCoverage(),
+        )
+
+        frames = list(
+            rehydrator._iter_bucket_frames(
+                dataset_type=DatasetType.QUOTES,
+                instrument=InstrumentId.from_str("SPY.XNAS"),
+                identifier="SPY.XNAS",
+                dataset_id="EQUS.MINI_QUOTES",
+                bucket_start_ns=0,
+                bucket_end_ns=1,
+            ),
+        )
+
+        assert frames == []
+        assert catalog.session is not None
+        assert isinstance(catalog.session, DataBackendSession)
 
     def test_rehydrator_routes_tables_by_schema(self, patch_engine_manager) -> None:
         config = CatalogRehydrationConfig(

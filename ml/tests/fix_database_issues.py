@@ -84,6 +84,7 @@ _CREATE_TABLE_SQL: Final[dict[str, str]] = {
             model_predictions JSONB,
             risk_metrics JSONB,
             execution_params JSONB,
+            decision_metadata JSONB,
             is_live BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             PRIMARY KEY (strategy_id, instrument_id, ts_event)
@@ -114,20 +115,24 @@ def _ensure_functions_and_partitions(engine: Engine) -> None:
         # Only operate automatically on databases that clearly look like throwaway/test DBs.
         # This prevents accidental destructive operations against production schemas.
         db_label = (db_name or "").lower()
-        if not db_label or "test" not in db_label:
+        if not db_label or ("test" not in db_label and "template" not in db_label):
             LOGGER.warning(
                 "Skipping database fix helper because ML_ALLOW_DB_FIX is unset and database=%s",
                 db_name or "<unknown>",
             )
             return
 
-    with engine.begin() as conn:
-        try:
-            conn.execute(text("ALTER DATABASE nautilus SET search_path = public, pg_catalog"))
-        except Exception:
-            # Non-fatal when executing against alternate database names or limited privileges.
-            pass
+    try:
+        if db_name:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(
+                    text(f'ALTER DATABASE "{db_name}" SET search_path = public, pg_catalog'),
+                )
+    except Exception:
+        # Non-fatal when executing against alternate database names or limited privileges.
+        pass
 
+    with engine.begin() as conn:
         conn.execute(text("SET search_path TO public, pg_catalog"))
 
         # Drop legacy triggers that attempt to auto-create partitions per row.
@@ -204,6 +209,16 @@ $$ LANGUAGE plpgsql;
             )
             create_sql = _CREATE_TABLE_SQL[table_name]
             conn.execute(text(create_sql))
+            if table_name == "ml_strategy_signals":
+                try:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE public.ml_strategy_signals "
+                            "ADD COLUMN IF NOT EXISTS decision_metadata JSONB",
+                        ),
+                    )
+                except Exception:
+                    pass
 
             # Ensure the DEFAULT partition exists (idempotent).
             conn.execute(text(_CREATE_DEFAULT_PARTITION_SQL[table_name]))

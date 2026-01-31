@@ -17,8 +17,10 @@ from ml.registry.dataclasses import DatasetType
 
 __all__ = [
     "DATASET_TYPE_IDENTIFIER_DEFAULTS",
+    "DECISION_METADATA_V1",
     "DEFAULT_BAR_IDENTIFIER_TEMPLATE",
     "PREDICTION_SURFACE_V1",
+    "DecisionMetadataV1",
     "PredictionSurfaceSpec",
     "SchemaSpec",
     "dataset_type_to_dataclass",
@@ -106,6 +108,75 @@ class PredictionSurfaceSpec:
         return metadata
 
 
+@dataclass(frozen=True)
+class DecisionMetadataV1:
+    """
+    Canonical decision metadata schema (v1).
+
+    Attributes
+    ----------
+    version : str
+        Schema version identifier.
+    policy : str | None
+        Decision policy identifier (adapter or built-in).
+    policy_config : Mapping[str, Any] | None
+        Optional configuration for the decision policy.
+    horizon : Mapping[str, Any] | None
+        Horizon metadata (value + unit or richer structure).
+    label : str | None
+        Target/label identifier (e.g., forward_return_15m).
+    calibration : Mapping[str, Any] | None
+        Calibration metadata (method, params, version).
+    model_lineage : Mapping[str, Any] | None
+        Model lineage metadata (model_id, version, parent_id, role).
+
+    """
+
+    version: str = "v1"
+    policy: str | None = None
+    policy_config: Mapping[str, Any] | None = None
+    horizon: Mapping[str, Any] | None = None
+    label: str | None = None
+    calibration: Mapping[str, Any] | None = None
+    model_lineage: Mapping[str, Any] | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        """
+        Render the decision metadata as a JSON-serializable payload.
+        """
+        payload: dict[str, Any] = {"version": self.version}
+        if self.policy is not None:
+            payload["policy"] = self.policy
+        if self.policy_config:
+            payload["policy_config"] = dict(self.policy_config)
+        if self.horizon:
+            payload["horizon"] = dict(self.horizon)
+        if self.label is not None:
+            payload["label"] = self.label
+        if self.calibration:
+            payload["calibration"] = dict(self.calibration)
+        if self.model_lineage:
+            payload["model_lineage"] = dict(self.model_lineage)
+        return payload
+
+    @staticmethod
+    def schema_metadata() -> dict[str, Any]:
+        """
+        Return a lightweight schema descriptor for registry manifests.
+        """
+        return {
+            "version": "v1",
+            "fields": {
+                "policy": "str|None",
+                "policy_config": "json|None",
+                "horizon": "json|None",
+                "label": "str|None",
+                "calibration": "json|None",
+                "model_lineage": "json|None",
+            },
+        }
+
+
 PREDICTION_SURFACE_V1 = PredictionSurfaceSpec(
     surface="probability",
     range_min=0.0,
@@ -117,6 +188,8 @@ PREDICTION_SURFACE_V1 = PredictionSurfaceSpec(
     calibration=None,
     version="v1",
 )
+
+DECISION_METADATA_V1 = DecisionMetadataV1()
 
 
 def validate_identifier_template(template: str, *, label: str) -> str:

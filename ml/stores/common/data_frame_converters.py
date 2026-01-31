@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from ml.common.decision_metadata import normalize_decision_metadata
 from ml.ml_types import DataFrameLike
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
@@ -247,6 +248,7 @@ def data_frame_to_signals(
                     model_predictions=row.get("model_predictions", {}),
                     risk_metrics=row.get("risk_metrics", {}),
                     execution_params=row.get("execution_params", {}),
+                    decision_metadata=normalize_decision_metadata(row.get("decision_metadata")),
                     _ts_event=ts_event,
                     _ts_init=ts_init,
                     run_id=row.get("run_id"),
@@ -270,6 +272,7 @@ def data_frame_to_signals(
                     model_predictions=row.get("model_predictions", {}),
                     risk_metrics=row.get("risk_metrics", {}),
                     execution_params=row.get("execution_params", {}),
+                    decision_metadata=normalize_decision_metadata(row.get("decision_metadata")),
                     _ts_event=ts_event,
                     _ts_init=ts_init,
                     run_id=row.get("run_id"),
@@ -294,6 +297,7 @@ def data_frame_to_signals(
                         model_predictions=row.get("model_predictions", {}),
                         risk_metrics=row.get("risk_metrics", {}),
                         execution_params=row.get("execution_params", {}),
+                        decision_metadata=normalize_decision_metadata(row.get("decision_metadata")),
                         _ts_event=ts_event,
                         _ts_init=ts_init,
                         run_id=row.get("run_id"),

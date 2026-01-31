@@ -586,6 +586,9 @@ Definition of Done
 - [E36] Catalog rehydration streams quote/trade buckets via
   `ParquetDataCatalog.backend_session` and skips identifier=None fallback for
   tick datasets to prevent segfaults on large buckets.
+- [E37] Catalog rehydration supports `stream_chunk_size` (DataBackendSession
+  chunk size) to further reduce memory use for tick datasets; the quotes/trades
+  rehydration script sets `CATALOG_REHYDRATE_STREAM_CHUNK_SIZE`.
 - [E16] Coverage bucket cap defaults to `COVERAGE_MAX_BUCKETS_PER_RUN=500`
   (entrypoint pipeline).
 - [E17] Parquet earnings totals (EQUS universe):

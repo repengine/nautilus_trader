@@ -25,6 +25,7 @@ from ml.registry.dataclasses import (
     ValidationRuleType,
 )
 from ml.registry.protocols import RegistryProtocol
+from ml.registry.utils import compute_dataset_schema_hash
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.protocols import OrderExecutorProtocol
 
@@ -88,6 +89,7 @@ class RegistryTestStub(RegistryProtocol):
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
         self.watermarks: list[dict[str, object]] = []
+        self._manifests: dict[str, DatasetManifest] = {}
 
     def emit_event(
         self,
@@ -140,21 +142,90 @@ class RegistryTestStub(RegistryProtocol):
         )
 
     def get_manifest(self, dataset_id: str) -> DatasetManifest:
-        return DatasetManifest(
-            dataset_id=dataset_id,
-            dataset_type=DatasetType.FEATURES,
-            storage_kind=StorageKind.POSTGRES,
-            location="/tmp",
-            partitioning={},
-            retention_days=1,
-            schema={"ts_event": "int64"},
+        if dataset_id not in self._manifests:
+            self._manifests[dataset_id] = self._build_manifest(dataset_id)
+        return self._manifests[dataset_id]
+
+    def _build_manifest(self, dataset_id: str) -> DatasetManifest:
+        if dataset_id == "features":
+            schema = {
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "instrument_id": "str",
+                "feature_set_id": "str",
+                "feature_values": "json",
+            }
+            dataset_type = DatasetType.FEATURES
+            location = "ml_feature_values"
+            primary_keys = ["ts_event", "instrument_id", "feature_set_id"]
+            pipeline_signature = "feature_store_v1"
+        elif dataset_id == "predictions":
+            schema = {
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "instrument_id": "str",
+                "model_id": "str",
+                "prediction": "float64",
+                "confidence": "float64",
+            }
+            dataset_type = DatasetType.PREDICTIONS
+            location = "ml_model_predictions"
+            primary_keys = ["ts_event", "instrument_id", "model_id"]
+            pipeline_signature = "model_store_v1"
+        elif dataset_id == "signals":
+            schema = {
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "instrument_id": "str",
+                "strategy_id": "str",
+                "signal_type": "str",
+                "strength": "float64",
+                "model_predictions": "json",
+                "risk_metrics": "json",
+                "execution_params": "json",
+                "decision_metadata": "json",
+                "run_id": "str",
+                "ingested_at_ns": "int64",
+                "is_live": "bool",
+            }
+            dataset_type = DatasetType.SIGNALS
+            location = "ml_strategy_signals"
+            primary_keys = ["ts_event", "instrument_id", "strategy_id"]
+            pipeline_signature = "strategy_store_v1"
+        else:
+            schema = {
+                "ts_event": "int64",
+                "ts_init": "int64",
+                "instrument_id": "str",
+            }
+            dataset_type = DatasetType.FEATURES
+            location = "/tmp"
+            primary_keys = ["ts_event", "instrument_id"]
+            pipeline_signature = "test"
+
+        schema_hash = compute_dataset_schema_hash(
+            schema=schema,
+            primary_keys=primary_keys,
             ts_field="ts_event",
             seq_field=None,
-            primary_keys=["ts_event"],
-            schema_hash="",
+            pipeline_signature=pipeline_signature,
+        )
+
+        return DatasetManifest(
+            dataset_id=dataset_id,
+            dataset_type=dataset_type,
+            storage_kind=StorageKind.POSTGRES,
+            location=location,
+            partitioning={},
+            retention_days=90,
+            schema=schema,
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=primary_keys,
+            schema_hash=schema_hash,
             constraints={},
             lineage=[],
-            pipeline_signature="test",
+            pipeline_signature=pipeline_signature,
             version="1.0.0",
         )
 
@@ -287,6 +358,7 @@ class SignalActorHarness:
     _config: object
     id: object
     _model_id: str = "ml_model"
+    _decision_metadata_payload: dict[str, Any] | None = None
     _last_signal_bar: int = 0
     _bars_processed: int = 0
     _prediction_history: list[Any] = field(default_factory=list)

@@ -62,8 +62,30 @@ def test_strategy_store_per_row_publishing(tmp_path: Path) -> None:
         publisher=pub,
         publish_mode="row",
     )
-    ss1 = StrategySignal("s1", "EURUSD.SIM", "BUY", 0.5, {}, {}, {}, _ts_event=2, _ts_init=2)
-    ss2 = StrategySignal("s1", "EURUSD.SIM", "SELL", 0.4, {}, {}, {}, _ts_event=3, _ts_init=3)
+    ss1 = StrategySignal(
+        strategy_id="s1",
+        instrument_id="EURUSD.SIM",
+        signal_type="BUY",
+        strength=0.5,
+        model_predictions={},
+        risk_metrics={},
+        execution_params={},
+        decision_metadata={"version": "v1"},
+        _ts_event=2,
+        _ts_init=2,
+    )
+    ss2 = StrategySignal(
+        strategy_id="s1",
+        instrument_id="EURUSD.SIM",
+        signal_type="SELL",
+        strength=0.4,
+        model_predictions={},
+        risk_metrics={},
+        execution_params={},
+        decision_metadata={"version": "v1"},
+        _ts_event=3,
+        _ts_init=3,
+    )
     store.write_batch([ss1, ss2])
     topics = [t for t, _ in pub.calls]
     assert topics.count("ml.strategies.created.EURUSD.SIM") >= 2

@@ -447,6 +447,15 @@ def store_integration_metrics_database(
     five_minutes_ns = 300 * 1_000_000_000
 
     with test_database.engine.begin() as conn:
+        try:
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS public.ml_strategy_signals "
+                    "ADD COLUMN IF NOT EXISTS decision_metadata JSONB",
+                ),
+            )
+        except Exception:
+            pass
         for table_name in (
             "ml_positions",
             "ml_data_events",
@@ -469,11 +478,12 @@ def store_integration_metrics_database(
                     model_predictions,
                     risk_metrics,
                     execution_params,
+                    decision_metadata,
                     is_live
                 ) VALUES
-                    ('strat-alpha', 'EUR/USD', :ts1, :ts1, 'BUY', 0.6, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
-                    ('strat-alpha', 'EUR/USD', :ts2, :ts2, 'SELL', -0.3, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
-                    ('strat-beta', 'AAPL', :ts3, :ts3, 'BUY', 0.4, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE)
+                    ('strat-alpha', 'EUR/USD', :ts1, :ts1, 'BUY', 0.6, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
+                    ('strat-alpha', 'EUR/USD', :ts2, :ts2, 'SELL', -0.3, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE),
+                    ('strat-beta', 'AAPL', :ts3, :ts3, 'BUY', 0.4, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, TRUE)
                 """,
             ),
             {

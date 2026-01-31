@@ -379,6 +379,8 @@ class TestEventPublishingNoStore:
 
             assert result is True
             mock_publisher.publish.assert_called_once()
+            call_kwargs = mock_publisher.publish.call_args.kwargs
+            assert call_kwargs["decision_metadata"]["version"] == "v1"
 
     def test_persist_decision_partial_status_event(
         self,
@@ -408,6 +410,7 @@ class TestEventPublishingNoStore:
             from ml.config.events import EventStatus
 
             assert call_kwargs["status"] == EventStatus.PARTIAL
+            assert call_kwargs["decision_metadata"]["version"] == "v1"
 
 
 # ---------------------------------------------------------------------------

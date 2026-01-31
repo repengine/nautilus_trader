@@ -48,6 +48,7 @@ from ml.schema import validate_schema_identifier_templates
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.providers import resolve_catalog_identifier
+from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -108,6 +109,9 @@ class CatalogRehydrationConfig:
     exhaustive :
         When True, expand the inspection window to include the full catalog coverage for
         each instrument instead of limiting to ``lookback_days``.
+    stream_chunk_size :
+        Optional chunk size for streaming tick datasets using the Rust backend. When set,
+        tick rehydration uses DataBackendSession(chunk_size=...) to limit memory usage.
 
     """
 
@@ -124,6 +128,7 @@ class CatalogRehydrationConfig:
     table_config: MarketDataTableConfig | None = None
     rescan_on_schedule: bool = False
     exhaustive: bool = False
+    stream_chunk_size: int | None = None
 
     def __post_init__(self) -> None:
         if self.lookback_days < 1:
@@ -131,6 +136,9 @@ class CatalogRehydrationConfig:
             raise ValueError(msg)
         if self.batch_size <= 0:
             msg = "batch_size must be positive"
+            raise ValueError(msg)
+        if self.stream_chunk_size is not None and self.stream_chunk_size <= 0:
+            msg = "stream_chunk_size must be positive when set"
             raise ValueError(msg)
         validate_identifier_template(self.identifier_template, label="identifier_template")
         validate_schema_identifier_templates(self.schema_identifier_templates)
@@ -649,11 +657,17 @@ class ParquetCatalogRehydrator:
         bucket_end_ns: int,
     ) -> Iterator[pd.DataFrame]:
         data_class = _data_class_for_dataset(dataset_type)
+        session = (
+            DataBackendSession(chunk_size=self._config.stream_chunk_size)
+            if self._config.stream_chunk_size is not None
+            else None
+        )
         session = self._catalog.backend_session(
             data_cls=data_class,
             identifiers=[identifier],
             start=bucket_start_ns,
             end=bucket_end_ns,
+            session=session,
         )
         result = session.to_query_result()
         for chunk in result:

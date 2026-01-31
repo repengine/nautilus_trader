@@ -282,6 +282,17 @@ All new tests follow strict typing (mypy --strict), lint (ruff), and run in the 
 
 ## Writing New Tests
 
+### Shared Helpers & Generators
+
+Use shared helpers for pure data generation or lightweight stubs. These live under
+`ml/tests/utils/` and are preferred for Hypothesis strategies and reusable builders.
+Before creating a new helper, search existing modules and reuse them where possible.
+
+```bash
+# Replace <topic> with the concept you are testing (e.g., predictions, signals)
+rg -n "<topic>" ml/tests/utils ml/tests/property ml/tests/unit
+```
+
 ### When to Use Each Type
 
 **Property-Based Tests**:

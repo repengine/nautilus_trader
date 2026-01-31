@@ -51,6 +51,7 @@ from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
+from ml.actors.common.signal_metadata import build_prediction_surface_metadata
 from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -58,7 +59,6 @@ from ml.common.prediction_surface import decision_from_probability
 from ml.common.prediction_surface import normalize_prediction_output
 from ml.common.prediction_surface import resolve_output_is_logits
 from ml.config.names import FEATURE_TIME_BUCKETS
-from ml.schema import PREDICTION_SURFACE_V1
 
 
 if TYPE_CHECKING:
@@ -101,10 +101,6 @@ _inference_fallback_counter = get_counter(
     "Total fallback activations by component and stage",
     ["component", "level"],
 )
-
-_PREDICTION_SURFACE_VERSION = PREDICTION_SURFACE_V1.version
-_CONFIDENCE_SEMANTICS = PREDICTION_SURFACE_V1.confidence_semantics
-
 
 def _resolve_feature_time_metric() -> Any | None:
     module = sys.modules.get("ml.actors.signal")
@@ -627,13 +623,21 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 "_prediction_ring": ring_metadata.get("_prediction_ring"),
                 "_prediction_ring_index": ring_metadata.get("_prediction_ring_index", 0),
                 "_prediction_ring_count": ring_metadata.get("_prediction_ring_count", 0),
-                "signal_metadata": {
-                    "prediction_surface": "probability",
-                    "prediction_surface_version": _PREDICTION_SURFACE_VERSION,
-                    "neutral_band": neutral_band,
-                    "confidence_semantics": _CONFIDENCE_SEMANTICS,
-                },
             }
+            decision_metadata = getattr(self, "_decision_metadata_payload", None)
+            if decision_metadata is None:
+                from ml.common.decision_metadata import decision_metadata_from_model_metadata
+
+                decision_metadata = decision_metadata_from_model_metadata(
+                    getattr(self, "_model_metadata", None),
+                    model_id=getattr(self, "_model_id", None),
+                    model_version=getattr(self, "_model_version", None),
+                )
+                self._decision_metadata_payload = decision_metadata
+            context["signal_metadata"] = build_prediction_surface_metadata(
+                neutral_band=neutral_band,
+                decision_metadata=decision_metadata,
+            )
 
             # 5. Generate signal (Component 1 - hot path)
             strategy = getattr(self, "_signal_strategy", None)
@@ -671,6 +675,9 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
             # 8. Persist to strategy store (base class store)
             if hasattr(self, "_strategy_store") and self._strategy_store is not None:
+                decision_metadata_payload = (
+                    signal.metadata.get("decision_metadata") if signal.metadata else None
+                )
                 self._strategy_store.write_signal(
                     strategy_id=(str(self.id) if getattr(self, "id", None) else "ml_signal"),
                     instrument_id=str(bar.bar_type.instrument_id),
@@ -679,6 +686,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     model_predictions={context.get("model_id", "unknown"): prediction},
                     risk_metrics={"confidence": confidence},
                     execution_params={"threshold": adaptive_threshold},
+                    decision_metadata=decision_metadata_payload,
                     ts_event=bar.ts_event,
                 )
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -237,6 +238,7 @@ class StrategyStore(
             Column("model_predictions", JSON),  # Model ID -> prediction mapping
             Column("risk_metrics", JSON),  # Risk calculations
             Column("execution_params", JSON),  # Stop loss, take profit, etc.
+            Column("decision_metadata", JSON),  # Decision metadata payload
             Column("is_live", BOOLEAN, default=False),
             Column("created_at", BIGINT),  # Dev table; DB default used in prod
             Index("idx_ml_strategy_signals_lookup", "strategy_id", "instrument_id", "ts_event"),
@@ -368,6 +370,7 @@ class StrategyStore(
         risk_metrics: Mapping[str, float],
         execution_params: Mapping[str, Any],
         ts_event: int,
+        decision_metadata: Mapping[str, Any] | None = None,
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:
@@ -392,6 +395,8 @@ class StrategyStore(
             Execution parameters
         ts_event : int
             Event timestamp in nanoseconds
+        decision_metadata : Mapping[str, Any] | None
+            Decision metadata payload.
         is_live : bool
             Whether this is live trading
         run_id : str | None
@@ -427,6 +432,9 @@ class StrategyStore(
             model_predictions=dict(model_predictions) if not isinstance(model_predictions, dict) else model_predictions,
             risk_metrics=dict(risk_metrics) if not isinstance(risk_metrics, dict) else risk_metrics,
             execution_params=dict(execution_params) if not isinstance(execution_params, dict) else execution_params,
+            decision_metadata=(
+                dict(decision_metadata) if isinstance(decision_metadata, Mapping) else decision_metadata
+            ),
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
             run_id=resolved_run_id,

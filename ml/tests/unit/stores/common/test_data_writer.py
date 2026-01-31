@@ -374,6 +374,15 @@ def test_write_signals_success(
         signal.strategy_id = strategy_id
         signal.ts_event = 1000000000 + i * 1000000000
         signal.ts_init = 1000000000 + i * 1000000000
+        signal.signal_type = "BUY"
+        signal.strength = 0.8
+        signal.model_predictions = {"model": 0.55}
+        signal.risk_metrics = {"risk_score": 0.1}
+        signal.execution_params = {"note": "unit-test"}
+        signal.decision_metadata = {"version": "v1"}
+        signal.run_id = None
+        signal.ingested_at_ns = None
+        signal.is_live = False
         signals.append(signal)
 
     source = "strategy"

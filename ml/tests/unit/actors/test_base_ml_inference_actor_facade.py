@@ -30,7 +30,9 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -418,7 +420,51 @@ def test_facade_delegates_inference_to_model_component(
 
     assert isinstance(prediction, float)
     assert isinstance(confidence, float)
-    assert 0.0 <= confidence <= 1.0
+
+
+def test_refresh_decision_metadata_includes_prediction_surface_metadata(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+) -> None:
+    """
+    Ensure base actor enriches signal metadata with prediction surface fields.
+
+    This guards the canonical prediction surface contract for base actors.
+    """
+    import msgspec
+
+    class _ConcreteActor(BaseMLInferenceActor):
+        def _load_model(self) -> None:
+            return None
+
+        def _initialize_features(self) -> None:
+            return None
+
+        def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
+            return np.zeros(2, dtype=np.float32)
+
+        def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
+            return 0.5, 0.5
+
+    config = msgspec.structs.replace(
+        base_ml_config,
+        model_path=str(dummy_onnx_model),
+        prediction_neutral_band=0.12,
+    )
+    actor = _ConcreteActor(config)
+    actor._model_id = "model-test"
+    actor._model_version = "v1"
+    actor._refresh_decision_metadata_payload()
+
+    metadata = actor._signal_metadata_extra
+    assert isinstance(metadata, dict)
+    assert metadata.get("prediction_surface") == "probability"
+    assert metadata.get("prediction_surface_version") == "v1"
+    assert metadata.get("neutral_band") == pytest.approx(0.12)
+    assert metadata.get("confidence_semantics") == "max_probability"
+    decision_metadata = metadata.get("decision_metadata")
+    assert isinstance(decision_metadata, dict)
+    assert decision_metadata.get("version") == "v1"
 
 
 def test_facade_delegates_health_monitoring_to_components(

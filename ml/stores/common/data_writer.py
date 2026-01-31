@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_PROMETHEUS
+from ml.common.decision_metadata import normalize_decision_metadata
 from ml.common.events_util import stage_for_dataset_type
 from ml.common.metrics_bootstrap import get_counter
 from ml.config import EARNINGS_ACTUALS_DATASET_ID
@@ -832,6 +834,54 @@ class DataWriterComponent:
         ts_min_s = _sanitize(int(ts_min), context="data_writer.write_signals:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_writer.write_signals:ts_max")
 
+        preflight_records: list[dict[str, Any]] = []
+        for signal in signals:
+            decision_metadata = normalize_decision_metadata(
+                getattr(signal, "decision_metadata", None),
+            )
+            try:
+                setattr(signal, "decision_metadata", decision_metadata)
+            except Exception as exc:
+                logger.debug(
+                    "data_writer.signal_decision_metadata_set_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
+            preflight_records.append(
+                {
+                    "strategy_id": signal.strategy_id,
+                    "instrument_id": signal.instrument_id,
+                    "ts_event": int(signal.ts_event),
+                    "ts_init": int(signal.ts_init),
+                    "signal_type": getattr(signal, "signal_type", None),
+                    "strength": getattr(signal, "strength", None),
+                    "model_predictions": getattr(signal, "model_predictions", None),
+                    "risk_metrics": getattr(signal, "risk_metrics", None),
+                    "execution_params": getattr(signal, "execution_params", None),
+                    "decision_metadata": decision_metadata,
+                    "run_id": getattr(signal, "run_id", None),
+                    "ingested_at_ns": getattr(signal, "ingested_at_ns", None),
+                    "is_live": getattr(signal, "is_live", False),
+                }
+            )
+
+        preflight_passed, preflight_error, preflight_details = self._validator.preflight_check(
+            dataset_id,
+            preflight_records,
+            strict=self._fail_on_validation_error,
+        )
+
+        if not preflight_passed:
+            if HAS_PROMETHEUS:
+                write_rejection_counter.labels(
+                    dataset_id=dataset_id,
+                    reason="preflight_failed",
+                ).inc()
+            raise ValueError(
+                f"Preflight check failed for {dataset_id}: {preflight_error}. "
+                f"Details: {preflight_details}"
+            )
+
         # Store signals
         try:
             self._strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
@@ -1444,6 +1494,17 @@ class DataWriterComponent:
         manifest = next((item for item in manifests if item.dataset_id == dataset_id), None)
         if manifest is None:
             return
+        if not manifest.schema_hash:
+            from ml.registry.utils import compute_dataset_schema_hash
+
+            schema_hash = compute_dataset_schema_hash(
+                schema=manifest.schema,
+                primary_keys=manifest.primary_keys,
+                ts_field=manifest.ts_field,
+                seq_field=manifest.seq_field,
+                pipeline_signature=manifest.pipeline_signature,
+            )
+            manifest = replace(manifest, schema_hash=schema_hash)
         if not hasattr(self._registry, "register_dataset"):
             return
         try:

@@ -60,6 +60,7 @@ class StrategySignalWriteService:
                     "model_predictions": item.model_predictions if item.model_predictions else None,
                     "risk_metrics": item.risk_metrics if item.risk_metrics else None,
                     "execution_params": item.execution_params if item.execution_params else None,
+                    "decision_metadata": item.decision_metadata if item.decision_metadata else None,
                     "is_live": getattr(item, "is_live", False),
                 }
             )
@@ -93,6 +94,7 @@ class StrategySignalWriteService:
                 "model_predictions",
                 "risk_metrics",
                 "execution_params",
+                "decision_metadata",
                 "is_live",
                 "run_id",
                 "ingested_at_ns",
@@ -317,7 +319,7 @@ class StrategySignalQueryService:
             allowed={"ml_strategy_signals"},
         )
         sql = _text(
-            f"SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params\n"  # nosec B608: table name validated via allowlist
+            f"SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params, decision_metadata\n"  # nosec B608: table name validated via allowlist
             f"FROM {table_name}\n"
             "WHERE strategy_id = :strategy_id\n"
             "  AND instrument_id = :instrument_id\n"
@@ -341,6 +343,7 @@ class StrategySignalQueryService:
                 "model_predictions",
                 "risk_metrics",
                 "execution_params",
+                "decision_metadata",
             ],
         )
 
@@ -364,7 +367,7 @@ class StrategySignalQueryService:
         )
         sql = _text(
             f"SELECT strategy_id, instrument_id, ts_event, signal_type, strength,\n"  # nosec B608: table name validated via allowlist
-            "       model_predictions, risk_metrics\n"
+            "       model_predictions, risk_metrics, decision_metadata\n"
             f"FROM {table_name}\n"
             f"WHERE {' AND '.join(where_parts)}\n"
             "ORDER BY ts_event"
@@ -380,6 +383,7 @@ class StrategySignalQueryService:
                 "strength",
                 "model_predictions",
                 "risk_metrics",
+                "decision_metadata",
             ],
         )
 
@@ -446,6 +450,7 @@ class StrategySignalQueryService:
             "       model_predictions,\n"
             "       risk_metrics,\n"
             "       execution_params,\n"
+            "       decision_metadata,\n"
             "       ts_event,\n"
             "       ts_init\n"
             f"FROM {table_name}\n"
@@ -464,6 +469,7 @@ class StrategySignalQueryService:
                 "model_predictions",
                 "risk_metrics",
                 "execution_params",
+                "decision_metadata",
                 "ts_event",
                 "ts_init",
             ],
@@ -493,7 +499,7 @@ class StrategySignalQueryService:
         )
         sql = _text(
             f"SELECT strategy_id, instrument_id, ts_event, signal_type, strength,\n"  # nosec B608: table name validated via allowlist
-            "       model_predictions, risk_metrics\n"
+            "       model_predictions, risk_metrics, decision_metadata\n"
             f"FROM {table_name}\n"
             "WHERE strategy_id = :strategy_id\n"
             "  AND ts_event >= :start_ns\n"
@@ -516,6 +522,7 @@ class StrategySignalQueryService:
                 "strength",
                 "model_predictions",
                 "risk_metrics",
+                "decision_metadata",
             ],
         )
 
@@ -781,6 +788,7 @@ class StrategySignalEventService:
                         "model_predictions": "json",
                         "risk_metrics": "json",
                         "execution_params": "json",
+                        "decision_metadata": "json",
                     }
                     schema_hash = _hashlib.sha256(str(schema).encode()).hexdigest()
                     manifest = DatasetManifest(

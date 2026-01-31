@@ -18,6 +18,7 @@ import numpy as np
 from sqlalchemy import text
 
 from ml.common.db_utils import get_or_create_engine
+from ml.common.decision_metadata import normalize_decision_metadata
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
@@ -546,6 +547,7 @@ class DataProcessor:
             model_predictions=model_predictions,
             risk_metrics=risk_metrics,
             execution_params=execution_params,
+            decision_metadata=normalize_decision_metadata(None),
             _ts_event=ts_event,
             _ts_init=sanitize_timestamp_ns(time.time_ns()),
         )

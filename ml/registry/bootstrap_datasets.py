@@ -38,6 +38,7 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.schema import DECISION_METADATA_V1
 from ml.schema import PREDICTION_SURFACE_V1
 
 
@@ -242,6 +243,7 @@ def create_standard_manifests() -> list[DatasetManifest]:
             "model_predictions": "json",
             "risk_metrics": "json",
             "execution_params": "json",
+            "decision_metadata": "json",
             "run_id": "str",
             "ingested_at_ns": "int64",
             "is_live": "bool",
@@ -263,6 +265,7 @@ def create_standard_manifests() -> list[DatasetManifest]:
                 "model_predictions",
                 "risk_metrics",
                 "execution_params",
+                "decision_metadata",
                 "run_id",
                 "ingested_at_ns",
                 "is_live",
@@ -277,6 +280,7 @@ def create_standard_manifests() -> list[DatasetManifest]:
         metadata={
             "prediction_surface": PREDICTION_SURFACE_V1.to_metadata(),
             "signal_strength_semantics": "confidence",
+            "decision_metadata_schema": DECISION_METADATA_V1.schema_metadata(),
         },
     )
     manifests.append(signals_manifest)

@@ -524,6 +524,7 @@ class FileStrategyStore(StrategyStoreProtocol):
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         ts_event: int,
+        decision_metadata: dict[str, Any] | None = None,
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:
@@ -535,6 +536,7 @@ class FileStrategyStore(StrategyStoreProtocol):
             "model_predictions": dict(model_predictions),
             "risk_metrics": dict(risk_metrics),
             "execution_params": dict(execution_params),
+            "decision_metadata": dict(decision_metadata or {}),
             "ts_event": int(ts_event),
             "ts_init": int(ts_event),
             "is_live": bool(is_live),
@@ -651,6 +653,7 @@ class FileStrategyStore(StrategyStoreProtocol):
                 model_predictions=dict(getattr(item, "model_predictions", {})),
                 risk_metrics=dict(getattr(item, "risk_metrics", {})),
                 execution_params=dict(getattr(item, "execution_params", {})),
+                decision_metadata=dict(getattr(item, "decision_metadata", {}) or {}),
                 ts_event=item.ts_event,
                 is_live=bool(getattr(item, "is_live", False)),
                 run_id=getattr(item, "run_id", None),

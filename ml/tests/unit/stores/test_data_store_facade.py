@@ -75,6 +75,45 @@ def mock_registry() -> MagicMock:
         version="1.0.0",
     )
 
+    signals_schema = {
+        "ts_event": "int64",
+        "ts_init": "int64",
+        "instrument_id": "str",
+        "strategy_id": "str",
+        "signal_type": "str",
+        "strength": "float64",
+        "model_predictions": "json",
+        "risk_metrics": "json",
+        "execution_params": "json",
+        "decision_metadata": "json",
+        "run_id": "str",
+        "ingested_at_ns": "int64",
+        "is_live": "bool",
+    }
+    signals_manifest = DatasetManifest(
+        dataset_id="signals",
+        dataset_type=DatasetType.SIGNALS,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml_strategy_signals",
+        partitioning={"by": "ts_event", "interval": "daily"},
+        retention_days=365,
+        schema=signals_schema,
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id", "strategy_id"],
+        schema_hash=compute_dataset_schema_hash(
+            schema=signals_schema,
+            primary_keys=["ts_event", "instrument_id", "strategy_id"],
+            ts_field="ts_event",
+            seq_field=None,
+            pipeline_signature="test",
+        ),
+        constraints={"nullability": {"instrument_id": False, "ts_event": False}},
+        lineage=[],
+        pipeline_signature="test",
+        version="1.0.0",
+    )
+
     contract = DataContract(
         contract_id="bars_contract",
         dataset_id="bars_eurusd_1m",
@@ -106,7 +145,12 @@ def mock_registry() -> MagicMock:
         enforcement_mode="strict",
     )
 
-    registry.get_manifest.return_value = manifest
+    def _get_manifest(dataset_id: str) -> DatasetManifest:
+        if dataset_id == "signals":
+            return signals_manifest
+        return manifest
+
+    registry.get_manifest.side_effect = _get_manifest
     registry.get_contract.return_value = contract
     registry.emit_event = MagicMock()
     registry.update_watermark = MagicMock()
