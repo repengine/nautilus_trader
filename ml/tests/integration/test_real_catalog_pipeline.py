@@ -37,6 +37,7 @@ from ml.features.common.feature_metrics_collector import FeatureMetricsCollector
 from ml.ml_types import PolarsDF
 from ml.training.export import DEFAULT_ONNX_OPSET
 from ml.training.non_distilled.xgboost import XGBoostTrainer
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 pytestmark = [
@@ -213,7 +214,12 @@ def test_real_catalog_train_eval_infer_smoke(real_catalog_dataset: BuildResult) 
     feature_names = list(real_catalog_dataset.feature_names or [])
     if not feature_names:
         pytest.skip("Real catalog dataset has no feature columns")
-    target_col = "y"
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=REAL_CATALOG_HORIZON_MINUTES,
+        threshold=0.0005,
+        legacy_aliases=True,
+    )
+    target_col = target_semantics.label_columns()[0]
     required_cols = set(feature_names) | {target_col}
     if not required_cols.issubset(set(df.columns)):
         pytest.skip("Dataset missing required training columns")
@@ -229,6 +235,7 @@ def test_real_catalog_train_eval_infer_smoke(real_catalog_dataset: BuildResult) 
     config = XGBoostTrainingConfig(
         data_source=str(real_catalog_dataset.dataset_parquet),
         target_column=target_col,
+        target_semantics=target_semantics,
         train_test_split=0.8,
         random_seed=7,
         n_estimators=20,
@@ -280,7 +287,12 @@ def test_real_catalog_inference_serving_smoke(
     feature_names = list(real_catalog_dataset.feature_names or [])
     if not feature_names:
         pytest.skip("Real catalog dataset has no feature columns")
-    target_col = "y"
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=REAL_CATALOG_HORIZON_MINUTES,
+        threshold=0.0005,
+        legacy_aliases=True,
+    )
+    target_col = target_semantics.label_columns()[0]
     required_cols = feature_names + [target_col]
     if not set(required_cols).issubset(set(df.columns)):
         pytest.skip("Dataset missing required training columns")
@@ -296,6 +308,7 @@ def test_real_catalog_inference_serving_smoke(
     config = XGBoostTrainingConfig(
         data_source=str(real_catalog_dataset.dataset_parquet),
         target_column=target_col,
+        target_semantics=target_semantics,
         train_test_split=0.8,
         random_seed=7,
         n_estimators=20,

@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "${TEST_POSTGRES_HOST_PORT:-5434}:5432"  # Different port to avoid conflicts
+      - "${TEST_POSTGRES_HOST_PORT:-5434}:5434"  # Different port to avoid conflicts
     volumes:
       - ../stores/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -51,7 +51,7 @@ services:
       FLUSH_MAX_LATENCY_MS: "2"
 
       # Test database
-      DB_CONNECTION: postgresql://postgres:postgres@postgres-test:5432/nautilus_test
+      DB_CONNECTION: postgresql://postgres:postgres@postgres-test:5434/nautilus_test
       USE_TEST_DATABASE: "true"
 
       # Skip real Databento

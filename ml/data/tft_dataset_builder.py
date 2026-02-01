@@ -26,6 +26,7 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
 from ml.config.base import MLFeatureConfig
+from ml.config.targets import TargetSemanticsConfig
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
@@ -37,6 +38,7 @@ from ml.ml_types import DataFrameLike
 from ml.ml_types import PolarsDF
 from ml.stores.feature_store_facade import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
+from ml.training.datasets.target_generator import TargetGenerator
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -337,6 +339,7 @@ class TFTDatasetBuilder:
 
         self._dataset_serializer = _DatasetSerializer()
         self._validation_splitter = _ValidationSplitter()
+        self._target_generator = TargetGenerator()
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -807,6 +810,39 @@ class TFTDatasetBuilder:
             return int(dt_value.timestamp() * 1_000_000_000)
         return None
 
+    def _resolve_target_semantics(
+        self,
+        *,
+        target_semantics: TargetSemanticsConfig | None,
+        horizon_minutes: int,
+        min_return_threshold: float,
+        threshold_bps: float | None,
+    ) -> TargetSemanticsConfig:
+        """
+        Resolve target semantics for dataset generation.
+
+        Args:
+            target_semantics: Explicit target semantics configuration (optional).
+            horizon_minutes: Legacy horizon in minutes.
+            min_return_threshold: Legacy threshold in decimal units.
+            threshold_bps: Optional basis-point alias for threshold.
+
+        Returns:
+            Resolved TargetSemanticsConfig instance.
+        """
+        if target_semantics is not None:
+            return target_semantics
+
+        threshold = min_return_threshold
+        if threshold_bps is not None:
+            threshold = threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
+
+        return TargetSemanticsConfig.from_legacy(
+            horizon_minutes=horizon_minutes,
+            threshold=threshold,
+            legacy_aliases=True,
+        )
+
     def prepare_training_data_from_store(
         self,
         instrument_ids: list[str] | None = None,
@@ -814,6 +850,8 @@ class TFTDatasetBuilder:
         end: datetime | None = None,
         horizon_minutes: int = 15,
         min_return_threshold: float = 0.001,
+        *,
+        target_semantics: TargetSemanticsConfig | None = None,
     ) -> _pl.DataFrame:
         """
         Prepare training data using features from FeatureStore.
@@ -833,6 +871,8 @@ class TFTDatasetBuilder:
             Prediction horizon in minutes for target generation
         min_return_threshold : float, default 0.001
             Minimum return threshold for binary classification (0.1%)
+        target_semantics : TargetSemanticsConfig, optional
+            Explicit target semantics configuration.
 
         Returns
         -------
@@ -853,6 +893,13 @@ class TFTDatasetBuilder:
 
         if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
+        resolved_semantics = self._resolve_target_semantics(
+            target_semantics=target_semantics,
+            horizon_minutes=horizon_minutes,
+            min_return_threshold=min_return_threshold,
+            threshold_bps=None,
+        )
 
         # Use provided instruments or default to configured symbols
         resolved_ids = self._resolve_instrument_ids(instrument_ids)
@@ -921,8 +968,7 @@ class TFTDatasetBuilder:
                 # Generate targets
                 targets = self._generate_targets_polars(
                     combined_df,
-                    horizon_minutes,
-                    min_return_threshold,
+                    resolved_semantics,
                 )
 
                 # Add time index for TFT
@@ -1032,6 +1078,8 @@ class TFTDatasetBuilder:
         end: datetime | None = None,
         horizon_minutes: int = 15,
         min_return_threshold: float = 0.001,
+        *,
+        target_semantics: TargetSemanticsConfig | None = None,
         lookback_periods: int = 30,
         use_polars: bool = True,
     ) -> _pd.DataFrame | _pl.DataFrame:
@@ -1053,6 +1101,8 @@ class TFTDatasetBuilder:
             Prediction horizon in minutes
         min_return_threshold : float, default 0.001
             Minimum return threshold for binary classification
+        target_semantics : TargetSemanticsConfig, optional
+            Explicit target semantics configuration.
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation (used in direct mode)
         use_polars : bool, default True
@@ -1072,6 +1122,13 @@ class TFTDatasetBuilder:
         The method logs which source was used for monitoring and debugging.
 
         """
+        resolved_semantics = self._resolve_target_semantics(
+            target_semantics=target_semantics,
+            horizon_minutes=horizon_minutes,
+            min_return_threshold=min_return_threshold,
+            threshold_bps=None,
+        )
+
         # Determine which method to use
         if self.feature_store:
             source = "FeatureStore"
@@ -1083,8 +1140,7 @@ class TFTDatasetBuilder:
                     instrument_ids=instrument_ids,
                     start=start,
                     end=end,
-                    horizon_minutes=horizon_minutes,
-                    min_return_threshold=min_return_threshold,
+                    target_semantics=resolved_semantics,
                 )
 
                 # Log success with metrics
@@ -1110,8 +1166,7 @@ class TFTDatasetBuilder:
 
         # For direct computation, we use the original method
         direct_df = self._build_training_dataset_direct(
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
+            target_semantics=resolved_semantics,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
         )
@@ -1186,7 +1241,14 @@ class TFTDatasetBuilder:
                         # Assume all newly added columns after join are macro columns
                         # We compute diff by comparing to columns of a no-op slice (cannot easily capture before)
                         # Fallback: treat all non-core columns except known as potentially macro and fill nulls
-                        core = {"timestamp", "time_index", "instrument_id", "y"}
+                        core = {"timestamp", "time_index", "instrument_id", "y", "forward_return", "cost_return"}
+                        core.update(
+                            {
+                                c
+                                for c in direct_df.columns
+                                if str(c).startswith(("target_", "forward_return_", "cost_return_"))
+                            },
+                        )
                         macro_cols = [c for c in direct_df.columns if c not in core]
                         direct_df[macro_cols] = direct_df[macro_cols].fillna(0)
                         direct_df["is_macro_available"] = (
@@ -1207,6 +1269,7 @@ class TFTDatasetBuilder:
         min_return_threshold: float = 0.001,
         *,
         threshold_bps: float | None = None,
+        target_semantics: TargetSemanticsConfig | None = None,
         lookback_periods: int = 30,
         use_polars: bool = True,
         start: datetime | None = None,
@@ -1225,6 +1288,8 @@ class TFTDatasetBuilder:
             Prediction horizon in minutes
         min_return_threshold : float, default 0.001
             Minimum return threshold for binary classification (0.1%)
+        target_semantics : TargetSemanticsConfig, optional
+            Explicit target semantics configuration for multi-horizon targets.
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation
         use_polars : bool, default True
@@ -1240,11 +1305,12 @@ class TFTDatasetBuilder:
             TFT-compatible training dataset
 
         """
-        # Check if FeatureStore is available and use it preferentially
-        # Backwards-compat for tests: support threshold_bps alias
-        if threshold_bps is not None:
-            # Convert basis points to decimal if seems large; else use as-is
-            min_return_threshold = threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
+        resolved_semantics = self._resolve_target_semantics(
+            target_semantics=target_semantics,
+            horizon_minutes=horizon_minutes,
+            min_return_threshold=min_return_threshold,
+            threshold_bps=threshold_bps,
+        )
 
         if self.feature_store:
             logger.info("Using FeatureStore for training data preparation (ensures parity)")
@@ -1253,8 +1319,7 @@ class TFTDatasetBuilder:
                     instrument_ids=None,  # Will use self.symbols
                     start=start,
                     end=end,
-                    horizon_minutes=horizon_minutes,
-                    min_return_threshold=min_return_threshold,
+                    target_semantics=resolved_semantics,
                 )
 
                 # Convert to pandas if requested
@@ -1271,8 +1336,7 @@ class TFTDatasetBuilder:
         # Fall back to direct feature computation
         logger.info("Using direct feature computation for training data")
         return self._build_training_dataset_direct(
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
+            target_semantics=resolved_semantics,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
             start=start,
@@ -1313,8 +1377,7 @@ class TFTDatasetBuilder:
 
     def _build_training_dataset_direct(
         self,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int = 30,
         use_polars: bool = True,
         start: datetime | None = None,
@@ -1327,10 +1390,8 @@ class TFTDatasetBuilder:
 
         Parameters
         ----------
-        horizon_minutes : int, default 15
-            Prediction horizon in minutes
-        min_return_threshold : float, default 0.001
-            Minimum return threshold for binary classification (0.1%)
+        target_semantics : TargetSemanticsConfig
+            Explicit target semantics configuration.
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation
         use_polars : bool, default True
@@ -1494,8 +1555,7 @@ class TFTDatasetBuilder:
             return self._process_symbol_polars(
                 df,
                 symbol,
-                horizon_minutes,
-                min_return_threshold,
+                target_semantics,
                 lookback_periods,
                 start=start,
                 end=end,
@@ -1684,8 +1744,7 @@ class TFTDatasetBuilder:
                 processed_pd = self._process_symbol_pandas(
                     df_pandas,
                     symbol,
-                    horizon_minutes,
-                    min_return_threshold,
+                    target_semantics,
                     lookback_periods,
                 )
                 if processed_pd is not None:
@@ -1819,8 +1878,7 @@ class TFTDatasetBuilder:
         self,
         df: _pl.DataFrame,
         symbol: str,
-        horizon_minutes: int,
-        threshold: float,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -1859,7 +1917,7 @@ class TFTDatasetBuilder:
         features = self._compute_features_polars(df)
 
         # Generate targets
-        targets = self._generate_targets_polars(df, horizon_minutes, threshold)
+        targets = self._generate_targets_polars(df, target_semantics)
 
         # Combine (retain timestamp for macro joins)
         dataset = pl.concat(
@@ -2120,8 +2178,7 @@ class TFTDatasetBuilder:
         self,
         df: _pd.DataFrame,
         symbol: str,
-        horizon_minutes: int,
-        threshold: float,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int,
     ) -> _pd.DataFrame | None:
         """
@@ -2150,7 +2207,7 @@ class TFTDatasetBuilder:
         features = self._compute_features_pandas(df)
 
         # Generate targets
-        targets = self._generate_targets_pandas(df, horizon_minutes, threshold)
+        targets = self._generate_targets_pandas(df, target_semantics)
 
         # Combine (retain timestamp for macro joins)
         dataset = pd.concat(
@@ -2328,63 +2385,32 @@ class TFTDatasetBuilder:
     def _generate_targets_polars(
         self,
         df: _pl.DataFrame,
-        horizon_minutes: int,
-        threshold: float,
+        target_semantics: TargetSemanticsConfig,
     ) -> _pl.DataFrame:
         """
-        Generate binary targets using Polars.
+        Generate targets using Polars.
         """
-        # Calculate forward returns
-        future_prices = pl.col("close").shift(-horizon_minutes)
-        current_prices = pl.col("close")
-        forward_returns = (future_prices - current_prices) / current_prices
-
-        # Binary classification + forward return sidecar for downstream Sharpe metrics
-        targets = df.select(
-            [
-                (forward_returns > threshold).cast(pl.Int32).alias("y"),
-                forward_returns.cast(pl.Float32).alias("forward_return"),
-            ],
+        result = self._target_generator.generate_targets_with_semantics(
+            df,
+            target_semantics,
+            use_polars=True,
         )
-
-        # Fill trailing NaNs introduced by the horizon shift
-        targets = targets.with_columns(
-            [
-                pl.col("y").fill_null(0),
-                pl.col("forward_return").fill_null(0.0),
-            ],
-        )
-
-        return targets
+        return cast("_pl.DataFrame", result.frame)
 
     def _generate_targets_pandas(
         self,
         df: _pd.DataFrame,
-        horizon_minutes: int,
-        threshold: float,
+        target_semantics: TargetSemanticsConfig,
     ) -> _pd.DataFrame:
         """
-        Generate binary targets using Pandas.
+        Generate targets using Pandas.
         """
-        # Calculate forward returns
-        future_prices = df["close"].shift(-horizon_minutes)
-        current_prices = df["close"]
-        forward_returns = (future_prices - current_prices) / current_prices
-
-        # Binary classification + forward return sidecar for downstream Sharpe metrics
-        targets = pd.DataFrame(
-            {
-                "y": (forward_returns > threshold).astype(int),
-                "forward_return": forward_returns.astype(float),
-            },
+        result = self._target_generator.generate_targets_with_semantics(
+            df,
+            target_semantics,
+            use_polars=False,
         )
-
-        # Fill trailing NaNs introduced by the horizon shift
-        targets = targets.fillna({"y": 0, "forward_return": 0.0})
-
-        from typing import cast as _cast
-
-        return _cast("_pd.DataFrame", targets)
+        return cast("_pd.DataFrame", result.frame)
 
     def _add_static_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """

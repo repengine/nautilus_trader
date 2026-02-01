@@ -27,6 +27,7 @@ from ml.config._env_utils import env_positive_int as _env_positive_int
 from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config._env_utils import resolve_db_connection as _resolve_db_connection
 from ml.config.registry import ModelRegistryConfig as ModelRegistryConfig
+from ml.config.targets import TargetSemanticsConfig
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -1340,6 +1341,8 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
         Path or identifier for training data source.
     target_column : str, default "target"
         Name of the target column in training data.
+    target_semantics : TargetSemanticsConfig
+        Explicit target semantics configuration for the training dataset.
     feature_config : MLFeatureConfig, optional
         Configuration for feature engineering. If None, uses default configuration.
     train_test_split : PositiveFloat, default 0.8
@@ -1359,6 +1362,7 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
 
     data_source: str
     target_column: str = "target"
+    target_semantics: TargetSemanticsConfig | None = None
     feature_config: MLFeatureConfig | None = None
     train_test_split: PositiveFloat = 0.8
     random_seed: NonNegativeInt = 42
@@ -1369,6 +1373,29 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
     # FeatureStore integration
     db_connection: str | None = None
     pipeline_spec: Any | None = None
+
+    def __post_init__(self) -> None:
+        """
+        Validate training configuration.
+        """
+        if self.target_semantics is None:
+            raise ValidationError("target_semantics must be provided for training configs")
+
+        label_columns = self.target_semantics.label_columns()
+        if not label_columns:
+            raise ValidationError("target_semantics must declare at least one target label")
+
+        if self.target_column in label_columns:
+            return
+
+        resolved_primary = self.target_semantics.resolved_primary_target()
+        if resolved_primary is not None:
+            msgspec.structs.force_setattr(self, "target_column", resolved_primary)
+            return
+
+        raise ValidationError(
+            "target_column must be explicitly set when multiple targets exist and no primary_target is declared",
+        )
 
 
 class MultiModelStrategyConfig(MLStrategyConfig, kw_only=True, frozen=True):

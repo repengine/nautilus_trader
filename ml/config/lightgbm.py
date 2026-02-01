@@ -22,9 +22,8 @@ from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
 from ml.config.shared import LightGBMGPUConfig
-
-# MLflowConfig deprecated - use ModelRegistry
 from ml.config.shared import OptunaConfig
+from ml.config.targets import TargetSemanticsConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
@@ -369,9 +368,17 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
             or "target"
         )
 
+        target_semantics_raw = (
+            source.get("ML_LGBM_TARGET_SEMANTICS") or source.get("ML_TRAIN_TARGET_SEMANTICS")
+        )
+        if not target_semantics_raw:
+            raise ValueError("ML_LGBM_TARGET_SEMANTICS or ML_TRAIN_TARGET_SEMANTICS must be set")
+        target_semantics = TargetSemanticsConfig.from_json(target_semantics_raw)
+
         kwargs: dict[str, Any] = {
             "data_source": data_source_value,
             "target_column": target_column,
+            "target_semantics": target_semantics,
         }
 
         split_key = _first_key("ML_LGBM_TRAIN_TEST_SPLIT", "ML_TRAIN_TRAIN_TEST_SPLIT")
@@ -557,6 +564,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         """
         Validate configuration after initialization.
         """
+        super().__post_init__()
         # Validate LightGBM-specific parameters
         if not (0.0 < self.learning_rate <= 1.0):
             msg = f"learning_rate must be in (0.0, 1.0], got {self.learning_rate}"

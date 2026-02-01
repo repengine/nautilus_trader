@@ -19,6 +19,7 @@ from ml._imports import pl
 DEFAULT_FEATURE_EXCLUDE_COLUMNS: tuple[str, ...] = (
     "y",
     "forward_return",
+    "cost_return",
     "time_index",
     "timestamp",
     "instrument_id",
@@ -30,6 +31,13 @@ DEFAULT_FEATURE_EXCLUDE_COLUMNS: tuple[str, ...] = (
 )
 
 DEFAULT_FEATURE_EXCLUDE_SUFFIXES: tuple[str, ...] = ("_vintage_ts",)
+DEFAULT_FEATURE_EXCLUDE_PREFIXES: tuple[str, ...] = (
+    "forward_return_",
+    "cost_return_",
+    "target_bin_",
+    "target_class_",
+    "target_reg_",
+)
 
 
 def split_feature_columns(
@@ -37,6 +45,7 @@ def split_feature_columns(
     *,
     exclude: Sequence[str] | None = None,
     exclude_suffixes: Sequence[str] | None = None,
+    exclude_prefixes: Sequence[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """
     Split candidate feature columns into numeric and non-numeric groups.
@@ -64,11 +73,18 @@ def split_feature_columns(
         if exclude_suffixes is not None
         else DEFAULT_FEATURE_EXCLUDE_SUFFIXES
     )
+    prefixes = (
+        tuple(str(prefix) for prefix in exclude_prefixes)
+        if exclude_prefixes is not None
+        else DEFAULT_FEATURE_EXCLUDE_PREFIXES
+    )
 
     def is_excluded(name: str) -> bool:
         if name in exclude_set:
             return True
-        return any(name.endswith(suffix) for suffix in suffixes)
+        if any(name.endswith(suffix) for suffix in suffixes):
+            return True
+        return any(name.startswith(prefix) for prefix in prefixes)
 
     if pl is not None and isinstance(df, pl.DataFrame):
         candidates = [name for name in df.columns if not is_excluded(name)]
@@ -100,6 +116,7 @@ def infer_numeric_feature_columns(
     *,
     exclude: Sequence[str] | None = None,
     exclude_suffixes: Sequence[str] | None = None,
+    exclude_prefixes: Sequence[str] | None = None,
 ) -> list[str]:
     """
     Infer numeric feature columns after exclusions.
@@ -123,12 +140,14 @@ def infer_numeric_feature_columns(
         df,
         exclude=exclude,
         exclude_suffixes=exclude_suffixes,
+        exclude_prefixes=exclude_prefixes,
     )
     return numeric
 
 
 __all__ = [
     "DEFAULT_FEATURE_EXCLUDE_COLUMNS",
+    "DEFAULT_FEATURE_EXCLUDE_PREFIXES",
     "DEFAULT_FEATURE_EXCLUDE_SUFFIXES",
     "infer_numeric_feature_columns",
     "split_feature_columns",

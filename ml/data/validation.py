@@ -12,6 +12,7 @@ import structlog
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_COLUMNS
+from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_PREFIXES
 from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_SUFFIXES
 from ml.data.feature_columns import split_feature_columns
 from ml.data.vintage import VintagePolicy
@@ -132,6 +133,7 @@ class DatasetValidationConfig:
     require_numeric_features: bool = True
     feature_exclude_columns: tuple[str, ...] = DEFAULT_FEATURE_EXCLUDE_COLUMNS
     feature_exclude_suffixes: tuple[str, ...] = DEFAULT_FEATURE_EXCLUDE_SUFFIXES
+    feature_exclude_prefixes: tuple[str, ...] = DEFAULT_FEATURE_EXCLUDE_PREFIXES
 
 
 @dataclass(frozen=True)
@@ -170,12 +172,14 @@ def _infer_feature_columns(
     *,
     exclude: Sequence[str],
     exclude_suffixes: Sequence[str],
+    exclude_prefixes: Sequence[str],
     require_numeric: bool,
 ) -> list[str]:
     numeric, non_numeric = split_feature_columns(
         df_any,
         exclude=exclude,
         exclude_suffixes=exclude_suffixes,
+        exclude_prefixes=exclude_prefixes,
     )
     if require_numeric and non_numeric:
         msg = f"Non-numeric feature columns detected: {sorted(non_numeric)}"
@@ -354,11 +358,19 @@ def validate_dataset(
 
         positives: float | None = None
         positive_rate: float | None = None
-        if "y" in (df.columns if is_polars else df_any.columns):
+        target_col: str | None = None
+        if "y" in columns:
+            target_col = "y"
+        else:
+            binary_cols = [col for col in columns if col.startswith("target_bin_")]
+            if binary_cols:
+                target_col = sorted(binary_cols)[0]
+
+        if target_col:
             if is_polars:
-                positives = float(df.select(pl.col("y").sum().alias("p")).item())
+                positives = float(df.select(pl.col(target_col).sum().alias("p")).item())
             else:
-                positives = float(np.nansum(np.asarray(df_any["y"], dtype=float)))
+                positives = float(np.nansum(np.asarray(df_any[target_col], dtype=float)))
             positive_rate = positives / float(row_count) if row_count else None
             if positive_rate is not None:
                 if config.min_positive_rate is not None and positive_rate < config.min_positive_rate:
@@ -378,6 +390,7 @@ def validate_dataset(
             df_for_checks,
             exclude=config.feature_exclude_columns,
             exclude_suffixes=config.feature_exclude_suffixes,
+            exclude_prefixes=config.feature_exclude_prefixes,
             require_numeric=config.require_numeric_features,
         )
         coverage: dict[str, float] = {}

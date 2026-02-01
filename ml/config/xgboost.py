@@ -20,10 +20,9 @@ from ml.config._env_utils import env_positive_int as _env_positive_int
 from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
-
-# MLflowConfig deprecated - use ModelRegistry
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig
+from ml.config.targets import TargetSemanticsConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
@@ -165,9 +164,17 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
             or "target"
         )
 
+        target_semantics_raw = (
+            source.get("ML_XGB_TARGET_SEMANTICS") or source.get("ML_TRAIN_TARGET_SEMANTICS")
+        )
+        if not target_semantics_raw:
+            raise ValueError("ML_XGB_TARGET_SEMANTICS or ML_TRAIN_TARGET_SEMANTICS must be set")
+        target_semantics = TargetSemanticsConfig.from_json(target_semantics_raw)
+
         kwargs: dict[str, Any] = {
             "data_source": data_source_value,
             "target_column": target_column,
+            "target_semantics": target_semantics,
         }
 
         if "ML_TRAIN_TRAIN_TEST_SPLIT" in source or "ML_XGB_TRAIN_TEST_SPLIT" in source:
@@ -371,6 +378,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         """
         Post-initialization validation.
         """
+        super().__post_init__()
         # Validate subsample and colsample ratios
         if not (0.0 < self.subsample <= 1.0):
             msg = f"subsample must be in (0.0, 1.0], got {self.subsample}"

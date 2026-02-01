@@ -105,6 +105,8 @@ collector.run_collection()  # Collect L2, trades, quotes, bars
 ```python
 from ml.data.scheduler import DataScheduler
 from ml.config.scheduler_config import SchedulerConfig
+from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import build_binary_target_column
 
 config = SchedulerConfig(
     symbols=["SPY.ARCA", "QQQ.NASDAQ"],
@@ -168,6 +170,8 @@ from ml.common.metrics_bootstrap import get_histogram
 from ml.common.resource_monitor import current_rss_mb
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
+from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import build_binary_target_column
 
 # Core data conversion utilities
 from ml.data.catalog_utils import bars_to_dataframe
@@ -373,6 +377,52 @@ def _derive_alfred_range(cfg: DatasetBuildConfig) -> tuple[str | None, str | Non
     return _normalize(start_dt), _normalize(end_dt)
 
 
+def _resolve_target_semantics(cfg: DatasetBuildConfig) -> TargetSemanticsConfig:
+    """
+    Resolve target semantics for a dataset build configuration.
+
+    Args:
+        cfg: Dataset build configuration.
+
+    Returns:
+        TargetSemanticsConfig instance.
+    """
+    target_semantics = cast(
+        TargetSemanticsConfig | None,
+        getattr(cfg, "target_semantics", None),
+    )
+    if target_semantics is not None:
+        return target_semantics
+    horizon_minutes = getattr(cfg, "horizon_minutes", 15)
+    threshold = getattr(cfg, "threshold", 0.001)
+    return TargetSemanticsConfig.from_legacy(
+        horizon_minutes=horizon_minutes,
+        threshold=threshold,
+        legacy_aliases=True,
+    )
+
+
+def _resolve_binary_target_column(target_semantics: TargetSemanticsConfig) -> str | None:
+    """
+    Resolve the binary target column name for positive-rate checks.
+
+    Args:
+        target_semantics: Target semantics configuration.
+
+    Returns:
+        Binary target column name if available.
+    """
+    if not target_semantics.binary.enabled:
+        return None
+    primary = target_semantics.resolved_primary_target()
+    if primary and primary.startswith("target_bin_"):
+        return primary
+    labels = target_semantics.horizon_labels
+    if labels:
+        return build_binary_target_column(labels[0])
+    return None
+
+
 
 @dataclass(frozen=True)
 class DatasetBuildConfig:
@@ -404,6 +454,7 @@ class DatasetBuildConfig:
     # Builder params
     horizon_minutes: int = 15
     threshold: float = 0.001
+    target_semantics: TargetSemanticsConfig | None = None
     lookback_periods: int = 30
     # Optional window
     start: datetime | None = None
@@ -479,6 +530,7 @@ class DatasetMetadata:
     macro_observation_counts: dict[str, int]
     capability_flags: dict[str, bool] = field(default_factory=dict)
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
+    target_semantics: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -610,6 +662,11 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         for key, value in capability_raw.items():
             capability_flags[str(key)] = _normalize_bool(value)
 
+    target_semantics_raw = raw.get("target_semantics")
+    target_semantics: dict[str, Any] | None = (
+        target_semantics_raw if isinstance(target_semantics_raw, dict) else None
+    )
+
     bindings_raw = raw.get("market_bindings")
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
     if isinstance(bindings_raw, list):
@@ -673,6 +730,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         macro_observation_counts=macro_counts,
         capability_flags=capability_flags,
         market_bindings=market_bindings,
+        target_semantics=target_semantics,
     )
 
 
@@ -1166,6 +1224,7 @@ def _build_dataset_chunked(
     cfg: DatasetBuildConfig,
     vintage_as_of: datetime | None,
     build_ts: datetime,
+    target_semantics: TargetSemanticsConfig,
 ) -> tuple[BuildResult, DatasetValidationResult]:
     from ml._imports import HAS_POLARS
     from ml._imports import check_ml_dependencies
@@ -1195,6 +1254,10 @@ def _build_dataset_chunked(
     capability_flags = _capability_flags_from_builder(builder)
 
     chunk_metas: list[_ChunkMeta] = []
+    binary_target_col = _resolve_binary_target_column(target_semantics)
+    from ml.training.datasets.target_generator import build_target_semantics_metadata
+
+    target_semantics_metadata = build_target_semantics_metadata(target_semantics)
 
     cursor = cast(datetime, cfg.start)
     end = cast(datetime, cfg.end)
@@ -1209,6 +1272,7 @@ def _build_dataset_chunked(
         df_any = builder.build_training_dataset(
             horizon_minutes=cfg.horizon_minutes,
             min_return_threshold=cfg.threshold,
+            target_semantics=target_semantics,
             lookback_periods=cfg.lookback_periods,
             use_polars=True,
             start=cursor,
@@ -1237,8 +1301,8 @@ def _build_dataset_chunked(
             df_chunk.write_parquet(str(chunk_path))
 
             positives = 0.0
-            if "y" in df_chunk.columns:
-                positives = float(df_chunk["y"].sum())
+            if binary_target_col and binary_target_col in df_chunk.columns:
+                positives = float(df_chunk[binary_target_col].sum())
 
             macro_counts: dict[str, int] = {}
             if cfg.macro_series_ids:
@@ -1311,6 +1375,7 @@ def _build_dataset_chunked(
             macro_observation_counts={},
             capability_flags=capability_flags,
             market_bindings=binding_metadata,
+            target_semantics=target_semantics_metadata,
         )
         metadata_path = cfg.out_dir / "dataset_metadata.json"
         metadata_path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2), encoding="utf-8")
@@ -1490,7 +1555,9 @@ def _build_dataset_chunked(
 
     shutil.rmtree(chunk_dir, ignore_errors=True)
 
-    positive_rate = positive_sum / total_rows if total_rows else None
+    positive_rate = (
+        positive_sum / total_rows if total_rows and binary_target_col is not None else None
+    )
     if feature_names and non_null_counts is not None and total_rows > 0:
         feature_coverage = {
             name: non_null_counts[name] / total_rows
@@ -1531,6 +1598,7 @@ def _build_dataset_chunked(
         macro_observation_counts=macro_totals,
         capability_flags=capability_flags,
         market_bindings=binding_metadata,
+        target_semantics=target_semantics_metadata,
     )
 
     metadata_path = cfg.out_dir / "dataset_metadata.json"
@@ -1582,6 +1650,7 @@ def _compute_dataset_metadata(
     build_ts: datetime,
     dataset_id: str | None,
     macro_observation_counts: dict[str, int] | None,
+    target_semantics: dict[str, Any] | None,
 ) -> DatasetMetadata:
     from ml._imports import pd
     from ml._imports import pl
@@ -1664,6 +1733,7 @@ def _compute_dataset_metadata(
         validation_window=validation_window,
         test_window=None,
         macro_observation_counts=macro_counts,
+        target_semantics=target_semantics,
     )
     return metadata
 
@@ -1682,6 +1752,7 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         "test_window": list(metadata.test_window) if metadata.test_window else None,
         "macro_observation_counts": metadata.macro_observation_counts,
         "capability_flags": metadata.capability_flags,
+        "target_semantics": metadata.target_semantics,
     }
     if metadata.market_bindings is not None:
         payload["market_bindings"] = [
@@ -1871,6 +1942,10 @@ def build_tft_dataset(
         macro_revision_windows=cfg.macro_revision_windows,
     )
     capability_flags = _capability_flags_from_builder(builder)
+    target_semantics = _resolve_target_semantics(cfg)
+    from ml.training.datasets.target_generator import build_target_semantics_metadata
+
+    target_semantics_metadata = build_target_semantics_metadata(target_semantics)
 
     chunk_mode = bool(cfg.chunk_days > 0 and cfg.start and cfg.end)
     if chunk_mode:
@@ -1879,6 +1954,7 @@ def build_tft_dataset(
             cfg=cfg,
             vintage_as_of=vintage_as_of,
             build_ts=build_ts,
+            target_semantics=target_semantics,
         )
         return build_result
 
@@ -1890,6 +1966,7 @@ def build_tft_dataset(
     df_any = builder.build_training_dataset(
         horizon_minutes=cfg.horizon_minutes,
         min_return_threshold=cfg.threshold,
+        target_semantics=target_semantics,
         lookback_periods=cfg.lookback_periods,
         use_polars=True,
         start=cfg.start,
@@ -1956,6 +2033,7 @@ def build_tft_dataset(
         build_ts,
         getattr(cfg, "dataset_id", None),
         getattr(validation_result, "macro_observation_counts", {}),
+        target_semantics_metadata,
     )
     binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
     metadata = replace(metadata, market_bindings=binding_metadata, capability_flags=capability_flags)

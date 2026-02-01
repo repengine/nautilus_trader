@@ -22,6 +22,7 @@ from ml.actors import MLSignalActorConfig
 from ml.actors import SignalStrategy
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
+from ml.config.targets import TargetSemanticsConfig
 from ml.features import FeatureConfig
 from ml.features.indicators import IndicatorManager
 from ml.stores.feature_store import FeatureStore
@@ -141,12 +142,18 @@ def example_training_with_feature_store() -> BaseMLTrainer:
             return object()
 
     # Configure training with FeatureStore
+    target_semantics = TargetSemanticsConfig.from_legacy(
+        horizon_minutes=15,
+        threshold=0.001,
+        legacy_aliases=True,
+    )
     config = MLTrainingConfig(
         data_source="nautilus_postgres",  # Indicates data source
         db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
         feature_config=MLFeatureConfig(),
         train_test_split=0.8,
         save_model_path="./models/trained/model.pkl",
+        target_semantics=target_semantics,
     )
 
     # Create trainer - it will automatically initialize FeatureStore

@@ -61,6 +61,7 @@ def test_compute_metadata_from_polars(tmp_path: Path) -> None:
         build_ts=datetime(2024, 1, 1, tzinfo=UTC),
         dataset_id="test_dataset",
         macro_observation_counts={"CPI": 5},
+        target_semantics=None,
     )
 
     assert isinstance(metadata, DatasetMetadata)

@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+from ml.config.targets import TargetSemanticsConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -96,11 +97,15 @@ def test_event_features_join_when_calendar_lags_enabled() -> None:
     )
     frame = frame.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
 
+    target_semantics = TargetSemanticsConfig.from_legacy(
+        horizon_minutes=1,
+        threshold=0.0,
+        legacy_aliases=True,
+    )
     dataset = builder._process_symbol_polars(
         frame,
         symbol="SPY",
-        horizon_minutes=1,
-        threshold=0.0,
+        target_semantics=target_semantics,
         lookback_periods=0,
     )
 

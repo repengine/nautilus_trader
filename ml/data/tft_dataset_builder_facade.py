@@ -19,6 +19,7 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
 from ml.config.base import MLFeatureConfig
+from ml.config.targets import TargetSemanticsConfig
 from ml.data.common import FeatureAlignmentComponent
 from ml.data.common import SchemaValidationError
 from ml.data.common import TargetGenerationComponent
@@ -226,6 +227,7 @@ class TFTDatasetBuilderFacade:
         min_return_threshold: float = 0.001,
         *,
         threshold_bps: float | None = None,
+        target_semantics: TargetSemanticsConfig | None = None,
         lookback_periods: int = 30,
         use_polars: bool = True,
         start: datetime | None = None,
@@ -238,6 +240,7 @@ class TFTDatasetBuilderFacade:
             horizon_minutes: Prediction horizon in minutes.
             min_return_threshold: Minimum return threshold for targets.
             threshold_bps: Optional basis-point alias for threshold.
+            target_semantics: Explicit target semantics configuration.
             lookback_periods: Lookback periods for feature computation.
             use_polars: Whether to return a Polars DataFrame.
             start: Optional start timestamp.
@@ -253,6 +256,7 @@ class TFTDatasetBuilderFacade:
                 horizon_minutes=horizon_minutes,
                 min_return_threshold=min_return_threshold,
                 threshold_bps=threshold_bps,
+                target_semantics=target_semantics,
                 lookback_periods=lookback_periods,
                 use_polars=use_polars,
                 start=start,
@@ -272,6 +276,8 @@ class TFTDatasetBuilderFacade:
         end: datetime | None = None,
         horizon_minutes: int = 15,
         min_return_threshold: float = 0.001,
+        *,
+        target_semantics: TargetSemanticsConfig | None = None,
         lookback_periods: int = 30,
         use_polars: bool = True,
     ) -> DataFrameLike:
@@ -284,6 +290,7 @@ class TFTDatasetBuilderFacade:
             end: Optional end timestamp.
             horizon_minutes: Prediction horizon in minutes.
             min_return_threshold: Minimum return threshold for targets.
+            target_semantics: Explicit target semantics configuration.
             lookback_periods: Lookback periods for feature computation.
             use_polars: Whether to return a Polars DataFrame.
 
@@ -298,6 +305,7 @@ class TFTDatasetBuilderFacade:
             end=end,
             horizon_minutes=horizon_minutes,
             min_return_threshold=min_return_threshold,
+            target_semantics=target_semantics,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
         )
@@ -309,6 +317,8 @@ class TFTDatasetBuilderFacade:
         end: datetime | None = None,
         horizon_minutes: int = 15,
         min_return_threshold: float = 0.001,
+        *,
+        target_semantics: TargetSemanticsConfig | None = None,
     ) -> PolarsDF:
         """
         Prepare training data from the FeatureStore.
@@ -319,6 +329,7 @@ class TFTDatasetBuilderFacade:
             end: Optional end timestamp.
             horizon_minutes: Prediction horizon in minutes.
             min_return_threshold: Minimum return threshold for targets.
+            target_semantics: Explicit target semantics configuration.
 
         Returns:
             Polars DataFrame with training features and targets.
@@ -332,6 +343,7 @@ class TFTDatasetBuilderFacade:
             end=end,
             horizon_minutes=horizon_minutes,
             min_return_threshold=min_return_threshold,
+            target_semantics=target_semantics,
         )
 
     def get_binding_stats(self) -> tuple[MarketBindingStats, ...]:

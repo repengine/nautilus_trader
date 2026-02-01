@@ -384,10 +384,10 @@ class TestErrorConditions:
         """
         df = pl.DataFrame({"close": [100.0, 101.0]})
 
-        with pytest.raises(ValueError, match="horizon_minutes"):
+        with pytest.raises(ValueError, match="horizon minutes"):
             component.generate_targets_polars(df, horizon_minutes=0, threshold=0.001)
 
-        with pytest.raises(ValueError, match="horizon_minutes"):
+        with pytest.raises(ValueError, match="horizon minutes"):
             component.generate_targets_polars(df, horizon_minutes=-5, threshold=0.001)
 
     def test_generate_targets_zero_prices(

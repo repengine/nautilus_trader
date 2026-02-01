@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 import pytest
@@ -19,6 +20,19 @@ from ml.config.base import MLStrategyConfig
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.tests.utils.db import build_postgres_url
+
+
+def _target_semantics_json() -> str:
+    """
+    Build a minimal target semantics JSON payload for env tests.
+    """
+    return json.dumps(
+        {
+            "version": "v1",
+            "horizons": [{"minutes": 15}],
+            "primary_target": "target_bin_15m",
+        },
+    )
 
 
 def _mapping(env: dict[str, str]) -> Mapping[str, str]:
@@ -206,7 +220,8 @@ def test_lightgbm_training_config_from_env() -> None:
     env = _mapping(
         {
             "ML_LGBM_DATA_SOURCE": "/data/shards/lgbm.parquet",
-            "ML_LGBM_TARGET_COLUMN": "label",
+            "ML_LGBM_TARGET_COLUMN": "target_bin_15m",
+            "ML_LGBM_TARGET_SEMANTICS": _target_semantics_json(),
             "ML_LGBM_N_ESTIMATORS": "200",
             "ML_LGBM_LEARNING_RATE": "0.05",
             "ML_LGBM_GPU_ENABLED": "true",
@@ -222,7 +237,7 @@ def test_lightgbm_training_config_from_env() -> None:
     cfg = LightGBMTrainingConfig.from_env(env=env)
 
     assert cfg.data_source == "/data/shards/lgbm.parquet"
-    assert cfg.target_column == "label"
+    assert cfg.target_column == "target_bin_15m"
     assert cfg.n_estimators == 200
     assert pytest.approx(cfg.learning_rate, rel=1e-9) == 0.05
     assert cfg.gpu_config is not None and isinstance(cfg.gpu_config, LightGBMGPUConfig)
@@ -237,7 +252,8 @@ def test_xgboost_training_config_from_env() -> None:
     env = _mapping(
         {
             "ML_XGB_DATA_SOURCE": "/data/xgb.csv",
-            "ML_XGB_TARGET_COLUMN": "y",
+            "ML_XGB_TARGET_COLUMN": "target_bin_15m",
+            "ML_XGB_TARGET_SEMANTICS": _target_semantics_json(),
             "ML_XGB_N_ESTIMATORS": "150",
             "ML_XGB_TREE_METHOD": "gpu_hist",
             "ML_XGB_GPU_ENABLED": "true",

@@ -22,6 +22,7 @@ import pytest
 
 from ml.config.base import MLFeatureConfig, MLTrainingConfig
 from ml.training.base_facade import BaseMLTrainerFacade
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 # =============================================================================
@@ -146,9 +147,11 @@ class TestableTrainerFacade(BaseMLTrainerFacade):
 @pytest.fixture
 def basic_config() -> MLTrainingConfig:
     """Create a basic training configuration."""
+    target_semantics = build_default_target_semantics()
     return MLTrainingConfig(
         data_source="memory",
         target_column="target",
+        target_semantics=target_semantics,
         train_test_split=0.8,
     )
 
@@ -234,7 +237,9 @@ class TestFacadeInitialization:
     def test_config_stored(self, trainer_facade: TestableTrainerFacade) -> None:
         """Config is stored on trainer."""
         assert trainer_facade._config is not None
-        assert trainer_facade._config.target_column == "target"
+        expected_target = trainer_facade._config.target_semantics.resolved_primary_target()
+        assert expected_target is not None
+        assert trainer_facade._config.target_column == expected_target
 
     def test_feature_config_defaults(self, trainer_facade: TestableTrainerFacade) -> None:
         """Feature config defaults when not provided."""
@@ -264,9 +269,11 @@ class TestFacadeInitialization:
     def test_custom_feature_config(self) -> None:
         """Custom feature config is used when provided."""
         feature_config = MLFeatureConfig(lookback_window=200)
+        target_semantics = build_default_target_semantics()
         config = MLTrainingConfig(
             data_source="memory",
             feature_config=feature_config,
+            target_semantics=target_semantics,
         )
         trainer = TestableTrainerFacade(config)
         assert trainer._feature_config.lookback_window == 200

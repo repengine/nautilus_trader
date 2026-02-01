@@ -462,13 +462,13 @@ Definition of Done
 - [x] As-of checks run and documented with violation counts (0 expected).
 - [x] Training-ready dataset build produces stable sample outputs without
       leakage warnings. [E25]
-- [ ] Investigate macro feature coverage shortfall in the 10-symbol readiness
+- [x] Investigate macro feature coverage shortfall in the 10-symbol readiness
       build (GDP is null while CPI/PCE/PAYEMS/UNRATE/FEDFUNDS are filled).
       Root cause likely stale/empty GDP join inputs at build time or a column
       selection mismatch between base series and `__value_*` outputs. Re-run
       the readiness build after macro mirror refresh; `join_fred_asof` now
       coalesces base series columns from `__value_real_time` to avoid null base
-      series when the value columns are present. [E26][E33]
+      series when the value columns are present. [E26][E33][E38]
 - [x] Feature-store parity spot-check confirms no missing or future-dated
       values across the sample. [E24]
 
@@ -500,8 +500,9 @@ Definition of Done
 - [x] Feature values populate via feature engineering and match bar coverage.
 - [ ] L2/L3 coverage aligned to the on-disk availability window.
 - [ ] Parquet-vs-DB parity checks pass for non-L2 feature schemas.
-      (feature_values parquet currently has +583 rows vs SQL; needs mirror
-      backfill).
+      (feature_values parquet currently has +493 rows vs SQL and one corrupted
+      parquet file at `data/features/store/feature_values/VIXY.EQUS/year=2023/month=06/day=28.parquet`
+      after mirror backfill; cleanup/rebuild required). [E39]
 - [x] Macro release calendar row counts align with Parquet (1,636,264 SQL vs
       1,636,264 parquet rows). [E22]
 - [x] Macro observations row counts align with Parquet (43,114 SQL vs 43,114
@@ -589,6 +590,12 @@ Definition of Done
 - [E37] Catalog rehydration supports `stream_chunk_size` (DataBackendSession
   chunk size) to further reduce memory use for tick datasets; the quotes/trades
   rehydration script sets `CATALOG_REHYDRATE_STREAM_CHUNK_SIZE`.
+- [E38] Readiness build re-run (2026-02-01) with explicit EQUS instrument IDs
+  (AAPL/MSFT/NVDA/AMZN/META/TSLA/SPY/QQQ/JPM/XOM) for 2025-11-01→2025-12-01
+  produced 80,780 rows and GDP base series populated (GDP nulls=0).
+- [E39] Feature store mirror backfill completed (2026-02-01): SQL rows
+  25,311,682 vs parquet rows 25,312,175 (+493). One corrupted parquet file
+  detected at `data/features/store/feature_values/VIXY.EQUS/year=2023/month=06/day=28.parquet`.
 - [E16] Coverage bucket cap defaults to `COVERAGE_MAX_BUCKETS_PER_RUN=500`
   (entrypoint pipeline).
 - [E17] Parquet earnings totals (EQUS universe):

@@ -12,6 +12,7 @@ from ml._imports import optuna
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
 from ml.training.base_facade import BaseMLTrainerFacade
+from ml.tests.utils.targets import build_default_target_semantics
 
 pytestmark = pytest.mark.contracts
 
@@ -58,8 +59,10 @@ class _StubTrainer(BaseMLTrainerFacade):
 
 
 def _training_config(**overrides: Any) -> MLTrainingConfig:
+    target_semantics = overrides.pop("target_semantics", build_default_target_semantics())
     return MLTrainingConfig(
         data_source="unit-test",
+        target_semantics=target_semantics,
         **overrides,
     )
 

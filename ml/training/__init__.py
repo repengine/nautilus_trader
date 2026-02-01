@@ -61,9 +61,15 @@ Example Usage:
 Basic Training:
     >>> from ml.training import XGBoostTrainer
     >>> from ml.config.xgboost import XGBoostTrainingConfig
+    >>> from ml.config.targets import TargetSemanticsConfig
     >>>
     >>> # Configure training
+    >>> target_semantics = TargetSemanticsConfig.from_legacy(
+    ...     horizon_minutes=15,
+    ...     threshold=0.001,
+    ... )
     >>> config = XGBoostTrainingConfig(
+    ...     target_semantics=target_semantics,
     ...     objective="binary:logistic",
     ...     n_estimators=1000,
     ...     max_depth=6,
@@ -81,6 +87,7 @@ Basic Training:
 Advanced Training with Optuna:
     >>> from ml.training import XGBoostTrainer, XGBoostOptunaOptimizer
     >>> from ml.config.shared import OptunaConfig
+    >>> from ml.config.targets import TargetSemanticsConfig
     >>>
     >>> # Configure hyperparameter optimization
     >>> optuna_config = OptunaConfig(
@@ -92,7 +99,12 @@ Advanced Training with Optuna:
     ... )
     >>>
     >>> # Configure training with optimization
+    >>> target_semantics = TargetSemanticsConfig.from_legacy(
+    ...     horizon_minutes=15,
+    ...     threshold=0.001,
+    ... )
     >>> config = XGBoostTrainingConfig(
+    ...     target_semantics=target_semantics,
     ...     objective="binary:logistic",
     ...     optuna_config=optuna_config,
     ...     cv_folds=5,
@@ -133,7 +145,13 @@ Cross-Validation and Evaluation:
     >>> from ml.training import BaseMLTrainer
     >>>
     >>> # Configure time series cross-validation
+    >>> from ml.config.targets import TargetSemanticsConfig
+    >>> target_semantics = TargetSemanticsConfig.from_legacy(
+    ...     horizon_minutes=15,
+    ...     threshold=0.001,
+    ... )
     >>> config = XGBoostTrainingConfig(
+    ...     target_semantics=target_semantics,
     ...     cv_folds=5,
     ...     cv_strategy="time_series",
     ...     train_test_split=0.8
@@ -171,7 +189,13 @@ Model Export and Deployment:
 
 Integration with Stores and Registries:
     >>> # Training with FeatureStore integration
+    >>> from ml.config.targets import TargetSemanticsConfig
+    >>> target_semantics = TargetSemanticsConfig.from_legacy(
+    ...     horizon_minutes=15,
+    ...     threshold=0.001,
+    ... )
     >>> config = XGBoostTrainingConfig(
+    ...     target_semantics=target_semantics,
     ...     db_connection="postgresql://user:pass@host/db",
     ...     feature_config=feature_config,
     ...     pipeline_spec=pipeline_spec

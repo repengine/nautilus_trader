@@ -136,6 +136,12 @@ from ml.config.streaming_pipeline import StreamingGlobalRunConfig
 from ml.config.streaming_pipeline import StreamingPersistenceConfig
 from ml.config.streaming_pipeline import StreamingWorkerConfig
 from ml.config.streaming_pipeline import TrainingOrchestratorConfig
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import MulticlassTargetConfig
+from ml.config.targets import RegressionTargetConfig
+from ml.config.targets import TargetCostModelConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
 from ml.config.xgboost import UnifiedXGBoostConfig
 from ml.config.xgboost import XGBoostTrainingConfig
 
@@ -233,6 +239,7 @@ __all__ = [
     "ActorReplayConfig",
     "AdvancedTrainingConfig",
     "BaseGPUConfig",
+    "BinaryTargetConfig",
     "CanaryDeploymentConfig",
     "CircuitBreakerConfig",
     "DatabentoConfig",
@@ -263,12 +270,14 @@ __all__ = [
     "ModelDeploymentConfig",
     "ModelRegistryConfig",
     "MultiModelStrategyConfig",
+    "MulticlassTargetConfig",
     "ObservabilityConfig",
     "OnnxRuntimeConfig",
     "OptimizationConfig",
     "OptunaConfig",
     "ParquetLiveReplayHarnessConfig",
     "RegistryPolicyConfig",
+    "RegressionTargetConfig",
     "SchedulerConfig",
     "SecIdentityConfig",
     "StrategyConfig",
@@ -277,6 +286,9 @@ __all__ = [
     "StreamingPersistenceConfig",
     "StreamingWorkerConfig",
     "SystemConstants",
+    "TargetCostModelConfig",
+    "TargetHorizonSpec",
+    "TargetSemanticsConfig",
     "TechnicalIndicatorPeriods",
     "ThreeDRiskBacktestDefaults",
     "TimeConstants",

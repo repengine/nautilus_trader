@@ -23,6 +23,7 @@ from ml.config.base import MLTrainingConfig
 from ml.features.config import FeatureConfig
 from ml.stores.feature_store import FeatureStore
 from ml.training.base_facade import BaseMLTrainer
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.model.data import Bar
 
 pytestmark = pytest.mark.usefixtures(
@@ -217,6 +218,7 @@ class TestFeatureStoreIntegration:
         config = MLTrainingConfig(
             data_source="test_data",
             db_connection=cloned_test_database,
+            target_semantics=build_default_target_semantics(),
         )
 
         # Create trainer
@@ -481,6 +483,7 @@ class TestBackwardCompatibility:
         # Old-style config without db_connection
         config = MLTrainingConfig(
             data_source="test_data",
+            target_semantics=build_default_target_semantics(),
         )
 
         # Should not raise any errors

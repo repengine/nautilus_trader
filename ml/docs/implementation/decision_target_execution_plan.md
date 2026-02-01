@@ -143,6 +143,78 @@ Tests to update/add:
 - [ ] Contract tests for target schema in datasets.
 - [ ] Metamorphic tests: cost-aware labels respond to fees/slippage.
 
+Proposed target naming + semantics (Task 3 design notes)
+- Deployment cadence assumption (for horizon alignment):
+  - Current deployment defaults `BAR_TYPE=SPY.EQUS-1-MINUTE-LAST-EXTERNAL`
+    (documented in `ML_DEPLOYMENT_README.md`, `ml/deployment/docker-compose.yml`,
+    and `ml/deployment/entrypoint_actor.py`).
+  - Task 3 horizons should be expressed in minutes and validated as integer
+    multiples of the bar interval. If production overrides `BAR_TYPE`, adjust
+    horizons accordingly and persist both `horizon_minutes` and `horizon_bars`
+    in metadata.
+- Targets are composable: multi-horizon + cost-aware returns + binary/multi-class/regression
+  can all coexist in a single dataset. Training selects one target column per model
+  (unless a multi-head trainer is introduced later).
+- Recommended column naming (explicit horizon suffix, minutes-based):
+  - `forward_return_{horizon}` (e.g., `forward_return_15m`)
+  - `cost_return_{horizon}` (e.g., `cost_return_15m`) optional
+  - `target_bin_{horizon}` (binary long-only, from a return column + threshold)
+  - `target_class_{horizon}` (multiclass: short/neutral/long)
+  - `target_reg_{horizon}` (regression target; typically a direct alias of a return column)
+- Multiclass encoding (numeric, stable across trainers):
+  - `-1` = short, `0` = neutral, `1` = long
+  - Neutral band derived from thresholds around zero (or around cost-adjusted zero)
+- Threshold defaults and config separation:
+  - Default return-space threshold remains 10 bps (0.001) for binary labels.
+  - Multiclass uses symmetric ±10 bps by default, but supports asymmetric thresholds.
+  - Do not tie label thresholds to `prediction_neutral_band`; use a separate
+    target-threshold config and persist thresholds in metadata (bps + decimal).
+- Cost-aware label guidance:
+  - Reuse Stage2 cost components (`cost_bps`, `commission_bps`, `slippage_bps`).
+  - Default cost components to 0.0 (no silent behavior change).
+  - Apply a round-trip cost per horizon to cost-aware returns (entry+exit),
+    not per-turn, and include the full cost model in target semantics metadata.
+- Best-practice semantics metadata (stored in dataset manifest metadata or sidecar):
+  - `target_semantics.version = "v1"`
+  - `horizons`: list of `{label: "15m", minutes: 15}`
+  - `returns`: map of return column → `{horizon_minutes, basis, cost_model}`
+  - `labels`: map of target column → `{type, return_col, threshold, neutral_band, classes}`
+  - Example:
+    ```
+    target_semantics:
+      version: v1
+      horizons:
+        - { label: "15m", minutes: 15 }
+      returns:
+        forward_return_15m: { horizon_minutes: 15, basis: "raw" }
+        cost_return_15m: { horizon_minutes: 15, basis: "net", cost_model: { fees_bps: 1.0, slippage_bps: 2.0 } }
+      labels:
+        target_bin_15m: { type: "binary", return_col: "forward_return_15m", threshold: 0.001 }
+        target_class_15m: { type: "multiclass", return_col: "cost_return_15m", thresholds: { short: -0.001, long: 0.001 }, classes: { "-1": "short", "0": "neutral", "1": "long" } }
+        target_reg_15m: { type: "regression", return_col: "cost_return_15m" }
+    ```
+- Alignment with Tasks 1–2:
+  - Task 1 neutral-band decision mapping should align with `target_class_*` thresholds.
+  - Task 2 DecisionMetadataV1 `label` + `horizon` should be populated from target semantics.
+- Dataset defaults:
+  - Always emit raw return columns for backward compatibility and analytics.
+  - Emit cost-aware return columns only when a cost model is configured (or a flag is set).
+  - Require explicit `target_column` when multiple targets are present unless
+    `target_semantics` marks a `primary_target`.
+
+Primary codebase touchpoints for Task 3
+- Target generation:
+  - `ml/training/datasets/target_generator.py` (canonical target generator)
+  - `ml/data/common/target_generation.py` (shared component; remove duplicate logic)
+  - `ml/data/tft_dataset_builder.py` (call shared generator + emit multiple target cols)
+- Training config + validation:
+  - `ml/config/base.py` (`MLTrainingConfig.target_column` + new target semantics config)
+  - `ml/config/lightgbm.py`, `ml/config/xgboost.py` (require target semantics)
+  - `ml/training/datasets/time_series_formatter.py` (ensure target selection aligns)
+- Manifests/metadata:
+  - `ml/registry/dataclasses.py` (`DatasetManifest.metadata` for target_semantics)
+  - Dataset builders write sidecar manifest metadata when datasets are exported.
+
 ### 4) Leakage Controls + Evaluation
 **Goal:** Enforce purged/embargoed CV and realistic evaluation metrics.
 

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ml.config.base import MLTrainingConfig
 from ml.training.base import BaseMLTrainer
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 class _DummyTrainer(BaseMLTrainer):
@@ -47,7 +48,13 @@ class _DummyTrainer(BaseMLTrainer):
 
 @pytest.fixture
 def trainer() -> _DummyTrainer:
-    return _DummyTrainer(MLTrainingConfig(data_source="memory"))
+    target_semantics = build_default_target_semantics()
+    return _DummyTrainer(
+        MLTrainingConfig(
+            data_source="memory",
+            target_semantics=target_semantics,
+        ),
+    )
 
 
 class _ClassifierTrainer(_DummyTrainer):
@@ -83,7 +90,13 @@ def test_calculate_optuna_metric_sharpe(trainer: _DummyTrainer) -> None:
 
 
 def test_calculate_trading_metrics_binary(tmp_path: Path) -> None:
-    trainer = _ClassifierTrainer(MLTrainingConfig(data_source="memory"))
+    target_semantics = build_default_target_semantics()
+    trainer = _ClassifierTrainer(
+        MLTrainingConfig(
+            data_source="memory",
+            target_semantics=target_semantics,
+        ),
+    )
     returns = np.array([0.01, -0.02, 0.015], dtype=np.float64)
     predictions = np.array([0.8, 0.4, 0.9], dtype=np.float32)
     metrics = trainer.calculate_trading_metrics(returns, predictions)
