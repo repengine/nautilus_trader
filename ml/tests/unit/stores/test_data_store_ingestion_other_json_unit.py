@@ -55,6 +55,8 @@ def _manifest(dataset_id: str, dataset_type: DatasetType, location: Path) -> Dat
         "ts_event": "int64",
         "ts_init": "int64",
     }
+    if dataset_type is DatasetType.SIGNALS:
+        schema["decision_metadata"] = "json"
     return DatasetManifest(
         dataset_id=dataset_id,
         dataset_type=dataset_type,
@@ -175,6 +177,7 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
             "strength": 1.0,
             "ts_event": 333,
             "ts_init": 333,
+            "decision_metadata": {"version": "v1"},
         },
         {
             "instrument_id": "EURUSD.SIM",
@@ -183,6 +186,7 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
             "strength": 0.5,
             "ts_event": 444,
             "ts_init": 444,
+            "decision_metadata": {"version": "v1"},
         },
     ]
     store.write_ingestion(

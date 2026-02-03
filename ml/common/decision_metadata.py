@@ -34,6 +34,21 @@ _HORIZON_KEYS: tuple[tuple[str, str], ...] = (
     ("target_horizon", "unknown"),
 )
 
+_LEGACY_DECISION_KEYS: set[str] = {
+    "decision_policy",
+    "decision_config",
+    "label_name",
+    "target",
+    "target_name",
+    "target_col",
+    "target_column",
+    "calibration_params",
+    "calibration_config",
+}
+for _key, _unit in _HORIZON_KEYS:
+    if _key != "horizon":
+        _LEGACY_DECISION_KEYS.add(_key)
+
 
 def _as_mapping(value: Any) -> Mapping[str, Any] | None:
     if isinstance(value, Mapping):
@@ -157,35 +172,24 @@ def normalize_decision_metadata(
     """
     Normalize decision metadata into the v1 payload schema.
 
-    Accepts either a nested ``decision_metadata`` payload or legacy metadata
-    fields (decision_policy/decision_config, label, horizon, calibration).
+    Requires an explicit decision-metadata payload. When metadata is omitted,
+    the payload is derived from model metadata (manifest/config) only.
     """
-    candidate: Mapping[str, Any] | None = None
-    if isinstance(metadata, Mapping):
-        nested = metadata.get("decision_metadata")
-        if isinstance(nested, Mapping):
-            candidate = nested
-        else:
-            candidate = metadata
-
-    stack = _collect_metadata_stack(candidate, model_metadata)
-    policy, policy_config = _extract_policy(stack)
-    label = _extract_label(stack)
-    horizon = _extract_horizon(stack)
-    calibration = _extract_calibration(stack)
-    lineage = _build_model_lineage(
-        model_metadata,
-        model_id=model_id,
-        model_version=model_version,
-        parent_id=parent_id,
-        role=role,
-    )
-
-    if candidate is not None and "version" in candidate:
-        payload = dict(candidate)
-        if "version" not in payload:
-            payload["version"] = "v1"
-    else:
+    if metadata is None:
+        if model_metadata is None:
+            raise ValueError("decision_metadata is required")
+        stack = _collect_metadata_stack(None, model_metadata)
+        policy, policy_config = _extract_policy(stack)
+        label = _extract_label(stack)
+        horizon = _extract_horizon(stack)
+        calibration = _extract_calibration(stack)
+        lineage = _build_model_lineage(
+            model_metadata,
+            model_id=model_id,
+            model_version=model_version,
+            parent_id=parent_id,
+            role=role,
+        )
         payload = DecisionMetadataV1(
             policy=policy,
             policy_config=policy_config,
@@ -194,9 +198,32 @@ def normalize_decision_metadata(
             calibration=calibration,
             model_lineage=lineage,
         ).to_payload()
+        if "version" not in payload:
+            payload["version"] = "v1"
+        return payload
 
+    if not isinstance(metadata, Mapping):
+        raise ValueError("decision_metadata must be a mapping")
+    if "decision_metadata" in metadata:
+        raise ValueError("decision_metadata must be provided directly, not nested")
+
+    legacy_keys = _LEGACY_DECISION_KEYS.intersection(metadata.keys())
+    if legacy_keys:
+        raise ValueError(
+            "decision_metadata contains legacy fields; provide explicit v1 payload",
+        )
+
+    payload = dict(metadata)
     if "version" not in payload:
         payload["version"] = "v1"
+
+    lineage = _build_model_lineage(
+        model_metadata,
+        model_id=model_id,
+        model_version=model_version,
+        parent_id=parent_id,
+        role=role,
+    )
     if "model_lineage" not in payload and lineage:
         payload["model_lineage"] = lineage
     return payload

@@ -27,6 +27,7 @@ from ml.orchestration.config_types import (
     StudentDistillConfig,
     TeacherTrainConfig,
 )
+from ml.tests.utils.targets import build_default_target_semantics_payload
 if TYPE_CHECKING:
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
@@ -158,6 +159,7 @@ def sample_dataset_config() -> DatasetBuildConfig:
         symbols="SPY",
         out_dir="/tmp/test_output",
         dataset_id="test_dataset",
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 
@@ -697,6 +699,7 @@ class TestComponentDelegation:
                 data_dir=str(existing_dataset_dir),
                 symbols="SPY",
                 out_dir=str(existing_dataset_dir),
+                target_semantics=build_default_target_semantics_payload(),
             ),
             hpo=HPOConfig(enabled=False),
             teacher=TeacherTrainConfig(enabled=True),
@@ -827,6 +830,7 @@ class TestErrorHandling:
                 data_dir=str(empty_dir),
                 symbols="SPY",
                 out_dir=str(empty_dir),
+                target_semantics=build_default_target_semantics_payload(),
             ),
             hpo=HPOConfig(enabled=False),
             teacher=TeacherTrainConfig(enabled=True),

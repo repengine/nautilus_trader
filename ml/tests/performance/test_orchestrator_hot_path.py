@@ -38,6 +38,7 @@ from ml.orchestration.config_types import (
 )
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.registry.dataclasses import DatasetType, StorageKind
+from ml.tests.utils.targets import build_default_target_semantics_payload
 from nautilus_trader.model.identifiers import InstrumentId
 
 
@@ -138,6 +139,7 @@ def test_dataset_config() -> DatasetBuildConfig:
         out_dir="/tmp/out",
         symbols="AAPL",
         instrument_ids=("AAPL.NASDAQ",),
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 
@@ -316,6 +318,7 @@ def test_lazy_loading_prevents_cold_start(
         out_dir="/tmp/out",
         symbols="AAPL",
         instrument_ids=("AAPL.NASDAQ",),
+        target_semantics=build_default_target_semantics_payload(),
     )
 
     # Measure first call (lazy loading may occur)
@@ -489,7 +492,7 @@ def measure_orchestrator_throughput(
     Example
     -------
     >>> orchestrator = MLPipelineOrchestrator(...)
-    >>> config = DatasetBuildConfig(...)
+    >>> config = DatasetBuildConfig(target_semantics={...})
     >>> throughput = measure_orchestrator_throughput(orchestrator, config)
     >>> assert throughput > 1000  # >1000 calls/second
 

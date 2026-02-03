@@ -82,7 +82,7 @@ class StrategyDecisionPublisher:
         model_predictions: dict[str, float],
         risk_metrics: dict[str, float] | None,
         execution_params: dict[str, Any] | None,
-        decision_metadata: dict[str, Any] | None = None,
+        decision_metadata: dict[str, Any],
         ts_event: int,
         is_live: bool,
         status: EventStatus = EventStatus.SUCCESS,
@@ -111,7 +111,7 @@ class StrategyDecisionPublisher:
                 model_predictions=dict(model_predictions),
                 risk_metrics=dict(risk_metrics or {}),
                 execution_params=dict(execution_params or {}),
-                decision_metadata=dict(decision_metadata or {}),
+                decision_metadata=dict(decision_metadata),
                 ts_event=int(ts_event),
             ).to_payload()
             try:

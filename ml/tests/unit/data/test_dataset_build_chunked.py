@@ -17,6 +17,7 @@ from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
+from ml.tests.utils.targets import build_default_target_semantics
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -108,9 +109,8 @@ def test_build_tft_dataset_when_chunked_returns_sequential_time_index(
         include_earnings=False,
         include_micro=False,
         include_l2=False,
-        horizon_minutes=1,
+        target_semantics=build_default_target_semantics(horizon_minutes=1, threshold=0.0),
         lookback_periods=1,
-        threshold=0.0,
         chunk_days=1,
         start=bar_config.start,
         end=bar_config.start + timedelta(days=2),

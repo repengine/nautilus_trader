@@ -100,6 +100,7 @@ def mock_model():
     model = MagicMock()
     model.predict_proba.return_value = np.array([[0.3, 0.7]])
     model.metadata = {"feature_names": ["feature_0", "feature_1", "feature_2"]}
+    model.classes_ = np.array([0, 1], dtype=np.int64)
     return model
 
 
@@ -259,6 +260,7 @@ def build_test_actor(
 
     actor._model = mock_model
     actor._model_id = "test_model"
+    actor._model_metadata = {"decision_config": {"positive_class_index": 1}}
 
     active_strategy = strategy if strategy is not None else actor._signal_strategy
     wrapped_strategy = _with_fallback(active_strategy)
@@ -803,6 +805,7 @@ class TestDataDuplicationInvariance:
         _attach_feature_store_stub(actor)
         actor._model = mock_model
         actor._model_id = "test_model"
+        actor._model_metadata = {"decision_config": {"positive_class_index": 1}}
         actor._signal_strategy = threshold_strategy
         actor._predict = MagicMock(return_value=(0.8, 0.9))
 
@@ -867,6 +870,7 @@ class TestMetamorphicIntegration:
         _attach_feature_store_stub(actor)
         actor._model = mock_model
         actor._model_id = "test_model"
+        actor._model_metadata = {"decision_config": {"positive_class_index": 1}}
 
         # Apply multiple transformations
         scaled_bars = create_scaled_bars(sample_bars, 2.0)
@@ -985,6 +989,7 @@ def test_combined_property_based_invariants(
     _attach_feature_store_stub(actor)
     actor._model = mock_model
     actor._model_id = "test_model"
+    actor._model_metadata = {"decision_config": {"positive_class_index": 1}}
 
     # Apply combined transformations
     scaled_bars = create_scaled_bars(sample_bars[:3], scale_factor)  # Limit for performance

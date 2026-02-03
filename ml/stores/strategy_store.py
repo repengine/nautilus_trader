@@ -12,7 +12,7 @@ import logging
 import os
 import time
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import BIGINT
 from sqlalchemy import BOOLEAN
@@ -370,7 +370,7 @@ class StrategyStore(
         risk_metrics: Mapping[str, float],
         execution_params: Mapping[str, Any],
         ts_event: int,
-        decision_metadata: Mapping[str, Any] | None = None,
+        decision_metadata: Mapping[str, Any],
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:
@@ -395,7 +395,7 @@ class StrategyStore(
             Execution parameters
         ts_event : int
             Event timestamp in nanoseconds
-        decision_metadata : Mapping[str, Any] | None
+        decision_metadata : Mapping[str, Any]
             Decision metadata payload.
         is_live : bool
             Whether this is live trading
@@ -432,9 +432,7 @@ class StrategyStore(
             model_predictions=dict(model_predictions) if not isinstance(model_predictions, dict) else model_predictions,
             risk_metrics=dict(risk_metrics) if not isinstance(risk_metrics, dict) else risk_metrics,
             execution_params=dict(execution_params) if not isinstance(execution_params, dict) else execution_params,
-            decision_metadata=(
-                dict(decision_metadata) if isinstance(decision_metadata, Mapping) else decision_metadata
-            ),
+            decision_metadata=dict(decision_metadata),
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
             run_id=resolved_run_id,
@@ -1101,42 +1099,6 @@ class StrategyStore(
                 end_ns=end_ns,
                 instrument_id=instrument_id,
             ),
-        )
-
-    def store_decision(self, *args: Any, **kwargs: Any) -> None:
-        """
-        Backward-compatible alias for write_signal.
-
-        Accepts legacy fields like action/confidence/features and maps them to the
-        current write_signal signature.
-
-        """
-        if args:
-            self.write_signal(*args, **kwargs)
-            return
-        strategy_id = kwargs.get("strategy_id")
-        instrument_id = kwargs.get("instrument_id")
-        ts_event = kwargs.get("ts_event")
-        action = kwargs.get("action", "")
-        confidence = kwargs.get("confidence", 0.0)
-        features = kwargs.get("features", {})
-        if None in {strategy_id, instrument_id, ts_event}:
-            self.write_signal(*args, **kwargs)
-            return
-        signal_type = str(action).lower() if action else "neutral"
-        strength = float(confidence)
-        model_predictions: dict[str, float] = {}
-        risk_metrics: dict[str, float] = {}
-        execution_params = {"features": features}
-        self.write_signal(
-            strategy_id=str(strategy_id),
-            instrument_id=str(instrument_id),
-            signal_type=signal_type,
-            strength=strength,
-            model_predictions=model_predictions,
-            risk_metrics=risk_metrics,
-            execution_params=execution_params,
-            ts_event=int(cast(int, ts_event)),
         )
 
     # Attributes initialized via StoreInitMixin

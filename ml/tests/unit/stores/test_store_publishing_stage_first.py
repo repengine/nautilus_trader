@@ -82,6 +82,7 @@ def test_strategy_store_stage_first_topics(tmp_path: Path) -> None:
             model_predictions={},
             risk_metrics={},
             execution_params={},
+            decision_metadata={"version": "v1"},
             _ts_event=2,
             _ts_init=2,
         )

@@ -19,6 +19,7 @@ __all__ = [
     "normalize_prediction_batch",
     "normalize_prediction_output",
     "resolve_output_is_logits",
+    "resolve_positive_class_index",
 ]
 
 
@@ -49,11 +50,69 @@ def resolve_output_is_logits(metadata: Mapping[str, Any] | None) -> bool:
     return False
 
 
+def resolve_positive_class_index(
+    metadata: Mapping[str, Any] | None,
+    *,
+    classes: Sequence[Any] | None = None,
+    num_classes: int | None = None,
+) -> int | None:
+    """
+    Resolve the explicit positive-class index from model metadata.
+
+    The positive class must be declared in metadata to avoid implicit heuristics.
+
+    Parameters
+    ----------
+    metadata : Mapping[str, Any] | None
+        Model metadata that may include decision config.
+    classes : Sequence[Any] | None, optional
+        Optional classifier classes for label-to-index mapping.
+    num_classes : int | None, optional
+        Optional class count for index validation.
+
+    Returns
+    -------
+    int | None
+        Positive-class index if explicitly configured.
+
+    Raises
+    ------
+    ValueError
+        If an explicit mapping is provided but cannot be resolved.
+
+    """
+    if not metadata:
+        return None
+
+    candidates: list[Mapping[str, Any]] = []
+    decision_cfg = metadata.get("decision_config")
+    if isinstance(decision_cfg, Mapping):
+        candidates.append(decision_cfg)
+    candidates.append(metadata)
+
+    for payload in candidates:
+        if "positive_class_index" in payload:
+            idx = payload["positive_class_index"]
+            if not isinstance(idx, int):
+                raise ValueError("positive_class_index must be an int")
+            return _validate_positive_class_index(idx, num_classes)
+        if "positive_class_label" in payload:
+            label = payload["positive_class_label"]
+            return _resolve_positive_class_label(label, classes, num_classes)
+        if "positive_class" in payload:
+            value = payload["positive_class"]
+            if isinstance(value, int):
+                return _validate_positive_class_index(value, num_classes)
+            return _resolve_positive_class_label(value, classes, num_classes)
+
+    return None
+
+
 def normalize_prediction_output(
     prediction: Any,
     confidence: Any | None,
     *,
-    classes: Sequence[Any] | None = None,
+    positive_class_index: int | None = None,
     output_is_logits: bool = False,
 ) -> tuple[float, float]:
     """
@@ -65,8 +124,9 @@ def normalize_prediction_output(
         Raw model prediction output (scalar or probability vector).
     confidence : Any | None
         Optional confidence output (scalar).
-    classes : Sequence[Any] | None, optional
-        Optional classifier class labels (used to select positive class prob).
+    positive_class_index : int | None, optional
+        Explicit positive-class index for vector outputs. Required when prediction
+        is a probability/logit vector.
     output_is_logits : bool, default False
         Whether the prediction values should be interpreted as logits.
 
@@ -77,14 +137,17 @@ def normalize_prediction_output(
 
     Examples
     --------
-    >>> prob, conf = normalize_prediction_output([0.2, 0.8], None)
+    >>> prob, conf = normalize_prediction_output([0.2, 0.8], None, positive_class_index=1)
     >>> round(prob, 2), round(conf, 2)
     (0.8, 0.8)
 
     """
     array = np.asarray(prediction)
     if array.size > 1:
-        prob, default_conf = _probability_from_vector(array, classes=classes)
+        prob, default_conf = _probability_from_vector(
+            array,
+            positive_class_index=positive_class_index,
+        )
         return prob, _normalize_confidence(confidence, fallback=default_conf)
 
     scalar = _scalar_from_array(array)
@@ -97,6 +160,7 @@ def normalize_prediction_batch(
     predictions: npt.NDArray[np.floating[Any]],
     confidences: npt.NDArray[np.floating[Any]] | None = None,
     *,
+    positive_class_index: int | None = None,
     output_is_logits: bool = False,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     """
@@ -108,6 +172,9 @@ def normalize_prediction_batch(
         Batched prediction outputs with shape (N,), (N, 1), or (N, K).
     confidences : npt.NDArray[np.floating[Any]] | None, optional
         Optional confidence outputs with shape (N,) or (N, 1).
+    positive_class_index : int | None, optional
+        Explicit positive-class index for vector outputs. Required when
+        predictions are multi-class probabilities/logits.
     output_is_logits : bool, default False
         Whether the prediction values should be interpreted as logits.
 
@@ -119,7 +186,7 @@ def normalize_prediction_batch(
     Examples
     --------
     >>> preds = np.array([[0.1, 0.9], [0.7, 0.3]], dtype=np.float32)
-    >>> probs, confs = normalize_prediction_batch(preds)
+    >>> probs, confs = normalize_prediction_batch(preds, positive_class_index=1)
     >>> probs.shape, confs.shape
     ((2,), (2,))
 
@@ -129,7 +196,9 @@ def normalize_prediction_batch(
     if preds.ndim == 2 and preds.shape[1] > 1 and confidences is None:
         probs = np.where(np.isfinite(preds), preds, 0.0)
         probs = np.clip(probs, 0.0, 1.0)
-        pos_idx = probs.shape[1] - 1
+        if positive_class_index is None:
+            raise ValueError("positive_class_index is required for vector predictions")
+        pos_idx = _validate_positive_class_index(positive_class_index, probs.shape[1])
         prob = probs[:, pos_idx]
         conf = np.max(probs, axis=1)
         return prob.astype(np.float32), conf.astype(np.float32)
@@ -236,39 +305,44 @@ def neutral_band_bounds(
 def _probability_from_vector(
     probabilities: npt.NDArray[np.floating[Any]],
     *,
-    classes: Sequence[Any] | None,
+    positive_class_index: int | None,
 ) -> tuple[float, float]:
     probs = np.asarray(probabilities, dtype=np.float64).reshape(-1)
     if probs.size == 0:
         return 0.5, 0.5
     probs = np.where(np.isfinite(probs), probs, 0.0)
     probs = np.clip(probs, 0.0, 1.0)
-    pos_idx = _resolve_positive_class_index(classes, probs.size)
-    if pos_idx >= probs.size:
-        pos_idx = probs.size - 1
+    if positive_class_index is None:
+        raise ValueError("positive_class_index is required for vector predictions")
+    pos_idx = _validate_positive_class_index(positive_class_index, probs.size)
     p_pos = float(probs[pos_idx])
     conf = float(np.max(probs))
     return p_pos, conf
 
 
-def _resolve_positive_class_index(
+def _validate_positive_class_index(index: int, num_classes: int | None) -> int:
+    if num_classes is None:
+        if index < 0:
+            raise ValueError("positive_class_index must be non-negative")
+        return index
+    if index < 0 or index >= num_classes:
+        raise ValueError(
+            f"positive_class_index {index} out of range for {num_classes} classes",
+        )
+    return index
+
+
+def _resolve_positive_class_label(
+    label: Any,
     classes: Sequence[Any] | None,
-    num_classes: int,
+    num_classes: int | None,
 ) -> int:
-    if classes:
-        class_list = list(classes)
-        if len(class_list) == num_classes:
-            for candidate in (1, "1", True, "BUY", "LONG", "UP", "POSITIVE"):
-                if candidate in class_list:
-                    return class_list.index(candidate)
-            numeric = [
-                (idx, value)
-                for idx, value in enumerate(class_list)
-                if isinstance(value, (int, float))
-            ]
-            if numeric:
-                return max(numeric, key=lambda item: item[1])[0]
-    return max(0, num_classes - 1)
+    if classes is None:
+        raise ValueError("positive_class_label requires classifier classes")
+    class_list = list(classes)
+    if label not in class_list:
+        raise ValueError("positive_class_label not found in classifier classes")
+    return _validate_positive_class_index(class_list.index(label), num_classes)
 
 
 def _normalize_scalar_probability(value: float, *, output_is_logits: bool) -> float:

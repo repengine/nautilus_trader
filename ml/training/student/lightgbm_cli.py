@@ -16,6 +16,7 @@ from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 from ml.training.student.lightgbm import LightGBMStudentDistiller
+from ml.training.student.lightgbm import build_student_decision_config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -76,6 +77,21 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_signature = finfo.manifest.pipeline_signature
     pipeline_version = finfo.manifest.pipeline_version
 
+    decision_cfg: dict[str, object] | None = None
+    if args.decision_config:
+        import json as _json
+
+        try:
+            decision_cfg = _json.loads(args.decision_config)
+        except Exception as exc:
+            raise SystemExit(f"Invalid --decision_config JSON: {exc}")
+    try:
+        decision_cfg = build_student_decision_config(
+            decision_config=decision_cfg if isinstance(decision_cfg, dict) else None,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
     manifest = build_student_manifest(
         model_id=args.model_id,
         architecture="LightGBM",
@@ -86,17 +102,9 @@ def main(argv: list[str] | None = None) -> int:
         feature_set_id=feature_set_id,
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
+        decision_policy=args.decision_policy or None,
+        decision_config=decision_cfg,
     )
-    # Optionally attach decision policy
-    if args.decision_policy:
-        manifest.decision_policy = args.decision_policy
-        if args.decision_config:
-            import json as _json
-
-            try:
-                manifest.decision_config = _json.loads(args.decision_config)
-            except Exception as exc:
-                raise SystemExit(f"Invalid --decision_config JSON: {exc}")
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 
     print(f"Saved: {onnx_path}\nMeta: {meta_path}\nRegistered in: {args.registry_dir}")

@@ -44,6 +44,7 @@ def test_strategy_store_write_and_read(
         model_predictions={"model_v1": 0.81},
         risk_metrics={"var": 0.01},
         execution_params={"sl": 0.5, "tp": 1.0},
+        decision_metadata={"version": "v1"},
         ts_event=ts_event,
         is_live=False,
     )
@@ -55,6 +56,7 @@ def test_strategy_store_write_and_read(
         model_predictions={},
         risk_metrics={},
         execution_params={},
+        decision_metadata={"version": "v1"},
         ts_event=ts_event + 1,
         is_live=False,
     )

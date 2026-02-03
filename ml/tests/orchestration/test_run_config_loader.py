@@ -40,6 +40,7 @@ def test_load_orchestrator_run_config_parses_sections() -> None:
 
     args = to_pipeline_args(orchestrator_cfg, ingestion=run_cfg.ingestion)
     assert "--ingest" in args
+    assert "--target_semantics" in args
     assert ["--write_mode", "sql+parquet"] == args[
         args.index("--write_mode") : args.index("--write_mode") + 2
     ]

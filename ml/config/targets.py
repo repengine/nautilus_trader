@@ -533,42 +533,6 @@ class TargetSemanticsConfig:
         """
         return cls.from_dict(json.loads(payload))
 
-    @classmethod
-    def from_legacy(
-        cls,
-        *,
-        horizon_minutes: int,
-        threshold: float,
-        legacy_aliases: bool = True,
-        primary_target: str | None = None,
-    ) -> TargetSemanticsConfig:
-        """
-        Build a legacy-compatible target semantics config.
-
-        Args:
-            horizon_minutes: Horizon in minutes.
-            threshold: Threshold in decimal return units.
-            legacy_aliases: Emit legacy aliases ("y", "forward_return").
-            primary_target: Optional primary target column name.
-
-        Returns:
-            TargetSemanticsConfig that matches legacy target generation.
-        """
-        binary_cfg = BinaryTargetConfig(
-            enabled=True,
-            threshold_bps=decimal_to_bps(threshold),
-            return_basis="raw",
-        )
-        return cls(
-            horizons=(TargetHorizonSpec(minutes=horizon_minutes),),
-            binary=binary_cfg,
-            multiclass=MulticlassTargetConfig(enabled=False),
-            regression=RegressionTargetConfig(enabled=False),
-            primary_target=primary_target,
-            legacy_aliases=legacy_aliases,
-        )
-
-
 __all__ = [
     "BinaryTargetConfig",
     "MulticlassTargetConfig",

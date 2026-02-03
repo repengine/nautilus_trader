@@ -223,11 +223,8 @@ class TFTDatasetBuilderFacade:
 
     def build_training_dataset(
         self,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        threshold_bps: float | None = None,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int = 30,
         use_polars: bool = True,
         start: datetime | None = None,
@@ -237,10 +234,7 @@ class TFTDatasetBuilderFacade:
         Build a TFT-compatible training dataset.
 
         Args:
-            horizon_minutes: Prediction horizon in minutes.
-            min_return_threshold: Minimum return threshold for targets.
-            threshold_bps: Optional basis-point alias for threshold.
-            target_semantics: Explicit target semantics configuration.
+            target_semantics: Explicit target semantics configuration (required).
             lookback_periods: Lookback periods for feature computation.
             use_polars: Whether to return a Polars DataFrame.
             start: Optional start timestamp.
@@ -253,9 +247,6 @@ class TFTDatasetBuilderFacade:
             return self._empty_dataframe(use_polars)
         try:
             return self._builder.build_training_dataset(
-                horizon_minutes=horizon_minutes,
-                min_return_threshold=min_return_threshold,
-                threshold_bps=threshold_bps,
                 target_semantics=target_semantics,
                 lookback_periods=lookback_periods,
                 use_polars=use_polars,
@@ -274,10 +265,8 @@ class TFTDatasetBuilderFacade:
         instrument_ids: list[str] | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int = 30,
         use_polars: bool = True,
     ) -> DataFrameLike:
@@ -288,9 +277,7 @@ class TFTDatasetBuilderFacade:
             instrument_ids: Optional instrument IDs to load.
             start: Optional start timestamp.
             end: Optional end timestamp.
-            horizon_minutes: Prediction horizon in minutes.
-            min_return_threshold: Minimum return threshold for targets.
-            target_semantics: Explicit target semantics configuration.
+            target_semantics: Explicit target semantics configuration (required).
             lookback_periods: Lookback periods for feature computation.
             use_polars: Whether to return a Polars DataFrame.
 
@@ -303,8 +290,6 @@ class TFTDatasetBuilderFacade:
             instrument_ids=instrument_ids,
             start=start,
             end=end,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
             target_semantics=target_semantics,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
@@ -315,10 +300,8 @@ class TFTDatasetBuilderFacade:
         instrument_ids: list[str] | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
     ) -> PolarsDF:
         """
         Prepare training data from the FeatureStore.
@@ -327,9 +310,7 @@ class TFTDatasetBuilderFacade:
             instrument_ids: Optional instrument IDs to load.
             start: Optional start timestamp.
             end: Optional end timestamp.
-            horizon_minutes: Prediction horizon in minutes.
-            min_return_threshold: Minimum return threshold for targets.
-            target_semantics: Explicit target semantics configuration.
+            target_semantics: Explicit target semantics configuration (required).
 
         Returns:
             Polars DataFrame with training features and targets.
@@ -341,8 +322,6 @@ class TFTDatasetBuilderFacade:
             instrument_ids=instrument_ids,
             start=start,
             end=end,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
             target_semantics=target_semantics,
         )
 

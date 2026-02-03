@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import polars as pl
-import pytest
 from pathlib import Path
 from typing import cast
+
+import polars as pl
+import pytest
 
 
 try:
@@ -15,6 +16,7 @@ except Exception:  # pragma: no cover
     pytest.skip("hypothesis not available", allow_module_level=True)
 
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -36,10 +38,15 @@ def test_builder_time_index_monotonic(
         sample_bar_series_config_factory(rows=n, freq_minutes=int(freq_minutes)),
     )
     builder = TFTDatasetBuilder(ParquetDataCatalog(path=str(tmp_path)), symbols=["SPY"])
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=1,
+        threshold=0.001,
+        legacy_aliases=True,
+    )
     df_raw = builder.build_training_dataset(
+        target_semantics=target_semantics,
         use_polars=True,
         lookback_periods=0,
-        horizon_minutes=1,
     )
     df = cast(pl.DataFrame, df_raw)
     assert not df.is_empty()

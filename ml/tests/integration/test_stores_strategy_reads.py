@@ -53,6 +53,7 @@ def test_strategy_store_reads_and_stats(cloned_test_database: str) -> None:
             model_predictions={"m": strength},
             risk_metrics={"risk_score": 0.1},
             execution_params={"th": 0.1},
+            decision_metadata={"version": "v1"},
             ts_event=ts,
         )
 

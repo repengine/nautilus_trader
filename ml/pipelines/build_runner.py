@@ -33,6 +33,7 @@ from typing import Any
 from ml._imports import check_ml_dependencies
 from ml.common.subprocess_utils import SubprocessExecutionError
 from ml.common.subprocess_utils import run_command
+from ml.config.targets import TargetSemanticsConfig
 from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
 from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
 from ml.preprocessing.vintage_age import write_metadata
@@ -91,6 +92,7 @@ class BuildConfig:
     data_dir: Path
     out_dir: Path
     symbols: list[str]
+    target_semantics: dict[str, Any]
     window: BuildWindow = field(default_factory=BuildWindow)
     include_macro: bool = True
     macro_lag_days: int = 1
@@ -100,8 +102,6 @@ class BuildConfig:
     include_calendar_lags: bool = False
     include_clustering_tags: bool = False
     include_context_features: bool = False
-    horizon_minutes: int = 15
-    threshold: float = 0.001
     lookback_periods: int = 60
     workers: int = 1
     use_subprocess: bool = False
@@ -143,8 +143,7 @@ class BuildConfig:
             include_calendar_lags=bool(_p("include_calendar_lags", False)),
             include_clustering_tags=bool(_p("include_clustering_tags", False)),
             include_context_features=bool(_p("include_context_features", False)),
-            horizon_minutes=int(_p("horizon_minutes", 15)),
-            threshold=float(_p("threshold", 0.001)),
+            target_semantics=_parse_target_semantics(_p("target_semantics", None)),
             lookback_periods=int(_p("lookback_periods", 60)),
             workers=max(1, int(_p("workers", 1))),
             use_subprocess=bool(_p("use_subprocess", False)),
@@ -161,6 +160,22 @@ class BuildConfig:
             convert_vintage_to_age=bool(_p("convert_vintage_to_age", False)),
         )
         return cfg
+
+
+def _parse_target_semantics(value: Any) -> dict[str, Any]:
+    if value is None:
+        raise ValueError("target_semantics is required in build runner config")
+    if isinstance(value, str):
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("target_semantics must be JSON object or dict") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("target_semantics must be JSON object or dict")
+        return payload
+    if isinstance(value, dict):
+        return value
+    raise ValueError("target_semantics must be JSON object or dict")
 
 
 def load_config(path: Path) -> BuildConfig:
@@ -234,10 +249,8 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
         task.symbol,
         "--out_dir",
         str(symbol_out),
-        "--horizon_minutes",
-        str(cfg.horizon_minutes),
-        "--threshold",
-        str(cfg.threshold),
+        "--target-semantics",
+        json.dumps(cfg.target_semantics, ensure_ascii=True),
         "--lookback_periods",
         str(cfg.lookback_periods),
     ]
@@ -334,6 +347,7 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                     )
                     end_dt = datetime.fromisoformat(cfg.window.end) if cfg.window.end else None
 
+                target_semantics = TargetSemanticsConfig.from_dict(cfg.target_semantics)
                 api_cfg = APICfg(
                     data_dir=cfg.data_dir,
                     out_dir=symbol_out,
@@ -346,8 +360,7 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                     include_calendar_lags=cfg.include_calendar_lags,
                     include_clustering_tags=cfg.include_clustering_tags,
                     include_context_features=cfg.include_context_features,
-                    horizon_minutes=cfg.horizon_minutes,
-                    threshold=cfg.threshold,
+                    target_semantics=target_semantics,
                     lookback_periods=cfg.lookback_periods,
                     start=start_dt,
                     end=end_dt,

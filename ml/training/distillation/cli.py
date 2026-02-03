@@ -32,6 +32,7 @@ from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 from ml.training.student.lightgbm import LightGBMStudentDistiller
+from ml.training.student.lightgbm import build_student_decision_config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -164,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             performance_metrics = {}
 
+    decision_cfg = build_student_decision_config()
+
     manifest = build_student_manifest(
         model_id=args.model_id,
         architecture="LightGBM",
@@ -174,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         feature_set_id=feature_set_id,
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
+        decision_config=decision_cfg,
     )
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 

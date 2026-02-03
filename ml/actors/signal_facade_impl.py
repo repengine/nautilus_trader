@@ -58,6 +58,7 @@ from ml.common.metrics_bootstrap import get_histogram
 from ml.common.prediction_surface import decision_from_probability
 from ml.common.prediction_surface import normalize_prediction_output
 from ml.common.prediction_surface import resolve_output_is_logits
+from ml.common.prediction_surface import resolve_positive_class_index
 from ml.config.names import FEATURE_TIME_BUCKETS
 
 
@@ -678,6 +679,8 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                 decision_metadata_payload = (
                     signal.metadata.get("decision_metadata") if signal.metadata else None
                 )
+                if decision_metadata_payload is None:
+                    raise ValueError("decision_metadata is required for signal persistence")
                 self._strategy_store.write_signal(
                     strategy_id=(str(self.id) if getattr(self, "id", None) else "ml_signal"),
                     instrument_id=str(bar.bar_type.instrument_id),
@@ -1394,10 +1397,15 @@ class MLSignalActorFacade(BaseMLInferenceActor):
     ) -> tuple[float, float]:
         output_is_logits = resolve_output_is_logits(self._model_metadata)
         classes = getattr(self._model, "classes_", None)
+        positive_class_index = resolve_positive_class_index(
+            self._model_metadata,
+            classes=classes,
+            num_classes=len(classes) if classes is not None else None,
+        )
         return normalize_prediction_output(
             prediction,
             confidence,
-            classes=classes,
+            positive_class_index=positive_class_index,
             output_is_logits=output_is_logits,
         )
 

@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS ml_strategy_signals (
     model_predictions JSONB,
     risk_metrics JSONB,
     execution_params JSONB,
-    decision_metadata JSONB,
+    decision_metadata JSONB NOT NULL,
     is_live BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (strategy_id, instrument_id, ts_event)

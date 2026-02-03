@@ -100,6 +100,7 @@ def test_strategy_store_adapter_protocol_and_delegation() -> None:
         model_predictions={"m": 0.2},
         risk_metrics={"dd": 0.1},
         execution_params={"limit": 1},
+        decision_metadata={"version": "v1"},
         ts_event=1,
         is_live=False,
     )

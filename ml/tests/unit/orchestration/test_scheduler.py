@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from ml.orchestration.config_types import IntegrationConfig
 from ml.orchestration.config_types import TeacherTrainConfig
 from ml.orchestration.scheduler import _EmitEventProtocol as _EmitProto
 from ml.orchestration.scheduler import compute_next_run, run_forever
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -49,15 +51,17 @@ class _OnceSleeper:
             raise RuntimeError("stop")
 
 def _write_cfg(path: Path, out_dir: Path) -> None:
-    payload = (
-        "{\n"
-        '  "dataset": { "data_dir": "data/tier1", "symbols": "SPY", '
-        f'"out_dir": "{out_dir}" }},\n'
-        '  "hpo": {"enabled": false},\n'
-        '  "teacher": {"enabled": false}\n'
-        "}"
-    )
-    path.write_text(payload, encoding="utf-8")
+    payload = {
+        "dataset": {
+            "data_dir": "data/tier1",
+            "symbols": "SPY",
+            "out_dir": str(out_dir),
+            "target_semantics": build_default_target_semantics_payload(),
+        },
+        "hpo": {"enabled": False},
+        "teacher": {"enabled": False},
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 def test_lock_behavior_and_dry_run(
     tmp_path: Path,
@@ -214,7 +218,12 @@ def test_run_forever_passes_stage_argument(tmp_path: Path, monkeypatch: pytest.M
 
     run_cfg = OrchestratorRunConfig(
         stage=OrchestratorStage.DATASET,
-        dataset=DatasetBuildConfig(data_dir="data/tier1", symbols="SPY.NYSE", out_dir=str(out_dir)),
+        dataset=DatasetBuildConfig(
+            data_dir="data/tier1",
+            symbols="SPY.NYSE",
+            out_dir=str(out_dir),
+            target_semantics=build_default_target_semantics_payload(),
+        ),
         training=TrainingStageConfig(
             teacher=TeacherTrainConfig(enabled=False),
             hpo=HPOConfig(),

@@ -66,6 +66,10 @@ from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.features.config import FeatureConfig
 from ml.features.facade import FeatureEngineer
 from ml.features.indicators import IndicatorManager
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
@@ -453,10 +457,6 @@ class TestEndToEndPipeline:
         Test that all data is correctly persisted to stores.
         """
         # Use real PostgreSQL stores
-        from ml.stores.feature_store import FeatureStore
-        from ml.stores.model_store import ModelStore
-        from ml.stores.strategy_store import StrategyStore
-
         # Initialize stores with real database
         feature_store = FeatureStore(connection_string=cloned_test_database)
         model_store = ModelStore(connection_string=cloned_test_database)
@@ -481,13 +481,16 @@ class TestEndToEndPipeline:
         )
 
         # 3. Store strategy decisions
-        strategy_store.store_decision(
+        strategy_store.write_signal(
             strategy_id="ml_strategy_v1",
             instrument_id=str(PIPELINE_INSTRUMENT),
+            signal_type="buy",
+            strength=0.85,
+            model_predictions={},
+            risk_metrics={},
+            execution_params={"features": {"rsi": 50.0}},
+            decision_metadata={"version": "v1"},
             ts_event=int(time.time_ns()),
-            action="BUY",
-            confidence=0.85,
-            features={"rsi": 50.0},
         )
 
         # Verify all stores successfully persisted data
@@ -605,8 +608,12 @@ class TestEndToEndPipeline:
             symbols=["SPY", "QQQ", "IWM"],
         )
 
-        # Build training dataset using current API (threshold_bps supported as alias)
-        dataset = builder.build_training_dataset(horizon_minutes=15, threshold_bps=10)
+        target_semantics = build_default_target_semantics(
+            horizon_minutes=15,
+            threshold=0.001,
+            legacy_aliases=True,
+        )
+        dataset = builder.build_training_dataset(target_semantics=target_semantics)
 
         # Verify dataset structure
         assert dataset is not None

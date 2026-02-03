@@ -85,6 +85,7 @@ def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
         model_predictions={"m1": 0.1},
         risk_metrics={"risk": 0.2},
         execution_params={},
+        decision_metadata={"version": "v1"},
         _ts_event=ts + 2,
         _ts_init=ts + 2,
     )

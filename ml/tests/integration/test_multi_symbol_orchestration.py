@@ -18,6 +18,7 @@ from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.tests.utils.targets import build_default_target_semantics_payload
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
 
@@ -78,6 +79,7 @@ class TestMultiSymbolOrchestration:
                 out_dir=str(out_dir),
                 start_iso="2024-01-01",
                 end_iso="2024-01-31",
+                target_semantics=build_default_target_semantics_payload(),
             ),
             hpo=None,  # Disable HPO for faster testing
             teacher=TeacherTrainConfig(
@@ -223,6 +225,7 @@ class TestMultiSymbolOrchestration:
                 out_dir=str(out_dir),
                 start_iso="2024-01-01",
                 end_iso="2024-01-31",
+                target_semantics=build_default_target_semantics_payload(),
             ),
             hpo=None,
             teacher=TeacherTrainConfig(

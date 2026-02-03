@@ -82,6 +82,7 @@ def test_actor_side_domain_event_bridge_publishes(
             prediction=0.9,
             confidence=0.9,
             features=np.array([0.0], dtype=np.float32),
+            metadata={"decision_metadata": {"version": "v1"}},
             ts_event=123,
             ts_init=123,
         )

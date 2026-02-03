@@ -47,6 +47,7 @@ def _make_registry_for(
             "ts_init": "int64",
             "signal_type": "str",
             "strength": "float64",
+            "decision_metadata": "json",
         }
     else:
         raise AssertionError("Unsupported dataset_type for this test")
@@ -179,6 +180,7 @@ def test_routing_signals_to_strategy_store(
             "strength": 0.9,
             "ts_event": 123,
             "ts_init": 123,
+            "decision_metadata": {"version": "v1"},
         },
     ]
 

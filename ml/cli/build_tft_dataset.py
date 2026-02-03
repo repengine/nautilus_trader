@@ -20,6 +20,7 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
+from ml.config.targets import TargetSemanticsConfig
 from ml.data.vintage import VintagePolicy
 from ml.stores.data_store import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
@@ -138,13 +139,32 @@ def _resolve_dsn(args: argparse.Namespace) -> str:
     raise SystemExit(msg)
 
 
+def _parse_target_semantics(value: str) -> TargetSemanticsConfig:
+    try:
+        return TargetSemanticsConfig.from_json(value)
+    except Exception as exc:
+        parse_exc = exc
+    try:
+        path = Path(value)
+        if path.exists():
+            payload = path.read_text(encoding="utf-8")
+            return TargetSemanticsConfig.from_json(payload)
+    except OSError as exc:  # pragma: no cover - invalid path payloads
+        raise SystemExit(f"Invalid target_semantics payload: {exc}") from exc
+    raise SystemExit(f"Invalid target_semantics payload: {parse_exc}") from parse_exc
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build TFT dataset artifacts")
     parser.add_argument("--data_dir", default="data/tier1")
     parser.add_argument("--symbols", required=True, type=_parse_symbols)
     parser.add_argument("--out_dir", required=True)
-    parser.add_argument("--horizon_minutes", type=int, default=15)
-    parser.add_argument("--threshold", type=float, default=0.001)
+    parser.add_argument(
+        "--target-semantics",
+        "--target_semantics",
+        required=True,
+        help="Target semantics JSON (string or path to .json file).",
+    )
     parser.add_argument("--lookback_periods", type=int, default=30)
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", help="End date (YYYY-MM-DD)")
@@ -281,12 +301,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         else int(default_csv_max_rows)
     )
 
+    target_semantics = _parse_target_semantics(args.target_semantics)
     cfg = TFTDatasetTaskConfig(
         data_dir=Path(args.data_dir),
         out_dir=out_dir,
         symbols=args.symbols,
-        horizon_minutes=args.horizon_minutes,
-        threshold=args.threshold,
+        target_semantics=target_semantics,
         lookback_periods=args.lookback_periods,
         include_macro=not bool(args.no_macro),
         macro_lag_days=args.macro_lag_days,

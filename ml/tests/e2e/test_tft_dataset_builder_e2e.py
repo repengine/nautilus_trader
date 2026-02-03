@@ -36,6 +36,7 @@ import pytest
 
 from ml.config.base import MLFeatureConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
@@ -46,6 +47,12 @@ pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
     "isolated_orchestrator_env",
+)
+
+TARGET_SEMANTICS = build_default_target_semantics(
+    horizon_minutes=15,
+    threshold=0.001,
+    legacy_aliases=True,
 )
 
 
@@ -243,8 +250,7 @@ class TestE2EBasicDatasetBuilding:
 
         # Build dataset
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -287,8 +293,7 @@ class TestE2EBasicDatasetBuilding:
 
         # Build dataset
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -320,8 +325,7 @@ class TestE2EBasicDatasetBuilding:
 
         # Build dataset
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -352,8 +356,7 @@ class TestE2EBasicDatasetBuilding:
 
         # Build dataset
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -406,16 +409,14 @@ class TestE2EPolarsPandasParity:
 
         # Build with Polars
         df_polars = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
 
         # Build with Pandas
         df_pandas = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=False,
         )
@@ -469,8 +470,7 @@ class TestE2ESaveLoadDatasets:
 
         # Build dataset
         df_original = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -536,8 +536,7 @@ class TestE2EValidationSplits:
 
         # Build dataset
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )
@@ -602,8 +601,7 @@ class TestE2EErrorHandling:
         # Should either return empty dataframe or raise informative error
         try:
             df = builder.build_training_dataset(
-                horizon_minutes=15,
-                min_return_threshold=0.001,
+                target_semantics=TARGET_SEMANTICS,
                 lookback_periods=30,
                 use_polars=True,
             )
@@ -638,8 +636,7 @@ class TestE2EErrorHandling:
         # Should either return empty or raise informative error
         try:
             df = builder.build_training_dataset(
-                horizon_minutes=15,
-                min_return_threshold=0.001,
+                target_semantics=TARGET_SEMANTICS,
                 lookback_periods=30,
                 use_polars=True,
             )
@@ -698,8 +695,7 @@ class TestE2EPerformance:
         # Measure build time
         start = time.perf_counter()
         df = builder.build_training_dataset(
-            horizon_minutes=15,
-            min_return_threshold=0.001,
+            target_semantics=TARGET_SEMANTICS,
             lookback_periods=30,
             use_polars=True,
         )

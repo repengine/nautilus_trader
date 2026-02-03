@@ -100,6 +100,8 @@ def build_student_manifest(
     feature_set_id: str | None = None,
     pipeline_signature: str | None = None,
     pipeline_version: str | None = None,
+    decision_policy: str | None = None,
+    decision_config: Mapping[str, Any] | None = None,
 ) -> ModelManifest:
     """
     Build a student model manifest.
@@ -122,6 +124,10 @@ def build_student_manifest(
         Deployment constraints.
     version : str
         Model version.
+    decision_policy : str | None
+        Optional decision policy adapter path for inference.
+    decision_config : Mapping[str, Any] | None
+        Optional decision adapter configuration (e.g., positive_class_index).
 
     Returns
     -------
@@ -144,6 +150,8 @@ def build_student_manifest(
         feature_set_id=feature_set_id,
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
+        decision_policy=decision_policy,
+        decision_config=dict(decision_config or {}),
     )
 
 

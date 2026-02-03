@@ -11,11 +11,14 @@ import sys
 import uuid as _uuid
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.config.targets import TargetSemanticsConfig
 from ml.tasks.training import QuickTFTTrainConfig
 from ml.tasks.training import train_tft_quick
+from ml.tasks.training.quick import _DEFAULT_SYMBOLS
 
 
 __all__ = ["main"]
@@ -41,8 +44,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Comma-separated list of symbols to include",
     )
-    parser.add_argument("--horizon-minutes", type=int, default=15)
-    parser.add_argument("--min-return-threshold", type=float, default=0.002)
+    parser.add_argument(
+        "--target-semantics",
+        "--target_semantics",
+        required=True,
+        help="Target semantics JSON (string or path to .json file).",
+    )
     parser.add_argument("--lookback-periods", type=int, default=50)
     parser.add_argument("--sample-predictions", type=int, default=10)
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -50,11 +57,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def _parse_symbols(value: str | None) -> Sequence[str]:
     if value is None:
-        return QuickTFTTrainConfig().symbols
+        return _DEFAULT_SYMBOLS
     symbols = [tok.strip().upper() for tok in value.split(",") if tok.strip()]
     if not symbols:
         raise ValueError("At least one symbol must be provided when --symbols is used")
     return symbols
+
+
+def _parse_target_semantics(value: str) -> TargetSemanticsConfig:
+    try:
+        return TargetSemanticsConfig.from_json(value)
+    except Exception as exc:
+        parse_exc = exc
+    try:
+        path = Path(value)
+        if path.exists():
+            payload = path.read_text(encoding="utf-8")
+            return TargetSemanticsConfig.from_json(payload)
+    except OSError as exc:  # pragma: no cover - invalid path payloads
+        raise ValueError(f"Invalid target_semantics payload: {exc}") from exc
+    raise ValueError(f"Invalid target_semantics payload: {parse_exc}") from parse_exc
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -65,20 +87,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         component="ml.cli.train_tft_quick",
     )
 
-    defaults = QuickTFTTrainConfig()
-    candidate_dirs = tuple(args.data_dir) if args.data_dir else defaults.data_dirs
+    default_fields = QuickTFTTrainConfig.__dataclass_fields__
+    default_data_dirs = cast(Sequence[Path], default_fields["data_dirs"].default)
+    default_output_dir = cast(Path, default_fields["output_dir"].default)
+    candidate_dirs = tuple(args.data_dir) if args.data_dir else default_data_dirs
     try:
         symbols = _parse_symbols(args.symbols)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
+        target_semantics = _parse_target_semantics(args.target_semantics)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
     config = QuickTFTTrainConfig(
         data_dirs=candidate_dirs,
-        output_dir=args.output_dir or defaults.output_dir,
+        output_dir=args.output_dir or default_output_dir,
         symbols=symbols,
-        horizon_minutes=args.horizon_minutes,
-        min_return_threshold=args.min_return_threshold,
+        target_semantics=target_semantics,
         lookback_periods=args.lookback_periods,
         sample_prediction_count=args.sample_predictions,
     )

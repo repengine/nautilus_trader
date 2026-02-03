@@ -149,6 +149,7 @@ def test_strategy_write_service_calls_upsert_and_publish() -> None:
         model_predictions={"m": 0.9},
         risk_metrics={"r": 0.1},
         execution_params={"e": 1},
+        decision_metadata={"version": "v1"},
         _ts_event=1,
         _ts_init=2,
     )

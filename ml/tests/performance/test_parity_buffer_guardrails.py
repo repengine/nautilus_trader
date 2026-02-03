@@ -537,7 +537,10 @@ class TestEndToEndGuardrails:
 
         # Override model with mock
         actor._model = mock_model
-        actor._model_metadata = {"input_names": ["features"]}
+        actor._model_metadata = {
+            "input_names": ["features"],
+            "decision_config": {"positive_class_index": 1},
+        }
 
         # Initialize components
         actor._initialize_features()
@@ -590,7 +593,10 @@ class TestEndToEndGuardrails:
 
         # Override model with mock
         actor._model = mock_model
-        actor._model_metadata = {"input_names": ["features"]}
+        actor._model_metadata = {
+            "input_names": ["features"],
+            "decision_config": {"positive_class_index": 1},
+        }
 
         # Initialize components
         actor._initialize_features()
@@ -717,7 +723,10 @@ class TestBufferReuseGuardrails:
 
         actor = TestMLSignalActor(config)
         actor._model = mock_model
-        actor._model_metadata = {"input_names": ["features"]}
+        actor._model_metadata = {
+            "input_names": ["features"],
+            "decision_config": {"positive_class_index": 1},
+        }
         actor._initialize_features()
 
         # Warm up

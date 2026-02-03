@@ -42,8 +42,9 @@ def test_unified_input_buffer_and_model_interfaces(monkeypatch: pytest.MonkeyPat
     # predict_proba path
     mock_proba = MagicMock()
     mock_proba.predict_proba.return_value = np.array([[0.1, 0.9]], dtype=np.float32)
+    mock_proba.classes_ = np.array([0, 1], dtype=np.int64)
     actor._model = mock_proba
-    actor._model_metadata = {}
+    actor._model_metadata = {"decision_config": {"positive_class_index": 1}}
     p1, c1 = actor._predict(x)
     # Called with the preallocated buffer
     arg_array = mock_proba.predict_proba.call_args[0][0]
@@ -67,7 +68,10 @@ def test_unified_input_buffer_and_model_interfaces(monkeypatch: pytest.MonkeyPat
     # Return [prediction], [confidence]
     mock_onnx.run.return_value = [np.array([[0.7]], dtype=np.float32), np.array([[0.8]], dtype=np.float32)]
     actor._model = mock_onnx
-    actor._model_metadata = {"input_names": ["input"]}
+    actor._model_metadata = {
+        "input_names": ["input"],
+        "decision_config": {"positive_class_index": 1},
+    }
     p3, c3 = actor._predict(x)
     # Ensure the same buffer object was provided to run
     kwargs = mock_onnx.run.call_args[0][1]
@@ -91,7 +95,10 @@ def test_predict_onnx_single_output_derives_confidence() -> None:
     mock_onnx = Mock(spec=["run"])  # Only exposes run
     mock_onnx.run.return_value = [np.array([[0.7]], dtype=np.float32)]
     actor._model = mock_onnx
-    actor._model_metadata = {"input_names": ["input"]}
+    actor._model_metadata = {
+        "input_names": ["input"],
+        "decision_config": {"positive_class_index": 1},
+    }
 
     features = np.zeros(actor._feature_engineer.n_features, dtype=np.float32)
     pred, conf = actor._predict(features)

@@ -41,9 +41,30 @@ def test_risk_parity_with_correlation_adjustment() -> None:
     capital = 10_000.0
     base_ts = 1_700_000_000_000_000_000
     sigs = [
-        MLSignal(instrument_id=a, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
-        MLSignal(instrument_id=b, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
-        MLSignal(instrument_id=c, model_id="model", prediction=0.0, confidence=0.8, ts_event=base_ts),
+        MLSignal(
+            instrument_id=a,
+            model_id="model",
+            prediction=0.0,
+            confidence=0.8,
+            metadata={"decision_metadata": {"version": "v1"}},
+            ts_event=base_ts,
+        ),
+        MLSignal(
+            instrument_id=b,
+            model_id="model",
+            prediction=0.0,
+            confidence=0.8,
+            metadata={"decision_metadata": {"version": "v1"}},
+            ts_event=base_ts,
+        ),
+        MLSignal(
+            instrument_id=c,
+            model_id="model",
+            prediction=0.0,
+            confidence=0.8,
+            metadata={"decision_metadata": {"version": "v1"}},
+            ts_event=base_ts,
+        ),
     ]
 
     alloc = pm.allocate_signals(sigs, capital)

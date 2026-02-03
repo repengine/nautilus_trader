@@ -69,6 +69,7 @@ def test_df_to_signals_from_dicts() -> None:
             "ts_event": 789,
             "ts_init": 789,
             "risk_metrics": {"r": 1},
+            "decision_metadata": {"version": "v1"},
         },
     ]
     sigs = data_frame_to_signals(rows)

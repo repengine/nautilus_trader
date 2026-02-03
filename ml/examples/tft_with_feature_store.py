@@ -18,6 +18,10 @@ from pathlib import Path
 
 from ml.common.logging_config import configure_logging
 from ml.config.base import MLFeatureConfig
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import decimal_to_bps
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.features import FeatureConfig
 from ml.stores.feature_store import FeatureStore
@@ -92,12 +96,20 @@ def main() -> None:
 
             logger.info(f"Preparing training data from {start_date} to {end_date}")
 
+            target_semantics = TargetSemanticsConfig(
+                horizons=(TargetHorizonSpec(minutes=15),),
+                binary=BinaryTargetConfig(
+                    enabled=True,
+                    threshold_bps=decimal_to_bps(0.001),
+                    return_basis="raw",
+                ),
+            )
+
             # Build dataset - automatically selects best method
             dataset = builder.prepare_training_data(
                 start=start_date,
                 end=end_date,
-                horizon_minutes=15,
-                min_return_threshold=0.001,
+                target_semantics=target_semantics,
                 lookback_periods=30,
                 use_polars=True,  # Return Polars DataFrame
             )
@@ -110,11 +122,10 @@ def main() -> None:
             logger.info("First 5 rows:")
             logger.info(dataset.head(5))
 
-            # Alternative method - using build_training_dataset (backward compatible)
-            logger.info("\nUsing build_training_dataset method (backward compatible):")
+            # Alternative method - using build_training_dataset
+            logger.info("\nUsing build_training_dataset method:")
             dataset2 = builder.build_training_dataset(
-                horizon_minutes=15,
-                min_return_threshold=0.001,
+                target_semantics=target_semantics,
                 start=start_date,
                 end=end_date,
             )
@@ -143,6 +154,7 @@ def main() -> None:
                     instrument_ids=["SPY.NYSE", "QQQ.NASDAQ"],
                     start=start_date,
                     end=end_date,
+                    target_semantics=target_semantics,
                 )
 
                 logger.info(f"Specific dataset shape: {specific_dataset.shape}")

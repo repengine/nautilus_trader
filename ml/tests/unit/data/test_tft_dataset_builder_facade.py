@@ -19,11 +19,19 @@ import pytest
 
 from ml.data.common import SchemaValidationError
 from ml.data.tft_dataset_builder_facade import TFTDatasetBuilderFacade
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
+
+
+TARGET_SEMANTICS = build_default_target_semantics(
+    horizon_minutes=15,
+    threshold=0.001,
+    legacy_aliases=True,
+)
 
 
 # =============================================================================
@@ -157,7 +165,7 @@ class TestFacadeHappyPath:
                 symbols=["SPY"],
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             assert isinstance(result, pl.DataFrame)
             assert "timestamp" in result.columns or "ts_event" in result.columns
@@ -186,7 +194,10 @@ class TestFacadeHappyPath:
                 symbols=["SPY"],
             )
 
-            result = facade.prepare_training_data(use_polars=True)
+            result = facade.prepare_training_data(
+                target_semantics=TARGET_SEMANTICS,
+                use_polars=True,
+            )
 
             assert isinstance(result, pl.DataFrame)
             mock_builder.prepare_training_data.assert_called_once()
@@ -246,7 +257,7 @@ class TestFacadeHappyPath:
                 feature_store=mock_feature_store,
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             # Should still return a result via fallback
             assert result is not None
@@ -310,7 +321,10 @@ class TestFacadeHappyPath:
                 symbols=["SPY"],
             )
 
-            result = facade.build_training_dataset(use_polars=True)
+            result = facade.build_training_dataset(
+                target_semantics=TARGET_SEMANTICS,
+                use_polars=True,
+            )
 
             assert isinstance(result, pl.DataFrame)
 
@@ -338,7 +352,10 @@ class TestFacadeHappyPath:
                 symbols=["SPY"],
             )
 
-            result = facade.build_training_dataset(use_polars=False)
+            result = facade.build_training_dataset(
+                target_semantics=TARGET_SEMANTICS,
+                use_polars=False,
+            )
 
             assert isinstance(result, pd.DataFrame)
 
@@ -364,11 +381,11 @@ class TestFacadeHappyPath:
                 symbols=["SPY"],
             )
 
-            # Call with threshold_bps instead of min_return_threshold
-            facade.build_training_dataset(threshold_bps=10)
-
-            # Verify the call was made (threshold conversion happens in facade)
-            mock_builder.build_training_dataset.assert_called_once()
+            with pytest.raises(TypeError):
+                facade.build_training_dataset(
+                    target_semantics=TARGET_SEMANTICS,
+                    threshold_bps=10,
+                )
 
 
 # =============================================================================
@@ -415,7 +432,7 @@ class TestErrorConditions:
             symbols=["SPY"],
         )
         # Try to use it - should return empty, not raise
-        result = facade.build_training_dataset()
+        result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
         # Verify it returns empty DataFrame (graceful degradation)
         assert len(result) == 0
@@ -448,7 +465,7 @@ class TestErrorConditions:
                 data_store=mock_data_store,
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             # Should succeed with fallback
             assert result is not None
@@ -477,7 +494,7 @@ class TestErrorConditions:
                 symbols=["NONEXISTENT_SYMBOL"],
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             # Should return empty DataFrame (not raise)
             assert len(result) == 0

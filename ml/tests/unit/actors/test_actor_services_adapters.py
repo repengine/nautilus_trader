@@ -62,7 +62,7 @@ class _DummyStrategy(StrategyStoreStrictProtocol):  # runtime structural
         risk_metrics: object,
         execution_params: object,
         ts_event: int,
-        decision_metadata: object | None = None,
+        decision_metadata: object,
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:

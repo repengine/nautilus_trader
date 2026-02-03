@@ -12,6 +12,7 @@ from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import HPOConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -33,8 +34,11 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
             "macro_lag_days": 2,
             "include_micro": false,
             "include_l2": true,
-            "horizon_minutes": 30,
-            "threshold": 0.002,
+            "target_semantics": {
+              "version": "v1",
+              "horizons": [{"minutes": 30}],
+              "binary": {"enabled": true, "threshold_bps": 20.0, "return_basis": "raw"}
+            },
             "lookback_periods": 40,
             "market_dataset_id": "LEGACY.BARS",
             "market_inputs": [
@@ -68,6 +72,7 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
     assert ["--market_dataset_id", "LEGACY.BARS"] == args[
         args.index("--market_dataset_id") : args.index("--market_dataset_id") + 2
     ]
+    assert "--target_semantics" in args
     market_inputs_json = args[args.index("--market_inputs_json") + 1]
     payload = json.loads(market_inputs_json)
     assert payload[0]["descriptor_id"] == "EQUS.MINI"
@@ -100,8 +105,7 @@ def test_load_toml(tmp_path: Path) -> None:
         out_dir = "out"
         include_macro = false
         include_l2 = false
-        horizon_minutes = 15
-        threshold = 0.001
+        target_semantics = '{"version":"v1","horizons":[{"minutes":15}],"binary":{"enabled":true,"threshold_bps":10.0,"return_basis":"raw"}}'
         lookback_periods = 30
 
         [hpo]
@@ -149,6 +153,7 @@ def test_to_pipeline_args_includes_teacher_overrides(tmp_path: Path) -> None:
             data_dir=str(tmp_path),
             symbols="SPY",
             out_dir=str(tmp_path / "out"),
+            target_semantics=build_default_target_semantics_payload(),
         ),
         hpo=HPOConfig(enabled=False),
         teacher=TeacherTrainConfig(
@@ -207,12 +212,14 @@ def test_to_pipeline_args_includes_teacher_overrides(tmp_path: Path) -> None:
 
 def test_to_pipeline_args_includes_catalog_cleaning(tmp_path: Path) -> None:
     cfg_toml = tmp_path / "cfg_ingestion.toml"
+    target_payload = json.dumps(build_default_target_semantics_payload())
     cfg_toml.write_text(
-        """
+        f"""
         [dataset]
         data_dir = "data/tier1"
         symbols = "SPY.NYSE"
         out_dir = "out"
+        target_semantics = '{target_payload}'
         """,
         encoding="utf-8",
     )

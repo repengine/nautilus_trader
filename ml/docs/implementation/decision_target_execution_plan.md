@@ -48,6 +48,15 @@ product decision:
 - Changes should be scoped to ML strategy/registry schemas (signals, decision events,
   manifests/contracts) and supporting metadata tables only.
 
+## Implementation Policy (Strict + Controlled Auto-Fill)
+To prevent drift, the system is now **strict by default** with **narrow auto-fill**:
+- Required fields must be present; missing required metadata is a hard error.
+- Auto-fill is allowed **only** when the value is unambiguously derivable from
+  model manifest or config (e.g., decision metadata assembled from manifest fields).
+- No legacy fallbacks or implicit heuristics (pre-alpha, no backward compat).
+- Any auto-fill should be centralized, logged once, and the resolved values must
+  be embedded in the persisted payload.
+
 ## Guardrails (Non-negotiable)
 - No hot-path I/O or blocking calls (publish/persist must be non-blocking).
 - All tunables live in `ml/config` dataclasses with validation in `__post_init__`.
@@ -73,6 +82,19 @@ product decision:
 
 ## Workstreams and Checklists
 
+### Status Update (2026-02-03)
+Strict mode (no backward compat) is now enforced for Tasks 1–3. Key updates:
+- Task 1: explicit positive-class mapping is required end-to-end (normalization + manifests);
+  classifier manifests now fail fast without `decision_config.positive_class_index` and
+  student distillation paths auto-provide index=0 for single-probability outputs.
+- Task 2: decision metadata is required across signals/events (schema + DB + store writes),
+  and legacy write paths are removed.
+- Task 3: `target_semantics` is mandatory for dataset builds and orchestration; all CLIs,
+  pipelines, and test fixtures now pass explicit semantics; legacy fallbacks removed.
+
+Remaining work primarily sits in prediction-surface normalization and training-level
+target semantics enforcement (see Task 1 + Task 3 checklists below).
+
 ### 1) Prediction Semantics + Decision Mapping
 **Goal:** Canonical prediction surface and consistent mapping.
 
@@ -90,11 +112,16 @@ Checklist:
 - [ ] Align signal strategies to operate on canonical confidence/probability.
 - [ ] Update strategy mapping to use neutral band and canonical surface.
 - [ ] Document mapping in manifest + code docstrings.
+- [x] Require explicit positive-class mapping (index/label) in model metadata
+      for any vector output; remove heuristic class selection.
+- [x] Fail fast when vector outputs are observed without an explicit mapping.
+- [x] Enforce classifier mapping in manifest creation/export/distillation paths.
 
 Tests to update/add:
 - [ ] Unit tests for mapping classifier outputs → canonical surface.
 - [ ] Property tests for signal gating invariants (threshold + neutral band).
 - [ ] Regression tests for ONNX single-output behavior.
+- [x] Regression tests for missing positive-class metadata (must fail).
 
 ### 2) Decision Metadata Schema + Persistence
 **Goal:** Versioned decision metadata across signals and events.
@@ -106,20 +133,21 @@ Evidence anchors (current behavior):
 - Trust-layer plan expects richer execution params and metadata. (`ml/strategies/ARBITER_TRUST_LAYER_PLAN.md:42-85`)
 
 Checklist:
-- [ ] Define `DecisionMetadataV1` schema (policy, horizon, label, calibration, model lineage).
-- [ ] Add schema to MLSignal metadata and StrategySignal JSONB.
-- [ ] Update DecisionEvent payloads to include decision metadata.
-- [ ] Align registry `signals` manifest schema with DB fields.
-- [ ] Update schema touchpoints together (manifest + DB + audit):
+- [x] Define `DecisionMetadataV1` schema (policy, horizon, label, calibration, model lineage).
+- [x] Add schema to MLSignal metadata and StrategySignal JSONB.
+- [x] Update DecisionEvent payloads to include decision metadata.
+- [x] Align registry `signals` manifest schema with DB fields.
+- [x] Update schema touchpoints together (manifest + DB + audit):
       `ml/registry/bootstrap_datasets.py`, `ml/stores/strategy_store.py`,
       `ml/stores/migrations_bootstrap/001_bootstrap.sql`, `ml/stores/schema_audit.py`.
-- [ ] Add DataWriter validation (contract enforcement or preflight).
-- [ ] Add backward-compatible conversion for legacy payloads.
+- [x] Add DataWriter validation (contract enforcement or preflight).
+- [x] Remove legacy conversion paths (no backward compatibility).
+- [x] Enforce `decision_metadata` as required (contract + DB + writer).
 
 Tests to update/add:
-- [ ] Contract tests for signals dataset schema.
-- [ ] Unit tests for DecisionEvent payload composition.
-- [ ] Property tests for schema migration (legacy → new).
+- [x] Contract tests for signals dataset schema.
+- [x] Unit tests for DecisionEvent payload composition.
+- [x] Tests that missing decision metadata fails fast.
 
 ### 3) Targets + Label Semantics
 **Goal:** Cost-aware, horizon-aligned target definitions with manifest metadata.
@@ -134,14 +162,17 @@ Evidence anchors (current behavior):
 Checklist:
 - [ ] Implement target variants (binary long-only + multi-class + cost-aware).
 - [ ] Add multi-horizon target generation (explicit column naming).
-- [ ] Persist target semantics in dataset manifests/sidecars.
-- [ ] Update dataset builders to support target variants.
+- [x] Persist target semantics in dataset manifests/sidecars.
+- [x] Update dataset builders to require explicit target semantics.
 - [ ] Update training configs to require target semantics declaration.
+- [x] Remove legacy `TargetSemanticsConfig.from_legacy` fallbacks (explicit config required).
+- [x] Enforce explicit target semantics in all CLIs/configs (incl. Chronos/AutoGluon).
 
 Tests to update/add:
 - [ ] Unit tests for multi-horizon target generation invariants.
 - [ ] Contract tests for target schema in datasets.
 - [ ] Metamorphic tests: cost-aware labels respond to fees/slippage.
+- [ ] Tests that missing target semantics fail fast.
 
 Proposed target naming + semantics (Task 3 design notes)
 - Deployment cadence assumption (for horizon alignment):

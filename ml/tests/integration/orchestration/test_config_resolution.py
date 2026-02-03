@@ -14,6 +14,7 @@ import pytest
 
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.stores.providers import DAY_NS
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 # ============================================================================
@@ -33,6 +34,7 @@ def dataset_config() -> DatasetBuildConfig:
         symbols="SPY,QQQ",
         instrument_ids=("SPY.NASDAQ", "QQQ.NASDAQ"),
         market_dataset_id="databento.equities.us",
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 
@@ -90,6 +92,7 @@ def test_resolve_instruments_from_multiple_sources(config_resolver):
         dataset_id="test.dataset",
         instrument_ids=("SPY.NASDAQ",),
         symbols="SPY",
+        target_semantics=build_default_target_semantics_payload(),
     )
 
     result = resolver.resolve_instrument_ids(
@@ -121,6 +124,7 @@ def test_symbol_to_instruments_mapping_workflow(config_resolver):
         dataset_id="test.dataset",
         symbols="SPY,QQQ",
         instrument_ids=("SPY.NASDAQ", "SPY.ARCA", "QQQ.NASDAQ"),
+        target_semantics=build_default_target_semantics_payload(),
     )
 
     result = resolver.symbol_to_instruments(dataset_config)
@@ -155,6 +159,7 @@ def test_infer_default_schema_from_config_hints(config_resolver):
         out_dir="/tmp/test_out",
         dataset_id="test",
         symbols="SPY",
+        target_semantics=build_default_target_semantics_payload(),
     )
     resolver = config_resolver
     assert resolver.infer_default_schema(config_empty) == "ohlcv-1m"

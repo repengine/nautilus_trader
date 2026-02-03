@@ -535,8 +535,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Emit dataset events via DataRegistry for the TFT build",
     )
-    parser.add_argument("--horizon_minutes", type=int, default=15)
-    parser.add_argument("--threshold", type=float, default=0.001)
+    parser.add_argument(
+        "--target-semantics",
+        "--target_semantics",
+        required=True,
+        help="Target semantics JSON (string or path to .json file).",
+    )
     parser.add_argument("--lookback_periods", type=int, default=30)
     parser.add_argument("--start_iso", default=None, help="Optional start date ISO (YYYY-MM-DD)")
     parser.add_argument("--end_iso", default=None, help="Optional end date ISO (YYYY-MM-DD)")
@@ -1174,8 +1178,7 @@ def _execute_with_namespace(
         events_dir=str(args.events_dir) if args.events_dir else None,
         student_mode=bool(args.student_mode),
         emit_dataset_events=bool(getattr(args, "emit_dataset_events", False)),
-        horizon_minutes=int(args.horizon_minutes),
-        threshold=float(args.threshold),
+        target_semantics=_parse_target_semantics_payload(args.target_semantics),
         lookback_periods=int(args.lookback_periods),
         start_iso=start_iso,
         end_iso=end_iso,
@@ -1899,6 +1902,30 @@ def _parse_market_inputs_json(
         raise SystemExit("market_inputs_json entries must be strings or objects")
 
     return tuple(inputs) if inputs else None
+
+
+def _parse_target_semantics_payload(value: str | None) -> dict[str, Any] | None:
+    """
+    Parse target semantics JSON payload from CLI (string or file path).
+    """
+    if value is None:
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        try:
+            path = Path(value)
+            if path.exists():
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            else:
+                raise SystemExit("target_semantics must be valid JSON")
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"target_semantics must be valid JSON: {exc}") from exc
+        except OSError as exc:
+            raise SystemExit(f"target_semantics must be valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit("target_semantics must be a JSON object")
+    return payload
 
 
 def _build_validation_config_from_args(

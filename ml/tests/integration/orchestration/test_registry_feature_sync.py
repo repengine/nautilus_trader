@@ -15,6 +15,7 @@ import pytest
 
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 @pytest.mark.integration
@@ -48,6 +49,7 @@ def test_export_feature_manifest_to_feature_registry(tmp_path) -> None:
         out_dir=str(tmp_path / "out"),
         register_features=True,
         feature_registry_dir=str(tmp_path / "registry"),
+        target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
     result.feature_names = ["sma_20", "ema_50", "rsi_14"]
@@ -92,6 +94,7 @@ def test_feature_schema_hash_computed_correctly(tmp_path) -> None:
         out_dir=str(tmp_path / "out"),
         register_features=True,
         feature_registry_dir=str(tmp_path / "registry"),
+        target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
     result.feature_names = ["sma_20", "ema_50", "rsi_14"]
@@ -139,6 +142,7 @@ def test_feature_manifest_queryable_from_registry(tmp_path) -> None:
         out_dir=str(tmp_path / "out"),
         register_features=True,
         feature_registry_dir=str(tmp_path / "registry"),
+        target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
     result.feature_names = ["sma_20", "ema_50", "rsi_14"]

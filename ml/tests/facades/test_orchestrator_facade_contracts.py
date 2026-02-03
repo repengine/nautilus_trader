@@ -26,6 +26,7 @@ import pytest
 from ml.orchestration.config_types import DatasetBuildConfig, OrchestratorConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.registry.dataclasses import DatasetType, StorageKind
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 @pytest.fixture
@@ -111,6 +112,7 @@ class TestFacadeContracts:
             invalid_config = DatasetBuildConfig(  # type: ignore[call-arg]
                 data_dir="/tmp/data",
                 symbols="AAPL",
+                target_semantics=build_default_target_semantics_payload(),
             )
 
         # Test that config with all required fields works (no exception)
@@ -118,7 +120,8 @@ class TestFacadeContracts:
             data_dir="/tmp/data",
             symbols="AAPL,MSFT",
             out_dir="/tmp/out",
-            dataset_id="test_dataset"
+            dataset_id="test_dataset",
+            target_semantics=build_default_target_semantics_payload(),
         )
         assert valid_config.dataset_id == "test_dataset"
         assert valid_config.symbols == "AAPL,MSFT"
@@ -167,6 +170,7 @@ class TestFacadeContracts:
             out_dir="/tmp/out",
             dataset_id="test_dataset",
             market_dataset_id="xnas.itch",
+            target_semantics=build_default_target_semantics_payload(),
         )
 
         # Config should be valid and accessible

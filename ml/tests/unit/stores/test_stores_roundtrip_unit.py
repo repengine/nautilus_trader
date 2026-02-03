@@ -122,6 +122,7 @@ def test_strategy_store_write_batch(
         model_predictions={"m1": 0.8},
         risk_metrics={"conf": 0.8},
         execution_params={"side": "BUY"},
+        decision_metadata={"version": "v1"},
         ts_event=ts_event,
     )
     ss.write_signal(
@@ -132,6 +133,7 @@ def test_strategy_store_write_batch(
         model_predictions={"m1": 0.2},
         risk_metrics={"conf": 0.2},
         execution_params={"side": "SELL"},
+        decision_metadata={"version": "v1"},
         ts_event=ts_event + 1,
     )
     ss.write_batch(list(ss._write_buffer))

@@ -222,7 +222,7 @@ class StrategySignal(NautilusData):
         Risk metrics at decision time
     execution_params : dict[str, Any]
         Execution parameters (stop loss, take profit, etc.)
-    decision_metadata : dict[str, Any] | None
+    decision_metadata : dict[str, Any]
         Decision metadata payload (policy, horizon, label, calibration, lineage).
     run_id : str | None
         Optional run identifier for replay/audit correlation.
@@ -242,9 +242,9 @@ class StrategySignal(NautilusData):
     model_predictions: dict[str, float]
     risk_metrics: dict[str, float]
     execution_params: dict[str, Any]
+    decision_metadata: dict[str, Any]
     _ts_event: int
     _ts_init: int
-    decision_metadata: dict[str, Any] | None = None
     run_id: str | None = None
     ingested_at_ns: int | None = None
 

@@ -73,6 +73,9 @@ from ml.orchestration.pipeline_orchestrator import parse_args
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.data.vintage import VintagePolicy
 from ml.stores.providers import DAY_NS
+from ml.tests.utils.targets import build_default_target_semantics_payload
+
+TARGET_SEMANTICS = build_default_target_semantics_payload()
 
 
 @dataclass(slots=True)
@@ -450,6 +453,7 @@ def test_pipeline_orchestrator_runs_all_phases(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="SPY.NYSE",
             out_dir=str(tmp_path / "out"),
@@ -535,6 +539,7 @@ def test_pipeline_orchestrator_attach_runtime_sets_components(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="SPY.NYSE",
             out_dir=str(tmp_path / "out"),
@@ -630,6 +635,7 @@ def test_pipeline_orchestrator_attach_runtime_skips_validators_when_disabled(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="QQQ.NASDAQ",
             out_dir=str(tmp_path / "skip"),
@@ -762,6 +768,7 @@ def test_auto_fill_universe_backfills_expected_schemas(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols=target_instrument,
             out_dir=str(out_dir),
@@ -825,6 +832,7 @@ def test_prepare_dataset_config_discovers_market_inputs(
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="AAPL",
         out_dir=str(tmp_path / "out"),
@@ -882,6 +890,7 @@ def test_prepare_dataset_config_prefers_discovery_with_descriptor(
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="AAPL",
         out_dir=str(tmp_path / "out"),
@@ -956,6 +965,7 @@ def test_auto_fill_schema_prefers_discovery_when_binding_empty(
     monkeypatch.setattr(MLPipelineOrchestrator, "backfill_binding", _fake_backfill_binding)
     monkeypatch.setattr(MLPipelineOrchestrator, "_ensure_dataset_registered", _capture_register)
     dataset_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="AAPL",
         out_dir=str(tmp_path / "out"),
@@ -1073,6 +1083,7 @@ def test_auto_fill_schema_retries_discovery_on_zero_frame_binding(
     monkeypatch.setattr(MLPipelineOrchestrator, "_ensure_dataset_registered", lambda *_, **__: None)
 
     dataset_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="AAPL",
         out_dir=str(tmp_path / "out"),
@@ -1166,6 +1177,7 @@ def test_auto_fill_universe_logs_warning_when_gaps_remain(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="SPY.NYSE",
             out_dir=str(tmp_path / "out"),
@@ -1302,6 +1314,7 @@ def test_dataset_metadata_sync_updates_manifest(
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="SPY.NYSE",
             out_dir=str(tmp_path / "out"),
@@ -1336,6 +1349,7 @@ def test_guard_dataset_metadata_normalizes_iso_bounds(tmp_path: Path) -> None:
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY.NYSE",
         out_dir=str(tmp_path / "out"),
@@ -1375,6 +1389,7 @@ def test_guard_dataset_metadata_requires_macro_counts(tmp_path: Path) -> None:
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY.NYSE",
         out_dir=str(tmp_path / "macro"),
@@ -1426,6 +1441,7 @@ def test_guard_dataset_metadata_requires_provenance(tmp_path: Path) -> None:
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY.NYSE",
         out_dir=str(tmp_path / "eq"),
@@ -1506,6 +1522,8 @@ def test_guard_dataset_metadata_requires_provenance(tmp_path: Path) -> None:
 def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     args = parse_args(
         [
+            "--target_semantics",
+            json.dumps(TARGET_SEMANTICS),
             "--auto_fill_universe",
             "--auto_fill_dataset_id",
             "EQUS.PRO",
@@ -1523,6 +1541,7 @@ def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
     )
 
     dataset_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY.NYSE",
         out_dir=str(tmp_path / "out"),
@@ -1542,6 +1561,8 @@ def test_build_auto_fill_config_from_args_handles_cli(tmp_path: Path) -> None:
 def test_parse_args_handles_market_inputs_json() -> None:
     args = parse_args(
         [
+            "--target_semantics",
+            json.dumps(TARGET_SEMANTICS),
             "--market_inputs_json",
             '[{"descriptor_id":"EQUS.MINI","symbols":["SPY","QQQ"],"schema":"ohlcv-1m"}]',
         ],
@@ -1607,6 +1628,7 @@ def test_auto_fill_skips_without_databento(monkeypatch: pytest.MonkeyPatch, tmp_
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir=str(tmp_path),
             symbols="SPY.NYSE",
             out_dir=str(tmp_path / "out"),
@@ -1649,6 +1671,7 @@ def test_prepare_dataset_config_uses_coverage(tmp_path: Path) -> None:
         teacher_main=_CliWrapper(_ok),
     )
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY",
         out_dir=str(tmp_path / "out"),
@@ -1666,6 +1689,7 @@ def test_prepare_dataset_config_uses_coverage(tmp_path: Path) -> None:
 
 def test_apply_default_market_inputs_requires_explicit_dataset() -> None:
     base_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir="data",
         symbols="SPY,QQQ",
         out_dir="out",
@@ -1678,6 +1702,7 @@ def test_apply_default_market_inputs_requires_explicit_dataset() -> None:
 def test_apply_default_market_inputs_respects_existing_inputs() -> None:
     custom_input = MarketDatasetInput(descriptor_id="CUSTOM.FEED", dataset_id="CUSTOM.FEED")
     base_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir="data",
         symbols="SPY",
         out_dir="out",
@@ -1732,6 +1757,7 @@ def test_prepare_dataset_config_skips_disallowed_dataset(
     )
 
     cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path),
         symbols="SPY",
         out_dir=str(tmp_path / "out"),
@@ -1751,6 +1777,7 @@ def test_prepare_dataset_config_skips_disallowed_dataset(
 def test_execute_stage_dataset_disables_training_flags() -> None:
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir="data",
             symbols="SPY",
             out_dir="out",
@@ -1785,6 +1812,7 @@ def test_execute_stage_dataset_disables_training_flags() -> None:
 def test_execute_stage_train_invokes_training_only() -> None:
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
+            target_semantics=TARGET_SEMANTICS,
             data_dir="data",
             symbols="SPY",
             out_dir="out",
@@ -1834,7 +1862,7 @@ def test_run_ingestion_stage_uses_resolved_bindings(monkeypatch: pytest.MonkeyPa
         source="test",
     )
     orch = _IngestionOrchStub(resolved_bindings=(binding,))
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     ingestion_cfg = IngestionStageConfig(
         enabled=True,
         dataset_id="EQUS.MINI",
@@ -1886,7 +1914,7 @@ def test_run_ingestion_stage_fallbacks_to_manual(monkeypatch: pytest.MonkeyPatch
         coverage_exception=IngestionError("coverage failure"),
         manual_rows_written=5,
     )
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     ingestion_cfg = IngestionStageConfig(
         enabled=True,
         dataset_id="EQUS.MINI",
@@ -1934,7 +1962,7 @@ def test_run_ingestion_stage_fallbacks_to_manual(monkeypatch: pytest.MonkeyPatch
 
 def test_run_ingestion_stage_degrades_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     orch = _IngestionOrchStub()
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     auto_fill_cfg = AutoFillUniverseConfig()
     ingestion_cfg = IngestionStageConfig(
         enabled=True,
@@ -1992,6 +2020,7 @@ def test_run_ingestion_stage_returns_error_when_fallbacks_fail(
         manual_exception=IngestionError("manual failure"),
     )
     ds_cfg = DatasetBuildConfig(
+        target_semantics=TARGET_SEMANTICS,
         data_dir=str(tmp_path / "data"),
         symbols="SPY",
         out_dir=str(tmp_path / "out"),
@@ -2043,7 +2072,7 @@ def test_run_ingestion_stage_returns_error_when_fallbacks_fail(
 
 def test_run_ingestion_stage_auto_fill_without_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
     orch = _IngestionOrchStub()
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     auto_fill_cfg = AutoFillUniverseConfig(enabled=True)
     ingestion_cfg = IngestionStageConfig(
         enabled=False,
@@ -2095,7 +2124,7 @@ def test_pipeline_service_dispatch_dataset_stage() -> None:
     service = PipelineIntegrationService(integration_manager=None)
     run_cfg = OrchestratorRunConfig(
         stage=Stage.DATASET,
-        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out"),
+        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS),
         training=TrainingStageConfig(),
     )
 
@@ -2116,7 +2145,7 @@ def test_pipeline_service_dispatch_ingest_stage(monkeypatch: pytest.MonkeyPatch)
     service = PipelineIntegrationService(integration_manager=None)
     run_cfg = OrchestratorRunConfig(
         stage=Stage.INGEST,
-        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out"),
+        dataset=DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS),
         ingestion=IngestionStageConfig(
             enabled=True, schema="bars", instruments=("SPY.NYSE",), lookback_days=4
         ),
@@ -2191,7 +2220,7 @@ def test_build_ingestion_plan_uses_bindings(monkeypatch: pytest.MonkeyPatch) -> 
         end=None,
         source="descriptor",
     )
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     ingestion_cfg = IngestionStageConfig(
         enabled=True,
         dataset_id="EQUS.MINI",
@@ -2223,7 +2252,7 @@ def test_build_ingestion_plan_uses_bindings(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_build_ingestion_plan_manual_when_no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
-    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out")
+    ds_cfg = DatasetBuildConfig(data_dir="data", symbols="SPY", out_dir="out", target_semantics=TARGET_SEMANTICS)
     ingestion_cfg = IngestionStageConfig(
         enabled=True,
         dataset_id="EQUS.MINI",

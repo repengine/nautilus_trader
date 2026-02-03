@@ -10,6 +10,7 @@ from ml.data import DatasetMetadata
 from ml.data.vintage import VintagePolicy
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 def _make_metadata() -> DatasetMetadata:
@@ -40,6 +41,7 @@ def test_synchronize_dataset_manifest_updates_registry(tmp_path: Path) -> None:
         out_dir=str(tmp_path / "out"),
         dataset_id="spy_2024_ohlcv",
         symbols="SPY",
+        target_semantics=build_default_target_semantics_payload(),
     )
     metadata = _make_metadata()
 
@@ -59,6 +61,7 @@ def test_guard_dataset_metadata_enforces_macro_requirements(tmp_path: Path) -> N
         symbols="SPY",
         include_macro=True,
         macro_series_ids=("gdp",),
+        target_semantics=build_default_target_semantics_payload(),
     )
     metadata = _make_metadata()
 

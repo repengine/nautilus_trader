@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from ml.orchestration.config_types import AutoFillUniverseConfig, DatasetBuildConfig
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 # ============================================================================
@@ -30,6 +31,7 @@ def dataset_config(tmp_path: Path) -> DatasetBuildConfig:
         out_dir=str(tmp_path / "out"),
         dataset_id="test.dataset",
         instrument_ids=["SPY.NASDAQ"],
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 

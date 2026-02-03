@@ -43,6 +43,7 @@ def test_strategy_decision_event_published_when_no_store() -> None:
         model_id="M",
         prediction=0.9,
         confidence=0.8,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=123,
         ts_init=123,
     )

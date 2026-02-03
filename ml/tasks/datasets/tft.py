@@ -18,6 +18,7 @@ from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset as _build_tft_dataset
 from ml.data.vintage import VintagePolicy
+from ml.config.targets import TargetSemanticsConfig
 from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
 from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
 from ml.preprocessing.vintage_age import write_metadata
@@ -36,9 +37,8 @@ class TFTDatasetTaskConfig:
     data_dir: Path
     out_dir: Path
     symbols: Sequence[str]
+    target_semantics: TargetSemanticsConfig
     instrument_ids: Sequence[str] | None = None
-    horizon_minutes: int = 15
-    threshold: float = 0.001
     lookback_periods: int = 30
     include_macro: bool = True
     macro_lag_days: int = 1
@@ -95,6 +95,7 @@ def build_tft_dataset(
         out_dir=cfg.out_dir,
         symbols=[symbol.upper() for symbol in cfg.symbols],
         instrument_ids=[inst for inst in cfg.instrument_ids] if cfg.instrument_ids else None,
+        target_semantics=cfg.target_semantics,
         include_macro=cfg.include_macro,
         macro_lag_days=cfg.macro_lag_days,
         include_micro=cfg.include_micro,
@@ -109,8 +110,6 @@ def build_tft_dataset(
         earnings_lag_days=cfg.earnings_lag_days,
         micro_base_dir=cfg.micro_base_dir,
         l2_base_dir=cfg.l2_base_dir,
-        horizon_minutes=cfg.horizon_minutes,
-        threshold=cfg.threshold,
         lookback_periods=cfg.lookback_periods,
         start=cfg.start,
         end=cfg.end,

@@ -44,20 +44,17 @@ class TargetGeneratorProtocol(Protocol):
     def generate_targets_polars(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> Any:
         """
-        Generate legacy binary targets using Polars.
+        Generate targets using explicit semantics (Polars).
 
         Parameters
         ----------
         df : polars.DataFrame
             Input dataframe
-        horizon_minutes : int
-            Horizon in minutes
-        threshold : float
-            Return threshold for binary classification
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
 
         Returns
         -------
@@ -70,20 +67,17 @@ class TargetGeneratorProtocol(Protocol):
     def generate_targets_pandas(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> Any:
         """
-        Generate legacy binary targets using Pandas.
+        Generate targets using explicit semantics (Pandas).
 
         Parameters
         ----------
         df : pandas.DataFrame
             Input dataframe
-        horizon_minutes : int
-            Horizon in minutes
-        threshold : float
-            Return threshold for binary classification
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
 
         Returns
         -------
@@ -96,21 +90,18 @@ class TargetGeneratorProtocol(Protocol):
     def generate_targets(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
         use_polars: bool = True,
     ) -> Any:
         """
-        Generate legacy binary targets using the specified implementation.
+        Generate targets using explicit semantics.
 
         Parameters
         ----------
         df : polars.DataFrame | pandas.DataFrame
             Input dataframe with price data
-        horizon_minutes : int
-            Forward-looking horizon in minutes
-        threshold : float
-            Binary classification threshold (e.g., 0.001 = 10bps)
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
         use_polars : bool
             Use Polars (True) or Pandas (False) implementation
 
@@ -297,21 +288,18 @@ class TargetGenerator:
     def generate_targets(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
         use_polars: bool = True,
     ) -> Any:
         """
-        Generate legacy binary targets.
+        Generate targets using explicit semantics.
 
         Parameters
         ----------
         df : polars.DataFrame | pandas.DataFrame
             Input dataframe with price data
-        horizon_minutes : int
-            Forward-looking horizon in minutes
-        threshold : float
-            Binary classification threshold (e.g., 0.001 = 10bps)
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
         use_polars : bool
             Use Polars (True) or Pandas (False) implementation
 
@@ -321,11 +309,6 @@ class TargetGenerator:
             DataFrame with target columns added
 
         """
-        config = TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
         result = self.generate_targets_with_semantics(
             df,
             config,
@@ -388,20 +371,17 @@ class TargetGenerator:
     def generate_targets_polars(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> Any:
         """
-        Generate legacy binary targets using Polars.
+        Generate targets using explicit semantics (Polars).
 
         Parameters
         ----------
         df : polars.DataFrame
             Input dataframe with 'close' column
-        horizon_minutes : int
-            Horizon in minutes (how many periods to look ahead)
-        threshold : float
-            Return threshold for binary classification
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
 
         Returns
         -------
@@ -409,11 +389,6 @@ class TargetGenerator:
             Input dataframe with added 'y' and 'forward_return' columns
 
         """
-        config = TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
         result = self.generate_targets_with_semantics(
             df,
             config,
@@ -425,20 +400,17 @@ class TargetGenerator:
     def generate_targets_pandas(
         self,
         df: Any,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> Any:
         """
-        Generate legacy binary targets using Pandas.
+        Generate targets using explicit semantics (Pandas).
 
         Parameters
         ----------
         df : pandas.DataFrame
             Input dataframe with 'close' column
-        horizon_minutes : int
-            Horizon in minutes (how many periods to look ahead)
-        threshold : float
-            Return threshold for binary classification
+        config : TargetSemanticsConfig
+            Explicit target semantics configuration
 
         Returns
         -------
@@ -446,11 +418,6 @@ class TargetGenerator:
             Input dataframe with added 'y' and 'forward_return' columns
 
         """
-        config = TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
         result = self.generate_targets_with_semantics(
             df,
             config,

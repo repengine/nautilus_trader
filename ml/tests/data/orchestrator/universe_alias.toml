@@ -4,6 +4,7 @@ stage = "dataset"
 data_dir = "data/tier1"
 out_dir = "ml_out/test"
 symbols = "@tier1_full"
+target_semantics = '{"version":"v1","horizons":[{"minutes":15}],"binary":{"enabled":true,"threshold_bps":10.0,"return_basis":"raw"}}'
 
 [ingestion]
 enabled = true

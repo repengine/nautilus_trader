@@ -8,6 +8,7 @@ import pytest
 from ml.data import DatasetBuildConfig
 from ml.data import build_tft_dataset
 from ml.tests.utils.earnings_facade import build_test_data_store
+from ml.tests.utils.targets import build_default_target_semantics
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
@@ -92,8 +93,7 @@ def test_task_builds_dataset_with_earnings_columns(
         include_calendar=False,
         include_earnings=True,
         earnings_lag_days=0,
-        horizon_minutes=1,
-        threshold=0.0,
+        target_semantics=build_default_target_semantics(horizon_minutes=1, threshold=0.0),
         lookback_periods=1,
     )
 

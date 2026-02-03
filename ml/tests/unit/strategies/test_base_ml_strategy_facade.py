@@ -94,7 +94,10 @@ class MockMLSignal:
         self.confidence = confidence
         self.model_id = model_id
         self.ts_event = ts_event
-        self.metadata: dict[str, Any] = {"model_id": model_id}
+        self.metadata: dict[str, Any] = {
+            "model_id": model_id,
+            "decision_metadata": {"version": "v1"},
+        }
 
 
 class MockStores:

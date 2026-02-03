@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ml.config.targets import TargetSemanticsConfig
 from ml.data import DatasetMetadata
 from ml.data import DatasetMetadataExpectations
 from ml.data import DatasetValidationConfig
@@ -214,6 +215,17 @@ class DatasetBuilder:
                 [item.strip() for item in cfg.instrument_ids] if cfg.instrument_ids else None
             )
             vintage_as_of_dt = parse_dt(cfg.vintage_as_of)
+            if cfg.target_semantics is None:
+                raise ValueError(
+                    "target_semantics must be provided for dataset builds; legacy horizon/threshold values are not supported",
+                )
+            target_payload = cfg.target_semantics
+            if isinstance(target_payload, str):
+                target_semantics = TargetSemanticsConfig.from_json(target_payload)
+            elif isinstance(target_payload, dict):
+                target_semantics = TargetSemanticsConfig.from_dict(target_payload)
+            else:
+                raise ValueError("target_semantics must be a JSON string or dict payload")
 
             api_cfg = APICfg(
                 data_dir=Path(cfg.data_dir),
@@ -221,6 +233,7 @@ class DatasetBuilder:
                 dataset_id=cfg.dataset_id,
                 symbols=symbols_list,
                 instrument_ids=instrument_ids_list,
+                target_semantics=target_semantics,
                 include_macro=cfg.include_macro,
                 macro_lag_days=cfg.macro_lag_days,
                 include_micro=cfg.include_micro,
@@ -236,8 +249,6 @@ class DatasetBuilder:
                 ),
                 events_base_dir=(Path(cfg.events_dir).expanduser() if cfg.events_dir else None),
                 student_mode=cfg.student_mode,
-                horizon_minutes=cfg.horizon_minutes,
-                threshold=cfg.threshold,
                 lookback_periods=cfg.lookback_periods,
                 start=(
                     None
@@ -440,6 +451,28 @@ class DatasetBuilder:
     # Private helpers
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _require_target_semantics_payload(cfg: DatasetBuildConfig) -> dict[str, object]:
+        """
+        Validate and return target semantics payload for CLI invocation.
+        """
+        target_payload = cfg.target_semantics
+        if target_payload is None:
+            raise ValueError(
+                "target_semantics must be provided for dataset builds; legacy horizon/threshold values are not supported",
+            )
+        if isinstance(target_payload, str):
+            try:
+                parsed = json.loads(target_payload)
+            except json.JSONDecodeError as exc:
+                raise ValueError("target_semantics must be a JSON object payload") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("target_semantics must be a JSON object payload")
+            return parsed
+        if isinstance(target_payload, dict):
+            return target_payload
+        raise ValueError("target_semantics must be a JSON object payload")
+
     def _build_via_cli(self, cfg: DatasetBuildConfig) -> int:
         """
         Build dataset via CLI fallback.
@@ -465,10 +498,8 @@ class DatasetBuilder:
             cfg.symbols,
             "--out_dir",
             cfg.out_dir,
-            "--horizon_minutes",
-            str(cfg.horizon_minutes),
-            "--threshold",
-            str(cfg.threshold),
+            "--target_semantics",
+            json.dumps(self._require_target_semantics_payload(cfg), ensure_ascii=True),
             "--lookback_periods",
             str(cfg.lookback_periods),
         ]

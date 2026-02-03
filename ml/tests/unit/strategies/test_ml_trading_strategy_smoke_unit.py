@@ -27,6 +27,7 @@ def _build_signal(pred: float, conf: float) -> MLSignal:
         model_id="m1",
         prediction=pred,
         confidence=conf,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=1,
         ts_init=1,
     )

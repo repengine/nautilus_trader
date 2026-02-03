@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from ml.cli import build_tft_dataset as cli
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 def test_build_tft_dataset_cli_initializes_data_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -39,11 +41,14 @@ def test_build_tft_dataset_cli_initializes_data_store(monkeypatch: pytest.Monkey
     monkeypatch.setattr(cli, "DataStore", _StubDataStore)
     monkeypatch.setattr(cli, "build_tft_dataset", _fake_build)
 
+    target_semantics = build_default_target_semantics_payload()
     args = [
         "--symbols",
         "AAPL",
         "--out_dir",
         str(tmp_path / "out"),
+        "--target-semantics",
+        json.dumps(target_semantics),
         "--events_dir",
         str(tmp_path / "events.parquet"),
         "--micro-base-dir",

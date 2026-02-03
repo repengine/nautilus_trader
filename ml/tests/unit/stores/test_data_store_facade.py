@@ -427,6 +427,7 @@ def test_write_signals_parity(
             model_predictions={"test_model": 0.75},
             risk_metrics={"volatility": 0.02},
             execution_params={"stop_loss": 0.01},
+            decision_metadata={"version": "v1"},
             _ts_event=1000000000000000000,
             _ts_init=1000000000000000000,
         ),

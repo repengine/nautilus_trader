@@ -91,6 +91,7 @@ def test_strategy_store_write_batch_invariants(
                 model_predictions={},
                 risk_metrics={},
                 execution_params={},
+                decision_metadata={"version": "v1"},
                 _ts_event=int(ts),
                 _ts_init=int(ts),
             ),

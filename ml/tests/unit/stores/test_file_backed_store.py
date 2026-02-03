@@ -73,6 +73,7 @@ def test_file_strategy_store_signal_distribution(file_root: Path) -> None:
         model_predictions={"modelA": 0.7},
         risk_metrics={"confidence": 0.8},
         execution_params={"target": "enter"},
+        decision_metadata={"version": "v1"},
         ts_event=300,
     )
     store.flush()

@@ -190,6 +190,39 @@ class TestCreateModelManifestStub:
         assert manifest_data["pipeline_signature"] == "abc123def456"
         assert manifest_data["pipeline_version"] == "2.1.0"
 
+    def test_manifest_requires_positive_class_mapping_for_classifier(self):
+        """
+        Ensure classifier manifests require explicit positive-class mapping.
+        """
+        mock_model = MagicMock()
+        mock_model.predict_proba = lambda _x: np.array([[0.2, 0.8]], dtype=np.float32)
+        mock_model.classes_ = np.array([0, 1], dtype=np.int64)
+
+        with pytest.raises(ValueError):
+            create_model_manifest_stub(
+                model=mock_model,
+                feature_names=["feature_1"],
+                architecture="sklearn",
+            )
+
+    def test_manifest_adds_positive_class_index_from_label(self):
+        """
+        Ensure positive_class_label is normalized into an explicit index.
+        """
+        mock_model = MagicMock()
+        mock_model.predict_proba = lambda _x: np.array([[0.2, 0.8]], dtype=np.float32)
+        mock_model.classes_ = np.array([0, 1], dtype=np.int64)
+
+        manifest_data = create_model_manifest_stub(
+            model=mock_model,
+            feature_names=["feature_1"],
+            architecture="sklearn",
+            decision_config={"positive_class_label": 1},
+        )
+
+        assert manifest_data["decision_config"]["positive_class_index"] == 1
+        assert manifest_data["decision_config"]["positive_class_label"] == 1
+
     def test_auto_detect_architecture(self):
         """
         Test automatic architecture detection.

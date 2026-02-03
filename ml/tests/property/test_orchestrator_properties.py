@@ -18,6 +18,7 @@ import pytest
 from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 # ============================================================================
 # HYPOTHESIS STRATEGIES
@@ -135,13 +136,20 @@ class TestConfigInvariants:
             data_dir="/tmp/test",
             symbols="SPY",
             out_dir="/tmp/out",
-            horizon_minutes=horizon,
-            threshold=threshold,
+            target_semantics=build_default_target_semantics_payload(
+                horizon_minutes=horizon,
+                threshold=threshold,
+            ),
             lookback_periods=lookback,
         )
 
-        assert config.horizon_minutes == horizon
-        assert config.threshold == threshold
+        assert config.target_semantics is not None
+        horizons = config.target_semantics.get("horizons", [])
+        assert horizons and horizons[0]["minutes"] == horizon
+        binary_cfg = config.target_semantics.get("binary", {})
+        from ml.config.targets import decimal_to_bps
+
+        assert binary_cfg.get("threshold_bps") == decimal_to_bps(threshold)
         assert config.lookback_periods == lookback
 
 
@@ -173,6 +181,7 @@ class TestPipelineInvariants:
             data_dir="/tmp/data",
             symbols=symbols,
             out_dir=str(base_dir),
+            target_semantics=build_default_target_semantics_payload(),
         )
 
         parsed_symbols = [s.strip() for s in symbols.split(",") if s.strip()]
@@ -262,6 +271,7 @@ class TestDelegationInvariants:
             data_dir="/tmp/data",
             symbols=symbol,
             out_dir="/tmp/out",
+            target_semantics=build_default_target_semantics_payload(),
         )
 
         # Symbol should be preserved exactly
@@ -318,6 +328,7 @@ class TestDeterminismProperties:
             data_dir=data_dir,
             symbols="SPY",
             out_dir=out_dir,
+            target_semantics=build_default_target_semantics_payload(),
         )
 
         # Attempt to modify should raise

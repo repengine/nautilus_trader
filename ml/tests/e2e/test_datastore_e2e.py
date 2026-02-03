@@ -130,6 +130,7 @@ def sample_signals(timestamp_now: int) -> list[StrategySignal]:
                 model_predictions={"model1": 0.8, "model2": 0.9},
                 risk_metrics={"var": 0.01, "sharpe": 1.5},
                 execution_params={"stop_loss": 0.02, "take_profit": 0.05},
+                decision_metadata={"version": "v1"},
                 _ts_event=base_ts + i * 1_000_000_000,
                 _ts_init=base_ts + i * 1_000_000_000,
             ),

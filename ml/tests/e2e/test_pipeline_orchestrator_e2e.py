@@ -35,6 +35,7 @@ import pytest
 
 from ml.orchestration import MLPipelineOrchestrator
 from ml.orchestration.config_types import DatasetBuildConfig
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = [
     pytest.mark.usefixtures(
@@ -268,8 +269,10 @@ def sample_dataset_config(
         symbols="AAPL,MSFT",
         data_dir=str(data_dir),
         out_dir=str(out_dir),
-        horizon_minutes=5,
-        threshold=0.001,
+        target_semantics=build_default_target_semantics_payload(
+            horizon_minutes=5,
+            threshold=0.001,
+        ),
         lookback_periods=10,
         include_macro=False,
         macro_lag_days=2,
@@ -766,8 +769,10 @@ class TestE2EErrorHandling:
             symbols="AAPL",
             data_dir="/tmp/test",
             out_dir="/tmp/out",
-            horizon_minutes=5,
-            threshold=0.001,
+            target_semantics=build_default_target_semantics_payload(
+                horizon_minutes=5,
+                threshold=0.001,
+            ),
             lookback_periods=10,
             include_macro=False,
             macro_lag_days=2,

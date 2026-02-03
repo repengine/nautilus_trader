@@ -94,6 +94,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Forecast horizon in minutes (default: 15)",
     )
     parser.add_argument(
+        "--target-semantics",
+        "--target_semantics",
+        required=True,
+        help="Target semantics JSON (string or path to .json file).",
+    )
+    parser.add_argument(
         "--eval-metric",
         type=str,
         default="RMSE",
@@ -316,6 +322,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"--preset={args.preset}",
         f"--time_limit={args.time_limit}",
         f"--horizon={args.horizon}",
+        f"--target-semantics={args.target_semantics}",
         f"--eval_metric={args.eval_metric}",
         f"--lookback={args.lookback}",
         f"--num_gpus={args.num_gpus}",

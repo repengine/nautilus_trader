@@ -1,8 +1,8 @@
 """
 Target generation component for TFT dataset building.
 
-This component wraps the canonical TargetGenerator and preserves the legacy
-binary target API while exposing explicit target semantics support.
+This component wraps the canonical TargetGenerator and exposes explicit target
+semantics support for both Polars and Pandas inputs.
 """
 
 from __future__ import annotations
@@ -30,9 +30,7 @@ class TargetGenerationComponent:
     """
     Component for generating targets for TFT models.
 
-    Legacy binary targets remain available via `generate_targets_polars` and
-    `generate_targets_pandas`, while `generate_targets_with_semantics` supports
-    explicit multi-horizon target semantics.
+    Target generation is driven by explicit target semantics configuration.
     """
 
     def __init__(self) -> None:
@@ -42,25 +40,18 @@ class TargetGenerationComponent:
     def generate_targets_polars(
         self,
         df: _pl.DataFrame,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> _pl.DataFrame:
         """
-        Generate legacy binary targets using Polars.
+        Generate targets using Polars.
 
         Args:
             df: Polars DataFrame with 'close' column containing price data.
-            horizon_minutes: Number of periods to look ahead for target calculation.
-            threshold: Minimum return threshold for positive classification (y=1).
+            config: Target semantics configuration.
 
         Returns:
-            Polars DataFrame with target columns (legacy + explicit names).
+            Polars DataFrame with target columns.
         """
-        config = TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
         result = self._generator.generate_targets_with_semantics(
             df,
             config,
@@ -71,25 +62,18 @@ class TargetGenerationComponent:
     def generate_targets_pandas(
         self,
         df: _pd.DataFrame,
-        horizon_minutes: int,
-        threshold: float,
+        config: TargetSemanticsConfig,
     ) -> _pd.DataFrame:
         """
-        Generate legacy binary targets using Pandas.
+        Generate targets using Pandas.
 
         Args:
             df: Pandas DataFrame with 'close' column containing price data.
-            horizon_minutes: Number of periods to look ahead for target calculation.
-            threshold: Minimum return threshold for positive classification (y=1).
+            config: Target semantics configuration.
 
         Returns:
-            Pandas DataFrame with target columns (legacy + explicit names).
+            Pandas DataFrame with target columns.
         """
-        config = TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
         result = self._generator.generate_targets_with_semantics(
             df,
             config,

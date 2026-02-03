@@ -99,7 +99,7 @@ class StrategyStoreProtocol(Protocol):
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         ts_event: int,
-        decision_metadata: dict[str, Any] | None = None,
+        decision_metadata: dict[str, Any],
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None: ...
@@ -215,7 +215,7 @@ class StrategyStoreStrictProtocol(Protocol):
         risk_metrics: Mapping[str, float],
         execution_params: Mapping[str, Any],
         ts_event: int,
-        decision_metadata: Mapping[str, Any] | None = None,
+        decision_metadata: Mapping[str, Any],
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None: ...

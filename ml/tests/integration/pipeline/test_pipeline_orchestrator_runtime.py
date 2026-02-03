@@ -4,6 +4,7 @@ from __future__ import annotations
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import pytest
 
 from ml.cli import pipeline_orchestrator
 from ml.data import BuildResult
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 pytestmark = pytest.mark.usefixtures(
@@ -64,6 +66,7 @@ def test_pipeline_orchestrator_cli_attach_runtime(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr("ml.core.integration.MLIntegrationManager", _StubIntegrationManager)
 
+    target_semantics = build_default_target_semantics_payload()
     args = [
         "--data_dir",
         str(catalog_dir),
@@ -71,6 +74,8 @@ def test_pipeline_orchestrator_cli_attach_runtime(monkeypatch: pytest.MonkeyPatc
         "SPY.NYSE",
         "--out_dir",
         str(out_dir),
+        "--target_semantics",
+        json.dumps(target_semantics),
         "--catalog_path",
         str(catalog_dir),
         "--attach-runtime",

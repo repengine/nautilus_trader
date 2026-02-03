@@ -260,12 +260,12 @@ def create_standard_manifests() -> list[DatasetManifest]:
                 "strategy_id",
                 "signal_type",
                 "strength",
+                "decision_metadata",
             ],
             "nullable_fields": [
                 "model_predictions",
                 "risk_metrics",
                 "execution_params",
-                "decision_metadata",
                 "run_id",
                 "ingested_at_ns",
                 "is_live",

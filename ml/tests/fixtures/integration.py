@@ -266,6 +266,7 @@ def real_catalog_dataset(
 
     from ml.data import DatasetBuildConfig
     from ml.data import build_tft_dataset
+    from ml.tests.utils.targets import build_default_target_semantics
 
     out_dir = tmp_path_factory.mktemp("real_catalog_dataset")
     cfg = DatasetBuildConfig(
@@ -280,8 +281,10 @@ def real_catalog_dataset(
         include_calendar=False,
         include_earnings=False,
         auto_refresh_macro=False,
-        horizon_minutes=5,
-        threshold=0.0005,
+        target_semantics=build_default_target_semantics(
+            horizon_minutes=5,
+            threshold=0.0005,
+        ),
         lookback_periods=30,
         start=real_catalog_slice.start,
         end=real_catalog_slice.end,

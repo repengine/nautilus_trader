@@ -499,10 +499,9 @@ Definition of Done
       (blocked by Databento live license for EQUS.MINI after 2026-01-26). [E12]
 - [x] Feature values populate via feature engineering and match bar coverage.
 - [ ] L2/L3 coverage aligned to the on-disk availability window.
-- [ ] Parquet-vs-DB parity checks pass for non-L2 feature schemas.
-      (feature_values parquet currently has +493 rows vs SQL and one corrupted
-      parquet file at `data/features/store/feature_values/VIXY.EQUS/year=2023/month=06/day=28.parquet`
-      after mirror backfill; cleanup/rebuild required). [E39]
+- [x] Parquet-vs-DB parity checks pass for non-L2 feature schemas.
+      (feature_values parquet rows=25,311,682 matches SQL rows=25,311,682 after
+      full mirror rebuild; 0 corrupted files). [E40]
 - [x] Macro release calendar row counts align with Parquet (1,636,264 SQL vs
       1,636,264 parquet rows). [E22]
 - [x] Macro observations row counts align with Parquet (43,114 SQL vs 43,114
@@ -594,8 +593,11 @@ Definition of Done
   (AAPL/MSFT/NVDA/AMZN/META/TSLA/SPY/QQQ/JPM/XOM) for 2025-11-01→2025-12-01
   produced 80,780 rows and GDP base series populated (GDP nulls=0).
 - [E39] Feature store mirror backfill completed (2026-02-01): SQL rows
-  25,311,682 vs parquet rows 25,312,175 (+493). One corrupted parquet file
-  detected at `data/features/store/feature_values/VIXY.EQUS/year=2023/month=06/day=28.parquet`.
+  25,311,682 vs parquet rows 25,312,484 (+802). Corrupted parquet file for
+  VIXY was moved aside and re-backfilled; parity still off, so a full mirror
+  rebuild is required for strict parity.
+- [E40] Feature store mirror full rebuild (2026-02-01): parquet rows
+  25,311,682 matches SQL rows 25,311,682; 0 corrupted files.
 - [E16] Coverage bucket cap defaults to `COVERAGE_MAX_BUCKETS_PER_RUN=500`
   (entrypoint pipeline).
 - [E17] Parquet earnings totals (EQUS universe):

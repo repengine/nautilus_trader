@@ -185,6 +185,7 @@ class MockMLSignalActorNode(MLSignalActorNode):
                                         model_predictions={"dummy": 1.0},
                                         risk_metrics={"confidence": 1.0},
                                         execution_params={"threshold": 0.0},
+                                        decision_metadata={"version": "v1"},
                                         ts_event=int(bar.ts_event),
                                         is_live=True,
                                     )

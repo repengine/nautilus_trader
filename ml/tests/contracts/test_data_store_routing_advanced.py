@@ -117,6 +117,7 @@ def _make_test_registry(
             "ts_init": "int64",
             "signal_type": "str",
             "strength": "float64",
+            "decision_metadata": "json",
         },
     }
 
@@ -368,6 +369,7 @@ class TestDataStoreRouting:
                 "ts_init": 1000000000,
                 "signal_type": "BUY",
                 "strength": 0.9,
+                "decision_metadata": {"version": "v1"},
             },
         ]
 
@@ -779,6 +781,7 @@ class TestDataStoreWatermarks:
                         "ts_init": timestamp,
                         "signal_type": "BUY",
                         "strength": 0.9,
+                        "decision_metadata": {"version": "v1"},
                     },
                 ]
 

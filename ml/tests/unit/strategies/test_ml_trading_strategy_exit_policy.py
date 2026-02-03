@@ -44,6 +44,7 @@ def _sig(pred: float, conf: float = 0.8) -> MLSignal:
         model_id="m1",
         prediction=pred,
         confidence=conf,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=1,
         ts_init=1,
     )

@@ -57,6 +57,16 @@ def test_streaming_persistence_worker_persists_redis_batch(
     monkeypatch.setattr("ml._imports.redis", dummy_module, raising=False)
     monkeypatch.setattr("ml._imports.HAS_REDIS", True, raising=False)
     monkeypatch.setattr(
+        "ml.consumers.redis_streams_consumer.ml_imports.redis",
+        dummy_module,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "ml.consumers.redis_streams_consumer.ml_imports.HAS_REDIS",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
         "ml.consumers.redis_streams_consumer.IdempotentConsumer.process",
         lambda self, payload: True,
     )

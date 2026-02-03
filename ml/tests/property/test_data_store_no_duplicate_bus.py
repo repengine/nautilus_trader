@@ -292,6 +292,7 @@ def test_no_duplicate_publish_for_signals(n: int) -> None:
             model_predictions={},
             risk_metrics={},
             execution_params={},
+            decision_metadata={"version": "v1"},
             _ts_event=1000 + i,
             _ts_init=1000 + i,
         )

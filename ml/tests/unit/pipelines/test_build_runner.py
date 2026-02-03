@@ -9,15 +9,18 @@ from ml.pipelines.build_runner import BuildConfig
 from ml.pipelines.build_runner import execute
 from ml.pipelines.build_runner import load_config
 from ml.pipelines.build_runner import plan_tasks
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 def test_load_config_and_plan(tmp_path: Path) -> None:
+    target_semantics = build_default_target_semantics_payload()
     cfg_obj = {
         "data_dir": str(tmp_path / "data"),
         "out_dir": str(tmp_path / "out"),
         "symbols": ["spy", "qqq"],
         "include_macro": True,
         "macro_lag_days": 1,
+        "target_semantics": target_semantics,
         "workers": 1,
     }
     cfg_path = tmp_path / "cfg.json"
@@ -51,6 +54,7 @@ def test_execute_monkeypatched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         data_dir=tmp_path / "data",
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=build_default_target_semantics_payload(),
     )
     res = execute(cfg)
     assert res["total"] == 1 and res["succeeded"] == 1 and res["failed"] == 0

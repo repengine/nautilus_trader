@@ -113,6 +113,7 @@ def test_strategy_store_dedup_and_update(cloned_test_database: str) -> None:
             model_predictions={"m": 0.1},
             risk_metrics={"r": 0.1},
             execution_params={"x": 1},
+            decision_metadata={"version": "v1"},
             _ts_event=ts,
             _ts_init=ts,
         ),
@@ -124,6 +125,7 @@ def test_strategy_store_dedup_and_update(cloned_test_database: str) -> None:
             model_predictions={"m": 0.9},
             risk_metrics={"r": 0.9},
             execution_params={"x": 2},
+            decision_metadata={"version": "v1"},
             _ts_event=ts,
             _ts_init=ts,
         ),
@@ -139,6 +141,7 @@ def test_strategy_store_dedup_and_update(cloned_test_database: str) -> None:
         model_predictions={"m": 0.5},
         risk_metrics={"r": 0.5},
         execution_params={"x": 3},
+        decision_metadata={"version": "v1"},
         ts_event=ts,
     )
     store.flush()

@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
@@ -30,7 +31,16 @@ def test_builder_includes_event_features(
         include_micro=False,
         include_events=True,
     )
-    df = builder.build_training_dataset(use_polars=True, lookback_periods=10, horizon_minutes=1)
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=1,
+        threshold=0.001,
+        legacy_aliases=True,
+    )
+    df = builder.build_training_dataset(
+        target_semantics=target_semantics,
+        use_polars=True,
+        lookback_periods=10,
+    )
     assert isinstance(df, pl.DataFrame)
     assert not df.is_empty()
     # Dataset built successfully with include_events flag exercised

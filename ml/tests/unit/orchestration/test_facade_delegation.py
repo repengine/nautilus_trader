@@ -387,12 +387,14 @@ def sample_orchestrator_config(tmp_path: Path) -> OrchestratorConfig:
         OrchestratorConfig,
         TeacherTrainConfig,
     )
+    from ml.tests.utils.targets import build_default_target_semantics_payload
 
     return OrchestratorConfig(
         dataset=DatasetBuildConfig(
             data_dir=str(tmp_path / "data"),
             symbols="SPY",
             out_dir=str(tmp_path / "output"),
+            target_semantics=build_default_target_semantics_payload(),
         ),
         hpo=HPOConfig(enabled=False),
         teacher=TeacherTrainConfig(enabled=True),
@@ -403,9 +405,11 @@ def sample_orchestrator_config(tmp_path: Path) -> OrchestratorConfig:
 def sample_dataset_config(tmp_path: Path) -> DatasetBuildConfig:
     """Sample DatasetBuildConfig for testing."""
     from ml.orchestration.config_types import DatasetBuildConfig
+    from ml.tests.utils.targets import build_default_target_semantics_payload
 
     return DatasetBuildConfig(
         data_dir=str(tmp_path / "data"),
         symbols="SPY",
         out_dir=str(tmp_path / "output"),
+        target_semantics=build_default_target_semantics_payload(),
     )

@@ -14,6 +14,7 @@ import pytest
 from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset
+from ml.tests.utils.targets import build_default_target_semantics
 from ml.data.ingest.macro_refresh import MacroRefreshResult
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
@@ -26,6 +27,12 @@ pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
     "isolated_orchestrator_env",
+)
+
+TARGET_SEMANTICS = build_default_target_semantics(
+    horizon_minutes=15,
+    threshold=0.001,
+    legacy_aliases=True,
 )
 
 def _install_recording_builder(monkeypatch: pytest.MonkeyPatch, recorder: dict[str, object]) -> None:
@@ -112,6 +119,7 @@ def test_build_tft_dataset_invokes_macro_refresh(
         data_dir=data_dir,
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
         include_macro=True,
         macro_series_ids=("DGS10",),
         macro_fred_path=macro_path,
@@ -206,6 +214,7 @@ def test_build_tft_dataset_marks_capabilities_for_earnings(
         data_dir=tmp_path,
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
         include_macro=False,
         include_earnings=True,
         include_l2=True,
@@ -281,6 +290,7 @@ def test_build_tft_dataset_rejects_missing_macro_observations(
         data_dir=tmp_path,
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
         include_macro=True,
         macro_series_ids=("DGS10",),
         macro_fred_path=tmp_path / "macro" / "fred.parquet",
@@ -324,6 +334,7 @@ def test_build_tft_dataset_registers_capability_flags(
         data_dir=data_dir,
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
         include_macro=True,
         include_l2=True,
         macro_series_ids=("DGS10",),
@@ -374,6 +385,7 @@ def test_tft_dataset_task_config_overrides_base_dirs(
         data_dir=data_dir,
         out_dir=tmp_path / "out",
         symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
         include_macro=False,
         include_micro=True,
         include_l2=True,

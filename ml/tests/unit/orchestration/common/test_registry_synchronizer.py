@@ -11,6 +11,7 @@ from ml.data import DatasetMetadata
 from ml.data.vintage import VintagePolicy
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.registry_synchronizer import RegistrySynchronizer
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 @pytest.fixture
@@ -40,6 +41,7 @@ def dataset_cfg(tmp_path: Path) -> DatasetBuildConfig:
         out_dir=str(tmp_path / "out"),
         dataset_id="test.dataset",
         symbols="SPY",
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 

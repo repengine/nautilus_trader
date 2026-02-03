@@ -814,44 +814,29 @@ class TFTDatasetBuilder:
         self,
         *,
         target_semantics: TargetSemanticsConfig | None,
-        horizon_minutes: int,
-        min_return_threshold: float,
-        threshold_bps: float | None,
     ) -> TargetSemanticsConfig:
         """
         Resolve target semantics for dataset generation.
 
         Args:
-            target_semantics: Explicit target semantics configuration (optional).
-            horizon_minutes: Legacy horizon in minutes.
-            min_return_threshold: Legacy threshold in decimal units.
-            threshold_bps: Optional basis-point alias for threshold.
+            target_semantics: Explicit target semantics configuration.
 
         Returns:
             Resolved TargetSemanticsConfig instance.
         """
-        if target_semantics is not None:
-            return target_semantics
-
-        threshold = min_return_threshold
-        if threshold_bps is not None:
-            threshold = threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
-
-        return TargetSemanticsConfig.from_legacy(
-            horizon_minutes=horizon_minutes,
-            threshold=threshold,
-            legacy_aliases=True,
-        )
+        if target_semantics is None:
+            raise ValueError(
+                "target_semantics is required; legacy horizon/threshold defaults are no longer supported",
+            )
+        return target_semantics
 
     def prepare_training_data_from_store(
         self,
         instrument_ids: list[str] | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
     ) -> _pl.DataFrame:
         """
         Prepare training data using features from FeatureStore.
@@ -867,12 +852,8 @@ class TFTDatasetBuilder:
             Start time for data loading. If None, loads all available data
         end : datetime, optional
             End time for data loading. If None, loads all available data
-        horizon_minutes : int, default 15
-            Prediction horizon in minutes for target generation
-        min_return_threshold : float, default 0.001
-            Minimum return threshold for binary classification (0.1%)
-        target_semantics : TargetSemanticsConfig, optional
-            Explicit target semantics configuration.
+        target_semantics : TargetSemanticsConfig
+            Explicit target semantics configuration (required).
 
         Returns
         -------
@@ -894,12 +875,7 @@ class TFTDatasetBuilder:
         if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
-        resolved_semantics = self._resolve_target_semantics(
-            target_semantics=target_semantics,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
-            threshold_bps=None,
-        )
+        resolved_semantics = self._resolve_target_semantics(target_semantics=target_semantics)
 
         # Use provided instruments or default to configured symbols
         resolved_ids = self._resolve_instrument_ids(instrument_ids)
@@ -1076,10 +1052,8 @@ class TFTDatasetBuilder:
         instrument_ids: list[str] | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int = 30,
         use_polars: bool = True,
     ) -> _pd.DataFrame | _pl.DataFrame:
@@ -1097,12 +1071,8 @@ class TFTDatasetBuilder:
             Start time for data loading
         end : datetime, optional
             End time for data loading
-        horizon_minutes : int, default 15
-            Prediction horizon in minutes
-        min_return_threshold : float, default 0.001
-            Minimum return threshold for binary classification
-        target_semantics : TargetSemanticsConfig, optional
-            Explicit target semantics configuration.
+        target_semantics : TargetSemanticsConfig
+            Explicit target semantics configuration (required).
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation (used in direct mode)
         use_polars : bool, default True
@@ -1122,12 +1092,7 @@ class TFTDatasetBuilder:
         The method logs which source was used for monitoring and debugging.
 
         """
-        resolved_semantics = self._resolve_target_semantics(
-            target_semantics=target_semantics,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
-            threshold_bps=None,
-        )
+        resolved_semantics = self._resolve_target_semantics(target_semantics=target_semantics)
 
         # Determine which method to use
         if self.feature_store:
@@ -1265,11 +1230,8 @@ class TFTDatasetBuilder:
 
     def build_training_dataset(
         self,
-        horizon_minutes: int = 15,
-        min_return_threshold: float = 0.001,
         *,
-        threshold_bps: float | None = None,
-        target_semantics: TargetSemanticsConfig | None = None,
+        target_semantics: TargetSemanticsConfig,
         lookback_periods: int = 30,
         use_polars: bool = True,
         start: datetime | None = None,
@@ -1284,12 +1246,8 @@ class TFTDatasetBuilder:
 
         Parameters
         ----------
-        horizon_minutes : int, default 15
-            Prediction horizon in minutes
-        min_return_threshold : float, default 0.001
-            Minimum return threshold for binary classification (0.1%)
-        target_semantics : TargetSemanticsConfig, optional
-            Explicit target semantics configuration for multi-horizon targets.
+        target_semantics : TargetSemanticsConfig
+            Explicit target semantics configuration (required).
         lookback_periods : int, default 30
             Minimum lookback periods for feature computation
         use_polars : bool, default True
@@ -1305,12 +1263,7 @@ class TFTDatasetBuilder:
             TFT-compatible training dataset
 
         """
-        resolved_semantics = self._resolve_target_semantics(
-            target_semantics=target_semantics,
-            horizon_minutes=horizon_minutes,
-            min_return_threshold=min_return_threshold,
-            threshold_bps=threshold_bps,
-        )
+        resolved_semantics = self._resolve_target_semantics(target_semantics=target_semantics)
 
         if self.feature_store:
             logger.info("Using FeatureStore for training data preparation (ensures parity)")

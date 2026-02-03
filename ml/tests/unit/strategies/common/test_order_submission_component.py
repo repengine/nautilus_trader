@@ -359,7 +359,9 @@ class MockMLSignal:
         self.prediction = prediction
         self.confidence = confidence
         self.ts_event = ts_event
-        self.metadata = metadata or {}
+        base_meta = dict(metadata) if metadata else {}
+        base_meta.setdefault("decision_metadata", {"version": "v1"})
+        self.metadata = base_meta
 
 
 class MockLogger:

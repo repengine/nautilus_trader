@@ -30,6 +30,7 @@ from nautilus_trader.model.data import Bar
 from ml.actors.signal import MLSignalActor
 from ml.common.prediction_surface import normalize_prediction_batch
 from ml.common.prediction_surface import resolve_output_is_logits
+from ml.common.prediction_surface import resolve_positive_class_index
 from ml.config.actors import MLSignalActorConfig as _BaseCfg
 
 
@@ -434,6 +435,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
             meta = getattr(self, "_model_metadata", {})
             if model is not None and hasattr(model, "run") and isinstance(meta, dict):
                 output_is_logits = resolve_output_is_logits(meta)
+                positive_class_index = resolve_positive_class_index(meta)
                 input_names = meta.get("input_names")
                 input_name = input_names[0] if input_names else "input"
                 outputs = model.run(None, {str(input_name): features})
@@ -443,6 +445,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     return normalize_prediction_batch(
                         preds,
                         confs,
+                        positive_class_index=positive_class_index,
                         output_is_logits=output_is_logits,
                     )
                 if len(outputs) == 1:
@@ -450,6 +453,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     return normalize_prediction_batch(
                         preds,
                         None,
+                        positive_class_index=positive_class_index,
                         output_is_logits=output_is_logits,
                     )
         except Exception as exc:

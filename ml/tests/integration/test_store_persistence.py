@@ -138,6 +138,7 @@ class TestStorePersistence:
             model_predictions={"model_1": 0.7},
             risk_metrics={"sharpe": 1.5},
             execution_params={"threshold": 0.6},
+            decision_metadata={"version": "v1"},
             ts_event=1_000_000_000,
         )
 
@@ -150,6 +151,7 @@ class TestStorePersistence:
                 model_predictions={"model_1": 0.4 + i * 0.1},
                 risk_metrics={"sharpe": 1.0 + i * 0.2},
                 execution_params={"threshold": 0.5},
+                decision_metadata={"version": "v1"},
                 ts_event=1_000_000_000 + i * 1_000,
             )
         strategy_store.flush()

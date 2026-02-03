@@ -43,6 +43,7 @@ def test_strategy_performance_update_and_read(cloned_test_database: str) -> None
             model_predictions={"m": strength},
             risk_metrics={"risk_score": strength},
             execution_params={},
+            decision_metadata={"version": "v1"},
             ts_event=ts,
         )
     store.flush()

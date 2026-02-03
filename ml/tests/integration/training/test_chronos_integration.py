@@ -11,6 +11,7 @@ They are marked appropriately for CI/CD filtering.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -21,6 +22,7 @@ import pytest
 
 from ml._imports import HAS_AUTOGLUON
 from ml._imports import HAS_POLARS
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 if TYPE_CHECKING:
@@ -243,10 +245,12 @@ class TestCLIIntegration:
         """Test CLI argument parsing."""
         from ml.cli.train_chronos import parse_args
 
+        target_semantics = build_default_target_semantics_payload()
         args = parse_args([
             "--symbols", "SPY,AAPL",
             "--preset", "bolt_small",
             "--time-limit", "300",
+            "--target-semantics", json.dumps(target_semantics),
         ])
 
         assert args.symbols == "SPY,AAPL"
@@ -257,11 +261,13 @@ class TestCLIIntegration:
         """Test CLI distillation argument parsing."""
         from ml.cli.train_chronos import parse_args
 
+        target_semantics = build_default_target_semantics_payload()
         args = parse_args([
             "--symbols", "SPY",
             "--distill",
             "--teacher-preset", "chronos2",
             "--student-preset", "bolt_small",
+            "--target-semantics", json.dumps(target_semantics),
         ])
 
         assert args.distill is True

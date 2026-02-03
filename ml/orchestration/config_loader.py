@@ -413,6 +413,13 @@ def _coerce_dataset(payload: Any) -> DatasetBuildConfig:
         kwargs["macro_series_ids"] = tuple(
             str(item) for item in _ensure_sequence(kwargs["macro_series_ids"])
         )
+    if "target_semantics" not in kwargs or kwargs["target_semantics"] is None:
+        raise ValueError("dataset.target_semantics is required for dataset builds")
+    if isinstance(kwargs["target_semantics"], str):
+        try:
+            kwargs["target_semantics"] = json.loads(kwargs["target_semantics"])
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError("dataset.target_semantics must be JSON or mapping payload") from exc
     return DatasetBuildConfig(**kwargs)
 
 
@@ -538,6 +545,11 @@ def to_pipeline_args(
     Translate an :class:`OrchestratorConfig` into CLI arguments.
     """
     dataset = cfg.dataset
+    if dataset.target_semantics is None:
+        raise ValueError("dataset.target_semantics is required for pipeline args")
+    target_payload = dataset.target_semantics
+    if not isinstance(target_payload, dict):
+        raise ValueError("dataset.target_semantics must be a JSON object payload")
     args: list[str] = [
         "--data_dir",
         dataset.data_dir,
@@ -545,10 +557,8 @@ def to_pipeline_args(
         dataset.symbols,
         "--out_dir",
         dataset.out_dir,
-        "--horizon_minutes",
-        str(dataset.horizon_minutes),
-        "--threshold",
-        str(dataset.threshold),
+        "--target_semantics",
+        json.dumps(target_payload, ensure_ascii=True),
         "--lookback_periods",
         str(dataset.lookback_periods),
     ]

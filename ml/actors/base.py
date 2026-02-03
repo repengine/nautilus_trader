@@ -29,20 +29,18 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.identifiers import InstrumentId
 
-# Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
 from ml.actors.common import FeaturesComponent
 from ml.actors.common import ModelComponent
 from ml.actors.common import RegistryComponent
-
-# Component imports for facade pattern (Phase 2.3.5a)
 from ml.actors.common import StoreOperationsComponent
 from ml.actors.common.signal_metadata import build_prediction_surface_metadata
 from ml.actors.common.signal_metadata import build_signal_metadata
 from ml.common.metrics_manager import MetricsManager
 from ml.common.prediction_surface import normalize_prediction_output
 from ml.common.prediction_surface import resolve_output_is_logits
+from ml.common.prediction_surface import resolve_positive_class_index
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -2115,15 +2113,18 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
         outputs = self._model.run(self._output_names, {self._input_name: features_2d})
 
         output_is_logits = resolve_output_is_logits(self._model_metadata)
+        positive_class_index = resolve_positive_class_index(self._model_metadata)
         if len(outputs) >= 2:
             return normalize_prediction_output(
                 outputs[0],
                 outputs[1],
+                positive_class_index=positive_class_index,
                 output_is_logits=output_is_logits,
             )
         return normalize_prediction_output(
             outputs[0],
             None,
+            positive_class_index=positive_class_index,
             output_is_logits=output_is_logits,
         )
 
@@ -2288,15 +2289,18 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         outputs = self._model.run(output_names, {input_name: features_2d})
 
         output_is_logits = resolve_output_is_logits(self._model_metadata)
+        positive_class_index = resolve_positive_class_index(self._model_metadata)
         if len(outputs) >= 2:
             return normalize_prediction_output(
                 outputs[0],
                 outputs[1],
+                positive_class_index=positive_class_index,
                 output_is_logits=output_is_logits,
             )
         return normalize_prediction_output(
             outputs[0],
             None,
+            positive_class_index=positive_class_index,
             output_is_logits=output_is_logits,
         )
 
@@ -2309,10 +2313,15 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         if hasattr(self._model, "predict_proba"):
             probabilities = self._model.predict_proba(features_2d)[0]
             classes = getattr(self._model, "classes_", None)
+            positive_class_index = resolve_positive_class_index(
+                self._model_metadata,
+                classes=classes,
+                num_classes=len(classes) if classes is not None else None,
+            )
             return normalize_prediction_output(
                 probabilities,
                 None,
-                classes=classes,
+                positive_class_index=positive_class_index,
             )
         else:
             prediction = self._model.predict(features_2d)[0]

@@ -189,6 +189,7 @@ def sample_orchestrator_config(tmp_path: Path) -> OrchestratorConfig:
         OrchestratorConfig,
         TeacherTrainConfig,
     )
+    from ml.tests.utils.targets import build_default_target_semantics_payload
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -202,6 +203,7 @@ def sample_orchestrator_config(tmp_path: Path) -> OrchestratorConfig:
             symbols="SPY",
             out_dir=str(out_dir),
             dataset_id="test_dataset",
+            target_semantics=build_default_target_semantics_payload(),
         ),
         hpo=HPOConfig(enabled=False),
         teacher=TeacherTrainConfig(enabled=True),
@@ -222,6 +224,7 @@ def sample_dataset_config(tmp_path: Path) -> DatasetBuildConfig:
         DatasetBuildConfig with test values
     """
     from ml.orchestration.config_types import DatasetBuildConfig
+    from ml.tests.utils.targets import build_default_target_semantics_payload
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -234,6 +237,7 @@ def sample_dataset_config(tmp_path: Path) -> DatasetBuildConfig:
         symbols="SPY",
         out_dir=str(out_dir),
         dataset_id="test_dataset",
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 
@@ -317,6 +321,7 @@ def multi_symbol_config(tmp_path: Path) -> OrchestratorConfig:
             symbols="AAPL,GOOGL,MSFT",
             out_dir=str(out_dir),
             dataset_id="multi_symbol_test",
+            target_semantics=build_default_target_semantics_payload(),
         ),
         hpo=HPOConfig(enabled=False),
         teacher=TeacherTrainConfig(enabled=True),

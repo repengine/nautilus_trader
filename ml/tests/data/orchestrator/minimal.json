@@ -6,7 +6,12 @@
     "out_dir": "ml_out/test",
     "include_macro": true,
     "macro_series_ids": ["CPIAUCSL", "PCEPI"],
-    "instrument_ids": ["SPY.NYSE", "QQQ.NASDAQ"]
+    "instrument_ids": ["SPY.NYSE", "QQQ.NASDAQ"],
+    "target_semantics": {
+      "version": "v1",
+      "horizons": [{"minutes": 15}],
+      "binary": {"enabled": true, "threshold_bps": 10.0, "return_basis": "raw"}
+    }
   },
   "ingestion": {
     "enabled": true,

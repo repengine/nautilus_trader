@@ -21,6 +21,7 @@ def test_strategy_store_basic_write(tmp_path: Path) -> None:
         model_predictions={"m1": 0.65},
         risk_metrics={"risk_score": 0.2},
         execution_params={"note": "test"},
+        decision_metadata={"version": "v1"},
         ts_event=now,
         is_live=False,
         run_id="run-1",

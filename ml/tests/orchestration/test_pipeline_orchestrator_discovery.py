@@ -8,6 +8,7 @@ import pytest
 from ml.config.market_data import MarketDatasetInput
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -82,6 +83,7 @@ def test_prepare_dataset_config_applies_discovery() -> None:
         data_dir="data",
         symbols="INTC.XNAS",
         out_dir="out",
+        target_semantics=build_default_target_semantics_payload(),
     )
     prepared = orchestrator._prepare_dataset_config(cfg)
     assert prepared.market_inputs is not None

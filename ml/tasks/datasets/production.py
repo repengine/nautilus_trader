@@ -13,6 +13,10 @@ from typing import cast
 
 import polars as pl
 
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import decimal_to_bps
 from ml.data.collectors.production_collector import ProductionDataCollector
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -161,9 +165,17 @@ def _phase5_build_tft_dataset(data_dir: Path) -> pl.DataFrame:
     catalog = ParquetDataCatalog(path=str(checkpoint_dir))
     builder = TFTDatasetBuilder(catalog=catalog, symbols=symbols[:10])
 
+    target_semantics = TargetSemanticsConfig(
+        horizons=(TargetHorizonSpec(minutes=15),),
+        binary=BinaryTargetConfig(
+            enabled=True,
+            threshold_bps=decimal_to_bps(0.002),
+            return_basis="raw",
+        ),
+    )
+
     df = builder.build_training_dataset(
-        horizon_minutes=15,
-        min_return_threshold=0.002,
+        target_semantics=target_semantics,
         lookback_periods=50,
         use_polars=True,
     )

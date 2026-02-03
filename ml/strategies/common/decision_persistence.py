@@ -19,6 +19,7 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ml.common.decision_metadata import normalize_decision_metadata
+from ml.stores.protocols import StrategyStoreProtocol
 from ml.strategies.common.positions import PositionsMetadata
 
 
@@ -55,38 +56,6 @@ class CircuitBreakerProtocol(Protocol):
     def record_failure(self, exc: Exception | None = None) -> None:
         """
         Record a failed operation.
-        """
-        ...
-
-
-@runtime_checkable
-class StrategyStoreProtocol(Protocol):
-    """
-    Protocol for strategy store interface.
-    """
-
-    def write_signal(
-        self,
-        strategy_id: str,
-        instrument_id: str,
-        signal_type: str,
-        strength: float,
-        model_predictions: dict[str, float],
-        risk_metrics: dict[str, float],
-        execution_params: dict[str, Any],
-        ts_event: int,
-        decision_metadata: dict[str, Any] | None = None,
-        is_live: bool = False,
-        run_id: str | None = None,
-    ) -> None:
-        """
-        Write a strategy signal to the store.
-        """
-        ...
-
-    def flush(self) -> None:
-        """
-        Flush any pending writes to persistent storage.
         """
         ...
 
@@ -514,8 +483,11 @@ class DecisionPersistenceComponent:
 
         # Build model predictions for event/store
         model_predictions = self._build_model_predictions(signal)
+        decision_metadata_payload = (
+            signal.metadata.get("decision_metadata") if signal.metadata else None
+        )
         decision_metadata = normalize_decision_metadata(
-            signal.metadata,
+            decision_metadata_payload,
             model_id=signal.model_id,
         )
 
@@ -996,8 +968,11 @@ class DecisionPersistenceComponent:
             if model_predictions is None:
                 model_predictions = self._build_model_predictions(signal)
             if decision_metadata is None:
+                decision_metadata_payload = (
+                    signal.metadata.get("decision_metadata") if signal.metadata else None
+                )
                 decision_metadata = normalize_decision_metadata(
-                    signal.metadata,
+                    decision_metadata_payload,
                     model_id=signal.model_id,
                 )
 

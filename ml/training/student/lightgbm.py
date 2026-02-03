@@ -51,6 +51,39 @@ class StudentMeta:
     flags: dict[str, Any] | None = None
 
 
+def build_student_decision_config(
+    decision_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Build decision config for LightGBM student outputs.
+
+    LightGBM student exports a single probability output for the positive class.
+    The positive class mapping must be explicit for inference normalization.
+
+    Args:
+        decision_config: Optional decision adapter configuration overrides.
+
+    Returns:
+        Decision config with explicit positive_class_index.
+
+    Raises:
+        ValueError: If incompatible positive class mapping is provided.
+    """
+    resolved: dict[str, Any] = dict(decision_config or {})
+    if "positive_class_index" in resolved:
+        idx = resolved["positive_class_index"]
+        if not isinstance(idx, int):
+            raise ValueError("positive_class_index must be an int")
+        return resolved
+    if "positive_class_label" in resolved or "positive_class" in resolved:
+        raise ValueError(
+            "positive_class_label/positive_class require explicit class mapping; "
+            "use positive_class_index for LightGBM student outputs",
+        )
+    resolved["positive_class_index"] = 0
+    return resolved
+
+
 class LightGBMStudentDistiller:
     def __init__(
         self,

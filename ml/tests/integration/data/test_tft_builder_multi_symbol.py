@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -47,10 +48,15 @@ def test_build_training_dataset_when_multiple_symbols_includes_all_instruments(
         include_macro=False,
         include_micro=False,
     )
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=1,
+        threshold=0.001,
+        legacy_aliases=True,
+    )
     df = builder.build_training_dataset(
+        target_semantics=target_semantics,
         use_polars=True,
         lookback_periods=1,
-        horizon_minutes=1,
     )
 
     assert isinstance(df, pl.DataFrame)

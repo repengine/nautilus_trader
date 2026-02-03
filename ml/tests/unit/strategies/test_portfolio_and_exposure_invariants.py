@@ -81,6 +81,7 @@ def test_portfolio_correlation_adjustment_scales_down_group() -> None:
             model_id="model",
             prediction=0.0,
             confidence=0.8,
+            metadata={"decision_metadata": {"version": "v1"}},
             ts_event=ts_base,
         ),
         MLSignal(
@@ -88,6 +89,7 @@ def test_portfolio_correlation_adjustment_scales_down_group() -> None:
             model_id="model",
             prediction=0.0,
             confidence=0.8,
+            metadata={"decision_metadata": {"version": "v1"}},
             ts_event=ts_base,
         ),
     ]

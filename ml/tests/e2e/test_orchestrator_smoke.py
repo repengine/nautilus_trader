@@ -12,6 +12,7 @@ import pytest
 
 from ml.orchestration import MLPipelineOrchestrator
 from ml.orchestration.config_types import DatasetBuildConfig
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 
 pytestmark = [
@@ -84,6 +85,7 @@ def test_build_dataset_delegates(orchestrator: MLPipelineOrchestrator, tmp_path:
         symbols="SPY",
         out_dir=str(tmp_path / "output"),
         dataset_id="smoke_test",
+        target_semantics=build_default_target_semantics_payload(),
     )
     (tmp_path / "data").mkdir(parents=True)
 

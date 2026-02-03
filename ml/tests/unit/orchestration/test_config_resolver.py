@@ -21,12 +21,15 @@ from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.orchestration.config_resolver import ConfigResolver
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.registry.dataclasses import StorageKind
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
     "isolated_orchestrator_env",
 )
+
+TARGET_SEMANTICS = build_default_target_semantics_payload()
 
 @pytest.fixture
 def resolver() -> ConfigResolver:
@@ -41,6 +44,7 @@ def base_dataset_config() -> DatasetBuildConfig:
         symbols="SPY,AAPL",
         out_dir="output/test",
         dataset_id="test_dataset",
+        target_semantics=TARGET_SEMANTICS,
     )
 
 def create_test_binding(
@@ -114,6 +118,7 @@ class TestApplyDefaultMarketInputs:
             out_dir="output/test",
             dataset_id="test_dataset",
             market_dataset_id="UNKNOWN_DESCRIPTOR",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.apply_default_market_inputs(cfg)
@@ -132,6 +137,7 @@ class TestApplyDefaultMarketInputs:
             out_dir="output/test",
             dataset_id="test_dataset",
             market_dataset_id="EQUS.MINI",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.apply_default_market_inputs(cfg)
@@ -362,6 +368,7 @@ class TestResolveWindowBoundsNs:
             dataset_id="test_dataset",
             start_iso="2023-01-01",
             end_iso="2023-12-31",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         start_ns, end_ns = resolver.resolve_window_bounds_ns(cfg)
@@ -406,6 +413,7 @@ class TestResolveWindowBoundsNs:
             dataset_id="test_dataset",
             start_iso="2024-01-01",
             end_iso="2024-01-01",  # Same as start
+            target_semantics=TARGET_SEMANTICS,
         )
 
         start_ns, end_ns = resolver.resolve_window_bounds_ns(cfg)
@@ -479,6 +487,7 @@ class TestSymbolToInstruments:
             out_dir="output/test",
             dataset_id="test_dataset",
             instrument_ids=("SPY.XNAS", "SPY.ARCX"),
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.symbol_to_instruments(cfg)
@@ -495,6 +504,7 @@ class TestSymbolToInstruments:
             symbols="SPY.XNAS,AAPL.XNAS",
             out_dir="output/test",
             dataset_id="test_dataset",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.symbol_to_instruments(cfg)
@@ -512,6 +522,7 @@ class TestSymbolToInstruments:
             symbols="AAPL,SPY,TSLA",
             out_dir="output/test",
             dataset_id="test_dataset",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.symbol_to_instruments(cfg)
@@ -630,6 +641,7 @@ class TestResolveInstrumentIds:
             out_dir="output/test",
             dataset_id="test_dataset",
             instrument_ids=("SPY.XNAS",),
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.resolve_instrument_ids(cfg)
@@ -656,6 +668,7 @@ class TestResolveInstrumentIds:
             symbols=" SPY , AAPL ",
             out_dir="output/test",
             dataset_id="test_dataset",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.resolve_instrument_ids(cfg)
@@ -672,6 +685,7 @@ class TestResolveInstrumentIds:
             symbols="spy,aapl",
             out_dir="output/test",
             dataset_id="test_dataset",
+            target_semantics=TARGET_SEMANTICS,
         )
 
         result = resolver.resolve_instrument_ids(cfg)

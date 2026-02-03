@@ -185,6 +185,7 @@ def test_strategy_store_time_shift_metamorphic(
                 model_predictions={},
                 risk_metrics={},
                 execution_params={},
+                decision_metadata={"version": "v1"},
                 _ts_event=int(base_ts + i),
                 _ts_init=int(base_ts + i),
             )
@@ -203,6 +204,7 @@ def test_strategy_store_time_shift_metamorphic(
                 model_predictions=d.model_predictions,
                 risk_metrics=d.risk_metrics,
                 execution_params=d.execution_params,
+                decision_metadata=d.decision_metadata,
                 _ts_event=d.ts_event + shift,
                 _ts_init=d.ts_init + shift,
             )
@@ -240,6 +242,7 @@ def test_strategy_store_permutation_invariance(
                 model_predictions={},
                 risk_metrics={},
                 execution_params={},
+                decision_metadata={"version": "v1"},
                 _ts_event=int(base_ts + i),
                 _ts_init=int(base_ts + i),
             )
@@ -326,6 +329,7 @@ def test_strategy_store_duplicate_batch_unique_key_invariance(
                 model_predictions={},
                 risk_metrics={},
                 execution_params={},
+                decision_metadata={"version": "v1"},
                 _ts_event=int(base_ts + i),
                 _ts_init=int(base_ts + i),
             )

@@ -60,6 +60,7 @@ def test_strategy_store_emits_signal_events(cloned_test_database: str) -> None:
                 model_predictions={"model1": 0.7 + i * 0.05},
                 risk_metrics={"risk_score": 0.2 + i * 0.1},
                 execution_params={"stop_loss": 1.05 + i * 0.01},
+                decision_metadata={"version": "v1"},
                 ts_event=1700000000000000000 + i * 1000000000,
                 is_live=False,
             )
@@ -118,6 +119,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(
             model_predictions={"model1": 0.75},
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
+            decision_metadata={"version": "v1"},
             ts_event=1700000000000000000,
             is_live=True,
         )
@@ -130,6 +132,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(
             model_predictions={"model1": 0.65},
             risk_metrics={"risk_score": 0.4},
             execution_params={"stop_loss": 1.35},
+            decision_metadata={"version": "v1"},
             ts_event=1700000001000000000,
             is_live=True,
         )
@@ -142,6 +145,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(
             model_predictions={"model2": 0.55},
             risk_metrics={"risk_score": 0.2},
             execution_params={},
+            decision_metadata={"version": "v1"},
             ts_event=1700000002000000000,
             is_live=False,
         )
@@ -190,6 +194,7 @@ def test_strategy_store_handles_event_emission_failure_gracefully(cloned_test_da
             model_predictions={"model1": 0.75},
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
+            decision_metadata={"version": "v1"},
             ts_event=1700000000000000000,
             is_live=False,
         )
@@ -221,6 +226,7 @@ def test_strategy_store_no_events_when_registry_unavailable(cloned_test_database
             model_predictions={"model1": 0.75},
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
+            decision_metadata={"version": "v1"},
             ts_event=1700000000000000000,
             is_live=False,
         )

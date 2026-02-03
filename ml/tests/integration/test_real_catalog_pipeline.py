@@ -24,6 +24,8 @@ from ml._imports import pl
 from ml.common.security import secure_onnx_load
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
+from ml.config.targets import build_binary_target_column
+from ml.config.targets import build_forward_return_column
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.data import BuildResult
 from ml.data import DatasetBuildConfig
@@ -122,8 +124,10 @@ def _build_window_dataset(
         include_calendar=False,
         include_earnings=False,
         auto_refresh_macro=False,
-        horizon_minutes=horizon_minutes,
-        threshold=threshold,
+        target_semantics=build_default_target_semantics(
+            horizon_minutes=horizon_minutes,
+            threshold=threshold,
+        ),
         lookback_periods=lookback_periods,
         start=start,
         end=end,
@@ -146,11 +150,15 @@ def _validation_config(*, horizon_minutes: int | None) -> DatasetValidationConfi
     """
     Return dataset validation defaults for real-catalog checks.
     """
+    forward_return_column = "forward_return"
+    if horizon_minutes is not None:
+        forward_return_column = build_forward_return_column(f"{horizon_minutes}m")
     return DatasetValidationConfig(
         min_rows=1,
         min_positive_rate=None,
         max_positive_rate=None,
         forward_return_horizon=horizon_minutes,
+        forward_return_column=forward_return_column,
         forward_return_price_column="close",
     )
 
@@ -167,6 +175,9 @@ def _pick_numeric_feature_column(df: PolarsDF) -> str | None:
         "timestamp",
         "ts_event",
     }
+    for label in (f"{REAL_CATALOG_HORIZON_MINUTES}m",):
+        exclude.add(build_forward_return_column(label))
+        exclude.add(build_binary_target_column(label))
     preferred = ("close", "return_1")
     for name in preferred:
         if name in df.columns and df.schema[name].is_numeric():
@@ -189,7 +200,14 @@ def test_real_catalog_dataset_smoke(real_catalog_dataset: BuildResult) -> None:
         pytest.skip("Real catalog dataset is empty")
 
     timestamp_col = "timestamp" if "timestamp" in df.columns else "ts_event"
-    required = {"instrument_id", "time_index", "y", "forward_return", timestamp_col}
+    label = f"{REAL_CATALOG_HORIZON_MINUTES}m"
+    required = {
+        "instrument_id",
+        "time_index",
+        build_binary_target_column(label),
+        build_forward_return_column(label),
+        timestamp_col,
+    }
     assert required.issubset(set(df.columns))
 
     ts_values = _extract_timestamp_ns(df)
@@ -481,14 +499,16 @@ def test_real_catalog_validation_detects_forward_return_misalignment(
     df = _load_dataset_frame(real_catalog_dataset)
     if df.is_empty():
         pytest.skip("Real catalog dataset is empty")
-    if "forward_return" not in df.columns or "close" not in df.columns:
-        pytest.skip("Dataset missing forward_return or close columns")
+    label = f"{REAL_CATALOG_HORIZON_MINUTES}m"
+    forward_col = build_forward_return_column(label)
+    if forward_col not in df.columns or "close" not in df.columns:
+        pytest.skip("Dataset missing forward return or close columns")
 
     df_bad = df.with_columns(
         pl.when(pl.arange(0, df.height) == 0)
-        .then(pl.col("forward_return") + 0.1)
-        .otherwise(pl.col("forward_return"))
-        .alias("forward_return"),
+        .then(pl.col(forward_col) + 0.1)
+        .otherwise(pl.col(forward_col))
+        .alias(forward_col),
     )
 
     config = _validation_config(horizon_minutes=REAL_CATALOG_HORIZON_MINUTES)

@@ -26,7 +26,7 @@ class _FailingStore:
         risk_metrics: dict[str, float],
         execution_params: dict[str, Any],
         ts_event: int,
-        decision_metadata: dict[str, Any] | None = None,
+        decision_metadata: dict[str, Any],
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:
@@ -98,6 +98,7 @@ def test_store_breaker_opens_and_emits_partial_event() -> None:
         model_id="M",
         prediction=0.9,
         confidence=0.8,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=111,
         ts_init=111,
     )

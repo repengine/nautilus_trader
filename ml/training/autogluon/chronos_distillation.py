@@ -36,6 +36,7 @@ from ml.training.autogluon.chronos_trainer import ChronosTrainer
 from ml.training.autogluon.soft_label_generator import SoftLabelStats
 from ml.training.autogluon.soft_label_generator import build_distillation_dataset
 from ml.training.student.lightgbm import LightGBMStudentDistiller
+from ml.training.student.lightgbm import build_student_decision_config
 
 
 if TYPE_CHECKING:
@@ -448,6 +449,8 @@ def _train_lightgbm_student(
     dtypes = ["float32"] * len(artifacts.feature_names)
     feature_schema = build_feature_schema(artifacts.feature_names, dtypes)
 
+    decision_cfg = build_student_decision_config()
+
     student_manifest = build_student_manifest(
         model_id=config.model_id,
         architecture="LightGBM",
@@ -458,6 +461,7 @@ def _train_lightgbm_student(
         feature_set_id=feature_manifest.feature_set_id,
         pipeline_signature=feature_manifest.pipeline_signature,
         pipeline_version=feature_manifest.pipeline_version,
+        decision_config=decision_cfg,
     )
     registry.register_model(registry_onnx, student_manifest, auto_deploy=True)
 

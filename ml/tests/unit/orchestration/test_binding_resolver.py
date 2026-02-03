@@ -22,6 +22,7 @@ from ml.orchestration.binding_resolver import BindingResolver
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.discovery_client import DiscoveryClient
 from ml.registry.dataclasses import StorageKind
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -101,6 +102,7 @@ def sample_config(tmp_path):
         end_iso="2023-12-31",
         data_dir=str(tmp_path / "data"),
         out_dir=str(tmp_path / "out"),
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 # ========================================================================
@@ -602,6 +604,7 @@ def test_resolve_market_inputs_from_config(binding_resolver, sample_config, tmp_
         data_dir=str(tmp_path / "data"),
         out_dir=str(tmp_path / "out"),
         market_inputs=market_inputs,
+        target_semantics=build_default_target_semantics_payload(),
     )
 
     # When market_inputs are provided in config, resolve should use them

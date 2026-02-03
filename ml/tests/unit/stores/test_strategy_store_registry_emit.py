@@ -82,6 +82,7 @@ def test_strategy_store_emits_registry_events_on_flush(monkeypatch: pytest.Monke
         model_predictions={},
         risk_metrics={},
         execution_params={},
+        decision_metadata={"version": "v1"},
         ts_event=now,
         is_live=False,
     )
@@ -93,6 +94,7 @@ def test_strategy_store_emits_registry_events_on_flush(monkeypatch: pytest.Monke
         model_predictions={},
         risk_metrics={},
         execution_params={},
+        decision_metadata={"version": "v1"},
         ts_event=now + 1,
         is_live=False,
     )

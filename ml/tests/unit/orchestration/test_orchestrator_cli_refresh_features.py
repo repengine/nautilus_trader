@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
 import pytest
+
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -89,6 +92,7 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
         from ml.cli.pipeline_orchestrator import main as orch_main
 
         out_dir = tmp_path / "out"
+        target_semantics = build_default_target_semantics_payload()
         rc = orch_main(
             [
                 "--coverage_mode",
@@ -101,6 +105,8 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
                 "SPY.NYSE",
                 "--out_dir",
                 str(out_dir),
+                "--target_semantics",
+                json.dumps(target_semantics),
                 "--refresh_features",
             ],
         )

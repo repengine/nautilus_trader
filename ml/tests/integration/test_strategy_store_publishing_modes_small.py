@@ -55,6 +55,7 @@ def test_strategy_store_publishes_batch_event(cloned_test_database: str) -> None
         model_predictions={"m": 0.9},
         risk_metrics={},
         execution_params={},
+        decision_metadata={"version": "v1"},
         ts_event=t0,
         is_live=False,
     )
@@ -66,6 +67,7 @@ def test_strategy_store_publishes_batch_event(cloned_test_database: str) -> None
         model_predictions={"m": 0.1},
         risk_metrics={},
         execution_params={},
+        decision_metadata={"version": "v1"},
         ts_event=t0 + 1,
         is_live=False,
     )

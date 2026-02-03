@@ -22,7 +22,12 @@ from ml.actors import MLSignalActorConfig
 from ml.actors import SignalStrategy
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import MulticlassTargetConfig
+from ml.config.targets import RegressionTargetConfig
+from ml.config.targets import TargetHorizonSpec
 from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import decimal_to_bps
 from ml.features import FeatureConfig
 from ml.features.indicators import IndicatorManager
 from ml.stores.feature_store import FeatureStore
@@ -142,9 +147,15 @@ def example_training_with_feature_store() -> BaseMLTrainer:
             return object()
 
     # Configure training with FeatureStore
-    target_semantics = TargetSemanticsConfig.from_legacy(
-        horizon_minutes=15,
-        threshold=0.001,
+    target_semantics = TargetSemanticsConfig(
+        horizons=(TargetHorizonSpec(minutes=15),),
+        binary=BinaryTargetConfig(
+            enabled=True,
+            threshold_bps=decimal_to_bps(0.001),
+            return_basis="raw",
+        ),
+        multiclass=MulticlassTargetConfig(enabled=False),
+        regression=RegressionTargetConfig(enabled=False),
         legacy_aliases=True,
     )
     config = MLTrainingConfig(

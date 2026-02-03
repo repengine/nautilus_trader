@@ -10,6 +10,7 @@ from pytest import MonkeyPatch
 
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.tests.builders import DataBuilder
+from ml.tests.utils.targets import build_default_target_semantics
 from ml.tests.utils.earnings_facade import build_test_data_store
 
 
@@ -53,7 +54,16 @@ def test_tft_builder_macro_and_micro(
         include_micro=True,
         micro_base_dir=str(tmp_path),
     )
-    df = builder.build_training_dataset(use_polars=True, lookback_periods=2, horizon_minutes=1)
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=1,
+        threshold=0.001,
+        legacy_aliases=True,
+    )
+    df = builder.build_training_dataset(
+        target_semantics=target_semantics,
+        use_polars=True,
+        lookback_periods=2,
+    )
     assert isinstance(df, pl.DataFrame)
     assert not df.is_empty()
     # Has target and known features
@@ -122,9 +132,13 @@ def test_tft_builder_earnings_join(
     )
 
     dataset = builder.build_training_dataset(
+        target_semantics=build_default_target_semantics(
+            horizon_minutes=1,
+            threshold=0.001,
+            legacy_aliases=True,
+        ),
         use_polars=True,
         lookback_periods=1,
-        horizon_minutes=1,
     )
 
     assert isinstance(dataset, pl.DataFrame)
@@ -177,9 +191,13 @@ def test_build_training_dataset_when_multiple_symbols_returns_combined_rows(
         include_micro=False,
     )
     df = builder.build_training_dataset(
+        target_semantics=build_default_target_semantics(
+            horizon_minutes=1,
+            threshold=0.001,
+            legacy_aliases=True,
+        ),
         use_polars=True,
         lookback_periods=lookback,
-        horizon_minutes=1,
     )
 
     assert isinstance(df, pl.DataFrame)

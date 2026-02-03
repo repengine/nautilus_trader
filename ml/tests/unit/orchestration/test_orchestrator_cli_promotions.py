@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
 import pytest
+
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -122,6 +125,7 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
         cast(Any, core_integ).MLIntegrationManager = _StubMgr
 
         out_dir = tmp_path / "out"
+        target_semantics = build_default_target_semantics_payload()
         args = [
             "--data_dir",
             str(tmp_path),
@@ -129,6 +133,8 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
             "SPY.NYSE",
             "--out_dir",
             str(out_dir),
+            "--target_semantics",
+            json.dumps(target_semantics),
             "--coverage_mode",
             "sql",
             "--write_mode",

@@ -61,12 +61,14 @@ Example Usage:
 Basic Training:
     >>> from ml.training import XGBoostTrainer
     >>> from ml.config.xgboost import XGBoostTrainingConfig
-    >>> from ml.config.targets import TargetSemanticsConfig
+    >>> from ml.config.targets import BinaryTargetConfig, MulticlassTargetConfig, RegressionTargetConfig, TargetHorizonSpec, TargetSemanticsConfig
     >>>
     >>> # Configure training
-    >>> target_semantics = TargetSemanticsConfig.from_legacy(
-    ...     horizon_minutes=15,
-    ...     threshold=0.001,
+    >>> target_semantics = TargetSemanticsConfig(
+    ...     horizons=(TargetHorizonSpec(minutes=15),),
+    ...     binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+    ...     multiclass=MulticlassTargetConfig(enabled=False),
+    ...     regression=RegressionTargetConfig(enabled=False),
     ... )
     >>> config = XGBoostTrainingConfig(
     ...     target_semantics=target_semantics,
@@ -87,7 +89,7 @@ Basic Training:
 Advanced Training with Optuna:
     >>> from ml.training import XGBoostTrainer, XGBoostOptunaOptimizer
     >>> from ml.config.shared import OptunaConfig
-    >>> from ml.config.targets import TargetSemanticsConfig
+    >>> from ml.config.targets import BinaryTargetConfig, MulticlassTargetConfig, RegressionTargetConfig, TargetHorizonSpec, TargetSemanticsConfig
     >>>
     >>> # Configure hyperparameter optimization
     >>> optuna_config = OptunaConfig(
@@ -99,9 +101,11 @@ Advanced Training with Optuna:
     ... )
     >>>
     >>> # Configure training with optimization
-    >>> target_semantics = TargetSemanticsConfig.from_legacy(
-    ...     horizon_minutes=15,
-    ...     threshold=0.001,
+    >>> target_semantics = TargetSemanticsConfig(
+    ...     horizons=(TargetHorizonSpec(minutes=15),),
+    ...     binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+    ...     multiclass=MulticlassTargetConfig(enabled=False),
+    ...     regression=RegressionTargetConfig(enabled=False),
     ... )
     >>> config = XGBoostTrainingConfig(
     ...     target_semantics=target_semantics,
@@ -145,10 +149,12 @@ Cross-Validation and Evaluation:
     >>> from ml.training import BaseMLTrainer
     >>>
     >>> # Configure time series cross-validation
-    >>> from ml.config.targets import TargetSemanticsConfig
-    >>> target_semantics = TargetSemanticsConfig.from_legacy(
-    ...     horizon_minutes=15,
-    ...     threshold=0.001,
+    >>> from ml.config.targets import BinaryTargetConfig, MulticlassTargetConfig, RegressionTargetConfig, TargetHorizonSpec, TargetSemanticsConfig
+    >>> target_semantics = TargetSemanticsConfig(
+    ...     horizons=(TargetHorizonSpec(minutes=15),),
+    ...     binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+    ...     multiclass=MulticlassTargetConfig(enabled=False),
+    ...     regression=RegressionTargetConfig(enabled=False),
     ... )
     >>> config = XGBoostTrainingConfig(
     ...     target_semantics=target_semantics,
@@ -189,10 +195,12 @@ Model Export and Deployment:
 
 Integration with Stores and Registries:
     >>> # Training with FeatureStore integration
-    >>> from ml.config.targets import TargetSemanticsConfig
-    >>> target_semantics = TargetSemanticsConfig.from_legacy(
-    ...     horizon_minutes=15,
-    ...     threshold=0.001,
+    >>> from ml.config.targets import BinaryTargetConfig, MulticlassTargetConfig, RegressionTargetConfig, TargetHorizonSpec, TargetSemanticsConfig
+    >>> target_semantics = TargetSemanticsConfig(
+    ...     horizons=(TargetHorizonSpec(minutes=15),),
+    ...     binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+    ...     multiclass=MulticlassTargetConfig(enabled=False),
+    ...     regression=RegressionTargetConfig(enabled=False),
     ... )
     >>> config = XGBoostTrainingConfig(
     ...     target_semantics=target_semantics,

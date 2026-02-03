@@ -487,6 +487,7 @@ class DataProcessor:
         signal_type: str,
         strength: float,
         model_predictions: dict[str, float],
+        decision_metadata: dict[str, Any],
         ts_event: int,
     ) -> tuple[StrategySignal, ProcessingMetrics]:
         """
@@ -504,6 +505,8 @@ class DataProcessor:
             Signal strength
         model_predictions : dict[str, float]
             Model predictions used
+        decision_metadata : dict[str, Any]
+            Decision metadata payload (policy, horizon, label, calibration, lineage).
         ts_event : int
             Event timestamp in nanoseconds
 
@@ -547,7 +550,7 @@ class DataProcessor:
             model_predictions=model_predictions,
             risk_metrics=risk_metrics,
             execution_params=execution_params,
-            decision_metadata=normalize_decision_metadata(None),
+            decision_metadata=normalize_decision_metadata(decision_metadata),
             _ts_event=ts_event,
             _ts_init=sanitize_timestamp_ns(time.time_ns()),
         )
@@ -956,6 +959,7 @@ class DataProcessor:
                     item["signal_type"],
                     item["strength"],
                     item["model_predictions"],
+                    item["decision_metadata"],
                     item["ts_event"],
                 )
             else:

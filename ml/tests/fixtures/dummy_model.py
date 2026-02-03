@@ -49,12 +49,19 @@ def create_dummy_onnx_model(output_path: str | Path | None = None) -> Path:
         X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, 10])
         Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [None, 1])
 
-        # Create identity node
-        identity = helper.make_node("Identity", ["X"], ["Y"], name="identity")
+        # Reduce inputs to a single output value per row to keep output scalar
+        reduce = helper.make_node(
+            "ReduceSum",
+            ["X"],
+            ["Y"],
+            name="reduce_sum",
+            axes=[1],
+            keepdims=1,
+        )
 
         # Create graph
         graph = helper.make_graph(
-            [identity],
+            [reduce],
             "dummy_model",
             [X],
             [Y],
@@ -174,6 +181,7 @@ def create_dummy_model_metadata(model_type: str = "onnx") -> dict[str, Any]:
         "created_at": "2024-01-01T00:00:00Z",
         "features": ["feature_1", "feature_2", "feature_3"],
         "target": "signal",
+        "decision_config": {"positive_class_index": 1},
         "metrics": {
             "accuracy": 0.95,
             "precision": 0.92,

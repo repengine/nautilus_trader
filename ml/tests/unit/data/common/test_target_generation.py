@@ -24,6 +24,7 @@ from hypothesis import strategies as st
 
 
 from ml.data.common.target_generation import TargetGenerationComponent
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 # ============================================================================
@@ -71,6 +72,42 @@ def sample_ohlcv_pandas_df(sample_ohlcv_polars_df: pl.DataFrame) -> pd.DataFrame
     return sample_ohlcv_polars_df.to_pandas()
 
 
+def generate_targets_polars(
+    component: TargetGenerationComponent,
+    df: pl.DataFrame,
+    *,
+    horizon_minutes: int,
+    threshold: float,
+) -> pl.DataFrame:
+    """
+    Generate targets with explicit semantics for Polars inputs.
+    """
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=horizon_minutes,
+        threshold=threshold,
+        legacy_aliases=True,
+    )
+    return component.generate_targets_polars(df, target_semantics)
+
+
+def generate_targets_pandas(
+    component: TargetGenerationComponent,
+    df: pd.DataFrame,
+    *,
+    horizon_minutes: int,
+    threshold: float,
+) -> pd.DataFrame:
+    """
+    Generate targets with explicit semantics for Pandas inputs.
+    """
+    target_semantics = build_default_target_semantics(
+        horizon_minutes=horizon_minutes,
+        threshold=threshold,
+        legacy_aliases=True,
+    )
+    return component.generate_targets_pandas(df, target_semantics)
+
+
 # ============================================================================
 # Happy Path Tests (C1-C7)
 # ============================================================================
@@ -93,7 +130,8 @@ class TestHappyPath:
         'forward_return' columns with correct types and values.
 
         """
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             sample_ohlcv_polars_df,
             horizon_minutes=15,
             threshold=0.001,
@@ -124,7 +162,8 @@ class TestHappyPath:
         Same test as C1 but using Pandas implementation.
 
         """
-        targets = component.generate_targets_pandas(
+        targets = generate_targets_pandas(
+            component,
             sample_ohlcv_pandas_df,
             horizon_minutes=15,
             threshold=0.001,
@@ -154,7 +193,8 @@ class TestHappyPath:
         prices = [100.0] * 5 + [110.0]  # 6 rows, horizon=5
         df = pl.DataFrame({"close": prices})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=5,
             threshold=0.05,  # 5% threshold
@@ -183,7 +223,8 @@ class TestHappyPath:
         df = pl.DataFrame({"close": prices})
 
         # With threshold=0.001 (0.1%), return of 0.2% should give y=1
-        targets_above = component.generate_targets_polars(
+        targets_above = generate_targets_polars(
+            component,
             df,
             horizon_minutes=1,
             threshold=0.001,  # 0.1%
@@ -191,7 +232,8 @@ class TestHappyPath:
         assert targets_above["y"][0] == 1, "y should be 1 when return > threshold"
 
         # With threshold=0.003 (0.3%), return of 0.2% should give y=0
-        targets_below = component.generate_targets_polars(
+        targets_below = generate_targets_polars(
+            component,
             df,
             horizon_minutes=1,
             threshold=0.003,  # 0.3%
@@ -211,7 +253,8 @@ class TestHappyPath:
 
         """
         horizon = 15
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             sample_ohlcv_polars_df,
             horizon_minutes=horizon,
             threshold=0.001,
@@ -245,7 +288,8 @@ class TestHappyPath:
         results: list[pl.DataFrame] = []
 
         for horizon in horizons:
-            targets = component.generate_targets_polars(
+            targets = generate_targets_polars(
+                component,
                 sample_ohlcv_polars_df,
                 horizon_minutes=horizon,
                 threshold=0.001,
@@ -279,7 +323,8 @@ class TestHappyPath:
         y_counts: list[int] = []
 
         for threshold in thresholds:
-            targets = component.generate_targets_polars(
+            targets = generate_targets_polars(
+                component,
                 sample_ohlcv_polars_df,
                 horizon_minutes=15,
                 threshold=threshold,
@@ -322,7 +367,12 @@ class TestErrorConditions:
         )
 
         with pytest.raises(KeyError, match="close"):
-            component.generate_targets_polars(df_no_close, horizon_minutes=1, threshold=0.001)
+            generate_targets_polars(
+                component,
+                df_no_close,
+                horizon_minutes=1,
+                threshold=0.001,
+            )
 
     def test_generate_targets_empty_dataframe(
         self,
@@ -336,7 +386,8 @@ class TestErrorConditions:
         """
         empty_df = pl.DataFrame({"close": []}).cast({"close": pl.Float64})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             empty_df,
             horizon_minutes=15,
             threshold=0.001,
@@ -358,7 +409,8 @@ class TestErrorConditions:
         """
         df = pl.DataFrame({"close": [100.0] * 10})  # 10 rows
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=20,  # horizon > data length
             threshold=0.001,
@@ -385,10 +437,20 @@ class TestErrorConditions:
         df = pl.DataFrame({"close": [100.0, 101.0]})
 
         with pytest.raises(ValueError, match="horizon minutes"):
-            component.generate_targets_polars(df, horizon_minutes=0, threshold=0.001)
+            generate_targets_polars(
+                component,
+                df,
+                horizon_minutes=0,
+                threshold=0.001,
+            )
 
         with pytest.raises(ValueError, match="horizon minutes"):
-            component.generate_targets_polars(df, horizon_minutes=-5, threshold=0.001)
+            generate_targets_polars(
+                component,
+                df,
+                horizon_minutes=-5,
+                threshold=0.001,
+            )
 
     def test_generate_targets_zero_prices(
         self,
@@ -402,7 +464,8 @@ class TestErrorConditions:
         """
         df = pl.DataFrame({"close": [0.0, 100.0, 0.0, 100.0]})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=1,
             threshold=0.001,
@@ -440,7 +503,8 @@ class TestEdgeCases:
         prices = [100.0 + i * 0.1 for i in range(n_rows)]
         df = pl.DataFrame({"close": prices})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=horizon,
             threshold=0.001,
@@ -466,7 +530,8 @@ class TestEdgeCases:
         """
         df = pl.DataFrame({"close": [100.0] * 20})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=5,
             threshold=0.001,
@@ -492,7 +557,8 @@ class TestEdgeCases:
         # Extreme jump: 1 to 1,000,000
         df = pl.DataFrame({"close": [1.0, 1000000.0]})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=1,
             threshold=0.001,
@@ -545,7 +611,8 @@ class TestPropertyBased:
         component = TargetGenerationComponent()
         df = pl.DataFrame({"close": prices})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=horizon,
             threshold=threshold,
@@ -577,7 +644,8 @@ class TestPropertyBased:
         component = TargetGenerationComponent()
         df = pl.DataFrame({"close": prices})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=horizon,
             threshold=0.001,
@@ -616,12 +684,14 @@ class TestPropertyBased:
         df_polars = pl.DataFrame({"close": prices})
         df_pandas = pd.DataFrame({"close": prices})
 
-        targets_polars = component.generate_targets_polars(
+        targets_polars = generate_targets_polars(
+            component,
             df_polars,
             horizon_minutes=horizon,
             threshold=threshold,
         )
-        targets_pandas = component.generate_targets_pandas(
+        targets_pandas = generate_targets_pandas(
+            component,
             df_pandas,
             horizon_minutes=horizon,
             threshold=threshold,
@@ -656,7 +726,8 @@ class TestPropertyBased:
         prices = list(range(1, 101))  # 1, 2, 3, ..., 100
         df = pl.DataFrame({"close": [float(p) for p in prices]})
 
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             df,
             horizon_minutes=10,
             threshold=0.0,
@@ -697,7 +768,8 @@ class TestMetamorphic:
         y_counts: list[int] = []
 
         for threshold in thresholds:
-            targets = component.generate_targets_polars(
+            targets = generate_targets_polars(
+                component,
                 sample_ohlcv_polars_df,
                 horizon_minutes=15,
                 threshold=threshold,
@@ -729,7 +801,8 @@ class TestMetamorphic:
         horizons = [5, 10, 15, 20]
 
         for horizon in horizons:
-            targets = component.generate_targets_polars(
+            targets = generate_targets_polars(
+                component,
                 df,
                 horizon_minutes=horizon,
                 threshold=0.0,
@@ -771,7 +844,8 @@ class TestContracts:
         - y only contains 0 or 1
 
         """
-        targets = component.generate_targets_polars(
+        targets = generate_targets_polars(
+            component,
             sample_ohlcv_polars_df,
             horizon_minutes=15,
             threshold=0.001,

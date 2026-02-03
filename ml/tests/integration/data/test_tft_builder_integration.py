@@ -18,10 +18,18 @@ import numpy as np
 import pytest
 
 from ml.data.tft_dataset_builder_facade import TFTDatasetBuilderFacade
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 if TYPE_CHECKING:
     import polars as pl
+
+
+TARGET_SEMANTICS = build_default_target_semantics(
+    horizon_minutes=15,
+    threshold=0.001,
+    legacy_aliases=True,
+)
 
 
 # =============================================================================
@@ -190,8 +198,7 @@ class TestFacadeIntegration:
             )
 
             result = facade.build_training_dataset(
-                horizon_minutes=15,
-                min_return_threshold=0.001,
+                target_semantics=TARGET_SEMANTICS,
             )
 
             # Verify non-empty result
@@ -237,7 +244,7 @@ class TestFacadeIntegration:
                 market_dataset_id="test_dataset",
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             # Verify result produced
             assert result is not None
@@ -278,7 +285,7 @@ class TestFacadeIntegration:
                 market_bindings=market_bindings,
             )
 
-            result = facade.build_training_dataset()
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
 
             # Verify result
             assert result is not None
@@ -389,10 +396,14 @@ class TestComponentIntegration:
             )
 
             # Use target generation component directly
-            targets = facade.target_generation_component.generate_targets_polars(
-                sample_ohlcv_polars_df,
+            target_semantics = build_default_target_semantics(
                 horizon_minutes=15,
                 threshold=0.001,
+                legacy_aliases=True,
+            )
+            targets = facade.target_generation_component.generate_targets_polars(
+                sample_ohlcv_polars_df,
+                target_semantics,
             )
 
             # Verify targets generated

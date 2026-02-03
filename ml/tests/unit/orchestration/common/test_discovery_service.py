@@ -20,6 +20,7 @@ from ml.data.ingest.service import SymbolDatasetDiscovery
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+from ml.tests.utils.targets import build_default_target_semantics_payload
 
 # Import will be available after Phase 2 implementation
 # from ml.orchestration.discovery_service import DiscoveryService
@@ -53,6 +54,7 @@ def dataset_config() -> DatasetBuildConfig:
         end_iso="2024-01-31",
         market_inputs=None,
         market_dataset_id=None,
+        target_semantics=build_default_target_semantics_payload(),
     )
 
 

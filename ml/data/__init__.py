@@ -79,6 +79,10 @@ df = bars_to_dataframe(
 
 ### TFT Dataset Building
 ```python
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
+from ml.config.targets import decimal_to_bps
 from ml.data import TFTDatasetBuilder
 
 builder = TFTDatasetBuilder(
@@ -88,7 +92,14 @@ builder = TFTDatasetBuilder(
     include_micro=True
 )
 dataset = builder.build_training_dataset(
-    horizon_minutes=15,
+    target_semantics=TargetSemanticsConfig(
+        horizons=(TargetHorizonSpec(minutes=15),),
+        binary=BinaryTargetConfig(
+            enabled=True,
+            threshold_bps=decimal_to_bps(10.0),
+            return_basis="raw",
+        ),
+    ),
     lookback_periods=30
 )
 ```
@@ -391,15 +402,11 @@ def _resolve_target_semantics(cfg: DatasetBuildConfig) -> TargetSemanticsConfig:
         TargetSemanticsConfig | None,
         getattr(cfg, "target_semantics", None),
     )
-    if target_semantics is not None:
-        return target_semantics
-    horizon_minutes = getattr(cfg, "horizon_minutes", 15)
-    threshold = getattr(cfg, "threshold", 0.001)
-    return TargetSemanticsConfig.from_legacy(
-        horizon_minutes=horizon_minutes,
-        threshold=threshold,
-        legacy_aliases=True,
-    )
+    if target_semantics is None:
+        raise ValueError(
+            "target_semantics must be provided in DatasetBuildConfig; legacy defaults are disabled",
+        )
+    return target_semantics
 
 
 def _resolve_binary_target_column(target_semantics: TargetSemanticsConfig) -> str | None:
@@ -429,6 +436,8 @@ class DatasetBuildConfig:
     data_dir: Path
     out_dir: Path
     symbols: list[str]
+    # Builder params
+    target_semantics: TargetSemanticsConfig
     dataset_id: str = "tft_dataset"
     market_dataset_id: str | None = None
     market_inputs: tuple[MarketDatasetInput, ...] | None = None
@@ -451,10 +460,6 @@ class DatasetBuildConfig:
     student_mode: bool = False
     micro_base_dir: Path | None = None
     l2_base_dir: Path | None = None
-    # Builder params
-    horizon_minutes: int = 15
-    threshold: float = 0.001
-    target_semantics: TargetSemanticsConfig | None = None
     lookback_periods: int = 30
     # Optional window
     start: datetime | None = None
@@ -1270,8 +1275,6 @@ def _build_dataset_chunked(
         chunk_peak_rss = _update_rss_peak(chunk_peak_rss)
         chunk_end = min(cursor + chunk_delta, end)
         df_any = builder.build_training_dataset(
-            horizon_minutes=cfg.horizon_minutes,
-            min_return_threshold=cfg.threshold,
             target_semantics=target_semantics,
             lookback_periods=cfg.lookback_periods,
             use_polars=True,
@@ -1964,8 +1967,6 @@ def build_tft_dataset(
     assert HAS_POLARS and pl is not None
 
     df_any = builder.build_training_dataset(
-        horizon_minutes=cfg.horizon_minutes,
-        min_return_threshold=cfg.threshold,
         target_semantics=target_semantics,
         lookback_periods=cfg.lookback_periods,
         use_polars=True,
@@ -2062,12 +2063,13 @@ def build_tft_dataset(
             role=role_map.get(cfg.feature_role, FeatureRole.TEACHER),
             data_requirements=data_req,
         )
+        primary_horizon = target_semantics.horizons[0].minutes if target_semantics.horizons else None
         flags = {
             "include_macro": capability_flags["include_macro"],
             "include_micro": capability_flags["include_micro"],
             "include_l2": capability_flags["include_l2"],
             "include_earnings": capability_flags["include_earnings"],
-            "horizon_minutes": cfg.horizon_minutes,
+            "horizon_minutes": int(primary_horizon) if primary_horizon is not None else None,
             "lookback_periods": cfg.lookback_periods,
         }
         feature_set_id = export_feature_manifest(
@@ -2129,7 +2131,9 @@ def build_tft_dataset(
                     "include_macro": bool(cfg.include_macro),
                     "include_micro": bool(cfg.include_micro),
                     "include_l2": bool(cfg.include_l2),
-                    "horizon_minutes": int(cfg.horizon_minutes),
+                    "horizon_minutes": int(target_semantics.horizons[0].minutes)
+                    if target_semantics.horizons
+                    else None,
                     "lookback_periods": int(cfg.lookback_periods),
                 },
                 dataset_type="dataset",

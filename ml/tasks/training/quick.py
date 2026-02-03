@@ -16,6 +16,7 @@ import numpy as np
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml._imports import pl
+from ml.config.targets import TargetSemanticsConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -39,11 +40,10 @@ class QuickTFTTrainConfig:
     Configuration for `train_tft_quick` task.
     """
 
+    target_semantics: TargetSemanticsConfig
     data_dirs: Sequence[Path] = _DEFAULT_DATA_DIRS
     output_dir: Path = Path("data/tft_training")
     symbols: Sequence[str] = _DEFAULT_SYMBOLS
-    horizon_minutes: int = 15
-    min_return_threshold: float = 0.002
     lookback_periods: int = 50
     sample_prediction_count: int = 10
 
@@ -99,8 +99,7 @@ def train_tft_quick(config: QuickTFTTrainConfig) -> QuickTFTTrainResult:
     builder = TFTDatasetBuilder(catalog=catalog, symbols=list(config.symbols))
 
     dataset = builder.build_training_dataset(
-        horizon_minutes=config.horizon_minutes,
-        min_return_threshold=config.min_return_threshold,
+        target_semantics=config.target_semantics,
         lookback_periods=config.lookback_periods,
         use_polars=True,
     )

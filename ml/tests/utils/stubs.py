@@ -358,7 +358,9 @@ class SignalActorHarness:
     _config: object
     id: object
     _model_id: str = "ml_model"
-    _decision_metadata_payload: dict[str, Any] | None = None
+    _decision_metadata_payload: dict[str, Any] | None = field(
+        default_factory=lambda: {"version": "v1"},
+    )
     _last_signal_bar: int = 0
     _bars_processed: int = 0
     _prediction_history: list[Any] = field(default_factory=list)

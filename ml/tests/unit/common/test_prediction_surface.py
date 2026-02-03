@@ -9,7 +9,7 @@ from ml.common.prediction_surface import normalize_prediction_output
 
 
 def test_normalize_prediction_output_when_probabilities_vector_returns_positive_probability() -> None:
-    prob, conf = normalize_prediction_output([0.2, 0.8], None, classes=[0, 1])
+    prob, conf = normalize_prediction_output([0.2, 0.8], None, positive_class_index=1)
     assert prob == pytest.approx(0.8)
     assert conf == pytest.approx(0.8)
 
@@ -28,9 +28,20 @@ def test_normalize_prediction_output_when_logits_returns_sigmoid_probability() -
 
 def test_normalize_prediction_batch_when_multiclass_vector_returns_expected_arrays() -> None:
     preds = np.array([[0.1, 0.9], [0.7, 0.3]], dtype=np.float32)
-    probs, confs = normalize_prediction_batch(preds)
+    probs, confs = normalize_prediction_batch(preds, positive_class_index=1)
     np.testing.assert_allclose(probs, np.array([0.9, 0.3], dtype=np.float32))
     np.testing.assert_allclose(confs, np.array([0.9, 0.7], dtype=np.float32))
+
+
+def test_normalize_prediction_output_when_vector_without_positive_index_raises() -> None:
+    with pytest.raises(ValueError, match="positive_class_index"):
+        normalize_prediction_output([0.2, 0.8], None)
+
+
+def test_normalize_prediction_batch_when_vector_without_positive_index_raises() -> None:
+    preds = np.array([[0.1, 0.9]], dtype=np.float32)
+    with pytest.raises(ValueError, match="positive_class_index"):
+        normalize_prediction_batch(preds)
 
 
 def test_decision_from_probability_when_inside_neutral_band_returns_hold() -> None:

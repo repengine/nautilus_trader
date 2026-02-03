@@ -341,6 +341,7 @@ class TestStrategyStore:
             model_predictions={"xgboost": 0.75},
             risk_metrics={"position_size": 100},
             execution_params={"order_type": "LIMIT"},
+            decision_metadata={"version": "v1"},
             ts_event=ts_event,
         )
         result = strategy_store.read_active_signals(
@@ -552,6 +553,7 @@ class TestDataProcessor:
             signal_type="BUY",
             strength=1.0,
             model_predictions={"xgboost": 0.75},
+            decision_metadata={"version": "v1"},
             ts_event=ts_event,
         )
 
@@ -671,6 +673,7 @@ class TestIntegration:
             signal_type="BUY",
             strength=0.8,
             model_predictions={"xgboost_v1": 0.75},
+            decision_metadata={"version": "v1"},
             ts_event=ts_event,
         )
 

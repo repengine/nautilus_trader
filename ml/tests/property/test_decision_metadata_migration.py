@@ -18,23 +18,19 @@ from ml.common.decision_metadata import normalize_decision_metadata
     horizon_minutes=st.integers(min_value=1, max_value=10_000),
 )
 @settings(max_examples=200, deadline=2000)
-def test_normalize_decision_metadata_from_legacy_fields(
+def test_normalize_decision_metadata_rejects_legacy_fields(
     policy: str,
     horizon_minutes: int,
 ) -> None:
     """
-    Legacy payloads map to v1 schema with policy + horizon preserved.
+    Legacy payloads are rejected in strict mode.
     """
     legacy = {
         "decision_policy": policy,
         "horizon_minutes": horizon_minutes,
     }
-    payload = normalize_decision_metadata(legacy)
-
-    assert payload["version"] == "v1"
-    assert payload["policy"] == policy
-    assert payload["horizon"]["value"] == horizon_minutes
-    assert payload["horizon"]["unit"] == "minutes"
+    with pytest.raises(ValueError, match="decision_metadata"):
+        normalize_decision_metadata(legacy)
 
 
 @pytest.mark.property
@@ -43,23 +39,27 @@ def test_normalize_decision_metadata_from_legacy_fields(
     label=st.text(min_size=1, max_size=64),
 )
 @settings(max_examples=200, deadline=2000)
-def test_normalize_decision_metadata_preserves_v1_payload(
+def test_normalize_decision_metadata_preserves_direct_v1_payload(
     policy: str,
     label: str,
 ) -> None:
     """
-    v1 payloads are preserved when nested under decision_metadata.
+    Direct v1 payloads are preserved.
     """
     payload = normalize_decision_metadata(
         {
-            "decision_metadata": {
-                "version": "v1",
-                "policy": policy,
-                "label": label,
-            }
+            "version": "v1",
+            "policy": policy,
+            "label": label,
         }
     )
 
     assert payload["version"] == "v1"
     assert payload["policy"] == policy
     assert payload["label"] == label
+
+
+@pytest.mark.property
+def test_normalize_decision_metadata_rejects_nested_payload() -> None:
+    with pytest.raises(ValueError, match="nested"):
+        normalize_decision_metadata({"decision_metadata": {"version": "v1"}})

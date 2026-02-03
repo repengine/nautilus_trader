@@ -189,6 +189,7 @@ class TestObservabilityE2EIntegration:
             model_predictions={"test_model": 0.75},
             risk_metrics={"var": 0.02},
             execution_params={"stop_loss": 0.02},
+            decision_metadata={"version": "v1"},
         )
         strategy_store.write_batch([signal])
 

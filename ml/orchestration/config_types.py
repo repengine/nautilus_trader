@@ -8,7 +8,16 @@ cold-path tooling.
 Example
 -------
 >>> from ml.orchestration.config_types import DatasetBuildConfig
->>> cfg = DatasetBuildConfig(data_dir="data/tier1", symbols="SPY", out_dir="ml_out/spy")
+>>> cfg = DatasetBuildConfig(
+...     data_dir="data/tier1",
+...     symbols="SPY",
+...     out_dir="ml_out/spy",
+...     target_semantics={
+...         "version": "v1",
+...         "horizons": [{"minutes": 15}],
+...         "binary": {"enabled": True, "threshold_bps": 10.0, "return_basis": "raw"},
+...     },
+... )
 >>> cfg.dataset_id
 'tft_dataset'
 
@@ -80,6 +89,7 @@ class DatasetBuildConfig:
     student_mode: bool = False
     horizon_minutes: int = 15
     threshold: float = 0.001
+    target_semantics: dict[str, object] | None = None
     lookback_periods: int = 30
     emit_dataset_events: bool = False
     start_iso: str | None = None

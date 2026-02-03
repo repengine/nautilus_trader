@@ -12,6 +12,7 @@ import numpy.typing as npt
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.stores.feature_store import FeatureStore
 from ml.stores.protocols import DataStoreFacadeProtocol
+from ml.tests.utils.targets import build_default_target_semantics
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry", "mock_tracing_backend")
@@ -87,8 +88,7 @@ def test_prepare_training_data_from_store_uses_datastore(monkeypatch: pytest.Mon
         instrument_ids=["SPY.NYSE"],
         start=start_dt,
         end=end_dt,
-        horizon_minutes=1,
-        min_return_threshold=0.0,
+        target_semantics=build_default_target_semantics(horizon_minutes=1, threshold=0.0),
     )
 
     assert not dataset.is_empty()

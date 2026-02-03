@@ -125,7 +125,7 @@ class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
         risk_metrics: Mapping[str, float],
         execution_params: Mapping[str, Any],
         ts_event: int,
-        decision_metadata: Mapping[str, Any] | None = None,
+        decision_metadata: Mapping[str, Any],
         is_live: bool = False,
         run_id: str | None = None,
     ) -> None:

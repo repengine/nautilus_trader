@@ -160,6 +160,7 @@ def test_size_and_validate_uses_risk_and_price_conversion() -> None:
         model_id="model-x",
         prediction=0.8,
         confidence=0.9,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=1,
         ts_init=1,
     )
@@ -182,6 +183,7 @@ def test_submit_smart_order_uses_executor_when_available() -> None:
         model_id="model-y",
         prediction=0.9,
         confidence=0.75,
+        metadata={"decision_metadata": {"version": "v1"}},
         ts_event=1,
         ts_init=1,
     )

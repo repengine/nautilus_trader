@@ -52,12 +52,14 @@ def create_mock_signal(
 
     inst_id = InstrumentId(Symbol(instrument_id.split(".")[0]), Venue(instrument_id.split(".")[1]))
 
+    base_meta = dict(metadata) if metadata else {}
+    base_meta.setdefault("decision_metadata", {"version": "v1"})
     return MLSignal(
         instrument_id=inst_id,
         model_id=model_id,
         prediction=prediction,
         confidence=confidence,
-        metadata=metadata or {},
+        metadata=base_meta,
         ts_event=ts_event,
         ts_init=ts_event,
     )

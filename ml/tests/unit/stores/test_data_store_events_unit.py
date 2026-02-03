@@ -97,6 +97,7 @@ def test_data_store_emits_signal_events(
         model_predictions={"m1": 0.8},
         risk_metrics={"conf": 0.8},
         execution_params={"side": "BUY"},
+        decision_metadata={"version": "v1"},
         _ts_event=ts_event,
         _ts_init=ts_init,
     )

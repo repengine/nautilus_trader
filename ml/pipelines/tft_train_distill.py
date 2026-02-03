@@ -31,10 +31,8 @@ def build_orchestrator_args(args: argparse.Namespace) -> list[str]:
         args.data_dir,
         "--dataset_id",
         "tft_dataset",
-        "--horizon_minutes",
-        str(args.horizon_minutes),
-        "--threshold",
-        str(args.threshold),
+        "--target-semantics",
+        args.target_semantics,
         "--lookback_periods",
         str(args.lookback_periods),
     ]
@@ -109,8 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--include_l2", action="store_true")
     parser.add_argument("--include_events", action="store_true")
     parser.add_argument("--include_calendar", action="store_true")
-    parser.add_argument("--horizon_minutes", type=int, default=15)
-    parser.add_argument("--threshold", type=float, default=0.001)
+    parser.add_argument("--target-semantics", "--target_semantics", required=True)
     parser.add_argument("--lookback_periods", type=int, default=30)
     parser.add_argument("--feature_registry_dir", default=None)
     parser.add_argument("--feature_set_id", default=None)

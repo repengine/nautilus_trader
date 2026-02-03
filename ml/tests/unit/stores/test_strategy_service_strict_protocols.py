@@ -233,6 +233,7 @@ def test_strategy_write_service_strict_protocol_roundtrip() -> None:
         model_predictions={"m": 0.7},
         risk_metrics={"r": 1.0},
         execution_params={"e": 1},
+        decision_metadata={"version": "v1"},
         _ts_event=1,
         _ts_init=1,
     )
